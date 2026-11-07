@@ -173,10 +173,35 @@ pub struct CastLoadRequest {
     pub expected_revision: Option<u64>,
     #[serde(default)]
     pub playback_mode: Option<u32>,
+    #[serde(default)]
+    pub position_seconds: Option<f64>,
+    #[serde(default)]
+    pub play: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct CastLoadResponse {}
+
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct SessionSnapshotRequest {}
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct SessionSnapshotResponse {
+    pub items: Vec<LibraryItemRequest>,
+    pub index: Option<u32>,
+    pub position_seconds: f64,
+    pub playback_mode: u32,
+    pub playing: bool,
+    pub revision: u64,
+}
+
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct HandoffRequest {
+    pub target: Option<String>,
+}
+
+#[derive(Deserialize, Serialize, RustSignal, Debug)]
+pub struct HandoffResponse {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, SignalPiece)]
 pub struct InLibraryPlayingItem {

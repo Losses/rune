@@ -211,6 +211,11 @@ pub enum PlayerCommand {
     Load {
         index: usize,
     },
+    LoadAtPosition {
+        index: usize,
+        position: Duration,
+        play: bool,
+    },
     LoadComplete {
         generation: u64,
         result: Box<Result<AnySource>>,
@@ -470,6 +475,14 @@ impl PlayerInternal {
                                 self.clear_unavailable(Some(self.playlist[mapped].item.clone()))?;
                             }
                             self.load(Some(index), false, true)?;
+                        },
+                        PlayerCommand::LoadAtPosition { index, position, play } => {
+                            if index < self.playlist.len() {
+                                let mapped = self.get_mapped_track_index(index);
+                                self.clear_unavailable(Some(self.playlist[mapped].item.clone()))?;
+                            }
+                            self.restore_position = Some(position);
+                            self.load(Some(index), play, true)?;
                         },
                         PlayerCommand::LoadComplete { generation, result, item, original_item, index, playlist_index, path, play } => {
                             if generation != self.load_generation {

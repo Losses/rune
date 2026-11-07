@@ -841,7 +841,9 @@ pub async fn update_root_password<P: AsRef<Path>>(config_path: P, password: &str
 #[cfg(test)]
 mod lifecycle_tests {
     use super::super::sync_worker;
-    use super::super::sync_worker::{PeerEndpoint, PeerPass, authenticated_client, test_peer_pass};
+    use super::super::sync_worker::{
+        PeerEndpoint, PeerPass, TestPeerSession, authenticated_client, test_peer_pass,
+    };
     use super::super::utils::device::load_device_info;
     use crate::Signal;
     use crate::request_error::classify;
@@ -2528,15 +2530,17 @@ mod lifecycle_tests {
             host: "127.0.0.1".into(),
             port: addr.port(),
         };
+        let session = TestPeerSession::default();
         for _ in 0..3 {
             tokio::time::sleep(Duration::from_secs(1)).await;
-            if test_peer_pass(
-                replica.global_params.clone(),
-                &replica.private_key,
-                endpoint.clone(),
-                true,
-            )
-            .await?
+            if session
+                .pass(
+                    replica.global_params.clone(),
+                    &replica.private_key,
+                    endpoint.clone(),
+                    true,
+                )
+                .await?
                 == PeerPass::Complete
             {
                 break;

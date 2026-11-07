@@ -108,10 +108,16 @@ impl PlayingItemActionDispatcher {
         main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<Vec<PlayingItemMetadataSummary>> {
-        let in_library_results = self
-            .in_library_processor
-            .get_metadata_summary(fsio, main_db, items)
-            .await?;
+        let in_library_results = if items
+            .iter()
+            .any(|item| matches!(item, PlayingItem::InLibrary(_)))
+        {
+            self.in_library_processor
+                .get_metadata_summary(fsio, main_db, items)
+                .await?
+        } else {
+            Vec::new()
+        };
         let independent_results = self
             .independent_file_processor
             .get_metadata_summary(fsio, main_db, items)

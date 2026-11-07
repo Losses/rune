@@ -1,6 +1,4 @@
-use std::collections::HashMap;
-use std::slice;
-use std::sync::Arc;
+use std::{collections::HashMap, slice, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use log::warn;
@@ -17,7 +15,7 @@ use ::database::{
     playing_item::{MediaFileHandle, dispatcher::PlayingItemActionDispatcher},
 };
 use ::playback::{
-    player::{LibraryItem, Playable, PlaybackSource, PlayingItem},
+    player::{LibraryItem, Playable, PlaybackSource, PlaybackState, PlayerStatus, PlayingItem},
     strategies::AddMode,
 };
 
@@ -29,6 +27,7 @@ use crate::{
     library_pool::{LibraryHandle, LibraryPool},
     messages::*,
     node::NodeContext,
+    session::PlayerSession,
     utils::{
         GlobalParams, ParamsExtractor, files_to_playback_request, find_nearest_index,
         require_library,
@@ -117,13 +116,26 @@ pub async fn playing_items_from_requests(
         .collect())
 }
 
-fn edit_playlist(
-    player: &mut dyn Playable,
-    prepared: &[(PlayingItem, PlaybackSource)],
+struct PlaylistEditOptions {
     mode: PlaylistOperateMode,
     start_index: Option<usize>,
     playback_mode: Option<u32>,
+    position: Option<Duration>,
+    play: Option<bool>,
+}
+
+fn edit_playlist(
+    player: &mut dyn Playable,
+    prepared: &[(PlayingItem, PlaybackSource)],
+    options: PlaylistEditOptions,
 ) -> bool {
+    let PlaylistEditOptions {
+        mode,
+        start_index,
+        playback_mode,
+        position,
+        play,
+    } = options;
     let queue_changed = mode == PlaylistOperateMode::Replace && !player.get_playlist().is_empty();
     if mode == PlaylistOperateMode::Replace {
         player.clear_playlist();
@@ -149,11 +161,18 @@ fn edit_playlist(
     {
         player.set_playback_mode(playback_mode.into());
     }
-    if let Some(start_index) = start_index
-        && !prepared.is_empty()
-    {
-        player.switch(start_index + offset);
-        player.play();
+    if let Some(start_index) = start_index.filter(|_| !prepared.is_empty()) {
+        let index = start_index + offset;
+        if position.is_some() || play.is_some() {
+            player.load_at_position(
+                index,
+                position.unwrap_or_default(),
+                play.unwrap_or(playback_mode.is_some()),
+            );
+        } else {
+            player.switch(index);
+            player.play();
+        }
     }
     queue_changed || !prepared.is_empty()
 }
@@ -347,13 +366,22 @@ async fn send_resolved_cast(
         .map_err(|error| {
             ExpectedRequestError::invalid_input(format!("Invalid start index: {error}"))
         })?;
-    let load = CastLoadRequest {
-        items,
-        start_index,
-        mode: request.operate_mode,
-        expected_revision: request.expected_revision,
-        playback_mode: request.instantly_play.then_some(request.playback_mode),
-    };
+    send_cast_load(
+        link,
+        CastLoadRequest {
+            items,
+            start_index,
+            mode: request.operate_mode,
+            expected_revision: request.expected_revision,
+            playback_mode: request.instantly_play.then_some(request.playback_mode),
+            position_seconds: None,
+            play: None,
+        },
+    )
+    .await
+}
+
+async fn send_cast_load(link: &RendererLink, load: CastLoadRequest) -> Result<()> {
     let (name, payload) = link
         .request("CastLoadRequest", &rinf::serialize(&load)?)
         .await?;
@@ -775,11 +803,15 @@ impl Signal for OperatePlaybackWithMixQueryRequest {
                     edit_playlist(
                         player,
                         &resolved.prepared,
-                        dart_signal.operate_mode,
-                        resolved.start_index,
-                        dart_signal
-                            .instantly_play
-                            .then_some(dart_signal.playback_mode),
+                        PlaylistEditOptions {
+                            mode: dart_signal.operate_mode,
+                            start_index: resolved.start_index,
+                            playback_mode: dart_signal
+                                .instantly_play
+                                .then_some(dart_signal.playback_mode),
+                            position: None,
+                            play: None,
+                        },
                     )
                 })
                 .await?;
@@ -840,104 +872,306 @@ impl Signal for CastLoadRequest {
         _session: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
-        let items = request
-            .items
-            .iter()
-            .map(|item| {
-                Ok(LibraryItem {
-                    library_id: Uuid::parse_str(&item.library_id).map_err(|error| {
-                        anyhow::Error::new(ExpectedRequestError::invalid_input(format!(
-                            "Invalid cast library id: {error}"
-                        )))
-                    })?,
-                    file_uuid: Uuid::parse_str(&item.file_uuid).map_err(|error| {
-                        anyhow::Error::new(ExpectedRequestError::invalid_input(format!(
-                            "Invalid cast file uuid: {error}"
-                        )))
-                    })?,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let mut library_ids = Vec::new();
-        for item in &items {
-            if !library_ids.contains(&item.library_id) {
-                library_ids.push(item.library_id);
-            }
-        }
-        for library_id in &library_ids {
-            let state = cast_library_state(&node, *library_id).await;
-            if state != CastLibraryState::Ready {
-                return Err(ExpectedRequestError::CastNotPossible {
-                    library_id: library_id.to_string(),
-                    state,
-                }
-                .into());
-            }
-        }
-
-        let mut prepared_by_item = HashMap::new();
-        for library_id in library_ids {
-            let library = node
-                .library_pool
-                .acquire_for_request(library_id)
-                .await
-                .map_err(|error| {
-                    anyhow::Error::new(ExpectedRequestError::Unavailable {
-                        what: "cast library",
-                    })
-                    .context(error)
-                })?;
-            let file_uuids = items
-                .iter()
-                .filter(|item| item.library_id == library_id)
-                .map(|item| item.file_uuid)
-                .collect::<Vec<_>>();
-            let rows_by_uuid = files_by_uuid(&library.main_db, &file_uuids).await?;
-            let mut handles = Vec::new();
-            for item in items.iter().filter(|item| item.library_id == library_id) {
-                let row = rows_by_uuid
-                    .get(&item.file_uuid)
-                    .ok_or(ExpectedError::NotFound { what: "cast file" })?;
-                let mut handle = MediaFileHandle::from(row.clone());
-                handle.item = PlayingItem::InLibrary(*item);
-                handles.push(handle);
-            }
-            for (item, source) in files_to_playback_request(
-                &library.fsio,
-                &library.main_db,
-                &library_id.to_string(),
-                &library.media_root,
-                &handles,
-            )
-            .await?
-            {
-                if let PlayingItem::InLibrary(identity) = item {
-                    prepared_by_item.insert(identity, (PlayingItem::InLibrary(identity), source));
-                }
-            }
-        }
-        let prepared = items
-            .iter()
-            .filter_map(|item| prepared_by_item.get(item).cloned())
-            .collect::<Vec<_>>();
-        let start_index = request
-            .start_index
-            .map(usize::try_from)
-            .transpose()
-            .map_err(|error| {
-                ExpectedRequestError::invalid_input(format!("Invalid cast start index: {error}"))
-            })?;
-        node.session()?
-            .edit_queue(request.expected_revision, |player| {
-                edit_playlist(
-                    player,
-                    &prepared,
-                    request.mode,
-                    start_index,
-                    request.playback_mode,
-                )
-            })
-            .await?;
+        apply_cast_load(&node, request).await?;
         Ok(Some(CastLoadResponse {}))
     }
+}
+
+async fn apply_cast_load(node: &NodeContext, request: &CastLoadRequest) -> Result<()> {
+    let position = request
+        .position_seconds
+        .map(Duration::try_from_secs_f64)
+        .transpose()
+        .map_err(|_| {
+            ExpectedRequestError::invalid_input(
+                "Invalid cast position: expected a finite, non-negative number of seconds",
+            )
+        })?;
+    let items = request
+        .items
+        .iter()
+        .map(|item| {
+            Ok(LibraryItem {
+                library_id: Uuid::parse_str(&item.library_id).map_err(|error| {
+                    anyhow::Error::new(ExpectedRequestError::invalid_input(format!(
+                        "Invalid cast library id: {error}"
+                    )))
+                })?,
+                file_uuid: Uuid::parse_str(&item.file_uuid).map_err(|error| {
+                    anyhow::Error::new(ExpectedRequestError::invalid_input(format!(
+                        "Invalid cast file uuid: {error}"
+                    )))
+                })?,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut library_ids = Vec::new();
+    for item in &items {
+        if !library_ids.contains(&item.library_id) {
+            library_ids.push(item.library_id);
+        }
+    }
+    for library_id in &library_ids {
+        let state = cast_library_state(node, *library_id).await;
+        if state != CastLibraryState::Ready {
+            return Err(ExpectedRequestError::CastNotPossible {
+                library_id: library_id.to_string(),
+                state,
+            }
+            .into());
+        }
+    }
+
+    let mut prepared_by_item = HashMap::new();
+    for library_id in library_ids {
+        let library = node
+            .library_pool
+            .acquire_for_request(library_id)
+            .await
+            .map_err(|error| {
+                anyhow::Error::new(ExpectedRequestError::Unavailable {
+                    what: "cast library",
+                })
+                .context(error)
+            })?;
+        let file_uuids = items
+            .iter()
+            .filter(|item| item.library_id == library_id)
+            .map(|item| item.file_uuid)
+            .collect::<Vec<_>>();
+        let rows_by_uuid = files_by_uuid(&library.main_db, &file_uuids).await?;
+        let mut handles = Vec::new();
+        for item in items.iter().filter(|item| item.library_id == library_id) {
+            let row = rows_by_uuid
+                .get(&item.file_uuid)
+                .ok_or(ExpectedError::NotFound { what: "cast file" })?;
+            let mut handle = MediaFileHandle::from(row.clone());
+            handle.item = PlayingItem::InLibrary(*item);
+            handles.push(handle);
+        }
+        for (item, source) in files_to_playback_request(
+            &library.fsio,
+            &library.main_db,
+            &library_id.to_string(),
+            &library.media_root,
+            &handles,
+        )
+        .await?
+        {
+            if let PlayingItem::InLibrary(identity) = item {
+                prepared_by_item.insert(identity, (PlayingItem::InLibrary(identity), source));
+            }
+        }
+    }
+    let prepared = items
+        .iter()
+        .filter_map(|item| prepared_by_item.get(item).cloned())
+        .collect::<Vec<_>>();
+    let start_index = request
+        .start_index
+        .map(usize::try_from)
+        .transpose()
+        .map_err(|error| {
+            ExpectedRequestError::invalid_input(format!("Invalid cast start index: {error}"))
+        })?;
+    node.session()?
+        .edit_queue(request.expected_revision, |player| {
+            edit_playlist(
+                player,
+                &prepared,
+                PlaylistEditOptions {
+                    mode: request.mode,
+                    start_index,
+                    playback_mode: request.playback_mode,
+                    position,
+                    play: request.play,
+                },
+            )
+        })
+        .await?;
+    Ok(())
+}
+
+impl ParamsExtractor for SessionSnapshotRequest {
+    type Params = (Arc<NodeContext>,);
+
+    fn extract_params(&self, params: &GlobalParams) -> Self::Params {
+        (params.node.clone(),)
+    }
+}
+
+impl Signal for SessionSnapshotRequest {
+    type Params = (Arc<NodeContext>,);
+    type Response = SessionSnapshotResponse;
+
+    async fn handle(
+        &self,
+        (node,): Self::Params,
+        _session: Option<Session>,
+        _request: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let session = node.session()?;
+        Ok(Some(session_snapshot(&session).await?))
+    }
+}
+
+async fn session_snapshot(session: &PlayerSession) -> Result<SessionSnapshotResponse> {
+    let (status, revision) = session.playback_snapshot().await;
+    session_snapshot_from_status(status, revision)
+}
+
+pub(crate) fn session_snapshot_from_status(
+    status: PlayerStatus,
+    revision: u64,
+) -> Result<SessionSnapshotResponse> {
+    let items = status
+        .playlist
+        .into_iter()
+        .map(|item| match item {
+            PlayingItem::InLibrary(item) => Ok(LibraryItemRequest::from(item)),
+            _ => Err(anyhow::Error::new(ExpectedRequestError::Unavailable {
+                what: "handing off files outside a library",
+            })),
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(SessionSnapshotResponse {
+        items,
+        index: status
+            .index
+            .map(u32::try_from)
+            .transpose()
+            .map_err(|error| {
+                ExpectedRequestError::invalid_input(format!("Invalid session index: {error}"))
+            })?,
+        position_seconds: status.position.as_secs_f64(),
+        playback_mode: status.playback_mode.into(),
+        playing: status.state == PlaybackState::Playing,
+        revision,
+    })
+}
+
+impl ParamsExtractor for HandoffRequest {
+    type Params = (Arc<NodeContext>,);
+
+    fn extract_params(&self, params: &GlobalParams) -> Self::Params {
+        (params.node.clone(),)
+    }
+}
+
+impl Signal for HandoffRequest {
+    type Params = (Arc<NodeContext>,);
+    type Response = HandoffResponse;
+
+    async fn handle(
+        &self,
+        (node,): Self::Params,
+        _session: Option<Session>,
+        request: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let attached = node.renderer_link()?;
+        let target = request.target.as_deref();
+        let already_there = match (target, &attached) {
+            (Some(target), Some(link)) => link.fingerprint() == target,
+            (None, None) => true,
+            _ => false,
+        };
+        if already_there {
+            return Ok(Some(HandoffResponse {}));
+        }
+        let load = handoff_load(snapshot_handoff_source(&node, attached.as_deref()).await?);
+        match target {
+            Some(target) => hand_off_to_renderer(&node, attached.as_deref(), target, load).await?,
+            None => hand_off_to_this_device(&node, attached.as_deref(), &load).await?,
+        }
+        Ok(Some(HandoffResponse {}))
+    }
+}
+
+/// Step 1: what this device controls now, from the attached renderer or the local session.
+async fn snapshot_handoff_source(
+    node: &NodeContext,
+    attached: Option<&RendererLink>,
+) -> Result<SessionSnapshotResponse> {
+    let Some(link) = attached else {
+        let session = node.session()?;
+        return session_snapshot(&session).await;
+    };
+    let (name, payload) = link
+        .request(
+            "SessionSnapshotRequest",
+            &rinf::serialize(&SessionSnapshotRequest {})?,
+        )
+        .await?;
+    anyhow::ensure!(
+        name == "SessionSnapshotResponse",
+        "Unexpected renderer response: {name}"
+    );
+    rinf::deserialize::<SessionSnapshotResponse>(&payload)
+        .context("Could not decode renderer session snapshot")
+}
+
+/// Step 2: the load that recreates the snapshot on the target.
+fn handoff_load(snapshot: SessionSnapshotResponse) -> CastLoadRequest {
+    CastLoadRequest {
+        items: snapshot.items,
+        start_index: snapshot.index,
+        mode: PlaylistOperateMode::Replace,
+        expected_revision: None,
+        playback_mode: Some(snapshot.playback_mode),
+        position_seconds: Some(snapshot.position_seconds),
+        play: Some(snapshot.playing),
+    }
+}
+
+/// Steps 2 and 3 for a renderer target: load it over a new link, pause the source only
+/// after the load succeeded, then attach. A failure leaves the source and the current
+/// attachment as they were.
+async fn hand_off_to_renderer(
+    node: &Arc<NodeContext>,
+    attached: Option<&RendererLink>,
+    target: &str,
+    load: CastLoadRequest,
+) -> Result<()> {
+    let (link, alias) = node
+        .connect_renderer(target, RendererLinkUse::Control)
+        .await?;
+    let paused = async {
+        send_cast_load(&link, load).await?;
+        match attached {
+            Some(source) => send_pause(source).await,
+            None => {
+                node.session()?.player.lock().await.pause();
+                Ok(())
+            }
+        }
+    }
+    .await;
+    if let Err(error) = paused {
+        link.close();
+        return Err(error);
+    }
+    node.install_renderer_link(link, alias)
+}
+
+/// Steps 2 to 4 for this device as the target: load locally, pause the renderer that was
+/// playing, then detach from it.
+async fn hand_off_to_this_device(
+    node: &NodeContext,
+    attached: Option<&RendererLink>,
+    load: &CastLoadRequest,
+) -> Result<()> {
+    apply_cast_load(node, load).await?;
+    if let Some(source) = attached {
+        send_pause(source).await?;
+        node.detach_renderer().await?;
+    }
+    Ok(())
+}
+
+async fn send_pause(link: &RendererLink) -> Result<()> {
+    let (name, _) = link
+        .request("PauseRequest", &rinf::serialize(&PauseRequest {})?)
+        .await?;
+    anyhow::ensure!(name.is_empty(), "Unexpected pause response: {name}");
+    Ok(())
 }

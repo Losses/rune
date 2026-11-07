@@ -300,6 +300,14 @@ impl NodeContext {
         let (link, alias) = self
             .connect_renderer(fingerprint, RendererLinkUse::Control)
             .await?;
+        self.install_renderer_link(link, alias)?;
+        self.session()?.player.lock().await.pause();
+        Ok(())
+    }
+
+    /// Make `link` the attached renderer, closing the previous one, and tell the UI.
+    pub(crate) fn install_renderer_link(&self, link: RendererLink, alias: String) -> Result<()> {
+        let fingerprint = link.fingerprint().to_owned();
         let old = {
             let mut slot = self
                 .renderer_link
@@ -310,12 +318,8 @@ impl NodeContext {
         if let Some(old) = old {
             old.close();
         }
-        self.session()?.player.lock().await.pause();
         self.gui_broadcaster.broadcast(&RendererAttachmentChanged {
-            renderer: Some(AttachedRenderer {
-                fingerprint: fingerprint.to_owned(),
-                alias,
-            }),
+            renderer: Some(AttachedRenderer { fingerprint, alias }),
         });
         Ok(())
     }

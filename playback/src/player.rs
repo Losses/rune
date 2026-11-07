@@ -225,6 +225,15 @@ impl fmt::Display for PlaybackState {
 
 pub trait Playable: Send {
     fn load(&self, index: usize);
+    fn load_at_position(&self, index: usize, position: Duration, play: bool) {
+        self.load(index);
+        self.seek(position.as_secs_f64());
+        if play {
+            self.play();
+        } else {
+            self.pause();
+        }
+    }
     fn play(&self);
     fn pause(&self);
     fn stop(&self);
@@ -555,6 +564,14 @@ impl Player {
 impl Playable for Player {
     fn load(&self, index: usize) {
         self.command(PlayerCommand::Load { index });
+    }
+
+    fn load_at_position(&self, index: usize, position: Duration, play: bool) {
+        self.command(PlayerCommand::LoadAtPosition {
+            index,
+            position,
+            play,
+        });
     }
 
     fn play(&self) {

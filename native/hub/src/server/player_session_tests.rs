@@ -1,16 +1,18 @@
-use std::sync::Mutex as StdMutex;
 #[cfg(target_os = "linux")]
 use std::{env, process::Command};
+use std::{path::PathBuf, sync::Mutex as StdMutex};
 
 use crate::{
     access_policy::LibraryLevel,
-    handlers::playback::{playing_item_from_request, playing_item_requests},
+    handlers::playback::{
+        playing_item_from_request, playing_item_requests, session_snapshot_from_status,
+    },
     messages::{
         CastLibraryState, CastPreflightRequest, GetMediaFilesCountRequest, InLibraryPlayingItem,
         LibraryItemRequest, ListRenderersRequest, PlayingItemRequest, PlaylistUpdate,
         RendererAvailability, RendererCandidate, RequestErrorKind, RequestFailureCause,
     },
-    request_error::classify,
+    request_error::{ExpectedRequestError, classify},
     session::store::SessionState,
 };
 use database::actions::{
@@ -25,7 +27,8 @@ use database::entities::media_metadata;
 use playback::{
     PlaybackMode,
     player::{
-        LibraryItem, PlaybackSource, PlaybackState, PlayerStatus, PlayingItem, UnavailableReason,
+        LibraryItem, MockPlayer, Playable, PlaybackSource, PlaybackState, PlayerStatus,
+        PlayingItem, UnavailableReason,
     },
     strategies::AddMode,
 };
@@ -1085,21 +1088,13 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
             .collect::<Vec<_>>(),
     )
     .await?;
-    let local_audio_path = Path::new(&controller_replica.global_params.test_library().media_root)
-        .join("cast-local-playing.ogg");
-    fs::copy(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg"),
-        &local_audio_path,
-    )?;
     let local_track_id = local_file_ids[&host_items[0].file_uuid];
-    media_files::Entity::update(media_files::ActiveModel {
-        id: Set(local_track_id),
-        directory: Set(String::new()),
-        file_name: Set("cast-local-playing.ogg".into()),
-        local_available: Set(true),
-        ..Default::default()
-    })
-    .exec(&*controller_replica.global_params.test_library().main_db)
+    materialize_replica_file(
+        &controller_replica,
+        local_track_id,
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg"),
+        "cast-local-playing.ogg",
+    )
     .await?;
     queue_session(&controller_replica, &[local_track_id]).await?;
     controller_replica.global_params.player.lock().await.load(0);
@@ -2772,6 +2767,8 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         mode: PlaylistOperateMode::Replace,
         expected_revision: None,
         playback_mode: None,
+        position_seconds: None,
+        play: None,
     };
     let (name, payload, updates) =
         controller_request(&mut socket, "CastLoadRequest", rinf::serialize(&load)?).await?;
@@ -2823,6 +2820,8 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         start_index: Some(0),
         mode: PlaylistOperateMode::Replace,
         playback_mode: None,
+        position_seconds: None,
+        play: None,
     };
     let queue_before_stale = renderer.global_params.player.lock().await.get_playlist();
     let (name, payload, _) = controller_request(
@@ -2879,6 +2878,8 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
             mode: PlaylistOperateMode::Replace,
             expected_revision: Some(revision),
             playback_mode: None,
+            position_seconds: None,
+            play: None,
         })?,
     )
     .await?;
@@ -2933,6 +2934,8 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
             mode: PlaylistOperateMode::Replace,
             expected_revision: Some(revision),
             playback_mode: None,
+            position_seconds: None,
+            play: None,
         })?,
     )
     .await?;
@@ -2975,6 +2978,8 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
             mode: PlaylistOperateMode::Replace,
             expected_revision: Some(revision),
             playback_mode: None,
+            position_seconds: None,
+            play: None,
         })?,
     )
     .await?;
@@ -3023,6 +3028,8 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
             mode: PlaylistOperateMode::Replace,
             expected_revision: Some(revision),
             playback_mode: None,
+            position_seconds: None,
+            play: None,
         })?,
     )
     .await?;
@@ -3255,6 +3262,8 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
         mode: PlaylistOperateMode::AppendToEnd,
         expected_revision: Some(initial_revision),
         playback_mode: None,
+        position_seconds: None,
+        play: None,
     };
     let (name, payload) = link
         .request("CastLoadRequest", &rinf::serialize(&append_without_switch)?)
@@ -3301,6 +3310,8 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
                     .await,
             ),
             playback_mode: None,
+            position_seconds: None,
+            play: None,
         };
         let (name, payload) = link
             .request("CastLoadRequest", &rinf::serialize(&request)?)
@@ -3336,6 +3347,8 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
         mode: PlaylistOperateMode::AppendToEnd,
         expected_revision: None,
         playback_mode: None,
+        position_seconds: None,
+        play: None,
     };
     let error = link
         .request("CastLoadRequest", &rinf::serialize(&invalid)?)
@@ -3701,7 +3714,7 @@ async fn replicate_host_library_at(
     peer: &Fixture,
     host_addr: SocketAddr,
 ) -> Result<(SocketAddr, Fixture)> {
-    use crate::server::sync_worker::{PeerEndpoint, test_peer_pass};
+    use crate::server::sync_worker::{PeerEndpoint, TestPeerSession};
 
     let host_info = info(host).await?;
     let peer_info = info(peer).await?;
@@ -3738,15 +3751,19 @@ async fn replicate_host_library_at(
         host: "127.0.0.1".into(),
         port: host_addr.port(),
     };
+    // One session for the whole replication: an incomplete pass resumes its work on the
+    // next pass instead of abandoning it, as the background worker does.
+    let session = TestPeerSession::default();
     timeout(Duration::from_secs(30), async {
         loop {
-            match test_peer_pass(
-                replica.global_params.clone(),
-                &replica.private_key,
-                endpoint.clone(),
-                true,
-            )
-            .await?
+            match session
+                .pass(
+                    replica.global_params.clone(),
+                    &replica.private_key,
+                    endpoint.clone(),
+                    true,
+                )
+                .await?
             {
                 PeerPass::Complete => return Ok::<_, anyhow::Error>(()),
                 PeerPass::Incomplete => tokio::task::yield_now().await,
@@ -3757,6 +3774,318 @@ async fn replicate_host_library_at(
     .await
     .context("replica metadata sync timed out")??;
     Ok((host_addr, replica))
+}
+
+/// Give a replica a local copy of one of its files, so it plays without streaming.
+async fn materialize_replica_file(
+    replica: &Fixture,
+    file_id: i32,
+    source: &Path,
+    file_name: &str,
+) -> Result<()> {
+    let library = replica.global_params.test_library();
+    fs::copy(source, Path::new(&library.media_root).join(file_name))?;
+    media_files::Entity::update(media_files::ActiveModel {
+        id: Set(file_id),
+        directory: Set(String::new()),
+        file_name: Set(file_name.into()),
+        local_available: Set(true),
+        ..Default::default()
+    })
+    .exec(&*library.main_db)
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
+async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Result<()> {
+    use crate::Signal;
+    use crate::messages::HandoffRequest;
+    use crate::request_error::request_failure_cause;
+    use crate::utils::ParamsExtractor;
+
+    let h_dir = tempfile::tempdir()?;
+    let g_dir = tempfile::tempdir()?;
+    let a_dir = tempfile::tempdir()?;
+    let b_dir = tempfile::tempdir()?;
+    let c_dir = tempfile::tempdir()?;
+    let h = fixture(h_dir.path()).await?;
+    let g = fixture(g_dir.path()).await?;
+    let a = fixture(a_dir.path()).await?;
+    let b = fixture(b_dir.path()).await?;
+    let c = fixture(c_dir.path()).await?;
+
+    let h_ids = [
+        session_audio(&h, "handoff-h1.ogg").await?,
+        session_audio(&h, "handoff-h2.ogg").await?,
+    ];
+    let g_id = session_audio(&g, "handoff-g.ogg").await?;
+    let (h_address, _a_h_replica) = replicate_host_library(&h, &a).await?;
+    let (g_address, a_g_replica) = replicate_host_library(&g, &a).await?;
+    pair(&h, &b).await?;
+    pair(&g, &b).await?;
+    let (_, _b_h) = replicate_host_library_at(&h, &b, h_address).await?;
+    let (_, _b_g) = replicate_host_library_at(&g, &b, g_address).await?;
+    pair(&h, &c).await?;
+    let (_, _c_h) = replicate_host_library_at(&h, &c, h_address).await?;
+    let b_fingerprint = info(&b).await?.fingerprint;
+    let b_address = paired_full(&b, &a).await?;
+    a.global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(
+            &b_fingerprint,
+            vec![format!("127.0.0.1:{}", b_address.port())],
+        )
+        .await?;
+    let c_fingerprint = info(&c).await?.fingerprint;
+    let c_address = paired_full(&c, &a).await?;
+    a.global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(
+            &c_fingerprint,
+            vec![format!("127.0.0.1:{}", c_address.port())],
+        )
+        .await?;
+
+    let h_items = futures::future::join_all(h_ids.iter().map(|id| library_item_for_id(&h, *id)))
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?;
+    let g_item = library_item_for_id(&g, g_id).await?;
+    let queue = vec![h_items[0], g_item, h_items[1]];
+    let g_source = g.global_params.test_library();
+    let a_g_library = a_g_replica.global_params.test_library();
+    let g_local_id = file_ids_by_uuid(&a_g_library.main_db, &[g_item.file_uuid])
+        .await?
+        .get(&g_item.file_uuid)
+        .copied()
+        .context("replica G file id")?;
+    let controller = &a_g_replica;
+    let g_row = media_files::Entity::find_by_id(g_id)
+        .one(&*g_source.main_db)
+        .await?
+        .context("source G row")?;
+    materialize_replica_file(
+        controller,
+        g_local_id,
+        &Path::new(&g_source.media_root)
+            .join(&g_row.directory)
+            .join(&g_row.file_name),
+        "handoff-materialized.ogg",
+    )
+    .await?;
+    controller
+        .global_params
+        .node
+        .session()?
+        .edit_queue(None, move |player| {
+            player.add_to_playlist_with_sources(
+                queue
+                    .into_iter()
+                    .map(|item| (PlayingItem::InLibrary(item), PlaybackSource::LibraryStream))
+                    .collect(),
+                AddMode::AppendToEnd,
+            );
+            true
+        })
+        .await?;
+    wait_player(controller, |status| status.playlist.len() == 3).await?;
+    controller.global_params.player.lock().await.switch(1);
+    wait_player(controller, |status| status.index == Some(1)).await?;
+    controller.global_params.player.lock().await.play();
+    wait_player(controller, |status| status.state == PlaybackState::Playing).await?;
+    let source_before = wait_player(controller, |status| {
+        status.position >= Duration::from_millis(1900)
+    })
+    .await?;
+    let source_queue = source_before.playlist.clone();
+    let source_position = source_before.position;
+
+    let handoff = HandoffRequest {
+        target: Some(b_fingerprint.clone()),
+    };
+    handoff
+        .handle(
+            handoff.extract_params(&controller.global_params),
+            None,
+            &handoff,
+        )
+        .await?;
+    let b_status = wait_player(&b, |status| {
+        status.index == Some(1)
+            && status.state == PlaybackState::Playing
+            && status.playlist == source_queue
+            && status.position.abs_diff(source_position) <= Duration::from_millis(1500)
+    })
+    .await?;
+    assert_eq!(b_status.playlist, source_queue);
+    assert!(b_status.position.abs_diff(source_position) <= Duration::from_millis(1500));
+    let a_paused = wait_player(controller, |status| {
+        status.state == PlaybackState::Paused && status.playlist == source_queue
+    })
+    .await?;
+    assert_eq!(a_paused.playlist, source_queue);
+    assert_eq!(a_paused.index, Some(1));
+    assert_eq!(
+        controller
+            .global_params
+            .node
+            .renderer_link()?
+            .as_ref()
+            .map(|link| link.fingerprint()),
+        Some(b_fingerprint.as_str())
+    );
+
+    b.global_params.player.lock().await.pause();
+    wait_player(&b, |status| status.state == PlaybackState::Paused).await?;
+    b.global_params.player.lock().await.play();
+    wait_player(&b, |status| status.state == PlaybackState::Playing).await?;
+    let b_before_return = b.global_params.player.lock().await.get_status();
+    let b_queue = b_before_return.playlist.clone();
+    let back = HandoffRequest { target: None };
+    back.handle(back.extract_params(&controller.global_params), None, &back)
+        .await?;
+    let a_returned = wait_player(controller, |status| {
+        status.index == Some(1)
+            && status.state == PlaybackState::Playing
+            && status.playlist == b_queue
+            && status.position.abs_diff(b_before_return.position) <= Duration::from_millis(1500)
+    })
+    .await?;
+    assert_eq!(a_returned.playlist, b_queue);
+    assert!(a_returned.position.abs_diff(b_before_return.position) <= Duration::from_millis(1500));
+    assert!(controller.global_params.node.renderer_link()?.is_none());
+    let b_paused = wait_player(&b, |status| status.state == PlaybackState::Paused).await?;
+    assert_eq!(b_paused.playlist, b_queue);
+    controller.global_params.player.lock().await.pause();
+    wait_player(controller, |status| status.state == PlaybackState::Paused).await?;
+
+    controller.global_params.player.lock().await.play();
+    let a_before_refused =
+        wait_player(controller, |status| status.state == PlaybackState::Playing).await?;
+    let c_before = c.global_params.player.lock().await.get_playlist();
+    let refused = HandoffRequest {
+        target: Some(c_fingerprint),
+    };
+    let error = refused
+        .handle(
+            refused.extract_params(&controller.global_params),
+            None,
+            &refused,
+        )
+        .await
+        .unwrap_err();
+    let g_library_id = g
+        .global_params
+        .library_id
+        .context("G library id")?
+        .to_string();
+    assert_eq!(
+        request_failure_cause(&error),
+        Some(RequestFailureCause::CastNotPossible {
+            library_id: g_library_id,
+            state: CastLibraryState::NotHeld,
+        })
+    );
+    assert!(controller.global_params.node.renderer_link()?.is_none());
+    assert_eq!(
+        controller
+            .global_params
+            .player
+            .lock()
+            .await
+            .get_status()
+            .state,
+        PlaybackState::Playing
+    );
+    assert_eq!(
+        controller
+            .global_params
+            .player
+            .lock()
+            .await
+            .get_status()
+            .playlist,
+        a_before_refused.playlist
+    );
+    assert_eq!(c.global_params.player.lock().await.get_playlist(), c_before);
+    controller.global_params.player.lock().await.pause();
+    wait_player(controller, |status| status.state == PlaybackState::Paused).await?;
+
+    controller
+        .global_params
+        .node
+        .session()?
+        .edit_queue(None, |player| {
+            player.add_to_playlist_with_sources(
+                vec![(
+                    PlayingItem::IndependentFile("outside-library.ogg".into()),
+                    PlaybackSource::Local(PathBuf::from("unused-handoff-test-path")),
+                )],
+                AddMode::AppendToEnd,
+            );
+            true
+        })
+        .await?;
+    let independent_before = wait_player(controller, |status| {
+        status.state == PlaybackState::Paused && status.playlist.len() == 4
+    })
+    .await?;
+    let b_before_independent = b.global_params.player.lock().await.get_status();
+    let refused_independent = HandoffRequest {
+        target: Some(b_fingerprint),
+    };
+    let error = refused_independent
+        .handle(
+            refused_independent.extract_params(&controller.global_params),
+            None,
+            &refused_independent,
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        error.downcast_ref::<ExpectedRequestError>(),
+        Some(ExpectedRequestError::Unavailable {
+            what: "handing off files outside a library"
+        })
+    ));
+    let independent_after = controller.global_params.player.lock().await.get_status();
+    assert_eq!(independent_after.state, PlaybackState::Paused);
+    assert_eq!(independent_after.playlist, independent_before.playlist);
+    assert_eq!(independent_after.index, independent_before.index);
+    assert!(controller.global_params.node.renderer_link()?.is_none());
+    let b_after_independent = b.global_params.player.lock().await.get_status();
+    assert_eq!(b_after_independent.playlist, b_before_independent.playlist);
+    assert_eq!(b_after_independent.index, b_before_independent.index);
+    assert_eq!(b_after_independent.position, b_before_independent.position);
+
+    controller.global_params.node.detach_renderer().await?;
+    for fixture in [controller, &b, &c, &h, &g] {
+        fixture.global_params.node.shutdown().await?;
+    }
+    Ok(())
+}
+
+#[test]
+fn session_snapshot_rejects_independent_files() {
+    let mut status = MockPlayer.get_status();
+    status
+        .playlist
+        .push(PlayingItem::IndependentFile("outside-library.ogg".into()));
+    let error = match session_snapshot_from_status(status, 0) {
+        Ok(_) => panic!("independent file unexpectedly appeared in a handoff snapshot"),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        error.downcast_ref::<ExpectedRequestError>(),
+        Some(ExpectedRequestError::Unavailable {
+            what: "handing off files outside a library"
+        })
+    ));
 }
 
 async fn wait_controller_count(node: &NodeContext, count: usize) -> Result<()> {

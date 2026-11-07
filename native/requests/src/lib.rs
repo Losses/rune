@@ -35,6 +35,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             class: RequestClass::NodeLocal,
         },
         RequestResponse {
+            request: "HandoffRequest".to_string(),
+            response: Some("HandoffResponse".to_string()),
+            class: RequestClass::NodeLocal,
+        },
+        RequestResponse {
             request: "GetDeviceGrantsRequest".to_string(),
             response: Some("GetDeviceGrantsResponse".to_string()),
             class: RequestClass::NodeLocal,
@@ -488,6 +493,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         RequestResponse {
             request: "CastLoadRequest".to_string(),
             response: Some("CastLoadResponse".to_string()),
+            class: RequestClass::Control,
+        },
+        RequestResponse {
+            request: "SessionSnapshotRequest".to_string(),
+            response: Some("SessionSnapshotResponse".to_string()),
             class: RequestClass::Control,
         },
         // Like
