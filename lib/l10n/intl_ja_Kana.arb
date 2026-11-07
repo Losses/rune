@@ -1368,7 +1368,6 @@
   "devices": "デバイス",
   "playOn": "サイセイサキ",
   "playOnSubtitle": "オトヲサイセイスルバショヲエラビマス。",
-  "playOnFixedToRemote": "コノリモートデバイスニコテイサレテイマス",
   "playOnPlayingOn": "{alias} デサイセイチュウ",
   "@playOnPlayingOn": {"placeholders": {"alias": {"type": "String"}}},
   "playOnOffline": "オフライン",

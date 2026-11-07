@@ -1405,7 +1405,6 @@
   "devices": "デバイス",
   "playOn": "再生先",
   "playOnSubtitle": "音声を再生する場所を選択します。",
-  "playOnFixedToRemote": "このリモートデバイスに固定されています",
   "playOnPlayingOn": "{alias} で再生中",
   "@playOnPlayingOn": {"placeholders": {"alias": {"type": "String"}}},
   "playOnOffline": "オフライン",

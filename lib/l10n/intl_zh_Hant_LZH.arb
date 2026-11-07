@@ -1368,7 +1368,6 @@
   "devices": "裝置",
   "playOn": "播音於",
   "playOnSubtitle": "選播音之所。",
-  "playOnFixedToRemote": "定於此遠端裝置",
   "playOnPlayingOn": "播音於 {alias}",
   "@playOnPlayingOn": {"placeholders": {"alias": {"type": "String"}}},
   "playOnOffline": "離線",

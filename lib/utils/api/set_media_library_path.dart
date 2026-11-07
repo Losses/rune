@@ -6,16 +6,6 @@ import '../../bindings/bindings.dart';
 
 import '../settings_manager.dart';
 
-(OperationDestination, OperationDestination) determineConnectionType(
-    String path) {
-  if (path.startsWith('@RR|')) {
-    return (OperationDestination.remote, OperationDestination.remote);
-  } else if (path.startsWith('@LR|')) {
-    return (OperationDestination.local, OperationDestination.remote);
-  }
-  return (OperationDestination.local, OperationDestination.local);
-}
-
 LibraryInitializeMode? stringToLibraryInitializeMode(String? x) {
   if (x == null) return null;
   if (x == 'Redirected') return LibraryInitializeMode.redirected;
@@ -27,22 +17,16 @@ Future<(bool, bool, String?, LibraryOpenErrorKind?)> setMediaLibraryPath(
   String path,
   LibraryInitializeMode? mode,
 ) async {
-  final (playsOn, hostedOn) = determineConnectionType(path);
-
-  final cleanPath = path.startsWith('@RR|') || path.startsWith('@LR|')
-      ? path.substring(4)
-      : path;
-
   final settingsManager = SettingsManager();
 
   final request = SetMediaLibraryPathRequest(
-    path: cleanPath,
+    path: path,
     dbPath: await getSettingsPath(),
     configPath: await getSettingsPath(),
     alias: await settingsManager.getValue<String?>(kDeviceAliasKey) ?? "Rune",
     mode: mode,
-    playsOn: playsOn,
-    hostedOn: hostedOn,
+    playsOn: OperationDestination.local,
+    hostedOn: OperationDestination.local,
   );
 
   try {
@@ -50,13 +34,13 @@ Future<(bool, bool, String?, LibraryOpenErrorKind?)> setMediaLibraryPath(
       final rustSignal = await awaitResponse(
         'SetMediaLibraryPathRequest',
         SetMediaLibraryPathResponse.rustSignalStream.where(
-          (event) => event.message.path == cleanPath,
+          (event) => event.message.path == path,
         ),
         send: () => request.sendSignalToRust(),
       );
       final response = rustSignal.message;
 
-      if (response.path == cleanPath) {
+      if (response.path == path) {
         return (
           response.success,
           response.notReady,

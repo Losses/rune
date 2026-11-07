@@ -1532,7 +1532,6 @@
   "devices": "Devices",
   "playOn": "Play on",
   "playOnSubtitle": "Choose where audio plays.",
-  "playOnFixedToRemote": "Fixed to this remote device",
   "playOnPlayingOn": "Playing on {alias}",
   "@playOnPlayingOn": {"placeholders": {"alias": {"type": "String"}}},
   "playOnOffline": "Offline",

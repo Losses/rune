@@ -1407,7 +1407,6 @@
   "devices": "기기",
   "playOn": "재생 위치",
   "playOnSubtitle": "오디오를 재생할 위치를 선택하세요.",
-  "playOnFixedToRemote": "이 원격 기기로 고정됨",
   "playOnPlayingOn": "{alias}에서 재생 중",
   "@playOnPlayingOn": {"placeholders": {"alias": {"type": "String"}}},
   "playOnOffline": "오프라인",

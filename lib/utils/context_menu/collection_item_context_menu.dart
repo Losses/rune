@@ -230,7 +230,7 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
         );
       },
     ),
-    if (libraryPath != null && !libraryPath.startsWith('@RR|'))
+    if (libraryPath != null)
       MenuFlyoutItem(
         leading: const Icon(Symbols.cast),
         text: Text(S.of(context).playOn),
@@ -409,7 +409,7 @@ FlyoutContent buildBandScreenCollectionItemContextMenu(
         );
       },
     ),
-    if (libraryPath != null && !libraryPath.startsWith('@RR|'))
+    if (libraryPath != null)
       CommandBarButton(
         icon: Tooltip(
           message: S.of(context).playOn,

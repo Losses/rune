@@ -20,7 +20,7 @@ class _Libraries extends ChangeNotifier implements LibraryPathProvider {
   Set<LibraryPathEntry> get libraryHistory => _entries.toSet();
 
   @override
-  List<LibraryPathEntry> getLLPaths() => _entries;
+  List<LibraryPathEntry> getLibraryPaths() => _entries;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

@@ -8,7 +8,8 @@ import '../../providers/library_path.dart';
 Future<void> closeLibrary(BuildContext context) async {
   final library = Provider.of<LibraryPathProvider>(context, listen: false);
 
-  final path = LibraryPathEntry.removePrefix(library.currentPath);
+  final path = library.currentPath;
+  if (path == null) return;
 
   while (true) {
     final rustSignal = await awaitResponse(

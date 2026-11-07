@@ -1407,7 +1407,6 @@
   "devices": "Dispositivi",
   "playOn": "Riproduci su",
   "playOnSubtitle": "Scegli dove riprodurre l’audio.",
-  "playOnFixedToRemote": "Fissato a questo dispositivo remoto",
   "playOnPlayingOn": "In riproduzione su {alias}",
   "@playOnPlayingOn": {"placeholders": {"alias": {"type": "String"}}},
   "playOnOffline": "Offline",

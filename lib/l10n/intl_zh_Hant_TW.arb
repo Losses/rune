@@ -1138,7 +1138,6 @@
   "devices": "裝置",
   "playOn": "播放裝置",
   "playOnSubtitle": "選擇音訊播放的位置。",
-  "playOnFixedToRemote": "固定至此遠端裝置",
   "playOnPlayingOn": "正在 {alias} 上播放",
   "@playOnPlayingOn": {"placeholders": {"alias": {"type": "String"}}},
   "playOnOffline": "離線",

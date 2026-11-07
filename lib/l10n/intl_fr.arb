@@ -1407,7 +1407,6 @@
   "devices": "Appareils",
   "playOn": "Lire sur",
   "playOnSubtitle": "Choisissez où le son est diffusé.",
-  "playOnFixedToRemote": "Fixé à cet appareil distant",
   "playOnPlayingOn": "Lecture sur {alias}",
   "@playOnPlayingOn": {"placeholders": {"alias": {"type": "String"}}},
   "playOnOffline": "Hors ligne",

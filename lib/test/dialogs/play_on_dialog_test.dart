@@ -251,9 +251,7 @@ void main() {
     expect(find.text('Play on'), findsOneWidget);
   });
 
-  testWidgets('queue panel opens Play on and hides it for a remote library', (
-    tester,
-  ) async {
+  testWidgets('queue panel opens Play on for the open library', (tester) async {
     var opened = 0;
     await _openQueue(
       tester,
@@ -265,14 +263,6 @@ void main() {
     expect(opened, 1);
     await tester.tap(find.byIcon(Symbols.close));
     await tester.pumpAndSettle();
-
-    await tester.pumpWidget(const SizedBox.shrink());
-    await _openQueue(
-      tester,
-      libraryPath: '@RR|ws://renderer',
-      onPlayOn: (_) async => opened++,
-    );
-    expect(find.byKey(const Key('queue-play-on')), findsNothing);
   });
 }
 

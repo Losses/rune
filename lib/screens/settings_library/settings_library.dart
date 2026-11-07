@@ -115,7 +115,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
   Widget build(BuildContext context) {
     final libraryPath = Provider.of<LibraryPathProvider>(context, listen: true);
     final allOpenedFiles =
-        libraryPath.getLLPaths().reversed.map((x) => x.rawPath).toList();
+        libraryPath.getLibraryPaths().reversed.map((x) => x.rawPath).toList();
     final libraryManager =
         Provider.of<LibraryManagerProvider>(context, listen: false);
 
