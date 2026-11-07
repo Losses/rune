@@ -36,6 +36,19 @@ impl ExpectedRequestError {
     }
 }
 
+/// Context attached to a failed request that carries a call id, so the
+/// failure sent back over the network names the call it belongs to.
+#[derive(Debug, Clone, Copy)]
+pub struct FailedCall {
+    pub call_id: u64,
+}
+
+impl std::fmt::Display for FailedCall {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "call {}", self.call_id)
+    }
+}
+
 /// Classify a request failure without relying on its diagnostic text.
 pub fn classify(error: &Error) -> RequestErrorKind {
     if sync_orm::is_storage_busy(error) {

@@ -90,6 +90,11 @@ macro_rules! register_single_handler {
                             handle_server_response!(_response, $with_response)
                         }
                         Err(e) => {
+                            // Name the failed call so the reply can be matched to it.
+                            let e = match $crate::CallIdentified::call_id(&request) {
+                                Some(call_id) => e.context($crate::request_error::FailedCall { call_id }),
+                                None => e,
+                            };
                             (String::new(), Err(e))
                         }
                     }

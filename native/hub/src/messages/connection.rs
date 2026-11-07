@@ -103,6 +103,9 @@ pub struct DetachControllerRequest {
 pub struct RemoteRequestFailed {
     pub kind: RequestErrorKind,
     pub request: String,
+    /// The failed request's call id, for requests that carry one.
+    #[serde(default)]
+    pub call_id: Option<u64>,
     pub detail: String,
     #[serde(default)]
     pub cause: Option<RequestFailureCause>,

@@ -19,7 +19,7 @@ use crate::{
     Session,
     backends::remote::{decode_message_with_library_id, encode_message},
     messages::RemoteRequestFailed,
-    request_error::{classify, request_failure_cause},
+    request_error::{FailedCall, classify, request_failure_cause},
     server::{ServerState, sync_auth::AuthenticatedFingerprint},
 };
 use discovery::server::{User, UserStatus};
@@ -141,12 +141,7 @@ pub async fn handle_socket(
                         Ok(response) => (resp_type, response),
                         Err(e) => {
                             error!("[{incoming_alias}] Failed to handle {msg_type}: {e:#}");
-                            let failure = RemoteRequestFailed {
-                                kind: classify(&e),
-                                request: msg_type,
-                                detail: format!("{e:#}"),
-                                cause: request_failure_cause(&e),
-                            };
+                            let failure = remote_failure(msg_type, &e);
                             match rinf::serialize(&failure) {
                                 Ok(payload) => ("RemoteRequestFailed".to_owned(), payload),
                                 Err(error) => {
@@ -226,4 +221,34 @@ pub async fn handle_socket(
     let _ = send_task.await;
     drop(controller_guard);
     info!("[{alias}] WebSocket connection closed");
+}
+
+/// The failure frame for a request that failed on this node. It carries the
+/// typed kind and cause, and the call id when the request had one.
+fn remote_failure(request: String, error: &anyhow::Error) -> RemoteRequestFailed {
+    RemoteRequestFailed {
+        kind: classify(error),
+        request,
+        call_id: error
+            .downcast_ref::<FailedCall>()
+            .map(|failed| failed.call_id),
+        detail: format!("{error:#}"),
+        cause: request_failure_cause(error),
+    }
+}
+
+#[cfg(test)]
+mod failure_tests {
+    use super::{FailedCall, remote_failure};
+
+    #[test]
+    fn failure_frame_names_the_failed_call() {
+        let error = anyhow::anyhow!("search failed").context(FailedCall { call_id: 41 });
+        assert_eq!(
+            remote_failure("SearchForRequest".into(), &error).call_id,
+            Some(41)
+        );
+        let plain = anyhow::anyhow!("pause failed");
+        assert_eq!(remote_failure("PauseRequest".into(), &plain).call_id, None);
+    }
 }

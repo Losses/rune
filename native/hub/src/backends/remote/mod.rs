@@ -652,7 +652,7 @@ fn dispatch_remote_failure(payload: &[u8]) {
             let kind = failure.kind;
             RequestFailedResponse {
                 request: failure.request,
-                call_id: None,
+                call_id: failure.call_id,
                 kind,
                 detail: failure.detail,
                 cause: failure.cause,
@@ -936,7 +936,7 @@ pub async fn server_player_loop(
                         let kind = failure.kind;
                         RequestFailedResponse {
                             request: failure.request,
-                            call_id: None,
+                            call_id: failure.call_id,
                             kind,
                             detail: failure.detail,
                             cause: failure.cause,
@@ -1014,6 +1014,7 @@ mod loss_tests {
         let failure = RemoteRequestFailed {
             kind: RequestErrorKind::Internal,
             request: "ExampleRequest".into(),
+            call_id: None,
             detail: "outer: inner".into(),
             cause: None,
         };
