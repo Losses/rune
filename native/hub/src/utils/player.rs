@@ -42,7 +42,7 @@ pub(crate) async fn update_media_controls_metadata(
 ) -> Result<()> {
     let mut manager = manager.lock().await;
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
     let cover_url = if cover_art_path.is_none() {
         get_default_cover_art_path().to_str()
     } else {
@@ -58,6 +58,14 @@ pub(crate) async fn update_media_controls_metadata(
         macos_cover_file_url(path)
     };
     #[cfg(target_os = "macos")]
+    let cover_url = cover_url_owned.as_deref();
+
+    #[cfg(target_os = "ios")]
+    let cover_url_owned = ios_cover_path(
+        cover_art_path.map(|x| x.as_str()),
+        get_default_cover_art_path(),
+    );
+    #[cfg(target_os = "ios")]
     let cover_url = cover_url_owned.as_deref();
 
     let metadata = MediaMetadata {
@@ -84,6 +92,19 @@ fn macos_cover_file_url(path: &std::path::Path) -> Option<String> {
         return None;
     }
     url::Url::from_file_path(path).ok().map(Into::into)
+}
+
+// On iOS this value is read as a plain filesystem path, so a cover that is
+// relative or gone is replaced by the default cover. Linux and Windows pass
+// the path through unchecked, and macOS shows no cover in that case.
+#[cfg(any(target_os = "ios", test))]
+fn ios_cover_path(path: Option<&str>, default: &std::path::Path) -> Option<String> {
+    let usable = |path: &std::path::Path| path.is_absolute() && path.is_file();
+    path.map(std::path::Path::new)
+        .filter(|path| usable(path))
+        .or(Some(default).filter(|path| usable(path)))
+        .and_then(|path| path.to_str())
+        .map(Into::into)
 }
 
 pub(crate) async fn update_media_controls_progress(
@@ -118,7 +139,7 @@ pub(crate) async fn update_media_controls_progress(
 
 #[cfg(test)]
 mod cover_file_url_tests {
-    use super::macos_cover_file_url;
+    use super::{ios_cover_path, macos_cover_file_url};
     use std::path::Path;
     use std::time::SystemTime;
 
@@ -149,5 +170,42 @@ mod cover_file_url_tests {
         assert!(macos_cover_file_url(Path::new("relative.png")).is_none());
         assert!(macos_cover_file_url(&dir.join("rune-cover-url-nonexistent-53a246.png")).is_none());
         assert!(macos_cover_file_url(&dir).is_none());
+    }
+
+    #[test]
+    fn ios_cover_path_prefers_existing_absolute_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let cover = dir.path().join("cover.jpg");
+        let default = dir.path().join("default.png");
+        std::fs::write(&cover, b"test fixture").unwrap();
+        std::fs::write(&default, b"test fixture").unwrap();
+        assert_eq!(
+            ios_cover_path(cover.to_str(), &default),
+            cover.to_str().map(String::from)
+        );
+    }
+
+    #[test]
+    fn ios_cover_path_falls_back_to_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let default = dir.path().join("default.png");
+        std::fs::write(&default, b"test fixture").unwrap();
+        let expected = default.to_str().map(String::from);
+        let missing = dir.path().join("missing.jpg");
+        assert_eq!(
+            ios_cover_path(Some("cache/covers/a.jpg"), &default),
+            expected
+        );
+        assert_eq!(ios_cover_path(missing.to_str(), &default), expected);
+        assert_eq!(ios_cover_path(dir.path().to_str(), &default), expected);
+        assert_eq!(ios_cover_path(None, &default), expected);
+    }
+
+    #[test]
+    fn ios_cover_path_is_none_without_usable_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing.png");
+        assert_eq!(ios_cover_path(Some("relative.jpg"), &missing), None);
+        assert_eq!(ios_cover_path(None, &missing), None);
     }
 }

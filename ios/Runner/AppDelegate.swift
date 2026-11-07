@@ -112,6 +112,8 @@ class SceneDelegate: FlutterSceneDelegate {
     channel.setMethodCallHandler({ (call: FlutterMethodCall, result: @escaping FlutterResult) in
       if call.method == "get_directory_path" {
         FileSelector.shared.getDirectoryPath(result: result)
+      } else {
+        result(FlutterMethodNotImplemented)
       }
     })
 
@@ -136,10 +138,17 @@ class FileSelector: NSObject, UIDocumentPickerDelegate {
   static let shared = FileSelector()
 
   private var result: FlutterResult?
-  
+  // The picker that answers `result`. A picker it replaced may still call back, and is ignored.
+  private weak var picker: UIDocumentPickerViewController?
+
   private override init() {}
   
   func getDirectoryPath(result: @escaping FlutterResult) {
+    // An earlier call still waiting is answered as cancelled, so no caller waits forever, and its
+    // picker goes away, so it cannot answer this call.
+    finish(with: nil)
+    picker?.dismiss(animated: false)
+
     let activeWindow = UIApplication.shared.connectedScenes
       .compactMap { $0 as? UIWindowScene }
       .filter { $0.activationState == .foregroundActive }
@@ -155,13 +164,32 @@ class FileSelector: NSObject, UIDocumentPickerDelegate {
     let documentPicker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
     documentPicker.delegate = self
     documentPicker.allowsMultipleSelection = false
-    
-    viewController.present(documentPicker, animated: true)
-  }
-  
-  func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {  
-    urls.first?.startAccessingSecurityScopedResource()
-    result!(urls.first?.path)
+    picker = documentPicker
 
+    // present(_:) on a controller that is already presenting does nothing, so
+    // the picker goes on top of whatever is shown.
+    var presenter = viewController
+    while let presented = presenter.presentedViewController {
+      presenter = presented
+    }
+    presenter.present(documentPicker, animated: true)
+  }
+
+  func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+    guard controller === picker else { return }
+    _ = urls.first?.startAccessingSecurityScopedResource()
+    finish(with: urls.first?.path)
+  }
+
+  func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+    guard controller === picker else { return }
+    finish(with: nil)
+  }
+
+  /// Answers the waiting call once.
+  private func finish(with path: String?) {
+    let result = self.result
+    self.result = nil
+    result?(path)
   }
 }
