@@ -13,7 +13,7 @@ import '../l10n.dart';
 
 bool supportsOfflineSelection(BuildContext context) {
   final path = context.read<LibraryPathProvider>().currentPath;
-  return path != null;
+  return path != null && !path.startsWith('@RR|') && !path.startsWith('@LR|');
 }
 
 MenuFlyoutSubItem offlineSelectionMenu(

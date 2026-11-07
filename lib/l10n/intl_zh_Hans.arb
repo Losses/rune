@@ -1487,6 +1487,7 @@
   "devices": "设备",
   "playOn": "播放设备",
   "playOnSubtitle": "选择音频播放的位置。",
+  "playOnFixedToRemote": "固定到此远程设备",
   "playOnPlayingOn": "正在 {alias} 上播放",
   "@playOnPlayingOn": {"placeholders": {"alias": {"type": "String"}}},
   "playOnOffline": "离线",

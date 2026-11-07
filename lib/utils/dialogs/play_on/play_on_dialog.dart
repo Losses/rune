@@ -10,6 +10,7 @@ import '../../../utils/api/request_failure.dart';
 import '../../../utils/l10n.dart';
 import '../../../providers/renderer_attachment.dart';
 import '../../../providers/playlist.dart';
+import '../../../providers/library_path.dart';
 import '../../../utils/playing_item.dart';
 import '../../../widgets/rune_clickable.dart';
 
@@ -333,11 +334,19 @@ class PlayOnButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final renderer = Provider.of<RendererAttachmentProvider>(context).renderer;
+    final remoteLibrary =
+        Provider.of<LibraryPathProvider>(
+          context,
+        ).currentPath?.startsWith('@RR|') ??
+        false;
     return RuneClickable(
-      onPressed: () => showPlayOnDialog(context),
-      child: Icon(
-        Symbols.cast,
-        color: renderer == null ? null : FluentTheme.of(context).accentColor,
+      onPressed: remoteLibrary ? null : () => showPlayOnDialog(context),
+      child: Opacity(
+        opacity: remoteLibrary ? 0.48 : 1,
+        child: Icon(
+          Symbols.cast,
+          color: renderer == null ? null : FluentTheme.of(context).accentColor,
+        ),
       ),
     );
   }

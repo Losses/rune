@@ -1371,6 +1371,7 @@
   "devices": "Aparatoj",
   "playOn": "Ludi per",
   "playOnSubtitle": "Elektu kie aŭdio ludos.",
+  "playOnFixedToRemote": "Fiksita al ĉi tiu fora aparato",
   "playOnPlayingOn": "Ludante ĉe {alias}",
   "@playOnPlayingOn": {"placeholders": {"alias": {"type": "String"}}},
   "playOnOffline": "Senrete",

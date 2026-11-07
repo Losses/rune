@@ -237,7 +237,7 @@ Widget buildTrackItemContextMenu(
           );
         },
       ),
-      if (libraryPath != null)
+      if (libraryPath != null && !libraryPath.startsWith('@RR|'))
         MenuFlyoutItem(
           leading: const Icon(Symbols.cast),
           text: Text(S.of(context).playOn),
@@ -438,7 +438,7 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
         );
       },
     ),
-    if (libraryPath != null)
+    if (libraryPath != null && !libraryPath.startsWith('@RR|'))
       CommandBarButton(
         icon: Tooltip(
           message: S.of(context).playOn,

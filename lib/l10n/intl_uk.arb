@@ -1406,6 +1406,7 @@
   "devices": "Пристрої",
   "playOn": "Відтворювати на",
   "playOnSubtitle": "Виберіть пристрій для відтворення звуку.",
+  "playOnFixedToRemote": "Закріплено за цим віддаленим пристроєм",
   "playOnPlayingOn": "Відтворюється на {alias}",
   "@playOnPlayingOn": {"placeholders": {"alias": {"type": "String"}}},
   "playOnOffline": "Не в мережі",

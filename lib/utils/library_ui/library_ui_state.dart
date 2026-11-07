@@ -113,7 +113,7 @@ String describeLibraryPath(AppLocalizations s, String path) {
 
 // Whether the open local library is a read-only replica.
 bool currentLibraryIsReadOnly(String? path, List<LocalLibrary> libraries) {
-  if (path == null) return false;
+  if (path == null || path.startsWith('@RR|')) return false;
   return libraries.any((library) =>
       library.path == path &&
       library.ownerFingerprint != null &&

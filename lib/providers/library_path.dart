@@ -3,12 +3,14 @@ import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../utils/query_list.dart';
 import '../utils/api/library_registry.dart';
 import '../utils/library_ui/library_ui_state.dart';
 import '../utils/rune_log.dart';
 import '../utils/api/load_request.dart';
 import '../utils/api/request_failure.dart';
 import '../utils/api/set_media_library_path.dart';
+import '../utils/api/operate_playback_with_mix_query.dart';
 import '../utils/settings_manager.dart';
 import '../utils/router/navigation.dart';
 import '../utils/dialogs/select_library_mode/show_select_library_mode_dialog.dart';
@@ -22,20 +24,57 @@ final FileStorageService _fileStorageService = FileStorageService();
 @immutable
 class LibraryPathEntry {
   final String rawPath;
+  final String cleanPath;
+  final OperationDestination source;
+  final OperationDestination destination;
   final String alias;
 
-  const LibraryPathEntry._({required this.rawPath, required this.alias});
+  const LibraryPathEntry._({
+    required this.rawPath,
+    required this.cleanPath,
+    required this.source,
+    required this.destination,
+    required this.alias,
+  });
 
   factory LibraryPathEntry(String path, {String? alias}) {
+    final (src, dest) = determineConnectionType(path);
     return LibraryPathEntry._(
       rawPath: path,
-      alias: alias ?? _generateDefaultAlias(path),
+      cleanPath: removePrefix(path),
+      source: src,
+      destination: dest,
+      alias: alias ?? _generateDefaultAlias(removePrefix(path), src, dest),
     );
   }
 
-  static String _generateDefaultAlias(String path) {
-    final segments = path.split('/');
-    return segments.lastWhere((s) => s.isNotEmpty, orElse: () => path);
+  factory LibraryPathEntry.fromLegacy(String path) {
+    return LibraryPathEntry(path);
+  }
+
+  static String _generateDefaultAlias(
+    String cleanPath,
+    OperationDestination src,
+    OperationDestination dest,
+  ) {
+    if (src == OperationDestination.local &&
+        dest == OperationDestination.local) {
+      final segments = cleanPath.split('/');
+      return segments.lastWhere((s) => s.isNotEmpty, orElse: () => cleanPath);
+    }
+
+    final uri = Uri.tryParse(cleanPath);
+    if (uri != null && uri.host.isNotEmpty) {
+      return uri.host;
+    }
+    return cleanPath;
+  }
+
+  static String removePrefix(String? path) {
+    if (path == null) return "";
+    if (path.startsWith('@RR|')) return path.substring(4);
+    if (path.startsWith('@LR|')) return path.substring(4);
+    return path;
   }
 
   @override
@@ -49,14 +88,12 @@ class LibraryPathEntry {
   int get hashCode => rawPath.hashCode;
 
   @override
-  String toString() => rawPath;
+  String toString() => '[$source→$destination] $cleanPath';
 }
 
 Future<String?> getInitialPath() async {
-  const String libraryPath = String.fromEnvironment(
-    'LIBRARY_PATH',
-    defaultValue: "",
-  );
+  const String libraryPath =
+      String.fromEnvironment('LIBRARY_PATH', defaultValue: "");
   if (libraryPath.isNotEmpty) {
     return libraryPath;
   } else {
@@ -78,14 +115,12 @@ class LibraryPathProvider with ChangeNotifier {
 
   Future<void> _refreshAccess() async {
     final version = ++_refreshVersion;
-    if (_currentPath == null) return;
+    if (_currentPath == null || _currentPath!.startsWith('@RR|')) return;
     try {
       final libraries = await listLocalLibraries();
       if (_disposed || version != _refreshVersion) return;
-      final readOnly = currentLibraryIsReadOnly(
-        _currentPath,
-        libraries.libraries,
-      );
+      final readOnly =
+          currentLibraryIsReadOnly(_currentPath, libraries.libraries);
       if (readOnly != _readOnly) {
         _readOnly = readOnly;
         notifyListeners();
@@ -130,10 +165,7 @@ class LibraryPathProvider with ChangeNotifier {
   Set<LibraryPathEntry> get libraryHistory => _libraryHistory;
 
   Future<void> addLibraryPath(
-    BuildContext? context,
-    String filePath,
-    String alias,
-  ) async {
+      BuildContext? context, String filePath, String alias) async {
     final entry = LibraryPathEntry(filePath, alias: alias);
 
     if (_libraryHistory.add(entry)) {
@@ -156,7 +188,10 @@ class LibraryPathProvider with ChangeNotifier {
     var restoreLastIndex = false;
     Future<(bool, bool, String?, LibraryOpenErrorKind?)> openLibrary() async {
       final subscription = SetMediaLibraryPathResponse.rustSignalStream
-          .where((event) => event.message.path == filePath)
+          .where(
+            (event) =>
+                event.message.path == LibraryPathEntry.removePrefix(filePath),
+          )
           .listen((event) {
             restoreLastIndex = event.message.restoreLastIndex;
           });
@@ -220,17 +255,37 @@ class LibraryPathProvider with ChangeNotifier {
       _fileStorageService.storeFilePath(filePath);
 
       try {
-        if (!_openedLocalLibrary && restoreLastIndex) {
-          final mode = await SettingsManager().getValue<int>(kPlaybackModeKey);
-          if (mode != null && mode != 99) {
-            SetPlaybackModeRequest(mode: mode).sendSignalToRust();
-          }
-          final index = await SettingsManager().getValue<int>(
-            kLastQueueIndexKey,
+        if (filePath.startsWith('@RR|')) {
+          await operatePlaybackWithMixQuery(
+            queries: const QueryList([("lib::queue", "true")]),
+            playbackMode:
+                await SettingsManager().getValue<int>(kPlaybackModeKey) ?? 99,
+            hintPosition: -1,
+            initialPlaybackId: 0,
+            instantlyPlay: false,
+            operateMode: PlaylistOperateMode.replace,
+            fallbackPlayingItems: [],
           );
-          load(index ?? 0);
+
+          final lastQueueIndex = await (SettingsManager().getValue(
+            kLastQueueIndexKey,
+          ));
+          load(lastQueueIndex ?? 0);
+        } else {
+          if (!_openedLocalLibrary && restoreLastIndex) {
+            final mode = await SettingsManager().getValue<int>(
+              kPlaybackModeKey,
+            );
+            if (mode != null && mode != 99) {
+              SetPlaybackModeRequest(mode: mode).sendSignalToRust();
+            }
+            final index = await SettingsManager().getValue<int>(
+              kLastQueueIndexKey,
+            );
+            load(index ?? 0);
+          }
+          _openedLocalLibrary = true;
         }
-        _openedLocalLibrary = true;
       } on RequestFailure {
         // Opening the library does not depend on restoring its queue.
       }
@@ -242,7 +297,32 @@ class LibraryPathProvider with ChangeNotifier {
     return (success, false, error, errorKind);
   }
 
-  List<LibraryPathEntry> getLibraryPaths() => _libraryHistory.toList();
+  List<LibraryPathEntry> _filterEntries({
+    OperationDestination? source,
+    OperationDestination? destination,
+  }) {
+    return _libraryHistory.where((entry) {
+      final sourceMatch = source == null || entry.source == source;
+      final destMatch = destination == null || entry.destination == destination;
+      return sourceMatch && destMatch;
+    }).toList();
+  }
+
+  List<LibraryPathEntry> getRRPaths() => _filterEntries(
+        source: OperationDestination.remote,
+        destination: OperationDestination.remote,
+      );
+
+  List<LibraryPathEntry> getLLPaths() => _filterEntries(
+        source: OperationDestination.local,
+        destination: OperationDestination.local,
+      );
+
+  List<LibraryPathEntry> getAnySourceRemotePaths() =>
+      _filterEntries(destination: OperationDestination.remote);
+
+  List<LibraryPathEntry> getAnyDestinationRemotePaths() =>
+      _filterEntries(source: OperationDestination.remote);
 
   Future<void> clearAllOpenedFiles() async {
     await _fileStorageService.clearAllOpenedFiles();
@@ -271,6 +351,16 @@ class LibraryPathProvider with ChangeNotifier {
 
     if (hasChanged) {
       notifyListeners();
+    }
+  }
+
+  Future<void> removeOpenedFileByCleanPath(String cleanPath) async {
+    final toRemove =
+        _libraryHistory.where((e) => e.cleanPath == cleanPath).toList();
+
+    for (final entry in toRemove) {
+      await _fileStorageService.removeFilePath(entry.rawPath);
+      _libraryHistory.remove(entry);
     }
   }
 

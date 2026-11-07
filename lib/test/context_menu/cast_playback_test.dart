@@ -31,12 +31,12 @@ void main() {
     },
   );
 
-  testWidgets('collection Play on is available for the open library', (
+  testWidgets('collection Play on is hidden for a remote-control library', (
     tester,
   ) async {
     await tester.pumpWidget(
       ChangeNotifierProvider<LibraryPathProvider>(
-        create: (_) => _TestLibraryPathProvider('/music'),
+        create: (_) => _TestLibraryPathProvider('@RR|ws://renderer'),
         child: FluentApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
@@ -65,7 +65,7 @@ void main() {
       ),
     );
 
-    expect(find.text('true'), findsOneWidget);
+    expect(find.text('false'), findsOneWidget);
   });
 }
 

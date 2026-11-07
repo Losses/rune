@@ -23,6 +23,7 @@ import '../../../providers/visualizer_scenes.dart';
 import '../../../providers/responsive_providers.dart';
 import '../../../providers/visualizer_lab.dart';
 import '../../../providers/renderer_attachment.dart';
+import '../../../providers/library_path.dart';
 import '../../../utils/visualizer_supported.dart';
 
 import '../lyric_button.dart';
@@ -446,6 +447,10 @@ List<ControllerEntry> controllerItems = [
     shortcuts: null,
     onShortcut: null,
     tooltipBuilder: (context) {
+      final remotePath = Provider.of<LibraryPathProvider>(context).currentPath;
+      if (remotePath?.startsWith('@RR|') ?? false) {
+        return S.of(context).playOnFixedToRemote;
+      }
       final renderer = Provider.of<RendererAttachmentProvider>(context).renderer;
       return renderer == null
           ? S.of(context).playOn
@@ -453,13 +458,16 @@ List<ControllerEntry> controllerItems = [
     },
     controllerButtonBuilder: (context, shadows) => const PlayOnButton(),
     flyoutEntryBuilder: (context) async {
+      final remotePath = Provider.of<LibraryPathProvider>(context, listen: false).currentPath;
       return MenuFlyoutItem(
         leading: const Icon(Symbols.cast),
         text: Text(S.of(context).playOn),
-        onPressed: () {
-          Navigator.pop(context);
-          showPlayOnDialog(context);
-        },
+        onPressed: remotePath?.startsWith('@RR|') ?? false
+            ? null
+            : () {
+                Navigator.pop(context);
+                showPlayOnDialog(context);
+              },
       );
     },
   ),

@@ -17,6 +17,7 @@ import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../bindings/bindings.dart';
 import '../../providers/broadcast.dart';
 import '../../providers/controllers.dart';
+import '../../providers/library_path.dart';
 import '../../utils/router/navigation.dart';
 import '../settings_server/widgets/peer_libraries_dialog.dart';
 import '../settings_neighbors/widgets/edit_device_information_setting_button.dart';
@@ -248,7 +249,11 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
                     child: Text(S.of(context).review),
                   ),
                   const SizedBox(width: 12),
-                  if (client.status == ClientStatus.approved) ...[
+                  if (client.status == ClientStatus.approved &&
+                      !(Provider.of<LibraryPathProvider>(
+                            context,
+                          ).currentPath?.startsWith('@RR|') ??
+                          false)) ...[
                     Button(
                       onPressed: () => $showModal<void>(
                         context,

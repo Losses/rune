@@ -141,5 +141,6 @@ void main() {
     expect(currentLibraryIsReadOnly('/write', libraries), false);
     expect(currentLibraryIsReadOnly('/unknown', libraries), false);
     expect(currentLibraryIsReadOnly('/missing', libraries), false);
+    expect(currentLibraryIsReadOnly('@RR|/read', libraries), false);
   });
 }
