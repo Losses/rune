@@ -17,6 +17,11 @@ class LargeScreenSearchTrackListImplementation extends StatelessWidget {
   final List<SearchCard>? items;
   final int groupId;
 
+  /// Null where the grid is the page's scroll view. Where it sits in one with
+  /// other groups, a drag that starts on a card must reach that one, so the
+  /// grid takes [NeverScrollableScrollPhysics].
+  final ScrollPhysics? physics;
+
   const LargeScreenSearchTrackListImplementation({
     super.key,
     required this.rows,
@@ -26,12 +31,14 @@ class LargeScreenSearchTrackListImplementation extends StatelessWidget {
     required this.collectionType,
     required this.items,
     required this.groupId,
+    this.physics,
   });
 
   @override
   Widget build(BuildContext context) {
     return GridView(
       shrinkWrap: true,
+      physics: physics,
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: rows,
