@@ -43,10 +43,9 @@ use ::fsio::FsIo;
 use ::playback::{player::MockPlayer, sfx_player::SfxPlayer};
 use ::scrobbling::manager::MockScrobblingManager;
 
-use crate::macros::{RequestAccess, request_access, request_uses_controller_library};
 use crate::register_response_handlers;
+use crate::rpc::dispatch_gui_request;
 use crate::{
-    Signal,
     messages::*,
     server::{
         api::fetch_device_info_at_port,
@@ -55,7 +54,7 @@ use crate::{
             SyncTokenStore, obtain_or_reuse_token, peer_base, tls_config, trusted_fingerprint,
         },
     },
-    utils::{Broadcaster, GlobalParams, ParamsExtractor, RinfRustSignal, RunningMode, TaskTokens},
+    utils::{Broadcaster, GlobalParams, RinfRustSignal, RunningMode, TaskTokens},
 };
 
 pub trait RinfDartSignal {
@@ -344,18 +343,6 @@ impl RendererLink {
         }
     }
 
-    /// Forward a serialized control request to the renderer.
-    /// This stays raw because Dart's control signal is already encoded at the relay boundary.
-    pub async fn forward(&self, name: &str, payload: &[u8]) -> Result<()> {
-        let frame = encode_message(name, payload, Some(Uuid::new_v4()));
-        self.write
-            .lock()
-            .await
-            .send(TungsteniteMessage::Binary(frame.into()))
-            .await
-            .context("Could not send control request to renderer")
-    }
-
     /// Send a catalogue-declared request and decode its declared response.
     pub async fn call<R>(&self, request: &R) -> Result<R::Response>
     where
@@ -432,32 +419,6 @@ impl RendererLink {
     }
 }
 
-/// Route a classified, already-encoded Dart control request through the attached renderer.
-/// Returns `false` when this request remains local.
-pub async fn forward_control_request(
-    node: &NodeContext,
-    name: &str,
-    payload: &[u8],
-) -> Result<bool> {
-    if !is_control_request(name) {
-        return Ok(false);
-    }
-    let Some(link) = node.renderer_link()? else {
-        return Ok(false);
-    };
-    if is_mix_query_request(name) {
-        return Ok(false);
-    }
-    if let Err(error) = link.forward(name, payload).await {
-        link.report_send_failure(format!("Could not send request to renderer: {error:#}"))
-            .await;
-        return Err(anyhow::Error::new(ExpectedRequestError::Unavailable {
-            what: "renderer",
-        }));
-    }
-    Ok(true)
-}
-
 /// Turn a reply frame the hub waited for into its typed outcome.
 fn renderer_reply(name: String, body: Vec<u8>) -> Result<(String, Vec<u8>)> {
     if name != "RemoteRequestFailed" {
@@ -471,14 +432,6 @@ fn renderer_reply(name: String, body: Vec<u8>) -> Result<(String, Vec<u8>)> {
         cause: failure.cause,
     }
     .into())
-}
-
-pub fn is_mix_query_request(name: &str) -> bool {
-    request_uses_controller_library(name)
-}
-
-pub fn is_control_request(name: &str) -> bool {
-    matches!(request_access(name), Some(RequestAccess::Control))
 }
 
 impl Drop for RendererLink {

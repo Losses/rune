@@ -1,7 +1,4 @@
-use crate::{
-    Signal,
-    utils::{GlobalParams, ParamsExtractor, TaskTokens},
-};
+use crate::utils::{GlobalParams, TaskTokens};
 use crate::{node::NodeContext, utils::RunningMode};
 #[macro_use]
 mod gui_request;
@@ -9,6 +6,7 @@ mod gui_request;
 use std::sync::{Arc, OnceLock};
 
 use crate::request_error::classify;
+use crate::rpc::dispatch_gui_request;
 use log::{error, info, warn};
 use tokio::sync::Mutex;
 

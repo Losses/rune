@@ -1,5 +1,5 @@
 use proc_macro::TokenStream;
-use quote::quote;
+use quote::{format_ident, quote};
 
 #[derive(Clone, Copy, PartialEq)]
 enum RequestScope {
@@ -1177,6 +1177,47 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         })
         .collect();
 
+    let slot_fields: Vec<_> = types
+        .iter()
+        .map(|entry| {
+            let mut name = String::new();
+            for (index, ch) in entry.request.chars().enumerate() {
+                if ch.is_uppercase() && index != 0 {
+                    name.push('_');
+                }
+                name.extend(ch.to_lowercase());
+            }
+            format_ident!("{}", name)
+        })
+        .collect();
+    let target_request_impls = types.iter().zip(&slot_fields).map(|(entry, field)| {
+        let request = format_ident!("{}", entry.request);
+        let scope = match entry.scope {
+            RequestScope::Node => quote! { RequestScope::Node },
+            RequestScope::Session => quote! { RequestScope::Session },
+            RequestScope::Library => quote! { RequestScope::Library },
+        };
+        let controller_library = entry.uses_controller_library;
+        quote! {
+            impl TargetRequest for #request {
+                const SCOPE: RequestScope = #scope;
+                const USES_CONTROLLER_LIBRARY: bool = #controller_library;
+
+                fn slot(slots: &RequestSlots) -> Slot {
+                    slots.#field
+                }
+            }
+        }
+    });
+    let session_slots = types
+        .iter()
+        .zip(&slot_fields)
+        .filter(|(entry, _)| entry.scope == RequestScope::Session)
+        .map(|(entry, field)| {
+            let name = &entry.request;
+            quote! { (#name, self.#field) }
+        });
+
     let non_local_requests: Vec<_> = types
         .iter()
         .filter(|t| t.access != RequestAccess::NodeLocal)
@@ -1256,6 +1297,35 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
     let expanded = quote! {
         #(#call_id_impls)*
         #(#typed_request_impls)*
+        #(#target_request_impls)*
+
+        /// Catalogue-generated slots shared by every RPC target.
+        pub struct RequestSlots {
+            #(pub(crate) #slot_fields: Slot,)*
+        }
+
+        impl RequestSlots {
+            pub fn unimplemented() -> Self {
+                Self { #(#slot_fields: Slot::Unsupported { reason: UnsupportedReason::NotImplemented },)* }
+            }
+
+            pub fn local() -> Self {
+                let mut slots = Self::unimplemented();
+                #(slots.#slot_fields = Slot::Native;)*
+                slots
+            }
+
+            pub fn rune() -> Self {
+                let mut slots = Self::unimplemented();
+                #(slots.#slot_fields = Slot::Forward;)*
+                slots
+            }
+
+            #[cfg(test)]
+            pub(crate) fn session_slots(&self) -> Vec<(&'static str, Slot)> {
+                vec![#(#session_slots),*]
+            }
+        }
 
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub enum RequestAccess { NodeLocal, Control, ConnectionView, ConnectionEdit, Administer }

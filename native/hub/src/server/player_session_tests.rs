@@ -4,16 +4,18 @@ use std::{path::PathBuf, sync::Mutex as StdMutex};
 
 use crate::{
     access_policy::{ConnectionLevel, SyncLevel},
+    backends::remote::{RendererLink, RendererLinkUse},
     handlers::playback::{
         playing_item_from_request, playing_item_requests, session_snapshot_from_status,
     },
     messages::{
         CastLibraryState, CastPreflightRequest, GetMediaFilesCountRequest, InLibraryPlayingItem,
-        LibraryItemRequest, ListRenderersRequest, PlayingItemRequest, PlaylistUpdate,
-        RendererAvailability, RendererCandidate, RequestErrorKind, RequestFailureCause,
-        SwitchRequest,
+        LibraryItemRequest, ListControllersRequest, ListRenderersRequest, PlayingItemRequest,
+        PlaylistUpdate, RendererAvailability, RendererCandidate, RequestErrorKind,
+        RequestFailureCause, SwitchRequest, VolumeRequest,
     },
     request_error::{ExpectedRequestError, classify},
+    rpc::{RpcTarget, Slot, UnsupportedReason, dispatch_gui_request, run_on_target},
     session::store::SessionState,
 };
 use database::actions::{
@@ -36,9 +38,11 @@ use playback::{
 use sea_orm::sea_query::Expr;
 use sea_orm::{EntityTrait, Set};
 use serde::de::DeserializeOwned;
+use tokio::net::TcpListener as TokioTcpListener;
 #[cfg(target_os = "linux")]
 use tokio::runtime::Builder;
 use tokio::time::{Instant, sleep, timeout};
+use tokio_tungstenite::{accept_async, connect_async};
 
 #[cfg(target_os = "linux")]
 #[test]
@@ -244,7 +248,6 @@ async fn queue_session(f: &Fixture, ids: &[i32]) -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -> Result<()> {
-    use crate::backends::remote::forward_control_request;
     use crate::messages::{
         MovePlaylistItemRequest, PauseRequest, PlayRequest, RendererAttachmentChanged,
     };
@@ -338,38 +341,55 @@ async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -
         .len();
     assert_eq!(local_queue_len, 1);
 
-    assert!(
-        forward_control_request(
-            &a.global_params.node,
-            "PlayRequest",
-            &rinf::serialize(&PlayRequest {})?,
-        )
+    let local_volume = a
+        .global_params
+        .node
+        .session()?
+        .playback_snapshot()
+        .await
+        .0
+        .volume;
+    let volume = dispatch_gui_request(&a.global_params, &VolumeRequest { volume: 0.63 })
         .await?
+        .context("renderer volume response")?;
+    assert_eq!(volume.volume, 0.63);
+    wait_player(&b, |status| status.volume == 0.63).await?;
+    assert_eq!(
+        a.global_params
+            .node
+            .session()?
+            .playback_snapshot()
+            .await
+            .0
+            .volume,
+        local_volume
     );
+
+    dispatch_gui_request(&a.global_params, &PlayRequest {}).await?;
     wait_player(&b, |status| status.state == PlaybackState::Playing).await?;
-    assert!(
-        forward_control_request(
-            &a.global_params.node,
-            "PauseRequest",
-            &rinf::serialize(&PauseRequest {})?,
-        )
-        .await?
+    assert_eq!(
+        a.global_params
+            .node
+            .session()?
+            .playback_snapshot()
+            .await
+            .0
+            .state,
+        PlaybackState::Paused
     );
+    dispatch_gui_request(&a.global_params, &PauseRequest {}).await?;
     wait_player(&b, |status| status.state == PlaybackState::Paused).await?;
 
     let revision = b.global_params.node.session()?.queue_revision().await;
-    assert!(
-        forward_control_request(
-            &a.global_params.node,
-            "MovePlaylistItemRequest",
-            &rinf::serialize(&MovePlaylistItemRequest {
-                old_index: 0,
-                new_index: 1,
-                expected_revision: Some(revision),
-            })?,
-        )
-        .await?
-    );
+    dispatch_gui_request(
+        &a.global_params,
+        &MovePlaylistItemRequest {
+            old_index: 0,
+            new_index: 1,
+            expected_revision: Some(revision),
+        },
+    )
+    .await?;
     wait_player(&b, |status| {
         status.playlist.first().is_some_and(|item| {
             matches!(item, PlayingItem::InLibrary(library_item) if library_item.file_uuid == expected_first_uuid)
@@ -878,7 +898,6 @@ async fn old_renderer_reader_cannot_clear_a_new_link() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn mix_query_forwarding_leaves_it_for_local_resolution() -> Result<()> {
-    use crate::backends::remote::forward_control_request;
     use crate::messages::OperatePlaybackWithMixQueryRequest;
 
     let a_dir = tempfile::tempdir()?;
@@ -907,32 +926,24 @@ async fn mix_query_forwarding_leaves_it_for_local_resolution() -> Result<()> {
         expected_revision: None,
         cast_to: None,
     };
-    let forwarded = forward_control_request(
-        &a.global_params.node,
-        "OperatePlaybackWithMixQueryRequest",
-        &rinf::serialize(&request)?,
-    )
-    .await?;
-    assert!(
-        !forwarded,
-        "mix queries must run locally for cast resolution"
-    );
+    assert!(matches!(
+        RpcTarget::select(&a.global_params.node, &request)?.slot(&request),
+        Slot::Native
+    ));
     assert_eq!(
         b.global_params.player.lock().await.get_status().playlist,
         before
     );
 
     let read = GetMediaFilesCountRequest {};
-    assert!(
-        !forward_control_request(
-            &a.global_params.node,
-            "GetMediaFilesCountRequest",
-            &rinf::serialize(&read)?,
-        )
+    assert!(matches!(
+        RpcTarget::select(&a.global_params.node, &read)?.slot(&read),
+        Slot::Native
+    ));
+    let response = dispatch_gui_request(&a.global_params, &read)
         .await?
-    );
-    let params = read.extract_params(&a.global_params);
-    assert!(read.handle(params, None, &read).await?.is_some());
+        .context("local library count response")?;
+    assert_eq!(response.count, 0);
     a.global_params.node.detach_renderer().await?;
     a.global_params.node.shutdown().await?;
     b.global_params.node.shutdown().await?;
@@ -4804,5 +4815,109 @@ async fn typed_renderer_call_rejects_wrong_reply_name() -> Result<()> {
     link.close();
     fake_renderer.await??;
     fixture.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn rpc_target_local_session_changes_local_state() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let local = fixture(dir.path()).await?;
+    let request = VolumeRequest { volume: 0.37 };
+    assert!(local.global_params.node.renderer_link()?.is_none());
+    let response = dispatch_gui_request(&local.global_params, &request)
+        .await?
+        .context("native volume response")?;
+    assert_eq!(response.volume, 0.37);
+    wait_player(&local, |status| status.volume == 0.37).await?;
+    local.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn rpc_target_session_catalogue_matches_registered_peer_handlers() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let peer = fixture(dir.path()).await?;
+    let service = peer.global_params.node.websocket_service.clone();
+    register_request_handlers(service.clone(), peer.global_params.node.clone()).await;
+    let handlers = service.handlers.lock().await;
+    for (name, slot) in RpcTarget::rune_slots().session_slots() {
+        match slot {
+            Slot::Forward => assert!(handlers.contains_key(name), "{name} has no peer handler"),
+            Slot::Unsupported { reason } => {
+                assert_eq!(reason, UnsupportedReason::OwnerOnly);
+                assert!(
+                    !handlers.contains_key(name),
+                    "{name} no longer needs its blacklist entry"
+                );
+            }
+            _ => panic!("Rune session slot {name} is neither forwarded nor blacklisted"),
+        }
+    }
+    drop(handlers);
+    peer.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn rpc_target_blacklisted_request_returns_typed_failure_without_sending() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let controller = fixture(dir.path()).await?;
+    let listener = TokioTcpListener::bind("127.0.0.1:0").await?;
+    let address = listener.local_addr()?;
+    let accepting = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await?;
+        Ok::<_, anyhow::Error>(accept_async(stream).await?)
+    });
+    let (stream, _) = connect_async(format!("ws://{address}")).await?;
+    let mut peer = accepting.await??;
+    let link = RendererLink::new(
+        stream,
+        controller.global_params.node.clone(),
+        "blacklist-peer".to_owned(),
+        "Blacklist peer".to_owned(),
+        RendererLinkUse::Control,
+    )
+    .await;
+    controller
+        .global_params
+        .node
+        .install_renderer_link(link, "Blacklist peer".to_owned())?;
+    // This node's own coordinators stay local while a renderer is attached.
+    let controllers = dispatch_gui_request(&controller.global_params, &ListControllersRequest {})
+        .await?
+        .context("local controller list")?;
+    assert!(controllers.controllers.is_empty());
+
+    // A request the Rune target lists as unsupported fails before anything is sent.
+    let link = controller
+        .global_params
+        .node
+        .renderer_link()?
+        .context("attached renderer")?;
+    let target = RpcTarget::rune(link).with_slots(|slots| {
+        slots.pause_request = Slot::Unsupported {
+            reason: UnsupportedReason::OwnerOnly,
+        }
+    });
+    let error = run_on_target(&target, &controller.global_params, &PauseRequest {})
+        .await
+        .err()
+        .context("blacklisted request unexpectedly succeeded")?;
+    assert!(matches!(
+        error.downcast_ref::<ExpectedRequestError>(),
+        Some(ExpectedRequestError::Unsupported {
+            request: "PauseRequest",
+            reason: UnsupportedReason::OwnerOnly,
+        })
+    ));
+    assert_eq!(classify(&error), RequestErrorKind::Unavailable);
+    assert!(
+        timeout(Duration::from_millis(100), peer.next())
+            .await
+            .is_err(),
+        "blacklisted request sent a frame"
+    );
+    controller.global_params.node.detach_renderer().await?;
+    controller.global_params.node.shutdown().await?;
     Ok(())
 }

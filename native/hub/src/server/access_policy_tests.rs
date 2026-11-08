@@ -2,8 +2,10 @@ mod access_policy_tests {
     use super::*;
     use super::player_session_tests::replicate_host_library_at;
     use crate::access_policy::{ConnectionLevel, DeviceGrants, SyncLevel};
-    use crate::backends::remote::{connect_remote, is_mix_query_request};
-    use crate::macros::{RequestAccess, request_access, request_scope};
+    use crate::backends::remote::connect_remote;
+    use crate::macros::{
+        RequestAccess, request_access, request_scope, request_uses_controller_library,
+    };
     use crate::messages::RemoveTrustedClientRequest;
     use crate::messages::{CastLibraryState, RendererAvailability};
     use crate::server::libraries::{
@@ -1158,10 +1160,10 @@ mod access_policy_tests {
             };
         }
         for_all_non_local_requests!(assert_non_local_access, ());
-        assert!(is_mix_query_request(
+        assert!(request_uses_controller_library(
             "OperatePlaybackWithMixQueryRequest"
         ));
-        assert!(!is_mix_query_request("PlayRequest"));
+        assert!(!request_uses_controller_library("PlayRequest"));
     }
 
     #[tokio::test]

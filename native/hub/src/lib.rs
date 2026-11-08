@@ -13,6 +13,7 @@ pub mod library_pool;
 pub mod messages;
 pub mod node;
 pub mod request_error;
+pub mod rpc;
 pub(crate) use request_error::request_failure_cause;
 pub mod session;
 #[macro_use]
@@ -67,8 +68,6 @@ pub trait TypedRequest {
     fn wire_name() -> &'static str;
     fn response_name() -> &'static str;
 }
-
-pub(crate) use backends::remote::{forward_control_request, is_control_request};
 
 rinf::write_interface!();
 

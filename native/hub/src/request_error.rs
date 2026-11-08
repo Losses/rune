@@ -4,6 +4,7 @@ use thiserror::Error as ThisError;
 
 use crate::access_policy::Denial;
 use crate::messages::{CastLibraryState, RequestErrorKind, RequestFailureCause};
+use crate::rpc::UnsupportedReason;
 
 /// Expected failures at the request boundary.
 #[derive(Debug, ThisError)]
@@ -12,6 +13,11 @@ pub enum ExpectedRequestError {
     InvalidInput { detail: String },
     #[error("{what} unavailable")]
     Unavailable { what: &'static str },
+    #[error("{request} is unsupported by this target: {reason}")]
+    Unsupported {
+        request: &'static str,
+        reason: UnsupportedReason,
+    },
     #[error("A host presented a different certificate")]
     CertificateMismatch,
     #[error("The submitted public key does not match its fingerprint")]
@@ -75,7 +81,8 @@ pub fn classify(error: &Error) -> RequestErrorKind {
         if let Some(expected) = cause.downcast_ref::<ExpectedRequestError>() {
             return match expected {
                 ExpectedRequestError::InvalidInput { .. } => RequestErrorKind::InvalidInput,
-                ExpectedRequestError::Unavailable { .. } => RequestErrorKind::Unavailable,
+                ExpectedRequestError::Unavailable { .. }
+                | ExpectedRequestError::Unsupported { .. } => RequestErrorKind::Unavailable,
                 ExpectedRequestError::CertificateMismatch => RequestErrorKind::InvalidInput,
                 ExpectedRequestError::PublicKeyMismatch => RequestErrorKind::InvalidInput,
                 ExpectedRequestError::RegistrationConflict => RequestErrorKind::Conflict,
