@@ -6,21 +6,19 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Result;
 use tokio::{
     task::JoinHandle,
     time::{Instant, sleep, sleep_until},
 };
 use tokio_util::sync::CancellationToken;
 
-use super::{NodeContext, UiLibrary};
+use super::{CatalogBinding, NodeContext, UiLibrary};
 use crate::{
     backends::remote::{RemoteConnectError, RendererLink, RendererLinkUse},
     messages::{
         RefreshSessionRequest, RemoteConnectionLost, RemoteLibraryReconnected, RemoteLossKind,
         RendererAttachmentChanged,
     },
-    request_error::ExpectedRequestError,
 };
 
 #[derive(Clone)]
@@ -112,7 +110,7 @@ impl Drop for ReconnectTask {
 impl NodeContext {
     fn begin_reconnect_attempt(&self, fingerprint: &str, cancel: &CancellationToken) -> bool {
         self.ui_library.lock().is_ok_and(|ui| {
-            let active = !cancel.is_cancelled() && matches!(&*ui, UiLibrary::Remote { fingerprint: current, reconnect: Some(_) } if current == fingerprint);
+            let active = !cancel.is_cancelled() && matches!(&*ui, UiLibrary::Open(open) if matches!(&open.catalog, CatalogBinding::RemotePeer { fingerprint: current, reconnect: Some(_) } if current == fingerprint));
             #[cfg(test)]
             if active {
                 self.reconnect_attempts.fetch_add(1, Ordering::SeqCst);
@@ -131,10 +129,13 @@ impl NodeContext {
         let Ok(mut ui) = self.ui_library.lock() else {
             return None;
         };
-        let UiLibrary::Remote {
+        let UiLibrary::Open(open) = &mut *ui else {
+            return None;
+        };
+        let CatalogBinding::RemotePeer {
             fingerprint: current,
             reconnect,
-        } = &mut *ui
+        } = &mut open.catalog
         else {
             return None;
         };
@@ -162,29 +163,6 @@ impl NodeContext {
         self.gui_broadcaster
             .broadcast(&RendererAttachmentChanged { renderer: None });
         None
-    }
-
-    pub(crate) fn remote_ui_renderer(&self) -> Result<Arc<RendererLink>> {
-        let ui = self
-            .ui_library
-            .lock()
-            .map_err(|_| anyhow::anyhow!("UI library lock poisoned"))?;
-        if let UiLibrary::Remote {
-            reconnect: Some(task),
-            ..
-        } = &*ui
-        {
-            return Err(ExpectedRequestError::Reconnecting {
-                alias: task.alias.clone(),
-            }
-            .into());
-        }
-        self.renderer_link()?.ok_or_else(|| {
-            ExpectedRequestError::Unavailable {
-                what: "remote UI library",
-            }
-            .into()
-        })
     }
 
     #[cfg(test)]

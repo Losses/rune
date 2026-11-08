@@ -28,7 +28,7 @@ use crate::{
     Session, Signal, TaskTokens,
     library_pool::LibraryHandle,
     messages::*,
-    node::NodeContext,
+    node::{CatalogTarget, NodeContext},
     server::http::file::validate_remote_media_path,
     utils::{Broadcaster, GlobalParams, ParamsExtractor, determine_batch_size, require_library},
 };
@@ -67,7 +67,9 @@ impl Signal for CloseLibraryRequest {
             node,
         } = params;
         let request = dart_signal;
-        if library.is_none() && node.remote_ui_library()? {
+        if library.is_none()
+            && let CatalogTarget::RemotePeer = node.catalog_target()?
+        {
             node.close_ui(&main_token).await;
             return Ok(Some(CloseLibraryResponse {
                 path: request.path.clone(),

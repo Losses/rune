@@ -197,6 +197,7 @@ pub struct OpenLibraryFailure {
 pub struct OpenLibraryResponse {
     pub call_id: u64,
     pub record_id: String,
+    pub generation: u64,
     pub result: OpenLibraryResult,
 }
 

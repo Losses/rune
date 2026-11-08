@@ -296,6 +296,7 @@ async fn handle_media_library_path(
                         .context("Replica has no storage root")?;
                     Ok(Some((
                         id,
+                        descriptor.record_id,
                         root.to_str()
                             .context("Replica path is not UTF-8")?
                             .to_owned(),
@@ -365,10 +366,17 @@ async fn handle_media_library_path(
                 let database_mode = dart_signal.message.mode;
                 info!("Received path: {media_library_path}");
 
-                if let Some((id, _)) = replica_root {
+                if let Some((id, record_id, _)) = replica_root {
                     let opened = node.library_pool.acquire_ui(id).await;
-                    finish_local_open(opened, &node, &scrobbler, &broadcaster, media_library_path)
-                        .await;
+                    finish_local_open(
+                        opened,
+                        Some(record_id),
+                        &node,
+                        &scrobbler,
+                        &broadcaster,
+                        media_library_path,
+                    )
+                    .await;
                     return;
                 }
 
@@ -426,17 +434,42 @@ async fn handle_media_library_path(
                     let descriptor =
                         resolve_library(&fsio, &mut registry, media_library_path, alias, mode)
                             .await?;
-                    node.library_pool
+                    let record_id = descriptor.record_id;
+                    let opened = node
+                        .library_pool
                         .acquire_ui(
                             descriptor
                                 .catalog_library_id()
                                 .context("Resolved endpoint has no catalog")?,
                         )
-                        .await
+                        .await?;
+                    Ok::<_, anyhow::Error>((opened, Some(record_id)))
                 }
                 .await;
-                finish_local_open(opened, &node, &scrobbler, &broadcaster, media_library_path)
-                    .await;
+                match opened {
+                    Ok((opened, record_id)) => {
+                        finish_local_open(
+                            Ok(opened),
+                            record_id,
+                            &node,
+                            &scrobbler,
+                            &broadcaster,
+                            media_library_path,
+                        )
+                        .await
+                    }
+                    Err(error) => {
+                        finish_local_open(
+                            Err(error),
+                            None,
+                            &node,
+                            &scrobbler,
+                            &broadcaster,
+                            media_library_path,
+                        )
+                        .await
+                    }
+                }
             }
             OperationDestination::Remote => {
                 match open_remote_library(node, media_library_path).await {
@@ -625,6 +658,7 @@ async fn open_library_by_record(
             return OpenLibraryResponse {
                 call_id: request.call_id,
                 record_id: request.record_id.clone(),
+                generation: 0,
                 result: OpenLibraryResult::Failed(OpenLibraryFailure {
                     kind: OpenLibraryFailureKind::Storage,
                     detail: format!("{error:#}"),
@@ -644,6 +678,7 @@ pub(crate) async fn open_library_by_record_on_node(
     let failed = |kind, error: anyhow::Error| OpenLibraryResponse {
         call_id: request.call_id,
         record_id: request.record_id.clone(),
+        generation: 0,
         result: OpenLibraryResult::Failed(OpenLibraryFailure {
             kind,
             detail: format!("{error:#}"),
@@ -733,8 +768,15 @@ pub(crate) async fn open_library_by_record_on_node(
                     anyhow::anyhow!("Fingerprint is no longer trusted"),
                 ))
             } else {
-                match open_remote_library_for_fingerprint(node.clone(), fingerprint, hosts).await {
-                    Ok(_) => Ok(()),
+                match open_remote_library_for_fingerprint(
+                    node.clone(),
+                    fingerprint,
+                    hosts,
+                    Some(record.record_id),
+                )
+                .await
+                {
+                    Ok((_, generation)) => Ok(generation),
                     Err(error) => Err((remote_open_failure(&error), error)),
                 }
             }
@@ -745,9 +787,10 @@ pub(crate) async fn open_library_by_record_on_node(
         )),
     };
     match result {
-        Ok(()) => OpenLibraryResponse {
+        Ok(generation) => OpenLibraryResponse {
             call_id: request.call_id,
             record_id: request.record_id.clone(),
+            generation,
             result: OpenLibraryResult::Opened,
         },
         Err((kind, error)) => failed(kind, error),
@@ -767,7 +810,7 @@ async fn open_catalog_record(
     path: Option<&str>,
     scrobbler: Arc<Mutex<ScrobblingManager>>,
     broadcaster: &Arc<dyn Broadcaster>,
-) -> std::result::Result<(), (OpenLibraryFailureKind, anyhow::Error)> {
+) -> std::result::Result<u64, (OpenLibraryFailureKind, anyhow::Error)> {
     if let Some(path) = path {
         #[cfg(not(target_os = "android"))]
         let fsio = FsIo::new();
@@ -788,7 +831,7 @@ async fn open_catalog_record(
         .acquire_ui(library_id)
         .await
         .map_err(|error| (OpenLibraryFailureKind::Storage, error))?;
-    run_local_open(Ok(opened), node, &scrobbler)
+    let generation = run_local_open(Ok(opened), Some(record.record_id), node, &scrobbler)
         .await
         .map_err(|error| (OpenLibraryFailureKind::Storage, error))?;
     broadcaster.broadcast(&SetMediaLibraryPathResponse {
@@ -801,7 +844,7 @@ async fn open_catalog_record(
         error: None,
         not_ready: false,
     });
-    Ok(())
+    Ok(generation)
 }
 
 fn remote_open_failure(error: &anyhow::Error) -> OpenLibraryFailureKind {
@@ -820,14 +863,15 @@ fn remote_open_failure(error: &anyhow::Error) -> OpenLibraryFailureKind {
 /// Run the local player loop for an opened library and report the result to Dart.
 async fn finish_local_open(
     opened: Result<LibraryHandle>,
+    record_id: Option<LibraryRecordId>,
     node: &Arc<NodeContext>,
     scrobbler: &Arc<Mutex<ScrobblingManager>>,
     broadcaster: &Arc<dyn Broadcaster>,
     media_library_path: &str,
 ) {
-    let result = run_local_open(opened, node, scrobbler).await;
+    let result = run_local_open(opened, record_id, node, scrobbler).await;
     match result {
-        Ok(()) => broadcaster.broadcast(&SetMediaLibraryPathResponse {
+        Ok(_) => broadcaster.broadcast(&SetMediaLibraryPathResponse {
             restore_last_index: node
                 .session()
                 .is_ok_and(|session| session.take_legacy_restore()),
@@ -853,12 +897,14 @@ async fn finish_local_open(
 
 async fn run_local_open(
     opened: Result<LibraryHandle>,
+    record_id: Option<LibraryRecordId>,
     node: &Arc<NodeContext>,
     scrobbler: &Arc<Mutex<ScrobblingManager>>,
-) -> Result<()> {
+) -> Result<u64> {
     let library = opened?;
     info!("Resolved library id: {}", library.library_id);
-    local_player_loop(library, node.clone(), Arc::clone(scrobbler)).await
+    local_player_loop(library, node.clone(), Arc::clone(scrobbler)).await?;
+    node.set_open_local_catalog(record_id)
 }
 
 pub struct CollectionCoverOptions<'a> {

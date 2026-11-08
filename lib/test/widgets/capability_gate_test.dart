@@ -20,6 +20,8 @@ RequestCapabilities snapshot({
 }) {
   const capability = RequestCapabilityAvailable();
   return RequestCapabilities(
+    recordId: null,
+    generation: Uint64(BigInt.zero),
     attachRendererRequest: capability,
     detachRendererRequest: capability,
     listRenderersRequest: capability,

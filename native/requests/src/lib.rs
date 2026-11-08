@@ -1654,17 +1654,18 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         }
 
         pub(crate) fn capability_snapshot(node: &NodeContext) -> Result<RequestCapabilities> {
-            Ok(RequestCapabilities { #(#capability_snapshot_fields)* })
+            let (record_id, generation) = node.capability_library_identity()?;
+            Ok(RequestCapabilities { record_id, generation, #(#capability_snapshot_fields)* })
         }
 
         #[cfg(test)]
         impl RequestCapabilities {
             pub(crate) fn all_available() -> Self {
-                Self { #(#capability_slot_fields: RequestCapability::Available,)* }
+                Self { record_id: None, generation: 0, #(#capability_slot_fields: RequestCapability::Available,)* }
             }
 
             pub(crate) fn from_target(target: &RpcTarget) -> Self {
-                Self { #(#capability_slot_fields: target.capability::<#capability_request_idents>(),)* }
+                Self { record_id: None, generation: 0, #(#capability_slot_fields: target.capability::<#capability_request_idents>(),)* }
             }
         }
 

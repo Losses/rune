@@ -1,7 +1,8 @@
-use crate::node::NodeContext;
+use crate::node::{CatalogTarget, NodeContext};
 use crate::request_error::ExpectedRequestError;
 use std::{
     collections::HashMap,
+    path::Path,
     sync::{
         Arc, Weak,
         atomic::{AtomicBool, Ordering},
@@ -10,6 +11,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use database::library_registry::{LibraryKind, LibraryRecordId, LibraryRegistry};
 use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
 use log::{error, warn};
@@ -494,7 +496,7 @@ async fn register_session_handlers(handlers: &HandlerMap, node: &Arc<NodeContext
                     .flatten()
                     .is_some_and(|link| link.id() == id)
                     || (scope == RemoteEventScope::Library
-                        && !node.remote_ui_library().unwrap_or(false))
+                        && !matches!(node.catalog_target(), Ok(CatalogTarget::RemotePeer)))
                 {
                     return;
                 }
@@ -755,7 +757,18 @@ pub(crate) async fn open_remote_library(
         .find(|(candidate, _)| candidate == &fingerprint)
         .map(|(_, hosts)| hosts)
         .unwrap_or_default();
-    open_remote_library_for_fingerprint(node, &fingerprint, trusted_hosts).await
+    let record_id = LibraryRegistry::load(Path::new(&*node.config_path))
+        .ok()
+        .and_then(|registry| {
+            registry
+                .libraries
+                .into_iter()
+                .find(|record| matches!(&record.kind, LibraryKind::RuneRemoteControl { fingerprint: current } if current == &fingerprint))
+                .map(|record| record.record_id)
+        });
+    open_remote_library_for_fingerprint(node, &fingerprint, trusted_hosts, record_id)
+        .await
+        .map(|(params, _)| params)
 }
 
 /// Open a trusted peer's current UI library by stable identity and its trusted addresses.
@@ -763,7 +776,8 @@ pub(crate) async fn open_remote_library_for_fingerprint(
     node: Arc<NodeContext>,
     fingerprint: &str,
     addresses: Vec<String>,
-) -> Result<Arc<GlobalParams>> {
+    record_id: Option<LibraryRecordId>,
+) -> Result<(Arc<GlobalParams>, u64)> {
     if addresses.is_empty() {
         return Err(RemoteConnectError::UntrustedEndpoint.into());
     }
@@ -776,12 +790,13 @@ pub(crate) async fn open_remote_library_for_fingerprint(
     .await?;
     link.call(&RefreshSessionRequest {}).await?;
     let params = Arc::new(node.params_for_ui()?);
-    node.attach_remote_ui(&params, fingerprint.to_owned())
+    let generation = node
+        .attach_remote_ui(&params, fingerprint.to_owned(), record_id)
         .await?;
     node.install_renderer_link(link, alias)?;
     listen_local_gui(&params, &params.main_token);
     node.session()?.player.lock().await.pause();
-    Ok(params)
+    Ok((params, generation))
 }
 
 pub(crate) async fn select_renderer_host(

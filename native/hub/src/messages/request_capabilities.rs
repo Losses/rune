@@ -24,6 +24,8 @@ pub enum CapabilityReason {
 /// field fails to compile.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, RustSignal)]
 pub struct RequestCapabilities {
+    pub record_id: Option<String>,
+    pub generation: u64,
     pub attach_renderer_request: RequestCapability,
     pub detach_renderer_request: RequestCapability,
     pub list_renderers_request: RequestCapability,

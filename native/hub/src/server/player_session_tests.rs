@@ -12,7 +12,7 @@ use crate::messages::{
     RemoteLibraryReconnecting, RemoteLossKind, RequestCapabilities, RequestCapability,
     RequestFailedResponse, ScanAudioLibraryProgress, ScanTaskType,
 };
-use crate::node::ReconnectConfig;
+use crate::node::{CatalogTarget, ReconnectConfig, SessionBinding};
 use crate::utils::{
     open_library_by_record_on_node, register_local_library_on_node, register_remote_control_on_node,
 };
@@ -5492,7 +5492,10 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     assert_eq!(closed.path, path);
     close.stop().await;
     assert!(a.global_params.node.renderer_link()?.is_none());
-    assert!(!a.global_params.node.remote_ui_library()?);
+    assert!(matches!(
+        a.global_params.node.catalog_target()?,
+        CatalogTarget::Closed | CatalogTarget::Local
+    ));
     assert!(a.global_params.node.current_ui().await.is_err());
     let local = Arc::new(
         a.global_params
@@ -5555,7 +5558,10 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     close.send(CloseLibraryRequest { path: path.clone() });
     let _: CloseLibraryResponse = close.receive("CloseLibraryResponse").await;
     close.stop().await;
-    assert!(!a.global_params.node.remote_ui_library()?);
+    assert!(matches!(
+        a.global_params.node.catalog_target()?,
+        CatalogTarget::Closed | CatalogTarget::Local
+    ));
     assert!(a.global_params.node.current_ui().await.is_err());
     a.global_params.node.shutdown().await?;
     b.global_params.node.shutdown().await?;
@@ -5618,8 +5624,55 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     )
     .await;
     assert_eq!(opened.result, OpenLibraryResult::Opened);
+    let first_generation = opened.generation;
+    assert!(first_generation > 0);
+    let first_snapshot = capability_snapshot(&node)?;
+    assert_eq!(
+        first_snapshot.record_id.as_deref(),
+        Some(record_id.as_str())
+    );
+    assert_eq!(first_snapshot.generation, first_generation);
     let current = node.current_ui().await?;
     dispatch_gui_request(&current, &FetchAllPlaylistsRequest {}).await?;
+
+    let second_path = dir.path().join("selected-second");
+    std::fs::create_dir_all(&second_path)?;
+    let second_registration = register_local_library_on_node(
+        &RegisterLocalLibraryRequest {
+            path: second_path.to_string_lossy().into_owned(),
+            alias: "Selected second".into(),
+            mode: Some(LibraryInitializeMode::Portable),
+        },
+        &node,
+    )
+    .await;
+    assert_eq!(
+        second_registration.outcome,
+        RegisterLibraryOutcome::Registered
+    );
+    let second_record_id = second_registration
+        .record
+        .context("second registered record")?
+        .record_id;
+    let second_opened = open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: 9,
+            record_id: second_record_id.clone(),
+        },
+        node.clone(),
+        scrobbler.clone(),
+        broadcaster.clone(),
+    )
+    .await;
+    assert_eq!(second_opened.result, OpenLibraryResult::Opened);
+    assert!(second_opened.generation > first_generation);
+    let second_snapshot = capability_snapshot(&node)?;
+    assert_eq!(
+        second_snapshot.record_id.as_deref(),
+        Some(second_record_id.as_str())
+    );
+    assert_eq!(second_snapshot.generation, second_opened.generation);
+    let current = node.current_ui().await?;
 
     let unknown = open_library_by_record_on_node(
         &OpenLibraryRequest {
@@ -5883,7 +5936,10 @@ impl ReconnectFixture {
         assert_eq!(event.fingerprint, self.fingerprint);
         assert_eq!(event.alias, super::info(&self.b).await?.alias);
         assert!(!self.remote.main_token.is_cancelled());
-        assert!(self.a.global_params.node.remote_ui_library()?);
+        assert!(matches!(
+            self.a.global_params.node.catalog_target()?,
+            CatalogTarget::RemotePeer
+        ));
         assert!(
             self.signals
                 .decoded::<RemoteConnectionLost>("RemoteConnectionLost")
@@ -5988,7 +6044,10 @@ async fn rr_reconnect_deadline_uses_existing_loss_and_close() -> Result<()> {
     });
     let _: CloseLibraryResponse = close.receive("CloseLibraryResponse").await;
     close.stop().await;
-    assert!(!f.a.global_params.node.remote_ui_library()?);
+    assert!(matches!(
+        f.a.global_params.node.catalog_target()?,
+        CatalogTarget::Closed | CatalogTarget::Local
+    ));
     assert!(f.a.global_params.node.current_ui().await.is_err());
     assert!(f.remote.main_token.is_cancelled());
     assert!(
@@ -6181,6 +6240,43 @@ async fn attached_renderer_selects_rune_slots_and_suppresses_equal_capabilities(
         "detach restores the same capability snapshot and is suppressed"
     );
     controller.global_params.node.shutdown().await?;
+    renderer.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn session_binding_prefers_remote_peer_over_attached_renderer() -> Result<()> {
+    let controller_dir = tempfile::tempdir()?;
+    let renderer_dir = tempfile::tempdir()?;
+    let controller = fixture(controller_dir.path()).await?;
+    let renderer = fixture(renderer_dir.path()).await?;
+    let renderer_address = paired_full(&renderer, &controller).await?;
+    let renderer_info = info(&renderer).await?;
+    controller
+        .global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(
+            &renderer_info.fingerprint,
+            vec![format!("127.0.0.1:{}", renderer_address.port())],
+        )
+        .await?;
+
+    let node = &controller.global_params.node;
+    assert!(matches!(node.session_binding()?, SessionBinding::Local));
+    node.attach_renderer(&renderer_info.fingerprint).await?;
+    let attached = match node.session_binding()? {
+        SessionBinding::Attached(renderer) => renderer,
+        _ => anyhow::bail!("expected attached renderer binding"),
+    };
+    node.attach_remote_ui(&controller.global_params, renderer_info.fingerprint, None)
+        .await?;
+    match node.session_binding()? {
+        SessionBinding::RemotePeer(renderer) => assert_eq!(renderer.id(), attached.id()),
+        _ => anyhow::bail!("remote peer must take precedence over attached renderer"),
+    }
+    node.shutdown().await?;
     renderer.global_params.node.shutdown().await?;
     Ok(())
 }

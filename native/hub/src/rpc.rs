@@ -8,7 +8,7 @@ use thiserror::Error;
 use crate::backends::remote::RendererLink;
 use crate::macros::{RequestAccess, RequestScope, RequestSlots, request_access};
 use crate::messages::RequestCapability;
-use crate::node::NodeContext;
+use crate::node::{CatalogTarget, NodeContext, SessionBinding};
 use crate::request_error::ExpectedRequestError;
 use crate::utils::{GlobalParams, ParamsExtractor};
 use crate::{Signal, TypedRequest};
@@ -54,7 +54,7 @@ pub struct RpcTarget {
 enum TargetChoice {
     Local,
     /// The @RR mode: the device the UI library lives on.
-    RemoteUi,
+    RemotePeer(Option<Arc<RendererLink>>),
     Attached(Arc<RendererLink>),
 }
 
@@ -111,7 +111,11 @@ impl RpcTarget {
     pub(crate) fn select_type<R: TargetRequest>(node: &NodeContext) -> Result<Self> {
         Ok(match target_choice::<R>(node)? {
             TargetChoice::Local => Self::local(),
-            TargetChoice::RemoteUi => Self::rune(node.remote_ui_renderer()?),
+            TargetChoice::RemotePeer(Some(renderer)) => Self::rune(renderer),
+            TargetChoice::RemotePeer(None) => match node.session_binding()? {
+                SessionBinding::RemotePeer(renderer) => Self::rune(renderer),
+                _ => anyhow::bail!("Remote peer session binding changed during target selection"),
+            },
             TargetChoice::Attached(renderer) => Self::rune(renderer),
         })
     }
@@ -122,12 +126,10 @@ impl RpcTarget {
         Ok(match target_choice::<R>(node)? {
             TargetChoice::Local => Self::local(),
             TargetChoice::Attached(renderer) => Self::rune(renderer),
-            TargetChoice::RemoteUi => match node.renderer_link()? {
-                Some(renderer) => Self::rune(renderer),
-                None => Self {
-                    slots: Self::rune_slots(),
-                    renderer: None,
-                },
+            TargetChoice::RemotePeer(Some(renderer)) => Self::rune(renderer),
+            TargetChoice::RemotePeer(None) => Self {
+                slots: Self::rune_slots(),
+                renderer: None,
             },
         })
     }
@@ -180,18 +182,29 @@ impl RequestSlots {
 }
 
 fn target_choice<R: TargetRequest>(node: &NodeContext) -> Result<TargetChoice> {
-    if node.remote_ui_library()?
-        && matches!(R::SCOPE, RequestScope::Library | RequestScope::Session)
-        && request_access(R::wire_name()) != Some(RequestAccess::NodeLocal)
-    {
-        return Ok(TargetChoice::RemoteUi);
+    if request_access(R::wire_name()) == Some(RequestAccess::NodeLocal) {
+        return Ok(TargetChoice::Local);
     }
-    if routes_to_attached_renderer::<R>()
-        && let Some(renderer) = node.renderer_link()?
-    {
-        return Ok(TargetChoice::Attached(renderer));
+    let remote_peer = matches!(node.catalog_target()?, CatalogTarget::RemotePeer);
+    match R::SCOPE {
+        RequestScope::Node => Ok(TargetChoice::Local),
+        // Library requests follow the open record's catalog; a remote peer's link may be
+        // missing while it reconnects, and selection reports that typed error itself.
+        RequestScope::Library if remote_peer => Ok(TargetChoice::RemotePeer(node.renderer_link()?)),
+        RequestScope::Library => Ok(TargetChoice::Local),
+        RequestScope::Session if !remote_peer && !routes_to_attached_renderer::<R>() => {
+            Ok(TargetChoice::Local)
+        }
+        RequestScope::Session => match node.session_binding() {
+            Ok(SessionBinding::Local) => Ok(TargetChoice::Local),
+            Ok(SessionBinding::Attached(renderer)) => Ok(TargetChoice::Attached(renderer)),
+            Ok(SessionBinding::RemotePeer(renderer)) => {
+                Ok(TargetChoice::RemotePeer(Some(renderer)))
+            }
+            Err(_) if remote_peer => Ok(TargetChoice::RemotePeer(None)),
+            Err(error) => Err(error),
+        },
     }
-    Ok(TargetChoice::Local)
 }
 
 /// A request introduced in a protocol minor newer than the peer's cannot run there;
