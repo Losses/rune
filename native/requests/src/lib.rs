@@ -1353,6 +1353,10 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             }
         }
     });
+    let request_idents: Vec<_> = types
+        .iter()
+        .map(|entry| format_ident!("{}", entry.request))
+        .collect();
     let capability_snapshot_fields = types.iter().zip(&slot_fields).map(|(entry, field)| {
         let request = format_ident!("{}", entry.request);
         quote! { #field: RpcTarget::select_capability_type::<#request>(node)?.capability::<#request>(), }
@@ -1478,6 +1482,17 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
 
         pub(crate) fn capability_snapshot(node: &NodeContext) -> Result<RequestCapabilities> {
             Ok(RequestCapabilities { #(#capability_snapshot_fields)* })
+        }
+
+        #[cfg(test)]
+        impl RequestCapabilities {
+            pub(crate) fn all_available() -> Self {
+                Self { #(#slot_fields: RequestCapability::Available,)* }
+            }
+
+            pub(crate) fn from_target(target: &RpcTarget) -> Self {
+                Self { #(#slot_fields: target.capability::<#request_idents>(),)* }
+            }
         }
 
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
