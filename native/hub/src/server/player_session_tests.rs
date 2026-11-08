@@ -4163,6 +4163,107 @@ async fn materialize_replica_file(
     Ok(())
 }
 
+async fn attached_handoff_source(
+    hold_source_library: bool,
+) -> Result<(Vec<TempDir>, Fixture, Fixture, String)> {
+    let controller_dir = tempfile::tempdir()?;
+    let source_dir = tempfile::tempdir()?;
+    let controller = fixture(controller_dir.path()).await?;
+    let source = fixture(source_dir.path()).await?;
+    let source_id = session_audio(&source, "handoff-retry-source.ogg").await?;
+    queue_session(&source, &[source_id]).await?;
+    source.global_params.player.lock().await.load(0);
+    source.global_params.player.lock().await.play();
+    wait_player(&source, |status| status.state == PlaybackState::Playing).await?;
+    let source_address = if hold_source_library {
+        replicate_host_library(&source, &controller).await?.0
+    } else {
+        super::paired_full(&source, &controller).await?
+    };
+    let source_info = super::info(&source).await?;
+    controller
+        .global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(
+            &source_info.fingerprint,
+            vec![format!("127.0.0.1:{}", source_address.port())],
+        )
+        .await?;
+    controller
+        .global_params
+        .node
+        .attach_renderer(&source_info.fingerprint)
+        .await?;
+    Ok((
+        vec![controller_dir, source_dir],
+        controller,
+        source,
+        source_info.fingerprint,
+    ))
+}
+
+async fn hand_off(controller: &Fixture, target: Option<String>) -> Result<()> {
+    use crate::messages::HandoffRequest;
+
+    let handoff = HandoffRequest { target };
+    handoff
+        .handle(
+            handoff.extract_params(&controller.global_params),
+            None,
+            &handoff,
+        )
+        .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
+async fn handoff_pause_retries_after_destination_started() -> Result<()> {
+    let (_dirs, controller, source, _) = attached_handoff_source(true).await?;
+    controller.global_params.node.fail_next_handoff_pauses(1);
+    hand_off(&controller, None).await?;
+    wait_player(&controller, |status| status.state == PlaybackState::Playing).await?;
+    let source_paused =
+        wait_player(&source, |status| status.state == PlaybackState::Paused).await?;
+    assert!(!source_paused.playlist.is_empty());
+    controller.global_params.node.shutdown().await?;
+    source.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
+async fn new_handoff_cancels_old_source_pause_retry() -> Result<()> {
+    let (_dirs, controller, source, source_fingerprint) = attached_handoff_source(true).await?;
+    controller.global_params.node.fail_next_handoff_pauses(1);
+    hand_off(&controller, None).await?;
+    wait_player(&controller, |status| status.state == PlaybackState::Playing).await?;
+
+    hand_off(&controller, Some(source_fingerprint)).await?;
+    wait_player(&source, |status| status.state == PlaybackState::Playing).await?;
+    sleep(Duration::from_millis(1300)).await;
+    assert_eq!(
+        source.global_params.player.lock().await.get_status().state,
+        PlaybackState::Playing
+    );
+    controller.global_params.node.shutdown().await?;
+    source.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
+async fn failed_handoff_load_does_not_pause_source() -> Result<()> {
+    let (_dirs, controller, source, _) = attached_handoff_source(false).await?;
+    assert!(hand_off(&controller, None).await.is_err());
+    assert_eq!(
+        source.global_params.player.lock().await.get_status().state,
+        PlaybackState::Playing
+    );
+    controller.global_params.node.shutdown().await?;
+    source.global_params.node.shutdown().await?;
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Result<()> {
     use crate::Signal;

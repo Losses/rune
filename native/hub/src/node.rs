@@ -10,7 +10,10 @@ use std::{
     io::Error,
     mem::MaybeUninit,
     path::Path,
-    sync::{Arc, Mutex as StdMutex, OnceLock, Weak},
+    sync::{
+        Arc, Mutex as StdMutex, OnceLock, Weak,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 use uuid::Uuid;
 
@@ -39,9 +42,9 @@ use crate::{
     library_pool::{LibraryHandle, LibraryPool},
     messages::{
         AttachedRenderer, ClientStatus, ClientSummary, IncommingClientPermissionNotification,
-        InitializeNodeRequest, InitializeNodeResponse, RemoteLibraryReconnecting, RemoteLossKind,
-        RendererAttachmentChanged, RendererLinkLost, TrustListUpdated, TrustedClientsChanged,
-        TrustedServerCertificate,
+        InitializeNodeRequest, InitializeNodeResponse, PauseRequest, RemoteLibraryReconnecting,
+        RemoteLossKind, RendererAttachmentChanged, RendererLinkLost, TrustListUpdated,
+        TrustedClientsChanged, TrustedServerCertificate,
     },
     request_error::classify,
     server::{ServerManager, WebSocketService, utils::device::load_device_info},
@@ -95,11 +98,17 @@ pub struct NodeContext {
     #[cfg(test)]
     reconnect_attempts: AtomicUsize,
     pub token: Arc<CancellationToken>,
+    handoff_retry_token: CancellationToken,
     pub(crate) sync_tokens: SyncTokenStore,
     pub server_manager: OnceLock<Arc<ServerManager>>,
     local_session: OnceLock<Arc<PlayerSession>>,
     current_ui: Mutex<Option<Weak<GlobalParams>>>,
     event_handles: Mutex<Vec<JoinHandle<()>>>,
+    handoff_generation: AtomicU64,
+    handoff_gate: Mutex<()>,
+    handoff_retry_handles: Mutex<Vec<JoinHandle<()>>>,
+    #[cfg(test)]
+    handoff_pause_failures: AtomicUsize,
 }
 
 impl Debug for NodeContext {
@@ -215,11 +224,17 @@ impl NodeContext {
             #[cfg(test)]
             reconnect_attempts: AtomicUsize::new(0),
             token: Arc::new(CancellationToken::new()),
+            handoff_retry_token: CancellationToken::new(),
             sync_tokens,
             server_manager: OnceLock::new(),
             local_session: OnceLock::new(),
             current_ui: Mutex::new(None),
             event_handles: Mutex::new(Vec::new()),
+            handoff_generation: AtomicU64::new(0),
+            handoff_gate: Mutex::new(()),
+            handoff_retry_handles: Mutex::new(Vec::new()),
+            #[cfg(test)]
+            handoff_pause_failures: AtomicUsize::new(0),
         });
         let policy = node.access_policy.clone();
         let revoked_tokens = node.sync_tokens.clone();
@@ -347,6 +362,72 @@ impl NodeContext {
             .get()
             .cloned()
             .context("Node session is not initialized")
+    }
+
+    /// Starts a handoff. Any pause retry left by an earlier handoff stops at its
+    /// next attempt, so it never pauses a source this handoff starts again.
+    pub(crate) async fn begin_handoff(&self) -> u64 {
+        let _guard = self.handoff_gate.lock().await;
+        self.handoff_generation.fetch_add(1, Ordering::AcqRel) + 1
+    }
+
+    pub(crate) fn handoff_generation(&self) -> u64 {
+        self.handoff_generation.load(Ordering::Acquire)
+    }
+
+    pub(crate) async fn register_handoff_retry(&self, handle: JoinHandle<()>) {
+        let mut handles = self.handoff_retry_handles.lock().await;
+        handles.retain(|handle| !handle.is_finished());
+        handles.push(handle);
+    }
+
+    pub(crate) fn handoff_retry_cancellation_token(&self) -> CancellationToken {
+        self.handoff_retry_token.child_token()
+    }
+
+    pub(crate) async fn pause_handoff_source(
+        self: &Arc<Self>,
+        fingerprint: &str,
+        source: &RendererLink,
+        generation: u64,
+    ) -> Result<bool> {
+        let _guard = self.handoff_gate.lock().await;
+        if self.handoff_generation() != generation {
+            return Ok(false);
+        }
+
+        #[cfg(test)]
+        if self
+            .handoff_pause_failures
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| {
+                remaining.checked_sub(1)
+            })
+            .is_ok()
+        {
+            anyhow::bail!("test pause failure");
+        }
+
+        match source.call(&PauseRequest {}).await {
+            Ok(()) => Ok(true),
+            Err(first_error) => {
+                let (retry_link, _) = self
+                    .connect_renderer(fingerprint, RendererLinkUse::Cast)
+                    .await
+                    .with_context(|| format!("Pause source renderer {fingerprint}"))?;
+                let result = retry_link.call(&PauseRequest {}).await;
+                retry_link.close();
+                result
+                    .context("Pause source renderer after reconnect")
+                    .map(|()| true)
+                    .or(Err(first_error))
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_next_handoff_pauses(&self, attempts: usize) {
+        self.handoff_pause_failures
+            .store(attempts, Ordering::Release);
     }
 
     pub async fn session_queue_for_library(&self, library_id: Uuid) -> Result<Vec<i32>> {
@@ -738,6 +819,7 @@ impl NodeContext {
     }
 
     pub async fn shutdown(&self) -> Result<()> {
+        self.handoff_retry_token.cancel();
         self.leave_remote_ui().await;
         let session_result = if let Some(session) = self.local_session.get() {
             session.shutdown().await
@@ -745,6 +827,9 @@ impl NodeContext {
             Ok(())
         };
         self.token.cancel();
+        for handle in self.handoff_retry_handles.lock().await.drain(..) {
+            let _ = handle.await;
+        }
         if let Some(params) = self
             .current_ui
             .lock()
@@ -833,6 +918,7 @@ mod nofile_tests {
 
 impl Drop for NodeContext {
     fn drop(&mut self) {
+        self.handoff_retry_token.cancel();
         self.token.cancel();
     }
 }

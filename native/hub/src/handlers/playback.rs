@@ -1,4 +1,9 @@
-use std::{collections::HashMap, slice, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    slice,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context, Result};
 use log::warn;
@@ -1133,6 +1138,7 @@ impl Signal for HandoffRequest {
         _session: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
+        let generation = node.begin_handoff().await;
         let attached = node.renderer_link()?;
         let target = request.target.as_deref();
         let already_there = match (target, &attached) {
@@ -1145,8 +1151,10 @@ impl Signal for HandoffRequest {
         }
         let load = handoff_load(snapshot_handoff_source(&node, attached.as_deref()).await?);
         match target {
-            Some(target) => hand_off_to_renderer(&node, attached.as_deref(), target, load).await?,
-            None => hand_off_to_this_device(&node, attached.as_deref(), &load).await?,
+            Some(target) => {
+                hand_off_to_renderer(&node, attached.clone(), target, load, generation).await?
+            }
+            None => hand_off_to_this_device(&node, attached, &load, generation).await?,
         }
         Ok(Some(HandoffResponse {}))
     }
@@ -1177,50 +1185,116 @@ fn handoff_load(snapshot: SessionSnapshotResponse) -> CastLoadRequest {
     }
 }
 
-/// Steps 2 and 3 for a renderer target: load it over a new link, pause the source only
-/// after the load succeeded, then attach. A failure leaves the source and the current
-/// attachment as they were.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HandoffOutcome {
+    SourcePaused,
+    PausePending,
+    ResumeWon,
+}
+
+/// Steps 2 and 3 for a renderer target: load it over a new link, then pause the source.
 async fn hand_off_to_renderer(
     node: &Arc<NodeContext>,
-    attached: Option<&RendererLink>,
+    attached: Option<Arc<RendererLink>>,
     target: &str,
     load: CastLoadRequest,
+    generation: u64,
 ) -> Result<()> {
     let (link, alias) = node
         .connect_renderer(target, RendererLinkUse::Control)
         .await?;
-    let paused = async {
-        link.call(&load).await?;
-        match attached {
-            Some(source) => {
-                source.call(&PauseRequest {}).await?;
-                Ok(())
-            }
-            None => {
-                node.session()?.player.lock().await.pause();
-                Ok(())
-            }
-        }
-    }
-    .await;
-    if let Err(error) = paused {
+    if let Err(error) = link.call(&load).await {
         link.close();
         return Err(error);
     }
-    node.install_renderer_link(link, alias)
+    let outcome = if let Some(source) = attached {
+        match node
+            .pause_handoff_source(source.fingerprint(), &source, generation)
+            .await
+        {
+            Ok(true) => HandoffOutcome::SourcePaused,
+            Ok(false) => HandoffOutcome::ResumeWon,
+            Err(error) => {
+                log::warn!("Handoff destination started; source pause pending: {error:#}");
+                schedule_handoff_pause_retry(node, source, generation).await;
+                HandoffOutcome::PausePending
+            }
+        }
+    } else {
+        node.session()?.player.lock().await.pause();
+        HandoffOutcome::SourcePaused
+    };
+    node.install_renderer_link(link, alias)?;
+    log::info!("Handoff outcome: {outcome:?}");
+    Ok(())
 }
 
 /// Steps 2 to 4 for this device as the target: load locally, pause the renderer that was
 /// playing, then detach from it.
 async fn hand_off_to_this_device(
-    node: &NodeContext,
-    attached: Option<&RendererLink>,
+    node: &Arc<NodeContext>,
+    attached: Option<Arc<RendererLink>>,
     load: &CastLoadRequest,
+    generation: u64,
 ) -> Result<()> {
     apply_cast_load(node, load).await?;
     if let Some(source) = attached {
-        source.call(&PauseRequest {}).await?;
+        let outcome = match node
+            .pause_handoff_source(source.fingerprint(), &source, generation)
+            .await
+        {
+            Ok(true) => HandoffOutcome::SourcePaused,
+            Ok(false) => HandoffOutcome::ResumeWon,
+            Err(error) => {
+                log::warn!("Handoff destination started; source pause pending: {error:#}");
+                schedule_handoff_pause_retry(node, source.clone(), generation).await;
+                HandoffOutcome::PausePending
+            }
+        };
         node.detach_renderer().await?;
+        log::info!("Handoff outcome: {outcome:?}");
     }
     Ok(())
+}
+
+async fn schedule_handoff_pause_retry(
+    node: &Arc<NodeContext>,
+    source: Arc<RendererLink>,
+    generation: u64,
+) {
+    let weak_node = Arc::downgrade(node);
+    let cancel = node.handoff_retry_cancellation_token();
+    let fingerprint = source.fingerprint().to_owned();
+    let task = tokio::spawn(async move {
+        let started = Instant::now();
+        let mut delay = Duration::from_secs(1);
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => return,
+                _ = tokio::time::sleep(delay) => {}
+            }
+            let Some(node) = weak_node.upgrade() else {
+                return;
+            };
+            if node.handoff_generation() != generation
+                || started.elapsed() >= Duration::from_secs(120)
+            {
+                return;
+            }
+            match node
+                .pause_handoff_source(&fingerprint, &source, generation)
+                .await
+            {
+                Ok(true) | Ok(false) => return,
+                Err(error) => log::warn!("Retrying handoff pause for {fingerprint}: {error:#}"),
+            }
+            delay = match delay.as_secs() {
+                1 => Duration::from_secs(2),
+                2 => Duration::from_secs(4),
+                4 => Duration::from_secs(8),
+                _ => Duration::from_secs(10),
+            };
+        }
+    });
+    node.register_handoff_retry(task).await;
 }
