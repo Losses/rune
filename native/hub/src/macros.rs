@@ -29,6 +29,7 @@ use uuid::Uuid;
 use crate::Session;
 use crate::backends::local::gui_request::{GuiRequest, listen_gui};
 use crate::node::NodeContext;
+use crate::rpc::RpcTarget;
 use crate::server::server_request::serve_remote;
 use crate::utils::{GlobalParams, RinfRustSignal};
 use tokio_util::sync::CancellationToken;

@@ -1,13 +1,16 @@
 use super::gui_listener_tests::start;
 use crate::Session;
 use crate::backends::remote::open_remote_library;
-use crate::macros::{RequestScope, request_scope, request_uses_controller_library};
+use crate::macros::{
+    RequestScope, capability_snapshot, request_scope, request_uses_controller_library,
+};
 use crate::messages::{
-    CloseLibraryRequest, CloseLibraryResponse, CreatePlaylistRequest, FetchAllPlaylistsRequest,
-    FetchAllPlaylistsResponse, GetPlaylistByIdRequest, LibraryContentChanged,
-    ListLocalLibrariesRequest, MixQuery, OperatePlaybackWithMixQueryRequest, PlaybackStatus,
-    PlaylistOperateMode, RemoteConnectionLost, RemoteLibraryReconnected, RemoteLibraryReconnecting,
-    RemoteLossKind, RequestFailedResponse, ScanAudioLibraryProgress, ScanTaskType,
+    CapabilityReason, CloseLibraryRequest, CloseLibraryResponse, CreatePlaylistRequest,
+    FetchAllPlaylistsRequest, FetchAllPlaylistsResponse, GetPlaylistByIdRequest,
+    LibraryContentChanged, ListLocalLibrariesRequest, MixQuery, OperatePlaybackWithMixQueryRequest,
+    PlaybackStatus, PlaylistOperateMode, RemoteConnectionLost, RemoteLibraryReconnected,
+    RemoteLibraryReconnecting, RemoteLossKind, RequestCapabilities, RequestCapability,
+    RequestFailedResponse, ScanAudioLibraryProgress, ScanTaskType,
 };
 use crate::node::ReconnectConfig;
 #[cfg(target_os = "linux")]
@@ -28,7 +31,9 @@ use crate::{
         RequestFailureCause, SwitchRequest, VolumeRequest,
     },
     request_error::{ExpectedRequestError, classify},
-    rpc::{RpcTarget, Slot, UnsupportedReason, dispatch_gui_request, run_on_target},
+    rpc::{
+        RpcTarget, Slot, UnsupportedReason, dispatch_gui_request, run_on_target,
+    },
     server::api::fetch_device_info_at_port,
     session::store::SessionState,
 };
@@ -5183,6 +5188,25 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     assert!(Arc::ptr_eq(&remote.player, &a.global_params.player));
     assert!(Arc::ptr_eq(&remote.scrobbler, &a.global_params.scrobbler));
     assert!(remote.library.is_none());
+    let capabilities = capability_snapshot(&a.global_params.node)?;
+    assert_eq!(
+        capabilities.fetch_all_playlists_request,
+        RequestCapability::Available
+    );
+    assert_eq!(
+        capabilities.close_library_request,
+        RequestCapability::Available
+    );
+    assert_eq!(
+        RpcTarget::select_type::<FetchAllPlaylistsRequest>(&a.global_params.node)?
+            .slot_type::<FetchAllPlaylistsRequest>(),
+        Slot::Forward
+    );
+    assert_eq!(
+        RpcTarget::select_type::<CloseLibraryRequest>(&a.global_params.node)?
+            .slot_type::<CloseLibraryRequest>(),
+        Slot::Native
+    );
     let mut browse = start::<FetchAllPlaylistsRequest>(&remote);
     browse.send(FetchAllPlaylistsRequest {});
     let response: FetchAllPlaylistsResponse = browse.receive("FetchAllPlaylistsResponse").await;
@@ -5646,5 +5670,265 @@ async fn rr_reconnect_leaving_stops_attempts() -> Result<()> {
         );
         f.shutdown().await?;
     }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn local_capability_snapshot_marks_every_request_available() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let fixture = fixture_with_broadcaster(
+        dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+
+    assert_eq!(
+        capability_snapshot(&fixture.global_params.node)?,
+        RequestCapabilities::all_available()
+    );
+    assert_eq!(
+        signals
+            .decoded::<RequestCapabilities>("RequestCapabilities")
+            .len(),
+        1
+    );
+    fixture.global_params.node.publish_capabilities()?;
+    assert_eq!(
+        signals
+            .decoded::<RequestCapabilities>("RequestCapabilities")
+            .len(),
+        1
+    );
+    fixture.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn attached_renderer_selects_rune_slots_and_suppresses_equal_capabilities() -> Result<()> {
+    use crate::messages::{HandoffRequest, PauseRequest};
+
+    let controller_dir = tempfile::tempdir()?;
+    let renderer_dir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let controller = fixture_with_broadcaster(
+        controller_dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+    let renderer = super::fixture(renderer_dir.path()).await?;
+    let renderer_address = super::paired_full(&renderer, &controller).await?;
+    let renderer_info = super::info(&renderer).await?;
+    controller
+        .global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(
+            &renderer_info.fingerprint,
+            vec![format!("127.0.0.1:{}", renderer_address.port())],
+        )
+        .await?;
+
+    signals.clear();
+    assert_eq!(
+        RpcTarget::select_type::<PauseRequest>(&controller.global_params.node)?
+            .slot_type::<PauseRequest>(),
+        Slot::Native
+    );
+    controller
+        .global_params
+        .node
+        .attach_renderer(&renderer_info.fingerprint)
+        .await?;
+    assert_eq!(
+        RpcTarget::select_type::<PauseRequest>(&controller.global_params.node)?
+            .slot_type::<PauseRequest>(),
+        Slot::Forward
+    );
+    assert_eq!(
+        RpcTarget::select_type::<HandoffRequest>(&controller.global_params.node)?
+            .slot_type::<HandoffRequest>(),
+        Slot::Native
+    );
+    let capabilities = capability_snapshot(&controller.global_params.node)?;
+    assert_eq!(capabilities.pause_request, RequestCapability::Available);
+    assert_eq!(capabilities.handoff_request, RequestCapability::Available);
+    let snapshots = signals.decoded::<RequestCapabilities>("RequestCapabilities");
+    assert!(
+        snapshots.is_empty(),
+        "equal capability snapshots are suppressed"
+    );
+    controller.global_params.node.publish_capabilities()?;
+    assert_eq!(
+        signals
+            .decoded::<RequestCapabilities>("RequestCapabilities")
+            .len(),
+        0,
+        "a no-op publication must be suppressed"
+    );
+
+    controller.global_params.node.detach_renderer().await?;
+    assert_eq!(
+        signals
+            .decoded::<RequestCapabilities>("RequestCapabilities")
+            .len(),
+        0,
+        "detach restores the same capability snapshot and is suppressed"
+    );
+    controller.global_params.node.shutdown().await?;
+    renderer.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rr_capability_snapshot_uses_rune_library_and_local_close_slots() -> Result<()> {
+    let local_dir = tempfile::tempdir()?;
+    let remote_dir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let local = fixture_with_broadcaster(
+        local_dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals,
+    )
+    .await?;
+    let remote = super::fixture(remote_dir.path()).await?;
+    let address = super::paired_full(&remote, &local).await?;
+    let remote_info = super::info(&remote).await?;
+    local
+        .global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(
+            &remote_info.fingerprint,
+            vec![format!("127.0.0.1:{}", address.port())],
+        )
+        .await?;
+    let remote_params = open_remote_library(
+        local.global_params.node.clone(),
+        &format!("@RR|ws://{address}"),
+    )
+    .await?;
+
+    let snapshot = capability_snapshot(&local.global_params.node)?;
+    assert_eq!(
+        snapshot.fetch_all_playlists_request,
+        RequestCapability::Available
+    );
+    assert_eq!(snapshot.close_library_request, RequestCapability::Available);
+    assert_eq!(
+        RpcTarget::select_type::<FetchAllPlaylistsRequest>(&local.global_params.node)?
+            .slot_type::<FetchAllPlaylistsRequest>(),
+        Slot::Forward
+    );
+    assert_eq!(
+        RpcTarget::select_type::<CloseLibraryRequest>(&local.global_params.node)?
+            .slot_type::<CloseLibraryRequest>(),
+        Slot::Native
+    );
+
+    local
+        .global_params
+        .node
+        .close_ui(&remote_params.main_token)
+        .await;
+    local.global_params.node.shutdown().await?;
+    remote.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn capability_snapshot_agrees_with_unsupported_dispatch_by_scope() -> Result<()> {
+    use crate::messages::{FetchAllPlaylistsRequest, ListLocalLibrariesRequest, PauseRequest};
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let params = &fixture.global_params;
+    let unsupported = Slot::Unsupported {
+        reason: UnsupportedReason::NotImplemented,
+    };
+    assert_eq!(
+        RequestCapability::from(Slot::Translate),
+        RequestCapability::Available
+    );
+    assert_eq!(
+        RequestCapability::from(Slot::Unsupported {
+            reason: UnsupportedReason::OwnerOnly,
+        }),
+        RequestCapability::Disabled {
+            reason: CapabilityReason::OwnerOnly,
+        }
+    );
+
+    let node_request = ListLocalLibrariesRequest {};
+    let node_target = RpcTarget::local().with_slots(|slots| {
+        slots.list_local_libraries_request = unsupported;
+    });
+    assert_eq!(
+        RequestCapabilities::from_target(&node_target).list_local_libraries_request,
+        RequestCapability::Hidden
+    );
+    let node_error = run_on_target(&node_target, params, &node_request)
+        .await
+        .err()
+        .context("unsupported node request should fail")?;
+    assert!(matches!(
+        node_error.downcast_ref::<ExpectedRequestError>(),
+        Some(ExpectedRequestError::Unsupported {
+            reason: UnsupportedReason::NotImplemented,
+            ..
+        })
+    ));
+    assert!(dispatch_gui_request(params, &node_request).await.is_ok());
+
+    let session_request = PauseRequest {};
+    let session_target = RpcTarget::local().with_slots(|slots| {
+        slots.pause_request = unsupported;
+    });
+    assert_eq!(
+        RequestCapabilities::from_target(&session_target).pause_request,
+        RequestCapability::Hidden
+    );
+    let session_error = run_on_target(&session_target, params, &session_request)
+        .await
+        .err()
+        .context("unsupported session request should fail")?;
+    assert!(matches!(
+        session_error.downcast_ref::<ExpectedRequestError>(),
+        Some(ExpectedRequestError::Unsupported {
+            reason: UnsupportedReason::NotImplemented,
+            ..
+        })
+    ));
+    assert!(dispatch_gui_request(params, &session_request).await.is_ok());
+
+    let library_request = FetchAllPlaylistsRequest {};
+    let library_target = RpcTarget::local().with_slots(|slots| {
+        slots.fetch_all_playlists_request = unsupported;
+    });
+    assert_eq!(
+        RequestCapabilities::from_target(&library_target).fetch_all_playlists_request,
+        RequestCapability::Hidden
+    );
+    let library_error = run_on_target(&library_target, params, &library_request)
+        .await
+        .err()
+        .context("unsupported library request should fail")?;
+    assert!(matches!(
+        library_error.downcast_ref::<ExpectedRequestError>(),
+        Some(ExpectedRequestError::Unsupported {
+            reason: UnsupportedReason::NotImplemented,
+            ..
+        })
+    ));
+    assert!(dispatch_gui_request(params, &library_request).await.is_ok());
+
+    fixture.global_params.node.shutdown().await?;
     Ok(())
 }

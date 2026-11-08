@@ -7,6 +7,7 @@ use thiserror::Error;
 
 use crate::backends::remote::RendererLink;
 use crate::macros::{RequestAccess, RequestScope, RequestSlots, request_access};
+use crate::messages::RequestCapability;
 use crate::node::NodeContext;
 use crate::request_error::ExpectedRequestError;
 use crate::utils::{GlobalParams, ParamsExtractor};
@@ -42,6 +43,14 @@ pub trait TargetRequest: TypedRequest {
 pub struct RpcTarget {
     slots: RequestSlots,
     renderer: Option<Arc<RendererLink>>,
+}
+
+/// Where a request type goes, before the renderer link is resolved.
+enum TargetChoice {
+    Local,
+    /// The @RR mode: the device the UI library lives on.
+    RemoteUi,
+    Attached(Arc<RendererLink>),
 }
 
 impl RpcTarget {
@@ -81,19 +90,35 @@ impl RpcTarget {
     }
 
     pub fn select<R: TargetRequest>(node: &NodeContext, _request: &R) -> Result<Self> {
-        let remote_library = node.remote_ui_library()?
-            && matches!(R::SCOPE, RequestScope::Library | RequestScope::Session)
-            && request_access(R::wire_name()) != Some(RequestAccess::NodeLocal);
-        if remote_library {
-            let renderer = node.remote_ui_renderer()?;
-            return Ok(Self::rune(renderer));
-        }
-        if routes_to_attached_renderer::<R>()
-            && let Some(renderer) = node.renderer_link()?
-        {
-            return Ok(Self::rune(renderer));
-        }
-        Ok(Self::local())
+        Self::select_type::<R>(node)
+    }
+
+    pub(crate) fn select_type<R: TargetRequest>(node: &NodeContext) -> Result<Self> {
+        Ok(match target_choice::<R>(node)? {
+            TargetChoice::Local => Self::local(),
+            TargetChoice::RemoteUi => Self::rune(node.remote_ui_renderer()?),
+            TargetChoice::Attached(renderer) => Self::rune(renderer),
+        })
+    }
+
+    /// The slots a request type would use now. Unlike `select_type` it needs no live
+    /// link, so a reconnecting @RR target still reports its Rune slots.
+    pub(crate) fn select_capability_type<R: TargetRequest>(node: &NodeContext) -> Result<Self> {
+        Ok(match target_choice::<R>(node)? {
+            TargetChoice::Local => Self::local(),
+            TargetChoice::RemoteUi | TargetChoice::Attached(_) => Self {
+                slots: Self::rune_slots(),
+                renderer: None,
+            },
+        })
+    }
+
+    pub(crate) fn capability<R: TargetRequest>(&self) -> RequestCapability {
+        self.slot_type::<R>().into()
+    }
+
+    pub(crate) fn slot_type<R: TargetRequest>(&self) -> Slot {
+        R::slot(&self.slots)
     }
 
     /// Replace one request's slot, for tests that exercise slot outcomes.
@@ -104,8 +129,23 @@ impl RpcTarget {
     }
 
     pub fn slot<R: TargetRequest>(&self, _request: &R) -> Slot {
-        R::slot(&self.slots)
+        self.slot_type::<R>()
     }
+}
+
+fn target_choice<R: TargetRequest>(node: &NodeContext) -> Result<TargetChoice> {
+    if node.remote_ui_library()?
+        && matches!(R::SCOPE, RequestScope::Library | RequestScope::Session)
+        && request_access(R::wire_name()) != Some(RequestAccess::NodeLocal)
+    {
+        return Ok(TargetChoice::RemoteUi);
+    }
+    if routes_to_attached_renderer::<R>()
+        && let Some(renderer) = node.renderer_link()?
+    {
+        return Ok(TargetChoice::Attached(renderer));
+    }
+    Ok(TargetChoice::Local)
 }
 
 /// Whether a request goes to the attached renderer rather than this node. Session
@@ -134,7 +174,7 @@ where
         + Serialize,
     <R as TypedRequest>::Response: DeserializeOwned,
 {
-    let target = RpcTarget::select(&params.node, request)?;
+    let target = RpcTarget::select_type::<R>(&params.node)?;
     run_on_target(&target, params, request).await
 }
 

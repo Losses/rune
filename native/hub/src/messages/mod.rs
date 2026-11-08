@@ -20,6 +20,7 @@ mod playback;
 mod playlist;
 mod renderer;
 mod replicas;
+mod request_capabilities;
 mod scrobble;
 mod search;
 mod sfx;
@@ -57,5 +58,6 @@ pub use visualizer::*;
 
 pub use renderer::*;
 pub use replicas::*;
+pub use request_capabilities::*;
 
 pub use device_grants::*;

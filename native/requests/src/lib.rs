@@ -1219,6 +1219,10 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             }
         }
     });
+    let capability_snapshot_fields = types.iter().zip(&slot_fields).map(|(entry, field)| {
+        let request = format_ident!("{}", entry.request);
+        quote! { #field: RpcTarget::select_capability_type::<#request>(node)?.capability::<#request>(), }
+    });
     let scoped_slots = types
         .iter()
         .zip(&slot_fields)
@@ -1327,6 +1331,10 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             pub(crate) fn scoped_slots(&self) -> Vec<(&'static str, Slot)> {
                 vec![#(#scoped_slots),*]
             }
+        }
+
+        pub(crate) fn capability_snapshot(node: &NodeContext) -> Result<RequestCapabilities> {
+            Ok(RequestCapabilities { #(#capability_snapshot_fields)* })
         }
 
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]

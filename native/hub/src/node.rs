@@ -34,7 +34,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::access_policy::{Action, Denial, RuneAccessPolicy};
 use crate::backends::remote::{RemoteConnectError, RendererLink, RendererLinkUse};
-use crate::macros::{RequestAccess, RequestScope, request_access, request_scope};
+use crate::macros::{
+    RequestAccess, RequestScope, capability_snapshot, request_access, request_scope,
+};
 use crate::request_error::ExpectedRequestError;
 use crate::server::sync_worker::SyncTokenStore;
 use crate::{Session, session::PlayerSession};
@@ -43,8 +45,8 @@ use crate::{
     messages::{
         AttachedRenderer, ClientStatus, ClientSummary, IncommingClientPermissionNotification,
         InitializeNodeRequest, InitializeNodeResponse, PauseRequest, RemoteLibraryReconnecting,
-        RemoteLossKind, RendererAttachmentChanged, RendererLinkLost, TrustListUpdated,
-        TrustedClientsChanged, TrustedServerCertificate,
+        RemoteLossKind, RendererAttachmentChanged, RendererLinkLost, RequestCapabilities,
+        TrustListUpdated, TrustedClientsChanged, TrustedServerCertificate,
     },
     request_error::classify,
     server::{ServerManager, WebSocketService, utils::device::load_device_info},
@@ -103,6 +105,7 @@ pub struct NodeContext {
     pub server_manager: OnceLock<Arc<ServerManager>>,
     local_session: OnceLock<Arc<PlayerSession>>,
     current_ui: Mutex<Option<Weak<GlobalParams>>>,
+    last_capabilities: StdMutex<Option<RequestCapabilities>>,
     event_handles: Mutex<Vec<JoinHandle<()>>>,
     handoff_generation: AtomicU64,
     handoff_gate: Mutex<()>,
@@ -162,6 +165,22 @@ impl Broadcaster for NodeBroadcaster {
 }
 
 impl NodeContext {
+    /// Send the request capability snapshot to Dart if it changed. It reads the UI
+    /// library and renderer link locks, so never call it while holding either.
+    pub(crate) fn publish_capabilities(&self) -> Result<()> {
+        let capabilities = capability_snapshot(self)?;
+        let mut last = self
+            .last_capabilities
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Capability snapshot lock poisoned"))?;
+        if last.as_ref() == Some(&capabilities) {
+            return Ok(());
+        }
+        self.gui_broadcaster.broadcast(&capabilities);
+        *last = Some(capabilities);
+        Ok(())
+    }
+
     /// `os_media_controls` registers the local session with the OS (MPRIS, SMTC).
     /// Only the app and the headless server enable it; tests must not touch the
     /// desktop session.
@@ -229,6 +248,7 @@ impl NodeContext {
             server_manager: OnceLock::new(),
             local_session: OnceLock::new(),
             current_ui: Mutex::new(None),
+            last_capabilities: StdMutex::new(None),
             event_handles: Mutex::new(Vec::new()),
             handoff_generation: AtomicU64::new(0),
             handoff_gate: Mutex::new(()),
@@ -285,6 +305,7 @@ impl NodeContext {
                 log::warn!("Could not start paired sync server: {error:#}");
             }
         }
+        node.publish_capabilities()?;
         Ok(node)
     }
 
@@ -444,17 +465,21 @@ impl NodeContext {
                     alias: link.alias().to_owned(),
                 }),
             });
+            self.publish_capabilities()?;
             return Ok(());
         }
         let (link, alias) = self
             .connect_renderer(fingerprint, RendererLinkUse::Control)
             .await?;
         self.install_renderer_link(link, alias)?;
+        self.publish_capabilities()?;
         self.session()?.player.lock().await.pause();
         Ok(())
     }
 
     /// Make `link` the attached renderer, closing the previous one, and tell the UI.
+    /// Reconnect calls this under the UI library lock, so it must not publish
+    /// capabilities; callers that change the target do that themselves.
     pub(crate) fn install_renderer_link(&self, link: RendererLink, alias: String) -> Result<()> {
         let fingerprint = link.fingerprint().to_owned();
         let old = {
@@ -513,6 +538,7 @@ impl NodeContext {
         if detached {
             self.gui_broadcaster
                 .broadcast(&RendererAttachmentChanged { renderer: None });
+            self.publish_capabilities()?;
             self.session()?.reemit_current().await?;
         }
         Ok(())
@@ -568,6 +594,9 @@ impl NodeContext {
         });
         self.gui_broadcaster
             .broadcast(&RendererAttachmentChanged { renderer: None });
+        if let Err(error) = self.publish_capabilities() {
+            log::warn!("Could not publish request capabilities after renderer loss: {error:#}");
+        }
         if let Ok(session) = self.session()
             && let Err(error) = session.reemit_current().await
         {
@@ -615,6 +644,7 @@ impl NodeContext {
             fingerprint,
             reconnect: None,
         };
+        self.publish_capabilities()?;
         Ok(())
     }
 
@@ -748,6 +778,9 @@ impl NodeContext {
         let mut current = self.current_ui.lock().await;
         if let Some(old) = current.as_ref().and_then(Weak::upgrade) {
             if Arc::ptr_eq(&old, params) {
+                if let Err(error) = self.publish_capabilities() {
+                    log::warn!("Could not publish request capabilities on UI attach: {error:#}");
+                }
                 return;
             }
             Self::release_ui(&old).await;
@@ -755,6 +788,9 @@ impl NodeContext {
         *current = Some(Arc::downgrade(params));
         drop(current);
         self.leave_remote_ui().await;
+        if let Err(error) = self.publish_capabilities() {
+            log::warn!("Could not publish request capabilities on UI attach: {error:#}");
+        }
     }
 
     async fn release_ui(params: &GlobalParams) {
@@ -795,6 +831,9 @@ impl NodeContext {
             *ui = UiLibrary::Local;
             remote
         });
+        if remote && let Err(error) = self.publish_capabilities() {
+            log::warn!("Could not publish request capabilities after remote UI close: {error:#}");
+        }
         if remote && let Err(error) = self.detach_renderer().await {
             log::warn!("Could not detach remote library: {error:#}");
         }

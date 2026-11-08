@@ -1225,6 +1225,7 @@ async fn hand_off_to_renderer(
         HandoffOutcome::SourcePaused
     };
     node.install_renderer_link(link, alias)?;
+    node.publish_capabilities()?;
     log::info!("Handoff outcome: {outcome:?}");
     Ok(())
 }
