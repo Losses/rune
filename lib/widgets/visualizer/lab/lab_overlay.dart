@@ -8,11 +8,13 @@ import 'package:provider/provider.dart';
 
 import '../../../bindings/bindings.dart';
 import '../../../providers/status.dart';
+import '../../../providers/request_capabilities.dart';
 import '../../../providers/visualizer_lab.dart';
 import '../../../providers/visualizer_scenes.dart';
 import '../../../utils/api/seek.dart';
 import '../../../utils/kept_clear.dart';
 import '../../playback_controller/constants/playback_controller_height.dart';
+import '../../capability_gate.dart';
 import '../visualizer_controller.dart';
 
 import 'lab_cards.dart';
@@ -408,16 +410,22 @@ class _LabBodyState extends State<LabBody> with WidgetsBindingObserver {
     return ValueListenableBuilder<LabTimelineData>(
       valueListenable: _lab.timeline,
       builder: (context, data, _) {
-        return LabTimeline(
-          data: data,
-          rows: _lab.rowsModel,
-          onSeek: _seek,
-          onScrub: _scrub,
-          labelWidth: context.select<VisualizerLabProvider, double?>(
-            (p) => p.labelWidth,
+        return CapabilityGate(
+          capability: capabilityForRequest(
+            context,
+            (capabilities) => capabilities.seekRequest,
           ),
-          onLabelWidth: (width, {required save}) =>
-              _lab.setLabelWidth(width, save: save),
+          child: LabTimeline(
+            data: data,
+            rows: _lab.rowsModel,
+            onSeek: _seek,
+            onScrub: _scrub,
+            labelWidth: context.select<VisualizerLabProvider, double?>(
+              (p) => p.labelWidth,
+            ),
+            onLabelWidth: (width, {required save}) =>
+                _lab.setLabelWidth(width, save: save),
+          ),
         );
       },
     );

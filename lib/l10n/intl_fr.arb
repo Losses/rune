@@ -1463,5 +1463,7 @@
   "requestPublicKeyMismatch": "La clé de l’appareil ne correspond pas à son empreinte",
   "requestRegistrationConflict": "Un appareil utilisant cette empreinte est déjà enregistré",
   "remoteLibraryReconnecting": "Reconnexion à {alias}…",
-  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}}
+  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
+  "capabilityNotImplemented": "Cet appareil ne prend pas en charge cette commande",
+  "capabilityOwnerOnly": "Seul l’appareil propriétaire peut faire cela"
 }

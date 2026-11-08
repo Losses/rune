@@ -1461,5 +1461,7 @@
   "requestPublicKeyMismatch": "Der Geräteschlüssel passt nicht zum Fingerabdruck",
   "requestRegistrationConflict": "Ein Gerät mit diesem Fingerabdruck ist bereits registriert",
   "remoteLibraryReconnecting": "Verbindung zu {alias} wird wiederhergestellt…",
-  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}}
+  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
+  "capabilityNotImplemented": "Dieses Gerät unterstützt diese Steuerung nicht",
+  "capabilityOwnerOnly": "Nur das besitzende Gerät kann das tun"
 }

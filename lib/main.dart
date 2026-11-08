@@ -82,6 +82,7 @@ import 'providers/linux_custom_window_controls.dart';
 import 'providers/playback_controller.dart';
 import 'providers/controllers.dart';
 import 'providers/renderer_attachment.dart';
+import 'providers/request_capabilities.dart';
 import 'providers/renderer_link_loss.dart';
 import 'providers/remote_library_reconnect.dart';
 import 'providers/responsive_providers.dart';
@@ -366,6 +367,10 @@ void mainLoop(
         ),
         ChangeNotifierProvider(
           lazy: false,
+          create: (_) => RequestCapabilitiesProvider(),
+        ),
+        ChangeNotifierProvider(
+          lazy: false,
           create: (_) => ControllersProvider(),
         ),
         ChangeNotifierProvider(
@@ -392,8 +397,11 @@ void mainLoop(
         ChangeNotifierProvider(create: (_) => BroadcastProvider()),
         ChangeNotifierProvider(create: (_) => FullScreenProvider()),
         ChangeNotifierProvider(create: (_) => VisualizerScenesProvider()),
-        ChangeNotifierProxyProvider2<PlaybackStatusProvider,
-            VisualizerScenesProvider, VisualizerLabProvider>(
+        ChangeNotifierProxyProvider2<
+          PlaybackStatusProvider,
+          VisualizerScenesProvider,
+          VisualizerLabProvider
+        >(
           lazy: false,
           create: (_) => VisualizerLabProvider(),
           update: (_, status, scenes, previous) => previous!

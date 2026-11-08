@@ -9,6 +9,8 @@ import '../../widgets/playback_controller/like_button.dart';
 
 import '../../providers/playback_controller.dart';
 import '../../providers/responsive_providers.dart';
+import '../../providers/request_capabilities.dart';
+import '../capability_gate.dart';
 
 import '../visualizer/lab/lab_progress_markers.dart';
 
@@ -42,7 +44,9 @@ class ControllerProgressBar extends StatelessWidget {
       builder: (context, isTable) {
         return Container(
           constraints: BoxConstraints(
-              minWidth: 200, maxWidth: isTable ? 320 : 360 - reduceCount * 40),
+            minWidth: 200,
+            maxWidth: isTable ? 320 : 360 - reduceCount * 40,
+          ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -62,23 +66,29 @@ class ControllerProgressBar extends StatelessWidget {
                     Padding(
                       padding: const EdgeInsetsDirectional.only(start: 16),
                       child: LikeButton(item: item),
-                    )
+                    ),
                   ],
                 ),
               ),
-              withLabMarkers(
-                context,
-                duration: status?.duration ?? 0,
-                slider: Slider(
-                  value: status != null
-                      ? (status?.progressPercentage ?? 0) * 100
-                      : 0,
-                  onChanged: (value) {
-                    if (status != null && !notReady) {
-                      seek(value, status);
-                    }
-                  },
-                  style: const SliderThemeData(useThumbBall: false),
+              CapabilityGate(
+                capability: capabilityForRequest(
+                  context,
+                  (capabilities) => capabilities.seekRequest,
+                ),
+                child: withLabMarkers(
+                  context,
+                  duration: status?.duration ?? 0,
+                  slider: Slider(
+                    value: status != null
+                        ? (status?.progressPercentage ?? 0) * 100
+                        : 0,
+                    onChanged: (value) {
+                      if (status != null && !notReady) {
+                        seek(value, status);
+                      }
+                    },
+                    style: const SliderThemeData(useThumbBall: false),
+                  ),
                 ),
               ),
               Padding(

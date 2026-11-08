@@ -10,6 +10,8 @@ import '../../utils/playing_item.dart';
 import '../../bindings/bindings.dart';
 import '../../providers/playlist.dart';
 import '../../providers/status.dart';
+import '../../providers/request_capabilities.dart';
+import '../capability_gate.dart';
 import '../../utils/dialogs/information/error.dart';
 import '../../utils/api/request_failure.dart';
 
@@ -50,6 +52,18 @@ class PlaylistQueueItem extends StatelessWidget {
     );
     final reason = _unavailableReason(context, entry.entry.unavailable);
     final color = isCurrent ? accentColor : null;
+    final moveCapability = capabilityForRequest(
+      context,
+      (capabilities) => capabilities.movePlaylistItemRequest,
+    );
+
+    // The queue stays visible on any target; only switching to an item is gated.
+    final canSwitch =
+        capabilityForRequest(
+              context,
+              (capabilities) => capabilities.switchRequest,
+            )
+            is RequestCapabilityAvailable;
 
     return ListTile.selectable(
       title: Transform.translate(
@@ -94,8 +108,32 @@ class PlaylistQueueItem extends StatelessWidget {
           ],
         ),
       ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (moveCapability case RequestCapabilityDisabled(:final reason))
+            Tooltip(
+              message: capabilityReasonText(context, reason),
+              child: const Padding(
+                padding: EdgeInsets.all(8),
+                child: Icon(FluentIcons.info),
+              ),
+            ),
+          CapabilityGate(
+            capability: capabilityForRequest(
+              context,
+              (capabilities) => capabilities.removeRequest,
+            ),
+            child: IconButton(
+              icon: const Icon(Symbols.close),
+              onPressed: () =>
+                  context.read<PlaylistProvider>().removeItem(entry.index),
+            ),
+          ),
+        ],
+      ),
       onPressed: reason == null
-          ? onPlay
+          ? (canSwitch ? onPlay : null)
           : () => showErrorDialog(
               context: context,
               title: S.of(context).unavailable,
@@ -158,6 +196,12 @@ class _QueueState extends State<Queue> {
               playlistProvider.reorderItems(oldIndex, newIndex);
             }
 
+            final moveCapability = capabilityForRequest(
+              context,
+              (capabilities) => capabilities.movePlaylistItemRequest,
+            );
+            final canMove = moveCapability is RequestCapabilityAvailable;
+
             return playlistProvider.items.isEmpty
                 ? ListTile.selectable(
                     key: const Key("disabled"),
@@ -168,24 +212,41 @@ class _QueueState extends State<Queue> {
                 : CustomScrollView(
                     controller: _scrollController,
                     slivers: [
-                      ReorderableSliverList(
-                        onReorder: onReorder,
-                        delegate: ReorderableSliverChildBuilderDelegate((
-                          BuildContext context,
-                          int index,
-                        ) {
-                          final x = playlistProvider.items[index];
-                          final isCurrent =
-                              playbackStatusProvider.$1 == x.index &&
-                              playbackStatusProvider.$2 == x.item;
-                          return PlaylistQueueItem(
-                            key: ValueKey(x.entry.item),
-                            entry: x,
-                            isCurrent: isCurrent,
-                            onPlay: () => playlistProvider.playItem(x.index),
-                          );
-                        }, childCount: playlistProvider.items.length),
-                      ),
+                      if (canMove)
+                        ReorderableSliverList(
+                          onReorder: onReorder,
+                          delegate: ReorderableSliverChildBuilderDelegate((
+                            BuildContext context,
+                            int index,
+                          ) {
+                            final x = playlistProvider.items[index];
+                            final isCurrent =
+                                playbackStatusProvider.$1 == x.index &&
+                                playbackStatusProvider.$2 == x.item;
+                            return PlaylistQueueItem(
+                              key: ValueKey(x.entry.item),
+                              entry: x,
+                              isCurrent: isCurrent,
+                              onPlay: () => playlistProvider.playItem(x.index),
+                            );
+                          }, childCount: playlistProvider.items.length),
+                        )
+                      else
+                        SliverList.builder(
+                          itemCount: playlistProvider.items.length,
+                          itemBuilder: (context, index) {
+                            final x = playlistProvider.items[index];
+                            final isCurrent =
+                                playbackStatusProvider.$1 == x.index &&
+                                playbackStatusProvider.$2 == x.item;
+                            return PlaylistQueueItem(
+                              key: ValueKey(x.entry.item),
+                              entry: x,
+                              isCurrent: isCurrent,
+                              onPlay: () => playlistProvider.playItem(x.index),
+                            );
+                          },
+                        ),
                     ],
                   );
           },

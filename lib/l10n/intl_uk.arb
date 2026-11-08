@@ -1461,5 +1461,7 @@
   "requestPublicKeyMismatch": "Ключ пристрою не відповідає відбитку",
   "requestRegistrationConflict": "Пристрій із таким відбитком уже зареєстровано",
   "remoteLibraryReconnecting": "Повторне підключення до {alias}…",
-  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}}
+  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
+  "capabilityNotImplemented": "Цей пристрій не підтримує цю дію",
+  "capabilityOwnerOnly": "Лише пристрій-власник може це зробити"
 }

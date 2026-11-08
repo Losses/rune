@@ -1424,5 +1424,7 @@
   "requestPublicKeyMismatch": "端末金鑰與指紋不符",
   "requestRegistrationConflict": "此指紋的裝置已註冊",
   "remoteLibraryReconnecting": "{alias} 再接続中…",
-  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}}
+  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
+  "capabilityNotImplemented": "此器、此操作不対応",
+  "capabilityOwnerOnly": "所有者器以外不可"
 }

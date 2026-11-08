@@ -1,9 +1,11 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 
 import '../../bindings/bindings.dart';
 import '../../l10n/app_localizations.dart';
 import '../../providers/playlist.dart';
+import '../../providers/request_capabilities.dart';
 import '../../widgets/playback_controller/queue.dart';
 
 PlaylistEntry queueEntry(PlaylistUnavailableReason? reason) => PlaylistEntry(
@@ -32,15 +34,18 @@ void main() {
     VoidCallback onPlay = _noop,
   }) async {
     await tester.pumpWidget(
-      FluentApp(
-        locale: const Locale('en'),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: ScaffoldPage(
-          content: PlaylistQueueItem(
-            entry: queueEntry(reason),
-            isCurrent: false,
-            onPlay: onPlay,
+      ChangeNotifierProvider(
+        create: (_) => RequestCapabilitiesProvider(),
+        child: FluentApp(
+          locale: const Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ScaffoldPage(
+            content: PlaylistQueueItem(
+              entry: queueEntry(reason),
+              isCurrent: false,
+              onPlay: onPlay,
+            ),
           ),
         ),
       ),
@@ -83,15 +88,18 @@ void main() {
       ),
     );
     await tester.pumpWidget(
-      FluentApp(
-        locale: const Locale('en'),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: ScaffoldPage(
-          content: PlaylistQueueItem(
-            entry: entry,
-            isCurrent: false,
-            onPlay: _noop,
+      ChangeNotifierProvider(
+        create: (_) => RequestCapabilitiesProvider(),
+        child: FluentApp(
+          locale: const Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ScaffoldPage(
+            content: PlaylistQueueItem(
+              entry: entry,
+              isCurrent: false,
+              onPlay: _noop,
+            ),
           ),
         ),
       ),

@@ -7,6 +7,7 @@ import '../../bindings/bindings.dart';
 import '../../l10n/app_localizations.dart';
 import '../../providers/playlist.dart';
 import '../../providers/renderer_attachment.dart';
+import '../../providers/request_capabilities.dart';
 import '../../providers/library_path.dart';
 import '../../providers/status.dart';
 import '../../utils/api/request_failure.dart';
@@ -343,6 +344,7 @@ Future<void> _openQueue(
       providers: [
         ChangeNotifierProvider(create: (_) => PlaylistProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackStatusProvider()),
+        ChangeNotifierProvider(create: (_) => RequestCapabilitiesProvider()),
         ChangeNotifierProvider<LibraryPathProvider>(
           create: (_) => _TestLibraryPathProvider(libraryPath),
         ),

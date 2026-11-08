@@ -7,9 +7,11 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../utils/l10n.dart';
 import '../../../utils/api/seek_absolute.dart';
+import '../../../providers/request_capabilities.dart';
 import '../../../utils/router/router_aware_flyout_controller.dart';
 import '../../../widgets/context_menu_wrapper.dart';
 import '../../../bindings/bindings.dart';
+import '../../../widgets/capability_gate.dart';
 
 import 'lyric_section.dart';
 import 'simple_lyric_section.dart';
@@ -60,20 +62,20 @@ class _LyricLineState extends State<LyricLine>
     );
     _targetBlur = _currentTargetBlur();
     _targetOpacity = _currentTargetOpacity();
-    _blurAnimation =
-        Tween<double>(begin: _targetBlur, end: _targetBlur).animate(
-      CurvedAnimation(
-        parent: _animationController,
-        curve: Curves.easeInOut,
-      ),
-    );
+    _blurAnimation = Tween<double>(begin: _targetBlur, end: _targetBlur)
+        .animate(
+          CurvedAnimation(
+            parent: _animationController,
+            curve: Curves.easeInOut,
+          ),
+        );
     _opacityAnimation =
         Tween<double>(begin: _targetOpacity, end: _targetOpacity).animate(
-      CurvedAnimation(
-        parent: _animationController,
-        curve: Curves.easeInOut,
-      ),
-    );
+          CurvedAnimation(
+            parent: _animationController,
+            curve: Curves.easeInOut,
+          ),
+        );
 
     _contextController.controller.addListener(_handleContextControllerUpdate);
   }
@@ -110,25 +112,24 @@ class _LyricLineState extends State<LyricLine>
     _targetBlur = targetBlur;
     _targetOpacity = targetOpacity;
 
-    _blurAnimation = Tween<double>(
-      begin: _blurAnimation.value,
-      end: _targetBlur,
-    ).animate(
-      CurvedAnimation(
-        parent: _animationController,
-        curve: Curves.easeInOut,
-      ),
-    );
+    _blurAnimation =
+        Tween<double>(begin: _blurAnimation.value, end: _targetBlur).animate(
+          CurvedAnimation(
+            parent: _animationController,
+            curve: Curves.easeInOut,
+          ),
+        );
 
-    _opacityAnimation = Tween<double>(
-      begin: _opacityAnimation.value,
-      end: _targetOpacity,
-    ).animate(
-      CurvedAnimation(
-        parent: _animationController,
-        curve: Curves.easeInOut,
-      ),
-    );
+    _opacityAnimation =
+        Tween<double>(
+          begin: _opacityAnimation.value,
+          end: _targetOpacity,
+        ).animate(
+          CurvedAnimation(
+            parent: _animationController,
+            curve: Curves.easeInOut,
+          ),
+        );
 
     _animationController.forward(from: 0.0);
   }
@@ -157,9 +158,7 @@ class _LyricLineState extends State<LyricLine>
     return (blur * 4).round() / 4;
   }
 
-  void _openLyricContextMenu(
-    Offset localPosition,
-  ) async {
+  void _openLyricContextMenu(Offset localPosition) async {
     if (!context.mounted) return;
     final targetContext = _contextAttachKey.currentContext;
 
@@ -182,7 +181,8 @@ class _LyricLineState extends State<LyricLine>
               text: Text(s.copy),
               onPressed: () {
                 FlutterClipboard.copy(
-                    widget.sections.map((s) => s.content).join(''));
+                  widget.sections.map((s) => s.content).join(''),
+                );
               },
             ),
           ],
@@ -194,91 +194,103 @@ class _LyricLineState extends State<LyricLine>
   @override
   void dispose() {
     _animationController.dispose();
-    _contextController.controller
-        .removeListener(_handleContextControllerUpdate);
+    _contextController.controller.removeListener(
+      _handleContextControllerUpdate,
+    );
     _contextController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) {
-        if (mounted) {
-          setState(() {
-            _isHovered = true;
-            _updateAnimations();
-          });
-        }
-      },
-      onExit: (_) {
-        if (mounted) {
-          setState(() {
-            _isHovered = false;
-            _updateAnimations();
-          });
-        }
-      },
-      child: GestureDetector(
-          onTap: () {
-            if (widget.sections.isEmpty) return;
-            seekAbsolute(_startTime);
-          },
+    final seekCapability = capabilityForRequest(
+      context,
+      (capabilities) => capabilities.seekRequest,
+    );
+    return Tooltip(
+      message: seekCapability is RequestCapabilityDisabled
+          ? capabilityReasonText(context, seekCapability.reason)
+          : '',
+      child: MouseRegion(
+        onEnter: (_) {
+          if (mounted) {
+            setState(() {
+              _isHovered = true;
+              _updateAnimations();
+            });
+          }
+        },
+        onExit: (_) {
+          if (mounted) {
+            setState(() {
+              _isHovered = false;
+              _updateAnimations();
+            });
+          }
+        },
+        child: GestureDetector(
+          onTap: seekCapability is RequestCapabilityAvailable
+              ? () {
+                  if (widget.sections.isEmpty) return;
+                  seekAbsolute(_startTime);
+                }
+              : null,
           child: ContextMenuWrapper(
-              onContextMenu: _openLyricContextMenu,
-              onMiddleClick: (_) => {},
-              contextAttachKey: _contextAttachKey,
-              contextController: _contextController,
-              child: AnimatedBuilder(
-                animation:
-                    Listenable.merge([_blurAnimation, _opacityAnimation]),
-                builder: (context, child) {
-                  final blur = _blurAnimation.value;
-                  final opacity = _opacityAnimation.value;
+            onContextMenu: _openLyricContextMenu,
+            onMiddleClick: (_) => {},
+            contextAttachKey: _contextAttachKey,
+            contextController: _contextController,
+            child: AnimatedBuilder(
+              animation: Listenable.merge([_blurAnimation, _opacityAnimation]),
+              builder: (context, child) {
+                final blur = _blurAnimation.value;
+                final opacity = _opacityAnimation.value;
 
-                  Widget result = child!;
-                  if (blur != 0) {
-                    result = ImageFiltered(
-                      imageFilter: ImageFilter.blur(
-                        sigmaX: blur,
-                        sigmaY: blur,
-                      ),
-                      child: result,
-                    );
-                  }
-                  if (opacity != 1) {
-                    result = Opacity(opacity: opacity, child: result);
-                  }
-                  return result;
-                },
-                child: Container(
-                  key: _contentKey,
-                  padding: const EdgeInsets.symmetric(
-                      vertical: 10.0, horizontal: 16.0),
-                  child: widget.isStatic
-                      ? Wrap(
-                          children: widget.sections.indexed.map((section) {
-                            return SimpleLyricSection(
-                              key: ValueKey(section.$1),
-                              section: section.$2,
-                              isPassed: widget.isPassed,
-                            );
-                          }).toList(),
-                        )
-                      : Wrap(
-                          children: widget.sections.indexed.map((section) {
-                            return LyricSection(
-                              key: ValueKey(section.$1),
-                              section: section.$2,
-                              interpolatedTime: widget.interpolatedTime,
-                              isActive: widget.isActive,
-                              isPassed: widget.isPassed,
-                              wholeLine: widget.sections.length == 1,
-                            );
-                          }).toList(),
-                        ),
+                Widget result = child!;
+                if (blur != 0) {
+                  result = ImageFiltered(
+                    imageFilter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+                    child: result,
+                  );
+                }
+                if (opacity != 1) {
+                  result = Opacity(opacity: opacity, child: result);
+                }
+                return result;
+              },
+              child: Container(
+                key: _contentKey,
+                padding: const EdgeInsets.symmetric(
+                  vertical: 10.0,
+                  horizontal: 16.0,
                 ),
-              ))),
+                child: widget.isStatic
+                    ? Wrap(
+                        children: widget.sections.indexed.map((section) {
+                          return SimpleLyricSection(
+                            key: ValueKey(section.$1),
+                            section: section.$2,
+                            isPassed: widget.isPassed,
+                          );
+                        }).toList(),
+                      )
+                    : Wrap(
+                        children: widget.sections.indexed.map((section) {
+                          return LyricSection(
+                            key: ValueKey(section.$1),
+                            section: section.$2,
+                            interpolatedTime: widget.interpolatedTime,
+                            isActive: widget.isActive,
+                            isPassed: widget.isPassed,
+                            wholeLine: widget.sections.length == 1,
+                          );
+                        }).toList(),
+                      ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

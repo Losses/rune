@@ -1424,5 +1424,7 @@
   "requestPublicKeyMismatch": "デバイスノ カギガ フィンガープリントト イッチ シマセン",
   "requestRegistrationConflict": "コノ フィンガープリントノ デバイスハ スデニ トウロク サレテイマス",
   "remoteLibraryReconnecting": "{alias} に さいせつぞくしています…",
-  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}}
+  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
+  "capabilityNotImplemented": "コノ デバイスハ コノ ソウサニ タイオウ シテイマセン",
+  "capabilityOwnerOnly": "コノ ソウサハ ショユウシャノ デバイスデノミ オコナエマス"
 }

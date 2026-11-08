@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../config/animation.dart';
+import '../../bindings/bindings.dart';
 import '../../widgets/belt_container.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/band_link_tile.dart';
@@ -12,6 +13,7 @@ import '../../providers/status.dart';
 import '../../providers/volume.dart';
 import '../../providers/playback_controller.dart';
 import '../../providers/responsive_providers.dart';
+import '../../widgets/capability_gate.dart';
 
 class BandScreenCoverWallView extends StatefulWidget {
   const BandScreenCoverWallView({super.key});
@@ -48,23 +50,26 @@ class LibraryHomeListState extends State<BandScreenCoverWallView> {
     final children = controllers
         .availableEntries(context)
         .where((x) => x.onShortcut != null)
+        .where(
+          (item) => item.capability(context, true) is! RequestCapabilityHidden,
+        )
         .map(
           (item) => Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 2,
-              vertical: 1,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
             child: AspectRatio(
               aspectRatio: 1,
-              child: BandLinkTile(
-                title: item.titleBuilder(context),
-                onPressed: () {
-                  final fn = item.onShortcut;
-                  if (fn != null) {
-                    fn(context);
-                  }
-                },
-                icon: item.icon(context),
+              child: CapabilityGate(
+                capability: item.capability(context, true),
+                child: BandLinkTile(
+                  title: item.titleBuilder(context),
+                  onPressed: () {
+                    final fn = item.onShortcut;
+                    if (fn != null) {
+                      fn(context);
+                    }
+                  },
+                  icon: item.icon(context),
+                ),
               ),
             ),
           ),
@@ -81,11 +86,7 @@ class LibraryHomeListState extends State<BandScreenCoverWallView> {
       ],
       builder: (context, activeBreakpoint) {
         if (activeBreakpoint == DeviceType.dock) {
-          return SingleChildScrollView(
-            child: Column(
-              children: children,
-            ),
-          );
+          return SingleChildScrollView(child: Column(children: children));
         }
 
         if (activeBreakpoint == DeviceType.belt) {
@@ -95,9 +96,7 @@ class LibraryHomeListState extends State<BandScreenCoverWallView> {
                 return SingleChildScrollView(
                   controller: controller,
                   scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: children,
-                  ),
+                  child: Row(children: children),
                 );
               },
             ),
@@ -109,9 +108,7 @@ class LibraryHomeListState extends State<BandScreenCoverWallView> {
             return SingleChildScrollView(
               controller: controller,
               scrollDirection: Axis.horizontal,
-              child: Row(
-                children: children,
-              ),
+              child: Row(children: children),
             );
           },
         );

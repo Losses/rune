@@ -4,15 +4,14 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../providers/volume.dart';
+import '../../providers/request_capabilities.dart';
+import '../capability_gate.dart';
 
 import '../../utils/router/router_aware_flyout_controller.dart';
 import '../rune_clickable.dart';
 
 class VolumeButton extends StatefulWidget {
-  const VolumeButton({
-    super.key,
-    required this.shadows,
-  });
+  const VolumeButton({super.key, required this.shadows});
 
   final List<Shadow>? shadows;
 
@@ -36,34 +35,37 @@ class VolumeButtonState extends State<VolumeButton> {
   Widget build(BuildContext context) {
     final volumeProvider = Provider.of<VolumeProvider>(context);
 
-    return Listener(
-      onPointerSignal: (pointerSignal) {
-        onScroll(volumeProvider, pointerSignal);
-      },
-      child: FlyoutTarget(
-        controller: _flyoutController.controller,
-        child: RuneClickable(
-          child: Icon(
-            volumeProvider.volume > 0.3
-                ? Symbols.volume_up
-                : volumeProvider.volume > 0
-                    ? Symbols.volume_down
-                    : Symbols.volume_mute,
-            shadows: widget.shadows,
+    return CapabilityGate(
+      capability: capabilityForRequest(
+        context,
+        (capabilities) => capabilities.volumeRequest,
+      ),
+      child: Listener(
+        onPointerSignal: (pointerSignal) {
+          onScroll(volumeProvider, pointerSignal);
+        },
+        child: FlyoutTarget(
+          controller: _flyoutController.controller,
+          child: RuneClickable(
+            child: Icon(
+              volumeProvider.volume > 0.3
+                  ? Symbols.volume_up
+                  : volumeProvider.volume > 0
+                  ? Symbols.volume_down
+                  : Symbols.volume_mute,
+              shadows: widget.shadows,
+            ),
+            onPressed: () {
+              _flyoutController.showFlyout(
+                barrierColor: Colors.transparent,
+                builder: (context) {
+                  return const FlyoutContent(
+                    child: VolumeController(width: 40, height: 150),
+                  );
+                },
+              );
+            },
           ),
-          onPressed: () {
-            _flyoutController.showFlyout(
-              barrierColor: Colors.transparent,
-              builder: (context) {
-                return const FlyoutContent(
-                  child: VolumeController(
-                    width: 40,
-                    height: 150,
-                  ),
-                );
-              },
-            );
-          },
         ),
       ),
     );
@@ -92,20 +94,26 @@ class VolumeController extends StatelessWidget {
   Widget build(BuildContext context) {
     final volumeProvider = Provider.of<VolumeProvider>(context);
 
-    return Listener(
-      onPointerSignal: (pointerSignal) {
-        onScroll(volumeProvider, pointerSignal);
-      },
-      child: SizedBox(
-        width: width,
-        height: height,
-        child: Slider(
-          vertical: vertical,
-          value: volumeProvider.volume * 100,
-          onChanged: (value) {
-            volumeProvider.updateVolume(value / 100);
-          },
-          label: '${(volumeProvider.volume * 100).toInt()}%',
+    return CapabilityGate(
+      capability: capabilityForRequest(
+        context,
+        (capabilities) => capabilities.volumeRequest,
+      ),
+      child: Listener(
+        onPointerSignal: (pointerSignal) {
+          onScroll(volumeProvider, pointerSignal);
+        },
+        child: SizedBox(
+          width: width,
+          height: height,
+          child: Slider(
+            vertical: vertical,
+            value: volumeProvider.volume * 100,
+            onChanged: (value) {
+              volumeProvider.updateVolume(value / 100);
+            },
+            label: '${(volumeProvider.volume * 100).toInt()}%',
+          ),
         ),
       ),
     );

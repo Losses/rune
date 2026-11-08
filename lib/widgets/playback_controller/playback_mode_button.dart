@@ -7,6 +7,8 @@ import '../../utils/api/play_mode.dart';
 import '../../utils/settings_manager.dart';
 import '../../widgets/playback_controller/utils/playback_mode.dart';
 import '../../providers/status.dart';
+import '../../providers/request_capabilities.dart';
+import '../capability_gate.dart';
 
 import '../rune_clickable.dart';
 
@@ -64,10 +66,7 @@ PlaybackMode nextMode(PlaybackMode mode) {
 
 class PlaybackModeButton extends StatelessWidget {
   final List<Shadow>? shadows;
-  const PlaybackModeButton({
-    required this.shadows,
-    super.key,
-  });
+  const PlaybackModeButton({required this.shadows, super.key});
 
   Future<PlaybackMode> getNextEnabledMode(PlaybackMode currentMode) async {
     // Retrieve disabled modes
@@ -75,8 +74,8 @@ class PlaybackModeButton extends StatelessWidget {
         .getValue<List<dynamic>>('disabled_playback_modes');
     List<PlaybackMode> disabledModes = storedDisabledModes != null
         ? storedDisabledModes
-            .map((index) => PlaybackMode.values[index])
-            .toList()
+              .map((index) => PlaybackMode.values[index])
+              .toList()
         : [];
 
     // Check if all modes are disabled
@@ -102,14 +101,17 @@ class PlaybackModeButton extends StatelessWidget {
           playbackStatusProvider.playbackStatus.playbackMode ?? 0,
         );
 
-        return RuneClickable(
-          onPressed: () async {
-            final next = await getNextEnabledMode(currentMode);
-            playMode(next.toValue());
-          },
-          child: Icon(
-            modeToIcon(currentMode),
-            shadows: shadows,
+        return CapabilityGate(
+          capability: capabilityForRequest(
+            context,
+            (capabilities) => capabilities.setPlaybackModeRequest,
+          ),
+          child: RuneClickable(
+            onPressed: () async {
+              final next = await getNextEnabledMode(currentMode);
+              playMode(next.toValue());
+            },
+            child: Icon(modeToIcon(currentMode), shadows: shadows),
           ),
         );
       },

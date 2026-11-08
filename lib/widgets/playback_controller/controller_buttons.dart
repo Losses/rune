@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/fetch_flyout_items.dart';
+import '../../bindings/bindings.dart';
 import '../../utils/is_cover_art_wall_layout.dart';
 import '../../utils/kept_clear.dart';
 import '../../utils/router/router_aware_flyout_controller.dart';
@@ -13,6 +14,7 @@ import '../../providers/status.dart';
 import '../../providers/router_path.dart';
 import '../../providers/playback_controller.dart';
 import '../../providers/responsive_providers.dart';
+import '../capability_gate.dart';
 import '../rune_clickable.dart';
 
 class ControllerButtons extends StatefulWidget {
@@ -63,27 +65,42 @@ class _ControllerButtonsState extends State<ControllerButtons> {
   @override
   Widget build(BuildContext context) {
     final keptClear = context.keptClear;
-    final miniLayout = Provider.of<ResponsiveProvider>(context)
-        .smallerOrEqualTo(DeviceType.mobile);
+    final miniLayout = Provider.of<ResponsiveProvider>(
+      context,
+    ).smallerOrEqualTo(DeviceType.mobile);
 
     final controllerProvider = Provider.of<PlaybackControllerProvider>(context);
 
     final path = Provider.of<RouterPathProvider>(context).path;
 
-    final coverArtWallLayout = Provider.of<ResponsiveProvider>(context)
-            .smallerOrEqualTo(DeviceType.phone) &&
+    final coverArtWallLayout =
+        Provider.of<ResponsiveProvider>(
+          context,
+        ).smallerOrEqualTo(DeviceType.phone) &&
         isCoverArtWallLayout(path);
-
-    final miniEntries = [controllerItems[1], controllerItems[2]];
 
     Provider.of<PlaybackStatusProvider>(context);
 
-    final entries = controllerProvider.availableEntries(context);
+    final entries = controllerProvider
+        .availableEntries(context)
+        .where(
+          (entry) =>
+              entry.capability(context, true) is! RequestCapabilityHidden,
+        )
+        .toList();
+    final miniEntries = [controllerItems[1], controllerItems[2]]
+        .where(
+          (entry) =>
+              entry.capability(context, true) is! RequestCapabilityHidden,
+        )
+        .toList();
     final hiddenIndex = entries.indexWhere((entry) => entry.id == 'hidden');
-    final List<ControllerEntry> visibleEntries =
-        hiddenIndex != -1 ? entries.sublist(0, hiddenIndex) : entries;
-    final List<ControllerEntry> hiddenEntries =
-        hiddenIndex != -1 ? entries.sublist(hiddenIndex + 1) : [];
+    final List<ControllerEntry> visibleEntries = hiddenIndex != -1
+        ? entries.sublist(0, hiddenIndex)
+        : entries;
+    final List<ControllerEntry> hiddenEntries = hiddenIndex != -1
+        ? entries.sublist(hiddenIndex + 1)
+        : [];
 
     return Row(
       mainAxisAlignment: coverArtWallLayout
@@ -91,13 +108,17 @@ class _ControllerButtonsState extends State<ControllerButtons> {
           : MainAxisAlignment.end,
       children: [
         if (coverArtWallLayout) const SizedBox(width: 8),
-        for (final entry in (miniLayout && !coverArtWallLayout)
-            ? miniEntries
-            : visibleEntries)
+        for (final entry
+            in (miniLayout && !coverArtWallLayout)
+                ? miniEntries
+                : visibleEntries)
           Tooltip(
             message: entry.tooltipBuilder(context),
-            child: AxReveal0(
-              child: entry.controllerButtonBuilder(context, null),
+            child: CapabilityGate(
+              capability: entry.capability(context, true),
+              child: AxReveal0(
+                child: entry.controllerButtonBuilder(context, null),
+              ),
             ),
           ),
         if (hiddenEntries.isNotEmpty)
@@ -114,15 +135,16 @@ class _ControllerButtonsState extends State<ControllerButtons> {
                       return Container(
                         constraints: const BoxConstraints(maxWidth: 200),
                         child: MenuFlyout(
-                          items: ((miniLayout && !coverArtWallLayout)
-                                  ? entries
-                                  : hiddenEntries)
-                              .map(
-                                (x) =>
-                                    flyoutItems[x.id] ??
-                                    unavailableMenuEntry(context),
-                              )
-                              .toList(),
+                          items:
+                              ((miniLayout && !coverArtWallLayout)
+                                      ? entries
+                                      : hiddenEntries)
+                                  .map(
+                                    (x) =>
+                                        flyoutItems[x.id] ??
+                                        unavailableMenuEntry(context),
+                                  )
+                                  .toList(),
                         ),
                       );
                     },

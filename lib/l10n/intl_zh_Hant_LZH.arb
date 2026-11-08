@@ -1424,5 +1424,7 @@
   "requestPublicKeyMismatch": "設備金鑰與指紋不相符",
   "requestRegistrationConflict": "此指紋之設備已註冊",
   "remoteLibraryReconnecting": "正重連 {alias}…",
-  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}}
+  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
+  "capabilityNotImplemented": "此器不應此令",
+  "capabilityOwnerOnly": "唯主器可為之"
 }

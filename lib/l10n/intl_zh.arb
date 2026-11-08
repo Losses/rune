@@ -1532,5 +1532,7 @@
   "requestPublicKeyMismatch": "设备密钥与指纹不匹配",
   "requestRegistrationConflict": "此指纹对应的设备已注册",
   "remoteLibraryReconnecting": "正在重新连接到 {alias}…",
-  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}}
+  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
+  "capabilityNotImplemented": "此设备不支持该操作",
+  "capabilityOwnerOnly": "只有拥有者设备才能执行此操作"
 }

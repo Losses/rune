@@ -1463,5 +1463,7 @@
   "requestPublicKeyMismatch": "La chiave del dispositivo non corrisponde all’impronta",
   "requestRegistrationConflict": "Un dispositivo con questa impronta è già registrato",
   "remoteLibraryReconnecting": "Riconnessione a {alias}…",
-  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}}
+  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
+  "capabilityNotImplemented": "Questo dispositivo non supporta questo comando",
+  "capabilityOwnerOnly": "Solo il dispositivo proprietario può farlo"
 }

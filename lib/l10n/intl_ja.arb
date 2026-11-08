@@ -1461,5 +1461,7 @@
   "requestPublicKeyMismatch": "デバイスの鍵がフィンガープリントと一致しません",
   "requestRegistrationConflict": "このフィンガープリントのデバイスはすでに登録されています",
   "remoteLibraryReconnecting": "{alias} に再接続しています…",
-  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}}
+  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
+  "capabilityNotImplemented": "このデバイスはこの操作に対応していません",
+  "capabilityOwnerOnly": "この操作は所有者のデバイスでのみ行えます"
 }

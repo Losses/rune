@@ -4,14 +4,13 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../../utils/format_time.dart';
 import '../../../utils/api/seek.dart';
 import '../../../providers/status.dart';
+import '../../../providers/request_capabilities.dart';
+import '../../../widgets/capability_gate.dart';
 import '../../../widgets/visualizer/lab/lab_progress_markers.dart';
 
 class CoverArtPageProgressBar extends StatefulWidget {
   final List<Shadow> shadows;
-  const CoverArtPageProgressBar({
-    super.key,
-    required this.shadows,
-  });
+  const CoverArtPageProgressBar({super.key, required this.shadows});
 
   @override
   CoverArtPageProgressBarState createState() => CoverArtPageProgressBarState();
@@ -31,13 +30,19 @@ class CoverArtPageProgressBarState extends State<CoverArtPageProgressBar> {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Expanded(
-          child: withLabMarkers(
-            context,
-            duration: status.duration,
-            slider: Slider(
-              value: status.progressPercentage * 100,
-              onChanged: !notReady ? (v) => seek(v, status) : null,
-              style: const SliderThemeData(useThumbBall: false),
+          child: CapabilityGate(
+            capability: capabilityForRequest(
+              context,
+              (capabilities) => capabilities.seekRequest,
+            ),
+            child: withLabMarkers(
+              context,
+              duration: status.duration,
+              slider: Slider(
+                value: status.progressPercentage * 100,
+                onChanged: !notReady ? (v) => seek(v, status) : null,
+                style: const SliderThemeData(useThumbBall: false),
+              ),
             ),
           ),
         ),
@@ -50,13 +55,17 @@ class CoverArtPageProgressBarState extends State<CoverArtPageProgressBar> {
               children: [
                 Text(
                   formatTime(status.progressSeconds),
-                  style: typography.caption
-                      ?.apply(shadows: widget.shadows, fontSizeFactor: 0.9),
+                  style: typography.caption?.apply(
+                    shadows: widget.shadows,
+                    fontSizeFactor: 0.9,
+                  ),
                 ),
                 Text(
                   '-${formatTime((status.duration) - (status.progressSeconds))}',
-                  style: typography.caption
-                      ?.apply(shadows: widget.shadows, fontSizeFactor: 0.9),
+                  style: typography.caption?.apply(
+                    shadows: widget.shadows,
+                    fontSizeFactor: 0.9,
+                  ),
                 ),
               ],
             ),

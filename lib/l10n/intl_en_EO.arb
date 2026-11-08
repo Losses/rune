@@ -1426,5 +1426,7 @@
   "requestPublicKeyMismatch": "La aparatŝlosilo ne kongruas kun la fingrospuro",
   "requestRegistrationConflict": "Aparato kun ĉi tiu fingrospuro jam estas registrita",
   "remoteLibraryReconnecting": "Rekonektante al {alias}…",
-  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}}
+  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
+  "capabilityNotImplemented": "Ĉi tiu aparato ne subtenas ĉi tiun regilon",
+  "capabilityOwnerOnly": "Nur la posedanta aparato povas fari tion"
 }

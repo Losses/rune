@@ -6,6 +6,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../utils/l10n.dart';
+import '../../../bindings/bindings.dart';
 import '../../../utils/api/play_play.dart';
 import '../../../utils/api/play_mode.dart';
 import '../../../utils/api/play_next.dart';
@@ -23,6 +24,7 @@ import '../../../providers/visualizer_scenes.dart';
 import '../../../providers/responsive_providers.dart';
 import '../../../providers/visualizer_lab.dart';
 import '../../../providers/renderer_attachment.dart';
+import '../../../providers/request_capabilities.dart';
 import '../../../providers/library_path.dart';
 import '../../../utils/visualizer_supported.dart';
 
@@ -43,15 +45,19 @@ class ControllerEntry {
   final String Function(BuildContext context) subtitleBuilder;
   final String Function(BuildContext context) tooltipBuilder;
   final Widget Function(BuildContext context, List<Shadow>? shadows)
-      controllerButtonBuilder;
+  controllerButtonBuilder;
   final Future<MenuFlyoutItem> Function(BuildContext context)
-      flyoutEntryBuilder;
+  flyoutEntryBuilder;
   final List<SingleActivator>? shortcuts;
   final void Function(BuildContext context)? onShortcut;
 
   /// Whether the entry is offered now; an entry that is not is left out of the
   /// controller, its menu and the settings page.
   final bool Function(BuildContext context) isAvailable;
+
+  /// What the current target allows for this control; see `CapabilityGate`.
+  final RequestCapability Function(BuildContext context, bool listen)
+  capability;
 
   ControllerEntry({
     required this.id,
@@ -64,24 +70,35 @@ class ControllerEntry {
     required this.shortcuts,
     required this.onShortcut,
     this.isAvailable = _alwaysAvailable,
+    this.capability = _alwaysCapable,
   });
 }
+
+RequestCapability _alwaysCapable(BuildContext context, bool listen) =>
+    const RequestCapabilityAvailable();
 
 bool _alwaysAvailable(BuildContext context) => true;
 
 /// Whether the cover wall shows the visualizer, which renames its entry.
 bool _coverWallShowsVisualizer(BuildContext context, {bool listen = true}) =>
-    Provider.of<VisualizerScenesProvider>(context, listen: listen)
-        .showVisualizer;
+    Provider.of<VisualizerScenesProvider>(
+      context,
+      listen: listen,
+    ).showVisualizer;
 
 String _coverWallTitle(BuildContext context, {bool listen = true}) =>
     _coverWallShowsVisualizer(context, listen: listen)
-        ? S.of(context).visualizer
-        : S.of(context).coverWall;
+    ? S.of(context).visualizer
+    : S.of(context).coverWall;
 
 List<ControllerEntry> controllerItems = [
   ControllerEntry(
     id: 'previous',
+    capability: (context, listen) => capabilityForRequest(
+      context,
+      (capabilities) => capabilities.previousRequest,
+      listen: listen,
+    ),
     icon: (context) => Symbols.skip_previous,
     titleBuilder: (context) => S.of(context).previous,
     subtitleBuilder: (context) => S.of(context).previousSubtitle,
@@ -89,28 +106,41 @@ List<ControllerEntry> controllerItems = [
       const SingleActivator(LogicalKeyboardKey.arrowLeft, control: true),
     ],
     onShortcut: (context) {
-      final statusProvider =
-          Provider.of<PlaybackStatusProvider>(context, listen: false);
+      final statusProvider = Provider.of<PlaybackStatusProvider>(
+        context,
+        listen: false,
+      );
       final notReady = statusProvider.notReady;
 
       if (notReady) return;
+
+      final capability = capabilityForRequest(
+        context,
+        (capabilities) => capabilities.previousRequest,
+        listen: false,
+      );
+      if (capability is RequestCapabilityHidden ||
+          capability is RequestCapabilityDisabled) {
+        return;
+      }
 
       playPrevious();
     },
     tooltipBuilder: (context) => S.of(context).previous,
     controllerButtonBuilder: (context, shadows) {
-      final statusProvider =
-          Provider.of<PlaybackStatusProvider>(context, listen: false);
+      final statusProvider = Provider.of<PlaybackStatusProvider>(
+        context,
+        listen: false,
+      );
       final notReady = statusProvider.notReady;
 
-      return PreviousButton(
-        disabled: notReady,
-        shadows: shadows,
-      );
+      return PreviousButton(disabled: notReady, shadows: shadows);
     },
     flyoutEntryBuilder: (context) async {
-      final statusProvider =
-          Provider.of<PlaybackStatusProvider>(context, listen: false);
+      final statusProvider = Provider.of<PlaybackStatusProvider>(
+        context,
+        listen: false,
+      );
       final notReady = statusProvider.notReady;
 
       return MenuFlyoutItem(
@@ -133,9 +163,13 @@ List<ControllerEntry> controllerItems = [
   ),
   ControllerEntry(
     id: 'toggle',
+    capability: (context, listen) =>
+        playPauseCapabilityFor(context, listen: listen),
     icon: (context) {
-      final statusProvider =
-          Provider.of<PlaybackStatusProvider>(context, listen: false);
+      final statusProvider = Provider.of<PlaybackStatusProvider>(
+        context,
+        listen: false,
+      );
 
       if (statusProvider.playbackStatus.state == "Playing") {
         return Symbols.pause;
@@ -150,11 +184,19 @@ List<ControllerEntry> controllerItems = [
       const SingleActivator(LogicalKeyboardKey.keyP, control: true),
     ],
     onShortcut: (context) {
-      final statusProvider =
-          Provider.of<PlaybackStatusProvider>(context, listen: false);
+      final statusProvider = Provider.of<PlaybackStatusProvider>(
+        context,
+        listen: false,
+      );
       final notReady = statusProvider.notReady;
 
       if (notReady) return;
+
+      final capability = playPauseCapabilityFor(context, listen: false);
+      if (capability is RequestCapabilityHidden ||
+          capability is RequestCapabilityDisabled) {
+        return;
+      }
 
       if (statusProvider.playbackStatus.state == "Playing") {
         playPause();
@@ -163,8 +205,10 @@ List<ControllerEntry> controllerItems = [
       }
     },
     tooltipBuilder: (context) {
-      final statusProvider =
-          Provider.of<PlaybackStatusProvider>(context, listen: false);
+      final statusProvider = Provider.of<PlaybackStatusProvider>(
+        context,
+        listen: false,
+      );
       final status = statusProvider.playbackStatus;
 
       return status.state == "Playing"
@@ -172,8 +216,10 @@ List<ControllerEntry> controllerItems = [
           : S.of(context).play;
     },
     controllerButtonBuilder: (context, shadows) {
-      final statusProvider =
-          Provider.of<PlaybackStatusProvider>(context, listen: false);
+      final statusProvider = Provider.of<PlaybackStatusProvider>(
+        context,
+        listen: false,
+      );
       final status = statusProvider.playbackStatus;
       final notReady = statusProvider.notReady;
 
@@ -184,8 +230,10 @@ List<ControllerEntry> controllerItems = [
       );
     },
     flyoutEntryBuilder: (context) async {
-      final statusProvider =
-          Provider.of<PlaybackStatusProvider>(context, listen: false);
+      final statusProvider = Provider.of<PlaybackStatusProvider>(
+        context,
+        listen: false,
+      );
       final status = statusProvider.playbackStatus;
       final notReady = statusProvider.notReady;
 
@@ -193,12 +241,15 @@ List<ControllerEntry> controllerItems = [
         leading: status.state == "Playing"
             ? const Icon(Symbols.pause)
             : const Icon(Symbols.play_arrow),
-        text: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          status.state == "Playing"
-              ? Text(S.of(context).pause)
-              : Text(S.of(context).play),
-          const ShortcutText('Ctrl+P'),
-        ]),
+        text: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            status.state == "Playing"
+                ? Text(S.of(context).pause)
+                : Text(S.of(context).play),
+            const ShortcutText('Ctrl+P'),
+          ],
+        ),
         onPressed: notReady
             ? null
             : () {
@@ -210,6 +261,11 @@ List<ControllerEntry> controllerItems = [
   ),
   ControllerEntry(
     id: 'next',
+    capability: (context, listen) => capabilityForRequest(
+      context,
+      (capabilities) => capabilities.nextRequest,
+      listen: listen,
+    ),
     icon: (context) => Symbols.skip_next,
     titleBuilder: (context) => S.of(context).next,
     subtitleBuilder: (context) => S.of(context).nextSubtitle,
@@ -217,38 +273,48 @@ List<ControllerEntry> controllerItems = [
       const SingleActivator(LogicalKeyboardKey.arrowRight, control: true),
     ],
     onShortcut: (context) {
-      final statusProvider =
-          Provider.of<PlaybackStatusProvider>(context, listen: false);
+      final statusProvider = Provider.of<PlaybackStatusProvider>(
+        context,
+        listen: false,
+      );
       final notReady = statusProvider.notReady;
 
       if (notReady) return;
+
+      final capability = capabilityForRequest(
+        context,
+        (capabilities) => capabilities.nextRequest,
+        listen: false,
+      );
+      if (capability is RequestCapabilityHidden ||
+          capability is RequestCapabilityDisabled) {
+        return;
+      }
 
       playNext();
     },
     tooltipBuilder: (context) => S.of(context).next,
     controllerButtonBuilder: (context, shadows) {
-      final statusProvider =
-          Provider.of<PlaybackStatusProvider>(context, listen: false);
+      final statusProvider = Provider.of<PlaybackStatusProvider>(
+        context,
+        listen: false,
+      );
       final notReady = statusProvider.notReady;
 
-      return NextButton(
-        disabled: notReady,
-        shadows: shadows,
-      );
+      return NextButton(disabled: notReady, shadows: shadows);
     },
     flyoutEntryBuilder: (context) async {
-      final statusProvider =
-          Provider.of<PlaybackStatusProvider>(context, listen: false);
+      final statusProvider = Provider.of<PlaybackStatusProvider>(
+        context,
+        listen: false,
+      );
       final notReady = statusProvider.notReady;
 
       return MenuFlyoutItem(
         leading: const Icon(Symbols.skip_next),
         text: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(S.of(context).next),
-            const ShortcutText('Ctrl+→'),
-          ],
+          children: [Text(S.of(context).next), const ShortcutText('Ctrl+→')],
         ),
         onPressed: notReady
             ? null
@@ -261,34 +327,40 @@ List<ControllerEntry> controllerItems = [
   ),
   ControllerEntry(
     id: 'volume',
+    capability: (context, listen) => capabilityForRequest(
+      context,
+      (capabilities) => capabilities.volumeRequest,
+      listen: listen,
+    ),
     icon: (context) {
       final volumeProvider = Provider.of<VolumeProvider>(context);
 
       return volumeProvider.volume > 0.3
           ? Symbols.volume_up
           : volumeProvider.volume > 0
-              ? Symbols.volume_down
-              : Symbols.volume_mute;
+          ? Symbols.volume_down
+          : Symbols.volume_mute;
     },
     titleBuilder: (context) => S.of(context).volume,
     subtitleBuilder: (context) => S.of(context).volumeSubtitle,
     shortcuts: [],
     onShortcut: null,
     tooltipBuilder: (context) => S.of(context).volume,
-    controllerButtonBuilder: (context, shadows) => VolumeButton(
-      shadows: shadows,
-    ),
+    controllerButtonBuilder: (context, shadows) =>
+        VolumeButton(shadows: shadows),
     flyoutEntryBuilder: (context) async {
-      final volumeProvider =
-          Provider.of<VolumeProvider>(context, listen: false);
+      final volumeProvider = Provider.of<VolumeProvider>(
+        context,
+        listen: false,
+      );
 
       return MenuFlyoutItem(
         leading: Icon(
           volumeProvider.volume > 0.3
               ? Symbols.volume_up
               : volumeProvider.volume > 0
-                  ? Symbols.volume_down
-                  : Symbols.volume_mute,
+              ? Symbols.volume_down
+              : Symbols.volume_mute,
         ),
         text: SizedBox(
           width: 100,
@@ -309,7 +381,7 @@ List<ControllerEntry> controllerItems = [
                     vertical: false,
                   ),
                 ),
-              )
+              ),
             ],
           ),
         ),
@@ -319,9 +391,16 @@ List<ControllerEntry> controllerItems = [
   ),
   ControllerEntry(
     id: 'mode',
+    capability: (context, listen) => capabilityForRequest(
+      context,
+      (capabilities) => capabilities.setPlaybackModeRequest,
+      listen: listen,
+    ),
     icon: (context) {
-      final statusProvider =
-          Provider.of<PlaybackStatusProvider>(context, listen: false);
+      final statusProvider = Provider.of<PlaybackStatusProvider>(
+        context,
+        listen: false,
+      );
 
       final PlaybackMode currentMode = PlaybackModeExtension.fromValue(
         statusProvider.playbackStatus.playbackMode ?? 0,
@@ -332,18 +411,20 @@ List<ControllerEntry> controllerItems = [
     titleBuilder: (context) => S.of(context).playbackMode,
     subtitleBuilder: (context) => S.of(context).playbackModeSubtitle,
     tooltipBuilder: (context) {
-      final statusProvider =
-          Provider.of<PlaybackStatusProvider>(context, listen: false);
+      final statusProvider = Provider.of<PlaybackStatusProvider>(
+        context,
+        listen: false,
+      );
       final status = statusProvider.playbackStatus;
 
-      final currentMode =
-          PlaybackModeExtension.fromValue(status.playbackMode ?? 0);
+      final currentMode = PlaybackModeExtension.fromValue(
+        status.playbackMode ?? 0,
+      );
 
       return modeToLabel(context, currentMode);
     },
-    controllerButtonBuilder: (context, shadows) => PlaybackModeButton(
-      shadows: shadows,
-    ),
+    controllerButtonBuilder: (context, shadows) =>
+        PlaybackModeButton(shadows: shadows),
     shortcuts: [],
     onShortcut: null,
     flyoutEntryBuilder: (context) async {
@@ -353,20 +434,23 @@ List<ControllerEntry> controllerItems = [
         FluentTheme.of(context).accentColor,
       );
 
-      final statusProvider =
-          Provider.of<PlaybackStatusProvider>(context, listen: false);
+      final statusProvider = Provider.of<PlaybackStatusProvider>(
+        context,
+        listen: false,
+      );
       final status = statusProvider.playbackStatus;
 
-      final currentMode =
-          PlaybackModeExtension.fromValue(status.playbackMode ?? 0);
+      final currentMode = PlaybackModeExtension.fromValue(
+        status.playbackMode ?? 0,
+      );
 
       // Retrieve disabled modes
       List<dynamic>? storedDisabledModes = await SettingsManager()
           .getValue<List<dynamic>>('disabled_playback_modes');
       List<PlaybackMode> disabledModes = storedDisabledModes != null
           ? storedDisabledModes
-              .map((index) => PlaybackMode.values[index])
-              .toList()
+                .map((index) => PlaybackMode.values[index])
+                .toList()
           : [];
 
       // Filter available modes
@@ -380,30 +464,23 @@ List<ControllerEntry> controllerItems = [
       }
 
       return MenuFlyoutSubItem(
-        leading: Icon(
-          modeToIcon(currentMode),
-        ),
+        leading: Icon(modeToIcon(currentMode)),
         text: context.mounted ? Text(S.of(context).mode) : Text(""),
-        items: (_) => availableModes.map(
-          (x) {
-            final isCurrent = x == currentMode;
-            final color = isCurrent ? accentColor : null;
-            return MenuFlyoutItem(
-              text: Text(
-                modeToLabel(context, x),
-                style: typography.body?.apply(color: color),
-              ),
-              leading: Icon(
-                modeToIcon(x),
-                color: color,
-              ),
-              onPressed: () {
-                Navigator.pop(context);
-                playMode(x.toValue());
-              },
-            );
-          },
-        ).toList(),
+        items: (_) => availableModes.map((x) {
+          final isCurrent = x == currentMode;
+          final color = isCurrent ? accentColor : null;
+          return MenuFlyoutItem(
+            text: Text(
+              modeToLabel(context, x),
+              style: typography.body?.apply(color: color),
+            ),
+            leading: Icon(modeToIcon(x), color: color),
+            onPressed: () {
+              Navigator.pop(context);
+              playMode(x.toValue());
+            },
+          );
+        }).toList(),
       );
     },
   ),
@@ -412,16 +489,13 @@ List<ControllerEntry> controllerItems = [
     icon: (context) => Symbols.list_alt,
     titleBuilder: (context) => S.of(context).playlist,
     subtitleBuilder: (context) => S.of(context).playlistSubtitle,
-    shortcuts: [
-      const SingleActivator(LogicalKeyboardKey.keyQ, control: true),
-    ],
+    shortcuts: [const SingleActivator(LogicalKeyboardKey.keyQ, control: true)],
     onShortcut: (context) {
       showPlayQueueDialog(context);
     },
     tooltipBuilder: (context) => S.of(context).playlist,
-    controllerButtonBuilder: (context, shadows) => QueueButton(
-      shadows: shadows,
-    ),
+    controllerButtonBuilder: (context, shadows) =>
+        QueueButton(shadows: shadows),
     flyoutEntryBuilder: (context) async {
       return MenuFlyoutItem(
         leading: const Icon(Symbols.list_alt),
@@ -451,14 +525,19 @@ List<ControllerEntry> controllerItems = [
       if (remotePath?.startsWith('@RR|') ?? false) {
         return S.of(context).playOnFixedToRemote;
       }
-      final renderer = Provider.of<RendererAttachmentProvider>(context).renderer;
+      final renderer = Provider.of<RendererAttachmentProvider>(
+        context,
+      ).renderer;
       return renderer == null
           ? S.of(context).playOn
           : S.of(context).playOnPlayingOn(renderer.alias);
     },
     controllerButtonBuilder: (context, shadows) => const PlayOnButton(),
     flyoutEntryBuilder: (context) async {
-      final remotePath = Provider.of<LibraryPathProvider>(context, listen: false).currentPath;
+      final remotePath = Provider.of<LibraryPathProvider>(
+        context,
+        listen: false,
+      ).currentPath;
       return MenuFlyoutItem(
         leading: const Icon(Symbols.cast),
         text: Text(S.of(context).playOn),
@@ -501,9 +580,8 @@ List<ControllerEntry> controllerItems = [
       showCoverArtWall();
     },
     tooltipBuilder: (context) => _coverWallTitle(context),
-    controllerButtonBuilder: (context, shadows) => CoverWallButton(
-      shadows: shadows,
-    ),
+    controllerButtonBuilder: (context, shadows) =>
+        CoverWallButton(shadows: shadows),
     flyoutEntryBuilder: (context) async {
       final visualizer = _coverWallShowsVisualizer(context, listen: false);
       return MenuFlyoutItem(
@@ -532,9 +610,8 @@ List<ControllerEntry> controllerItems = [
       showLyrics();
     },
     tooltipBuilder: (context) => S.of(context).lyrics,
-    controllerButtonBuilder: (context, shadows) => LyricsButton(
-      shadows: shadows,
-    ),
+    controllerButtonBuilder: (context, shadows) =>
+        LyricsButton(shadows: shadows),
     flyoutEntryBuilder: (context) async {
       return MenuFlyoutItem(
         leading: const Icon(Symbols.lyrics),
@@ -563,22 +640,23 @@ List<ControllerEntry> controllerItems = [
     },
     titleBuilder: (context) => S.of(context).fullscreen,
     subtitleBuilder: (context) => S.of(context).fullscreenSubtitle,
-    shortcuts: [
-      const SingleActivator(LogicalKeyboardKey.f11),
-    ],
+    shortcuts: [const SingleActivator(LogicalKeyboardKey.f11)],
     onShortcut: (context) {
-      final fullScreen =
-          Provider.of<FullScreenProvider>(context, listen: false);
+      final fullScreen = Provider.of<FullScreenProvider>(
+        context,
+        listen: false,
+      );
 
       fullScreen.setFullScreen(!fullScreen.isFullScreen);
     },
     tooltipBuilder: (context) => S.of(context).fullscreen,
-    controllerButtonBuilder: (context, shadows) => FullScreenButton(
-      shadows: shadows,
-    ),
+    controllerButtonBuilder: (context, shadows) =>
+        FullScreenButton(shadows: shadows),
     flyoutEntryBuilder: (context) async {
-      final fullScreen =
-          Provider.of<FullScreenProvider>(context, listen: false);
+      final fullScreen = Provider.of<FullScreenProvider>(
+        context,
+        listen: false,
+      );
 
       return MenuFlyoutItem(
         leading: fullScreen.isFullScreen
@@ -586,10 +664,7 @@ List<ControllerEntry> controllerItems = [
             : const Icon(Symbols.fullscreen),
         text: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(S.of(context).fullscreen),
-            const ShortcutText('F11'),
-          ],
+          children: [Text(S.of(context).fullscreen), const ShortcutText('F11')],
         ),
         onPressed: () {
           Navigator.pop(context);
@@ -617,9 +692,8 @@ List<ControllerEntry> controllerItems = [
         ) &&
         context.select<ResponsiveProvider, bool>(visualizerLabFits),
     tooltipBuilder: (context) => S.of(context).visualizerLab,
-    controllerButtonBuilder: (context, shadows) => VisualizerLabButton(
-      shadows: shadows,
-    ),
+    controllerButtonBuilder: (context, shadows) =>
+        VisualizerLabButton(shadows: shadows),
     flyoutEntryBuilder: (context) async {
       return MenuFlyoutItem(
         leading: const Icon(Symbols.science),
