@@ -13,7 +13,7 @@ use ::database::playing_item::dispatcher::PlayingItemActionDispatcher;
 
 use crate::{
     Session, Signal,
-    handlers::playback::playing_item_from_request,
+    handlers::playback::{playing_item_from_request, reject_remote_independent_item},
     library_pool::LibraryHandle,
     messages::*,
     utils::{GlobalParams, ParamsExtractor, query_cover_arts, require_library},
@@ -112,13 +112,14 @@ impl Signal for GetPrimaryColorByTrackIdRequest {
     async fn handle(
         &self,
         library: Self::Params,
-        _session: Option<Session>,
+        session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let item = dart_signal.item.clone();
         let library = require_library(library)?;
 
         if let Some(item) = item {
+            reject_remote_independent_item(session.as_ref(), &item)?;
             let parsed_item = playing_item_from_request(item.clone(), Some(&library)).await?;
             let response = task::spawn_blocking(move || {
                 let runtime = Runtime::new().unwrap();

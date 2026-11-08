@@ -4456,3 +4456,175 @@ async fn wait_persisted_queue(store: &Path, len: usize) -> Result<()> {
     .await?;
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn remote_m3u8_and_independent_lyrics_cannot_read_outside_library() -> Result<()> {
+    use crate::access_policy::{DeviceGrants, LibraryLevel};
+    use crate::backends::remote::connect_remote;
+    use crate::messages::{
+        CreateM3u8PlaylistRequest, CreateM3u8PlaylistResponse, RemoteRequestFailed,
+    };
+
+    let host_dir = tempfile::tempdir()?;
+    let controller_dir = tempfile::tempdir()?;
+    let host = fixture(host_dir.path()).await?;
+    let controller = fixture(controller_dir.path()).await?;
+    let library_id = host.global_params.library_id.context("host library id")?;
+    let track_id = session_audio(&host, "remote-import.ogg").await?;
+    let media_root = Path::new(&host.global_params.test_library().media_root);
+    let inside_playlist = media_root.join("inside.m3u8");
+    fs::write(&inside_playlist, "remote-import.ogg\n")?;
+
+    let addr = paired_full(&host, &controller).await?;
+    let fingerprint = info(&controller).await?.fingerprint;
+    host.global_params.node.access_policy.set(
+        &fingerprint,
+        DeviceGrants {
+            control: true,
+            all_libraries: None,
+            libraries: [(library_id, LibraryLevel::ReadWrite)]
+                .into_iter()
+                .collect(),
+            administer: false,
+        },
+    )?;
+    let mut socket = connect_remote(
+        "127.0.0.1",
+        addr.port(),
+        &controller.global_params.config_path,
+        controller.global_params.cert_validator.read().await.clone(),
+        &controller.global_params.node.sync_tokens,
+    )
+    .await?;
+
+    let outside_dir = tempfile::tempdir()?;
+    let secret = "REMOTE_PATH_SECRET_MARKER";
+    let outside_playlist = outside_dir.path().join("secret.m3u8");
+    fs::write(&outside_playlist, format!("{secret}\n"))?;
+    let outside_request = CreateM3u8PlaylistRequest {
+        name: "outside remote".into(),
+        group: "security".into(),
+        path: outside_playlist.to_string_lossy().into_owned(),
+    };
+    let (response_name, response_payload) = socket_request_for_library(
+        &mut socket,
+        "CreateM3u8PlaylistRequest",
+        &rinf::serialize(&outside_request)?,
+        library_id,
+    )
+    .await?;
+    assert_eq!(response_name, "RemoteRequestFailed");
+    let failure: RemoteRequestFailed = rinf::deserialize(&response_payload)?;
+    assert_eq!(failure.kind, RequestErrorKind::InvalidInput);
+    assert!(!failure.detail.contains(secret));
+    assert!(!String::from_utf8_lossy(&response_payload).contains(secret));
+
+    let inside_request = CreateM3u8PlaylistRequest {
+        name: "inside remote".into(),
+        group: "security".into(),
+        path: inside_playlist.to_string_lossy().into_owned(),
+    };
+    let (response_name, response_payload) = socket_request_for_library(
+        &mut socket,
+        "CreateM3u8PlaylistRequest",
+        &rinf::serialize(&inside_request)?,
+        library_id,
+    )
+    .await?;
+    assert_eq!(response_name, "CreateM3u8PlaylistResponse");
+    let imported: CreateM3u8PlaylistResponse = rinf::deserialize(&response_payload)?;
+    assert!(imported.success);
+    assert_eq!(imported.imported_count, Some(1));
+
+    let local_request = CreateM3u8PlaylistRequest {
+        name: "outside local".into(),
+        group: "security".into(),
+        path: outside_playlist.to_string_lossy().into_owned(),
+    };
+    let local_response = local_request
+        .handle(
+            (
+                Some(host.global_params.test_library().clone()),
+                Arc::new(Quiet),
+            ),
+            None,
+            &local_request,
+        )
+        .await?
+        .context("local playlist import returned no response")?;
+    assert!(local_response.success);
+    assert_eq!(local_response.imported_count, Some(0));
+
+    assert!(track_id > 0);
+    socket.close(None).await?;
+    host.manager.stop().await?;
+    host.global_params.node.shutdown().await?;
+    controller.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn remote_independent_file_lyrics_are_refused() -> Result<()> {
+    use crate::access_policy::{DeviceGrants, LibraryLevel};
+    use crate::backends::remote::connect_remote;
+    use crate::messages::{
+        GetLyricByTrackIdRequest, IndependentFilePlayingItem, RemoteRequestFailed,
+    };
+
+    let host_dir = tempfile::tempdir()?;
+    let controller_dir = tempfile::tempdir()?;
+    let host = fixture(host_dir.path()).await?;
+    let controller = fixture(controller_dir.path()).await?;
+    let library_id = host.global_params.library_id.context("host library id")?;
+    let addr = paired_full(&host, &controller).await?;
+    let fingerprint = info(&controller).await?.fingerprint;
+    host.global_params.node.access_policy.set(
+        &fingerprint,
+        DeviceGrants {
+            control: true,
+            all_libraries: None,
+            libraries: [(library_id, LibraryLevel::Read)].into_iter().collect(),
+            administer: false,
+        },
+    )?;
+    let mut socket = connect_remote(
+        "127.0.0.1",
+        addr.port(),
+        &controller.global_params.config_path,
+        controller.global_params.cert_validator.read().await.clone(),
+        &controller.global_params.node.sync_tokens,
+    )
+    .await?;
+
+    let outside_dir = tempfile::tempdir()?;
+    let secret = "REMOTE_LYRIC_SECRET_MARKER";
+    let outside_audio = outside_dir.path().join("private-audio.ogg");
+    fs::write(&outside_audio, secret)?;
+    let request = GetLyricByTrackIdRequest {
+        item: Some(PlayingItemRequest {
+            in_library: None,
+            independent_file: Some(IndependentFilePlayingItem {
+                raw_path: outside_audio.to_string_lossy().into_owned(),
+            }),
+            library_item: None,
+        }),
+    };
+    let (response_name, response_payload) = socket_request_for_library(
+        &mut socket,
+        "GetLyricByTrackIdRequest",
+        &rinf::serialize(&request)?,
+        library_id,
+    )
+    .await?;
+    assert_eq!(response_name, "RemoteRequestFailed");
+    let failure: RemoteRequestFailed = rinf::deserialize(&response_payload)?;
+    assert_eq!(failure.kind, RequestErrorKind::InvalidInput);
+    assert!(!failure.detail.contains(secret));
+    assert!(!String::from_utf8_lossy(&response_payload).contains(secret));
+
+    socket.close(None).await?;
+    host.manager.stop().await?;
+    host.global_params.node.shutdown().await?;
+    controller.global_params.node.shutdown().await?;
+    Ok(())
+}

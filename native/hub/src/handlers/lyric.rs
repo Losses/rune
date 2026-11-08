@@ -13,7 +13,7 @@ use ::metadata::reader::get_lyrics;
 
 use crate::{
     Session, Signal,
-    handlers::playback::playing_item_from_request,
+    handlers::playback::{playing_item_from_request, reject_remote_independent_item},
     library_pool::LibraryHandle,
     messages::*,
     utils::{GlobalParams, ParamsExtractor, require_library},
@@ -34,7 +34,7 @@ impl Signal for GetLyricByTrackIdRequest {
     async fn handle(
         &self,
         (library,): Self::Params,
-        _session: Option<Session>,
+        session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let library = require_library(library)?;
@@ -46,6 +46,7 @@ impl Signal for GetLyricByTrackIdRequest {
         let Some(item) = item else {
             return Ok(None);
         };
+        reject_remote_independent_item(session.as_ref(), item)?;
 
         let lines = match load_lyric_lines(fsio, media_root, main_db, item, &library).await {
             Ok(lines) => lines,
