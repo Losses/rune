@@ -1,9 +1,10 @@
-use rinf::{DartSignal, RustSignal};
+use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct RunFsSelfTestRequest {
     pub path: String,
+    pub db_path: String,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
@@ -19,4 +20,11 @@ pub struct FsSelfTestProgress {
 pub struct RunFsSelfTestResponse {
     pub success: bool,
     pub report_json: String,
+    pub wal_probe: WalSelfTestResult,
+}
+
+#[derive(Deserialize, Serialize, RustSignal, SignalPiece)]
+pub struct WalSelfTestResult {
+    pub supported: bool,
+    pub detail: Option<String>,
 }

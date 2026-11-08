@@ -10,8 +10,8 @@ use log::{info, warn};
 use sea_orm::{
     Database, SqlxSqliteConnector,
     sqlx::{
-        SqlitePool,
-        sqlite::{SqliteConnectOptions, SqliteSynchronous},
+        ConnectOptions, Connection, SqlitePool,
+        sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteLockingMode, SqliteSynchronous},
     },
 };
 use uuid::Uuid;
@@ -178,11 +178,132 @@ pub fn get_storage_info(fsio: &FsIo, lib_path: &str, db_path: Option<&str>) -> R
 
 pub type MainDbConnection = sea_orm::DatabaseConnection;
 
+#[derive(Debug)]
+enum WalFallbackReason {
+    CouldNotOpen(String),
+    CouldNotEnable(String),
+    UnexpectedMode(String),
+    ProbeFailed(String),
+}
+
+fn open_sqlite_options(path: &Path) -> SqliteConnectOptions {
+    SqliteConnectOptions::new()
+        .filename(path)
+        .create_if_missing(true)
+        .synchronous(SqliteSynchronous::Extra)
+}
+
+async fn set_delete_mode(path: &Path, exclusive: bool) -> Result<()> {
+    let mut options = open_sqlite_options(path).journal_mode(SqliteJournalMode::Delete);
+    if exclusive {
+        options = options.locking_mode(SqliteLockingMode::Exclusive);
+    }
+    let mut connection = options.connect().await?;
+    let mode: String = sea_orm::sqlx::query_scalar("PRAGMA journal_mode=DELETE")
+        .fetch_one(&mut connection)
+        .await?;
+    connection.close().await?;
+    anyhow::ensure!(
+        mode.eq_ignore_ascii_case("delete"),
+        "SQLite reported journal mode {mode} after requesting DELETE"
+    );
+    Ok(())
+}
+
+/// Read and rewrite the header's `user_version` through the WAL. Reading maps the
+/// `-shm` index and writing appends to `-wal`, which is what fails on filesystems
+/// without shared-memory support. It changes neither the schema nor any data.
+async fn probe_wal(connection: &mut sea_orm::sqlx::SqliteConnection) -> Result<()> {
+    let version: i64 = sea_orm::sqlx::query_scalar("PRAGMA user_version")
+        .fetch_one(&mut *connection)
+        .await?;
+    sea_orm::sqlx::query(sea_orm::sqlx::AssertSqlSafe(format!(
+        "PRAGMA user_version = {version}"
+    )))
+    .execute(&mut *connection)
+    .await?;
+    let reread: i64 = sea_orm::sqlx::query_scalar("PRAGMA user_version")
+        .fetch_one(&mut *connection)
+        .await?;
+    anyhow::ensure!(
+        reread == version,
+        "SQLite WAL probe read back a different value"
+    );
+    Ok(())
+}
+
+async fn configure_journal_mode(
+    path: &Path,
+    redirected: bool,
+    fail_wal_probe: bool,
+) -> Result<bool> {
+    if !redirected {
+        set_delete_mode(path, false).await?;
+        return Ok(false);
+    }
+
+    let attempt = async {
+        let options = open_sqlite_options(path);
+        let mut connection = options
+            .connect()
+            .await
+            .map_err(|error| WalFallbackReason::CouldNotOpen(format!("{error:#}")))?;
+        let mode: String = sea_orm::sqlx::query_scalar("PRAGMA journal_mode=WAL")
+            .fetch_one(&mut connection)
+            .await
+            .map_err(|error| WalFallbackReason::CouldNotEnable(format!("{error:#}")))?;
+        if !mode.eq_ignore_ascii_case("wal") {
+            return Err(WalFallbackReason::UnexpectedMode(mode));
+        }
+        if fail_wal_probe {
+            return Err(WalFallbackReason::ProbeFailed(
+                "injected WAL probe failure".to_string(),
+            ));
+        }
+        probe_wal(&mut connection)
+            .await
+            .map_err(|error| WalFallbackReason::ProbeFailed(format!("{error:#}")))?;
+        connection
+            .close()
+            .await
+            .map_err(|error| WalFallbackReason::ProbeFailed(format!("{error:#}")))?;
+        Ok(())
+    }
+    .await;
+
+    match attempt {
+        Ok(()) => Ok(true),
+        Err(reason) => {
+            let detail = match &reason {
+                WalFallbackReason::CouldNotOpen(detail)
+                | WalFallbackReason::CouldNotEnable(detail)
+                | WalFallbackReason::UnexpectedMode(detail)
+                | WalFallbackReason::ProbeFailed(detail) => detail,
+            };
+            warn!(
+                "SQLite WAL unavailable for redirected library; falling back to DELETE ({reason:?}): {detail}"
+            );
+            set_delete_mode(path, true).await?;
+            Ok(false)
+        }
+    }
+}
+
 pub async fn connect_main_db(
     fsio: &FsIo,
     lib_path: &str,
     db_path: Option<&str>,
     node_id: &str,
+) -> Result<MainDbConnection> {
+    connect_main_db_with_probe(fsio, lib_path, db_path, node_id, false).await
+}
+
+async fn connect_main_db_with_probe(
+    fsio: &FsIo,
+    lib_path: &str,
+    db_path: Option<&str>,
+    node_id: &str,
+    fail_wal_probe: bool,
 ) -> Result<MainDbConnection> {
     let storage_info = get_storage_info(fsio, lib_path, db_path)?;
     let db_file = storage_info.get_main_db_path();
@@ -203,10 +324,26 @@ pub async fn connect_main_db(
 
     // The path goes in as it is, not through a URL: a Windows path such as `\\?\UNC\...`
     // would otherwise be cut at its `?`.
+    let wal_enabled = configure_journal_mode(
+        &db_path,
+        matches!(
+            storage_info.state.storage_mode(),
+            Some(StorageMode::Redirected(_))
+        ),
+        fail_wal_probe,
+    )
+    .await?;
+
+    let journal_mode = if wal_enabled {
+        SqliteJournalMode::Wal
+    } else {
+        SqliteJournalMode::Delete
+    };
     let connection_options = SqliteConnectOptions::new()
         .filename(&db_path)
         .create_if_missing(true)
-        .synchronous(SqliteSynchronous::Extra);
+        .synchronous(SqliteSynchronous::Extra)
+        .journal_mode(journal_mode);
 
     let pool = SqlitePool::connect_with(connection_options).await?;
 
@@ -240,6 +377,86 @@ pub async fn connect_fake_main_db() -> Result<MainDbConnection> {
     let db = Database::connect("sqlite::memory:").await?;
 
     Ok(db)
+}
+
+#[cfg(test)]
+mod journal_mode_tests {
+    use super::*;
+    use sea_orm::{ConnectionTrait, DbBackend, Statement};
+    use tempfile::TempDir;
+
+    async fn mode(db: &MainDbConnection) -> Result<String> {
+        Ok(db
+            .query_one_raw(Statement::from_string(
+                DbBackend::Sqlite,
+                "PRAGMA journal_mode".to_string(),
+            ))
+            .await?
+            .context("missing journal mode")?
+            .try_get::<String>("", "journal_mode")?)
+    }
+
+    #[tokio::test]
+    async fn redirected_database_uses_wal_after_verified_probe() -> Result<()> {
+        let dir = TempDir::new()?;
+        let root = dir.path().join("library").to_string_lossy().into_owned();
+        let fsio = FsIo::new();
+        create_redirect(&fsio, &root).await?;
+        let db = connect_main_db(
+            &fsio,
+            &root,
+            Some(dir.path().to_str().context("temp path")?),
+            "node",
+        )
+        .await?;
+        assert_eq!(mode(&db).await?.to_ascii_lowercase(), "wal");
+        db.close().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn portable_database_converts_existing_wal_to_delete() -> Result<()> {
+        let dir = TempDir::new()?;
+        let root = dir.path().join("library");
+        let rune_dir = root.join(".rune");
+        std::fs::create_dir_all(&rune_dir)?;
+        let file = rune_dir.join(".0.db");
+        let mut existing = SqliteConnectOptions::new()
+            .filename(&file)
+            .create_if_missing(true)
+            .connect()
+            .await?;
+        sea_orm::sqlx::query_scalar::<_, String>("PRAGMA journal_mode=WAL")
+            .fetch_one(&mut existing)
+            .await?;
+        existing.close().await?;
+
+        let fsio = FsIo::new();
+        let db =
+            connect_main_db(&fsio, root.to_str().context("library path")?, None, "node").await?;
+        assert_eq!(mode(&db).await?.to_ascii_lowercase(), "delete");
+        db.close().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn wal_probe_failure_falls_back_to_delete_without_failing_open() -> Result<()> {
+        let dir = TempDir::new()?;
+        let root = dir.path().join("library").to_string_lossy().into_owned();
+        let fsio = FsIo::new();
+        create_redirect(&fsio, &root).await?;
+        let db = connect_main_db_with_probe(
+            &fsio,
+            &root,
+            Some(dir.path().to_str().context("temp path")?),
+            "node",
+            true,
+        )
+        .await?;
+        assert_eq!(mode(&db).await?.to_ascii_lowercase(), "delete");
+        db.close().await?;
+        Ok(())
+    }
 }
 
 /// The feature vectors of the analysed tracks with their file ids, sorted by

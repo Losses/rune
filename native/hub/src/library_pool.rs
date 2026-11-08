@@ -17,6 +17,7 @@ use database::{
     sync::LibrarySyncStore,
 };
 use fsio::FsIo;
+use sea_orm::{ConnectionTrait, DbBackend, Statement};
 use tokio::{sync::Mutex, time::Instant};
 use uuid::Uuid;
 
@@ -339,6 +340,11 @@ impl LibraryPool {
             .collect();
         for id in idle {
             if let Some(entry) = entries.get(&id) {
+                // Leave nothing only in -wal when the library is closed. A failure here is
+                // logged and must not keep the other idle libraries open.
+                if let Err(error) = checkpoint_wal(&entry.resources.main_db).await {
+                    log::warn!("Could not checkpoint library {id} before closing: {error:#}");
+                }
                 entry
                     .resources
                     .main_db
@@ -352,11 +358,35 @@ impl LibraryPool {
     }
 }
 
+/// Fold a WAL database's log back into the main file. No-op in other journal modes.
+async fn checkpoint_wal(db: &sea_orm::DatabaseConnection) -> Result<()> {
+    let journal_mode = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "PRAGMA journal_mode".to_string(),
+        ))
+        .await?
+        .context("SQLite did not return its journal mode")?
+        .try_get::<String>("", "journal_mode")?;
+    if journal_mode.eq_ignore_ascii_case("wal") {
+        db.execute_unprepared("PRAGMA wal_checkpoint(TRUNCATE)")
+            .await
+            .context("Failed to checkpoint library WAL")?;
+    }
+    Ok(())
+}
+
 #[cfg(all(test, not(target_os = "android")))]
 mod tests {
     use super::*;
     use database::{connection::create_redirect, library_registry::resolve_library};
-    use sea_orm::TransactionTrait;
+    use sea_orm::{
+        TransactionTrait,
+        sqlx::{
+            ConnectOptions, Connection,
+            sqlite::{SqliteConnectOptions, SqliteJournalMode},
+        },
+    };
     use tempfile::TempDir;
     use tokio::time::{sleep, timeout};
 
@@ -550,6 +580,47 @@ mod tests {
         f.wait_closed().await?;
         let reopened = f.pool.acquire(f.descriptor.library_id).await?;
         assert_eq!(reopened.descriptor, f.descriptor);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn idle_close_truncates_redirected_database_wal() -> Result<()> {
+        let f = Fixture::new(true).await?;
+        let handle = f.pool.acquire(f.descriptor.library_id).await?;
+        let DbPlacement::Redirected { storage_key } = handle.descriptor.db_placement else {
+            panic!("redirected fixture");
+        };
+        handle
+            .main_db
+            .execute_unprepared("CREATE TABLE wal_close_probe (value INTEGER NOT NULL)")
+            .await?;
+        handle
+            .main_db
+            .execute_unprepared("INSERT INTO wal_close_probe (value) VALUES (1)")
+            .await?;
+        let wal_path = f.dir.path().join(storage_key.to_string()).join(".0.db-wal");
+        assert!(wal_path.metadata()?.len() > 0);
+        let database_path = f.dir.path().join(storage_key.to_string()).join(".0.db");
+        let observer = SqliteConnectOptions::new()
+            .filename(database_path)
+            .journal_mode(SqliteJournalMode::Wal)
+            .connect()
+            .await?;
+        drop(handle);
+        {
+            let entries = f.pool.entries.lock().await;
+            let entry = entries
+                .get(&f.descriptor.library_id)
+                .context("open library")?;
+            *entry
+                .last_released
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) = Instant::now() - f.pool.idle_timeout;
+        }
+        f.pool.close_idle().await?;
+        assert!(wal_path.exists());
+        assert_eq!(wal_path.metadata()?.len(), 0);
+        observer.close().await?;
         Ok(())
     }
 

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import '../../bindings/bindings.dart';
+import '../settings_manager.dart';
 
 class FsSelfTestLayerResult {
   final String layer;
@@ -33,14 +34,27 @@ class FsSelfTestLayerResult {
 class FsSelfTestResult {
   final bool success;
   final List<FsSelfTestLayerResult> layers;
+  final WalSelfTestResult walProbe;
 
-  const FsSelfTestResult({required this.success, required this.layers});
+  const FsSelfTestResult({
+    required this.success,
+    required this.layers,
+    required this.walProbe,
+  });
+}
+
+class WalSelfTestResult {
+  final bool supported;
+  final String? detail;
+
+  const WalSelfTestResult({required this.supported, this.detail});
 }
 
 Future<FsSelfTestResult> runFsSelfTest(
   String path, {
   void Function(FsSelfTestProgress progress)? onProgress,
 }) async {
+  final dbPath = await getSettingsPath();
   final progressSubscription =
       FsSelfTestProgress.rustSignalStream.listen((rustSignal) {
     onProgress?.call(rustSignal.message);
@@ -50,7 +64,7 @@ Future<FsSelfTestResult> runFsSelfTest(
     final rustSignal = await awaitResponse(
       'RunFsSelfTestRequest',
       RunFsSelfTestResponse.rustSignalStream,
-      send: () => RunFsSelfTestRequest(path: path).sendSignalToRust(),
+      send: () => RunFsSelfTestRequest(path: path, dbPath: dbPath).sendSignalToRust(),
       timeout: const Duration(seconds: 120),
     );
     final response = rustSignal.message;
@@ -68,7 +82,14 @@ Future<FsSelfTestResult> runFsSelfTest(
       // Keep the raw progress the UI already received.
     }
 
-    return FsSelfTestResult(success: response.success, layers: layers);
+    return FsSelfTestResult(
+      success: response.success,
+      layers: layers,
+      walProbe: WalSelfTestResult(
+        supported: response.walProbe.supported,
+        detail: response.walProbe.detail,
+      ),
+    );
   } finally {
     await progressSubscription.cancel();
   }
