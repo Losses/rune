@@ -39,7 +39,7 @@ use crate::{
             SyncTokenStore, obtain_or_reuse_token, peer_base, tls_config, trusted_fingerprint,
         },
     },
-    utils::GlobalParams,
+    utils::{GlobalParams, RemoteEventScope, broadcastable::REMOTE_EVENT_DECLARATIONS},
 };
 use ::discovery::{
     client::{CertValidator, select_best_host},
@@ -425,31 +425,33 @@ impl Drop for RendererLink {
 /// Only the active control link may publish events. Library events belong to @RR;
 /// Play on continues to show this device's library.
 async fn register_session_handlers(handlers: &HandlerMap, node: &Arc<NodeContext>, id: Uuid) {
-    macro_rules! events {
-        ($library:expr, $($message:ty),* $(,)?) => {$(
-            let weak_node = Arc::downgrade(node);
-            handlers.lock().await.insert(stringify!($message).into(), Box::new(move |payload| {
-                let Some(node) = weak_node.upgrade() else { return; };
-                if !node.renderer_link().ok().flatten().is_some_and(|link| link.id() == id)
-                    || ($library && !node.remote_ui_library().unwrap_or(false)) {
+    for declaration in REMOTE_EVENT_DECLARATIONS {
+        let weak_node = Arc::downgrade(node);
+        let scope = declaration.scope;
+        let decode = declaration.decode;
+        handlers.lock().await.insert(
+            declaration.name.into(),
+            Box::new(move |payload| {
+                let Some(node) = weak_node.upgrade() else {
+                    return;
+                };
+                if !node
+                    .renderer_link()
+                    .ok()
+                    .flatten()
+                    .is_some_and(|link| link.id() == id)
+                    || (scope == RemoteEventScope::Library
+                        && !node.remote_ui_library().unwrap_or(false))
+                {
                     return;
                 }
-                match rinf::deserialize::<$message>(&payload) {
-                    Ok(message) => node.gui_broadcaster.broadcast(&message),
+                match decode(&payload) {
+                    Ok(message) => node.gui_broadcaster.broadcast(message.as_ref()),
                     Err(error) => error!("Failed to decode renderer event: {error}"),
                 }
-            }));
-        )*};
+            }),
+        );
     }
-    events!(false, PlaybackStatus, PlaylistUpdate, RealtimeFFT);
-    events!(
-        true,
-        LibraryContentChanged,
-        ScanAudioLibraryProgress,
-        ScanAudioLibraryResponse,
-        AnalyzeAudioLibraryProgress,
-        AnalyzeAudioLibraryResponse
-    );
 }
 
 pub(crate) async fn connect_remote(

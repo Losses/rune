@@ -51,8 +51,8 @@ use crate::{
     request_error::classify,
     server::{ServerManager, WebSocketService, utils::device::load_device_info},
     utils::{
-        Broadcaster, GlobalParams, LocalGuiBroadcaster, RinfRustSignal, RunningMode, TaskTokens,
-        nid::get_or_create_node_id, sync_settings::SyncSettings,
+        Broadcaster, GlobalParams, LocalGuiBroadcaster, RemoteEventScope, RinfRustSignal,
+        RunningMode, TaskTokens, nid::get_or_create_node_id, sync_settings::SyncSettings,
     },
 };
 use discovery::DiscoveryParams;
@@ -128,37 +128,19 @@ struct NodeBroadcaster {
     remote: Arc<WebSocketService>,
     renderer_link: Arc<StdMutex<Option<Arc<RendererLink>>>>,
 }
-/// Signals a remote controller renders. Everything else (trust lists, pairing
-/// requests, crash details) stays on this device until access control decides
-/// per peer what it may see.
-const REMOTE_SIGNALS: &[&str] = &[
-    "PlaybackStatus",
-    "RealtimeFFT",
-    "PlaylistUpdate",
-    "LibraryContentChanged",
-    "ScanAudioLibraryProgress",
-    "ScanAudioLibraryResponse",
-    "AnalyzeAudioLibraryProgress",
-    "AnalyzeAudioLibraryResponse",
-];
-
 impl Broadcaster for NodeBroadcaster {
     fn broadcast(&self, message: &dyn RinfRustSignal) {
+        let remote_event = message.remote_event();
         let suppress_local_status = (self
             .ui_library
             .lock()
             .is_ok_and(|ui| matches!(*ui, UiLibrary::Remote { .. }))
             || self.renderer_link.lock().is_ok_and(|link| link.is_some()))
-            && matches!(
-                message.name().as_str(),
-                "PlaybackStatus" | "PlaylistUpdate" | "RealtimeFFT"
-            );
+            && remote_event == Some(RemoteEventScope::Session);
         if !suppress_local_status {
             self.local.broadcast(message);
         }
-        if self.remote.broadcast_tx.receiver_count() > 0
-            && REMOTE_SIGNALS.contains(&message.name().as_str())
-        {
+        if self.remote.broadcast_tx.receiver_count() > 0 && remote_event.is_some() {
             self.remote.broadcast(message);
         }
     }

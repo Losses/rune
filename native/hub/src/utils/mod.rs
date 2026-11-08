@@ -11,6 +11,7 @@ use database::actions::file::{
     AudioAvailability, audio_availability, audio_origin, remote_content_ids,
 };
 use std::{
+    any::TypeId,
     collections::HashMap,
     fmt::Debug,
     path::{Path, PathBuf},
@@ -188,14 +189,35 @@ pub trait ParamsExtractor {
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params;
 }
 
-pub trait RinfRustSignal {
+pub trait RinfRustSignal: 'static {
     fn name(&self) -> String;
+
+    fn remote_event(&self) -> Option<RemoteEventScope> {
+        let type_id = TypeId::of::<Self>();
+        broadcastable::REMOTE_EVENT_DECLARATIONS
+            .iter()
+            .find(|declaration| declaration.type_id == type_id)
+            .map(|declaration| declaration.scope)
+    }
 
     /// Encodes the message into a byte vector.
     fn encode_to_vec(&self) -> Result<Vec<u8>>;
 
     /// Sends the message to Dart.
     fn send_to_dart(&self);
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RemoteEventScope {
+    Session,
+    Library,
+}
+
+pub struct RemoteEventDeclaration {
+    pub name: &'static str,
+    pub type_id: TypeId,
+    pub scope: RemoteEventScope,
+    pub decode: fn(&[u8]) -> Result<Box<dyn RinfRustSignal>>,
 }
 
 pub trait Broadcaster: Send + Sync {

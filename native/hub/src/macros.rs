@@ -19,6 +19,24 @@ macro_rules! implement_rinf_rust_signal_trait {
     };
 }
 
+#[macro_export]
+macro_rules! declare_remote_events {
+    ($($t:ty => $scope:ident),+ $(,)?) => {
+        pub const REMOTE_EVENT_DECLARATIONS: &[$crate::RemoteEventDeclaration] = &[
+            $(
+                $crate::RemoteEventDeclaration {
+                    name: stringify!($t),
+                    type_id: TypeId::of::<$t>(),
+                    scope: $crate::RemoteEventScope::$scope,
+                    decode: |payload| {
+                        Ok(Box::new(rinf::deserialize::<$t>(payload)?) as Box<dyn $crate::RinfRustSignal>)
+                    },
+                },
+            )+
+        ];
+    };
+}
+
 use std::sync::Arc;
 
 use anyhow::{Error, Result};

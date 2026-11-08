@@ -30,7 +30,7 @@ use tokio::sync::Mutex;
 use tracing_subscriber::{EnvFilter, fmt};
 
 pub use tokio;
-pub use utils::RinfRustSignal;
+pub use utils::{RemoteEventDeclaration, RemoteEventScope, RinfRustSignal};
 
 use ::scrobbling::manager::ScrobblingManager;
 

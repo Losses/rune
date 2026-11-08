@@ -31,9 +31,7 @@ use crate::{
         RequestFailureCause, SwitchRequest, VolumeRequest,
     },
     request_error::{ExpectedRequestError, classify},
-    rpc::{
-        RpcTarget, Slot, UnsupportedReason, dispatch_gui_request, run_on_target,
-    },
+    rpc::{RpcTarget, Slot, UnsupportedReason, dispatch_gui_request, run_on_target},
     server::api::fetch_device_info_at_port,
     session::store::SessionState,
 };
@@ -5136,6 +5134,12 @@ async fn rpc_target_blacklisted_request_returns_typed_failure_without_sending() 
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -> Result<()> {
+    use crate::messages::{
+        AnalyzeAudioLibraryProgress, AnalyzeAudioLibraryResponse, PlaylistItem, RealtimeFFT,
+        ScanAudioLibraryResponse,
+    };
+    use crate::utils::broadcastable::REMOTE_EVENT_DECLARATIONS;
+
     let first = tempfile::tempdir()?;
     let second = tempfile::tempdir()?;
     let signals = Arc::new(RecordedSignals::default());
@@ -5188,6 +5192,93 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     assert!(Arc::ptr_eq(&remote.player, &a.global_params.player));
     assert!(Arc::ptr_eq(&remote.scrobbler, &a.global_params.scrobbler));
     assert!(remote.library.is_none());
+
+    signals.clear();
+    b.global_params.broadcaster.broadcast(&PlaybackStatus {
+        session_id: "declared-session".into(),
+        state: "paused".into(),
+        progress_seconds: 0.0,
+        progress_percentage: 0.0,
+        artist: None,
+        album: None,
+        title: None,
+        duration: 0.0,
+        index: None,
+        item: None,
+        item_request: None,
+        playback_mode: 0,
+        ready: true,
+        cover_art_path: None,
+        lib_path: String::new(),
+    });
+    b.global_params.broadcaster.broadcast(&PlaylistUpdate {
+        items: Vec::<PlaylistItem>::new(),
+        session_id: "declared-session".into(),
+        revision: 1,
+    });
+    b.global_params
+        .broadcaster
+        .broadcast(&RealtimeFFT { value: vec![0.25] });
+    b.global_params
+        .broadcaster
+        .broadcast(&LibraryContentChanged {
+            path: "declared-library".into(),
+        });
+    b.global_params
+        .broadcaster
+        .broadcast(&ScanAudioLibraryProgress {
+            scan_id: "declared-scan".into(),
+            path: "declared-library".into(),
+            progress: 1,
+            total: 2,
+            task: ScanTaskType::IndexFiles,
+        });
+    b.global_params
+        .broadcaster
+        .broadcast(&ScanAudioLibraryResponse {
+            scan_id: "declared-scan".into(),
+            status: "complete".into(),
+            error: String::new(),
+            path: "declared-library".into(),
+            progress: 2,
+        });
+    b.global_params
+        .broadcaster
+        .broadcast(&AnalyzeAudioLibraryProgress {
+            path: "declared-library".into(),
+            progress: 1,
+            total: 2,
+        });
+    b.global_params
+        .broadcaster
+        .broadcast(&AnalyzeAudioLibraryResponse {
+            path: "declared-library".into(),
+            total: 2,
+        });
+    timeout(Duration::from_secs(10), async {
+        loop {
+            let decoded_all = {
+                let records = signals.0.lock().unwrap();
+                REMOTE_EVENT_DECLARATIONS.iter().all(|declaration| {
+                    records.iter().any(|(name, payload)| {
+                        name == declaration.name && (declaration.decode)(payload).is_ok()
+                    })
+                })
+            };
+            if decoded_all {
+                break;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .context("declared events were not decoded and re-broadcast")?;
+    assert!(
+        signals
+            .decoded::<PlaylistUpdate>("PlaylistUpdate")
+            .iter()
+            .any(|update| update.session_id == "declared-session")
+    );
     let capabilities = capability_snapshot(&a.global_params.node)?;
     assert_eq!(
         capabilities.fetch_all_playlists_request,
