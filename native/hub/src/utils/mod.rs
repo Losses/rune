@@ -18,8 +18,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use crate::macros::listen_local_gui;
-use crate::node::{NodeContext, initialize_node};
+use crate::node::{NodeContext, current_node, initialize_node};
 use anyhow::{Context, Result};
 use fsio::FsIo;
 use log::{error, info};
@@ -38,7 +37,10 @@ use ::database::{
         check_storage_mode, connect_main_db, connect_recommendation_db, create_redirect,
     },
     entities::media_files,
-    library_registry::{LibraryLocation, LibraryRegistry, resolve_library},
+    library_registry::{
+        LibraryKind, LibraryLocation, LibraryRecord, LibraryRecordId, LibraryRegistry,
+        OwnedStorage, ReplicaStorage, resolve_library,
+    },
     playing_item::MediaFileHandle,
 };
 use ::discovery::{client::CertValidator, protocol::DiscoveryService, server::PermissionManager};
@@ -50,7 +52,7 @@ use ::scrobbling::manager::ScrobblingManager;
 
 use crate::backends::{
     local::local_player_loop,
-    remote::{RemoteConnectError, open_remote_library},
+    remote::{RemoteConnectError, open_remote_library, open_remote_library_for_fingerprint},
 };
 use crate::library_pool::{LibraryHandle, LibraryPool};
 use crate::messages::*;
@@ -438,8 +440,7 @@ async fn handle_media_library_path(
             }
             OperationDestination::Remote => {
                 match open_remote_library(node, media_library_path).await {
-                    Ok(params) => {
-                        listen_local_gui(&params, &params.main_token);
+                    Ok(_) => {
                         broadcaster.broadcast(&SetMediaLibraryPathResponse {
                             restore_last_index: false,
                             error_kind: None,
@@ -471,6 +472,351 @@ async fn handle_media_library_path(
     }
 }
 
+/// Receive record-oriented registration and open requests independently of an open UI library.
+pub async fn receive_library_record_requests(
+    scrobbler: Arc<Mutex<ScrobblingManager>>,
+) -> Result<()> {
+    let local_receiver = RegisterLocalLibraryRequest::get_dart_signal_receiver();
+    let remote_receiver = RegisterRemoteControlRequest::get_dart_signal_receiver();
+    let open_receiver = OpenLibraryRequest::get_dart_signal_receiver();
+    let broadcaster: Arc<dyn Broadcaster> = Arc::new(LocalGuiBroadcaster);
+    loop {
+        tokio::select! {
+            Some(signal) = local_receiver.recv() => {
+                let result = register_local_library(&signal.message).await;
+                broadcaster.broadcast(&result);
+            }
+            Some(signal) = remote_receiver.recv() => {
+                let result = register_remote_control(&signal.message).await;
+                broadcaster.broadcast(&result);
+            }
+            Some(signal) = open_receiver.recv() => {
+                let result = open_library_by_record(&signal.message, Arc::clone(&scrobbler), Arc::clone(&broadcaster)).await;
+                broadcaster.broadcast(&result);
+            }
+            else => tokio::time::sleep(Duration::from_secs(1)).await,
+        }
+    }
+}
+
+async fn register_local_library(request: &RegisterLocalLibraryRequest) -> RegisterLibraryResponse {
+    let node = match current_node().await {
+        Ok(node) => node,
+        Err(error) => {
+            return RegisterLibraryResponse {
+                record: None,
+                outcome: RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::Storage),
+                detail: Some(format!("{error:#}")),
+            };
+        }
+    };
+    register_local_library_on_node(request, &node).await
+}
+
+pub(crate) async fn register_local_library_on_node(
+    request: &RegisterLocalLibraryRequest,
+    node: &Arc<NodeContext>,
+) -> RegisterLibraryResponse {
+    let fail = |kind, error: anyhow::Error| RegisterLibraryResponse {
+        record: None,
+        outcome: RegisterLibraryOutcome::Failed(kind),
+        detail: Some(format!("{error:#}")),
+    };
+    let config = node.config_path.clone();
+    let path = &request.path;
+    #[cfg(not(target_os = "android"))]
+    let fsio = FsIo::new();
+    #[cfg(target_os = "android")]
+    let fsio = match FsIo::new(Path::new(".rune/.android-fs.db"), path) {
+        Ok(fsio) => fsio,
+        Err(error) => return fail(RegisterLibraryFailureKind::Storage, error.into()),
+    };
+    let state = match check_library_state(&fsio, path) {
+        Ok(state) => state,
+        Err(error) => return fail(RegisterLibraryFailureKind::InvalidSource, error),
+    };
+    if matches!(state, LibraryState::Uninitialized) && request.mode.is_none() {
+        return RegisterLibraryResponse {
+            record: None,
+            outcome: RegisterLibraryOutcome::NeedsInitializeMode,
+            detail: None,
+        };
+    }
+    let result = async {
+        if request.mode == Some(LibraryInitializeMode::Redirected) {
+            create_redirect(&fsio, path).await?;
+        }
+        let mode = check_storage_mode(&fsio, path)?;
+        let mut registry = LibraryRegistry::load(Path::new(&*config))?;
+        resolve_library(&fsio, &mut registry, path, &request.alias, mode).await
+    }
+    .await;
+    match result {
+        Ok(record) => RegisterLibraryResponse {
+            record: Some((&record).into()),
+            outcome: RegisterLibraryOutcome::Registered,
+            detail: None,
+        },
+        Err(error) => fail(RegisterLibraryFailureKind::Storage, error),
+    }
+}
+
+async fn register_remote_control(
+    request: &RegisterRemoteControlRequest,
+) -> RegisterLibraryResponse {
+    let node = match current_node().await {
+        Ok(node) => node,
+        Err(error) => {
+            return RegisterLibraryResponse {
+                record: None,
+                outcome: RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::Storage),
+                detail: Some(format!("{error:#}")),
+            };
+        }
+    };
+    register_remote_control_on_node(request, &node).await
+}
+
+pub(crate) async fn register_remote_control_on_node(
+    request: &RegisterRemoteControlRequest,
+    node: &Arc<NodeContext>,
+) -> RegisterLibraryResponse {
+    let hosts = node
+        .cert_validator
+        .read()
+        .await
+        .get_hosts_for_fingerprint(&request.fingerprint)
+        .await;
+    if hosts.is_empty() {
+        return RegisterLibraryResponse {
+            record: None,
+            outcome: RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::Untrusted),
+            detail: Some("Fingerprint is not trusted".into()),
+        };
+    }
+    match LibraryRegistry::register_remote_control(
+        Path::new(&*node.config_path),
+        &request.fingerprint,
+        &request.alias,
+    )
+    .await
+    {
+        Ok(record) => RegisterLibraryResponse {
+            record: Some((&record).into()),
+            outcome: RegisterLibraryOutcome::Registered,
+            detail: None,
+        },
+        Err(error) => RegisterLibraryResponse {
+            record: None,
+            outcome: RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::Storage),
+            detail: Some(format!("{error:#}")),
+        },
+    }
+}
+
+async fn open_library_by_record(
+    request: &OpenLibraryRequest,
+    scrobbler: Arc<Mutex<ScrobblingManager>>,
+    broadcaster: Arc<dyn Broadcaster>,
+) -> OpenLibraryResponse {
+    let node = match current_node().await {
+        Ok(node) => node,
+        Err(error) => {
+            return OpenLibraryResponse {
+                call_id: request.call_id,
+                record_id: request.record_id.clone(),
+                result: OpenLibraryResult::Failed(OpenLibraryFailure {
+                    kind: OpenLibraryFailureKind::Storage,
+                    detail: format!("{error:#}"),
+                }),
+            };
+        }
+    };
+    open_library_by_record_on_node(request, node, scrobbler, broadcaster).await
+}
+
+pub(crate) async fn open_library_by_record_on_node(
+    request: &OpenLibraryRequest,
+    node: Arc<NodeContext>,
+    scrobbler: Arc<Mutex<ScrobblingManager>>,
+    broadcaster: Arc<dyn Broadcaster>,
+) -> OpenLibraryResponse {
+    let failed = |kind, error: anyhow::Error| OpenLibraryResponse {
+        call_id: request.call_id,
+        record_id: request.record_id.clone(),
+        result: OpenLibraryResult::Failed(OpenLibraryFailure {
+            kind,
+            detail: format!("{error:#}"),
+        }),
+    };
+    let record_id = match Uuid::parse_str(&request.record_id) {
+        Ok(id) => LibraryRecordId(id),
+        Err(error) => return failed(OpenLibraryFailureKind::RecordNotFound, error.into()),
+    };
+    let record = match LibraryRegistry::load(Path::new(&*node.config_path))
+        .and_then(|registry| registry.record(record_id).cloned())
+    {
+        Ok(record) => record,
+        Err(error) => return failed(OpenLibraryFailureKind::RecordNotFound, error),
+    };
+    let result = match &record.kind {
+        LibraryKind::Owned {
+            library_id,
+            storage,
+            ..
+        } => {
+            open_catalog_record(
+                &node,
+                &record,
+                *library_id,
+                storage_path_owned(storage),
+                Arc::clone(&scrobbler),
+                &broadcaster,
+            )
+            .await
+        }
+        LibraryKind::RuneReplica {
+            library_id,
+            storage,
+            ..
+        } => {
+            let owned_path;
+            let path = match storage {
+                ReplicaStorage::Local { path, .. } => path.as_str(),
+                ReplicaStorage::Replica => {
+                    owned_path = match record.root(Path::new(&*node.config_path)) {
+                        Some(path) => path,
+                        None => {
+                            return failed(
+                                OpenLibraryFailureKind::Storage,
+                                anyhow::anyhow!("Replica has no storage root"),
+                            );
+                        }
+                    };
+                    if !owned_path.join(".rune/library.json").is_file() {
+                        return failed(
+                            OpenLibraryFailureKind::MediaFolderMissing,
+                            anyhow::anyhow!("Replica folder is missing: {}", owned_path.display()),
+                        );
+                    }
+                    match owned_path.to_str() {
+                        Some(path) => path,
+                        None => {
+                            return failed(
+                                OpenLibraryFailureKind::Storage,
+                                anyhow::anyhow!("Replica path is not UTF-8"),
+                            );
+                        }
+                    }
+                }
+            };
+            open_catalog_record(
+                &node,
+                &record,
+                *library_id,
+                Some(path),
+                Arc::clone(&scrobbler),
+                &broadcaster,
+            )
+            .await
+        }
+        LibraryKind::RuneRemoteControl { fingerprint } => {
+            let hosts = node
+                .cert_validator
+                .read()
+                .await
+                .get_hosts_for_fingerprint(fingerprint)
+                .await;
+            if hosts.is_empty() {
+                Err((
+                    OpenLibraryFailureKind::RemoteUntrusted,
+                    anyhow::anyhow!("Fingerprint is no longer trusted"),
+                ))
+            } else {
+                match open_remote_library_for_fingerprint(node.clone(), fingerprint, hosts).await {
+                    Ok(_) => Ok(()),
+                    Err(error) => Err((remote_open_failure(&error), error)),
+                }
+            }
+        }
+        LibraryKind::Subsonic { .. } => Err((
+            OpenLibraryFailureKind::NotSupportedYet,
+            anyhow::anyhow!("Subsonic record opening is not implemented yet"),
+        )),
+    };
+    match result {
+        Ok(()) => OpenLibraryResponse {
+            call_id: request.call_id,
+            record_id: request.record_id.clone(),
+            result: OpenLibraryResult::Opened,
+        },
+        Err((kind, error)) => failed(kind, error),
+    }
+}
+
+fn storage_path_owned(storage: &OwnedStorage) -> Option<&str> {
+    match storage {
+        OwnedStorage::Local { path, .. } => Some(path),
+    }
+}
+
+async fn open_catalog_record(
+    node: &Arc<NodeContext>,
+    record: &LibraryRecord,
+    library_id: Uuid,
+    path: Option<&str>,
+    scrobbler: Arc<Mutex<ScrobblingManager>>,
+    broadcaster: &Arc<dyn Broadcaster>,
+) -> std::result::Result<(), (OpenLibraryFailureKind, anyhow::Error)> {
+    if let Some(path) = path {
+        #[cfg(not(target_os = "android"))]
+        let fsio = FsIo::new();
+        #[cfg(target_os = "android")]
+        let fsio = FsIo::new(Path::new(".rune/.android-fs.db"), path)
+            .map_err(|error| (OpenLibraryFailureKind::Storage, error.into()))?;
+        if !path.starts_with("content://") && !Path::new(path).is_dir() {
+            return Err((
+                OpenLibraryFailureKind::MediaFolderMissing,
+                anyhow::anyhow!("Media folder is missing: {path}"),
+            ));
+        }
+        check_library_state(&fsio, path)
+            .map_err(|error| (OpenLibraryFailureKind::Storage, error))?;
+    }
+    let opened = node
+        .library_pool
+        .acquire_ui(library_id)
+        .await
+        .map_err(|error| (OpenLibraryFailureKind::Storage, error))?;
+    run_local_open(Ok(opened), node, &scrobbler)
+        .await
+        .map_err(|error| (OpenLibraryFailureKind::Storage, error))?;
+    broadcaster.broadcast(&SetMediaLibraryPathResponse {
+        restore_last_index: node
+            .session()
+            .is_ok_and(|session| session.take_legacy_restore()),
+        error_kind: None,
+        path: record.app_name().unwrap_or_default(),
+        success: true,
+        error: None,
+        not_ready: false,
+    });
+    Ok(())
+}
+
+fn remote_open_failure(error: &anyhow::Error) -> OpenLibraryFailureKind {
+    match error.downcast_ref::<RemoteConnectError>() {
+        Some(RemoteConnectError::UntrustedEndpoint) => OpenLibraryFailureKind::RemoteUntrusted,
+        Some(RemoteConnectError::NotAuthorized) => OpenLibraryFailureKind::RemoteNotAuthorized,
+        Some(RemoteConnectError::Unreachable) => OpenLibraryFailureKind::RemoteUnreachable,
+        Some(RemoteConnectError::PeerNeedsUpdate { .. }) => {
+            OpenLibraryFailureKind::ProtocolIncompatible
+        }
+        Some(RemoteConnectError::Protocol(_)) => OpenLibraryFailureKind::RemoteProtocol,
+        None => OpenLibraryFailureKind::RemoteProtocol,
+    }
+}
+
 /// Run the local player loop for an opened library and report the result to Dart.
 async fn finish_local_open(
     opened: Result<LibraryHandle>,
@@ -479,34 +825,40 @@ async fn finish_local_open(
     broadcaster: &Arc<dyn Broadcaster>,
     media_library_path: &str,
 ) {
-    match opened {
-        Ok(library) => {
-            info!("Resolved library id: {}", library.library_id);
-            let result = local_player_loop(library, node.clone(), Arc::clone(scrobbler)).await;
-            broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                restore_last_index: result.is_ok()
-                    && node
-                        .session()
-                        .is_ok_and(|session| session.take_legacy_restore()),
-                error_kind: None,
-                path: media_library_path.to_string(),
-                success: result.is_ok(),
-                error: result.err().map(|error| format!("{error:#}")),
-                not_ready: false,
-            });
-        }
-        Err(e) => {
-            error!("Library initialization failed: {e:#?}");
+    let result = run_local_open(opened, node, scrobbler).await;
+    match result {
+        Ok(()) => broadcaster.broadcast(&SetMediaLibraryPathResponse {
+            restore_last_index: node
+                .session()
+                .is_ok_and(|session| session.take_legacy_restore()),
+            error_kind: None,
+            path: media_library_path.to_string(),
+            success: true,
+            error: None,
+            not_ready: false,
+        }),
+        Err(error) => {
+            error!("Library initialization failed: {error:#?}");
             broadcaster.broadcast(&SetMediaLibraryPathResponse {
                 restore_last_index: false,
                 error_kind: None,
                 path: media_library_path.to_string(),
                 success: false,
-                error: Some(format!("{e:#?}")),
+                error: Some(format!("{error:#?}")),
                 not_ready: false,
             });
         }
     }
+}
+
+async fn run_local_open(
+    opened: Result<LibraryHandle>,
+    node: &Arc<NodeContext>,
+    scrobbler: &Arc<Mutex<ScrobblingManager>>,
+) -> Result<()> {
+    let library = opened?;
+    info!("Resolved library id: {}", library.library_id);
+    local_player_loop(library, node.clone(), Arc::clone(scrobbler)).await
 }
 
 pub struct CollectionCoverOptions<'a> {

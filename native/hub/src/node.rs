@@ -986,6 +986,14 @@ impl NodeSlot {
     pub const fn new() -> Self {
         Self(Mutex::const_new(None))
     }
+    pub async fn current(&self) -> Result<Arc<NodeContext>> {
+        self.0
+            .lock()
+            .await
+            .as_ref()
+            .cloned()
+            .context("Node is not initialized")
+    }
     pub async fn handle(
         &self,
         request: &InitializeNodeRequest,
@@ -1031,6 +1039,10 @@ pub async fn initialize_node(
     broadcaster: Arc<dyn Broadcaster>,
 ) -> Result<Arc<NodeContext>> {
     NODE.initialize(config_path, db_path, broadcaster).await
+}
+
+pub(crate) async fn current_node() -> Result<Arc<NodeContext>> {
+    NODE.current().await
 }
 
 pub async fn receive_initialize_node() {

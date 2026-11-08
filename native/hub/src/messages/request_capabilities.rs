@@ -155,6 +155,9 @@ pub struct RequestCapabilities {
     pub fetch_server_certificate_request: RequestCapability,
     pub fetch_remote_file_request: RequestCapability,
     pub remove_item_from_playlist_request: RequestCapability,
+    pub register_local_library_request: RequestCapability,
+    pub register_remote_control_request: RequestCapability,
+    pub open_library_request: RequestCapability,
 }
 
 impl From<Slot> for RequestCapability {

@@ -458,6 +458,28 @@ impl LibraryRegistry {
         .await
     }
 
+    /// Register a trusted Rune peer as a remote-control endpoint.
+    pub async fn register_remote_control(
+        config_dir: &Path,
+        fingerprint: &str,
+        alias: &str,
+    ) -> Result<LibraryRecord> {
+        Self::update(config_dir, |registry| {
+            if let Some(record) = registry.libraries.iter().find(|record| {
+                matches!(&record.kind, LibraryKind::RuneRemoteControl { fingerprint: stored } if stored == fingerprint)
+            }) {
+                return Ok(record.clone());
+            }
+            let record = LibraryRecord {
+                record_id: LibraryRecordId(Uuid::new_v4()),
+                alias: alias.to_owned(),
+                kind: LibraryKind::RuneRemoteControl { fingerprint: fingerprint.to_owned() },
+            };
+            registry.libraries.push(record.clone());
+            Ok(record)
+        }).await
+    }
+
     fn reload(&mut self) -> Result<()> {
         *self = Self::load(
             self.path

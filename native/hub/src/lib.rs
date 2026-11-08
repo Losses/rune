@@ -34,7 +34,10 @@ pub use utils::{RemoteEventDeclaration, RemoteEventScope, RinfRustSignal};
 
 use ::scrobbling::manager::ScrobblingManager;
 
-use utils::{TaskTokens, diagnostics::receive_fs_self_test, receive_media_library_path};
+use utils::{
+    TaskTokens, diagnostics::receive_fs_self_test, receive_library_record_requests,
+    receive_media_library_path,
+};
 
 use crate::utils::init_logging;
 
@@ -108,6 +111,7 @@ async fn main() {
     // through the handler dispatch.
     tokio::spawn(receive_fs_self_test());
     tokio::spawn(node::receive_initialize_node());
+    tokio::spawn(receive_library_record_requests(Arc::clone(&scrobbler)));
 
     // Start receiving the media library path
     tokio::select! {

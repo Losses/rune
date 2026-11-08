@@ -1,4 +1,5 @@
 use super::system::{RequestErrorKind, RequestFailureCause};
+use database::library_registry::{LibraryKind, LibraryRecord, OwnedStorage};
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
@@ -54,6 +55,149 @@ pub struct SetMediaLibraryPathResponse {
     pub success: bool,
     pub error: Option<String>,
     pub not_ready: bool,
+}
+
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct RegisterLocalLibraryRequest {
+    pub path: String,
+    pub alias: String,
+    pub mode: Option<LibraryInitializeMode>,
+}
+
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct RegisterRemoteControlRequest {
+    pub fingerprint: String,
+    pub alias: String,
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
+pub enum LibraryRecordKindSummary {
+    Local {
+        library_id: String,
+        path: String,
+    },
+    Replica {
+        library_id: String,
+        path: String,
+        owner_fingerprint: String,
+    },
+    RemoteControl {
+        fingerprint: String,
+    },
+    Subsonic {
+        endpoint: String,
+        account: String,
+    },
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
+pub struct LibraryRecordSummary {
+    pub record_id: String,
+    pub alias: String,
+    pub kind: LibraryRecordKindSummary,
+}
+
+impl From<&LibraryRecord> for LibraryRecordSummary {
+    fn from(record: &LibraryRecord) -> Self {
+        let kind = match &record.kind {
+            LibraryKind::Owned {
+                library_id,
+                storage: OwnedStorage::Local { path, .. },
+                ..
+            } => LibraryRecordKindSummary::Local {
+                library_id: library_id.to_string(),
+                path: path.clone(),
+            },
+            LibraryKind::RuneReplica {
+                library_id,
+                owner_fingerprint,
+                ..
+            } => LibraryRecordKindSummary::Replica {
+                library_id: library_id.to_string(),
+                path: record.app_name().unwrap_or_default(),
+                owner_fingerprint: owner_fingerprint.clone(),
+            },
+            LibraryKind::RuneRemoteControl { fingerprint } => {
+                LibraryRecordKindSummary::RemoteControl {
+                    fingerprint: fingerprint.clone(),
+                }
+            }
+            LibraryKind::Subsonic {
+                endpoint, account, ..
+            } => LibraryRecordKindSummary::Subsonic {
+                endpoint: endpoint.clone(),
+                account: account.clone(),
+            },
+        };
+        Self {
+            record_id: record.record_id.0.to_string(),
+            alias: record.alias.clone(),
+            kind,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RegisterLibraryFailureKind {
+    Untrusted,
+    InvalidSource,
+    Storage,
+    RemoteUntrusted,
+    RemoteNotAuthorized,
+    RemoteUnreachable,
+    RemoteProtocol,
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
+pub enum RegisterLibraryOutcome {
+    Registered,
+    NeedsInitializeMode,
+    Failed(RegisterLibraryFailureKind),
+}
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct RegisterLibraryResponse {
+    pub record: Option<LibraryRecordSummary>,
+    pub outcome: RegisterLibraryOutcome,
+    pub detail: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct OpenLibraryRequest {
+    pub call_id: u64,
+    pub record_id: String,
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OpenLibraryFailureKind {
+    RecordNotFound,
+    MediaFolderMissing,
+    RemoteUntrusted,
+    RemoteNotAuthorized,
+    RemoteUnreachable,
+    RemoteProtocol,
+    ProtocolIncompatible,
+    NotSupportedYet,
+    Storage,
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
+pub enum OpenLibraryResult {
+    Opened,
+    Failed(OpenLibraryFailure),
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
+pub struct OpenLibraryFailure {
+    pub kind: OpenLibraryFailureKind,
+    pub detail: String,
+}
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct OpenLibraryResponse {
+    pub call_id: u64,
+    pub record_id: String,
+    pub result: OpenLibraryResult,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]

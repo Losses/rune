@@ -151,6 +151,9 @@ RequestCapabilities snapshot({
     fetchServerCertificateRequest: capability,
     fetchRemoteFileRequest: capability,
     removeItemFromPlaylistRequest: capability,
+    registerLocalLibraryRequest: capability,
+    registerRemoteControlRequest: capability,
+    openLibraryRequest: capability,
   ).copyWith(
     playRequest: play,
     pauseRequest: pause,

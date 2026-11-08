@@ -31,6 +31,7 @@ use urlencoding::encode;
 use uuid::Uuid;
 
 use crate::{
+    macros::listen_local_gui,
     messages::*,
     server::{
         api::fetch_device_info_at_port,
@@ -213,9 +214,22 @@ impl RendererLink {
         fingerprint: &str,
         link_use: RendererLinkUse,
     ) -> std::result::Result<(Self, String, String), RemoteConnectError> {
+        Self::connect_with_addresses(node, fingerprint, None, link_use).await
+    }
+
+    pub(crate) async fn connect_with_addresses(
+        node: Arc<NodeContext>,
+        fingerprint: &str,
+        addresses: Option<Vec<String>>,
+        link_use: RendererLinkUse,
+    ) -> std::result::Result<(Self, String, String), RemoteConnectError> {
         let validator = node.cert_validator.read().await.clone();
-        let hosts = validator.get_hosts_for_fingerprint(fingerprint).await;
-        if hosts.is_empty() {
+        let trusted_hosts = validator.get_hosts_for_fingerprint(fingerprint).await;
+        if trusted_hosts.is_empty() {
+            return Err(RemoteConnectError::UntrustedEndpoint);
+        }
+        let hosts = addresses.unwrap_or(trusted_hosts.clone());
+        if hosts.is_empty() || hosts.iter().any(|host| !trusted_hosts.contains(host)) {
             return Err(RemoteConnectError::UntrustedEndpoint);
         }
         let hosts = hosts
@@ -736,14 +750,36 @@ pub(crate) async fn open_remote_library(
         })
         .map(|(fingerprint, _)| fingerprint.clone())
         .ok_or(RemoteConnectError::UntrustedEndpoint)?;
-    let (link, _, alias) =
-        RendererLink::connect(node.clone(), &fingerprint, RendererLinkUse::Control).await?;
+    let trusted_hosts = entries
+        .into_iter()
+        .find(|(candidate, _)| candidate == &fingerprint)
+        .map(|(_, hosts)| hosts)
+        .unwrap_or_default();
+    open_remote_library_for_fingerprint(node, &fingerprint, trusted_hosts).await
+}
+
+/// Open a trusted peer's current UI library by stable identity and its trusted addresses.
+pub(crate) async fn open_remote_library_for_fingerprint(
+    node: Arc<NodeContext>,
+    fingerprint: &str,
+    addresses: Vec<String>,
+) -> Result<Arc<GlobalParams>> {
+    if addresses.is_empty() {
+        return Err(RemoteConnectError::UntrustedEndpoint.into());
+    }
+    let (link, _, alias) = RendererLink::connect_with_addresses(
+        node.clone(),
+        fingerprint,
+        Some(addresses),
+        RendererLinkUse::Control,
+    )
+    .await?;
+    link.call(&RefreshSessionRequest {}).await?;
     let params = Arc::new(node.params_for_ui()?);
-    node.attach_remote_ui(&params, fingerprint).await?;
-    node.install_renderer_link(link, alias)?;
-    node.remote_ui_renderer()?
-        .call(&RefreshSessionRequest {})
+    node.attach_remote_ui(&params, fingerprint.to_owned())
         .await?;
+    node.install_renderer_link(link, alias)?;
+    listen_local_gui(&params, &params.main_token);
     node.session()?.player.lock().await.pause();
     Ok(params)
 }

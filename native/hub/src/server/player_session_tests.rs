@@ -13,6 +13,9 @@ use crate::messages::{
     RequestFailedResponse, ScanAudioLibraryProgress, ScanTaskType,
 };
 use crate::node::ReconnectConfig;
+use crate::utils::{
+    open_library_by_record_on_node, register_local_library_on_node, register_remote_control_on_node,
+};
 #[cfg(target_os = "linux")]
 use std::{env, process::Command};
 use std::{path::PathBuf, sync::Mutex as StdMutex};
@@ -2082,10 +2085,7 @@ async fn playlist_update_uses_library_item_after_switching_ui_library() -> Resul
     let a_id = session_audio(&a, "boundary-switch.ogg").await?;
     let a_item = library_item_for_id(&a, a_id).await?;
     let b = fixture_open_replica(&a, bdir.path()).await?;
-    assert_ne!(
-        a_item.library_id,
-        b.global_params.test_library().library_id
-    );
+    assert_ne!(a_item.library_id, b.global_params.test_library().library_id);
 
     a.global_params
         .player
@@ -5557,6 +5557,249 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     close.stop().await;
     assert!(!a.global_params.node.remote_ui_library()?);
     assert!(a.global_params.node.current_ui().await.is_err());
+    a.global_params.node.shutdown().await?;
+    b.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> Result<()> {
+    use crate::messages::{
+        LibraryInitializeMode, OpenLibraryFailureKind, OpenLibraryRequest, OpenLibraryResult,
+        RegisterLibraryFailureKind, RegisterLibraryOutcome, RegisterLocalLibraryRequest,
+        RegisterRemoteControlRequest,
+    };
+    use database::library_registry::{
+        LibraryKind, LibraryRecord, LibraryRecordId, LibraryRegistry, ReplicaStorage,
+        SubsonicOpenMode,
+    };
+    use scrobbling::manager::ScrobblingManager;
+    use tokio::sync::Mutex;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let selected = dir.path().join("selected");
+    std::fs::create_dir_all(&selected)?;
+    let request = RegisterLocalLibraryRequest {
+        path: selected.to_string_lossy().into_owned(),
+        alias: "Selected".into(),
+        mode: None,
+    };
+    assert_eq!(
+        register_local_library_on_node(&request, &node)
+            .await
+            .outcome,
+        RegisterLibraryOutcome::NeedsInitializeMode
+    );
+    let registered = register_local_library_on_node(
+        &RegisterLocalLibraryRequest {
+            mode: Some(LibraryInitializeMode::Portable),
+            ..request
+        },
+        &node,
+    )
+    .await;
+    assert_eq!(registered.outcome, RegisterLibraryOutcome::Registered);
+    let record_id = registered.record.context("registered record")?.record_id;
+    let scrobbler = Arc::new(Mutex::new(ScrobblingManager::new(
+        10,
+        Duration::from_secs(5),
+    )));
+    let broadcaster: Arc<dyn Broadcaster> = Arc::new(super::Quiet);
+    let opened = open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: 4,
+            record_id: record_id.clone(),
+        },
+        node.clone(),
+        scrobbler.clone(),
+        broadcaster.clone(),
+    )
+    .await;
+    assert_eq!(opened.result, OpenLibraryResult::Opened);
+    let current = node.current_ui().await?;
+    dispatch_gui_request(&current, &FetchAllPlaylistsRequest {}).await?;
+
+    let unknown = open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: 5,
+            record_id: Uuid::new_v4().to_string(),
+        },
+        node.clone(),
+        scrobbler.clone(),
+        broadcaster.clone(),
+    )
+    .await;
+    assert!(matches!(unknown.result, OpenLibraryResult::Failed(failure)
+        if failure.kind == OpenLibraryFailureKind::RecordNotFound));
+
+    let missing_replica = LibraryRecord {
+        record_id: LibraryRecordId(Uuid::new_v4()),
+        alias: "Missing replica".into(),
+        kind: LibraryKind::RuneReplica {
+            library_id: Uuid::new_v4(),
+            owner_fingerprint: "owner".into(),
+            access_level: None,
+            connection_access: None,
+            background_sync: true,
+            storage: ReplicaStorage::Replica,
+        },
+    };
+    LibraryRegistry::update(PathBuf::from(&*node.config_path).as_path(), |registry| {
+        registry.libraries.push(missing_replica.clone());
+        Ok(())
+    })
+    .await?;
+    let missing = open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: 8,
+            record_id: missing_replica.record_id.0.to_string(),
+        },
+        node.clone(),
+        scrobbler.clone(),
+        broadcaster.clone(),
+    )
+    .await;
+    assert!(matches!(missing.result, OpenLibraryResult::Failed(failure)
+        if failure.kind == OpenLibraryFailureKind::MediaFolderMissing));
+
+    let subsonic = LibraryRecord {
+        record_id: LibraryRecordId(Uuid::new_v4()),
+        alias: "Unsupported".into(),
+        kind: LibraryKind::Subsonic {
+            endpoint: "https://example.invalid".into(),
+            account: "account".into(),
+            mode: SubsonicOpenMode::PlayOnThisDevice,
+        },
+    };
+    LibraryRegistry::update(PathBuf::from(&*node.config_path).as_path(), |registry| {
+        registry.libraries.push(subsonic.clone());
+        Ok(())
+    })
+    .await?;
+    let unsupported = open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: 6,
+            record_id: subsonic.record_id.0.to_string(),
+        },
+        node.clone(),
+        scrobbler.clone(),
+        broadcaster.clone(),
+    )
+    .await;
+    assert!(
+        matches!(unsupported.result, OpenLibraryResult::Failed(failure)
+        if failure.kind == OpenLibraryFailureKind::NotSupportedYet)
+    );
+
+    let unreachable = format!("unreachable-{}", Uuid::new_v4());
+    node.cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(&unreachable, vec!["127.0.0.1:1".into()])
+        .await?;
+    let remote = register_remote_control_on_node(
+        &RegisterRemoteControlRequest {
+            fingerprint: unreachable.clone(),
+            alias: "Away".into(),
+        },
+        &node,
+    )
+    .await;
+    assert_eq!(remote.outcome, RegisterLibraryOutcome::Registered);
+    let remote_id = remote.record.context("remote record")?.record_id;
+    let failure = open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: 7,
+            record_id: remote_id,
+        },
+        node.clone(),
+        scrobbler,
+        broadcaster,
+    )
+    .await;
+    assert!(matches!(failure.result, OpenLibraryResult::Failed(_)));
+    let after_failure = node.current_ui().await?;
+    assert!(Arc::ptr_eq(&current, &after_failure));
+    dispatch_gui_request(&after_failure, &FetchAllPlaylistsRequest {}).await?;
+
+    let before = LibraryRegistry::load(PathBuf::from(&*node.config_path).as_path())?
+        .libraries
+        .len();
+    let untrusted = register_remote_control_on_node(
+        &RegisterRemoteControlRequest {
+            fingerprint: "untrusted-fingerprint".into(),
+            alias: "No".into(),
+        },
+        &node,
+    )
+    .await;
+    assert_eq!(
+        untrusted.outcome,
+        RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::Untrusted)
+    );
+    assert_eq!(
+        LibraryRegistry::load(PathBuf::from(&*node.config_path).as_path())?
+            .libraries
+            .len(),
+        before
+    );
+
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn registered_remote_control_opens_and_routes_library_and_session_requests() -> Result<()> {
+    use crate::messages::{
+        OpenLibraryRequest, OpenLibraryResult, RegisterLibraryOutcome, RegisterRemoteControlRequest,
+    };
+    use scrobbling::manager::ScrobblingManager;
+    use tokio::sync::Mutex;
+
+    let a_dir = tempfile::tempdir()?;
+    let b_dir = tempfile::tempdir()?;
+    let a = fixture(a_dir.path()).await?;
+    let b = fixture(b_dir.path()).await?;
+    let address = super::paired_full(&b, &a).await?;
+    let fingerprint = super::info(&b).await?.fingerprint;
+    a.global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(&fingerprint, vec![format!("127.0.0.1:{}", address.port())])
+        .await?;
+    let registered = register_remote_control_on_node(
+        &RegisterRemoteControlRequest {
+            fingerprint,
+            alias: "B".into(),
+        },
+        &a.global_params.node,
+    )
+    .await;
+    assert_eq!(registered.outcome, RegisterLibraryOutcome::Registered);
+    let record_id = registered.record.context("remote record")?.record_id;
+    let scrobbler = Arc::new(Mutex::new(ScrobblingManager::new(
+        10,
+        Duration::from_secs(5),
+    )));
+    let broadcaster: Arc<dyn Broadcaster> = Arc::new(super::Quiet);
+    let opened = open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: 22,
+            record_id,
+        },
+        a.global_params.node.clone(),
+        scrobbler,
+        broadcaster,
+    )
+    .await;
+    assert_eq!(opened.result, OpenLibraryResult::Opened);
+    let params = a.global_params.node.current_ui().await?;
+    dispatch_gui_request(&params, &FetchAllPlaylistsRequest {}).await?;
+    dispatch_gui_request(&params, &VolumeRequest { volume: 0.37 }).await?;
+    wait_player(&b, |status| status.volume == 0.37).await?;
     a.global_params.node.shutdown().await?;
     b.global_params.node.shutdown().await?;
     Ok(())
