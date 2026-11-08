@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:get_storage/get_storage.dart';
 import 'package:macos_secure_bookmarks/macos_secure_bookmarks.dart';
 
+import '../library_reference.dart';
 import '../settings_manager.dart';
 
 import '../../utils/rune_log.dart';
@@ -43,6 +44,8 @@ class MacSecureManager {
 
   Future<void> saveBookmark(String dir) async {
     if (!isApplePlatform()) return;
+    // A replica sits in the app's own directory and needs no bookmark.
+    if (isReplicaReference(dir)) return;
 
     await completed;
     final secureBookmarks = SecureBookmarks();

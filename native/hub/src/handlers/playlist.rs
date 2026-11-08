@@ -94,7 +94,7 @@ impl Signal for CreatePlaylistRequest {
         .with_context(|| format!("Failed to create playlist: name={name}, group={group}"))?;
 
         broadcaster.broadcast(&LibraryContentChanged {
-            path: library.media_root.clone(),
+            path: library.descriptor.app_name(),
         });
         Ok(Some(CreatePlaylistResponse {
             playlist: Playlist {
@@ -145,7 +145,7 @@ impl Signal for UpdatePlaylistRequest {
         })?;
 
         broadcaster.broadcast(&LibraryContentChanged {
-            path: library.media_root.clone(),
+            path: library.descriptor.app_name(),
         });
         Ok(Some(UpdatePlaylistResponse {
             playlist: Playlist {
@@ -186,7 +186,7 @@ impl Signal for RemovePlaylistRequest {
         .with_context(|| format!("Removing playlist: id={}", request.playlist_id))?;
 
         broadcaster.broadcast(&LibraryContentChanged {
-            path: library.media_root.clone(),
+            path: library.descriptor.app_name(),
         });
         Ok(Some(RemovePlaylistResponse {
             playlist_id: request.playlist_id,
@@ -231,7 +231,7 @@ impl Signal for AddItemToPlaylistRequest {
         })?;
 
         broadcaster.broadcast(&LibraryContentChanged {
-            path: library.media_root.clone(),
+            path: library.descriptor.app_name(),
         });
         Ok(Some(AddItemToPlaylistResponse {
             success: true,
@@ -274,7 +274,7 @@ impl Signal for ReorderPlaylistItemPositionRequest {
         })?;
 
         broadcaster.broadcast(&LibraryContentChanged {
-            path: library.media_root.clone(),
+            path: library.descriptor.app_name(),
         });
         Ok(Some(ReorderPlaylistItemPositionResponse { success: true }))
     }
@@ -365,7 +365,7 @@ impl Signal for CreateM3u8PlaylistRequest {
         {
             Ok((playlist, import_result)) => {
                 broadcaster.broadcast(&LibraryContentChanged {
-                    path: library.media_root.clone(),
+                    path: library.descriptor.app_name(),
                 });
                 Ok(Some(CreateM3u8PlaylistResponse {
                     playlist: Some(Playlist {
@@ -421,7 +421,7 @@ impl Signal for RemoveItemFromPlaylistRequest {
         {
             Ok(_) => {
                 broadcaster.broadcast(&LibraryContentChanged {
-                    path: library.media_root.clone(),
+                    path: library.descriptor.app_name(),
                 });
                 Ok(Some(RemoveItemFromPlaylistResponse {
                     success: true,

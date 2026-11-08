@@ -71,10 +71,12 @@ impl Signal for CloseLibraryRequest {
 
         info!("Closing library: {:#?}", request.path);
 
-        if request.path != library.media_root {
+        // A replica opened by its folder path is closed by that path too.
+        let app_name = library.descriptor.app_name();
+        if request.path != app_name && Path::new(&request.path) != Path::new(&library.media_root) {
             warn!(
                 "Library path mismatch: {:#?} != {:#?}",
-                request.path, library.media_root
+                request.path, app_name
             );
             return Ok(None);
         }
@@ -128,7 +130,7 @@ impl Signal for ScanAudioLibraryRequest {
             session.as_ref(),
             &library.fsio,
             Path::new(&library.media_root),
-            Path::new(&dart_signal.path),
+            Path::new(&library.fs_path(&dart_signal.path)),
         )?;
         let mut tokens = task_tokens.lock().await;
         // If there is scanning task
@@ -144,17 +146,18 @@ impl Signal for ScanAudioLibraryRequest {
 
         // Clone all the data we need before spawning the task
         let request_path = dart_signal.path.clone();
+        let fs_path = library.fs_path(&request_path);
         // FsIo on Android is rooted at the granted SAF tree; the content://
         // URI Dart passes is not a path inside that tree. Scans always start
         // at the tree root there.
         #[cfg(target_os = "android")]
-        let scan_path = if request_path.starts_with("content://") {
+        let scan_path = if fs_path.starts_with("content://") {
             String::new()
         } else {
-            request_path.clone()
+            fs_path
         };
         #[cfg(not(target_os = "android"))]
-        let scan_path = request_path.clone();
+        let scan_path = fs_path;
         let request_force = dart_signal.force;
         let missing_host_file = sync_settings.read().await.missing_host_file;
         let main_db_clone = Arc::clone(&library.main_db);
@@ -342,7 +345,7 @@ impl Signal for AnalyzeAudioLibraryRequest {
             session.as_ref(),
             &library.fsio,
             Path::new(&library.media_root),
-            Path::new(&dart_signal.path),
+            Path::new(&library.fs_path(&dart_signal.path)),
         )?;
         let mut tokens = task_tokens.lock().await;
         if let Some(token) = tokens.scan_token.take() {
@@ -359,16 +362,17 @@ impl Signal for AnalyzeAudioLibraryRequest {
 
         let request_path = request.path.clone();
         let closure_request_path = request_path.clone();
+        let fs_path = library.fs_path(&request_path);
         // See ScanAudioLibraryRequest: on Android the content:// URI is not a
         // path inside the SAF tree; analysis starts at the tree root.
         #[cfg(target_os = "android")]
-        let analysis_path = if request_path.starts_with("content://") {
+        let analysis_path = if fs_path.starts_with("content://") {
             String::new()
         } else {
-            request_path.clone()
+            fs_path
         };
         #[cfg(not(target_os = "android"))]
-        let analysis_path = request_path.clone();
+        let analysis_path = fs_path;
         let batch_size = determine_batch_size(request.workload_factor);
         let computing_device = request.computing_device;
 
@@ -457,7 +461,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
             session.as_ref(),
             &library.fsio,
             Path::new(&library.media_root),
-            Path::new(&dart_signal.path),
+            Path::new(&library.fs_path(&dart_signal.path)),
         )?;
         let mut tokens = task_tokens.lock().await;
         if let Some(token) = tokens.deduplicate_token.take() {
@@ -470,6 +474,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
 
         let request = dart_signal;
         let request_path = Arc::new(request.path.clone());
+        let fs_path = library.fs_path(&request.path);
         let batch_size = determine_batch_size(request.workload_factor);
         let config = Configuration::default();
         let similarity_threshold = request.similarity_threshold;
@@ -505,7 +510,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
                 compute_file_fingerprints(
                     Arc::clone(&_library.fsio),
                     &_library.main_db,
-                    Path::new(&request_path_clone),
+                    Path::new(&fs_path),
                     batch_size,
                     move |cur, total| {
                         let progress = cur as f32 / total as f32 * 0.33;
@@ -799,5 +804,70 @@ mod scan_supervisor_tests {
             .await
             .unwrap_err();
         assert!(format!("{error:#}").contains("no library is open on this device"));
+    }
+    #[tokio::test]
+    async fn remote_scan_by_replica_name_checks_the_replica_folder() -> Result<()> {
+        use crate::library_pool::LibraryPool;
+        use database::library_registry::{LibraryRegistry, create_replica};
+
+        let config = tempfile::TempDir::new()?;
+        let id = Uuid::new_v4();
+        let mut registry = LibraryRegistry::load(config.path())?;
+        create_replica(config.path(), &mut registry, id, "Replica", "owner").await?;
+        let node_id = Uuid::new_v4().to_string();
+        let pool = LibraryPool::new(config.path(), config.path(), &node_id)?;
+        let library = pool.acquire_ui(id).await?;
+        let audio = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg");
+        std::fs::copy(audio, Path::new(&library.media_root).join("track.ogg"))?;
+        let tokens = Arc::new(Mutex::new(TaskTokens::default()));
+        let capture = Arc::new(Capture::default());
+        let params = || {
+            (
+                Some(library.clone()),
+                Arc::new(node_id.clone()),
+                tokens.clone(),
+                capture.clone() as Arc<dyn Broadcaster>,
+                Arc::new(RwLock::new(SyncSettings::default())),
+            )
+        };
+        let session = || Session {
+            public_key: String::new(),
+            fingerprint: "controller".into(),
+            host: "127.0.0.1".into(),
+        };
+
+        let outside = tempfile::TempDir::new()?;
+        let request = ScanAudioLibraryRequest {
+            scan_id: "outside".into(),
+            path: outside.path().to_string_lossy().into_owned(),
+            force: false,
+        };
+        assert!(
+            request
+                .handle(params(), Some(session()), &request)
+                .await
+                .is_err()
+        );
+
+        let request = ScanAudioLibraryRequest {
+            scan_id: "replica".into(),
+            path: format!("replica://{id}"),
+            force: false,
+        };
+        request.handle(params(), Some(session()), &request).await?;
+        // The scan runs in the background, so wait for its result.
+        let response = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if let Some(event) = capture.0.lock().unwrap().first().cloned() {
+                    break rinf::deserialize::<ScanAudioLibraryResponse>(&event).unwrap();
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await?;
+        assert_eq!(response.status, "success", "{}", response.error);
+        // The track in the replica folder was found, so the folder itself was scanned.
+        assert_eq!(response.progress, 1);
+        Ok(())
     }
 }
