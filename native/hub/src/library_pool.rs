@@ -107,9 +107,9 @@ impl LibraryPool {
         idle_timeout: Duration,
     ) -> Result<Arc<Self>> {
         fs::create_dir_all(config_dir).context("Failed to create node configuration directory")?;
-        let config_dir = config_dir.canonicalize()?;
+        let config_dir = dunce::canonicalize(config_dir)?;
         fs::create_dir_all(db_path).context("Failed to create database directory")?;
-        let db_path = db_path.canonicalize()?;
+        let db_path = dunce::canonicalize(db_path)?;
         let mut pools = POOLS
             .get_or_init(StdMutex::default)
             .lock()
@@ -507,6 +507,10 @@ mod tests {
         let f = Fixture::new(false).await?;
         let id = f.descriptor.library_id;
         let background = f.pool.acquire(id).await?;
+        drop(background);
+        sleep(f.pool.idle_timeout + Duration::from_millis(10)).await;
+        f.pool.close_idle().await?;
+        // A user moving the folder in the file manager cannot do so while Windows holds its database open.
         let moved = f.dir.path().join("moved").to_string_lossy().into_owned();
         fs::rename(&f.root, &moved)?;
         let mode = check_storage_mode(&f.fsio, &moved)?;
@@ -515,7 +519,6 @@ mod tests {
         assert_eq!(reopened.library_id, id);
         let ui = f.pool.acquire_ui(id).await?;
         assert_eq!(ui.media_root, moved);
-        assert_eq!(background.media_root, f.root);
         assert_eq!(f.pool.acquire(id).await?.media_root, moved);
         Ok(())
     }
@@ -527,7 +530,12 @@ mod tests {
         let id = Uuid::new_v4();
         let mut registry = LibraryRegistry::load(old.path())?;
         create_replica(old.path(), &mut registry, id, "Replica", "owner").await?;
-        let pool = LibraryPool::new(old.path(), old.path(), &node_id)?;
+        let pool = LibraryPool::with_idle_timeout(
+            old.path(),
+            old.path(),
+            &node_id,
+            Duration::from_millis(50),
+        )?;
         let first = pool.acquire_ui(id).await?;
         assert_eq!(
             Path::new(&first.media_root),
@@ -536,6 +544,9 @@ mod tests {
         assert_eq!(first.fs_path(&format!("replica://{id}")), first.media_root);
         pool.unregister_ui(id).await;
         drop(first);
+        // A reinstall cannot relocate app data while Windows still has the library database open.
+        sleep(pool.idle_timeout + Duration::from_millis(10)).await;
+        pool.close_idle().await?;
         // A reinstall gives the app a new data directory holding the same files.
         let new = TempDir::new()?;
         fs::copy(

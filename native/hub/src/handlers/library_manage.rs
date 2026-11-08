@@ -79,7 +79,19 @@ impl Signal for CloseLibraryRequest {
 
         // A replica opened by its folder path is closed by that path too.
         let app_name = library.descriptor.app_name();
-        if request.path != app_name && Path::new(&request.path) != Path::new(&library.media_root) {
+        let folder_matches = if request.path == app_name {
+            true
+        } else {
+            match (
+                dunce::canonicalize(Path::new(&request.path)),
+                dunce::canonicalize(Path::new(&library.media_root)),
+            ) {
+                (Ok(request_path), Ok(media_root)) => request_path == media_root,
+                // A folder that no longer exists can still be closed by its old name.
+                _ => Path::new(&request.path) == Path::new(&library.media_root),
+            }
+        };
+        if !folder_matches {
             warn!(
                 "Library path mismatch: {:#?} != {:#?}",
                 request.path, app_name

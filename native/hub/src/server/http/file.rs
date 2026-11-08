@@ -125,7 +125,7 @@ pub async fn file_handler(
     let requested_path = root_dir.join(relative_path);
     let canonical_root = match library.as_ref() {
         Some(library) => library.fsio.canonicalize_path(root_dir).ok(),
-        None => root_dir.canonicalize().ok(),
+        None => dunce::canonicalize(root_dir).ok(),
     };
     let Some(canonical_root) = canonical_root else {
         return StatusCode::FORBIDDEN.into_response();
@@ -137,7 +137,7 @@ pub async fn file_handler(
             FilePath::new(relative_path),
         )
         .ok(),
-        None => requested_path.canonicalize().ok(),
+        None => dunce::canonicalize(&requested_path).ok(),
     };
     let Some(canonical_path) = canonical_path else {
         return StatusCode::FORBIDDEN.into_response();

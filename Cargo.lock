@@ -3283,6 +3283,7 @@ dependencies = [
  "database",
  "directories",
  "discovery",
+ "dunce",
  "env_logger",
  "flutter-texture",
  "fsio",
