@@ -65,7 +65,9 @@ pub const REPLICA_SCHEME: &str = "replica://";
 /// What a library name given by the app refers to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LibraryLocation {
+    /// A folder the user chose, by its path.
     Path(String),
+    /// A replica in this node's data directory, by its library id.
     Replica(Uuid),
 }
 impl LibraryLocation {

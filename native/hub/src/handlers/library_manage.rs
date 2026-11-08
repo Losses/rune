@@ -71,8 +71,9 @@ impl Signal for CloseLibraryRequest {
 
         info!("Closing library: {:#?}", request.path);
 
+        // A replica opened by its folder path is closed by that path too.
         let app_name = library.descriptor.app_name();
-        if request.path != app_name {
+        if request.path != app_name && Path::new(&request.path) != Path::new(&library.media_root) {
             warn!(
                 "Library path mismatch: {:#?} != {:#?}",
                 request.path, app_name
@@ -816,13 +817,16 @@ mod scan_supervisor_tests {
         let node_id = Uuid::new_v4().to_string();
         let pool = LibraryPool::new(config.path(), config.path(), &node_id)?;
         let library = pool.acquire_ui(id).await?;
+        let audio = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg");
+        std::fs::copy(audio, Path::new(&library.media_root).join("track.ogg"))?;
         let tokens = Arc::new(Mutex::new(TaskTokens::default()));
+        let capture = Arc::new(Capture::default());
         let params = || {
             (
                 Some(library.clone()),
                 Arc::new(node_id.clone()),
                 tokens.clone(),
-                Arc::new(Capture::default()) as Arc<dyn Broadcaster>,
+                capture.clone() as Arc<dyn Broadcaster>,
                 Arc::new(RwLock::new(SyncSettings::default())),
             )
         };
@@ -851,9 +855,19 @@ mod scan_supervisor_tests {
             force: false,
         };
         request.handle(params(), Some(session()), &request).await?;
-        if let Some(token) = tokens.lock().await.scan_token.take() {
-            token.cancel();
-        }
+        // The scan runs in the background, so wait for its result.
+        let response = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if let Some(event) = capture.0.lock().unwrap().first().cloned() {
+                    break rinf::deserialize::<ScanAudioLibraryResponse>(&event).unwrap();
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await?;
+        assert_eq!(response.status, "success", "{}", response.error);
+        // The track in the replica folder was found, so the folder itself was scanned.
+        assert_eq!(response.progress, 1);
         Ok(())
     }
 }

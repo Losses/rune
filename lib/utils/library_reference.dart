@@ -5,6 +5,7 @@ import 'dart:io';
 /// reinstalls the app, so it is named by its library id.
 const replicaScheme = 'replica://';
 
+/// Whether [path] names a replica by its library id rather than a folder.
 bool isReplicaReference(String path) => path.startsWith(replicaScheme);
 
 /// The last segment of a library's folder, or the library id for a replica.

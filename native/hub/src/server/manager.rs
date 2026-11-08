@@ -1165,6 +1165,32 @@ mod lifecycle_tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn a_replica_opened_by_its_folder_closes_by_that_folder() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let source = fixture(dir.path()).await?;
+        let config = Path::new(&*source.global_params.config_path);
+        let id = Uuid::new_v4();
+        let mut registry = LibraryRegistry::load(config)?;
+        create_replica(config, &mut registry, id, "Replica", "owner").await?;
+        let root = registry.replica(id)?.root(config);
+        let opened = fixture_open_replica(&source, &root).await?;
+        let params = &opened.global_params;
+        assert_eq!(params.library_id, Some(id));
+        let close = CloseLibraryRequest {
+            path: root.to_string_lossy().into_owned(),
+        };
+        assert!(
+            close
+                .handle(close.extract_params(params), None, &close)
+                .await?
+                .is_some()
+        );
+        assert!(params.main_token.is_cancelled());
+        source.global_params.node.shutdown().await?;
+        Ok(())
+    }
+
     #[test]
     fn request_gate_owner_requests_are_not_forwardable() {
         macro_rules! collect_names {
