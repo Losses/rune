@@ -1,16 +1,13 @@
 use crate::utils::{GlobalParams, TaskTokens};
 use crate::{node::NodeContext, utils::RunningMode};
 #[macro_use]
-mod gui_request;
+pub(crate) mod gui_request;
 
 use std::sync::{Arc, OnceLock};
 
-use crate::request_error::classify;
-use crate::rpc::dispatch_gui_request;
-use log::{error, info, warn};
+use crate::macros::listen_local_gui;
+use log::info;
 use tokio::sync::Mutex;
-
-use rinf::{DartSignal, RustSignal};
 
 pub use tokio;
 
@@ -18,7 +15,6 @@ use ::playback::sfx_player::SfxPlayer;
 use ::scrobbling::manager::ScrobblingManager;
 
 use crate::library_pool::LibraryHandle;
-use crate::messages::*;
 
 pub async fn local_player_loop(
     library: LibraryHandle,
@@ -79,6 +75,6 @@ pub async fn local_player_loop(
         .set(server_manager.clone())
         .map_err(|_| anyhow::anyhow!("Library server already initialized"))?;
     node.attach_ui(&global_params).await;
-    for_all_request_pairs2!(listen_local_gui_event, global_params, main_cancel_token);
+    listen_local_gui(&global_params, &main_cancel_token);
     Ok(())
 }

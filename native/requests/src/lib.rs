@@ -1095,23 +1095,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
     let (with_response, without_response): (Vec<_>, Vec<_>) =
         types.iter().partition(|t| t.response.is_some());
 
-    let response_pairs: Vec<_> = with_response
-        .iter()
-        .map(|t| {
-            let req_ident = syn::parse_str::<syn::Ident>(&t.request).unwrap();
-            let resp_ident = syn::parse_str::<syn::Ident>(t.response.as_ref().unwrap()).unwrap();
-            quote! { (#req_ident, #resp_ident) }
-        })
-        .collect();
-
-    let request_only: Vec<_> = without_response
-        .iter()
-        .map(|t| {
-            let ident = syn::parse_str::<syn::Ident>(&t.request).unwrap();
-            quote! { #ident }
-        })
-        .collect();
-
     let all_responses: Vec<_> = with_response
         .iter()
         .map(|t| syn::parse_str::<syn::Ident>(t.response.as_ref().unwrap()).unwrap())
@@ -1176,6 +1159,25 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             }
         })
         .collect();
+
+    let gui_request_impls = types.iter().map(|entry| {
+        let request = format_ident!("{}", entry.request);
+        let emit = if entry.response.is_some() {
+            quote! { if let Some(response) = _response { _emit(&response); } }
+        } else {
+            quote! {}
+        };
+        quote! {
+            impl GuiRequest for #request {
+                fn emit_response(
+                    _response: Option<Self::Response>,
+                    _emit: &impl Fn(&dyn RinfRustSignal),
+                ) {
+                    #emit
+                }
+            }
+        }
+    });
 
     let slot_fields: Vec<_> = types
         .iter()
@@ -1279,6 +1281,13 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         #(#call_id_impls)*
         #(#typed_request_impls)*
         #(#target_request_impls)*
+        #(#gui_request_impls)*
+
+        /// Start one sequential GUI listener per catalogue request type.
+        pub(crate) fn listen_local_gui(params: &Arc<GlobalParams>, cancel: &CancellationToken) {
+            #(tokio::spawn(listen_gui::<#all_requests>(params.clone(), cancel.clone()));)*
+        }
+
 
         /// Dispatch a network request through the catalogue's non-local entries.
         pub(crate) async fn dispatch_remote(
@@ -1346,13 +1355,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         }
 
 
-        #[macro_export]
-        macro_rules! for_all_request_pairs2 {
-            ($m:tt, $param1:expr, $param2:expr) => {
-                $m!($param1, $param2 #(, #response_pairs)* #(, #request_only)*);
-            };
-        }
-
+        // R5b: these remaining callbacks still serve the @RR proxy.
         #[macro_export]
         macro_rules! for_all_local_only_request_pairs2 {
             ($m:tt, $param1:expr, $param2:expr) => {
@@ -1382,14 +1385,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             }
         }
 
-
-
-        #[macro_export]
-        macro_rules! for_all_non_local_requests {
-            ($m:tt, $params:expr) => {
-                $m!($params, #(#non_local_requests),*);
-            }
-        }
 
 
         #[macro_export]

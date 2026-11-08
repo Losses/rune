@@ -1148,7 +1148,7 @@ mod access_policy_tests {
         }
         for_all_requests0!(assert_catalogue);
         macro_rules! assert_non_local_access {
-            ($unused:expr, $($request:ident),*) => {
+            ($unused1:expr, $unused2:expr, $unused3:expr, $($request:ident),*) => {
                 $(
                     assert_ne!(
                         request_access(stringify!($request)),
@@ -1159,7 +1159,7 @@ mod access_policy_tests {
                 )*
             };
         }
-        for_all_non_local_requests!(assert_non_local_access, ());
+        for_all_non_local_requests3!(assert_non_local_access, (), (), ());
         assert!(request_uses_controller_library(
             "OperatePlaybackWithMixQueryRequest"
         ));

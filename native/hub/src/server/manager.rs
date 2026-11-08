@@ -950,6 +950,10 @@ mod lifecycle_tests {
         include!("player_session_tests.rs");
     }
 
+    mod gui_listener_tests {
+        include!("gui_listener_tests.rs");
+    }
+
     struct Quiet;
     impl Broadcaster for Quiet {
         fn broadcast(&self, _: &dyn RinfRustSignal) {}
