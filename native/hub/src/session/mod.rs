@@ -225,8 +225,10 @@ impl PlayerSession {
 
     pub(crate) async fn playback_snapshot(&self) -> (PlayerStatus, u64) {
         let state = self.state.lock().await;
-        let status = self.player.lock().await.get_status();
-        (status, state.queue_revision)
+        let revision = state.queue_revision;
+        let status_after_pending = self.player.lock().await.status_after_pending();
+        drop(state);
+        (status_after_pending.await, revision)
     }
 
     /// Re-send this session's current player bar and queue after renderer control ends.

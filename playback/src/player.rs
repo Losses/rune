@@ -12,7 +12,7 @@ use uuid::Uuid;
 use fsio::FsIo;
 use log::{debug, error};
 use simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use crate::internal::{InternalLog, PlaybackMode, PlayerCommand, PlayerEvent, PlayerInternal};
@@ -286,6 +286,8 @@ pub trait Playable: Send {
     fn set_mix_with_others(&mut self, enabled: bool);
     fn terminate(&self);
     fn get_status(&self) -> PlayerStatus;
+    /// Return status after the player has applied commands already in its queue.
+    fn status_after_pending(&self) -> BoxFuture<'static, PlayerStatus>;
     fn get_playlist(&self) -> Vec<PlayingItem>;
     fn subscribe_status(&self) -> SimpleReceiver<PlayerStatus>;
     fn subscribe_played_through(&self) -> SimpleReceiver<PlayingItem>;
@@ -548,6 +550,9 @@ impl Player {
                     PlayerEvent::VolumeUpdate(value) => {
                         status.volume = value;
                     }
+                    PlayerEvent::StatusAfterPending(response) => {
+                        let _ = response.send(status.clone());
+                    }
                     PlayerEvent::Log(log) => {
                         log_sender.send(log);
                     }
@@ -699,6 +704,35 @@ impl Playable for Player {
         self.current_status.lock().unwrap().clone()
     }
 
+    fn status_after_pending(&self) -> BoxFuture<'static, PlayerStatus> {
+        let (response, result) = oneshot::channel();
+        let fallback = Arc::clone(&self.current_status);
+        let sent = self
+            .commands
+            .lock()
+            .map(|commands| {
+                commands
+                    .send(PlayerCommand::StatusAfterPending(response))
+                    .is_ok()
+            })
+            .unwrap_or(false);
+        if !sent {
+            let status = fallback
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone();
+            return Box::pin(std::future::ready(status));
+        }
+        Box::pin(async move {
+            result.await.unwrap_or_else(|_| {
+                fallback
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .clone()
+            })
+        })
+    }
+
     fn get_playlist(&self) -> Vec<PlayingItem> {
         self.current_status.lock().unwrap().playlist.clone()
     }
@@ -766,6 +800,9 @@ impl Playable for MockPlayer {
             ready: false,
             volume: 1.0,
         }
+    }
+    fn status_after_pending(&self) -> BoxFuture<'static, PlayerStatus> {
+        Box::pin(std::future::ready(self.get_status()))
     }
     fn get_playlist(&self) -> Vec<PlayingItem> {
         Vec::new()

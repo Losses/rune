@@ -4457,6 +4457,48 @@ fn session_snapshot_rejects_independent_files() {
     ));
 }
 
+#[tokio::test]
+async fn playback_snapshot_waits_for_accepted_queue_changes() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let fixture = fixture(temp.path()).await?;
+    let track = session_audio(&fixture, "snapshot-barrier.ogg").await?;
+    let item = library_item_for_id(&fixture, track).await?;
+    let session = fixture.global_params.node.session()?;
+
+    session
+        .edit_queue(None, move |player| {
+            player.add_to_playlist_with_sources(
+                vec![(PlayingItem::InLibrary(item), PlaybackSource::LibraryStream)],
+                AddMode::AppendToEnd,
+            );
+            true
+        })
+        .await?;
+
+    let (status, revision) = timeout(Duration::from_secs(2), session.playback_snapshot())
+        .await
+        .context("snapshot barrier did not return")?;
+    assert_eq!(status.playlist, [PlayingItem::InLibrary(item)]);
+    assert_eq!(revision, 1);
+    fixture.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn playback_snapshot_on_idle_player_returns_promptly() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let fixture = fixture(temp.path()).await?;
+    let session = fixture.global_params.node.session()?;
+
+    let (status, revision) = timeout(Duration::from_secs(2), session.playback_snapshot())
+        .await
+        .context("idle snapshot barrier did not return")?;
+    assert!(status.playlist.is_empty());
+    assert_eq!(revision, 0);
+    fixture.global_params.node.shutdown().await?;
+    Ok(())
+}
+
 async fn wait_controller_count(node: &NodeContext, count: usize) -> Result<()> {
     timeout(Duration::from_secs(3), async {
         loop {

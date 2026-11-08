@@ -17,7 +17,7 @@ use fsio::{FileStream, FsIo};
 use log::{debug, error, info, warn};
 use rodio::{PlayError, Sink, Source, source::SeekError};
 use tokio::{
-    sync::mpsc,
+    sync::{mpsc, oneshot},
     time::{Instant, interval, sleep_until},
 };
 use tokio_util::sync::CancellationToken;
@@ -27,7 +27,8 @@ use crate::decoder::RuneDecoder;
 use crate::output_stream::{RuneOutputStream, RuneOutputStreamHandle};
 use crate::pcm_tap::PcmTap;
 use crate::player::{
-    PlaybackSource, PlaybackSourceResolver, PlayingItem, RemoteAudioError, UnavailableReason,
+    PlaybackSource, PlaybackSourceResolver, PlayerStatus, PlayingItem, RemoteAudioError,
+    UnavailableReason,
 };
 use crate::realtime_fft::RealTimeFFT;
 use crate::shared_source::SharedSource;
@@ -253,6 +254,7 @@ pub enum PlayerCommand {
     SetRealtimeFFTEnabled(bool),
     SetAdaptiveSwitchingEnabled(bool),
     SetMixWithOthers(bool),
+    StatusAfterPending(oneshot::Sender<PlayerStatus>),
     Output(OutputEvent),
 }
 
@@ -274,8 +276,9 @@ pub enum OutputEvent {
     DeviceAdded,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum PlayerEvent {
+    StatusAfterPending(oneshot::Sender<PlayerStatus>),
     Unavailable(PlayingItem, UnavailableReason),
     UnavailableCleared(Option<PlayingItem>),
     Stopped,
@@ -652,6 +655,14 @@ impl PlayerInternal {
                         PlayerCommand::SetRealtimeFFTEnabled(enabled) => self.set_realtime_fft_enabled(enabled)?,
                         PlayerCommand::SetAdaptiveSwitchingEnabled(enabled) => self.set_adaptive_switching(enabled)?,
                         PlayerCommand::SetMixWithOthers(enabled) => self.set_mix_with_others(enabled)?,
+                        PlayerCommand::StatusAfterPending(response) => {
+                            if self.debounce_timer.take().is_some() {
+                                self.send_playlist_updated()?;
+                            }
+                            self.event_sender
+                                .send(PlayerEvent::StatusAfterPending(response))
+                                .context("Failed to send player status barrier")?;
+                        },
                         PlayerCommand::Output(event) => self.output_event(event)?,
                     };
                 },
@@ -2390,6 +2401,7 @@ mod playback_state_tests {
     use crate::player::LibraryItem;
     use std::sync::atomic::Ordering;
     use std::sync::mpsc::channel;
+    use tokio::runtime::Builder;
     use tokio::sync::Notify;
     use tokio::task::LocalSet;
     use uuid::Uuid;
@@ -4027,10 +4039,7 @@ mod playback_state_tests {
             setup_sender
                 .send((commands_sender, events, wav_path, hooks))
                 .unwrap();
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
+            let runtime = Builder::new_current_thread().enable_all().build().unwrap();
             let _ = runtime.block_on(internal.run());
         });
         let (commands_sender, mut events, wav_path, (cancel, opens, suspends, resumes)) =
