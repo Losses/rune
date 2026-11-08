@@ -3,7 +3,7 @@ mod cli;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use log::info;
 use rustls::crypto::ring::default_provider;
@@ -113,10 +113,13 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
     let mode = check_storage_mode(&fsio, lib_path)?;
     let mut registry = LibraryRegistry::load(Path::new(config_path))?;
     let descriptor = resolve_library(&fsio, &mut registry, lib_path, "", mode).await?;
-    info!("Resolved library id: {}", descriptor.library_id);
+    let library_id = descriptor
+        .catalog_library_id()
+        .context("Resolved endpoint has no catalog")?;
+    info!("Resolved library id: {}", library_id);
 
     let pool = node.library_pool.clone();
-    let library = pool.acquire_ui(descriptor.library_id).await?;
+    let library = pool.acquire_ui(library_id).await?;
     let config_path = node.config_path.clone();
 
     let main_cancel_token = node.token.child_token();
@@ -140,7 +143,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
 
     let global_params = Arc::new(GlobalParams {
         node: node.clone(),
-        library_id: Some(descriptor.library_id),
+        library_id: Some(library_id),
         library_pool: pool,
         library: Some(library.clone()),
         ui_library: Arc::new(Mutex::new(Some(library))),

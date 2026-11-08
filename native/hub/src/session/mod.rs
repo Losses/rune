@@ -387,7 +387,7 @@ impl PlayerSession {
             .filter_map(|id| {
                 identities.get(&id).copied().map(|file_uuid| {
                     PlayingItem::InLibrary(playback::player::LibraryItem {
-                        library_id: library.descriptor.library_id,
+                        library_id: library.library_id,
                         file_uuid,
                     })
                 })
@@ -1004,7 +1004,7 @@ async fn current_ui_library_id(node: &NodeContext) -> Option<Uuid> {
         .lock()
         .await
         .as_ref()
-        .map(|library| library.descriptor.library_id)
+        .map(|library| library.library_id)
 }
 
 impl Drop for PlayerSession {

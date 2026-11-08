@@ -41,10 +41,7 @@ impl Signal for GetCoverArtIdsByMixQueriesRequest {
         let main_db = Arc::clone(&library.main_db);
         let recommend_db = Arc::clone(&library.recommend_db);
         let queries = &request.requests;
-        let queue = Arc::new(
-            node.session_queue_for_library(library.descriptor.library_id)
-                .await?,
-        );
+        let queue = Arc::new(node.session_queue_for_library(library.library_id).await?);
 
         let files_futures = queries.clone().into_iter().map(|x| {
             let main_db = Arc::clone(&main_db);

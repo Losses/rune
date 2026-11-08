@@ -358,9 +358,7 @@ impl Signal for FetchCollectionGroupsRequest {
         let fsio = &library.fsio;
         let main_db = &library.main_db;
         let recommend_db = &library.recommend_db;
-        let queue = node
-            .session_queue_for_library(library.descriptor.library_id)
-            .await?;
+        let queue = node.session_queue_for_library(library.library_id).await?;
         let params = CollectionActionParams {
             group_titles: Some(dart_signal.group_titles.clone()),
             bake_cover_arts: dart_signal.bake_cover_arts,
@@ -380,7 +378,7 @@ impl Signal for FetchCollectionGroupsRequest {
                     recommend_db,
                     params,
                     CollectionCoverContext {
-                        library_id: library.descriptor.library_id,
+                        library_id: library.library_id,
                         running_mode: &running_mode,
                         remote_host: &remote_host,
                         playback_queue: queue.clone(),
@@ -395,7 +393,7 @@ impl Signal for FetchCollectionGroupsRequest {
                     recommend_db,
                     params,
                     CollectionCoverContext {
-                        library_id: library.descriptor.library_id,
+                        library_id: library.library_id,
                         running_mode: &running_mode,
                         remote_host: &remote_host,
                         playback_queue: queue.clone(),
@@ -410,7 +408,7 @@ impl Signal for FetchCollectionGroupsRequest {
                     recommend_db,
                     params,
                     CollectionCoverContext {
-                        library_id: library.descriptor.library_id,
+                        library_id: library.library_id,
                         running_mode: &running_mode,
                         remote_host: &remote_host,
                         playback_queue: queue.clone(),
@@ -425,7 +423,7 @@ impl Signal for FetchCollectionGroupsRequest {
                     recommend_db,
                     params,
                     CollectionCoverContext {
-                        library_id: library.descriptor.library_id,
+                        library_id: library.library_id,
                         running_mode: &running_mode,
                         remote_host: &remote_host,
                         playback_queue: queue.clone(),
@@ -440,7 +438,7 @@ impl Signal for FetchCollectionGroupsRequest {
                     recommend_db,
                     params,
                     CollectionCoverContext {
-                        library_id: library.descriptor.library_id,
+                        library_id: library.library_id,
                         running_mode: &running_mode,
                         remote_host: &remote_host,
                         playback_queue: queue.clone(),
@@ -479,9 +477,7 @@ impl Signal for FetchCollectionByIdsRequest {
         let fsio = &library.fsio;
         let main_db = &library.main_db;
         let recommend_db = &library.recommend_db;
-        let queue = node
-            .session_queue_for_library(library.descriptor.library_id)
-            .await?;
+        let queue = node.session_queue_for_library(library.library_id).await?;
         let params = CollectionActionParams {
             ids: Some(dart_signal.ids.clone()),
             ..Default::default()
@@ -500,7 +496,7 @@ impl Signal for FetchCollectionByIdsRequest {
                     recommend_db,
                     params,
                     CollectionCoverContext {
-                        library_id: library.descriptor.library_id,
+                        library_id: library.library_id,
                         running_mode: &running_mode,
                         remote_host: &remote_host,
                         playback_queue: queue.clone(),
@@ -515,7 +511,7 @@ impl Signal for FetchCollectionByIdsRequest {
                     recommend_db,
                     params,
                     CollectionCoverContext {
-                        library_id: library.descriptor.library_id,
+                        library_id: library.library_id,
                         running_mode: &running_mode,
                         remote_host: &remote_host,
                         playback_queue: queue.clone(),
@@ -530,7 +526,7 @@ impl Signal for FetchCollectionByIdsRequest {
                     recommend_db,
                     params,
                     CollectionCoverContext {
-                        library_id: library.descriptor.library_id,
+                        library_id: library.library_id,
                         running_mode: &running_mode,
                         remote_host: &remote_host,
                         playback_queue: queue.clone(),
@@ -545,7 +541,7 @@ impl Signal for FetchCollectionByIdsRequest {
                     recommend_db,
                     params,
                     CollectionCoverContext {
-                        library_id: library.descriptor.library_id,
+                        library_id: library.library_id,
                         running_mode: &running_mode,
                         remote_host: &remote_host,
                         playback_queue: queue.clone(),
@@ -560,7 +556,7 @@ impl Signal for FetchCollectionByIdsRequest {
                     recommend_db,
                     params,
                     CollectionCoverContext {
-                        library_id: library.descriptor.library_id,
+                        library_id: library.library_id,
                         running_mode: &running_mode,
                         remote_host: &remote_host,
                         playback_queue: queue.clone(),

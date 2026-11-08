@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use fsio::FsIo;
 use log::warn;
 use serde::{Deserialize, Serialize};
@@ -19,20 +19,76 @@ fn background_sync_default() -> bool {
     true
 }
 
-/// A node's record of a library and its local storage.
+/// A stable, node-local identity for one registry entry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct LibraryRecordId(pub Uuid);
+
+/// A node's record of one library or endpoint.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct LibraryDescriptor {
-    pub library_id: Uuid,
+pub struct LibraryRecord {
+    pub record_id: LibraryRecordId,
     pub alias: String,
-    pub authority: LibraryAuthority,
-    pub storage: LibraryStorage,
-    pub db_placement: DbPlacement,
-    #[serde(default = "background_sync_default")]
-    pub background_sync: bool,
-    #[serde(default)]
-    pub access_level: Option<LibraryAccess>,
-    #[serde(default)]
-    pub connection_access: Option<LibraryConnectionAccess>,
+    pub kind: LibraryKind,
+}
+
+/// The endpoint represented by a registry record.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum LibraryKind {
+    Owned {
+        library_id: Uuid,
+        storage: OwnedStorage,
+        #[serde(default = "background_sync_default")]
+        background_sync: bool,
+    },
+    RuneReplica {
+        library_id: Uuid,
+        owner_fingerprint: String,
+        #[serde(default)]
+        access_level: Option<LibraryAccess>,
+        #[serde(default)]
+        connection_access: Option<LibraryConnectionAccess>,
+        #[serde(default = "background_sync_default")]
+        background_sync: bool,
+        // Hosted local libraries existed in v1 as well as config-local replicas.
+        storage: ReplicaStorage,
+    },
+    RuneRemoteControl {
+        fingerprint: String,
+    },
+    Subsonic {
+        endpoint: String,
+        account: String,
+        mode: SubsonicOpenMode,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum OwnedStorage {
+    Local {
+        path: String,
+        placement: DbPlacement,
+    },
+}
+
+/// Storage retained for a Rune replica. `Local` preserves the legacy hosted-plus-local case.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ReplicaStorage {
+    Local {
+        path: String,
+        placement: DbPlacement,
+    },
+    Replica,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubsonicOpenMode {
+    RemoteControl,
+    PlayOnThisDevice,
 }
 
 /// Access granted by the authority of a hosted library.
@@ -49,25 +105,6 @@ pub enum LibraryConnectionAccess {
     View,
     ViewEdit,
 }
-/// The authority responsible for a library.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum LibraryAuthority {
-    Owned,
-    Hosted { fingerprint: String },
-}
-/// The library's media storage.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum LibraryStorage {
-    Local {
-        path: String,
-    },
-    /// A replica kept in this node's data directory and named by its library id. The data
-    /// directory can move (an iOS reinstall), so its absolute path is never stored.
-    Replica,
-}
-
 /// Scheme of the name the app uses for a replica instead of a folder path.
 pub const REPLICA_SCHEME: &str = "replica://";
 
@@ -95,20 +132,112 @@ fn replica_root(config_dir: &Path, library_id: Uuid) -> PathBuf {
     config_dir.join("replicas").join(library_id.to_string())
 }
 
-impl LibraryDescriptor {
+impl LibraryRecord {
+    pub fn catalog_library_id(&self) -> Option<Uuid> {
+        match self.kind {
+            LibraryKind::Owned { library_id, .. } | LibraryKind::RuneReplica { library_id, .. } => {
+                Some(library_id)
+            }
+            LibraryKind::RuneRemoteControl { .. } | LibraryKind::Subsonic { .. } => None,
+        }
+    }
+
     /// The library's folder, computed against the current configuration directory.
-    pub fn root(&self, config_dir: &Path) -> PathBuf {
-        match &self.storage {
-            LibraryStorage::Local { path } => PathBuf::from(path),
-            LibraryStorage::Replica => replica_root(config_dir, self.library_id),
+    pub fn root(&self, config_dir: &Path) -> Option<PathBuf> {
+        match &self.kind {
+            LibraryKind::Owned {
+                storage: OwnedStorage::Local { path, .. },
+                ..
+            }
+            | LibraryKind::RuneReplica {
+                storage: ReplicaStorage::Local { path, .. },
+                ..
+            } => Some(PathBuf::from(path)),
+            LibraryKind::RuneReplica {
+                library_id,
+                storage: ReplicaStorage::Replica,
+                ..
+            } => Some(replica_root(config_dir, *library_id)),
+            LibraryKind::RuneRemoteControl { .. } | LibraryKind::Subsonic { .. } => None,
         }
     }
 
     /// The name the app uses to refer to this library.
-    pub fn app_name(&self) -> String {
-        match &self.storage {
-            LibraryStorage::Local { path } => path.clone(),
-            LibraryStorage::Replica => format!("{REPLICA_SCHEME}{}", self.library_id),
+    pub fn app_name(&self) -> Option<String> {
+        match &self.kind {
+            LibraryKind::Owned {
+                storage: OwnedStorage::Local { path, .. },
+                ..
+            }
+            | LibraryKind::RuneReplica {
+                storage: ReplicaStorage::Local { path, .. },
+                ..
+            } => Some(path.clone()),
+            LibraryKind::RuneReplica {
+                library_id,
+                storage: ReplicaStorage::Replica,
+                ..
+            } => Some(format!("{REPLICA_SCHEME}{library_id}")),
+            LibraryKind::RuneRemoteControl { .. } | LibraryKind::Subsonic { .. } => None,
+        }
+    }
+
+    pub fn background_sync(&self) -> bool {
+        match &self.kind {
+            LibraryKind::Owned {
+                background_sync, ..
+            }
+            | LibraryKind::RuneReplica {
+                background_sync, ..
+            } => *background_sync,
+            _ => false,
+        }
+    }
+
+    pub fn owner_fingerprint(&self) -> Option<&str> {
+        match &self.kind {
+            LibraryKind::RuneReplica {
+                owner_fingerprint, ..
+            } => Some(owner_fingerprint),
+            _ => None,
+        }
+    }
+
+    pub fn access_level(&self) -> Option<LibraryAccess> {
+        match &self.kind {
+            LibraryKind::RuneReplica { access_level, .. } => *access_level,
+            _ => None,
+        }
+    }
+
+    pub fn connection_access(&self) -> Option<LibraryConnectionAccess> {
+        match &self.kind {
+            LibraryKind::RuneReplica {
+                connection_access, ..
+            } => *connection_access,
+            _ => None,
+        }
+    }
+
+    pub fn is_owned(&self) -> bool {
+        matches!(self.kind, LibraryKind::Owned { .. })
+    }
+
+    pub fn db_placement(&self) -> Option<DbPlacement> {
+        match &self.kind {
+            LibraryKind::Owned {
+                storage: OwnedStorage::Local { placement, .. },
+                ..
+            }
+            | LibraryKind::RuneReplica {
+                storage: ReplicaStorage::Local { placement, .. },
+                ..
+            } => Some(placement.clone()),
+            LibraryKind::RuneReplica {
+                storage: ReplicaStorage::Replica,
+                ..
+            } => Some(DbPlacement::Portable),
+            _ => None,
         }
     }
 }
@@ -123,7 +252,7 @@ pub enum DbPlacement {
 #[derive(Serialize, Deserialize)]
 struct RegistryFile {
     version: u32,
-    libraries: Vec<LibraryDescriptor>,
+    libraries: Vec<LibraryRecord>,
 }
 #[derive(Serialize, Deserialize)]
 struct PortableFile {
@@ -131,7 +260,14 @@ struct PortableFile {
     library_id: Uuid,
     alias: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    authority: Option<LibraryAuthority>,
+    authority: Option<LegacyAuthority>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum LegacyAuthority {
+    Owned,
+    Hosted { fingerprint: String },
 }
 #[derive(Deserialize)]
 struct Version {
@@ -148,33 +284,100 @@ fn check_version(data: &[u8]) -> Result<()> {
 
 /// The libraries known to this node, stored under its configuration directory.
 pub struct LibraryRegistry {
-    pub libraries: Vec<LibraryDescriptor>,
+    pub libraries: Vec<LibraryRecord>,
     path: PathBuf,
 }
+
+#[derive(Debug, thiserror::Error)]
+#[error("Library registry reset required: old libraries.json moved to libraries.json.old")]
+pub struct LibraryRegistryResetRequired;
+
+fn validate_registry_version(data: &[u8]) -> Result<()> {
+    let version: Version = serde_json::from_slice(data).context("Invalid library file version")?;
+    match version.version {
+        1 => Err(LibraryRegistryResetRequired.into()),
+        2 => Ok(()),
+        other => bail!("Unsupported library registry version {other}"),
+    }
+}
 impl LibraryRegistry {
-    /// Load the registry, treating a missing file as empty.
+    /// Load the registry, moving v1 files aside because their format is ambiguous.
     pub fn load(config_dir: &Path) -> Result<Self> {
         let path = config_dir.join("libraries.json");
         let libraries = match fs::read(&path) {
-            Ok(data) => {
-                check_version(&data)?;
-                let file: RegistryFile =
-                    serde_json::from_slice(&data).context("Invalid library registry")?;
-                file.libraries
-            }
+            Ok(data) => match validate_registry_version(&data) {
+                Ok(()) => {
+                    let file: RegistryFile =
+                        serde_json::from_slice(&data).context("Invalid library registry")?;
+                    file.libraries
+                }
+                Err(error)
+                    if error
+                        .downcast_ref::<LibraryRegistryResetRequired>()
+                        .is_some() =>
+                {
+                    let primary_backup = config_dir.join("libraries.json.old");
+                    let old_path = if primary_backup.exists() {
+                        config_dir.join(format!("libraries.json.old.{}", Uuid::new_v4()))
+                    } else {
+                        primary_backup
+                    };
+                    fs::rename(&path, &old_path)
+                        .context("Failed to move old library registry aside")?;
+                    warn!(
+                        "Old library registry moved to {}; the registry was reset",
+                        old_path.display()
+                    );
+                    Vec::new()
+                }
+                Err(error) => return Err(error),
+            },
             Err(e) if e.kind() == ErrorKind::NotFound => Vec::new(),
             Err(e) => return Err(e).context("Failed to read library registry"),
         };
         Ok(Self { libraries, path })
     }
-    /// The registered replica with this id, for a library name given by the app.
-    pub fn replica(&self, library_id: Uuid) -> Result<&LibraryDescriptor> {
+    pub fn record(&self, record_id: LibraryRecordId) -> Result<&LibraryRecord> {
         self.libraries
             .iter()
-            .find(|library| {
-                library.library_id == library_id && library.storage == LibraryStorage::Replica
-            })
-            .context("Replica library is not registered on this node")
+            .find(|record| record.record_id == record_id)
+            .context("Library record is not registered on this node")
+    }
+
+    pub fn catalog(&self, library_id: Uuid) -> Result<&LibraryRecord> {
+        self.libraries
+            .iter()
+            .find(|record| record.catalog_library_id() == Some(library_id))
+            .context("Catalog library is not registered on this node")
+    }
+
+    pub fn catalogs(&self) -> impl Iterator<Item = &LibraryRecord> {
+        self.libraries
+            .iter()
+            .filter(|record| record.catalog_library_id().is_some())
+    }
+
+    fn catalog_mut(&mut self, library_id: Uuid) -> Result<&mut LibraryRecord> {
+        self.libraries
+            .iter_mut()
+            .find(|record| record.catalog_library_id() == Some(library_id))
+            .context("Library is not registered on this node")
+    }
+
+    /// Resolve the app's replica:// name.
+    pub fn replica(&self, library_id: Uuid) -> Result<&LibraryRecord> {
+        let record = self.catalog(library_id)?;
+        ensure!(
+            matches!(
+                record.kind,
+                LibraryKind::RuneReplica {
+                    storage: ReplicaStorage::Replica,
+                    ..
+                }
+            ),
+            "Library is not a config-local replica"
+        );
+        Ok(record)
     }
     /// Load, modify and persist a registry under the process-wide writer lock.
     pub async fn update<T>(
@@ -198,12 +401,16 @@ impl LibraryRegistry {
         enabled: bool,
     ) -> Result<()> {
         Self::update(config_dir, |registry| {
-            let library = registry
-                .libraries
-                .iter_mut()
-                .find(|library| library.library_id == library_id)
-                .context("Library is not registered on this node")?;
-            library.background_sync = enabled;
+            let record = registry.catalog_mut(library_id)?;
+            match &mut record.kind {
+                LibraryKind::Owned {
+                    background_sync, ..
+                }
+                | LibraryKind::RuneReplica {
+                    background_sync, ..
+                } => *background_sync = enabled,
+                _ => bail!("Non-catalog record cannot have a background sync preference"),
+            }
             Ok(())
         })
         .await
@@ -218,16 +425,13 @@ impl LibraryRegistry {
     ) -> Result<bool> {
         Self::update(config_dir, |registry| {
             let Some(library) = registry.libraries.iter_mut().find(|library| {
-                library.library_id == library_id
-                    && library.authority
-                        == (LibraryAuthority::Hosted {
-                            fingerprint: fingerprint.to_owned(),
-                        })
+                matches!(&library.kind, LibraryKind::RuneReplica { library_id: id, owner_fingerprint, .. } if *id == library_id && owner_fingerprint == fingerprint)
             }) else {
                 return Ok(false);
             };
-            let changed = library.access_level != Some(level);
-            library.access_level = Some(level);
+            let LibraryKind::RuneReplica { access_level, .. } = &mut library.kind else { unreachable!() };
+            let changed = *access_level != Some(level);
+            *access_level = Some(level);
             Ok(changed)
         })
         .await
@@ -242,16 +446,13 @@ impl LibraryRegistry {
     ) -> Result<bool> {
         Self::update(config_dir, |registry| {
             let Some(library) = registry.libraries.iter_mut().find(|library| {
-                library.library_id == library_id
-                    && library.authority
-                        == (LibraryAuthority::Hosted {
-                            fingerprint: fingerprint.to_owned(),
-                        })
+                matches!(&library.kind, LibraryKind::RuneReplica { library_id: id, owner_fingerprint, .. } if *id == library_id && owner_fingerprint == fingerprint)
             }) else {
                 return Ok(false);
             };
-            let changed = library.connection_access != Some(access);
-            library.connection_access = Some(access);
+            let LibraryKind::RuneReplica { connection_access, .. } = &mut library.kind else { unreachable!() };
+            let changed = *connection_access != Some(access);
+            *connection_access = Some(access);
             Ok(changed)
         })
         .await
@@ -274,13 +475,24 @@ impl LibraryRegistry {
             .context("Registry has no parent directory")?;
         fs::create_dir_all(dir).context("Failed to create registry directory")?;
         match fs::read(&self.path) {
-            Ok(data) => check_version(&data)?,
+            Ok(data) => {
+                let version: Version =
+                    serde_json::from_slice(&data).context("Invalid library file version")?;
+                if version.version == 1 {
+                    bail!(LibraryRegistryResetRequired);
+                }
+                ensure!(
+                    version.version == 2,
+                    "Unsupported library registry version {}",
+                    version.version
+                );
+            }
             Err(e) if e.kind() == ErrorKind::NotFound => {}
             Err(e) => return Err(e).context("Failed to read library registry before saving"),
         }
         let temp = dir.join(format!(".libraries-{}.tmp", Uuid::new_v4()));
         let data = serde_json::to_vec_pretty(&RegistryFile {
-            version: 1,
+            version: 2,
             libraries: self.libraries.clone(),
         })?;
         let result = (|| -> Result<()> {
@@ -302,7 +514,7 @@ pub async fn resolve_library(
     root: &str,
     alias: &str,
     mode: StorageMode,
-) -> Result<LibraryDescriptor> {
+) -> Result<LibraryRecord> {
     let _guard = REGISTRY_WRITE.lock().await;
     registry.reload()?;
     let rune_dir = if cfg!(target_os = "android") && root.starts_with("content://") {
@@ -337,27 +549,37 @@ pub async fn resolve_library(
             let id = registry
                 .libraries
                 .iter()
-                .find(|entry| entry.db_placement == DbPlacement::Redirected { storage_key: key })
-                .map(|entry| entry.library_id)
+                .find(|entry| {
+                    entry.db_placement() == Some(DbPlacement::Redirected { storage_key: key })
+                })
+                .and_then(LibraryRecord::catalog_library_id)
                 .unwrap_or_else(Uuid::new_v4);
             (id, DbPlacement::Redirected { storage_key: key })
         }
     };
     let authority = portable
         .as_ref()
-        .map(|file| file.authority.clone().unwrap_or(LibraryAuthority::Owned))
+        .map(|file| file.authority.clone().unwrap_or(LegacyAuthority::Owned))
         .or_else(|| {
             registry
                 .libraries
                 .iter()
-                .find(|entry| entry.library_id == id)
-                .map(|entry| entry.authority.clone())
+                .find(|entry| entry.catalog_library_id() == Some(id))
+                .map(|entry| match &entry.kind {
+                    LibraryKind::Owned { .. } => LegacyAuthority::Owned,
+                    LibraryKind::RuneReplica {
+                        owner_fingerprint, ..
+                    } => LegacyAuthority::Hosted {
+                        fingerprint: owner_fingerprint.clone(),
+                    },
+                    _ => LegacyAuthority::Owned,
+                })
         })
-        .unwrap_or(LibraryAuthority::Owned);
+        .unwrap_or(LegacyAuthority::Owned);
     let stored_alias = registry
         .libraries
         .iter()
-        .find(|entry| entry.library_id == id)
+        .find(|entry| entry.catalog_library_id() == Some(id))
         .map(|entry| entry.alias.as_str())
         .or_else(|| portable.as_ref().map(|file| file.alias.as_str()))
         .unwrap_or_default();
@@ -375,61 +597,72 @@ pub async fn resolve_library(
             .await
             .context("Failed to write library descriptor")?;
     }
-    let access_level = if authority == LibraryAuthority::Owned {
-        None
-    } else {
-        registry
-            .libraries
-            .iter()
-            .find(|entry| entry.library_id == id)
-            .and_then(|entry| entry.access_level)
-    };
-    let connection_access = if authority == LibraryAuthority::Owned {
-        None
-    } else {
-        registry
-            .libraries
-            .iter()
-            .find(|entry| entry.library_id == id)
-            .and_then(|entry| entry.connection_access)
-    };
-    // Opening a replica's folder by path must not turn it into a path entry.
-    let storage = match registry
+    let existing = registry
         .libraries
         .iter()
-        .find(|entry| entry.library_id == id)
-    {
-        Some(entry) if entry.storage == LibraryStorage::Replica => LibraryStorage::Replica,
-        _ => LibraryStorage::Local {
-            path: root.to_owned(),
+        .find(|entry| entry.catalog_library_id() == Some(id));
+    // Opening a replica's folder by path must not turn it into a path entry.
+    // Opening a replica folder by path must not turn it into a local path record.
+    let was_replica = matches!(
+        existing.map(|record| &record.kind),
+        Some(LibraryKind::RuneReplica {
+            storage: ReplicaStorage::Replica,
+            ..
+        })
+    );
+    let background_sync = existing.is_none_or(LibraryRecord::background_sync);
+    let record_id = existing
+        .map(|record| record.record_id)
+        .unwrap_or(LibraryRecordId(Uuid::new_v4()));
+    let kind = match authority {
+        LegacyAuthority::Owned => LibraryKind::Owned {
+            library_id: id,
+            storage: OwnedStorage::Local {
+                path: root.to_owned(),
+                placement: placement.clone(),
+            },
+            background_sync,
+        },
+        LegacyAuthority::Hosted { fingerprint } => LibraryKind::RuneReplica {
+            library_id: id,
+            owner_fingerprint: fingerprint,
+            access_level: match existing.map(|record| &record.kind) {
+                Some(LibraryKind::RuneReplica { access_level, .. }) => *access_level,
+                _ => None,
+            },
+            connection_access: match existing.map(|record| &record.kind) {
+                Some(LibraryKind::RuneReplica {
+                    connection_access, ..
+                }) => *connection_access,
+                _ => None,
+            },
+            background_sync,
+            storage: if was_replica {
+                ReplicaStorage::Replica
+            } else {
+                ReplicaStorage::Local {
+                    path: root.to_owned(),
+                    placement: placement.clone(),
+                }
+            },
         },
     };
-    let descriptor = LibraryDescriptor {
-        library_id: id,
+    let descriptor = LibraryRecord {
+        record_id,
         alias,
-        authority,
-        storage,
-        db_placement: placement,
-        access_level,
-        connection_access,
-        background_sync: registry
-            .libraries
-            .iter()
-            .find(|entry| entry.library_id == id)
-            .map(|entry| entry.background_sync)
-            .unwrap_or(true),
+        kind,
     };
     registry.libraries.retain(|entry| {
-        let collision = entry.library_id != id
-            && matches!(descriptor.storage, LibraryStorage::Local { .. })
-            && entry.storage == descriptor.storage;
+        let collision = entry.catalog_library_id() != Some(id)
+            && descriptor.root(Path::new("")) == entry.root(Path::new(""));
         if collision {
             warn!(
                 "Removing stale library {} for path {}",
-                entry.library_id, root
+                entry.catalog_library_id().unwrap_or_default(),
+                root
             );
         }
-        entry.library_id != id && !collision
+        entry.catalog_library_id() != Some(id) && !collision
     });
     registry.libraries.push(descriptor.clone());
     registry.save()?;
@@ -443,21 +676,18 @@ pub async fn create_replica(
     library_id: Uuid,
     alias: &str,
     authority_fingerprint: &str,
-) -> Result<LibraryDescriptor> {
+) -> Result<LibraryRecord> {
     let _guard = REGISTRY_WRITE.lock().await;
     registry.reload()?;
     if let Some(existing) = registry
         .libraries
         .iter()
-        .find(|entry| entry.library_id == library_id)
+        .find(|entry| entry.catalog_library_id() == Some(library_id))
     {
-        if existing.authority == LibraryAuthority::Owned {
+        if matches!(existing.kind, LibraryKind::Owned { .. }) {
             bail!("Cannot create a replica of a library this node owns");
         }
-        if existing.authority
-            != (LibraryAuthority::Hosted {
-                fingerprint: authority_fingerprint.to_owned(),
-            })
+        if !matches!(&existing.kind, LibraryKind::RuneReplica { owner_fingerprint, .. } if owner_fingerprint == authority_fingerprint)
         {
             bail!("Library already has a different authority");
         }
@@ -466,7 +696,7 @@ pub async fn create_replica(
     let root = replica_root(config_dir, library_id);
     let rune_dir = root.join(".rune");
     let path = rune_dir.join("library.json");
-    let authority = LibraryAuthority::Hosted {
+    let authority = LegacyAuthority::Hosted {
         fingerprint: authority_fingerprint.to_owned(),
     };
     let file = match fs::read(&path) {
@@ -493,15 +723,17 @@ pub async fn create_replica(
         }
         Err(error) => return Err(error).context("Failed to read replica descriptor"),
     };
-    let descriptor = LibraryDescriptor {
-        library_id,
+    let descriptor = LibraryRecord {
+        record_id: LibraryRecordId(Uuid::new_v4()),
         alias: file.alias,
-        authority,
-        storage: LibraryStorage::Replica,
-        db_placement: DbPlacement::Portable,
-        background_sync: true,
-        access_level: None,
-        connection_access: None,
+        kind: LibraryKind::RuneReplica {
+            library_id,
+            owner_fingerprint: authority_fingerprint.to_owned(),
+            storage: ReplicaStorage::Replica,
+            background_sync: true,
+            access_level: None,
+            connection_access: None,
+        },
     };
     registry.libraries.push(descriptor.clone());
     if let Err(error) = registry.save() {
@@ -537,12 +769,7 @@ mod tests {
             fs::create_dir_all(path.join(".rune")).unwrap();
             path.to_str().unwrap().to_owned()
         }
-        async fn resolve(
-            &mut self,
-            root: &str,
-            alias: &str,
-            mode: StorageMode,
-        ) -> LibraryDescriptor {
+        async fn resolve(&mut self, root: &str, alias: &str, mode: StorageMode) -> LibraryRecord {
             resolve_library(&self.fsio, &mut self.registry, root, alias, mode)
                 .await
                 .unwrap()
@@ -556,19 +783,19 @@ mod tests {
         let path = f.dir.path().join("libraries.json");
         let mut data: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-        data["libraries"][0]
+        data["libraries"][0]["kind"]
             .as_object_mut()
             .unwrap()
             .remove("background_sync");
-        data["libraries"][0]
+        data["libraries"][0]["kind"]
             .as_object_mut()
             .unwrap()
             .remove("access_level");
         fs::write(&path, serde_json::to_vec(&data).unwrap()).unwrap();
         let registry = LibraryRegistry::load(f.dir.path()).unwrap();
         let descriptor = serde_json::to_value(&registry.libraries[0]).unwrap();
-        assert_eq!(descriptor["background_sync"], true);
-        assert_eq!(registry.libraries[0].access_level, None);
+        assert_eq!(descriptor["kind"]["background_sync"], true);
+        assert_eq!(descriptor["kind"]["access_level"], serde_json::Value::Null);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -589,7 +816,7 @@ mod tests {
                 LibraryRegistry::set_background_sync(&config, id, false)
                     .await
                     .unwrap();
-                let path = library.root(&config).to_str().unwrap().to_owned();
+                let path = library.root(&config).unwrap().to_str().unwrap().to_owned();
                 resolve_library(
                     &FsIo::new(),
                     &mut registry,
@@ -613,7 +840,8 @@ mod tests {
                 registry
                     .libraries
                     .iter()
-                    .any(|library| library.library_id == id && !library.background_sync)
+                    .any(|library| library.catalog_library_id() == Some(id)
+                        && !library.background_sync())
             );
         }
     }
@@ -624,21 +852,22 @@ mod tests {
         let first = create_replica(f.dir.path(), &mut f.registry, id, "Remote", "owner")
             .await
             .unwrap();
-        assert_eq!(
-            first.authority,
-            LibraryAuthority::Hosted {
-                fingerprint: "owner".into()
-            }
+        assert!(
+            matches!(&first.kind, LibraryKind::RuneReplica { owner_fingerprint, storage: ReplicaStorage::Replica, .. } if owner_fingerprint == "owner")
         );
-        assert_eq!(first.db_placement, DbPlacement::Portable);
-        assert_eq!(first.storage, LibraryStorage::Replica);
-        let root = first.root(f.dir.path());
+        assert_eq!(first.db_placement(), Some(DbPlacement::Portable));
+        let root = first.root(f.dir.path()).unwrap();
         assert_eq!(root, f.dir.path().join("replicas").join(id.to_string()));
         let path = root.to_str().unwrap();
         let data = fs::read(root.join(".rune/library.json")).unwrap();
         let file: PortableFile = serde_json::from_slice(&data).unwrap();
         assert_eq!(file.version, 1);
-        assert_eq!(file.authority, Some(first.authority.clone()));
+        assert_eq!(
+            file.authority,
+            Some(LegacyAuthority::Hosted {
+                fingerprint: "owner".into()
+            })
+        );
         f.registry = LibraryRegistry::load(f.dir.path()).unwrap();
         let second = create_replica(f.dir.path(), &mut f.registry, id, "Changed", "owner")
             .await
@@ -657,7 +886,7 @@ mod tests {
         let recovered = create_replica(f.dir.path(), &mut f.registry, id, "Changed", "owner")
             .await
             .unwrap();
-        assert_eq!(recovered, first);
+        assert_eq!(recovered.kind, first.kind);
         assert!(
             create_replica(f.dir.path(), &mut f.registry, id, "", "other")
                 .await
@@ -670,11 +899,17 @@ mod tests {
         let mut f = Fixture::new();
         let root = f.root("owned");
         let owned = f.resolve(&root, "Owned", StorageMode::Portable).await;
-        assert_eq!(owned.authority, LibraryAuthority::Owned);
+        assert!(matches!(owned.kind, LibraryKind::Owned { .. }));
         assert!(
-            create_replica(f.dir.path(), &mut f.registry, owned.library_id, "", "peer")
-                .await
-                .is_err()
+            create_replica(
+                f.dir.path(),
+                &mut f.registry,
+                owned.catalog_library_id().unwrap(),
+                "",
+                "peer"
+            )
+            .await
+            .is_err()
         );
         assert_eq!(f.registry.libraries, vec![owned]);
         assert!(!f.dir.path().join("replicas").exists());
@@ -691,25 +926,66 @@ mod tests {
         )
         .unwrap();
         let owned = f.resolve(&root, "", StorageMode::Portable).await;
-        assert_eq!(owned.authority, LibraryAuthority::Owned);
-        assert_eq!(owned.library_id, id);
-        f.registry.libraries[0].authority = LibraryAuthority::Hosted {
-            fingerprint: "owner".into(),
+        assert!(matches!(owned.kind, LibraryKind::Owned { .. }));
+        assert_eq!(owned.catalog_library_id(), Some(id));
+        f.registry.libraries[0].kind = LibraryKind::RuneReplica {
+            library_id: id,
+            owner_fingerprint: "owner".into(),
+            storage: ReplicaStorage::Local {
+                path: root.clone(),
+                placement: DbPlacement::Portable,
+            },
+            background_sync: true,
+            access_level: Some(LibraryAccess::Read),
+            connection_access: None,
         };
-        f.registry.libraries[0].access_level = Some(LibraryAccess::Read);
         f.registry.save().unwrap();
         let reopened_owned = f.resolve(&root, "", StorageMode::Portable).await;
-        assert_eq!(reopened_owned.access_level, None);
+        assert!(matches!(reopened_owned.kind, LibraryKind::Owned { .. }));
         let key = Uuid::new_v4();
         f.resolve(&root, "", StorageMode::Redirected(key)).await;
-        let authority = LibraryAuthority::Hosted {
-            fingerprint: "owner".into(),
+        let authority = LibraryKind::RuneReplica {
+            library_id: id,
+            owner_fingerprint: "owner".into(),
+            storage: ReplicaStorage::Local {
+                path: root.clone(),
+                placement: DbPlacement::Redirected { storage_key: key },
+            },
+            background_sync: true,
+            access_level: Some(LibraryAccess::Read),
+            connection_access: None,
         };
-        f.registry.libraries[0].authority = authority.clone();
+        f.registry.libraries[0].kind = authority.clone();
         f.registry.save().unwrap();
         f.registry = LibraryRegistry::load(f.dir.path()).unwrap();
         let reopened = f.resolve(&root, "", StorageMode::Redirected(key)).await;
-        assert_eq!(reopened.authority, authority);
+        assert_eq!(reopened.kind, authority);
+
+        let hosted_root = f.root("hosted_local");
+        let hosted_id = Uuid::new_v4();
+        let hosted_authority = LegacyAuthority::Hosted {
+            fingerprint: "remote-owner".into(),
+        };
+        fs::write(
+            Path::new(&hosted_root).join(".rune/library.json"),
+            serde_json::to_vec(&PortableFile {
+                version: 1,
+                library_id: hosted_id,
+                alias: "Hosted local".into(),
+                authority: Some(hosted_authority),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        let hosted = f.resolve(&hosted_root, "", StorageMode::Portable).await;
+        assert!(matches!(
+            &hosted.kind,
+            LibraryKind::RuneReplica {
+                storage: ReplicaStorage::Local { path, placement: DbPlacement::Portable },
+                ..
+            } if path == &hosted_root
+        ));
+        assert_eq!(hosted.root(f.dir.path()), Some(PathBuf::from(hosted_root)));
     }
 
     #[tokio::test]
@@ -719,22 +995,19 @@ mod tests {
         let first = f.resolve(&root, "First", StorageMode::Portable).await;
         assert!(Path::new(&root).join(".rune/library.json").exists());
         let second = f.resolve(&root, "", StorageMode::Portable).await;
-        assert_eq!(first.library_id, second.library_id);
+        assert_eq!(first.catalog_library_id(), second.catalog_library_id());
         assert_eq!(second.alias, "First");
         let moved = f.dir.path().join("moved");
         fs::rename(&root, &moved).unwrap();
         let moved = moved.to_str().unwrap();
         let third = f.resolve(moved, "Renamed", StorageMode::Portable).await;
-        assert_eq!(first.library_id, third.library_id);
-        assert_eq!(
-            third.storage,
-            LibraryStorage::Local {
-                path: moved.to_owned()
-            }
+        assert_eq!(first.catalog_library_id(), third.catalog_library_id());
+        assert!(
+            matches!(&third.kind, LibraryKind::Owned { storage: OwnedStorage::Local { path, .. }, .. } if path == moved)
         );
         let other = f.root("other");
         let fourth = f.resolve(&other, "Other", StorageMode::Portable).await;
-        assert_ne!(first.library_id, fourth.library_id);
+        assert_ne!(first.catalog_library_id(), fourth.catalog_library_id());
         let loaded = LibraryRegistry::load(f.dir.path()).unwrap();
         assert_eq!(loaded.libraries.len(), 2);
         assert!(loaded.libraries.contains(&third));
@@ -749,14 +1022,14 @@ mod tests {
             .await;
         f.registry = LibraryRegistry::load(f.dir.path()).unwrap();
         let second = f.resolve(&root, "", StorageMode::Redirected(key)).await;
-        assert_eq!(first.library_id, second.library_id);
+        assert_eq!(first.catalog_library_id(), second.catalog_library_id());
         assert!(!Path::new(&root).join(".rune/library.json").exists());
     }
     #[tokio::test]
     async fn newer_versions_are_untouched() {
         let mut f = Fixture::new();
         let registry_path = f.dir.path().join("libraries.json");
-        let content = r#"{"version":2,"libraries":[]}"#;
+        let content = r#"{"version":3,"libraries":[]}"#;
         fs::write(&registry_path, content).unwrap();
         assert!(LibraryRegistry::load(f.dir.path()).is_err());
         assert_eq!(fs::read_to_string(&registry_path).unwrap(), content);
@@ -783,7 +1056,7 @@ mod tests {
             .resolve(&root, "Old", StorageMode::Redirected(Uuid::new_v4()))
             .await;
         let current = f.resolve(&root, "New", StorageMode::Portable).await;
-        assert_ne!(old.library_id, current.library_id);
+        assert_ne!(old.catalog_library_id(), current.catalog_library_id());
         assert_eq!(f.registry.libraries, vec![current]);
     }
 
@@ -794,12 +1067,18 @@ mod tests {
         let replica = create_replica(f.dir.path(), &mut f.registry, id, "Remote", "owner")
             .await
             .unwrap();
-        assert_eq!(replica.storage, LibraryStorage::Replica);
+        assert!(matches!(
+            replica.kind,
+            LibraryKind::RuneReplica {
+                storage: ReplicaStorage::Replica,
+                ..
+            }
+        ));
         assert_eq!(
-            replica.root(f.dir.path()),
+            replica.root(f.dir.path()).unwrap(),
             f.dir.path().join("replicas").join(id.to_string())
         );
-        assert_eq!(replica.app_name(), format!("replica://{id}"));
+        assert_eq!(replica.app_name().unwrap(), format!("replica://{id}"));
         let json = fs::read_to_string(f.dir.path().join("libraries.json")).unwrap();
         assert!(!json.contains(f.dir.path().to_str().unwrap()));
         // An iOS reinstall gives the app a new data directory holding the same files.
@@ -819,10 +1098,11 @@ mod tests {
         .unwrap();
         let registry = LibraryRegistry::load(moved.path()).unwrap();
         let loaded = registry.replica(id).unwrap();
-        assert_eq!(loaded.root(moved.path()), to);
+        assert_eq!(loaded.root(moved.path()), Some(to));
         assert!(
             loaded
                 .root(moved.path())
+                .unwrap()
                 .join(".rune/library.json")
                 .exists()
         );
@@ -839,12 +1119,18 @@ mod tests {
         create_replica(f.dir.path(), &mut f.registry, other, "Other", "owner")
             .await
             .unwrap();
-        let root = replica.root(f.dir.path());
+        let root = replica.root(f.dir.path()).unwrap();
         let resolved = f
             .resolve(root.to_str().unwrap(), "", StorageMode::Portable)
             .await;
-        assert_eq!(resolved.library_id, id);
-        assert_eq!(resolved.storage, LibraryStorage::Replica);
+        assert_eq!(resolved.catalog_library_id(), Some(id));
+        assert!(matches!(
+            resolved.kind,
+            LibraryKind::RuneReplica {
+                storage: ReplicaStorage::Replica,
+                ..
+            }
+        ));
         // Replicas do not collide with each other the way path entries do.
         assert_eq!(f.registry.libraries.len(), 2);
     }
@@ -867,5 +1153,116 @@ mod tests {
             LibraryLocation::parse("replica:/x").unwrap(),
             LibraryLocation::Path("replica:/x".into())
         );
+    }
+
+    #[test]
+    fn every_record_kind_round_trips_through_serde() {
+        let library_id = Uuid::new_v4();
+        let records = [
+            LibraryRecord {
+                record_id: LibraryRecordId(Uuid::new_v4()),
+                alias: "Owned".into(),
+                kind: LibraryKind::Owned {
+                    library_id,
+                    storage: OwnedStorage::Local {
+                        path: "/music".into(),
+                        placement: DbPlacement::Redirected {
+                            storage_key: Uuid::new_v4(),
+                        },
+                    },
+                    background_sync: true,
+                },
+            },
+            LibraryRecord {
+                record_id: LibraryRecordId(Uuid::new_v4()),
+                alias: "Replica".into(),
+                kind: LibraryKind::RuneReplica {
+                    library_id,
+                    owner_fingerprint: "owner-fingerprint".into(),
+                    access_level: Some(LibraryAccess::ReadWrite),
+                    connection_access: Some(LibraryConnectionAccess::ViewEdit),
+                    background_sync: false,
+                    storage: ReplicaStorage::Replica,
+                },
+            },
+            LibraryRecord {
+                record_id: LibraryRecordId(Uuid::new_v4()),
+                alias: "Control".into(),
+                kind: LibraryKind::RuneRemoteControl {
+                    fingerprint: "remote-fingerprint".into(),
+                },
+            },
+            LibraryRecord {
+                record_id: LibraryRecordId(Uuid::new_v4()),
+                alias: "Subsonic".into(),
+                kind: LibraryKind::Subsonic {
+                    endpoint: "https://music.example/base".into(),
+                    account: "alice".into(),
+                    mode: SubsonicOpenMode::PlayOnThisDevice,
+                },
+            },
+        ];
+        let expected_types = ["owned", "rune_replica", "rune_remote_control", "subsonic"];
+        for (record, expected_type) in records.into_iter().zip(expected_types) {
+            let json = serde_json::to_vec(&record).unwrap();
+            let value: serde_json::Value = serde_json::from_slice(&json).unwrap();
+            assert_eq!(value["kind"]["type"], expected_type);
+            assert_eq!(
+                serde_json::from_slice::<LibraryRecord>(&json).unwrap(),
+                record
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_registry_is_typed_reset_and_moved_aside() {
+        let old = br#"{"version":1,"libraries":[]}"#;
+        let error = validate_registry_version(old).unwrap_err();
+        assert!(
+            error
+                .downcast_ref::<LibraryRegistryResetRequired>()
+                .is_some()
+        );
+
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("libraries.json"), old).unwrap();
+        let registry = LibraryRegistry::load(dir.path()).unwrap();
+        assert!(registry.libraries.is_empty());
+        assert!(!dir.path().join("libraries.json").exists());
+        assert_eq!(
+            fs::read(dir.path().join("libraries.json.old")).unwrap(),
+            old
+        );
+    }
+
+    #[test]
+    fn non_catalog_records_are_not_catalogs_and_have_no_catalog_paths() {
+        let registry = LibraryRegistry {
+            libraries: vec![
+                LibraryRecord {
+                    record_id: LibraryRecordId(Uuid::new_v4()),
+                    alias: "Remote control".into(),
+                    kind: LibraryKind::RuneRemoteControl {
+                        fingerprint: "peer".into(),
+                    },
+                },
+                LibraryRecord {
+                    record_id: LibraryRecordId(Uuid::new_v4()),
+                    alias: "Subsonic".into(),
+                    kind: LibraryKind::Subsonic {
+                        endpoint: "https://music.example".into(),
+                        account: "alice".into(),
+                        mode: SubsonicOpenMode::RemoteControl,
+                    },
+                },
+            ],
+            path: PathBuf::new(),
+        };
+        assert_eq!(registry.catalogs().count(), 0);
+        for record in &registry.libraries {
+            assert_eq!(record.catalog_library_id(), None);
+            assert_eq!(record.root(Path::new("/config")), None);
+            assert_eq!(record.app_name(), None);
+        }
     }
 }

@@ -49,7 +49,7 @@ pub async fn local_player_loop(
     let global_params = GlobalParams {
         node: node.clone(),
         sync_settings: node.sync_settings.clone(),
-        library_id: Some(library.descriptor.library_id),
+        library_id: Some(library.library_id),
         library_pool: node.library_pool.clone(),
         library: Some(library.clone()),
         ui_library: Arc::new(Mutex::new(Some(library))),

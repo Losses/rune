@@ -118,7 +118,7 @@ pub async fn playing_items_from_requests(
                     .zip(library)
                     .map(|(file_uuid, library)| {
                         PlayingItem::InLibrary(LibraryItem {
-                            library_id: library.descriptor.library_id,
+                            library_id: library.library_id,
                             file_uuid: *file_uuid,
                         })
                     })
@@ -282,8 +282,7 @@ async fn resolve_mix_query(
             .await?
     } else {
         let queue = if exclude_local_queue {
-            node.session_queue_for_library(library.descriptor.library_id)
-                .await?
+            node.session_queue_for_library(library.library_id).await?
         } else {
             Vec::new()
         };
@@ -309,7 +308,7 @@ async fn resolve_mix_query(
     let prepared = files_to_playback_request(
         &library.fsio,
         &library.main_db,
-        &library.descriptor.library_id.to_string(),
+        &library.library_id.to_string(),
         &library.media_root,
         &tracks,
     )
@@ -348,12 +347,8 @@ async fn resolve_mix_query(
             nearest_index
         }
     };
-    let response_items = playing_item_requests(
-        &items,
-        &node.library_pool,
-        Some(library.descriptor.library_id),
-    )
-    .await;
+    let response_items =
+        playing_item_requests(&items, &node.library_pool, Some(library.library_id)).await;
 
     Ok(ResolvedMixQuery {
         prepared,

@@ -174,7 +174,7 @@ impl SessionState {
                                     file_uuids_by_id(library.main_db.as_ref(), &[id]).await?;
                                 Ok::<_, anyhow::Error>(rows.get(&id).copied().map(|file_uuid| {
                                     StoredItem::InLibrary {
-                                        library_id: library.descriptor.library_id,
+                                        library_id: library.library_id,
                                         file_uuid,
                                     }
                                 }))

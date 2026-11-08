@@ -11,7 +11,7 @@ use anyhow::{Context, Result, ensure};
 use database::{
     connection::{MainDbConnection, RecommendationDbConnection, StorageMode, check_storage_mode},
     error::ExpectedError,
-    library_registry::{DbPlacement, LibraryAccess, LibraryDescriptor, LibraryRegistry},
+    library_registry::{DbPlacement, LibraryAccess, LibraryRecord, LibraryRegistry},
     sync::LibrarySyncStore,
 };
 use fsio::FsIo;
@@ -29,19 +29,21 @@ static POOLS: OnceLock<StdMutex<HashMap<PathBuf, Weak<LibraryPool>>>> = OnceLock
 
 /// Connections and storage belonging to one library. Keep a handle alive while using them.
 pub struct LibraryResources {
+    pub library_id: Uuid,
+    pub app_name: String,
     pub main_db: Arc<MainDbConnection>,
     pub library_sync: LibrarySyncStore,
     pub recommend_db: Arc<RecommendationDbConnection>,
     pub fsio: Arc<FsIo>,
     pub media_root: String,
-    pub descriptor: LibraryDescriptor,
+    pub descriptor: LibraryRecord,
 }
 
 impl LibraryResources {
     /// The folder a library name sent by Dart refers to. A replica is named by id, so its
     /// name maps to the root computed from the current data directory.
     pub fn fs_path(&self, name: &str) -> String {
-        if name == self.descriptor.app_name() {
+        if self.descriptor.app_name().as_deref() == Some(name) {
             self.media_root.clone()
         } else {
             name.to_owned()
@@ -154,10 +156,9 @@ impl LibraryPool {
     /// Libraries enabled for background work, including any library registered by the UI.
     pub async fn served_library_ids(&self) -> Result<Vec<Uuid>> {
         let mut ids: Vec<_> = LibraryRegistry::load(&self.config_dir)?
-            .libraries
-            .into_iter()
-            .filter(|library| library.background_sync)
-            .map(|library| library.library_id)
+            .catalogs()
+            .filter(|library| library.background_sync())
+            .filter_map(LibraryRecord::catalog_library_id)
             .collect();
         for (id, entry) in self.entries.lock().await.iter() {
             if entry.ui_users > 0 && !ids.contains(id) {
@@ -193,11 +194,7 @@ impl LibraryPool {
     pub async fn acquire_for_request(self: &Arc<Self>, library_id: Uuid) -> Result<LibraryHandle> {
         let registry = LibraryRegistry::load(&self.config_dir)
             .context("Could not read the library registry")?;
-        if !registry
-            .libraries
-            .iter()
-            .any(|entry| entry.library_id == library_id)
-        {
+        if !registry.catalog(library_id).is_ok() {
             return Err(ExpectedError::NotFound { what: "library" }.into());
         }
         self.acquire(library_id).await.map_err(|error| {
@@ -211,18 +208,18 @@ impl LibraryPool {
     async fn acquire_inner(self: &Arc<Self>, library_id: Uuid) -> Result<LibraryHandle> {
         let mut entries = self.entries.lock().await;
         let descriptor = LibraryRegistry::load(&self.config_dir)?
-            .libraries
-            .into_iter()
-            .find(|library| library.library_id == library_id)
-            .context("Library is not registered on this node")?;
+            .catalog(library_id)?
+            .clone();
         ensure!(
-            descriptor.access_level != Some(LibraryAccess::NotShared),
+            descriptor.access_level() != Some(LibraryAccess::NotShared),
             "Library access revoked"
         );
         if let Some(entry) = entries.get(&library_id) {
             return Ok(self.handle(entry));
         }
-        let root = descriptor.root(&self.config_dir);
+        let root = descriptor
+            .root(&self.config_dir)
+            .context("Catalog has no storage root")?;
         let path = &root
             .to_str()
             .context("Library path is not UTF-8")?
@@ -231,7 +228,10 @@ impl LibraryPool {
         let fsio = Arc::new(FsIo::new());
         #[cfg(target_os = "android")]
         let fsio = Arc::new(FsIo::new(Path::new(".rune/.android-fs.db"), path)?);
-        let mode = match descriptor.db_placement {
+        let mode = match descriptor
+            .db_placement()
+            .context("Catalog has no database placement")?
+        {
             DbPlacement::Portable => StorageMode::Portable,
             DbPlacement::Redirected { storage_key } => StorageMode::Redirected(storage_key),
         };
@@ -248,6 +248,8 @@ impl LibraryPool {
             initialize_library_replica(&databases.main_db, &self.node_id, library_id).await?;
         let entry = Entry {
             resources: Arc::new(LibraryResources {
+                library_id,
+                app_name: descriptor.app_name().context("Catalog has no app name")?,
                 main_db: databases.main_db,
                 recommend_db: databases.recommend_db,
                 library_sync,
@@ -279,14 +281,15 @@ impl LibraryPool {
     /// the UI gets storage under the path it opened (a portable library on a
     /// drive mounted elsewhere). Holders of the old handle keep it until dropped.
     async fn forget_moved(&self, library_id: Uuid) -> Result<()> {
-        let registered = LibraryRegistry::load(&self.config_dir)?
-            .libraries
-            .into_iter()
-            .find(|library| library.library_id == library_id);
+        let registered = LibraryRegistry::load(&self.config_dir)
+            .ok()
+            .and_then(|registry| registry.catalog(library_id).ok().cloned());
         let Some(descriptor) = registered else {
             return Ok(());
         };
-        let root = descriptor.root(&self.config_dir);
+        let Some(root) = descriptor.root(&self.config_dir) else {
+            return Ok(());
+        };
         let mut entries = self.entries.lock().await;
         if entries
             .get(&library_id)
@@ -303,7 +306,7 @@ impl LibraryPool {
         resources: LibraryResources,
     ) -> Result<LibraryHandle> {
         let mut entries = self.entries.lock().await;
-        let id = resources.descriptor.library_id;
+        let id = resources.library_id;
         if let Some(entry) = entries.get_mut(&id) {
             ensure!(
                 Arc::ptr_eq(&entry.resources.main_db, &resources.main_db),
@@ -407,7 +410,7 @@ mod tests {
     struct Fixture {
         dir: TempDir,
         pool: Arc<LibraryPool>,
-        descriptor: LibraryDescriptor,
+        descriptor: LibraryRecord,
         fsio: Arc<FsIo>,
         root: String,
         node_id: String,
@@ -452,10 +455,18 @@ mod tests {
             let library_sync = initialize_library_replica(
                 &databases.main_db,
                 &self.node_id,
-                self.descriptor.library_id,
+                self.descriptor.catalog_library_id().unwrap(),
             )
             .await?;
             Ok(LibraryResources {
+                library_id: self
+                    .descriptor
+                    .catalog_library_id()
+                    .context("catalog fixture")?,
+                app_name: self
+                    .descriptor
+                    .app_name()
+                    .context("catalog fixture app name")?,
                 main_db: databases.main_db,
                 recommend_db: databases.recommend_db,
                 library_sync,
@@ -472,7 +483,7 @@ mod tests {
                     .entries
                     .lock()
                     .await
-                    .contains_key(&self.descriptor.library_id)
+                    .contains_key(&self.descriptor.catalog_library_id().unwrap())
                 {
                     sleep(Duration::from_millis(10)).await;
                 }
@@ -485,7 +496,7 @@ mod tests {
     #[tokio::test]
     async fn acquire_reuses_connection_and_namespace() -> Result<()> {
         let f = Fixture::new(false).await?;
-        let id = f.descriptor.library_id;
+        let id = f.descriptor.catalog_library_id().unwrap();
         let (a, b) = tokio::join!(f.pool.acquire(id), f.pool.acquire(id));
         let (a, b) = (a?, b?);
         assert!(Arc::ptr_eq(&a.main_db, &b.main_db));
@@ -505,7 +516,7 @@ mod tests {
     #[tokio::test]
     async fn ui_open_follows_a_moved_library() -> Result<()> {
         let f = Fixture::new(false).await?;
-        let id = f.descriptor.library_id;
+        let id = f.descriptor.catalog_library_id().unwrap();
         let background = f.pool.acquire(id).await?;
         drop(background);
         sleep(f.pool.idle_timeout + Duration::from_millis(10)).await;
@@ -516,7 +527,7 @@ mod tests {
         let mode = check_storage_mode(&f.fsio, &moved)?;
         let mut registry = LibraryRegistry::load(f.dir.path())?;
         let reopened = resolve_library(&f.fsio, &mut registry, &moved, "Test", mode).await?;
-        assert_eq!(reopened.library_id, id);
+        assert_eq!(reopened.catalog_library_id().unwrap(), id);
         let ui = f.pool.acquire_ui(id).await?;
         assert_eq!(ui.media_root, moved);
         assert_eq!(f.pool.acquire(id).await?.media_root, moved);
@@ -571,19 +582,24 @@ mod tests {
         let ui = f.pool.register_ui(resources).await?;
         drop(ui);
         sleep(f.pool.idle_timeout * 3).await;
-        let acquired = f.pool.acquire(f.descriptor.library_id).await?;
+        let acquired = f
+            .pool
+            .acquire(f.descriptor.catalog_library_id().unwrap())
+            .await?;
         assert!(Arc::ptr_eq(
             &connection.upgrade().unwrap(),
             &acquired.main_db
         ));
-        f.pool.unregister_ui(f.descriptor.library_id).await;
+        f.pool
+            .unregister_ui(f.descriptor.catalog_library_id().unwrap())
+            .await;
         sleep(f.pool.idle_timeout * 3).await;
         assert!(
             f.pool
                 .entries
                 .lock()
                 .await
-                .contains_key(&f.descriptor.library_id)
+                .contains_key(&f.descriptor.catalog_library_id().unwrap())
         );
         drop(acquired);
         f.wait_closed().await?;
@@ -594,26 +610,35 @@ mod tests {
     #[tokio::test]
     async fn idle_close_waits_for_last_handle_then_reopens() -> Result<()> {
         let f = Fixture::new(false).await?;
-        let first = f.pool.acquire(f.descriptor.library_id).await?;
+        let first = f
+            .pool
+            .acquire(f.descriptor.catalog_library_id().unwrap())
+            .await?;
         let last = first.clone();
         let connection = Arc::downgrade(&first.main_db);
         drop(first);
         sleep(f.pool.idle_timeout * 3).await;
         assert!(connection.upgrade().is_some());
-        let held = f.pool.acquire(f.descriptor.library_id).await?;
+        let held = f
+            .pool
+            .acquire(f.descriptor.catalog_library_id().unwrap())
+            .await?;
         assert!(Arc::ptr_eq(&last.main_db, &held.main_db));
         drop(held);
         drop(last);
         f.wait_closed().await?;
         assert!(connection.upgrade().is_none());
-        let reopened = f.pool.acquire(f.descriptor.library_id).await?;
+        let reopened = f
+            .pool
+            .acquire(f.descriptor.catalog_library_id().unwrap())
+            .await?;
         assert!(!Weak::ptr_eq(
             &connection,
             &Arc::downgrade(&reopened.main_db)
         ));
         assert_eq!(
             reopened.library_sync.record_store().namespace(),
-            f.descriptor.library_id
+            f.descriptor.catalog_library_id().unwrap()
         );
         Ok(())
     }
@@ -621,8 +646,12 @@ mod tests {
     #[tokio::test]
     async fn acquire_respects_redirected_placement() -> Result<()> {
         let f = Fixture::new(true).await?;
-        let handle = f.pool.acquire(f.descriptor.library_id).await?;
-        let DbPlacement::Redirected { storage_key } = handle.descriptor.db_placement else {
+        let handle = f
+            .pool
+            .acquire(f.descriptor.catalog_library_id().unwrap())
+            .await?;
+        let DbPlacement::Redirected { storage_key } = handle.descriptor.db_placement().unwrap()
+        else {
             panic!("redirected fixture");
         };
         assert!(
@@ -635,7 +664,10 @@ mod tests {
         assert!(!Path::new(&f.root).join(".rune/.0.db").exists());
         drop(handle);
         f.wait_closed().await?;
-        let reopened = f.pool.acquire(f.descriptor.library_id).await?;
+        let reopened = f
+            .pool
+            .acquire(f.descriptor.catalog_library_id().unwrap())
+            .await?;
         assert_eq!(reopened.descriptor, f.descriptor);
         Ok(())
     }
@@ -643,8 +675,12 @@ mod tests {
     #[tokio::test]
     async fn idle_close_truncates_redirected_database_wal() -> Result<()> {
         let f = Fixture::new(true).await?;
-        let handle = f.pool.acquire(f.descriptor.library_id).await?;
-        let DbPlacement::Redirected { storage_key } = handle.descriptor.db_placement else {
+        let handle = f
+            .pool
+            .acquire(f.descriptor.catalog_library_id().unwrap())
+            .await?;
+        let DbPlacement::Redirected { storage_key } = handle.descriptor.db_placement().unwrap()
+        else {
             panic!("redirected fixture");
         };
         handle
@@ -667,7 +703,7 @@ mod tests {
         {
             let entries = f.pool.entries.lock().await;
             let entry = entries
-                .get(&f.descriptor.library_id)
+                .get(&f.descriptor.catalog_library_id().unwrap())
                 .context("open library")?;
             *entry
                 .last_released
@@ -684,12 +720,17 @@ mod tests {
     #[tokio::test]
     async fn closing_waits_for_in_flight_transaction_before_reopening() -> Result<()> {
         let f = Fixture::new(false).await?;
-        let handle = f.pool.acquire(f.descriptor.library_id).await?;
+        let handle = f
+            .pool
+            .acquire(f.descriptor.catalog_library_id().unwrap())
+            .await?;
         let transaction = handle.main_db.begin().await?;
         drop(handle);
         {
             let entries = f.pool.entries.lock().await;
-            let entry = entries.get(&f.descriptor.library_id).unwrap();
+            let entry = entries
+                .get(&f.descriptor.catalog_library_id().unwrap())
+                .unwrap();
             *entry.last_released.lock().unwrap() = Instant::now() - f.pool.idle_timeout;
         }
         let pool = f.pool.clone();
@@ -697,14 +738,14 @@ mod tests {
         sleep(Duration::from_millis(30)).await;
         assert!(!closing.is_finished());
         let pool = f.pool.clone();
-        let id = f.descriptor.library_id;
+        let id = f.descriptor.catalog_library_id().unwrap();
         let reopening = tokio::spawn(async move { pool.acquire(id).await });
         sleep(Duration::from_millis(30)).await;
         assert!(!reopening.is_finished());
         transaction.commit().await?;
         timeout(Duration::from_secs(3), closing).await???;
         let reopened = timeout(Duration::from_secs(3), reopening).await???;
-        assert_eq!(reopened.descriptor.library_id, id);
+        assert_eq!(reopened.library_id, id);
         Ok(())
     }
 }

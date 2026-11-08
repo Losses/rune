@@ -37,7 +37,7 @@ impl DownloadParams {
     async fn cleanup(&self, library: &LibraryHandle) -> Result<()> {
         let queue = self
             .node
-            .session_queue_for_library(library.descriptor.library_id)
+            .session_queue_for_library(library.library_id)
             .await?;
         let result = cleanup_unselected_downloads(
             &library.main_db,
@@ -49,7 +49,7 @@ impl DownloadParams {
         )
         .await;
         self.broadcaster.broadcast(&LibraryContentChanged {
-            path: library.descriptor.app_name(),
+            path: library.app_name.clone(),
         });
         result.map(|_| ())
     }

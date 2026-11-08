@@ -144,7 +144,7 @@ pub struct GlobalParams {
 impl GlobalParams {
     /// Construct request parameters scoped to the addressed library.
     pub fn for_library(&self, library: LibraryHandle) -> Self {
-        let library_id = library.descriptor.library_id;
+        let library_id = library.library_id;
         let mut params = self.clone();
         params.library_id = Some(library_id);
         params.library = Some(library);
@@ -289,7 +289,9 @@ async fn handle_media_library_path(
                 LibraryLocation::Replica(id) => {
                     let registry = LibraryRegistry::load(Path::new(config_path))?;
                     let descriptor = registry.replica(id)?;
-                    let root = descriptor.root(Path::new(config_path));
+                    let root = descriptor
+                        .root(Path::new(config_path))
+                        .context("Replica has no storage root")?;
                     Ok(Some((
                         id,
                         root.to_str()
@@ -422,7 +424,13 @@ async fn handle_media_library_path(
                     let descriptor =
                         resolve_library(&fsio, &mut registry, media_library_path, alias, mode)
                             .await?;
-                    node.library_pool.acquire_ui(descriptor.library_id).await
+                    node.library_pool
+                        .acquire_ui(
+                            descriptor
+                                .catalog_library_id()
+                                .context("Resolved endpoint has no catalog")?,
+                        )
+                        .await
                 }
                 .await;
                 finish_local_open(opened, &node, &scrobbler, &broadcaster, media_library_path)
@@ -473,7 +481,7 @@ async fn finish_local_open(
 ) {
     match opened {
         Ok(library) => {
-            info!("Resolved library id: {}", library.descriptor.library_id);
+            info!("Resolved library id: {}", library.library_id);
             let result = local_player_loop(library, node.clone(), Arc::clone(scrobbler)).await;
             broadcaster.broadcast(&SetMediaLibraryPathResponse {
                 restore_last_index: result.is_ok()

@@ -1,6 +1,6 @@
 use std::{path::Path, sync::Arc};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use fsio::FsIo;
 use log::info;
 
@@ -43,7 +43,8 @@ impl Signal for TestLibraryInitializedRequest {
                     let config_dir = Path::new(&*config_path);
                     let root = LibraryRegistry::load(config_dir)?
                         .replica(id)?
-                        .root(config_dir);
+                        .root(config_dir)
+                        .context("Replica record has no storage root")?;
                     if !root.join(".rune").join("library.json").is_file() {
                         bail!("Replica folder is missing: {}", root.display());
                     }
@@ -140,7 +141,12 @@ mod tests {
         assert!(ready.success);
         assert!(!ready.not_ready);
 
-        std::fs::remove_dir_all(registry.replica(id)?.root(config.path()))?;
+        std::fs::remove_dir_all(
+            registry
+                .replica(id)?
+                .root(config.path())
+                .context("replica root")?,
+        )?;
         let missing = test_initialized(config.path(), &name).await;
         assert!(!missing.success);
         Ok(())

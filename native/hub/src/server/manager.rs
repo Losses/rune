@@ -464,7 +464,7 @@ impl ServerManager {
                         && let Some(library) = &params.library
                     {
                         node.broadcaster.broadcast(&LibraryContentChanged {
-                            path: library.descriptor.app_name(),
+                            path: library.app_name.clone(),
                         });
                     }
                 });
@@ -905,8 +905,8 @@ mod lifecycle_tests {
     use database::connection::StorageMode;
     use database::entities::{media_files, media_files::Column};
     use database::library_registry::{
-        DbPlacement, LibraryAuthority, LibraryDescriptor, LibraryLocation, LibraryRegistry,
-        LibraryStorage, create_replica, resolve_library,
+        DbPlacement, LibraryKind, LibraryLocation, LibraryRecord, LibraryRecordId, LibraryRegistry,
+        OwnedStorage, SubsonicOpenMode, create_replica, resolve_library,
     };
     use database::sync::{
         LibrarySyncStore,
@@ -1048,17 +1048,17 @@ mod lifecycle_tests {
         let pool = LibraryPool::with_idle_timeout(dir, dir, &node.to_string(), idle_timeout)?;
         let _ = migration::initialize_node_id(node.to_string());
         LibraryRegistry::update(dir, |registry| {
-            registry.libraries.push(LibraryDescriptor {
-                library_id,
+            registry.libraries.push(LibraryRecord {
+                record_id: LibraryRecordId(Uuid::new_v4()),
                 alias: "Owned".into(),
-                authority: LibraryAuthority::Owned,
-                storage: LibraryStorage::Local {
-                    path: dir.to_string_lossy().into_owned(),
+                kind: LibraryKind::Owned {
+                    library_id,
+                    storage: OwnedStorage::Local {
+                        path: dir.to_string_lossy().into_owned(),
+                        placement: DbPlacement::Portable,
+                    },
+                    background_sync: true,
                 },
-                db_placement: DbPlacement::Portable,
-                background_sync: true,
-                access_level: None,
-                connection_access: None,
             });
             Ok(())
         })
@@ -1086,7 +1086,9 @@ mod lifecycle_tests {
         let mut registry = LibraryRegistry::load(config)?;
         // A replica added through the peer flow is named by id, not by folder.
         let root = match LibraryLocation::parse(root.to_str().context("replica path")?)? {
-            LibraryLocation::Replica(id) => registry.replica(id)?.root(config),
+            LibraryLocation::Replica(id) => {
+                registry.replica(id)?.root(config).context("replica root")?
+            }
             LibraryLocation::Path(path) => PathBuf::from(path),
         };
         let descriptor = resolve_library(
@@ -1099,7 +1101,9 @@ mod lifecycle_tests {
         .await?;
         fixture_from_library(
             node.clone(),
-            node.library_pool.acquire_ui(descriptor.library_id).await?,
+            node.library_pool
+                .acquire_ui(descriptor.catalog_library_id().context("fixture catalog")?)
+                .await?,
         )
         .await
     }
@@ -1122,7 +1126,7 @@ mod lifecycle_tests {
         let token = Arc::new(node_context.token.child_token());
         let params = Arc::new(GlobalParams {
             node: node_context.clone(),
-            library_id: Some(library.descriptor.library_id),
+            library_id: Some(library.library_id),
             library_pool: node_context.library_pool.clone(),
             sync_settings: node_context.sync_settings.clone(),
             config_path: node_context.config_path.clone(),
@@ -1213,7 +1217,7 @@ mod lifecycle_tests {
         let id = Uuid::new_v4();
         let mut registry = LibraryRegistry::load(config)?;
         create_replica(config, &mut registry, id, "Replica", "owner").await?;
-        let root = registry.replica(id)?.root(config);
+        let root = registry.replica(id)?.root(config).context("replica root")?;
         let opened = fixture_open_replica(&source, &root).await?;
         let params = &opened.global_params;
         assert_eq!(params.library_id, Some(id));
@@ -3027,6 +3031,45 @@ mod lifecycle_tests {
             "third",
         )
         .await?;
+        let remote_control_id = LibraryRecordId(Uuid::new_v4());
+        let subsonic_id = LibraryRecordId(Uuid::new_v4());
+        LibraryRegistry::update(first.path(), |registry| {
+            registry.libraries.extend([
+                LibraryRecord {
+                    record_id: remote_control_id,
+                    alias: "Remote control".into(),
+                    kind: LibraryKind::RuneRemoteControl {
+                        fingerprint: "remote".into(),
+                    },
+                },
+                LibraryRecord {
+                    record_id: subsonic_id,
+                    alias: "Subsonic".into(),
+                    kind: LibraryKind::Subsonic {
+                        endpoint: "https://music.example".into(),
+                        account: "alice".into(),
+                        mode: SubsonicOpenMode::RemoteControl,
+                    },
+                },
+            ]);
+            Ok(())
+        })
+        .await?;
+        let held_ids = a
+            .global_params
+            .node
+            .library_pool
+            .served_library_ids()
+            .await?;
+        let registry = LibraryRegistry::load(first.path())?;
+        anyhow::ensure!(registry.record(remote_control_id).is_ok());
+        anyhow::ensure!(registry.record(subsonic_id).is_ok());
+        let catalog_ids = registry
+            .catalogs()
+            .filter_map(LibraryRecord::catalog_library_id)
+            .collect::<Vec<_>>();
+        anyhow::ensure!(catalog_ids.len() == 2);
+        anyhow::ensure!(held_ids.iter().all(|id| catalog_ids.contains(id)));
         let source = first.path().join("source.ogg");
         std::fs::copy(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg"),
@@ -3152,15 +3195,8 @@ mod lifecycle_tests {
         let registry = LibraryRegistry::load(second.path())?;
         assert_eq!(registry.libraries.len(), 2);
         assert_eq!(
-            registry
-                .libraries
-                .iter()
-                .find(|entry| entry.library_id == library_id)
-                .unwrap()
-                .authority,
-            LibraryAuthority::Hosted {
-                fingerprint: fingerprint.clone()
-            }
+            registry.catalog(library_id).unwrap().owner_fingerprint(),
+            Some(fingerprint.as_str())
         );
         let registry_path = first.path().join("libraries.json");
         let saved = std::fs::read(&registry_path)?;
@@ -3205,7 +3241,9 @@ mod lifecycle_tests {
             StorageMode::Portable,
         )
         .await?;
-        Ok(descriptor.library_id)
+        descriptor
+            .catalog_library_id()
+            .context("held library catalog")
     }
 
     async fn scan_held_track(

@@ -16,6 +16,7 @@ mod access_policy_tests {
     use crate::server::sync_worker::TestPeerSession;
     use database::actions::stats::{get_liked, set_liked};
     use database::entities::media_cover_art;
+    use database::library_registry::{LibraryKind, OwnedStorage, ReplicaStorage};
     use http_request::sync::MetadataPeer;
     use sea_orm::{
         ActiveValue,
@@ -40,6 +41,35 @@ mod access_policy_tests {
         id: Uuid,
         owner_session: TestPeerSession,
         replica_session: TestPeerSession,
+    }
+
+    fn mark_hosted(record: &mut LibraryRecord, fingerprint: String) -> Result<()> {
+        let (library_id, storage, background_sync, access_level, connection_access) = match &record.kind {
+            LibraryKind::Owned { library_id, storage: OwnedStorage::Local { path, placement }, background_sync } => (
+                *library_id,
+                ReplicaStorage::Local { path: path.clone(), placement: placement.clone() },
+                *background_sync,
+                None,
+                None,
+            ),
+            LibraryKind::RuneReplica { library_id, storage, background_sync, access_level, connection_access, .. } => (
+                *library_id,
+                storage.clone(),
+                *background_sync,
+                *access_level,
+                *connection_access,
+            ),
+            _ => anyhow::bail!("record is not a catalog"),
+        };
+        record.kind = LibraryKind::RuneReplica {
+            library_id,
+            owner_fingerprint: fingerprint,
+            storage,
+            background_sync,
+            access_level,
+            connection_access,
+        };
+        Ok(())
     }
     impl PolicyPair {
         async fn new_replica() -> Result<Self> {
@@ -395,11 +425,9 @@ mod access_policy_tests {
             let library = registry
                 .libraries
                 .iter_mut()
-                .find(|library| library.library_id == id)
+                .find(|library| library.catalog_library_id() == Some(id))
                 .context("replica library")?;
-            library.authority = LibraryAuthority::Hosted {
-                fingerprint: a_fingerprint.clone(),
-            };
+            mark_hosted(library, a_fingerprint.clone())?;
             Ok(())
         })
         .await?;
@@ -444,11 +472,9 @@ mod access_policy_tests {
             let replica = registry
                 .libraries
                 .iter_mut()
-                .find(|library| library.library_id == pair.id)
+                .find(|library| library.catalog_library_id() == Some(pair.id))
                 .context("replica descriptor")?;
-            replica.authority = LibraryAuthority::Hosted {
-                fingerprint: owner_fingerprint,
-            };
+            mark_hosted(replica, owner_fingerprint)?;
             Ok(())
         })
         .await?;
@@ -461,12 +487,10 @@ mod access_policy_tests {
         assert_eq!(pair.pass(false).await?, PeerPass::Complete);
         let registry = LibraryRegistry::load(Path::new(&*pair.b.global_params.config_path))?;
         let replica = registry
-            .libraries
-            .iter()
-            .find(|library| library.library_id == pair.id)
+            .catalog(pair.id)
             .context("replica descriptor")?;
-        assert_eq!(serde_json::to_value(replica)?["access_level"], "Read");
-        assert_eq!(serde_json::to_value(replica)?["connection_access"], "View");
+        assert_eq!(serde_json::to_value(replica)?["kind"]["access_level"], "Read");
+        assert_eq!(serde_json::to_value(replica)?["kind"]["connection_access"], "View");
         assert!(right.library_sync.get(&album).await?.is_some());
         let remote = media_files::Entity::find()
             .filter(Column::HlcUuid.eq(&original.hlc_uuid))
@@ -520,11 +544,9 @@ mod access_policy_tests {
         assert_eq!(pair.pass(false).await?, PeerPass::Complete);
         let registry = LibraryRegistry::load(Path::new(&*pair.b.global_params.config_path))?;
         let replica = registry
-            .libraries
-            .iter()
-            .find(|library| library.library_id == pair.id)
+            .catalog(pair.id)
             .context("replica descriptor")?;
-        assert_eq!(serde_json::to_value(replica)?["access_level"], "ReadWrite");
+        assert_eq!(serde_json::to_value(replica)?["kind"]["access_level"], "ReadWrite");
         pair.close().await
     }
 
@@ -600,11 +622,9 @@ mod access_policy_tests {
                 let library = registry
                     .libraries
                     .iter_mut()
-                    .find(|library| library.library_id == pair.id)
+                    .find(|library| library.catalog_library_id() == Some(pair.id))
                     .context("replica library")?;
-                library.authority = LibraryAuthority::Hosted {
-                    fingerprint: a_fingerprint.clone(),
-                };
+                mark_hosted(library, a_fingerprint.clone())?;
                 Ok(())
             })
             .await?;

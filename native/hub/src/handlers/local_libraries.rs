@@ -2,7 +2,7 @@ use crate::request_error::ExpectedRequestError;
 use std::{path::Path, sync::Arc};
 
 use anyhow::Result;
-use database::library_registry::{LibraryAuthority, LibraryRegistry};
+use database::library_registry::LibraryRegistry;
 use uuid::Uuid;
 
 use crate::{
@@ -34,19 +34,18 @@ impl Signal for ListLocalLibrariesRequest {
     ) -> Result<Option<Self::Response>> {
         let registry = LibraryRegistry::load(Path::new(&*config))?;
         let libraries = registry
-            .libraries
-            .into_iter()
-            .map(|library| LocalLibrary {
-                library_id: library.library_id.to_string(),
-                path: library.app_name(),
-                alias: library.alias,
-                owner_fingerprint: match library.authority {
-                    LibraryAuthority::Owned => None,
-                    LibraryAuthority::Hosted { fingerprint } => Some(fingerprint),
-                },
-                background_sync: library.background_sync,
-                connection_access: library.connection_access.map(Into::into),
-                sync_access: library.access_level.map(Into::into),
+            .catalogs()
+            .filter_map(|library| {
+                let id = library.catalog_library_id()?;
+                Some(LocalLibrary {
+                    library_id: id.to_string(),
+                    path: library.app_name()?,
+                    alias: library.alias.clone(),
+                    owner_fingerprint: library.owner_fingerprint().map(str::to_owned),
+                    background_sync: library.background_sync(),
+                    connection_access: library.connection_access().map(Into::into),
+                    sync_access: library.access_level().map(Into::into),
+                })
             })
             .collect();
         Ok(Some(ListLocalLibrariesResponse { libraries }))
@@ -90,7 +89,7 @@ mod tests {
     use super::*;
     use database::{
         connection::StorageMode,
-        library_registry::{LibraryDescriptor, create_replica, resolve_library},
+        library_registry::{LibraryRecord, create_replica, resolve_library},
     };
     use fsio::FsIo;
 
@@ -119,10 +118,7 @@ mod tests {
             .error)
     }
 
-    async fn register(
-        config: &Path,
-        replica_id: Uuid,
-    ) -> Result<(LibraryDescriptor, LibraryDescriptor)> {
+    async fn register(config: &Path, replica_id: Uuid) -> Result<(LibraryRecord, LibraryRecord)> {
         let root = config.join("owned").to_string_lossy().into_owned();
         let mut registry = LibraryRegistry::load(config)?;
         let owned = resolve_library(
@@ -147,25 +143,31 @@ mod tests {
         assert_eq!(libraries.len(), 2);
         let local = libraries
             .iter()
-            .find(|library| library.library_id == owned.library_id.to_string())
+            .find(|library| library.library_id == owned.catalog_library_id().unwrap().to_string())
             .unwrap();
         assert_eq!(local.alias, "Owned");
-        assert_eq!(local.path, owned.app_name());
+        assert_eq!(local.path, owned.app_name().unwrap());
         assert_eq!(local.owner_fingerprint, None);
         assert!(local.background_sync);
         let remote = libraries
             .iter()
-            .find(|library| library.library_id == replica.library_id.to_string())
+            .find(|library| library.library_id == replica.catalog_library_id().unwrap().to_string())
             .unwrap();
         assert_eq!(remote.alias, "Replica");
-        assert_eq!(remote.path, format!("replica://{}", replica.library_id));
+        assert_eq!(
+            remote.path,
+            format!("replica://{}", replica.catalog_library_id().unwrap())
+        );
         assert_eq!(remote.owner_fingerprint.as_deref(), Some("owner"));
         assert!(remote.background_sync);
-        for id in [owned.library_id, replica.library_id] {
+        for id in [
+            owned.catalog_library_id().unwrap(),
+            replica.catalog_library_id().unwrap(),
+        ] {
             assert!(set(&config, id.to_string(), false).await?.is_none());
         }
         // Resolving and adding again must retain this node's disabled preference.
-        register(dir.path(), replica.library_id).await?;
+        register(dir.path(), replica.catalog_library_id().unwrap()).await?;
         assert!(
             list(&config)
                 .await?
@@ -173,9 +175,13 @@ mod tests {
                 .all(|library| !library.background_sync)
         );
         assert!(
-            set(&config, replica.library_id.to_string(), true)
-                .await?
-                .is_none()
+            set(
+                &config,
+                replica.catalog_library_id().unwrap().to_string(),
+                true
+            )
+            .await?
+            .is_none()
         );
         let libraries = list(&config).await?;
         assert_eq!(

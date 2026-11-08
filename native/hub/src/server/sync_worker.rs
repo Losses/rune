@@ -16,7 +16,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use database::actions::file::{ManagedAudioVerifier, file_ids_by_uuid, materialized_path};
 use database::actions::library::clean_local_orphans;
 use database::library_registry::{
-    LibraryAccess, LibraryAuthority, LibraryConnectionAccess, LibraryRegistry,
+    LibraryAccess, LibraryConnectionAccess, LibraryKind, LibraryRegistry,
 };
 use database::sync::Maintenance;
 use database::sync::model::RuneModel;
@@ -347,11 +347,11 @@ async fn pass_notification(
         .await
         .ok()
         .and_then(|params| params.library_id)
-        == Some(library.descriptor.library_id)
+        == Some(library.library_id)
     {
         ui_notify.clone()
     } else {
-        library_notification(global, &library.descriptor.app_name())
+        library_notification(global, &library.app_name.clone())
     }
 }
 
@@ -642,8 +642,8 @@ async fn peer_may_sync(
     action: Action,
 ) -> bool {
     let is_authority = matches!(
-        &library.descriptor.authority,
-        LibraryAuthority::Hosted { fingerprint: authority } if authority == fingerprint
+        &library.descriptor.kind,
+        LibraryKind::RuneReplica { owner_fingerprint: authority, .. } if authority == fingerprint
     );
     let peer = global
         .permission_manager
@@ -792,7 +792,7 @@ async fn sync_one(
         let lock = {
             let mut locks = locks.lock().await;
             locks
-                .entry((endpoint.fingerprint.clone(), library.descriptor.library_id))
+                .entry((endpoint.fingerprint.clone(), library.library_id))
                 .or_insert_with(|| Arc::new(Mutex::new(PeerSession::default())))
                 .clone()
         };
@@ -838,7 +838,7 @@ async fn sync_one(
             {
                 return Ok(true);
             }
-            let library_id = library.descriptor.library_id;
+            let library_id = library.library_id;
             // Their changes are applied here only from the authority or a SyncPush grant;
             // ours are sent only to the authority or a peer granted SyncPull.
             let may_receive = peer_may_sync(
@@ -880,9 +880,7 @@ async fn sync_one(
         unreachable!()
     } else {
         let local = library.library_sync.identity().await?;
-        let playback_queue = global
-            .session_queue_for_library(library.descriptor.library_id)
-            .await?;
+        let playback_queue = global.session_queue_for_library(library.library_id).await?;
         for attempt in 0..2 {
             let (base, client) = authenticated_client(
                 global,

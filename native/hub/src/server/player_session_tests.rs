@@ -223,7 +223,7 @@ async fn library_item_for_id(f: &Fixture, id: i32) -> Result<LibraryItem> {
         .copied()
         .context("file uuid")?;
     Ok(LibraryItem {
-        library_id: library.descriptor.library_id,
+        library_id: library.library_id,
         file_uuid,
     })
 }
@@ -1773,7 +1773,7 @@ async fn session_f2_batches_playlist_metadata_per_library_in_queue_order() -> Re
     LibraryRegistry::update(dir.path(), |registry| {
         registry
             .libraries
-            .retain(|library| library.library_id != removed_id);
+            .retain(|library| library.catalog_library_id() != Some(removed_id));
         Ok(())
     })
     .await?;
@@ -1995,7 +1995,7 @@ async fn playback_boundary_uses_current_library_and_maps_online_to_unknown_shape
     )
     .await?;
     assert_eq!(parsed, PlayingItem::InLibrary(expected));
-    let current_library_id = library.descriptor.library_id;
+    let current_library_id = library.library_id;
     let other = LibraryItem {
         library_id: Uuid::new_v4(),
         file_uuid: expected.file_uuid,
@@ -2084,7 +2084,7 @@ async fn playlist_update_uses_library_item_after_switching_ui_library() -> Resul
     let b = fixture_open_replica(&a, bdir.path()).await?;
     assert_ne!(
         a_item.library_id,
-        b.global_params.test_library().descriptor.library_id
+        b.global_params.test_library().library_id
     );
 
     a.global_params
@@ -2214,7 +2214,7 @@ async fn session_d4_queue_queries_and_download_rules_are_library_scoped() -> Res
         let queue = f
             .global_params
             .node
-            .session_queue_for_library(library.descriptor.library_id)
+            .session_queue_for_library(library.library_id)
             .await?;
         assert_eq!(queue, expected);
         let queries = vec![("lib::queue".into(), "true".into())];
@@ -2276,7 +2276,7 @@ async fn session_f4_nodes_with_matching_sqlite_filenames_keep_queues_separate() 
         let queue = fixture
             .global_params
             .node
-            .session_queue_for_library(library.descriptor.library_id)
+            .session_queue_for_library(library.library_id)
             .await?;
         assert_eq!(queue, expected);
         let rows = query_mix_media_files(
@@ -2356,7 +2356,7 @@ async fn session_d6_removed_library_is_unavailable_without_crash() -> Result<()>
     LibraryRegistry::update(dir.path(), |registry| {
         registry
             .libraries
-            .retain(|lib| Some(lib.library_id) != a.global_params.library_id);
+            .retain(|lib| lib.catalog_library_id() != a.global_params.library_id);
         Ok(())
     })
     .await?;
@@ -2454,7 +2454,7 @@ async fn session_f1_repeat_all_wraps_after_failed_last_item() -> Result<()> {
     LibraryRegistry::update(dir.path(), |registry| {
         registry
             .libraries
-            .retain(|lib| Some(lib.library_id) != a.global_params.library_id);
+            .retain(|lib| lib.catalog_library_id() != a.global_params.library_id);
         Ok(())
     })
     .await?;
@@ -2506,7 +2506,7 @@ async fn session_f1_all_failed_items_stop_without_hanging() -> Result<()> {
     LibraryRegistry::update(dir.path(), |registry| {
         registry
             .libraries
-            .retain(|lib| Some(lib.library_id) != a.global_params.library_id);
+            .retain(|lib| lib.catalog_library_id() != a.global_params.library_id);
         Ok(())
     })
     .await?;

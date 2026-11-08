@@ -78,7 +78,7 @@ impl Signal for CloseLibraryRequest {
         info!("Closing library: {:#?}", request.path);
 
         // A replica opened by its folder path is closed by that path too.
-        let app_name = library.descriptor.app_name();
+        let app_name = library.app_name.clone();
         let folder_matches = if request.path == app_name {
             true
         } else {

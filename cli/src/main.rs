@@ -20,7 +20,7 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use directories::ProjectDirs;
 use dunce::canonicalize;
@@ -153,9 +153,10 @@ enum Commands {
 async fn resolve_library_id(fsio: &FsIo, config_path: &Path, lib_path: &str) -> Result<Uuid> {
     let mode = check_storage_mode(fsio, lib_path)?;
     let mut registry = LibraryRegistry::load(config_path)?;
-    Ok(resolve_library(fsio, &mut registry, lib_path, "", mode)
+    resolve_library(fsio, &mut registry, lib_path, "", mode)
         .await?
-        .library_id)
+        .catalog_library_id()
+        .context("Resolved endpoint has no catalog")
 }
 
 #[tokio::main]

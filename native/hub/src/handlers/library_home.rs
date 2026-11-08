@@ -251,11 +251,8 @@ impl Signal for ComplexQueryRequest {
         let fsio = Arc::clone(&library.fsio);
         let main_db = Arc::clone(&library.main_db);
         let recommend_db = Arc::clone(&library.recommend_db);
-        let library_id = library.descriptor.library_id;
-        let queue = Arc::new(
-            node.session_queue_for_library(library.descriptor.library_id)
-                .await?,
-        );
+        let library_id = library.library_id;
+        let queue = Arc::new(node.session_queue_for_library(library.library_id).await?);
         let queries = &dart_signal.queries;
         let remote_host = match session {
             Some(x) => Some(x.host.clone()),

@@ -823,10 +823,7 @@ impl NodeContext {
         }
         drop(tasks);
         if let Some(library) = params.ui_library.lock().await.take() {
-            library
-                .pool()
-                .unregister_ui(library.descriptor.library_id)
-                .await;
+            library.pool().unregister_ui(library.library_id).await;
         }
         params.main_token.cancel();
     }

@@ -7,10 +7,10 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axum::{Extension, Json, http::StatusCode};
 use database::library_registry::{
-    LibraryAuthority, LibraryConnectionAccess, LibraryDescriptor, LibraryRegistry, create_replica,
+    LibraryConnectionAccess, LibraryKind, LibraryRecord, LibraryRegistry, create_replica,
 };
 use discovery::server::UserStatus;
 use serde::{Deserialize, Serialize};
@@ -338,14 +338,14 @@ pub(crate) async fn cast_library_state(node: &NodeContext, library_id: Uuid) -> 
             return CastLibraryState::Unreachable;
         }
     };
-    let Some(library) = registry
-        .libraries
-        .iter()
-        .find(|library| library.library_id == library_id)
-    else {
+    let Ok(library) = registry.catalog(library_id) else {
         return CastLibraryState::NotHeld;
     };
-    let LibraryAuthority::Hosted { fingerprint } = &library.authority else {
+    let LibraryKind::RuneReplica {
+        owner_fingerprint: fingerprint,
+        ..
+    } = &library.kind
+    else {
         return CastLibraryState::Ready;
     };
 
@@ -431,24 +431,17 @@ pub(crate) async fn cast_library_state(node: &NodeContext, library_id: Uuid) -> 
 fn library_visible_to_peer(
     node: &NodeContext,
     peer: &PeerIdentity,
-    library: &LibraryDescriptor,
+    library: &LibraryRecord,
 ) -> bool {
+    let Some(library_id) = library.catalog_library_id() else {
+        return false;
+    };
     node.access_policy
-        .check(
-            peer,
-            &Action::ConnectionView {
-                library_id: library.library_id,
-            },
-        )
+        .check(peer, &Action::ConnectionView { library_id })
         .is_ok()
         || node
             .access_policy
-            .check(
-                peer,
-                &Action::SyncPull {
-                    library_id: library.library_id,
-                },
-            )
+            .check(peer, &Action::SyncPull { library_id })
             .is_ok()
 }
 
@@ -467,15 +460,18 @@ pub(super) async fn list_libraries(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(
         registry
-            .libraries
-            .into_iter()
-            .filter(|library| library.authority == LibraryAuthority::Owned)
+            .catalogs()
+            .filter(|library| matches!(library.kind, LibraryKind::Owned { .. }))
             .filter(|library| library_visible_to_peer(&node, &peer, library))
-            .map(|library| ListedLibrary {
-                library_id: library.library_id,
-                alias: library.alias,
-                connection: grants.connection_level(library.library_id),
-                sync: grants.sync_level(library.library_id),
+            .filter_map(|library| {
+                library
+                    .catalog_library_id()
+                    .map(|library_id| ListedLibrary {
+                        library_id,
+                        alias: library.alias.clone(),
+                        connection: grants.connection_level(library_id),
+                        sync: grants.sync_level(library_id),
+                    })
             })
             .collect(),
     ))
@@ -534,13 +530,9 @@ pub(super) async fn list_peer_libraries(
                 libraries
                     .into_iter()
                     .map(|library| PeerLibrary {
-                        added: registry.libraries.iter().any(|entry| {
-                            entry.library_id == library.library_id
-                                && entry.authority
-                                    == (LibraryAuthority::Hosted {
-                                        fingerprint: fingerprint.to_owned(),
-                                    })
-                        }),
+                        added: registry
+                            .catalog(library.library_id)
+                            .is_ok_and(|entry| entry.owner_fingerprint() == Some(fingerprint)),
                         library_id: library.library_id.to_string(),
                         alias: library.alias,
                         connection: library.connection.into(),
@@ -583,19 +575,25 @@ pub(crate) async fn add_remote_library(
     .await?;
     LibraryRegistry::set_access_level(
         config_dir,
-        descriptor.library_id,
+        descriptor
+            .catalog_library_id()
+            .context("Added replica has no catalog")?,
         fingerprint,
         access_level.into(),
     )
     .await?;
     LibraryRegistry::set_connection_access(
         config_dir,
-        descriptor.library_id,
+        descriptor
+            .catalog_library_id()
+            .context("Added replica has no catalog")?,
         fingerprint,
         connection_access,
     )
     .await?;
-    Ok(descriptor.app_name())
+    descriptor
+        .app_name()
+        .context("Added replica has no app name")
 }
 
 #[derive(Default, Deserialize)]

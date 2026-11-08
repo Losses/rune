@@ -115,13 +115,14 @@ impl Signal for GetDeviceGrantsRequest {
     ) -> Result<Option<Self::Response>> {
         let grants = node.access_policy.grants(&request.fingerprint)?;
         let libraries = LibraryRegistry::load(Path::new(&*node.config_path))?
-            .libraries
-            .into_iter()
-            .map(|library| DeviceLibraryAccess {
-                library_id: library.library_id.to_string(),
-                alias: library.alias,
-                connection: grants.connection_level(library.library_id).into(),
-                sync: grants.sync_level(library.library_id).into(),
+            .catalogs()
+            .filter_map(|library| {
+                library.catalog_library_id().map(|id| DeviceLibraryAccess {
+                    library_id: id.to_string(),
+                    alias: library.alias.clone(),
+                    connection: grants.connection_level(id).into(),
+                    sync: grants.sync_level(id).into(),
+                })
             })
             .collect();
         Ok(Some(GetDeviceGrantsResponse {
@@ -203,9 +204,7 @@ impl Signal for SetDeviceGrantsRequest {
                 let id = Uuid::parse_str(&entry.library_id)
                     .map_err(|error| ExpectedRequestError::invalid_input(error.to_string()))?;
                 registry
-                    .libraries
-                    .iter()
-                    .find(|library| library.library_id == id)
+                    .catalog(id)
                     .context(ExpectedRequestError::invalid_input("Unknown library"))?;
                 grants
                     .connection

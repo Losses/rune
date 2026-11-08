@@ -320,9 +320,7 @@ impl Signal for MixQueryRequest {
             .map(|x| (x.operator, x.parameter))
             .collect();
 
-        let queue = node
-            .session_queue_for_library(library.descriptor.library_id)
-            .await?;
+        let queue = node.session_queue_for_library(library.library_id).await?;
         let media_entries = query_mix_media_files(
             &library.main_db,
             &library.recommend_db,
@@ -355,7 +353,7 @@ impl Signal for MixQueryRequest {
         let remote_host = session.map(|session| session.host);
         let cover_art_map = process_cover_art_map(
             cover_art_map,
-            library.descriptor.library_id,
+            library.library_id,
             &running_mode,
             &remote_host,
         );

@@ -132,7 +132,7 @@ async fn serve_library(
                 return StatusCode::INTERNAL_SERVER_ERROR.into_response();
             }
         };
-        let notify = library_notification(&global, &library.descriptor.app_name());
+        let notify = library_notification(&global, &library.app_name.clone());
         let store = Arc::new(RwLock::new(library.library_sync.clone()));
         let router = library_router(SharedLibrary(store.clone()), notify.clone()).merge(
             blob_router(BlobContext {

@@ -118,7 +118,7 @@ pub(super) async fn require_library_read(
     request
         .extensions_mut()
         .insert(AuthorizedLibrary(library.clone()));
-    let library_id = library.descriptor.library_id;
+    let library_id = library.library_id;
     // Covers and metadata serve a controller's browsing; library files are the
     // audio itself and need a library grant.
     let path = request.uri().path();

@@ -12,7 +12,7 @@ use database::{
         metadata::get_metadata_summary_by_files,
     },
     entities::media_files,
-    library_registry::{DbPlacement, LibraryAuthority, LibraryDescriptor, LibraryStorage},
+    library_registry::{DbPlacement, LibraryKind, LibraryRecord, LibraryRecordId, OwnedStorage},
     sync::LibrarySyncStore,
     sync::model::BlobRef,
 };
@@ -38,19 +38,21 @@ async fn request_library(
     let library_id = Uuid::new_v4();
     let library_sync = LibrarySyncStore::open(db.clone(), actor, Some(library_id)).await?;
     let pool = LibraryPool::new(config_path, config_path, &actor.to_string())?;
-    let descriptor = LibraryDescriptor {
-        library_id,
+    let descriptor = LibraryRecord {
+        record_id: LibraryRecordId(Uuid::new_v4()),
         alias: "Test library".into(),
-        authority: LibraryAuthority::Owned,
-        storage: LibraryStorage::Local {
-            path: media_root.clone(),
+        kind: LibraryKind::Owned {
+            library_id,
+            storage: OwnedStorage::Local {
+                path: media_root.clone(),
+                placement: DbPlacement::Portable,
+            },
+            background_sync: false,
         },
-        db_placement: DbPlacement::Portable,
-        background_sync: false,
-        access_level: None,
-        connection_access: None,
     };
     pool.register_ui(LibraryResources {
+        library_id,
+        app_name: media_root.clone(),
         main_db: Arc::new(db),
         library_sync,
         recommend_db: Arc::new(RecommendationDbConnection::new()),
