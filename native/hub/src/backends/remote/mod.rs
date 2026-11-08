@@ -19,7 +19,7 @@ use futures::{SinkExt, StreamExt};
 use log::{debug, error, info, warn};
 use reqwest::redirect::Policy;
 use rinf::{DartSignal, RustSignal};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, oneshot};
 use tokio_tungstenite::{
@@ -193,7 +193,7 @@ pub(crate) fn token_error(error: anyhow::Error) -> RemoteConnectError {
     protocol(error)
 }
 
-type RemoteStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
+pub(crate) type RemoteStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type PendingReplies = Arc<Mutex<HashMap<Uuid, oneshot::Sender<Result<(String, Vec<u8>)>>>>>;
 
 /// A node-owned control connection to a remote renderer.
@@ -269,7 +269,7 @@ impl RendererLink {
         Ok((link, host.to_owned(), alias))
     }
 
-    async fn new(
+    pub(crate) async fn new(
         stream: RemoteStream,
         node: Arc<NodeContext>,
         fingerprint: String,
@@ -345,6 +345,7 @@ impl RendererLink {
     }
 
     /// Forward a serialized control request to the renderer.
+    /// This stays raw because Dart's control signal is already encoded at the relay boundary.
     pub async fn forward(&self, name: &str, payload: &[u8]) -> Result<()> {
         let frame = encode_message(name, payload, Some(Uuid::new_v4()));
         self.write
@@ -355,8 +356,26 @@ impl RendererLink {
             .context("Could not send control request to renderer")
     }
 
+    /// Send a catalogue-declared request and decode its declared response.
+    pub async fn call<R>(&self, request: &R) -> Result<R::Response>
+    where
+        R: crate::TypedRequest + DartSignal + Serialize,
+        R::Response: DeserializeOwned,
+    {
+        let payload = rinf::serialize(request).context("Could not encode renderer request")?;
+        let (name, payload) = self.request(R::wire_name(), &payload).await?;
+        if name != R::response_name() {
+            return Err(ExpectedRequestError::UnexpectedResponse {
+                expected: R::response_name().to_owned(),
+                actual: name,
+            }
+            .into());
+        }
+        rinf::deserialize::<R::Response>(&payload).context("Could not decode renderer response")
+    }
+
     /// Send a request to the renderer and wait for its matching response frame.
-    pub async fn request(&self, name: &str, payload: &[u8]) -> Result<(String, Vec<u8>)> {
+    async fn request(&self, name: &str, payload: &[u8]) -> Result<(String, Vec<u8>)> {
         let request_id = Uuid::new_v4();
         let (sender, receiver) = oneshot::channel();
         self.pending_replies.lock().await.insert(request_id, sender);
@@ -413,7 +432,7 @@ impl RendererLink {
     }
 }
 
-/// Route a classified control request through the node's attached renderer.
+/// Route a classified, already-encoded Dart control request through the attached renderer.
 /// Returns `false` when this request remains local.
 pub async fn forward_control_request(
     node: &NodeContext,

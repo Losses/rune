@@ -1146,6 +1146,37 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         })
         .collect();
 
+    let typed_request_impls: Vec<_> = types
+        .iter()
+        .map(|entry| {
+            let request = syn::parse_str::<syn::Ident>(&entry.request).unwrap();
+            let response = entry
+                .response
+                .as_deref()
+                .and_then(|name| syn::parse_str::<syn::Ident>(name).ok());
+            let (response_type, response_name) = match response {
+                Some(response) => (
+                    quote! { crate::messages::#response },
+                    quote! { stringify!(#response) },
+                ),
+                None => (quote! { () }, quote! { "" }),
+            };
+            quote! {
+                impl crate::TypedRequest for crate::messages::#request {
+                    type Response = #response_type;
+
+                    fn wire_name() -> &'static str {
+                        stringify!(#request)
+                    }
+
+                    fn response_name() -> &'static str {
+                        #response_name
+                    }
+                }
+            }
+        })
+        .collect();
+
     let non_local_requests: Vec<_> = types
         .iter()
         .filter(|t| t.access != RequestAccess::NodeLocal)
@@ -1224,6 +1255,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
 
     let expanded = quote! {
         #(#call_id_impls)*
+        #(#typed_request_impls)*
 
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub enum RequestAccess { NodeLocal, Control, ConnectionView, ConnectionEdit, Administer }

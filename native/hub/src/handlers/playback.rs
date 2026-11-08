@@ -379,31 +379,16 @@ async fn send_resolved_cast(
         .map_err(|error| {
             ExpectedRequestError::invalid_input(format!("Invalid start index: {error}"))
         })?;
-    send_cast_load(
-        link,
-        CastLoadRequest {
-            items,
-            start_index,
-            mode: request.operate_mode,
-            expected_revision: request.expected_revision,
-            playback_mode: request.instantly_play.then_some(request.playback_mode),
-            position_seconds: None,
-            play: None,
-        },
-    )
-    .await
-}
-
-async fn send_cast_load(link: &RendererLink, load: CastLoadRequest) -> Result<()> {
-    let (name, payload) = link
-        .request("CastLoadRequest", &rinf::serialize(&load)?)
-        .await?;
-    anyhow::ensure!(
-        name == "CastLoadResponse",
-        "Unexpected renderer response: {name}"
-    );
-    let _: CastLoadResponse =
-        rinf::deserialize(&payload).context("Could not decode renderer cast response")?;
+    link.call(&CastLoadRequest {
+        items,
+        start_index,
+        mode: request.operate_mode,
+        expected_revision: request.expected_revision,
+        playback_mode: request.instantly_play.then_some(request.playback_mode),
+        position_seconds: None,
+        play: None,
+    })
+    .await?;
     Ok(())
 }
 
@@ -1148,18 +1133,7 @@ async fn snapshot_handoff_source(
         let session = node.session()?;
         return session_snapshot(&session).await;
     };
-    let (name, payload) = link
-        .request(
-            "SessionSnapshotRequest",
-            &rinf::serialize(&SessionSnapshotRequest {})?,
-        )
-        .await?;
-    anyhow::ensure!(
-        name == "SessionSnapshotResponse",
-        "Unexpected renderer response: {name}"
-    );
-    rinf::deserialize::<SessionSnapshotResponse>(&payload)
-        .context("Could not decode renderer session snapshot")
+    link.call(&SessionSnapshotRequest {}).await
 }
 
 /// Step 2: the load that recreates the snapshot on the target.
@@ -1188,9 +1162,12 @@ async fn hand_off_to_renderer(
         .connect_renderer(target, RendererLinkUse::Control)
         .await?;
     let paused = async {
-        send_cast_load(&link, load).await?;
+        link.call(&load).await?;
         match attached {
-            Some(source) => send_pause(source).await,
+            Some(source) => {
+                source.call(&PauseRequest {}).await?;
+                Ok(())
+            }
             None => {
                 node.session()?.player.lock().await.pause();
                 Ok(())
@@ -1214,16 +1191,8 @@ async fn hand_off_to_this_device(
 ) -> Result<()> {
     apply_cast_load(node, load).await?;
     if let Some(source) = attached {
-        send_pause(source).await?;
+        source.call(&PauseRequest {}).await?;
         node.detach_renderer().await?;
     }
-    Ok(())
-}
-
-async fn send_pause(link: &RendererLink) -> Result<()> {
-    let (name, _) = link
-        .request("PauseRequest", &rinf::serialize(&PauseRequest {})?)
-        .await?;
-    anyhow::ensure!(name.is_empty(), "Unexpected pause response: {name}");
     Ok(())
 }

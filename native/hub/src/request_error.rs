@@ -24,6 +24,8 @@ pub enum ExpectedRequestError {
         detail: String,
         cause: Option<RequestFailureCause>,
     },
+    #[error("Unexpected response: expected {expected}, received {actual}")]
+    UnexpectedResponse { expected: String, actual: String },
     #[error("Queue changed: expected revision {expected}, current revision {current}")]
     StaleQueueRevision { expected: u64, current: u64 },
     #[error("Cast is not possible for library {library_id}: {state:?}")]
@@ -78,6 +80,7 @@ pub fn classify(error: &Error) -> RequestErrorKind {
                 ExpectedRequestError::PublicKeyMismatch => RequestErrorKind::InvalidInput,
                 ExpectedRequestError::RegistrationConflict => RequestErrorKind::Conflict,
                 ExpectedRequestError::Remote { kind, .. } => *kind,
+                ExpectedRequestError::UnexpectedResponse { .. } => RequestErrorKind::Internal,
                 ExpectedRequestError::StaleQueueRevision { .. } => RequestErrorKind::Conflict,
                 ExpectedRequestError::CastNotPossible { state, .. } => match state {
                     CastLibraryState::NotHeld | CastLibraryState::AccessRevoked => {

@@ -3414,10 +3414,10 @@ async fn list_renderers_reports_access_availability_and_attachment() -> Result<(
 async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Result<()> {
     use crate::backends::remote::RendererLink;
     use crate::messages::{
-        CastLibraryState, CastLoadRequest, CastLoadResponse, CastPreflightResponse,
-        LibraryItemRequest, PlaylistOperateMode, RequestErrorKind,
+        CastLibraryState, CastLoadRequest, LibraryItemRequest, PlaylistOperateMode,
+        RequestErrorKind,
     };
-    use crate::request_error::classify;
+    use crate::request_error::{ExpectedRequestError, classify};
 
     let controller_dir = tempfile::tempdir()?;
     let renderer_dir = tempfile::tempdir()?;
@@ -3441,14 +3441,7 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
         .library_id
         .context("renderer library id")?;
 
-    let (name, payload) = link
-        .request(
-            "CastPreflightRequest",
-            &rinf::serialize(&preflight_request(library_id))?,
-        )
-        .await?;
-    assert_eq!(name, "CastPreflightResponse");
-    let preflight: CastPreflightResponse = rinf::deserialize(&payload)?;
+    let preflight = link.call(&preflight_request(library_id)).await?;
     assert_eq!(preflight.libraries[0].state, CastLibraryState::Ready);
 
     let ids = [
@@ -3505,11 +3498,7 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
         position_seconds: None,
         play: None,
     };
-    let (name, payload) = link
-        .request("CastLoadRequest", &rinf::serialize(&append_without_switch)?)
-        .await?;
-    assert_eq!(name, "CastLoadResponse");
-    let _: CastLoadResponse = rinf::deserialize(&payload)?;
+    link.call(&append_without_switch).await?;
     wait_player(&renderer, |status| status.playlist.len() == 2).await?;
     assert_eq!(
         renderer.global_params.player.lock().await.get_status().item,
@@ -3553,11 +3542,7 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
             position_seconds: None,
             play: None,
         };
-        let (name, payload) = link
-            .request("CastLoadRequest", &rinf::serialize(&request)?)
-            .await?;
-        assert_eq!(name, "CastLoadResponse");
-        let _: CastLoadResponse = rinf::deserialize(&payload)?;
+        link.call(&request).await?;
         wait_player(&renderer, |status| {
             status.item == Some(PlayingItem::InLibrary(item)) && status.state == expected_state
         })
@@ -3590,11 +3575,50 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
         position_seconds: None,
         play: None,
     };
-    let error = link
-        .request("CastLoadRequest", &rinf::serialize(&invalid)?)
-        .await
-        .unwrap_err();
+    let error = match link.call(&invalid).await {
+        Ok(_) => anyhow::bail!("malformed cast load unexpectedly succeeded"),
+        Err(error) => error,
+    };
+    assert!(
+        matches!(
+            error.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::Remote {
+                kind: RequestErrorKind::InvalidInput,
+                cause: None,
+                ..
+            })
+        ),
+        "unexpected typed call error: {error:#}"
+    );
     assert_eq!(classify(&error), RequestErrorKind::InvalidInput);
+
+    let not_held = CastLoadRequest {
+        items: vec![LibraryItemRequest {
+            library_id: Uuid::new_v4().to_string(),
+            file_uuid: Uuid::new_v4().to_string(),
+        }],
+        start_index: None,
+        mode: PlaylistOperateMode::AppendToEnd,
+        expected_revision: None,
+        playback_mode: None,
+        position_seconds: None,
+        play: None,
+    };
+    let error = match link.call(&not_held).await {
+        Ok(_) => anyhow::bail!("cast to a library the renderer does not hold succeeded"),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        error.downcast_ref::<ExpectedRequestError>(),
+        Some(ExpectedRequestError::Remote {
+            kind: RequestErrorKind::PermissionDenied,
+            cause: Some(RequestFailureCause::CastNotPossible {
+                state: CastLibraryState::NotHeld,
+                ..
+            }),
+            ..
+        })
+    ));
     assert_eq!(
         renderer.global_params.player.lock().await.get_playlist(),
         queue_before_invalid
@@ -3626,13 +3650,10 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
     })
     .await
     .context("renderer link did not clear after renderer shutdown")??;
-    let error = link
-        .request(
-            "CastPreflightRequest",
-            &rinf::serialize(&preflight_request(library_id))?,
-        )
-        .await
-        .unwrap_err();
+    let error = match link.call(&preflight_request(library_id)).await {
+        Ok(_) => anyhow::bail!("request over a closed renderer link succeeded"),
+        Err(error) => error,
+    };
     assert_eq!(classify(&error), RequestErrorKind::Unavailable);
     assert!(controller.global_params.node.renderer_link()?.is_none());
 
@@ -4711,5 +4732,77 @@ async fn remote_independent_file_lyrics_are_refused() -> Result<()> {
     host.manager.stop().await?;
     host.global_params.node.shutdown().await?;
     controller.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn typed_renderer_call_rejects_wrong_reply_name() -> Result<()> {
+    use crate::backends::remote::{
+        RemoteStream, RendererLink, RendererLinkUse, decode_message, encode_message,
+    };
+    use crate::messages::{CastLoadRequest, PlaylistOperateMode};
+    use futures::SinkExt;
+    use tokio::net::TcpListener;
+    use tokio_tungstenite::{accept_async, connect_async, tungstenite::Message};
+
+    let dir = tempfile::tempdir()?;
+    let fixture = fixture(dir.path()).await?;
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let address = listener.local_addr()?;
+    let fake_renderer = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await?;
+        let mut socket = accept_async(stream).await?;
+        let message = socket
+            .next()
+            .await
+            .context("typed request was not received")??;
+        let Message::Binary(payload) = message else {
+            anyhow::bail!("expected a binary request frame")
+        };
+        let (_, _, request_id) = decode_message(&payload).context("invalid request frame")?;
+        socket
+            .send(Message::Binary(
+                encode_message("SessionSnapshotResponse", &[], Some(request_id)).into(),
+            ))
+            .await?;
+        Ok::<_, anyhow::Error>(())
+    });
+    let (stream, _) = connect_async(format!("ws://{address}")).await?;
+    let stream: RemoteStream = stream;
+    let link = RendererLink::new(
+        stream,
+        fixture.global_params.node.clone(),
+        "fake-renderer".to_owned(),
+        "Fake renderer".to_owned(),
+        RendererLinkUse::Cast,
+    )
+    .await;
+    let request = CastLoadRequest {
+        items: Vec::new(),
+        start_index: None,
+        mode: PlaylistOperateMode::Replace,
+        expected_revision: None,
+        playback_mode: None,
+        position_seconds: None,
+        play: None,
+    };
+    let error = match timeout(Duration::from_secs(5), link.call(&request))
+        .await
+        .context("typed renderer call timed out")?
+    {
+        Ok(_) => anyhow::bail!("typed call accepted a response with the wrong name"),
+        Err(error) => error,
+    };
+    assert!(
+        matches!(
+            error.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::UnexpectedResponse { expected, actual })
+                if expected == "CastLoadResponse" && actual == "SessionSnapshotResponse"
+        ),
+        "unexpected typed call error: {error:#}"
+    );
+    link.close();
+    fake_renderer.await??;
+    fixture.global_params.node.shutdown().await?;
     Ok(())
 }

@@ -60,6 +60,14 @@ pub trait CallIdentified {
     }
 }
 
+/// A request whose wire name and response type are declared in the request catalogue.
+pub trait TypedRequest {
+    type Response;
+
+    fn wire_name() -> &'static str;
+    fn response_name() -> &'static str;
+}
+
 pub(crate) use backends::remote::{forward_control_request, is_control_request};
 
 rinf::write_interface!();
