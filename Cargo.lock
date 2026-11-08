@@ -3326,6 +3326,7 @@ dependencies = [
  "shlex 1.3.0",
  "strum 0.26.3",
  "strum_macros",
+ "subsonic",
  "swift-rs",
  "sync",
  "sync-orm",
@@ -7564,6 +7565,22 @@ dependencies = [
  "quote",
  "rustversion",
  "syn 2.0.101",
+]
+
+[[package]]
+name = "subsonic"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "discovery",
+ "md5",
+ "rand 0.8.5",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "url",
 ]
 
 [[package]]

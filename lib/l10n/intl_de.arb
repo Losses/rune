@@ -1471,5 +1471,9 @@
   "capabilityPeerTooOld": "Aktualisiere Rune auf dem anderen Gerät, um dies zu verwenden.",
   "requestPeerNeedsUpdateFallback": "Aktualisiere Rune auf beiden Geräten, um eine Verbindung herzustellen.",
   "@requestPeerNeedsUpdatePeer": {"placeholders": {"alias": {"type": "String"}}},
-  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}}
+  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}},
+  "capabilityAccountRoleMissing": "Dein Konto auf diesem Server darf diese Aktion nicht ausführen.",
+  "@capabilityAccountRoleMissing": {
+    "description": "Shown when a Subsonic account lacks permission to use a control."
+  }
 }

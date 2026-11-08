@@ -15,6 +15,7 @@ pub enum CapabilityReason {
     NotImplemented,
     OwnerOnly,
     PeerTooOld,
+    AccountRoleMissing,
 }
 
 /// One field per request in the catalogue (`native/requests`), named after it.
@@ -172,6 +173,11 @@ impl From<Slot> for RequestCapability {
                 reason: UnsupportedReason::PeerTooOld,
             } => Self::Disabled {
                 reason: CapabilityReason::PeerTooOld,
+            },
+            Slot::Unsupported {
+                reason: UnsupportedReason::AccountRoleMissing,
+            } => Self::Disabled {
+                reason: CapabilityReason::AccountRoleMissing,
             },
         }
     }

@@ -22,6 +22,8 @@ pub enum UnsupportedReason {
     OwnerOnly,
     #[error("peer needs a newer protocol version")]
     PeerTooOld,
+    #[error("account role is missing")]
+    AccountRoleMissing,
 }
 
 /// Execution assigned to one catalogue request on a target.
@@ -70,6 +72,14 @@ impl RpcTarget {
         Self {
             slots,
             renderer: Some(renderer),
+        }
+    }
+
+    /// Construct a Subsonic target from the connection-time capability probe.
+    pub fn subsonic(probe: &subsonic::SubsonicProbe) -> Self {
+        Self {
+            slots: RequestSlots::subsonic(probe),
+            renderer: None,
         }
     }
 
@@ -139,6 +149,33 @@ impl RpcTarget {
 
     pub fn slot<R: TargetRequest>(&self, _request: &R) -> Slot {
         self.slot_type::<R>()
+    }
+}
+
+impl RequestSlots {
+    /// Build the Subsonic whitelist. jukeboxControl covers transport commands,
+    /// queue status, and queue add/remove operations; other catalogue entries stay hidden.
+    pub fn subsonic(probe: &subsonic::SubsonicProbe) -> Self {
+        let mut slots = Self::unimplemented();
+        let slot = if probe.roles_known && probe.roles.jukebox_role {
+            Slot::Translate
+        } else {
+            Slot::Unsupported {
+                reason: UnsupportedReason::AccountRoleMissing,
+            }
+        };
+        slots.play_request = slot;
+        slots.pause_request = slot;
+        slots.next_request = slot;
+        slots.previous_request = slot;
+        slots.seek_request = slot;
+        slots.volume_request = slot;
+        slots.switch_request = slot;
+        slots.load_request = slot;
+        slots.remove_request = slot;
+        slots.session_snapshot_request = slot;
+        slots.refresh_session_request = slot;
+        slots
     }
 }
 
@@ -241,7 +278,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::routes_to_attached_renderer;
+    use super::{
+        RequestCapability, RpcTarget, Slot, UnsupportedReason, routes_to_attached_renderer,
+    };
     use crate::messages::{
         DetachRendererRequest, HandoffRequest, ListControllersRequest, ListRenderersRequest,
         OperatePlaybackWithMixQueryRequest, PauseRequest, PlayRequest,
@@ -258,6 +297,83 @@ mod tests {
         assert!(!routes_to_attached_renderer::<
             OperatePlaybackWithMixQueryRequest,
         >());
+    }
+
+    #[test]
+    fn subsonic_slots_reflect_jukebox_role_and_hide_unmapped_requests() {
+        use crate::messages::CapabilityReason;
+        use crate::messages::RequestCapabilities;
+        use crate::messages::{
+            FetchAllPlaylistsRequest, LoadRequest, NextRequest, PauseRequest, PreviousRequest,
+            RefreshSessionRequest, RemoveRequest, SeekRequest, SessionSnapshotRequest,
+            SwitchRequest, VolumeRequest,
+        };
+
+        let mut probe = subsonic::SubsonicProbe {
+            api_version: "1.16.1".into(),
+            open_subsonic: false,
+            server_type: None,
+            server_version: None,
+            extensions: Vec::new(),
+            roles: subsonic::SubsonicRoles::default(),
+            roles_known: true,
+        };
+        probe.roles.jukebox_role = true;
+        let enabled = RpcTarget::subsonic(&probe);
+        assert_eq!(enabled.slot(&PauseRequest {}), Slot::Translate);
+        assert_eq!(enabled.slot(&NextRequest {}), Slot::Translate);
+        assert_eq!(enabled.slot(&PreviousRequest {}), Slot::Translate);
+        assert_eq!(
+            enabled.slot(&SeekRequest {
+                position_seconds: 12.0
+            }),
+            Slot::Translate
+        );
+        assert_eq!(
+            enabled.slot(&VolumeRequest { volume: 0.5 }),
+            Slot::Translate
+        );
+        assert_eq!(
+            enabled.slot(&SwitchRequest {
+                index: 1,
+                expected_revision: None
+            }),
+            Slot::Translate
+        );
+        assert_eq!(enabled.slot(&LoadRequest { index: 0 }), Slot::Translate);
+        assert_eq!(
+            enabled.slot(&RemoveRequest {
+                index: 0,
+                expected_revision: None
+            }),
+            Slot::Translate
+        );
+        assert_eq!(enabled.slot(&SessionSnapshotRequest {}), Slot::Translate);
+        assert_eq!(enabled.slot(&RefreshSessionRequest {}), Slot::Translate);
+        probe.roles.jukebox_role = false;
+        let disabled = RpcTarget::subsonic(&probe);
+        assert_eq!(
+            disabled.slot(&PauseRequest {}),
+            Slot::Unsupported {
+                reason: UnsupportedReason::AccountRoleMissing
+            }
+        );
+        assert_eq!(
+            RequestCapabilities::from_target(&disabled).pause_request,
+            RequestCapability::Disabled {
+                reason: CapabilityReason::AccountRoleMissing
+            }
+        );
+        assert_eq!(
+            disabled.slot(&FetchAllPlaylistsRequest {}),
+            Slot::Unsupported {
+                reason: UnsupportedReason::NotImplemented
+            }
+        );
+        assert_eq!(
+            RequestCapabilities::from_target(&disabled).fetch_all_playlists_request,
+            RequestCapability::Hidden
+        );
     }
 }
 

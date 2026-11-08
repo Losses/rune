@@ -1471,5 +1471,9 @@
   "capabilityPeerTooOld": "Оновіть Rune на іншому пристрої, щоб скористатися цією функцією.",
   "requestPeerNeedsUpdateFallback": "Оновіть Rune на обох пристроях, щоб підключитися.",
   "@requestPeerNeedsUpdatePeer": {"placeholders": {"alias": {"type": "String"}}},
-  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}}
+  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}},
+  "capabilityAccountRoleMissing": "Ваш обліковий запис на цьому сервері не має права виконувати цю дію.",
+  "@capabilityAccountRoleMissing": {
+    "description": "Shown when a Subsonic account lacks permission to use a control."
+  }
 }

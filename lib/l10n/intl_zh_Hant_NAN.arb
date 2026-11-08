@@ -1436,5 +1436,9 @@
   "capabilityPeerTooOld": "請佇另外一台設備更新 Rune 來使用這个功能。",
   "requestPeerNeedsUpdateFallback": "請佇兩台設備更新 Rune 來連線。",
   "@requestPeerNeedsUpdatePeer": {"placeholders": {"alias": {"type": "String"}}},
-  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}}
+  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}},
+  "capabilityAccountRoleMissing": "你佇此伺服器的帳戶無權限做這項代誌。",
+  "@capabilityAccountRoleMissing": {
+    "description": "Shown when a Subsonic account lacks permission to use a control."
+  }
 }

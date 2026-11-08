@@ -38,6 +38,7 @@ flutter-texture = { path = "../../flutter-texture" }
 scrobbling = { path = "../../scrobbling" }
 metadata = { path = "../../metadata" }
 discovery = { path = "../../discovery" }
+subsonic = { path = "../../subsonic" }
 lazy_static = "1.5.0"
 log = "0.4.22"
 tracing-subscriber = { version = "0.3.20", features = ["chrono", "registry"] }

@@ -9,6 +9,7 @@ String capabilityReasonText(BuildContext context, CapabilityReason reason) {
     CapabilityReason.notImplemented => strings.capabilityNotImplemented,
     CapabilityReason.ownerOnly => strings.capabilityOwnerOnly,
     CapabilityReason.peerTooOld => strings.capabilityPeerTooOld,
+    CapabilityReason.accountRoleMissing => strings.capabilityAccountRoleMissing,
   };
 }
 

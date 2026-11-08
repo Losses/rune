@@ -1473,5 +1473,9 @@
   "capabilityPeerTooOld": "이 기능을 사용하려면 다른 기기에서 Rune을 업데이트하세요.",
   "requestPeerNeedsUpdateFallback": "연결하려면 두 기기 모두에서 Rune을 업데이트하세요.",
   "@requestPeerNeedsUpdatePeer": {"placeholders": {"alias": {"type": "String"}}},
-  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}}
+  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}},
+  "capabilityAccountRoleMissing": "이 서버의 계정에는 이 작업을 수행할 권한이 없습니다.",
+  "@capabilityAccountRoleMissing": {
+    "description": "Shown when a Subsonic account lacks permission to use a control."
+  }
 }

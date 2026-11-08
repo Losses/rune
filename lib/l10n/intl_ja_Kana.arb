@@ -1434,5 +1434,9 @@
   "capabilityPeerTooOld": "これを つかうには、もういっぽうの デバイスで Rune を こうしんしてください。",
   "requestPeerNeedsUpdateFallback": "せつぞくするには りょうほうの デバイスで Rune を こうしんしてください。",
   "@requestPeerNeedsUpdatePeer": {"placeholders": {"alias": {"type": "String"}}},
-  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}}
+  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}},
+  "capabilityAccountRoleMissing": "このさーばーのあかうんとでは、このそうさをおこなうけんげんがありません。",
+  "@capabilityAccountRoleMissing": {
+    "description": "Shown when a Subsonic account lacks permission to use a control."
+  }
 }
