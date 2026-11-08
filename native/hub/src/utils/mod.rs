@@ -18,6 +18,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
+use crate::handlers::local_libraries::publish_library_records_changed;
 use crate::node::{NodeContext, current_node, initialize_node};
 use anyhow::{Context, Result};
 use fsio::FsIo;
@@ -585,11 +586,16 @@ pub(crate) async fn register_local_library_on_node(
     }
     .await;
     match result {
-        Ok(record) => RegisterLibraryResponse {
-            record: Some((&record).into()),
-            outcome: RegisterLibraryOutcome::Registered,
-            detail: None,
-        },
+        Ok(record) => {
+            if let Err(error) = publish_library_records_changed(node) {
+                log::warn!("Could not publish library record change: {error:#}");
+            }
+            RegisterLibraryResponse {
+                record: Some((&record).into()),
+                outcome: RegisterLibraryOutcome::Registered,
+                detail: None,
+            }
+        }
         Err(error) => fail(RegisterLibraryFailureKind::Storage, error),
     }
 }
@@ -634,11 +640,16 @@ pub(crate) async fn register_remote_control_on_node(
     )
     .await
     {
-        Ok(record) => RegisterLibraryResponse {
-            record: Some((&record).into()),
-            outcome: RegisterLibraryOutcome::Registered,
-            detail: None,
-        },
+        Ok(record) => {
+            if let Err(error) = publish_library_records_changed(node) {
+                log::warn!("Could not publish library record change: {error:#}");
+            }
+            RegisterLibraryResponse {
+                record: Some((&record).into()),
+                outcome: RegisterLibraryOutcome::Registered,
+                detail: None,
+            }
+        }
         Err(error) => RegisterLibraryResponse {
             record: None,
             outcome: RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::Storage),

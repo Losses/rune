@@ -5,6 +5,7 @@ use reconnect::ReconnectTask;
 use std::sync::atomic::AtomicUsize;
 
 use std::{
+    collections::HashMap,
     fmt::{Debug, Formatter, Result as FmtResult},
     fs,
     io::Error,
@@ -145,6 +146,7 @@ pub struct NodeContext {
     pub token: Arc<CancellationToken>,
     handoff_retry_token: CancellationToken,
     pub(crate) sync_tokens: SyncTokenStore,
+    sync_library_tokens: Mutex<HashMap<Uuid, CancellationToken>>,
     pub server_manager: OnceLock<Arc<ServerManager>>,
     local_session: OnceLock<Arc<PlayerSession>>,
     current_ui: Mutex<Option<Weak<GlobalParams>>>,
@@ -195,6 +197,20 @@ impl Broadcaster for NodeBroadcaster {
 }
 
 impl NodeContext {
+    pub(crate) async fn sync_library_token(&self, library_id: Uuid) -> CancellationToken {
+        let mut tokens = self.sync_library_tokens.lock().await;
+        tokens
+            .entry(library_id)
+            .or_insert_with(CancellationToken::new)
+            .clone()
+    }
+
+    pub(crate) async fn stop_library_sync(&self, library_id: Uuid) {
+        if let Some(token) = self.sync_library_tokens.lock().await.remove(&library_id) {
+            token.cancel();
+        }
+    }
+
     pub(crate) fn protocol_version(&self) -> ProtocolVersion {
         *self
             .protocol_version
@@ -292,6 +308,7 @@ impl NodeContext {
             token: Arc::new(CancellationToken::new()),
             handoff_retry_token: CancellationToken::new(),
             sync_tokens,
+            sync_library_tokens: Mutex::new(HashMap::new()),
             server_manager: OnceLock::new(),
             local_session: OnceLock::new(),
             current_ui: Mutex::new(None),

@@ -438,8 +438,10 @@ async fn run_loop(
             let Some(global) = global.upgrade() else {
                 return (key, Duration::from_secs(30), false);
             };
+            let library_cancel = global.sync_library_token(id).await;
             let library = tokio::select! {
                 _ = cancel.cancelled() => return (key, Duration::from_secs(30), false),
+                _ = library_cancel.cancelled() => return (key, Duration::from_secs(30), false),
                 library = global.library_pool.acquire_served(id) => library,
             };
             let library = match library {
@@ -454,6 +456,10 @@ async fn run_loop(
             for endpoint in hosts {
                 let result = tokio::select! {
                     _ = cancel.cancelled() => return (key, Duration::from_secs(30), false),
+                    _ = library_cancel.cancelled() => {
+                        locks.lock().await.remove(&(endpoint.fingerprint.clone(), id));
+                        return (key, Duration::from_secs(30), false);
+                    },
                     _ = wait_for_revocation(Arc::downgrade(&global), &endpoint.fingerprint, &endpoint.trusted_host) => Err(anyhow::anyhow!("peer permission revoked")),
                     result = async {
                         let options = PassOptions { credentials: &credentials, metadata, locks: &locks, cancel: &cancel };

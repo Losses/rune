@@ -1,18 +1,180 @@
 use crate::request_error::ExpectedRequestError;
-use std::{path::Path, sync::Arc};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::Result;
-use database::library_registry::LibraryRegistry;
+use database::library_registry::{LibraryKind, LibraryRecordId, LibraryRegistry};
 use uuid::Uuid;
 
 use crate::{
     Session, Signal,
     messages::{
-        ListLocalLibrariesRequest, ListLocalLibrariesResponse, LocalLibrary,
+        LibraryRecordKindSummary, LibraryRecordSummary, LibraryRecordsChanged,
+        ListLibraryRecordsRequest, ListLibraryRecordsResponse, ListLocalLibrariesRequest,
+        ListLocalLibrariesResponse, LocalLibrary, OpenRecord, RemoveLibraryRecordFailureKind,
+        RemoveLibraryRecordOutcome, RemoveLibraryRecordRequest, RemoveLibraryRecordResponse,
         SetLibraryBackgroundSyncRequest, SetLibraryBackgroundSyncResponse,
     },
+    node::NodeContext,
     utils::{GlobalParams, ParamsExtractor},
 };
+
+fn record_summaries(node: &NodeContext) -> Result<(Vec<LibraryRecordSummary>, Option<OpenRecord>)> {
+    let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
+    let devices = node.device_scanner.get_all_devices();
+    let aliases: HashMap<_, _> = registry
+        .libraries
+        .iter()
+        .filter_map(|record| match &record.kind {
+            LibraryKind::RuneRemoteControl { fingerprint } => {
+                Some((fingerprint.as_str(), record.alias.as_str()))
+            }
+            _ => None,
+        })
+        .collect();
+    let mut records = Vec::with_capacity(registry.libraries.len());
+    for record in &registry.libraries {
+        let mut summary = LibraryRecordSummary::from(record);
+        match &mut summary.kind {
+            LibraryRecordKindSummary::Replica {
+                path,
+                owner_fingerprint,
+                owner_alias,
+                ..
+            } => {
+                if let Some(root) = record.root(Path::new(&*node.config_path)) {
+                    *path = root.to_string_lossy().into_owned();
+                }
+                *owner_alias = aliases
+                    .get(owner_fingerprint.as_str())
+                    .map(|alias| (*alias).to_owned())
+                    .or_else(|| {
+                        devices
+                            .iter()
+                            .find(|device| device.fingerprint == *owner_fingerprint)
+                            .map(|device| device.alias.clone())
+                    });
+            }
+            LibraryRecordKindSummary::RemoteControl {
+                fingerprint,
+                device_alias,
+            } => {
+                *device_alias = devices
+                    .iter()
+                    .find(|device| device.fingerprint == *fingerprint)
+                    .map(|device| device.alias.clone());
+            }
+            _ => {}
+        }
+        records.push(summary);
+    }
+    let (record_id, generation) = node.capability_library_identity()?;
+    Ok((
+        records,
+        record_id.map(|record_id| OpenRecord {
+            record_id,
+            generation,
+        }),
+    ))
+}
+
+pub(crate) fn publish_library_records_changed(node: &NodeContext) -> Result<()> {
+    let (records, open) = record_summaries(node)?;
+    node.gui_broadcaster
+        .broadcast(&LibraryRecordsChanged { records, open });
+    Ok(())
+}
+
+impl ParamsExtractor for ListLibraryRecordsRequest {
+    type Params = Arc<NodeContext>;
+
+    fn extract_params(&self, params: &GlobalParams) -> Self::Params {
+        params.node.clone()
+    }
+}
+
+impl Signal for ListLibraryRecordsRequest {
+    type Params = Arc<NodeContext>;
+    type Response = ListLibraryRecordsResponse;
+
+    async fn handle(
+        &self,
+        node: Self::Params,
+        _: Option<Session>,
+        _: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let (records, open) = record_summaries(&node)?;
+        Ok(Some(ListLibraryRecordsResponse { records, open }))
+    }
+}
+
+impl ParamsExtractor for RemoveLibraryRecordRequest {
+    type Params = Arc<NodeContext>;
+
+    fn extract_params(&self, params: &GlobalParams) -> Self::Params {
+        params.node.clone()
+    }
+}
+
+impl Signal for RemoveLibraryRecordRequest {
+    type Params = Arc<NodeContext>;
+    type Response = RemoveLibraryRecordResponse;
+
+    async fn handle(
+        &self,
+        node: Self::Params,
+        _: Option<Session>,
+        request: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let Ok(id) = Uuid::parse_str(&request.record_id) else {
+            return Ok(Some(RemoveLibraryRecordResponse {
+                outcome: RemoveLibraryRecordOutcome::Failed(
+                    RemoveLibraryRecordFailureKind::RecordNotFound,
+                ),
+            }));
+        };
+        let (open_id, _) = node.capability_library_identity()?;
+        if open_id
+            .as_deref()
+            .and_then(|record_id| Uuid::parse_str(record_id).ok())
+            == Some(id)
+        {
+            return Ok(Some(RemoveLibraryRecordResponse {
+                outcome: RemoveLibraryRecordOutcome::Failed(
+                    RemoveLibraryRecordFailureKind::RecordIsOpen,
+                ),
+            }));
+        }
+        let config = Path::new(&*node.config_path);
+        let registry = LibraryRegistry::load(config)?;
+        let Some(record) = registry
+            .libraries
+            .iter()
+            .find(|record| record.record_id.0 == id)
+        else {
+            return Ok(Some(RemoveLibraryRecordResponse {
+                outcome: RemoveLibraryRecordOutcome::Failed(
+                    RemoveLibraryRecordFailureKind::RecordNotFound,
+                ),
+            }));
+        };
+        let library_id = record.catalog_library_id();
+        if !LibraryRegistry::remove_record(config, LibraryRecordId(id)).await? {
+            return Ok(Some(RemoveLibraryRecordResponse {
+                outcome: RemoveLibraryRecordOutcome::Failed(
+                    RemoveLibraryRecordFailureKind::RecordNotFound,
+                ),
+            }));
+        }
+        if let Some(library_id) = library_id {
+            node.stop_library_sync(library_id).await;
+            node.library_pool.release_background(library_id).await;
+        }
+        publish_library_records_changed(&node)?;
+        Ok(Some(RemoveLibraryRecordResponse {
+            outcome: RemoveLibraryRecordOutcome::Removed,
+        }))
+    }
+}
 
 impl ParamsExtractor for ListLocalLibrariesRequest {
     type Params = Arc<String>;
@@ -53,20 +215,20 @@ impl Signal for ListLocalLibrariesRequest {
 }
 
 impl ParamsExtractor for SetLibraryBackgroundSyncRequest {
-    type Params = Arc<String>;
+    type Params = Arc<NodeContext>;
 
     fn extract_params(&self, params: &GlobalParams) -> Self::Params {
-        params.config_path.clone()
+        params.node.clone()
     }
 }
 
 impl Signal for SetLibraryBackgroundSyncRequest {
-    type Params = Arc<String>;
+    type Params = Arc<NodeContext>;
     type Response = SetLibraryBackgroundSyncResponse;
 
     async fn handle(
         &self,
-        config: Self::Params,
+        node: Self::Params,
         _: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -74,10 +236,17 @@ impl Signal for SetLibraryBackgroundSyncRequest {
             let library_id = Uuid::parse_str(&request.library_id).map_err(|error| {
                 ExpectedRequestError::invalid_input(format!("invalid library UUID: {error}"))
             })?;
-            LibraryRegistry::set_background_sync(Path::new(&*config), library_id, request.enabled)
-                .await
+            LibraryRegistry::set_background_sync(
+                Path::new(&*node.config_path),
+                library_id,
+                request.enabled,
+            )
+            .await
         }
         .await;
+        if result.is_ok() {
+            publish_library_records_changed(&node)?;
+        }
         Ok(Some(SetLibraryBackgroundSyncResponse {
             error: result.err().map(|error| format!("{error:#}")),
         }))
@@ -87,6 +256,7 @@ impl Signal for SetLibraryBackgroundSyncRequest {
 #[cfg(all(test, not(target_os = "android")))]
 mod tests {
     use super::*;
+    use crate::utils::LocalGuiBroadcaster;
     use database::{
         connection::StorageMode,
         library_registry::{LibraryRecord, create_replica, resolve_library},
@@ -103,7 +273,7 @@ mod tests {
     }
 
     async fn set(
-        config: &Arc<String>,
+        node: &Arc<NodeContext>,
         library_id: String,
         enabled: bool,
     ) -> Result<Option<String>> {
@@ -112,7 +282,7 @@ mod tests {
             enabled,
         };
         Ok(request
-            .handle(config.clone(), None, &request)
+            .handle(node.clone(), None, &request)
             .await?
             .unwrap()
             .error)
@@ -137,6 +307,7 @@ mod tests {
     async fn list_and_set_local_library_options() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let config = Arc::new(dir.path().to_string_lossy().into_owned());
+        let node = NodeContext::new(&config, &config, Arc::new(LocalGuiBroadcaster), false).await?;
         assert!(list(&config).await?.is_empty());
         let (owned, replica) = register(dir.path(), Uuid::new_v4()).await?;
         let libraries = list(&config).await?;
@@ -164,7 +335,7 @@ mod tests {
             owned.catalog_library_id().unwrap(),
             replica.catalog_library_id().unwrap(),
         ] {
-            assert!(set(&config, id.to_string(), false).await?.is_none());
+            assert!(set(&node, id.to_string(), false).await?.is_none());
         }
         // Resolving and adding again must retain this node's disabled preference.
         register(dir.path(), replica.catalog_library_id().unwrap()).await?;
@@ -176,7 +347,7 @@ mod tests {
         );
         assert!(
             set(
-                &config,
+                &node,
                 replica.catalog_library_id().unwrap().to_string(),
                 true
             )
@@ -192,7 +363,7 @@ mod tests {
             1
         );
         for id in ["invalid".into(), Uuid::new_v4().to_string()] {
-            assert!(set(&config, id, false).await?.is_some());
+            assert!(set(&node, id, false).await?.is_some());
         }
         assert_eq!(LibraryRegistry::load(dir.path())?.libraries.len(), 2);
         Ok(())

@@ -1031,6 +1031,8 @@ mod access_policy_tests {
             "ListControllersRequest" => RequestAccess::NodeLocal,
             "DetachControllerRequest" => RequestAccess::NodeLocal,
             "ListLocalLibrariesRequest" => RequestAccess::NodeLocal,
+            "ListLibraryRecordsRequest" => RequestAccess::NodeLocal,
+            "RemoveLibraryRecordRequest" => RequestAccess::NodeLocal,
             "SetLibraryBackgroundSyncRequest" => RequestAccess::NodeLocal,
             "RegisterLocalLibraryRequest" => RequestAccess::NodeLocal,
             "RegisterRemoteControlRequest" => RequestAccess::NodeLocal,

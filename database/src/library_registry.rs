@@ -416,6 +416,22 @@ impl LibraryRegistry {
         .await
     }
 
+    /// Remove one node-local record without changing its catalog or storage files.
+    pub async fn remove_record(config_dir: &Path, record_id: LibraryRecordId) -> Result<bool> {
+        Self::update(config_dir, |registry| {
+            let Some(index) = registry
+                .libraries
+                .iter()
+                .position(|record| record.record_id == record_id)
+            else {
+                return Ok(false);
+            };
+            registry.libraries.remove(index);
+            Ok(true)
+        })
+        .await
+    }
+
     /// Record an authority's current grant on its replica.
     pub async fn set_access_level(
         config_dir: &Path,

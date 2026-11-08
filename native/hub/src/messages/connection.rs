@@ -1,5 +1,7 @@
 use super::system::{RequestErrorKind, RequestFailureCause};
-use database::library_registry::{LibraryKind, LibraryRecord, OwnedStorage};
+use database::library_registry::{
+    LibraryAccess, LibraryConnectionAccess, LibraryKind, LibraryRecord, OwnedStorage,
+};
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
@@ -80,9 +82,11 @@ pub enum LibraryRecordKindSummary {
         library_id: String,
         path: String,
         owner_fingerprint: String,
+        owner_alias: Option<String>,
     },
     RemoteControl {
         fingerprint: String,
+        device_alias: Option<String>,
     },
     Subsonic {
         endpoint: String,
@@ -95,6 +99,23 @@ pub struct LibraryRecordSummary {
     pub record_id: String,
     pub alias: String,
     pub kind: LibraryRecordKindSummary,
+    pub background_sync: Option<bool>,
+    pub connection_access: Option<LibraryConnectionAccessSummary>,
+    pub sync_access: Option<LibraryAccessSummary>,
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LibraryAccessSummary {
+    NotShared,
+    Read,
+    ReadWrite,
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LibraryConnectionAccessSummary {
+    None,
+    View,
+    ViewEdit,
 }
 
 impl From<&LibraryRecord> for LibraryRecordSummary {
@@ -116,10 +137,12 @@ impl From<&LibraryRecord> for LibraryRecordSummary {
                 library_id: library_id.to_string(),
                 path: record.app_name().unwrap_or_default(),
                 owner_fingerprint: owner_fingerprint.clone(),
+                owner_alias: None,
             },
             LibraryKind::RuneRemoteControl { fingerprint } => {
                 LibraryRecordKindSummary::RemoteControl {
                     fingerprint: fingerprint.clone(),
+                    device_alias: None,
                 }
             }
             LibraryKind::Subsonic {
@@ -133,8 +156,78 @@ impl From<&LibraryRecord> for LibraryRecordSummary {
             record_id: record.record_id.0.to_string(),
             alias: record.alias.clone(),
             kind,
+            background_sync: matches!(
+                &record.kind,
+                LibraryKind::Owned { .. } | LibraryKind::RuneReplica { .. }
+            )
+            .then(|| record.background_sync()),
+            connection_access: record.connection_access().map(Into::into),
+            sync_access: record.access_level().map(Into::into),
         }
     }
+}
+
+impl From<LibraryAccess> for LibraryAccessSummary {
+    fn from(value: LibraryAccess) -> Self {
+        match value {
+            LibraryAccess::NotShared => Self::NotShared,
+            LibraryAccess::Read => Self::Read,
+            LibraryAccess::ReadWrite => Self::ReadWrite,
+        }
+    }
+}
+
+impl From<LibraryConnectionAccess> for LibraryConnectionAccessSummary {
+    fn from(value: LibraryConnectionAccess) -> Self {
+        match value {
+            LibraryConnectionAccess::None => Self::None,
+            LibraryConnectionAccess::View => Self::View,
+            LibraryConnectionAccess::ViewEdit => Self::ViewEdit,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct ListLibraryRecordsRequest {}
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct ListLibraryRecordsResponse {
+    pub records: Vec<LibraryRecordSummary>,
+    pub open: Option<OpenRecord>,
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
+pub struct OpenRecord {
+    pub record_id: String,
+    pub generation: u64,
+}
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct LibraryRecordsChanged {
+    pub records: Vec<LibraryRecordSummary>,
+    pub open: Option<OpenRecord>,
+}
+
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct RemoveLibraryRecordRequest {
+    pub record_id: String,
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RemoveLibraryRecordFailureKind {
+    RecordNotFound,
+    RecordIsOpen,
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
+pub enum RemoveLibraryRecordOutcome {
+    Removed,
+    Failed(RemoveLibraryRecordFailureKind),
+}
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct RemoveLibraryRecordResponse {
+    pub outcome: RemoveLibraryRecordOutcome,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
@@ -217,6 +310,7 @@ pub struct RemoteConnectionLost {
 }
 
 crate::implement_rinf_rust_signal_trait!(RemoteConnectionLost);
+crate::implement_rinf_rust_signal_trait!(LibraryRecordsChanged);
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct RemoteLibraryReconnecting {

@@ -35,6 +35,8 @@ pub struct RequestCapabilities {
     pub list_controllers_request: RequestCapability,
     pub detach_controller_request: RequestCapability,
     pub list_local_libraries_request: RequestCapability,
+    pub list_library_records_request: RequestCapability,
+    pub remove_library_record_request: RequestCapability,
     pub set_library_background_sync_request: RequestCapability,
     pub list_peer_libraries_request: RequestCapability,
     pub add_remote_library_request: RequestCapability,

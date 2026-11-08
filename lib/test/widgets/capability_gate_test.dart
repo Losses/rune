@@ -31,6 +31,8 @@ RequestCapabilities snapshot({
     listControllersRequest: capability,
     detachControllerRequest: capability,
     listLocalLibrariesRequest: capability,
+    listLibraryRecordsRequest: capability,
+    removeLibraryRecordRequest: capability,
     setLibraryBackgroundSyncRequest: capability,
     listPeerLibrariesRequest: capability,
     addRemoteLibraryRequest: capability,

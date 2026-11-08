@@ -336,6 +336,17 @@ impl LibraryPool {
         }
     }
 
+    /// Drop the pool's background-only connection after a record is removed.
+    pub async fn release_background(&self, library_id: Uuid) {
+        let mut entries = self.entries.lock().await;
+        if entries
+            .get(&library_id)
+            .is_some_and(|entry| entry.ui_users == 0)
+        {
+            entries.remove(&library_id);
+        }
+    }
+
     async fn close_idle(&self) -> Result<()> {
         let mut entries = self.entries.lock().await;
         let idle: Vec<_> = entries

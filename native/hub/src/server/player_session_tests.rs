@@ -5608,9 +5608,11 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> Result<()> {
     use crate::messages::{
-        LibraryInitializeMode, OpenLibraryFailureKind, OpenLibraryRequest, OpenLibraryResult,
+        LibraryInitializeMode, LibraryRecordKindSummary, LibraryRecordsChanged,
+        ListLibraryRecordsRequest, OpenLibraryFailureKind, OpenLibraryRequest, OpenLibraryResult,
         RegisterLibraryFailureKind, RegisterLibraryOutcome, RegisterLocalLibraryRequest,
-        RegisterRemoteControlRequest,
+        RegisterRemoteControlRequest, RemoveLibraryRecordFailureKind, RemoveLibraryRecordOutcome,
+        RemoveLibraryRecordRequest,
     };
     use database::library_registry::{
         LibraryKind, LibraryRecord, LibraryRecordId, LibraryRegistry, ReplicaStorage,
@@ -5620,8 +5622,16 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     use tokio::sync::Mutex;
 
     let dir = tempfile::tempdir()?;
-    let fixture = fixture(dir.path()).await?;
+    let signals = Arc::new(RecordedSignals::default());
+    let fixture = super::fixture_with_broadcaster(
+        dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
     let node = fixture.global_params.node.clone();
+    signals.clear();
     let selected = dir.path().join("selected");
     std::fs::create_dir_all(&selected)?;
     let request = RegisterLocalLibraryRequest {
@@ -5645,6 +5655,15 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     .await;
     assert_eq!(registered.outcome, RegisterLibraryOutcome::Registered);
     let record_id = registered.record.context("registered record")?.record_id;
+    assert!(
+        signals
+            .decoded::<LibraryRecordsChanged>("LibraryRecordsChanged")
+            .iter()
+            .any(|changed| changed
+                .records
+                .iter()
+                .any(|record| record.record_id == record_id))
+    );
     let scrobbler = Arc::new(Mutex::new(ScrobblingManager::new(
         10,
         Duration::from_secs(5),
@@ -5724,12 +5743,13 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     assert!(matches!(unknown.result, OpenLibraryResult::Failed(failure)
         if failure.kind == OpenLibraryFailureKind::RecordNotFound));
 
+    let unreachable = format!("unreachable-{}", Uuid::new_v4());
     let missing_replica = LibraryRecord {
         record_id: LibraryRecordId(Uuid::new_v4()),
         alias: "Missing replica".into(),
         kind: LibraryKind::RuneReplica {
             library_id: Uuid::new_v4(),
-            owner_fingerprint: "owner".into(),
+            owner_fingerprint: unreachable.clone(),
             access_level: None,
             connection_access: None,
             background_sync: true,
@@ -5783,7 +5803,6 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
         if failure.kind == OpenLibraryFailureKind::NotSupportedYet)
     );
 
-    let unreachable = format!("unreachable-{}", Uuid::new_v4());
     node.cert_validator
         .read()
         .await
@@ -5799,10 +5818,55 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     .await;
     assert_eq!(remote.outcome, RegisterLibraryOutcome::Registered);
     let remote_id = remote.record.context("remote record")?.record_id;
+    let listed = ListLibraryRecordsRequest {}
+        .handle(node.clone(), None, &ListLibraryRecordsRequest {})
+        .await?
+        .context("list library records")?;
+    let local_summary = listed
+        .records
+        .iter()
+        .find(|record| record.record_id == record_id)
+        .context("local record summary")?;
+    assert_eq!(local_summary.alias, "Selected");
+    assert_eq!(local_summary.background_sync, Some(true));
+    assert!(matches!(
+        &local_summary.kind,
+        LibraryRecordKindSummary::Local { path, .. } if path == &selected.to_string_lossy()
+    ));
+    let replica_summary = listed
+        .records
+        .iter()
+        .find(|record| record.record_id == missing_replica.record_id.0.to_string())
+        .context("replica record summary")?;
+    assert!(matches!(
+        &replica_summary.kind,
+        LibraryRecordKindSummary::Replica { owner_fingerprint, owner_alias: Some(owner_alias), path, .. }
+            if owner_fingerprint == &unreachable && owner_alias == "Away" && path == &missing_replica.root(Path::new(&*node.config_path)).unwrap().to_string_lossy()
+    ));
+    assert!(listed.records.iter().any(|record| {
+        record.record_id == remote_id
+            && matches!(
+                &record.kind,
+                LibraryRecordKindSummary::RemoteControl { fingerprint, .. }
+                    if fingerprint == &unreachable
+            )
+    }));
+    assert!(listed.records.iter().any(|record| {
+        record.record_id == subsonic.record_id.0.to_string()
+            && matches!(
+                &record.kind,
+                LibraryRecordKindSummary::Subsonic { endpoint, account }
+                    if endpoint == "https://example.invalid" && account == "account"
+            )
+    }));
+    assert_eq!(
+        listed.open.as_ref().map(|open| open.record_id.as_str()),
+        Some(second_record_id.as_str())
+    );
     let failure = open_library_by_record_on_node(
         &OpenLibraryRequest {
             call_id: 7,
-            record_id: remote_id,
+            record_id: remote_id.clone(),
         },
         node.clone(),
         scrobbler,
@@ -5813,6 +5877,55 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     let after_failure = node.current_ui().await?;
     assert!(Arc::ptr_eq(&current, &after_failure));
     dispatch_gui_request(&after_failure, &FetchAllPlaylistsRequest {}).await?;
+
+    let open_removal = RemoveLibraryRecordRequest {
+        record_id: second_record_id.clone(),
+    }
+    .handle(
+        node.clone(),
+        None,
+        &RemoveLibraryRecordRequest {
+            record_id: second_record_id.clone(),
+        },
+    )
+    .await?
+    .context("open record removal")?;
+    assert_eq!(
+        open_removal.outcome,
+        RemoveLibraryRecordOutcome::Failed(RemoveLibraryRecordFailureKind::RecordIsOpen)
+    );
+    let unknown_removal = RemoveLibraryRecordRequest {
+        record_id: Uuid::new_v4().to_string(),
+    };
+    assert_eq!(
+        unknown_removal
+            .handle(node.clone(), None, &unknown_removal)
+            .await?
+            .context("unknown record removal")?
+            .outcome,
+        RemoveLibraryRecordOutcome::Failed(RemoveLibraryRecordFailureKind::RecordNotFound)
+    );
+    let remove_remote = RemoveLibraryRecordRequest {
+        record_id: remote_id.clone(),
+    };
+    signals.clear();
+    assert_eq!(
+        remove_remote
+            .handle(node.clone(), None, &remove_remote)
+            .await?
+            .context("remote record removal")?
+            .outcome,
+        RemoveLibraryRecordOutcome::Removed
+    );
+    assert!(
+        signals
+            .decoded::<LibraryRecordsChanged>("LibraryRecordsChanged")
+            .iter()
+            .any(|changed| changed
+                .records
+                .iter()
+                .all(|record| record.record_id != remote_id))
+    );
 
     let before = LibraryRegistry::load(PathBuf::from(&*node.config_path).as_path())?
         .libraries

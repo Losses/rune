@@ -851,7 +851,7 @@ mod lifecycle_tests {
     use crate::messages::*;
     use crate::request_error::classify;
     use crate::server::WebSocketService;
-    use crate::utils::ParamsExtractor;
+    use crate::utils::{ParamsExtractor, register_local_library_on_node};
     use migration::catalog_identity::{ParentKind, parent};
     use playback::decoder::RuneDecoder;
     use playback::stream_utils::{ManagedStream, create_stream_with_authorizer};
@@ -891,6 +891,7 @@ mod lifecycle_tests {
         cancel.cancel();
     }
 
+    use super::super::libraries::ListedLibrary;
     use super::*;
     use crate::utils::nid::get_or_create_node_id;
     use crate::utils::{
@@ -1683,6 +1684,132 @@ mod lifecycle_tests {
         );
         node.shutdown().await?;
         b.global_params.node.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn removing_owned_record_revokes_serving_and_sync_and_preserves_files() -> Result<()> {
+        let owner_dir = tempfile::tempdir()?;
+        let peer_dir = tempfile::tempdir()?;
+        let owner = fixture(owner_dir.path()).await?;
+        let peer = fixture(peer_dir.path()).await?;
+        let address = paired_full(&owner, &peer).await?;
+        let owner_info = info(&owner).await?;
+        let peer_info = info(&peer).await?;
+        let (_, client) = authenticated_client(
+            &peer.global_params.node,
+            &peer_info.fingerprint,
+            &peer.private_key,
+            &owner_info.fingerprint,
+            "127.0.0.1",
+            address.port(),
+        )
+        .await?;
+        let root = owner_dir.path().join("removable-owned");
+        std::fs::create_dir_all(&root)?;
+        let registered = register_local_library_on_node(
+            &RegisterLocalLibraryRequest {
+                path: root.to_string_lossy().into_owned(),
+                alias: "Removable".into(),
+                mode: Some(LibraryInitializeMode::Portable),
+            },
+            &owner.global_params.node,
+        )
+        .await;
+        anyhow::ensure!(registered.outcome == RegisterLibraryOutcome::Registered);
+        let summary = registered.record.context("registered owned library")?;
+        let library_id = match &summary.kind {
+            LibraryRecordKindSummary::Local { library_id, .. } => Uuid::parse_str(library_id)?,
+            _ => anyhow::bail!("expected local owned library record"),
+        };
+        let record = LibraryRegistry::load(owner_dir.path())?
+            .catalog(library_id)?
+            .clone();
+        let root = record.root(owner_dir.path()).context("owned root")?;
+        let marker = root.join(".rune");
+        anyhow::ensure!(marker.is_dir(), "library metadata directory missing");
+        let before: Vec<ListedLibrary> = client
+            .get(format!("https://{address}/libraries"))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        anyhow::ensure!(before.iter().any(|entry| entry.library_id == library_id));
+
+        let worker_token = owner
+            .global_params
+            .node
+            .sync_library_token(library_id)
+            .await;
+        let request = RemoveLibraryRecordRequest {
+            record_id: record.record_id.0.to_string(),
+        };
+        let response = request
+            .handle(owner.global_params.node.clone(), None, &request)
+            .await?
+            .context("remove response")?;
+        anyhow::ensure!(response.outcome == RemoveLibraryRecordOutcome::Removed);
+        anyhow::ensure!(worker_token.is_cancelled(), "sync worker was not cancelled");
+        let after: Vec<ListedLibrary> = client
+            .get(format!("https://{address}/libraries"))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        anyhow::ensure!(!after.iter().any(|entry| entry.library_id == library_id));
+        anyhow::ensure!(
+            !owner
+                .global_params
+                .node
+                .library_pool
+                .served_library_ids()
+                .await?
+                .contains(&library_id),
+            "removed library remained eligible for background work"
+        );
+        anyhow::ensure!(
+            owner
+                .global_params
+                .node
+                .library_pool
+                .acquire_for_request(library_id)
+                .await
+                .is_err(),
+            "removed library could still be acquired for sync"
+        );
+        anyhow::ensure!(
+            owner
+                .global_params
+                .node
+                .library_pool
+                .acquire_served(library_id)
+                .await?
+                .is_none(),
+            "background sync could still acquire the removed library"
+        );
+        anyhow::ensure!(
+            root.is_dir() && marker.is_dir(),
+            "removal deleted library files"
+        );
+
+        let registered = register_local_library_on_node(
+            &RegisterLocalLibraryRequest {
+                path: root.to_string_lossy().into_owned(),
+                alias: "Removable".into(),
+                mode: Some(LibraryInitializeMode::Portable),
+            },
+            &owner.global_params.node,
+        )
+        .await;
+        let summary = registered.record.context("re-registered record")?;
+        anyhow::ensure!(
+            matches!(summary.kind, LibraryRecordKindSummary::Local { library_id: ref id, .. } if id == &library_id.to_string()),
+            "re-registering folder did not restore the same library id"
+        );
+        owner.global_params.node.shutdown().await?;
+        peer.global_params.node.shutdown().await?;
         Ok(())
     }
 
