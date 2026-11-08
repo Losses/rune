@@ -26,6 +26,7 @@ use crate::{
     request_error::{ExpectedRequestError, classify},
     rpc::{RpcTarget, Slot, UnsupportedReason, dispatch_gui_request, run_on_target},
     session::store::SessionState,
+    server::api::fetch_device_info_at_port,
 };
 use database::actions::{
     downloads::cleanup_unselected_downloads,
@@ -3342,6 +3343,24 @@ async fn list_renderers_reports_access_availability_and_attachment() -> Result<(
             )
             .await?;
     }
+    let renderer_validator = controller.global_params.cert_validator.read().await.clone();
+    timeout(Duration::from_secs(3), async {
+        loop {
+            if fetch_device_info_at_port(
+                "127.0.0.1",
+                renderer_address.port(),
+                Arc::new(Arc::new(renderer_validator.clone()).into_client_config()),
+            )
+            .await
+            .is_ok()
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .context("renderer server did not become ready")?;
     let host_library_id = host.global_params.library_id.context("host library id")?;
     let controller_library_id = controller
         .global_params

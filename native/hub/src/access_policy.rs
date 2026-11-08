@@ -210,7 +210,13 @@ impl RuneAccessPolicy {
             .read()
             .map_err(|_| anyhow::anyhow!("Grants snapshot poisoned"))?
             .clone();
+        let before = next.devices.clone();
         change(&mut next.devices);
+        // Re-approving an approved device, or reloading an unchanged file, must not look like
+        // a grant change: listeners such as the sync worker restart their pass on every one.
+        if next.devices == before {
+            return Ok(());
+        }
         self.persist(&next)?;
         *self
             .snapshot
@@ -319,6 +325,29 @@ mod load_tests {
         )?;
         let policy = RuneAccessPolicy::load(dir.path(), &[approved("a")])?;
         assert_eq!(policy.grants("a")?, DeviceGrants::guest());
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod change_tests {
+    use super::{DeviceGrants, RuneAccessPolicy};
+
+    #[test]
+    fn unchanged_grants_do_not_notify() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let policy = RuneAccessPolicy::load(dir.path(), &[])?;
+        let mut changes = policy.changes.subscribe();
+        policy.set("a", DeviceGrants::guest())?;
+        assert!(changes.has_changed()?);
+        changes.borrow_and_update();
+        policy.set("a", DeviceGrants::guest())?;
+        assert!(
+            !changes.has_changed()?,
+            "an identical write notified listeners"
+        );
+        policy.set("a", DeviceGrants::my_device())?;
+        assert!(changes.has_changed()?);
         Ok(())
     }
 }
