@@ -4172,6 +4172,14 @@ async fn attached_handoff_source(
     let source = fixture(source_dir.path()).await?;
     let source_id = session_audio(&source, "handoff-retry-source.ogg").await?;
     queue_session(&source, &[source_id]).await?;
+    // The fixture track lasts a few seconds; repeat it so a slow run never sees it end.
+    for node in [&controller, &source] {
+        node.global_params
+            .player
+            .lock()
+            .await
+            .set_playback_mode(PlaybackMode::RepeatAll);
+    }
     source.global_params.player.lock().await.load(0);
     source.global_params.player.lock().await.play();
     wait_player(&source, |status| status.state == PlaybackState::Playing).await?;
