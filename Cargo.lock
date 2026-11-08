@@ -3301,7 +3301,6 @@ dependencies = [
  "migration",
  "mimetype-detector",
  "num_cpus",
- "paste",
  "pem",
  "playback",
  "portpicker",

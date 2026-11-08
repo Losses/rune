@@ -1,13 +1,9 @@
-#[macro_use]
-mod remote_request;
-
 use crate::node::NodeContext;
 use crate::request_error::ExpectedRequestError;
-use crate::request_error::classify;
 use std::{
     collections::HashMap,
     sync::{
-        Arc, OnceLock, Weak,
+        Arc, Weak,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
@@ -16,10 +12,10 @@ use std::{
 use anyhow::{Context, Result};
 use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
-use log::{debug, error, info, warn};
+use log::{error, warn};
 use reqwest::redirect::Policy;
-use rinf::{DartSignal, RustSignal};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use rinf::DartSignal;
+use serde::{Serialize, de::DeserializeOwned};
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, oneshot};
 use tokio_tungstenite::{
@@ -34,17 +30,6 @@ use tokio_util::sync::CancellationToken;
 use urlencoding::encode;
 use uuid::Uuid;
 
-use ::discovery::{
-    client::{CertValidator, select_best_host},
-    endpoint::endpoint_host_port,
-    url::decode_rnsrv_url,
-};
-use ::fsio::FsIo;
-use ::playback::{player::MockPlayer, sfx_player::SfxPlayer};
-use ::scrobbling::manager::MockScrobblingManager;
-
-use crate::register_response_handlers;
-use crate::rpc::dispatch_gui_request;
 use crate::{
     messages::*,
     server::{
@@ -54,21 +39,13 @@ use crate::{
             SyncTokenStore, obtain_or_reuse_token, peer_base, tls_config, trusted_fingerprint,
         },
     },
-    utils::{Broadcaster, GlobalParams, RinfRustSignal, RunningMode, TaskTokens},
+    utils::GlobalParams,
 };
-
-pub trait RinfDartSignal {
-    fn name(&self) -> String;
-    fn decode(x: &[u8]) -> Result<Self>
-    where
-        Self: Sized + for<'a> Deserialize<'a>,
-    {
-        rinf::deserialize(x).map_err(|e| anyhow::anyhow!("Deserialization failed: {e}"))
-    }
-}
-
-for_all_requests0!(implement_rinf_dart_signal_trait);
-for_all_responses0!(implement_rinf_rust_signal_trait);
+use ::discovery::{
+    client::{CertValidator, select_best_host},
+    endpoint::endpoint_host_port,
+    url::decode_rnsrv_url,
+};
 
 pub fn encode_message(type_name: &str, payload: &[u8], uuid: Option<Uuid>) -> Vec<u8> {
     let type_len = type_name.len() as u8;
@@ -282,9 +259,8 @@ impl RendererLink {
         let write = Arc::new(Mutex::new(write));
         let handlers = Arc::new(Mutex::new(HashMap::<String, MessageHandler>::new()));
         if link_use == RendererLinkUse::Control {
-            register_session_handlers(&handlers, node.gui_broadcaster.clone()).await;
+            register_session_handlers(&handlers, &node, id).await;
         }
-        register_reply_handlers(&handlers).await;
         let reader_handlers = handlers.clone();
         let pending_replies: PendingReplies = Arc::new(Mutex::new(HashMap::new()));
         let reader_pending_replies = pending_replies.clone();
@@ -327,7 +303,8 @@ impl RendererLink {
                 && let Some(node) = weak_node.upgrade()
             {
                 warn!("Renderer link closed (code {close_code:?}): {detail}");
-                node.renderer_link_lost(id).await;
+                node.renderer_connection_lost(id, classify_remote_loss(close_code), detail)
+                    .await;
             }
         });
         Self {
@@ -441,60 +418,34 @@ impl Drop for RendererLink {
     }
 }
 
-/// Forward the renderer's session (status, queue, spectrum) to this device's UI.
-async fn register_session_handlers(handlers: &HandlerMap, broadcaster: Arc<dyn Broadcaster>) {
-    let status_broadcaster = broadcaster.clone();
-    handlers.lock().await.insert(
-        "PlaybackStatus".into(),
-        Box::new(
-            move |payload| match rinf::deserialize::<PlaybackStatus>(&payload) {
-                Ok(message) => status_broadcaster.broadcast(&message),
-                Err(error) => error!("Failed to decode renderer status: {error}"),
-            },
-        ),
-    );
-    let playlist_broadcaster = broadcaster.clone();
-    handlers.lock().await.insert(
-        "PlaylistUpdate".into(),
-        Box::new(
-            move |payload| match rinf::deserialize::<PlaylistUpdate>(&payload) {
-                Ok(message) => playlist_broadcaster.broadcast(&message),
-                Err(error) => error!("Failed to decode renderer queue: {error}"),
-            },
-        ),
-    );
-    handlers.lock().await.insert(
-        "RealtimeFFT".into(),
-        Box::new(
-            move |payload| match rinf::deserialize::<RealtimeFFT>(&payload) {
-                Ok(message) => broadcaster.broadcast(&message),
-                Err(error) => error!("Failed to decode renderer spectrum: {error}"),
-            },
-        ),
-    );
-}
-
-async fn register_reply_handlers(handlers: &HandlerMap) {
-    for_all_responses!(register_response_handlers, handlers);
-    handlers.lock().await.insert(
-        "RemoteRequestFailed".into(),
-        Box::new(|payload| dispatch_remote_failure(&payload)),
-    );
-}
-
-#[macro_export]
-macro_rules! register_response_handlers {
-    ($handlers:expr, $($response:ty),*) => {
-        $(
-            let handler: MessageHandler = Box::new(|payload| {
-                match rinf::deserialize::<$response>(&payload) {
-                    Ok(response) => response.send_signal_to_dart(),
-                    Err(error) => error!("Failed to decode renderer response: {error}"),
+/// Only the active control link may publish events. Library events belong to @RR;
+/// Play on continues to show this device's library.
+async fn register_session_handlers(handlers: &HandlerMap, node: &Arc<NodeContext>, id: Uuid) {
+    macro_rules! events {
+        ($library:expr, $($message:ty),* $(,)?) => {$(
+            let weak_node = Arc::downgrade(node);
+            handlers.lock().await.insert(stringify!($message).into(), Box::new(move |payload| {
+                let Some(node) = weak_node.upgrade() else { return; };
+                if !node.renderer_link().ok().flatten().is_some_and(|link| link.id() == id)
+                    || ($library && !node.remote_ui_library().unwrap_or(false)) {
+                    return;
                 }
-            });
-            $handlers.lock().await.insert(stringify!($response).into(), handler);
-        )*
-    };
+                match rinf::deserialize::<$message>(&payload) {
+                    Ok(message) => node.gui_broadcaster.broadcast(&message),
+                    Err(error) => error!("Failed to decode renderer event: {error}"),
+                }
+            }));
+        )*};
+    }
+    events!(false, PlaybackStatus, PlaylistUpdate, RealtimeFFT);
+    events!(
+        true,
+        LibraryContentChanged,
+        ScanAudioLibraryProgress,
+        ScanAudioLibraryResponse,
+        AnalyzeAudioLibraryProgress,
+        AnalyzeAudioLibraryResponse
+    );
 }
 
 pub(crate) async fn connect_remote(
@@ -610,43 +561,6 @@ fn map_websocket_connect_error(error: TungsteniteError) -> RemoteConnectError {
     }
 }
 
-fn remote_failure_detail(failure: &RemoteRequestFailed) -> String {
-    format!(
-        "Remote request {} failed: {}",
-        failure.request, failure.detail
-    )
-}
-
-fn dispatch_remote_failure(payload: &[u8]) {
-    match rinf::deserialize::<RemoteRequestFailed>(payload) {
-        Ok(failure) => {
-            let detail = remote_failure_detail(&failure);
-            let kind = failure.kind;
-            RequestFailedResponse {
-                request: failure.request,
-                call_id: failure.call_id,
-                kind,
-                detail: failure.detail,
-                cause: failure.cause,
-            }
-            .send_signal_to_dart();
-            if kind == RequestErrorKind::Internal {
-                error!("{detail}");
-                CrashResponse { detail }.send_signal_to_dart();
-            } else {
-                warn!("{detail}");
-            }
-        }
-        Err(error) => {
-            error!("Failed to decode message: {error}");
-            CrashResponse {
-                detail: format!("Failed to decode message: {error}"),
-            }
-            .send_signal_to_dart();
-        }
-    }
-}
-
 fn classify_remote_loss(close_code: Option<u16>) -> RemoteLossKind {
     match close_code {
         Some(4403) => RemoteLossKind::Revoked,
@@ -656,325 +570,57 @@ fn classify_remote_loss(close_code: Option<u16>) -> RemoteLossKind {
     }
 }
 
-pub struct WebSocketDartBridge {
-    handlers: HandlerMap,
-}
-
-impl Default for WebSocketDartBridge {
-    fn default() -> Self {
-        WebSocketDartBridge::new()
-    }
-}
-
-impl WebSocketDartBridge {
-    pub fn new() -> Self {
-        WebSocketDartBridge {
-            handlers: Arc::new(Mutex::new(HashMap::new())),
-        }
-    }
-
-    pub async fn register_handler<T>(&self, msg_type: &str)
-    where
-        T: RinfRustSignal + RustSignal + for<'a> Deserialize<'a> + 'static,
-    {
-        let handler_fn =
-            Box::new(
-                move |payload: Vec<u8>| match rinf::deserialize::<T>(payload.as_slice()) {
-                    Ok(decoded) => {
-                        decoded.send_signal_to_dart();
-                    }
-                    Err(e) => {
-                        error!("Failed to decode message: {e}");
-                        CrashResponse {
-                            detail: format!("Failed to decode message: {e}"),
-                        }
-                        .send_signal_to_dart();
-                    }
-                },
-            );
-
-        self.handlers
-            .lock()
-            .await
-            .insert(msg_type.to_string(), handler_fn);
-    }
-
-    pub async fn handle_message(&self, msg_type: &str, payload: Vec<u8>) {
-        if let Some(handler) = self.handlers.lock().await.get(msg_type) {
-            handler(payload);
-        } else {
-            error!("No handler registered for message type in the message bridge: {msg_type}");
-        }
-    }
-
-    pub async fn run(
-        &mut self,
-        ws_stream: RemoteStream,
-        node: Arc<NodeContext>,
-        fingerprint: String,
-    ) -> Result<()> {
-        info!("WebSocket connection established");
-
-        let (write, mut read) = ws_stream.split();
-        let write = Arc::new(Mutex::new(write));
-
-        let cancel_token: CancellationToken = node.token.child_token();
-        node.set_remote_proxy(fingerprint.clone(), cancel_token.clone());
-
-        let sfx_player = SfxPlayer::new(Some(cancel_token.clone()));
-        let sfx_player: Arc<Mutex<SfxPlayer>> = Arc::new(Mutex::new(sfx_player));
-
-        let cancel_token = Arc::new(cancel_token);
-
-        let cancel_token_clone = Arc::clone(&cancel_token);
-        let sfx_player_clone = Arc::clone(&sfx_player);
-        let handle_event_sfx_play_request = || async move {
-            let receiver = SfxPlayRequest::get_dart_signal_receiver();
-            loop {
-                tokio::select! {
-                    _ = cancel_token_clone.cancelled() => {
-                        break;
-                    }
-                    Some(dart_signal) = receiver.recv() => {
-                        sfx_player_clone
-                        .lock()
-                        .await
-                        .load(dart_signal.message.path.clone().into());
-                    }
-                }
-            }
-        };
-
-        tokio::spawn(handle_event_sfx_play_request());
-
-        for_all_non_local_requests3!(
-            forward_event_to_remote,
-            self_arc,
-            cancel_token.clone(),
-            write.clone()
-        );
-
-        let handlers = self.handlers.clone();
-        let proxy_node = node.clone();
-        let proxy_fingerprint = fingerprint;
-        let write_clone = Arc::clone(&write);
-        let cancel_token_clone = Arc::clone(&cancel_token);
-        let message_loop = || async move {
-            loop {
-                tokio::select! {
-                    biased;
-                    _ = cancel_token_clone.cancelled() => {
-                        info!("Received cancel signal, closing connection");
-                        let mut write = write_clone.lock().await;
-                        if let Err(e) = write.close().await {
-                            error!("Error closing websocket connection: {e}");
-                        }
-                        break;
-                    }
-
-                    message = read.next() => {
-                        match message {
-                            Some(Ok(msg)) => {
-                                if let TungsteniteMessage::Close(frame) = &msg {
-                                    let code = frame.as_ref().map(|frame| u16::from(frame.code));
-                                    RemoteConnectionLost {
-                                        kind: classify_remote_loss(code),
-                                        detail: format!("WebSocket closed: {frame:?}"),
-                                    }.send_signal_to_dart();
-                                    break;
-                                }
-                                if let TungsteniteMessage::Binary(payload) = msg
-                                    && let Some((msg_type, msg_payload, _request_id)) = decode_message(&payload) {
-                                        debug!("Received message with type: {msg_type}");
-                                        if let Some(handler) = handlers.lock().await.get(&msg_type) {
-                                            handler(msg_payload);
-                                        } else {
-                                            error!("No handler registered for message type while receiving response: {msg_type}");
-                                        }
-                                    }
-                            }
-                            Some(Err(e)) => {
-                                error!("Error receiving message: {e}");
-                                RemoteConnectionLost {
-                                    kind: classify_remote_loss(None),
-                                    detail: e.to_string(),
-                                }.send_signal_to_dart();
-                                break;
-                            }
-                            None => {
-                                RemoteConnectionLost {
-                                    kind: classify_remote_loss(None),
-                                    detail: "WebSocket ended without a close frame".to_string(),
-                                }.send_signal_to_dart();
-                                break;
-                            },
-                        }
-                    }
-                }
-            }
-            cancel_token_clone.cancel();
-            proxy_node.clear_remote_proxy(&proxy_fingerprint);
-        };
-
-        let global_params = GlobalParams {
-            library_id: None,
-            node: node.clone(),
-            library_pool: node.library_pool.clone(),
-            library: None,
-            ui_library: Arc::new(Mutex::new(None)),
-            sync_settings: node.sync_settings.clone(),
-            config_path: node.config_path.clone(),
-            node_id: node.node_id.clone(),
-            main_token: Arc::clone(&cancel_token),
-            task_tokens: Arc::new(Mutex::new(TaskTokens {
-                scan_token: None,
-                scan_id: None,
-                analyze_token: None,
-                deduplicate_token: None,
-            })),
-            player: Arc::new(Mutex::new(MockPlayer {})),
-            sfx_player,
-            scrobbler: Arc::new(Mutex::new(MockScrobblingManager::new())),
-            broadcaster: node.broadcaster.clone(),
-            device_scanner: node.device_scanner.clone(),
-            cert_validator: node.cert_validator.clone(),
-            permission_manager: node.permission_manager.clone(),
-            server_manager: OnceLock::new(),
-            running_mode: RunningMode::Server,
-        };
-
-        let global_params = Arc::new(global_params);
-        global_params
-            .server_manager
-            .set(node.manager()?)
-            .map_err(|_| anyhow::anyhow!("Library server already initialized"))?;
-        node.attach_ui(&global_params).await;
-
-        for_all_local_only_request_pairs2!(listen_local_gui_event, global_params, cancel_token);
-        tokio::spawn(message_loop());
-
-        Ok(())
-    }
-}
-
-pub async fn server_player_loop(
-    fsio: Arc<FsIo>,
-    url: &str,
+/// Open the peer's current UI library using the same target as its session.
+pub(crate) async fn open_remote_library(
     node: Arc<NodeContext>,
-    _alias: &str,
-) -> Result<()> {
-    info!("Media Library Received, initialize the server loop");
-
-    let config_path = node.config_path.as_str();
-    let (ws_stream, fingerprint) = tokio::time::timeout(Duration::from_secs(10), async {
-        let cert_validator = Arc::new(node.cert_validator.read().await.clone());
-        let hosts = decode_rnsrv_url(url).map_err(protocol)?;
-        let entries = cert_validator.clone_trusted_entries().await;
-        let hosts: Vec<_> = hosts
+    path: &str,
+) -> Result<Arc<GlobalParams>> {
+    let url = path.strip_prefix("@RR|").unwrap_or(path);
+    let hosts = if url.starts_with("rnsrv://") {
+        decode_rnsrv_url(url)
+            .map_err(protocol)?
             .into_iter()
-            .filter(|host| {
-                entries.iter().any(|(_, candidates)| {
-                    candidates.iter().any(|candidate| {
-                        endpoint_host_port(candidate).is_some_and(|(name, port)| {
-                            name == *host && port.is_none_or(|p| p == 7863)
-                        })
-                    })
-                })
-            })
-            .collect();
-        if hosts.is_empty() {
-            return Err(RemoteConnectError::UntrustedEndpoint);
+            .map(|host| (host, 7863))
+            .collect::<Vec<_>>()
+    } else {
+        let parsed = url::Url::parse(url).map_err(protocol)?;
+        if !matches!(parsed.scheme(), "ws" | "wss") {
+            return Err(protocol("invalid remote library scheme").into());
         }
-        let endpoint = select_renderer_host(&node, hosts).await?;
-        let parsed_endpoint = url::Url::parse(&endpoint).map_err(protocol)?;
-        let endpoint_host = parsed_endpoint.host_str().unwrap_or_default().to_owned();
-        let endpoint_port = parsed_endpoint.port().unwrap_or(7863);
-        let fingerprint = entries
-            .iter()
-            .find(|(_, candidates)| {
-                candidates.iter().any(|candidate| {
-                    endpoint_host_port(candidate).is_some_and(|(host, port)| {
-                        host == endpoint_host && port.is_none_or(|port| port == endpoint_port)
+        vec![(
+            parsed
+                .host_str()
+                .ok_or_else(|| protocol("invalid remote host"))?
+                .to_owned(),
+            parsed.port().unwrap_or(7863),
+        )]
+    };
+    let entries = node
+        .cert_validator
+        .read()
+        .await
+        .clone_trusted_entries()
+        .await;
+    let fingerprint = entries
+        .iter()
+        .find(|(_, candidates)| {
+            candidates.iter().any(|candidate| {
+                endpoint_host_port(candidate).is_some_and(|(name, port)| {
+                    hosts.iter().any(|(host, wanted_port)| {
+                        name == *host && port.is_none_or(|port| port == *wanted_port)
                     })
                 })
             })
-            .map(|(fingerprint, _)| fingerprint.clone())
-            .ok_or(RemoteConnectError::UntrustedEndpoint)?;
-        let parsed = url::Url::parse(&endpoint).map_err(protocol)?;
-        let host = parsed
-            .host_str()
-            .ok_or_else(|| protocol("invalid renderer host"))?;
-        connect_remote(
-            host,
-            parsed.port().unwrap_or(7863),
-            config_path,
-            (*cert_validator).clone(),
-            &node.sync_tokens,
-        )
-        .await
-        .map(|stream| (stream, fingerprint))
-    })
-    .await
-    .map_err(|_| RemoteConnectError::Unreachable)??;
-
-    let _ = fsio;
-    {
-        info!("Initializing bridge");
-        let mut bridge = WebSocketDartBridge::new();
-
-        info!("Registering remote handlers");
-        bridge.handlers.lock().await.insert(
-            "RemoteRequestFailed".to_owned(),
-            Box::new(
-                |payload| match rinf::deserialize::<RemoteRequestFailed>(&payload) {
-                    Ok(failure) => {
-                        let detail = remote_failure_detail(&failure);
-                        let kind = failure.kind;
-                        RequestFailedResponse {
-                            request: failure.request,
-                            call_id: failure.call_id,
-                            kind,
-                            detail: failure.detail,
-                            cause: failure.cause,
-                        }
-                        .send_signal_to_dart();
-                        if kind == RequestErrorKind::Internal {
-                            error!("{detail}");
-                            CrashResponse { detail }.send_signal_to_dart();
-                        } else {
-                            warn!("{detail}");
-                        }
-                    }
-                    Err(e) => {
-                        error!("Failed to decode message: {e}");
-                        CrashResponse {
-                            detail: format!("Failed to decode message: {e}"),
-                        }
-                        .send_signal_to_dart();
-                    }
-                },
-            ),
-        );
-        for_all_responses!(register_remote_handlers, bridge);
-        register_remote_handlers!(
-            bridge,
-            ScanAudioLibraryProgress,
-            ScanAudioLibraryResponse,
-            SetMediaLibraryPathResponse,
-            AnalyzeAudioLibraryProgress,
-            AnalyzeAudioLibraryResponse,
-            PlaybackStatus,
-            ScrobbleServiceStatusUpdated,
-            CrashResponse,
-            RealtimeFFT,
-            PlaylistUpdate,
-            LibraryContentChanged
-        );
-
-        bridge.run(ws_stream, node, fingerprint).await?;
-    }
-
-    Ok(())
+        })
+        .map(|(fingerprint, _)| fingerprint.clone())
+        .ok_or(RemoteConnectError::UntrustedEndpoint)?;
+    let (link, _, alias) =
+        RendererLink::connect(node.clone(), &fingerprint, RendererLinkUse::Control).await?;
+    let params = Arc::new(node.params_for_ui()?);
+    node.attach_remote_ui(&params, fingerprint).await?;
+    node.install_renderer_link(link, alias)?;
+    node.session()?.player.lock().await.pause();
+    Ok(params)
 }
 
 pub(crate) async fn select_renderer_host(
@@ -1006,7 +652,7 @@ mod loss_tests {
     use super::*;
 
     #[test]
-    fn remote_failure_formats_crash_detail() {
+    fn remote_failure_keeps_typed_detail() {
         let failure = RemoteRequestFailed {
             kind: RequestErrorKind::Internal,
             request: "ExampleRequest".into(),
@@ -1014,10 +660,13 @@ mod loss_tests {
             detail: "outer: inner".into(),
             cause: None,
         };
-        assert_eq!(
-            remote_failure_detail(&failure),
-            "Remote request ExampleRequest failed: outer: inner"
-        );
+        let error = renderer_reply(
+            "RemoteRequestFailed".into(),
+            rinf::serialize(&failure).unwrap(),
+        )
+        .unwrap_err();
+        assert!(matches!(error.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::Remote { kind: RequestErrorKind::Internal, detail, .. }) if detail == "outer: inner"));
     }
 
     #[test]

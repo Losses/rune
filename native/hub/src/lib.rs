@@ -14,7 +14,6 @@ pub mod messages;
 pub mod node;
 pub mod request_error;
 pub mod rpc;
-pub(crate) use request_error::request_failure_cause;
 pub mod session;
 #[macro_use]
 pub mod server;
@@ -31,6 +30,7 @@ use tokio::sync::Mutex;
 use tracing_subscriber::{EnvFilter, fmt};
 
 pub use tokio;
+pub use utils::RinfRustSignal;
 
 use ::scrobbling::manager::ScrobblingManager;
 

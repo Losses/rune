@@ -1,3 +1,12 @@
+use super::gui_listener_tests::start;
+use crate::backends::remote::open_remote_library;
+use crate::messages::{
+    CloseLibraryRequest, CloseLibraryResponse, CreatePlaylistRequest, FetchAllPlaylistsRequest,
+    FetchAllPlaylistsResponse, GetPlaylistByIdRequest, LibraryContentChanged,
+    ListLocalLibrariesRequest, MixQuery, OperatePlaybackWithMixQueryRequest, PlaybackStatus,
+    PlaylistOperateMode, RemoteConnectionLost, RemoteLossKind, RequestFailedResponse,
+    ScanAudioLibraryProgress, ScanTaskType,
+};
 #[cfg(target_os = "linux")]
 use std::{env, process::Command};
 use std::{path::PathBuf, sync::Mutex as StdMutex};
@@ -4834,14 +4843,14 @@ async fn rpc_target_local_session_changes_local_state() -> Result<()> {
 }
 
 #[tokio::test]
-async fn rpc_target_session_catalogue_matches_registered_peer_handlers() -> Result<()> {
+async fn rpc_target_session_and_library_catalogue_matches_registered_peer_handlers() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let peer = fixture(dir.path()).await?;
     peer.global_params
         .node
         .close_ui(&peer.global_params.main_token)
         .await;
-    for (name, slot) in RpcTarget::rune_slots().session_slots() {
+    for (name, slot) in RpcTarget::rune_slots().scoped_slots() {
         // Without a UI, dispatch must resolve params and fail before executing commands.
         let dispatched = dispatch_remote(name, &[255], None, None, &peer.global_params.node).await;
         match slot {
@@ -4860,7 +4869,7 @@ async fn rpc_target_session_catalogue_matches_registered_peer_handlers() -> Resu
                     "{name} no longer needs its blacklist entry"
                 );
             }
-            _ => panic!("Rune session slot {name} is neither forwarded nor blacklisted"),
+            _ => panic!("Rune scoped slot {name} is neither forwarded nor blacklisted"),
         }
     }
     peer.global_params.node.shutdown().await?;
@@ -4928,5 +4937,277 @@ async fn rpc_target_blacklisted_request_returns_typed_failure_without_sending() 
     );
     controller.global_params.node.detach_renderer().await?;
     controller.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -> Result<()> {
+    let first = tempfile::tempdir()?;
+    let second = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let a = super::fixture_with_broadcaster(
+        first.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+    let b = fixture(second.path()).await?;
+    let address = super::paired_full(&b, &a).await?;
+    let fingerprint = super::info(&b).await?.fingerprint;
+    a.global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(&fingerprint, vec![format!("127.0.0.1:{}", address.port())])
+        .await?;
+    async fn create(params: &GlobalParams, name: &str) -> Result<()> {
+        dispatch_gui_request(
+            params,
+            &CreatePlaylistRequest {
+                name: name.into(),
+                group: "RR".into(),
+            },
+        )
+        .await?;
+        Ok(())
+    }
+    async fn names(params: &GlobalParams) -> Result<Vec<String>> {
+        Ok(dispatch_gui_request(params, &FetchAllPlaylistsRequest {})
+            .await?
+            .context("playlists")?
+            .playlists
+            .into_iter()
+            .map(|playlist| playlist.name)
+            .collect())
+    }
+    create(&a.global_params, "only on A").await?;
+    create(&b.global_params, "only on B").await?;
+    let a_track = session_audio(&a, "rr-local.ogg").await?;
+    queue_session(&a, &[a_track]).await?;
+    let local_queue = a.global_params.player.lock().await.get_playlist();
+    let b_track = session_audio(&b, "rr-remote.ogg").await?;
+    let remote_session_id = b.global_params.node.session()?.session_id().await;
+    let path = format!("ws://{address}");
+    let remote = open_remote_library(a.global_params.node.clone(), &format!("@RR|{path}")).await?;
+    assert!(Arc::ptr_eq(&remote.player, &a.global_params.player));
+    assert!(Arc::ptr_eq(&remote.scrobbler, &a.global_params.scrobbler));
+    assert!(remote.library.is_none());
+    let mut browse = start::<FetchAllPlaylistsRequest>(&remote);
+    browse.send(FetchAllPlaylistsRequest {});
+    let response: FetchAllPlaylistsResponse = browse.receive("FetchAllPlaylistsResponse").await;
+    assert_eq!(
+        response
+            .playlists
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>(),
+        ["only on B"]
+    );
+    browse.stop().await;
+    let mut missing = start::<GetPlaylistByIdRequest>(&remote);
+    missing.send(GetPlaylistByIdRequest { playlist_id: -1 });
+    let failure: RequestFailedResponse = missing.receive("RequestFailedResponse").await;
+    assert_eq!(failure.kind, RequestErrorKind::NotFound);
+    missing.stop().await;
+
+    let local_volume = a
+        .global_params
+        .node
+        .session()?
+        .playback_snapshot()
+        .await
+        .0
+        .volume;
+    dispatch_gui_request(&remote, &VolumeRequest { volume: 0.61 }).await?;
+    wait_player(&b, |status| status.volume == 0.61).await?;
+    assert_eq!(
+        a.global_params
+            .node
+            .session()?
+            .playback_snapshot()
+            .await
+            .0
+            .volume,
+        local_volume
+    );
+    let local = dispatch_gui_request(&remote, &ListLocalLibrariesRequest {})
+        .await?
+        .context("local libraries")?;
+    assert!(local.libraries.iter().any(|library| {
+        Some(library.library_id.as_str())
+            == a.global_params
+                .library_id
+                .map(|id| id.to_string())
+                .as_deref()
+    }));
+    assert!(!local.libraries.iter().any(|library| {
+        Some(library.library_id.as_str())
+            == b.global_params
+                .library_id
+                .map(|id| id.to_string())
+                .as_deref()
+    }));
+
+    signals.0.lock().unwrap().clear();
+    create(&remote, "edited through A").await?;
+    assert!(
+        names(&b.global_params)
+            .await?
+            .contains(&"edited through A".into())
+    );
+    // An explicitly addressed request still uses A's library, even while its GUI is remote.
+    let (_, bytes) = dispatch_remote(
+        "FetchAllPlaylistsRequest",
+        &rinf::serialize(&FetchAllPlaylistsRequest {})?,
+        None,
+        a.global_params.library_id,
+        &a.global_params.node,
+    )
+    .await
+    .context("addressed request")?;
+    let own: FetchAllPlaylistsResponse = rinf::deserialize(&bytes?)?;
+    assert_eq!(
+        own.playlists
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>(),
+        ["only on A"]
+    );
+    dispatch_gui_request(
+        &remote,
+        &OperatePlaybackWithMixQueryRequest {
+            queries: vec![MixQuery {
+                operator: "lib::track".into(),
+                parameter: b_track.to_string(),
+            }],
+            playback_mode: 0,
+            hint_position: -1,
+            initial_playback_item: None,
+            instantly_play: true,
+            operate_mode: PlaylistOperateMode::Replace,
+            fallback_playing_items: Vec::new(),
+            expected_revision: None,
+            cast_to: None,
+        },
+    )
+    .await?;
+    wait_player(&b, |status| status.state == PlaybackState::Playing).await?;
+    assert_eq!(
+        a.global_params.player.lock().await.get_playlist(),
+        local_queue
+    );
+    b.global_params
+        .broadcaster
+        .broadcast(&ScanAudioLibraryProgress {
+            scan_id: "rr-scan".into(),
+            path: "B".into(),
+            progress: 3,
+            total: 10,
+            task: ScanTaskType::IndexFiles,
+        });
+    timeout(Duration::from_secs(10), async {
+        loop {
+            let ready = {
+                let events = signals.0.lock().unwrap();
+                let status = events.iter().any(|(name, body)| {
+                    name == "PlaybackStatus"
+                        && rinf::deserialize::<PlaybackStatus>(body)
+                            .is_ok_and(|s| s.session_id == remote_session_id)
+                });
+                let content = events.iter().any(|(name, body)| {
+                    name == "LibraryContentChanged"
+                        && rinf::deserialize::<LibraryContentChanged>(body)
+                            .is_ok_and(|s| s.path == b.global_params.test_library().media_root)
+                });
+                let scan = events.iter().any(|(name, body)| {
+                    name == "ScanAudioLibraryProgress"
+                        && rinf::deserialize::<ScanAudioLibraryProgress>(body)
+                            .is_ok_and(|s| s.scan_id == "rr-scan")
+                });
+                status && content && scan
+            };
+            if ready {
+                break;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .context("RR pushed status/content/scan events missing")?;
+
+    let mut close = start::<CloseLibraryRequest>(&remote);
+    close.send(CloseLibraryRequest { path: path.clone() });
+    let closed: CloseLibraryResponse = close.receive("CloseLibraryResponse").await;
+    assert_eq!(closed.path, path);
+    close.stop().await;
+    assert!(a.global_params.node.renderer_link()?.is_none());
+    assert!(!a.global_params.node.remote_ui_library()?);
+    assert!(a.global_params.node.current_ui().await.is_err());
+    let local = Arc::new(
+        a.global_params
+            .node
+            .params_for_library(a.global_params.test_library().clone())?,
+    );
+    a.global_params.node.attach_ui(&local).await;
+    assert_eq!(names(&local).await?, ["only on A"]);
+    dispatch_gui_request(&local, &VolumeRequest { volume: 0.27 }).await?;
+    wait_player(&a, |status| status.volume == 0.27).await?;
+    assert_eq!(
+        b.global_params
+            .node
+            .session()?
+            .playback_snapshot()
+            .await
+            .0
+            .volume,
+        0.61
+    );
+
+    // Switching directly to a local library also leaves RR.
+    let remote = open_remote_library(a.global_params.node.clone(), &path).await?;
+    let replacement = Arc::new(
+        a.global_params
+            .node
+            .params_for_library(a.global_params.test_library().clone())?,
+    );
+    a.global_params.node.attach_ui(&replacement).await;
+    assert!(remote.main_token.is_cancelled());
+    assert!(a.global_params.node.renderer_link()?.is_none());
+    assert_eq!(names(&replacement).await?, ["only on A"]);
+
+    let remote = open_remote_library(a.global_params.node.clone(), &path).await?;
+    signals.0.lock().unwrap().clear();
+    b.global_params.node.manager()?.stop().await?;
+    timeout(Duration::from_secs(10), async {
+        loop {
+            let found = signals.0.lock().unwrap().iter().any(|(name, body)| {
+                name == "RemoteConnectionLost"
+                    && rinf::deserialize::<RemoteConnectionLost>(body)
+                        .is_ok_and(|loss| loss.kind == RemoteLossKind::ServerStopped)
+            });
+            if found {
+                break;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .context("RR connection-lost notice missing")?;
+    assert!(a.global_params.node.renderer_link()?.is_none());
+    let failure = dispatch_gui_request(&remote, &FetchAllPlaylistsRequest {})
+        .await
+        .err()
+        .context("lost link silently used local library")?;
+    assert_eq!(classify(&failure), RequestErrorKind::Unavailable);
+    // This is the existing Dart loss handler's final step: close and await its response.
+    let mut close = start::<CloseLibraryRequest>(&remote);
+    close.send(CloseLibraryRequest { path: path.clone() });
+    let _: CloseLibraryResponse = close.receive("CloseLibraryResponse").await;
+    close.stop().await;
+    assert!(!a.global_params.node.remote_ui_library()?);
+    assert!(a.global_params.node.current_ui().await.is_err());
+    a.global_params.node.shutdown().await?;
+    b.global_params.node.shutdown().await?;
     Ok(())
 }

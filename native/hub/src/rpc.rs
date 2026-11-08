@@ -9,7 +9,7 @@ use crate::backends::remote::RendererLink;
 use crate::macros::{RequestAccess, RequestScope, RequestSlots, request_access};
 use crate::node::NodeContext;
 use crate::request_error::ExpectedRequestError;
-use crate::utils::{GlobalParams, ParamsExtractor, RunningMode};
+use crate::utils::{GlobalParams, ParamsExtractor};
 use crate::{Signal, TypedRequest};
 
 /// Why a target cannot execute a request.
@@ -71,10 +71,27 @@ impl RpcTarget {
         slots.handoff_request = owner_only;
         slots.list_controllers_request = owner_only;
         slots.detach_controller_request = owner_only;
+        slots.get_sync_settings_request = owner_only;
+        slots.set_sync_settings_request = owner_only;
+        slots.set_download_rule_request = owner_only;
+        slots.remove_download_rule_request = owner_only;
+        slots.test_library_initialized_request = owner_only;
+        slots.close_library_request = owner_only;
         slots
     }
 
     pub fn select<R: TargetRequest>(node: &NodeContext, _request: &R) -> Result<Self> {
+        let remote_library = node.remote_ui_library()?
+            && matches!(R::SCOPE, RequestScope::Library | RequestScope::Session)
+            && request_access(R::wire_name()) != Some(RequestAccess::NodeLocal);
+        if remote_library {
+            let renderer = node
+                .renderer_link()?
+                .ok_or(ExpectedRequestError::Unavailable {
+                    what: "remote UI library",
+                })?;
+            return Ok(Self::rune(renderer));
+        }
         if routes_to_attached_renderer::<R>()
             && let Some(renderer) = node.renderer_link()?
         {
@@ -121,12 +138,7 @@ where
         + Serialize,
     <R as TypedRequest>::Response: DeserializeOwned,
 {
-    // The @RR proxy's node-local listener retains its native dispatch.
-    let target = if matches!(params.running_mode, RunningMode::Server) {
-        RpcTarget::local()
-    } else {
-        RpcTarget::select(&params.node, request)?
-    };
+    let target = RpcTarget::select(&params.node, request)?;
     run_on_target(&target, params, request).await
 }
 

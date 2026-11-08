@@ -41,7 +41,6 @@ discovery = { path = "../../discovery" }
 lazy_static = "1.5.0"
 log = "0.4.22"
 tracing-subscriber = { version = "0.3.20", features = ["chrono", "registry"] }
-paste = "1.0.15"
 tokio-util = "0.7.11"
 num_cpus = "1.16.0"
 thiserror = "2"

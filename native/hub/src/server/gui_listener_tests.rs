@@ -22,7 +22,7 @@ use crate::rpc::{Slot, TargetRequest};
 use crate::utils::{GlobalParams, ParamsExtractor, RinfRustSignal};
 use crate::{CallIdentified, Session, Signal, TypedRequest};
 
-struct Listener<R> {
+pub(super) struct Listener<R> {
     sender: SignalSender<DartSignalPack<R>>,
     output: mpsc::UnboundedReceiver<(String, Vec<u8>)>,
     cancel: CancellationToken,
@@ -30,14 +30,14 @@ struct Listener<R> {
 }
 
 impl<R> Listener<R> {
-    fn send(&self, message: R) {
+    pub(super) fn send(&self, message: R) {
         self.sender.send(DartSignalPack {
             message,
             binary: Vec::new(),
         });
     }
 
-    async fn receive<T: DeserializeOwned>(&mut self, name: &str) -> T {
+    pub(super) async fn receive<T: DeserializeOwned>(&mut self, name: &str) -> T {
         let (actual, bytes) = timeout(Duration::from_secs(5), self.output.recv())
             .await
             .unwrap()
@@ -46,7 +46,7 @@ impl<R> Listener<R> {
         rinf::deserialize(&bytes).unwrap()
     }
 
-    async fn stop(self) {
+    pub(super) async fn stop(self) {
         self.cancel.cancel();
         timeout(Duration::from_secs(5), self.task)
             .await
@@ -55,7 +55,7 @@ impl<R> Listener<R> {
     }
 }
 
-fn start<R>(params: &Arc<GlobalParams>) -> Listener<R>
+pub(super) fn start<R>(params: &Arc<GlobalParams>) -> Listener<R>
 where
     R: GuiRequest
         + TargetRequest

@@ -33,8 +33,9 @@ use crate::{
     library_pool::{LibraryHandle, LibraryPool},
     messages::{
         AttachedRenderer, ClientStatus, ClientSummary, IncommingClientPermissionNotification,
-        InitializeNodeRequest, InitializeNodeResponse, RendererAttachmentChanged, RendererLinkLost,
-        TrustListUpdated, TrustedClientsChanged, TrustedServerCertificate,
+        InitializeNodeRequest, InitializeNodeResponse, RemoteConnectionLost, RemoteLossKind,
+        RendererAttachmentChanged, RendererLinkLost, TrustListUpdated, TrustedClientsChanged,
+        TrustedServerCertificate,
     },
     request_error::classify,
     server::{ServerManager, WebSocketService, utils::device::load_device_info},
@@ -61,6 +62,11 @@ fn renderer_connection_error(error: RemoteConnectError) -> anyhow::Error {
     }
 }
 
+enum UiLibrary {
+    Local,
+    Remote { fingerprint: String },
+}
+
 /// Process services shared by every local library and remote controller.
 pub struct NodeContext {
     pub config_path: Arc<String>,
@@ -75,7 +81,7 @@ pub struct NodeContext {
     pub websocket_service: Arc<WebSocketService>,
     pub gui_broadcaster: Arc<dyn Broadcaster>,
     pub renderer_link: Arc<StdMutex<Option<Arc<RendererLink>>>>,
-    remote_proxy: StdMutex<Option<(String, CancellationToken)>>,
+    ui_library: StdMutex<UiLibrary>,
     pub token: Arc<CancellationToken>,
     pub(crate) sync_tokens: SyncTokenStore,
     pub server_manager: OnceLock<Arc<ServerManager>>,
@@ -168,7 +174,7 @@ impl NodeContext {
             gui_broadcaster: broadcaster,
             websocket_service,
             renderer_link,
-            remote_proxy: StdMutex::new(None),
+            ui_library: StdMutex::new(UiLibrary::Local),
             token: Arc::new(CancellationToken::new()),
             sync_tokens,
             server_manager: OnceLock::new(),
@@ -393,6 +399,20 @@ impl NodeContext {
     }
 
     pub(crate) async fn renderer_link_lost(&self, id: Uuid) {
+        self.renderer_connection_lost(
+            id,
+            RemoteLossKind::NetworkLost,
+            "Renderer connection ended".into(),
+        )
+        .await;
+    }
+
+    pub(crate) async fn renderer_connection_lost(
+        &self,
+        id: Uuid,
+        kind: RemoteLossKind,
+        detail: String,
+    ) {
         let removed = match self.renderer_link.lock() {
             Ok(mut slot) if slot.as_ref().is_some_and(|link| link.id() == id) => slot.take(),
             _ => None,
@@ -400,6 +420,18 @@ impl NodeContext {
         let Some(link) = removed else {
             return;
         };
+        let remote_ui = self.ui_library.lock().is_ok_and(|ui| {
+            matches!(&*ui, UiLibrary::Remote { fingerprint } if fingerprint == link.fingerprint())
+        });
+        if remote_ui {
+            // Dart shows the notice and sends CloseLibraryRequest. Keep its listener
+            // alive until that request has received the usual typed response.
+            self.gui_broadcaster
+                .broadcast(&RemoteConnectionLost { kind, detail });
+            self.gui_broadcaster
+                .broadcast(&RendererAttachmentChanged { renderer: None });
+            return;
+        }
         self.gui_broadcaster.broadcast(&RendererLinkLost {
             fingerprint: link.fingerprint().to_owned(),
             alias: link.alias().to_owned(),
@@ -414,12 +446,6 @@ impl NodeContext {
     }
 
     pub(crate) async fn revoke_outgoing_for(&self, fingerprint: &str) {
-        if let Ok(proxy) = self.remote_proxy.lock()
-            && let Some((proxy_fingerprint, cancel)) = proxy.as_ref()
-            && proxy_fingerprint == fingerprint
-        {
-            cancel.cancel();
-        }
         let link = self
             .renderer_link()
             .ok()
@@ -427,26 +453,37 @@ impl NodeContext {
             .filter(|link| link.fingerprint() == fingerprint);
         if let Some(link) = link {
             link.close();
-            self.renderer_link_lost(link.id()).await;
+            self.renderer_connection_lost(
+                link.id(),
+                RemoteLossKind::Revoked,
+                "Renderer trust was removed".into(),
+            )
+            .await;
         }
     }
 
-    pub(crate) fn set_remote_proxy(&self, fingerprint: String, cancel: CancellationToken) {
-        if let Ok(mut proxy) = self.remote_proxy.lock()
-            && let Some((_, previous)) = proxy.replace((fingerprint, cancel))
-        {
-            previous.cancel();
-        }
+    pub(crate) fn remote_ui_library(&self) -> Result<bool> {
+        Ok(matches!(
+            *self
+                .ui_library
+                .lock()
+                .map_err(|_| anyhow::anyhow!("UI library lock poisoned"))?,
+            UiLibrary::Remote { .. }
+        ))
     }
 
-    pub(crate) fn clear_remote_proxy(&self, fingerprint: &str) {
-        if let Ok(mut proxy) = self.remote_proxy.lock()
-            && proxy
-                .as_ref()
-                .is_some_and(|(current, _)| current == fingerprint)
-        {
-            proxy.take();
-        }
+    pub(crate) async fn attach_remote_ui(
+        &self,
+        params: &Arc<GlobalParams>,
+        fingerprint: String,
+    ) -> Result<()> {
+        self.attach_ui(params).await;
+        *self
+            .ui_library
+            .lock()
+            .map_err(|_| anyhow::anyhow!("UI library lock poisoned"))? =
+            UiLibrary::Remote { fingerprint };
+        Ok(())
     }
 
     pub fn renderer_link(&self) -> Result<Option<Arc<RendererLink>>> {
@@ -541,6 +578,10 @@ impl NodeContext {
         self: &Arc<Self>,
         library: LibraryHandle,
     ) -> Result<GlobalParams> {
+        Ok(self.params_for_ui()?.for_library(library))
+    }
+
+    pub(crate) fn params_for_ui(self: &Arc<Self>) -> Result<GlobalParams> {
         let token = Arc::new(self.token.child_token());
         let session = self.session()?;
         let server_manager = OnceLock::new();
@@ -568,7 +609,7 @@ impl NodeContext {
             server_manager,
             running_mode: RunningMode::Server,
         };
-        Ok(base.for_library(library))
+        Ok(base)
     }
 
     pub async fn attach_ui(&self, params: &Arc<GlobalParams>) {
@@ -580,6 +621,8 @@ impl NodeContext {
             Self::release_ui(&old).await;
         }
         *current = Some(Arc::downgrade(params));
+        drop(current);
+        self.leave_remote_ui().await;
     }
 
     async fn release_ui(params: &GlobalParams) {
@@ -604,17 +647,37 @@ impl NodeContext {
         params.main_token.cancel();
     }
 
+    async fn leave_remote_ui(&self) {
+        let remote = self.ui_library.lock().is_ok_and(|mut ui| {
+            let remote = matches!(*ui, UiLibrary::Remote { .. });
+            *ui = UiLibrary::Local;
+            remote
+        });
+        if remote && let Err(error) = self.detach_renderer().await {
+            log::warn!("Could not detach remote library: {error:#}");
+        }
+    }
+
     pub async fn close_ui(&self, token: &Arc<CancellationToken>) {
-        let mut current = self.current_ui.lock().await;
-        if let Some(params) = current.as_ref().and_then(Weak::upgrade)
-            && Arc::ptr_eq(&params.main_token, token)
-        {
-            *current = None;
+        let params = {
+            let mut current = self.current_ui.lock().await;
+            let params = current
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .filter(|params| Arc::ptr_eq(&params.main_token, token));
+            if params.is_some() {
+                *current = None;
+            }
+            params
+        };
+        if let Some(params) = params {
+            self.leave_remote_ui().await;
             Self::release_ui(&params).await;
         }
     }
 
     pub async fn shutdown(&self) -> Result<()> {
+        self.leave_remote_ui().await;
         let session_result = if let Some(session) = self.local_session.get() {
             session.shutdown().await
         } else {

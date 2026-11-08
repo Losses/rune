@@ -846,6 +846,7 @@ mod lifecycle_tests {
     };
     use super::super::utils::device::load_device_info;
     use crate::Signal;
+    use crate::backends::remote::open_remote_library;
     use crate::macros::dispatch_remote;
     use crate::messages::*;
     use crate::request_error::classify;
@@ -3148,7 +3149,6 @@ mod lifecycle_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn node_without_ui_serves_and_syncs_held_libraries_bidirectionally() -> Result<()> {
-        use crate::backends::remote::{WebSocketDartBridge, connect_remote};
         let first = tempfile::tempdir()?;
         let second = tempfile::tempdir()?;
         let a = fixture(first.path()).await?;
@@ -3235,24 +3235,11 @@ mod lifecycle_tests {
             wait_for_album(&right, &forward)
         )?;
         let worker = b.sync_handle.lock().await.as_ref().context("worker")?.id();
-        let socket = peer_step("connect headless controller", async {
-            Ok(connect_remote(
-                "127.0.0.1",
-                a_addr.port(),
-                &b.global_params.config_path,
-                b.global_params.cert_validator.read().await.clone(),
-                &b.global_params.node.sync_tokens,
-            )
-            .await?)
-        })
-        .await?;
-        let mut bridge = WebSocketDartBridge::new();
-        peer_step(
-            "run headless controller bridge",
-            bridge.run(socket, b.global_params.node.clone(), "test-peer".to_owned()),
+        let remote_ui = peer_step(
+            "open headless controller library",
+            open_remote_library(b.global_params.node.clone(), &format!("@RR|ws://{a_addr}")),
         )
         .await?;
-        let remote_ui = b.global_params.node.current_ui().await?;
         assert!(remote_ui.library_id.is_none());
         assert!(Arc::ptr_eq(
             &remote_ui.permission_manager,

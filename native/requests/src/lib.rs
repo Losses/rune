@@ -1211,10 +1211,10 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             }
         }
     });
-    let session_slots = types
+    let scoped_slots = types
         .iter()
         .zip(&slot_fields)
-        .filter(|(entry, _)| entry.scope == RequestScope::Session)
+        .filter(|(entry, _)| matches!(entry.scope, RequestScope::Session | RequestScope::Library))
         .map(|(entry, field)| {
             let name = &entry.request;
             quote! { (#name, self.#field) }
@@ -1224,25 +1224,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         .iter()
         .filter(|t| t.access != RequestAccess::NodeLocal)
         .map(|t| syn::parse_str::<syn::Ident>(&t.request).unwrap())
-        .collect();
-
-    let local_response_pairs: Vec<_> = with_response
-        .iter()
-        .filter(|t| t.access == RequestAccess::NodeLocal)
-        .map(|t| {
-            let req_ident = syn::parse_str::<syn::Ident>(&t.request).unwrap();
-            let resp_ident = syn::parse_str::<syn::Ident>(t.response.as_ref().unwrap()).unwrap();
-            quote! { (#req_ident, #resp_ident) }
-        })
-        .collect();
-
-    let local_request_only: Vec<_> = without_response
-        .iter()
-        .filter(|t| t.access == RequestAccess::NodeLocal)
-        .map(|t| {
-            let ident = syn::parse_str::<syn::Ident>(&t.request).unwrap();
-            quote! { #ident }
-        })
         .collect();
 
     let accesses: Vec<_> = types
@@ -1335,8 +1316,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             }
 
             #[cfg(test)]
-            pub(crate) fn session_slots(&self) -> Vec<(&'static str, Slot)> {
-                vec![#(#session_slots),*]
+            pub(crate) fn scoped_slots(&self) -> Vec<(&'static str, Slot)> {
+                vec![#(#scoped_slots),*]
             }
         }
 
@@ -1355,28 +1336,12 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         }
 
 
-        // R5b: these remaining callbacks still serve the @RR proxy.
-        #[macro_export]
-        macro_rules! for_all_local_only_request_pairs2 {
-            ($m:tt, $param1:expr, $param2:expr) => {
-                $m!($param1, $param2 #(, #local_response_pairs)* #(, #local_request_only)*);
-            };
-        }
+        implement_rinf_rust_signal_trait!(#(#all_responses),*);
 
-        #[macro_export]
-        macro_rules! for_all_responses0 {
-            ($m:tt) => {
-                $m!(#(#all_responses),*);
-            }
+        #[cfg(test)]
+        pub(crate) fn non_local_request_names() -> &'static [&'static str] {
+            &[#(stringify!(#non_local_requests)),*]
         }
-
-        #[macro_export]
-        macro_rules! for_all_responses {
-            ($m:tt, $params:expr) => {
-                $m!($params, #(#all_responses),*);
-            }
-        }
-
 
         #[macro_export]
         macro_rules! for_all_requests0 {
@@ -1387,12 +1352,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
 
 
 
-        #[macro_export]
-        macro_rules! for_all_non_local_requests3 {
-            ($m:tt, $param1:expr, $param2:expr, $param3:expr) => {
-                $m!($param1, $param2, $param3, #(#non_local_requests),*);
-            };
-        }
+
     };
 
     TokenStream::from(expanded)

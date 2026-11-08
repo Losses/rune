@@ -17,6 +17,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
+use crate::macros::listen_local_gui;
 use crate::node::{NodeContext, initialize_node};
 use anyhow::{Context, Result};
 use fsio::FsIo;
@@ -48,7 +49,7 @@ use ::scrobbling::manager::ScrobblingManager;
 
 use crate::backends::{
     local::local_player_loop,
-    remote::{RemoteConnectError, server_player_loop},
+    remote::{RemoteConnectError, open_remote_library},
 };
 use crate::library_pool::{LibraryHandle, LibraryPool};
 use crate::messages::*;
@@ -391,8 +392,9 @@ async fn handle_media_library_path(
                 }
             }
             OperationDestination::Remote => {
-                match server_player_loop(fsio, media_library_path, node, alias).await {
-                    Ok(_) => {
+                match open_remote_library(node, media_library_path).await {
+                    Ok(params) => {
+                        listen_local_gui(&params, &params.main_token);
                         broadcaster.broadcast(&SetMediaLibraryPathResponse {
                             restore_last_index: false,
                             error_kind: None,
@@ -403,7 +405,7 @@ async fn handle_media_library_path(
                         });
                     }
                     Err(e) => {
-                        error!("Failed to server player loop: {e:#?}");
+                        error!("Failed to open remote library: {e:#?}");
                         broadcaster.broadcast(&SetMediaLibraryPathResponse {
                             restore_last_index: false,
                             error_kind: Some(

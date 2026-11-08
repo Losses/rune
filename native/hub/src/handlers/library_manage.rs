@@ -66,8 +66,14 @@ impl Signal for CloseLibraryRequest {
             main_token,
             node,
         } = params;
-        let library = require_library(library)?;
         let request = dart_signal;
+        if library.is_none() && node.remote_ui_library()? {
+            node.close_ui(&main_token).await;
+            return Ok(Some(CloseLibraryResponse {
+                path: request.path.clone(),
+            }));
+        }
+        let library = require_library(library)?;
 
         info!("Closing library: {:#?}", request.path);
 

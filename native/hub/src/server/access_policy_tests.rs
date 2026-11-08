@@ -1,3 +1,4 @@
+use crate::macros::non_local_request_names;
 mod access_policy_tests {
     use super::*;
     use super::player_session_tests::replicate_host_library_at;
@@ -1147,19 +1148,9 @@ mod access_policy_tests {
             };
         }
         for_all_requests0!(assert_catalogue);
-        macro_rules! assert_non_local_access {
-            ($unused1:expr, $unused2:expr, $unused3:expr, $($request:ident),*) => {
-                $(
-                    assert_ne!(
-                        request_access(stringify!($request)),
-                        Some(RequestAccess::NodeLocal),
-                        "{} unexpectedly requires node-local access",
-                        stringify!($request)
-                    );
-                )*
-            };
+        for name in non_local_request_names() {
+            assert_ne!(request_access(name), Some(RequestAccess::NodeLocal), "{name}");
         }
-        for_all_non_local_requests3!(assert_non_local_access, (), (), ());
         assert!(request_uses_controller_library(
             "OperatePlaybackWithMixQueryRequest"
         ));

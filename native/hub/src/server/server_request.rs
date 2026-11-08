@@ -37,7 +37,7 @@ where
             Err(_) => Arc::new(node.params_for_library(library)?),
         }
     } else {
-        // Frames without a library id (the @RR proxy sends these) address the UI library.
+        // Frames without a library id (@RR calls use these) address the UI library.
         let ui_params = node.current_ui().await?;
         if let Some(session) = &session {
             node.authorize_request(session, R::wire_name(), Some(&ui_params), None)
