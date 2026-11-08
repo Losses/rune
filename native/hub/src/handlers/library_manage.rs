@@ -129,7 +129,7 @@ impl Signal for ScanAudioLibraryRequest {
             session.as_ref(),
             &library.fsio,
             Path::new(&library.media_root),
-            Path::new(&dart_signal.path),
+            Path::new(&library.fs_path(&dart_signal.path)),
         )?;
         let mut tokens = task_tokens.lock().await;
         // If there is scanning task
@@ -344,7 +344,7 @@ impl Signal for AnalyzeAudioLibraryRequest {
             session.as_ref(),
             &library.fsio,
             Path::new(&library.media_root),
-            Path::new(&dart_signal.path),
+            Path::new(&library.fs_path(&dart_signal.path)),
         )?;
         let mut tokens = task_tokens.lock().await;
         if let Some(token) = tokens.scan_token.take() {
@@ -460,7 +460,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
             session.as_ref(),
             &library.fsio,
             Path::new(&library.media_root),
-            Path::new(&dart_signal.path),
+            Path::new(&library.fs_path(&dart_signal.path)),
         )?;
         let mut tokens = task_tokens.lock().await;
         if let Some(token) = tokens.deduplicate_token.take() {
@@ -803,5 +803,57 @@ mod scan_supervisor_tests {
             .await
             .unwrap_err();
         assert!(format!("{error:#}").contains("no library is open on this device"));
+    }
+    #[tokio::test]
+    async fn remote_scan_by_replica_name_checks_the_replica_folder() -> Result<()> {
+        use crate::library_pool::LibraryPool;
+        use database::library_registry::{LibraryRegistry, create_replica};
+
+        let config = tempfile::TempDir::new()?;
+        let id = Uuid::new_v4();
+        let mut registry = LibraryRegistry::load(config.path())?;
+        create_replica(config.path(), &mut registry, id, "Replica", "owner").await?;
+        let node_id = Uuid::new_v4().to_string();
+        let pool = LibraryPool::new(config.path(), config.path(), &node_id)?;
+        let library = pool.acquire_ui(id).await?;
+        let tokens = Arc::new(Mutex::new(TaskTokens::default()));
+        let params = || {
+            (
+                Some(library.clone()),
+                Arc::new(node_id.clone()),
+                tokens.clone(),
+                Arc::new(Capture::default()) as Arc<dyn Broadcaster>,
+                Arc::new(RwLock::new(SyncSettings::default())),
+            )
+        };
+        let session = || Session {
+            public_key: String::new(),
+            fingerprint: "controller".into(),
+            host: "127.0.0.1".into(),
+        };
+
+        let outside = tempfile::TempDir::new()?;
+        let request = ScanAudioLibraryRequest {
+            scan_id: "outside".into(),
+            path: outside.path().to_string_lossy().into_owned(),
+            force: false,
+        };
+        assert!(
+            request
+                .handle(params(), Some(session()), &request)
+                .await
+                .is_err()
+        );
+
+        let request = ScanAudioLibraryRequest {
+            scan_id: "replica".into(),
+            path: format!("replica://{id}"),
+            force: false,
+        };
+        request.handle(params(), Some(session()), &request).await?;
+        if let Some(token) = tokens.lock().await.scan_token.take() {
+            token.cancel();
+        }
+        Ok(())
     }
 }
