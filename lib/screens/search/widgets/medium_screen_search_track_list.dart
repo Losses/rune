@@ -50,6 +50,7 @@ class MediumScreenSearchTrackList extends StatelessWidget {
                     collectionType: CollectionType.artist,
                     items: items[CollectionType.artist],
                     groupId: 0,
+                    physics: const NeverScrollableScrollPhysics(),
                   ),
                   if (items[CollectionType.album]?.isNotEmpty ?? false)
                     SearchListSectionTitle(text: S.of(context).albums),
@@ -61,6 +62,7 @@ class MediumScreenSearchTrackList extends StatelessWidget {
                     collectionType: CollectionType.album,
                     items: items[CollectionType.album],
                     groupId: 1,
+                    physics: const NeverScrollableScrollPhysics(),
                   ),
                   if (items[CollectionType.playlist]?.isNotEmpty ?? false)
                     SearchListSectionTitle(text: S.of(context).playlists),
@@ -72,6 +74,7 @@ class MediumScreenSearchTrackList extends StatelessWidget {
                     collectionType: CollectionType.playlist,
                     items: items[CollectionType.playlist],
                     groupId: 2,
+                    physics: const NeverScrollableScrollPhysics(),
                   ),
                   if (items[CollectionType.genre]?.isNotEmpty ?? false)
                     SearchListSectionTitle(text: S.of(context).genres),
@@ -83,6 +86,7 @@ class MediumScreenSearchTrackList extends StatelessWidget {
                     collectionType: CollectionType.genre,
                     items: items[CollectionType.genre],
                     groupId: 4,
+                    physics: const NeverScrollableScrollPhysics(),
                   ),
                   if (items[CollectionType.track]?.isNotEmpty ?? false)
                     SearchListSectionTitle(text: S.of(context).tracks),
@@ -94,6 +98,7 @@ class MediumScreenSearchTrackList extends StatelessWidget {
                     collectionType: CollectionType.track,
                     items: items[CollectionType.track],
                     groupId: 3,
+                    physics: const NeverScrollableScrollPhysics(),
                   ),
                 ],
               );

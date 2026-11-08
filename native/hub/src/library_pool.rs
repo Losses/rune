@@ -11,9 +11,7 @@ use anyhow::{Context, Result, ensure};
 use database::{
     connection::{MainDbConnection, RecommendationDbConnection, StorageMode, check_storage_mode},
     error::ExpectedError,
-    library_registry::{
-        DbPlacement, LibraryAccess, LibraryDescriptor, LibraryRegistry, LibraryStorage,
-    },
+    library_registry::{DbPlacement, LibraryAccess, LibraryDescriptor, LibraryRegistry},
     sync::LibrarySyncStore,
 };
 use fsio::FsIo;
@@ -37,6 +35,18 @@ pub struct LibraryResources {
     pub fsio: Arc<FsIo>,
     pub media_root: String,
     pub descriptor: LibraryDescriptor,
+}
+
+impl LibraryResources {
+    /// The folder a library name sent by Dart refers to. A replica is named by id, so its
+    /// name maps to the root computed from the current data directory.
+    pub fn fs_path(&self, name: &str) -> String {
+        if name == self.descriptor.app_name() {
+            self.media_root.clone()
+        } else {
+            name.to_owned()
+        }
+    }
 }
 
 struct Entry {
@@ -212,7 +222,11 @@ impl LibraryPool {
         if let Some(entry) = entries.get(&library_id) {
             return Ok(self.handle(entry));
         }
-        let LibraryStorage::Local { path } = &descriptor.storage;
+        let root = descriptor.root(&self.config_dir);
+        let path = &root
+            .to_str()
+            .context("Library path is not UTF-8")?
+            .to_owned();
         #[cfg(not(target_os = "android"))]
         let fsio = Arc::new(FsIo::new());
         #[cfg(target_os = "android")]
@@ -269,17 +283,14 @@ impl LibraryPool {
             .libraries
             .into_iter()
             .find(|library| library.library_id == library_id);
-        let Some(LibraryDescriptor {
-            storage: LibraryStorage::Local { path },
-            ..
-        }) = registered
-        else {
+        let Some(descriptor) = registered else {
             return Ok(());
         };
+        let root = descriptor.root(&self.config_dir);
         let mut entries = self.entries.lock().await;
         if entries
             .get(&library_id)
-            .is_some_and(|entry| entry.resources.media_root != path)
+            .is_some_and(|entry| Path::new(&entry.resources.media_root) != root)
         {
             entries.remove(&library_id);
         }
@@ -379,7 +390,10 @@ async fn checkpoint_wal(db: &sea_orm::DatabaseConnection) -> Result<()> {
 #[cfg(all(test, not(target_os = "android")))]
 mod tests {
     use super::*;
-    use database::{connection::create_redirect, library_registry::resolve_library};
+    use database::{
+        connection::create_redirect,
+        library_registry::{create_replica, resolve_library},
+    };
     use sea_orm::{
         TransactionTrait,
         sqlx::{
@@ -503,6 +517,38 @@ mod tests {
         assert_eq!(ui.media_root, moved);
         assert_eq!(background.media_root, f.root);
         assert_eq!(f.pool.acquire(id).await?.media_root, moved);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn replica_opens_from_a_moved_data_dir() -> Result<()> {
+        let old = TempDir::new()?;
+        let node_id = Uuid::new_v4().to_string();
+        let id = Uuid::new_v4();
+        let mut registry = LibraryRegistry::load(old.path())?;
+        create_replica(old.path(), &mut registry, id, "Replica", "owner").await?;
+        let pool = LibraryPool::new(old.path(), old.path(), &node_id)?;
+        let first = pool.acquire_ui(id).await?;
+        assert_eq!(
+            Path::new(&first.media_root),
+            old.path().join("replicas").join(id.to_string())
+        );
+        assert_eq!(first.fs_path(&format!("replica://{id}")), first.media_root);
+        pool.unregister_ui(id).await;
+        drop(first);
+        // A reinstall gives the app a new data directory holding the same files.
+        let new = TempDir::new()?;
+        fs::copy(
+            old.path().join("libraries.json"),
+            new.path().join("libraries.json"),
+        )?;
+        fs::rename(old.path().join("replicas"), new.path().join("replicas"))?;
+        let moved = LibraryPool::new(new.path(), new.path(), &node_id)?;
+        let reopened = moved.acquire_ui(id).await?;
+        assert_eq!(
+            Path::new(&reopened.media_root),
+            new.path().join("replicas").join(id.to_string())
+        );
         Ok(())
     }
 

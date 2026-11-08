@@ -10,8 +10,7 @@ use std::{
 use anyhow::Result;
 use axum::{Extension, Json, http::StatusCode};
 use database::library_registry::{
-    LibraryAuthority, LibraryConnectionAccess, LibraryDescriptor, LibraryRegistry, LibraryStorage,
-    create_replica,
+    LibraryAuthority, LibraryConnectionAccess, LibraryDescriptor, LibraryRegistry, create_replica,
 };
 use discovery::server::UserStatus;
 use serde::{Deserialize, Serialize};
@@ -596,8 +595,7 @@ pub(crate) async fn add_remote_library(
         connection_access,
     )
     .await?;
-    let LibraryStorage::Local { path } = descriptor.storage;
-    Ok(path)
+    Ok(descriptor.app_name())
 }
 
 #[derive(Default, Deserialize)]

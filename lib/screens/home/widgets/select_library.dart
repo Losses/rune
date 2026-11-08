@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter_svg/svg.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -7,6 +5,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../utils/l10n.dart';
 import '../../../utils/router/navigation.dart';
+import '../../../utils/library_reference.dart';
 import '../../../utils/library_ui/library_ui_state.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../widgets/settings/settings_button.dart';
@@ -106,7 +105,7 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
 
                         final itemPath = allOpenedFiles[index - 1];
 
-                        String fileName = File(itemPath).uri.pathSegments.last;
+                        String fileName = libraryFolderName(itemPath);
 
                         return SettingsButton(
                           icon: Symbols.folder,

@@ -2,7 +2,7 @@ use crate::request_error::ExpectedRequestError;
 use std::{path::Path, sync::Arc};
 
 use anyhow::Result;
-use database::library_registry::{LibraryAuthority, LibraryRegistry, LibraryStorage};
+use database::library_registry::{LibraryAuthority, LibraryRegistry};
 use uuid::Uuid;
 
 use crate::{
@@ -36,20 +36,17 @@ impl Signal for ListLocalLibrariesRequest {
         let libraries = registry
             .libraries
             .into_iter()
-            .map(|library| {
-                let LibraryStorage::Local { path } = library.storage;
-                LocalLibrary {
-                    library_id: library.library_id.to_string(),
-                    alias: library.alias,
-                    path,
-                    owner_fingerprint: match library.authority {
-                        LibraryAuthority::Owned => None,
-                        LibraryAuthority::Hosted { fingerprint } => Some(fingerprint),
-                    },
-                    background_sync: library.background_sync,
-                    connection_access: library.connection_access.map(Into::into),
-                    sync_access: library.access_level.map(Into::into),
-                }
+            .map(|library| LocalLibrary {
+                library_id: library.library_id.to_string(),
+                path: library.app_name(),
+                alias: library.alias,
+                owner_fingerprint: match library.authority {
+                    LibraryAuthority::Owned => None,
+                    LibraryAuthority::Hosted { fingerprint } => Some(fingerprint),
+                },
+                background_sync: library.background_sync,
+                connection_access: library.connection_access.map(Into::into),
+                sync_access: library.access_level.map(Into::into),
             })
             .collect();
         Ok(Some(ListLocalLibrariesResponse { libraries }))
@@ -153,17 +150,15 @@ mod tests {
             .find(|library| library.library_id == owned.library_id.to_string())
             .unwrap();
         assert_eq!(local.alias, "Owned");
-        let LibraryStorage::Local { path } = &owned.storage;
-        assert_eq!(&local.path, path);
+        assert_eq!(local.path, owned.app_name());
         assert_eq!(local.owner_fingerprint, None);
         assert!(local.background_sync);
         let remote = libraries
             .iter()
             .find(|library| library.library_id == replica.library_id.to_string())
             .unwrap();
-        let LibraryStorage::Local { path } = &replica.storage;
         assert_eq!(remote.alias, "Replica");
-        assert_eq!(&remote.path, path);
+        assert_eq!(remote.path, format!("replica://{}", replica.library_id));
         assert_eq!(remote.owner_fingerprint.as_deref(), Some("owner"));
         assert!(remote.background_sync);
         for id in [owned.library_id, replica.library_id] {

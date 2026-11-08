@@ -60,7 +60,57 @@ pub enum LibraryAuthority {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LibraryStorage {
-    Local { path: String },
+    Local {
+        path: String,
+    },
+    /// A replica kept in this node's data directory and named by its library id. The data
+    /// directory can move (an iOS reinstall), so its absolute path is never stored.
+    Replica,
+}
+
+/// Scheme of the name the app uses for a replica instead of a folder path.
+pub const REPLICA_SCHEME: &str = "replica://";
+
+/// What a library name given by the app refers to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LibraryLocation {
+    /// A folder the user chose, by its path.
+    Path(String),
+    /// A replica in this node's data directory, by its library id.
+    Replica(Uuid),
+}
+impl LibraryLocation {
+    /// Parse an app-facing library name. A malformed replica name is an error rather than a path.
+    pub fn parse(name: &str) -> Result<Self> {
+        match name.strip_prefix(REPLICA_SCHEME) {
+            None => Ok(Self::Path(name.to_owned())),
+            Some(id) => Ok(Self::Replica(
+                Uuid::parse_str(id).context("Invalid replica library name")?,
+            )),
+        }
+    }
+}
+
+fn replica_root(config_dir: &Path, library_id: Uuid) -> PathBuf {
+    config_dir.join("replicas").join(library_id.to_string())
+}
+
+impl LibraryDescriptor {
+    /// The library's folder, computed against the current configuration directory.
+    pub fn root(&self, config_dir: &Path) -> PathBuf {
+        match &self.storage {
+            LibraryStorage::Local { path } => PathBuf::from(path),
+            LibraryStorage::Replica => replica_root(config_dir, self.library_id),
+        }
+    }
+
+    /// The name the app uses to refer to this library.
+    pub fn app_name(&self) -> String {
+        match &self.storage {
+            LibraryStorage::Local { path } => path.clone(),
+            LibraryStorage::Replica => format!("{REPLICA_SCHEME}{}", self.library_id),
+        }
+    }
 }
 /// The location of the database relative to the library.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -116,6 +166,15 @@ impl LibraryRegistry {
             Err(e) => return Err(e).context("Failed to read library registry"),
         };
         Ok(Self { libraries, path })
+    }
+    /// The registered replica with this id, for a library name given by the app.
+    pub fn replica(&self, library_id: Uuid) -> Result<&LibraryDescriptor> {
+        self.libraries
+            .iter()
+            .find(|library| {
+                library.library_id == library_id && library.storage == LibraryStorage::Replica
+            })
+            .context("Replica library is not registered on this node")
     }
     /// Load, modify and persist a registry under the process-wide writer lock.
     pub async fn update<T>(
@@ -334,13 +393,22 @@ pub async fn resolve_library(
             .find(|entry| entry.library_id == id)
             .and_then(|entry| entry.connection_access)
     };
+    // Opening a replica's folder by path must not turn it into a path entry.
+    let storage = match registry
+        .libraries
+        .iter()
+        .find(|entry| entry.library_id == id)
+    {
+        Some(entry) if entry.storage == LibraryStorage::Replica => LibraryStorage::Replica,
+        _ => LibraryStorage::Local {
+            path: root.to_owned(),
+        },
+    };
     let descriptor = LibraryDescriptor {
         library_id: id,
         alias,
         authority,
-        storage: LibraryStorage::Local {
-            path: root.to_owned(),
-        },
+        storage,
         db_placement: placement,
         access_level,
         connection_access,
@@ -352,7 +420,9 @@ pub async fn resolve_library(
             .unwrap_or(true),
     };
     registry.libraries.retain(|entry| {
-        let collision = entry.library_id != id && entry.storage == descriptor.storage;
+        let collision = entry.library_id != id
+            && matches!(descriptor.storage, LibraryStorage::Local { .. })
+            && entry.storage == descriptor.storage;
         if collision {
             warn!(
                 "Removing stale library {} for path {}",
@@ -393,7 +463,7 @@ pub async fn create_replica(
         }
         return Ok(existing.clone());
     }
-    let root = config_dir.join("replicas").join(library_id.to_string());
+    let root = replica_root(config_dir, library_id);
     let rune_dir = root.join(".rune");
     let path = rune_dir.join("library.json");
     let authority = LibraryAuthority::Hosted {
@@ -427,12 +497,7 @@ pub async fn create_replica(
         library_id,
         alias: file.alias,
         authority,
-        storage: LibraryStorage::Local {
-            path: root
-                .to_str()
-                .context("Replica path is not UTF-8")?
-                .to_owned(),
-        },
+        storage: LibraryStorage::Replica,
         db_placement: DbPlacement::Portable,
         background_sync: true,
         access_level: None,
@@ -524,7 +589,7 @@ mod tests {
                 LibraryRegistry::set_background_sync(&config, id, false)
                     .await
                     .unwrap();
-                let LibraryStorage::Local { path } = library.storage;
+                let path = library.root(&config).to_str().unwrap().to_owned();
                 resolve_library(
                     &FsIo::new(),
                     &mut registry,
@@ -566,12 +631,11 @@ mod tests {
             }
         );
         assert_eq!(first.db_placement, DbPlacement::Portable);
-        let LibraryStorage::Local { path } = &first.storage;
-        assert_eq!(
-            Path::new(path),
-            f.dir.path().join("replicas").join(id.to_string())
-        );
-        let data = fs::read(Path::new(path).join(".rune/library.json")).unwrap();
+        assert_eq!(first.storage, LibraryStorage::Replica);
+        let root = first.root(f.dir.path());
+        assert_eq!(root, f.dir.path().join("replicas").join(id.to_string()));
+        let path = root.to_str().unwrap();
+        let data = fs::read(root.join(".rune/library.json")).unwrap();
         let file: PortableFile = serde_json::from_slice(&data).unwrap();
         assert_eq!(file.version, 1);
         assert_eq!(file.authority, Some(first.authority.clone()));
@@ -721,5 +785,87 @@ mod tests {
         let current = f.resolve(&root, "New", StorageMode::Portable).await;
         assert_ne!(old.library_id, current.library_id);
         assert_eq!(f.registry.libraries, vec![current]);
+    }
+
+    #[tokio::test]
+    async fn replica_follows_a_moved_config_dir() {
+        let mut f = Fixture::new();
+        let id = Uuid::new_v4();
+        let replica = create_replica(f.dir.path(), &mut f.registry, id, "Remote", "owner")
+            .await
+            .unwrap();
+        assert_eq!(replica.storage, LibraryStorage::Replica);
+        assert_eq!(
+            replica.root(f.dir.path()),
+            f.dir.path().join("replicas").join(id.to_string())
+        );
+        assert_eq!(replica.app_name(), format!("replica://{id}"));
+        let json = fs::read_to_string(f.dir.path().join("libraries.json")).unwrap();
+        assert!(!json.contains(f.dir.path().to_str().unwrap()));
+        // An iOS reinstall gives the app a new data directory holding the same files.
+        let moved = TempDir::new().unwrap();
+        fs::copy(
+            f.dir.path().join("libraries.json"),
+            moved.path().join("libraries.json"),
+        )
+        .unwrap();
+        let from = f.dir.path().join("replicas").join(id.to_string());
+        let to = moved.path().join("replicas").join(id.to_string());
+        fs::create_dir_all(to.join(".rune")).unwrap();
+        fs::copy(
+            from.join(".rune/library.json"),
+            to.join(".rune/library.json"),
+        )
+        .unwrap();
+        let registry = LibraryRegistry::load(moved.path()).unwrap();
+        let loaded = registry.replica(id).unwrap();
+        assert_eq!(loaded.root(moved.path()), to);
+        assert!(
+            loaded
+                .root(moved.path())
+                .join(".rune/library.json")
+                .exists()
+        );
+    }
+
+    #[tokio::test]
+    async fn resolving_a_replica_folder_keeps_replica_storage() {
+        let mut f = Fixture::new();
+        let id = Uuid::new_v4();
+        let other = Uuid::new_v4();
+        let replica = create_replica(f.dir.path(), &mut f.registry, id, "Remote", "owner")
+            .await
+            .unwrap();
+        create_replica(f.dir.path(), &mut f.registry, other, "Other", "owner")
+            .await
+            .unwrap();
+        let root = replica.root(f.dir.path());
+        let resolved = f
+            .resolve(root.to_str().unwrap(), "", StorageMode::Portable)
+            .await;
+        assert_eq!(resolved.library_id, id);
+        assert_eq!(resolved.storage, LibraryStorage::Replica);
+        // Replicas do not collide with each other the way path entries do.
+        assert_eq!(f.registry.libraries.len(), 2);
+    }
+
+    #[test]
+    fn library_location_parsing() {
+        let id = Uuid::new_v4();
+        assert_eq!(
+            LibraryLocation::parse(&format!("replica://{id}")).unwrap(),
+            LibraryLocation::Replica(id)
+        );
+        assert_eq!(
+            LibraryLocation::parse("/music").unwrap(),
+            LibraryLocation::Path("/music".into())
+        );
+        for bad in ["replica://", "replica://not-a-uuid", "replica:///tmp/x"] {
+            assert!(LibraryLocation::parse(bad).is_err(), "{bad}");
+        }
+        assert_eq!(
+            LibraryLocation::parse("replica:/x").unwrap(),
+            LibraryLocation::Path("replica:/x".into())
+        );
     }
 }

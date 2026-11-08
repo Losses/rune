@@ -351,7 +351,7 @@ async fn pass_notification(
     {
         ui_notify.clone()
     } else {
-        library_notification(global, &library.media_root)
+        library_notification(global, &library.descriptor.app_name())
     }
 }
 
