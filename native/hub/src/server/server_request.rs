@@ -26,16 +26,13 @@ macro_rules! register_single_handler {
             $server.register_handler(stringify!($request), move |payload, session, library_id| {
                 let global_params = global_params.clone();
                 async move {
-                    use $crate::macros::{RequestClass, request_class};
+                    use $crate::macros::{RequestScope, request_scope};
 
                     let Some(global_params) = global_params.upgrade() else {
                         return (String::new(), Err(anyhow::anyhow!("Node has shut down")));
                     };
-                    let request_class = request_class(stringify!($request));
-                    let addressed_library = library_id.filter(|_| matches!(
-                        request_class,
-                        Some(RequestClass::LibraryRead | RequestClass::LibraryWrite)
-                    ));
+                    let request_scope = request_scope(stringify!($request));
+                    let addressed_library = library_id.filter(|_| request_scope == Some(RequestScope::Library));
                     let params = if let Some(library_id) = addressed_library {
                         if let Some(session) = &session
                             && let Err(error) = global_params.authorize_request(

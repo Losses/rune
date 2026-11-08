@@ -25,7 +25,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::access_policy::{Action, Denial, RuneAccessPolicy};
 use crate::backends::remote::{RemoteConnectError, RendererLink, RendererLinkUse};
-use crate::macros::{RequestClass, request_class};
+use crate::macros::{RequestAccess, RequestScope, request_access, request_scope};
 use crate::request_error::ExpectedRequestError;
 use crate::server::sync_worker::SyncTokenStore;
 use crate::{Session, session::PlayerSession};
@@ -482,22 +482,32 @@ impl NodeContext {
                 user.status == UserStatus::Approved && user.public_key == session.public_key
             })
             .ok_or(Denial::Untrusted)?;
-        let action = match request_class(name) {
-            Some(RequestClass::Control) => Action::Control,
-            Some(RequestClass::Administer) => Action::Administer,
-            Some(class @ (RequestClass::LibraryRead | RequestClass::LibraryWrite)) => {
-                let library_id = addressed_library_id
+        let access = request_access(name).ok_or(Denial::NodeLocal)?;
+        if access == RequestAccess::NodeLocal {
+            return Err(Denial::NodeLocal.into());
+        }
+        let scope = request_scope(name).ok_or(Denial::NodeLocal)?;
+        let library_id = if scope == RequestScope::Library {
+            Some(
+                addressed_library_id
                     .or_else(|| params.and_then(|params| params.library_id))
                     .ok_or(ExpectedRequestError::Unavailable {
                         what: "UI library identity",
-                    })?;
-                if class == RequestClass::LibraryRead {
-                    Action::ConnectionView { library_id }
-                } else {
-                    Action::ConnectionEdit { library_id }
-                }
-            }
-            _ => return Err(Denial::NodeLocal.into()),
+                    })?,
+            )
+        } else {
+            None
+        };
+        let action = match access {
+            RequestAccess::Control => Action::Control,
+            RequestAccess::Administer => Action::Administer,
+            RequestAccess::ConnectionView => Action::ConnectionView {
+                library_id: library_id.ok_or(Denial::NodeLocal)?,
+            },
+            RequestAccess::ConnectionEdit => Action::ConnectionEdit {
+                library_id: library_id.ok_or(Denial::NodeLocal)?,
+            },
+            RequestAccess::NodeLocal => return Err(Denial::NodeLocal.into()),
         };
         self.access_policy.check(
             &PeerIdentity {

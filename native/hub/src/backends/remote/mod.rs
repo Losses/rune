@@ -43,7 +43,7 @@ use ::fsio::FsIo;
 use ::playback::{player::MockPlayer, sfx_player::SfxPlayer};
 use ::scrobbling::manager::MockScrobblingManager;
 
-use crate::macros::{RequestClass, request_class};
+use crate::macros::{RequestAccess, request_access, request_uses_controller_library};
 use crate::register_response_handlers;
 use crate::{
     Signal,
@@ -455,11 +455,11 @@ fn renderer_reply(name: String, body: Vec<u8>) -> Result<(String, Vec<u8>)> {
 }
 
 pub fn is_mix_query_request(name: &str) -> bool {
-    name == "OperatePlaybackWithMixQueryRequest"
+    request_uses_controller_library(name)
 }
 
 pub fn is_control_request(name: &str) -> bool {
-    matches!(request_class(name), Some(RequestClass::Control))
+    matches!(request_access(name), Some(RequestAccess::Control))
 }
 
 impl Drop for RendererLink {

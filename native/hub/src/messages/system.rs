@@ -82,6 +82,17 @@ mod tests {
     use crate::{CallIdentified, messages::*};
 
     #[test]
+    fn search_request_uses_its_declared_call_id() {
+        let request = SearchForRequest {
+            call_id: 42,
+            query_str: "search".to_owned(),
+            fields: Vec::new(),
+            n: 10,
+        };
+        assert_eq!(CallIdentified::call_id(&request), Some(42));
+    }
+
+    #[test]
     fn requests_without_call_ids_use_the_default() {
         let request = SystemInfoRequest {};
         assert_eq!(CallIdentified::call_id(&request), None);

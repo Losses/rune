@@ -1,8 +1,8 @@
 mod access_policy_tests {
     use super::*;
     use crate::access_policy::{ConnectionLevel, DeviceGrants, SyncLevel};
-    use crate::backends::remote::connect_remote;
-    use crate::macros::{RequestClass, request_class};
+    use crate::backends::remote::{connect_remote, is_mix_query_request};
+    use crate::macros::{RequestAccess, request_access, request_scope};
     use crate::messages::RemoveTrustedClientRequest;
     use crate::messages::{CastLibraryState, RendererAvailability};
     use crate::server::libraries::{
@@ -891,28 +891,171 @@ mod access_policy_tests {
         pair.close().await
     }
 
+    fn old_request_access(name: &str) -> Option<RequestAccess> {
+        Some(match name {
+            "AttachRendererRequest" => RequestAccess::NodeLocal,
+            "DetachRendererRequest" => RequestAccess::NodeLocal,
+            "ListRenderersRequest" => RequestAccess::NodeLocal,
+            "HandoffRequest" => RequestAccess::NodeLocal,
+            "GetDeviceGrantsRequest" => RequestAccess::NodeLocal,
+            "SetDeviceGrantsRequest" => RequestAccess::NodeLocal,
+            "ListControllersRequest" => RequestAccess::NodeLocal,
+            "DetachControllerRequest" => RequestAccess::NodeLocal,
+            "ListLocalLibrariesRequest" => RequestAccess::NodeLocal,
+            "SetLibraryBackgroundSyncRequest" => RequestAccess::NodeLocal,
+            "ListPeerLibrariesRequest" => RequestAccess::NodeLocal,
+            "AddRemoteLibraryRequest" => RequestAccess::NodeLocal,
+            "GetSyncSettingsRequest" => RequestAccess::NodeLocal,
+            "SetSyncSettingsRequest" => RequestAccess::NodeLocal,
+            "SetDownloadRuleRequest" => RequestAccess::NodeLocal,
+            "RemoveDownloadRuleRequest" => RequestAccess::NodeLocal,
+            "TestLibraryInitializedRequest" => RequestAccess::NodeLocal,
+            "CloseLibraryRequest" => RequestAccess::NodeLocal,
+            "CancelTaskRequest" => RequestAccess::Administer,
+            "ScanAudioLibraryRequest" => RequestAccess::Administer,
+            "AnalyzeAudioLibraryRequest" => RequestAccess::Administer,
+            "DeduplicateAudioLibraryRequest" => RequestAccess::Administer,
+            "VolumeRequest" => RequestAccess::Control,
+            "LoadRequest" => RequestAccess::Control,
+            "PlayRequest" => RequestAccess::Control,
+            "PauseRequest" => RequestAccess::Control,
+            "NextRequest" => RequestAccess::Control,
+            "PreviousRequest" => RequestAccess::Control,
+            "SwitchRequest" => RequestAccess::Control,
+            "SeekRequest" => RequestAccess::Control,
+            "RemoveRequest" => RequestAccess::Control,
+            "SetPlaybackModeRequest" => RequestAccess::Control,
+            "MovePlaylistItemRequest" => RequestAccess::Control,
+            "SetRealtimeFFTEnabledRequest" => RequestAccess::Control,
+            "SetAdaptiveSwitchingEnabledRequest" => RequestAccess::Control,
+            "SetMixWithOthersRequest" => RequestAccess::NodeLocal,
+            "StartVisualizerRequest" => RequestAccess::NodeLocal,
+            "StopVisualizerRequest" => RequestAccess::NodeLocal,
+            "ResizeVisualizerRequest" => RequestAccess::NodeLocal,
+            "SetVisualizerPresetDirsRequest" => RequestAccess::NodeLocal,
+            "SetVisualizerAccentRequest" => RequestAccess::NodeLocal,
+            "SetVisualizerVisibleRequest" => RequestAccess::NodeLocal,
+            "LoadVisualizerPresetRequest" => RequestAccess::NodeLocal,
+            "NextVisualizerPresetRequest" => RequestAccess::NodeLocal,
+            "PreviousVisualizerPresetRequest" => RequestAccess::NodeLocal,
+            "RandomVisualizerPresetRequest" => RequestAccess::NodeLocal,
+            "ImportVisualizerSceneRequest" => RequestAccess::NodeLocal,
+            "RemoveVisualizerSceneRequest" => RequestAccess::NodeLocal,
+            "SetVisualizerScenesRequest" => RequestAccess::NodeLocal,
+            "SetVisualizerLogRequest" => RequestAccess::NodeLocal,
+            "SetVisualizerLabRequest" => RequestAccess::NodeLocal,
+            "VisualizerLabCommandRequest" => RequestAccess::NodeLocal,
+            "VisualizerLabRequest" => RequestAccess::NodeLocal,
+            "VisualizerPlanRequest" => RequestAccess::NodeLocal,
+            "VisualizerSupportRequest" => RequestAccess::NodeLocal,
+            "VisualizerStatusRequest" => RequestAccess::NodeLocal,
+            "ListVisualizerPresetsRequest" => RequestAccess::NodeLocal,
+            "ListVisualizerCreditsRequest" => RequestAccess::NodeLocal,
+            "VisualizerTextureShownRequest" => RequestAccess::NodeLocal,
+            "SfxPlayRequest" => RequestAccess::NodeLocal,
+            "IfAnalyzeExistsRequest" => RequestAccess::ConnectionView,
+            "GetAnalyzeCountRequest" => RequestAccess::ConnectionView,
+            "FetchMediaFilesRequest" => RequestAccess::ConnectionView,
+            "FetchMediaFileByIdsRequest" => RequestAccess::ConnectionView,
+            "FetchParsedMediaFileRequest" => RequestAccess::ConnectionView,
+            "SearchMediaFileSummaryRequest" => RequestAccess::ConnectionView,
+            "GetMediaFilesCountRequest" => RequestAccess::ConnectionView,
+            "GetLyricByTrackIdRequest" => RequestAccess::ConnectionView,
+            "FetchCollectionGroupSummaryRequest" => RequestAccess::ConnectionView,
+            "FetchCollectionGroupsRequest" => RequestAccess::ConnectionView,
+            "FetchCollectionByIdsRequest" => RequestAccess::ConnectionView,
+            "SearchCollectionSummaryRequest" => RequestAccess::ConnectionView,
+            "GetCoverArtIdsByMixQueriesRequest" => RequestAccess::ConnectionView,
+            "GetPrimaryColorByTrackIdRequest" => RequestAccess::ConnectionView,
+            "FetchAllPlaylistsRequest" => RequestAccess::ConnectionView,
+            "CreatePlaylistRequest" => RequestAccess::ConnectionEdit,
+            "CreateM3u8PlaylistRequest" => RequestAccess::ConnectionEdit,
+            "UpdatePlaylistRequest" => RequestAccess::ConnectionEdit,
+            "RemovePlaylistRequest" => RequestAccess::ConnectionEdit,
+            "AddItemToPlaylistRequest" => RequestAccess::ConnectionEdit,
+            "ReorderPlaylistItemPositionRequest" => RequestAccess::ConnectionEdit,
+            "FetchPlaylistOccurrencesRequest" => RequestAccess::ConnectionView,
+            "GetPlaylistByIdRequest" => RequestAccess::ConnectionView,
+            "FetchAllMixesRequest" => RequestAccess::ConnectionView,
+            "CreateMixRequest" => RequestAccess::ConnectionEdit,
+            "UpdateMixRequest" => RequestAccess::ConnectionEdit,
+            "RemoveMixRequest" => RequestAccess::ConnectionEdit,
+            "AddItemToMixRequest" => RequestAccess::ConnectionEdit,
+            "GetMixByIdRequest" => RequestAccess::ConnectionView,
+            "MixQueryRequest" => RequestAccess::ConnectionView,
+            "FetchMixQueriesRequest" => RequestAccess::ConnectionView,
+            "OperatePlaybackWithMixQueryRequest" => RequestAccess::Control,
+            "CastPreflightRequest" => RequestAccess::Control,
+            "CastLoadRequest" => RequestAccess::Control,
+            "SessionSnapshotRequest" => RequestAccess::Control,
+            "SetLikedRequest" => RequestAccess::ConnectionEdit,
+            "GetLikedRequest" => RequestAccess::ConnectionView,
+            "ComplexQueryRequest" => RequestAccess::ConnectionView,
+            "SearchForRequest" => RequestAccess::ConnectionView,
+            "FetchDirectoryTreeRequest" => RequestAccess::ConnectionView,
+            "AuthenticateSingleServiceRequest" => RequestAccess::NodeLocal,
+            "AuthenticateMultipleServiceRequest" => RequestAccess::NodeLocal,
+            "LogoutSingleServiceRequest" => RequestAccess::NodeLocal,
+            "ListLogRequest" => RequestAccess::NodeLocal,
+            "ClearLogRequest" => RequestAccess::NodeLocal,
+            "RemoveLogRequest" => RequestAccess::NodeLocal,
+            "SystemInfoRequest" => RequestAccess::NodeLocal,
+            "RegisterLicenseRequest" => RequestAccess::NodeLocal,
+            "ValidateLicenseRequest" => RequestAccess::NodeLocal,
+            "StartBroadcastRequest" => RequestAccess::NodeLocal,
+            "StopBroadcastRequest" => RequestAccess::NodeLocal,
+            "StartListeningRequest" => RequestAccess::NodeLocal,
+            "StopListeningRequest" => RequestAccess::NodeLocal,
+            "GetDiscoveredDeviceRequest" => RequestAccess::NodeLocal,
+            "StartServerRequest" => RequestAccess::NodeLocal,
+            "StopServerRequest" => RequestAccess::NodeLocal,
+            "ListClientsRequest" => RequestAccess::NodeLocal,
+            "GetSslCertificateFingerprintRequest" => RequestAccess::NodeLocal,
+            "AddTrustedServerRequest" => RequestAccess::NodeLocal,
+            "RemoveTrustedClientRequest" => RequestAccess::NodeLocal,
+            "UpdateClientStatusRequest" => RequestAccess::NodeLocal,
+            "EditHostsRequest" => RequestAccess::NodeLocal,
+            "RemoveTrustedServerRequest" => RequestAccess::NodeLocal,
+            "ServerAvailabilityTestRequest" => RequestAccess::NodeLocal,
+            "RegisterDeviceOnServerRequest" => RequestAccess::NodeLocal,
+            "CheckDeviceOnServerRequest" => RequestAccess::NodeLocal,
+            "ConnectRequest" => RequestAccess::NodeLocal,
+            "FetchServerCertificateRequest" => RequestAccess::NodeLocal,
+            "FetchRemoteFileRequest" => RequestAccess::NodeLocal,
+            "RemoveItemFromPlaylistRequest" => RequestAccess::ConnectionEdit,
+            _ => return None,
+        })
+    }
+
     #[test]
-    fn access_policy_request_classification_is_exhaustive() {
-        macro_rules! assert_classified {
-            ($unused:expr, $($request:ident),*) => { $(assert!(matches!(request_class(stringify!($request)), Some(class) if class != RequestClass::NodeLocal), "{} unclassified", stringify!($request));)* };
+    fn request_catalogue_access_matches_frozen_classification() {
+        macro_rules! assert_catalogue {
+            ($($request:ident),*) => {
+                $(
+                    let name = stringify!($request);
+                    assert_eq!(request_access(name), old_request_access(name), "{name}");
+                    assert!(request_scope(name).is_some(), "{name} has no scope");
+                )*
+            };
         }
-        for_all_non_local_requests!(assert_classified, ());
-        for name in [
-            "StartServerRequest",
-            "StopServerRequest",
-            "ListClientsRequest",
-            "GetDeviceGrantsRequest",
-            "SetDeviceGrantsRequest",
-            "ListControllersRequest",
-            "DetachControllerRequest",
-            "ListLogRequest",
-            "SystemInfoRequest",
-            "GetDiscoveredDeviceRequest",
-            "RegisterLicenseRequest",
-            "ValidateLicenseRequest",
-        ] {
-            assert_eq!(request_class(name), Some(RequestClass::NodeLocal), "{name}");
+        for_all_requests0!(assert_catalogue);
+        macro_rules! assert_non_local_access {
+            ($unused:expr, $($request:ident),*) => {
+                $(
+                    assert_ne!(
+                        request_access(stringify!($request)),
+                        Some(RequestAccess::NodeLocal),
+                        "{} unexpectedly requires node-local access",
+                        stringify!($request)
+                    );
+                )*
+            };
         }
+        for_all_non_local_requests!(assert_non_local_access, ());
+        assert!(is_mix_query_request(
+            "OperatePlaybackWithMixQueryRequest"
+        ));
+        assert!(!is_mix_query_request("PlayRequest"));
     }
 
     #[tokio::test]
