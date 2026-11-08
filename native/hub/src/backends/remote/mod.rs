@@ -291,6 +291,7 @@ impl RendererLink {
         let reader_pending_replies = pending_replies.clone();
         let reader_cancel = cancel.clone();
         let reader_local_detach = locally_detached.clone();
+        let reader_write = write.clone();
         let weak_node = Arc::downgrade(&node);
         let reader = tokio::spawn(async move {
             let mut close_code = None;
@@ -314,6 +315,14 @@ impl RendererLink {
                         Some(Ok(TungsteniteMessage::Close(frame))) => {
                             close_code = frame.as_ref().map(|frame| u16::from(frame.code));
                             detail = format!("Renderer closed the connection: {frame:?}");
+                            if let Err(error) = reader_write
+                                .lock()
+                                .await
+                                .send(TungsteniteMessage::Close(frame.clone()))
+                                .await
+                            {
+                                detail = format!("Could not reply to renderer close frame: {error}");
+                            }
                             break;
                         }
                         None => { detail = "Renderer connection ended without a close frame".into(); break; }

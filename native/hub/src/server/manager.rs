@@ -413,7 +413,7 @@ impl ServerManager {
                 _ = watch_stop.cancelled() => {},
                 _ = lifetime_token.cancelled() => {
                     session_stop.cancel();
-                    lifetime_handle.shutdown();
+                    lifetime_handle.graceful_shutdown(Some(Duration::from_secs(5)));
                     lifetime_scanner.stop_announcements().await;
                     lifetime_scanner.stop_listening().await;
                 }
@@ -527,7 +527,7 @@ impl ServerManager {
             first_error = Some(anyhow::Error::from(error));
         }
         if let Some(handle) = self.shutdown_handle.lock().await.as_ref() {
-            handle.shutdown();
+            handle.graceful_shutdown(Some(Duration::from_secs(5)));
         }
 
         if let Some(handle) = self.server_handle.lock().await.take()
@@ -2115,7 +2115,9 @@ mod lifecycle_tests {
             }
             let frame = tokio::time::timeout(Duration::from_secs(2), socket.next())
                 .await?
-                .context("socket closed without frame")??;
+                .context("socket closed without a revocation close frame")?
+                .map_err(anyhow::Error::new)
+                .context("reading the revocation close frame")?;
             assert!(
                 matches!(frame, Message::Close(Some(frame)) if u16::from(frame.code) == 4403 && frame.reason == "revoked")
             );
@@ -2175,10 +2177,18 @@ mod lifecycle_tests {
             &b.global_params.node.sync_tokens,
         )
         .await?;
-        a.stop().await?;
-        let frame = tokio::time::timeout(Duration::from_secs(2), socket.next())
-            .await?
-            .context("socket closed without frame")??;
+        let close_frame = tokio::spawn(async move {
+            tokio::time::timeout(Duration::from_secs(5), socket.next())
+                .await
+                .context("server-stop close frame timed out")?
+                .context("socket closed without a server-stop close frame")?
+                .map_err(anyhow::Error::new)
+                .context("reading the server-stop close frame")
+        });
+        a.stop()
+            .await
+            .context("stopping server after revocation checks")?;
+        let frame = close_frame.await??;
         assert!(
             matches!(frame, Message::Close(Some(frame)) if u16::from(frame.code) == 1001 && frame.reason == "server stopping")
         );
@@ -2716,7 +2726,13 @@ mod lifecycle_tests {
             .await
             .is_err()
         );
-        socket.close(None).await?;
+        let frame = tokio::time::timeout(Duration::from_secs(2), socket.next())
+            .await?
+            .context("revocation close frame missing")??;
+        assert!(
+            matches!(&frame, Message::Close(Some(frame)) if u16::from(frame.code) == 4403),
+            "expected the server's revocation close frame, got {frame:?}"
+        );
         a.stop().await?;
         a.global_params.node.token.cancel();
         b.global_params.node.token.cancel();

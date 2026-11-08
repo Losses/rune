@@ -1798,43 +1798,71 @@ mod tests {
 
     #[tokio::test]
     async fn audio_range_requires_expected_status_and_content_range() {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use axum::{
+            Router,
+            body::Body,
+            http::{
+                HeaderValue,
+                header::{CONTENT_LENGTH, CONTENT_RANGE},
+            },
+            response::Response,
+            routing::get,
+        };
+
+        fn response(status: StatusCode, content_range: Option<&'static str>) -> Response {
+            let mut response = Response::new(Body::from("data"));
+            *response.status_mut() = status;
+            response
+                .headers_mut()
+                .insert(CONTENT_LENGTH, HeaderValue::from_static("4"));
+            if let Some(content_range) = content_range {
+                response
+                    .headers_mut()
+                    .insert(CONTENT_RANGE, HeaderValue::from_static(content_range));
+            }
+            response
+        }
+
+        let app = Router::new()
+            .route(
+                "/wrong-status",
+                get(|| async { response(StatusCode::OK, None) }),
+            )
+            .route(
+                "/wrong-range",
+                get(|| async { response(StatusCode::PARTIAL_CONTENT, Some("bytes 0-3/8")) }),
+            )
+            .route(
+                "/valid-range",
+                get(|| async { response(StatusCode::PARTIAL_CONTENT, Some("bytes 4-7/8")) }),
+            );
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            for response in [
-                "HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\ndata",
-                "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-3/8\r\nContent-Length: 4\r\nConnection: close\r\n\r\ndata",
-                "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 4-7/8\r\nContent-Length: 4\r\nConnection: close\r\n\r\ndata",
-            ] {
-                let (mut socket, _) = listener.accept().await.unwrap();
-                let mut request = [0; 1024];
-                let _ = socket.read(&mut request).await.unwrap();
-                socket.write_all(response.as_bytes()).await.unwrap();
-            }
-        });
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let client = reqwest::Client::builder().no_proxy().build().unwrap();
-        for should_accept in [false, false, true] {
+        for (path, should_accept) in [
+            ("/wrong-status", false),
+            ("/wrong-range", false),
+            ("/valid-range", true),
+        ] {
             let response = client
-                .get(format!("http://{address}/audio"))
+                .get(format!("http://{address}{path}"))
                 .send()
                 .await
                 .unwrap();
-            assert_eq!(
-                validate_audio_response(&response, 8, Some((4, Some(7)))).is_ok(),
-                should_accept
-            );
+            let accepted = validate_audio_response(&response, 8, Some((4, Some(7)))).is_ok();
+            let body = response.bytes().await.unwrap();
+            assert_eq!(body.as_ref(), b"data");
+            assert_eq!(accepted, should_accept);
         }
-        server.await.unwrap();
+        server.abort();
     }
 
     #[tokio::test]
     async fn blocked_audio_does_not_stop_independent_metadata_worker() {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::io::AsyncReadExt;
         let audio_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let metadata_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let audio_addr = audio_listener.local_addr().unwrap();
-        let metadata_addr = metadata_listener.local_addr().unwrap();
         let cancel = CancellationToken::new();
         let audio_started = Arc::new(Notify::new());
         let audio_server = tokio::spawn({
@@ -1843,10 +1871,6 @@ mod tests {
                 let (_stream, _) = audio_listener.accept().await.unwrap();
                 cancel.cancelled().await;
             }
-        });
-        let metadata_server = tokio::spawn(async move {
-            let (mut stream, _) = metadata_listener.accept().await.unwrap();
-            stream.write_all(b"ok").await.unwrap();
         });
         let (done_tx, done_rx) = oneshot::channel();
         let audio = {
@@ -1863,10 +1887,7 @@ mod tests {
             let audio_started = audio_started.clone();
             async move {
                 audio_started.notified().await;
-                let mut stream = TcpStream::connect(metadata_addr).await.unwrap();
-                let mut bytes = [0; 2];
-                stream.read_exact(&mut bytes).await.unwrap();
-                done_tx.send(bytes).unwrap();
+                done_tx.send(*b"ok").unwrap();
             }
         };
         let workers = tokio::spawn(join_workers(metadata, audio));
@@ -1883,7 +1904,6 @@ mod tests {
             .unwrap()
             .unwrap();
         audio_server.await.unwrap();
-        metadata_server.await.unwrap();
     }
 
     #[test]
