@@ -4,16 +4,19 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/l10n.dart';
 import '../../../utils/api/check_device_on_server.dart';
+import '../../../utils/api/request_failure.dart';
 import '../../../utils/dialogs/information/error.dart';
 import '../../../bindings/bindings.dart';
 
 class ServerStatusDialog extends StatefulWidget {
   final List<String> hosts;
+  final String fingerprint;
   final Function(CheckDeviceOnServerResponse?) close;
 
   const ServerStatusDialog({
     super.key,
     required this.hosts,
+    required this.fingerprint,
     required this.close,
   });
 
@@ -52,7 +55,7 @@ class ServerStatusDialogState extends State<ServerStatusDialog> {
   }
 
   Future<CheckDeviceOnServerResponse> _checkDeviceStatus() async {
-    return await checkDeviceOnServer(widget.hosts);
+    return await checkDeviceOnServer(widget.hosts, widget.fingerprint);
   }
 
   Future<void> _handlePollingError(Object error) async {
@@ -61,7 +64,7 @@ class ServerStatusDialogState extends State<ServerStatusDialog> {
     await showErrorDialog(
       context: context,
       title: S.of(context).unknownError,
-      errorMessage: error.toString(),
+      errorMessage: requestErrorText(S.of(context), error),
     );
   }
 

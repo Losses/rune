@@ -1457,5 +1457,7 @@
   "queueUnavailableSourceUnreachable": "Не вдалося підключитися до джерела",
   "queueUnavailableUnreadable": "Не вдалося прочитати аудіо",
   "rendererLinkLost": "З’єднання з {alias} втрачено",
-  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
+  "requestPublicKeyMismatch": "Ключ пристрою не відповідає відбитку",
+  "requestRegistrationConflict": "Пристрій із таким відбитком уже зареєстровано"
 }

@@ -1420,5 +1420,7 @@
   "queueUnavailableSourceUnreachable": "ソースにせつぞくできません",
   "queueUnavailableUnreadable": "おんせいをよみとれません",
   "rendererLinkLost": "{alias} との接続が失われました",
-  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
+  "requestPublicKeyMismatch": "デバイスノ カギガ フィンガープリントト イッチ シマセン",
+  "requestRegistrationConflict": "コノ フィンガープリントノ デバイスハ スデニ トウロク サレテイマス"
 }

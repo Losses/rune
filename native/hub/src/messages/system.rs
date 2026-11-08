@@ -44,6 +44,8 @@ pub enum RequestFailureCause {
         state: CastLibraryState,
     },
     CertificateMismatch,
+    PublicKeyMismatch,
+    RegistrationConflict,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]

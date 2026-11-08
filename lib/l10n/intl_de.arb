@@ -1457,5 +1457,7 @@
   "queueUnavailableSourceUnreachable": "Die Quelle ist nicht erreichbar",
   "queueUnavailableUnreadable": "Die Audiodatei ist nicht lesbar",
   "rendererLinkLost": "Verbindung zu {alias} verloren",
-  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
+  "requestPublicKeyMismatch": "Der Geräteschlüssel passt nicht zum Fingerabdruck",
+  "requestRegistrationConflict": "Ein Gerät mit diesem Fingerabdruck ist bereits registriert"
 }

@@ -1459,5 +1459,7 @@
   "queueUnavailableSourceUnreachable": "La sorgente non è raggiungibile",
   "queueUnavailableUnreadable": "Il file audio non è leggibile",
   "rendererLinkLost": "Connessione con {alias} persa",
-  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
+  "requestPublicKeyMismatch": "La chiave del dispositivo non corrisponde all’impronta",
+  "requestRegistrationConflict": "Un dispositivo con questa impronta è già registrato"
 }

@@ -663,6 +663,19 @@ struct TempCertVerifier {
     cert_info: Arc<Mutex<CertInfo>>,
 }
 
+fn verify_presented_key_signature(
+    message: &[u8],
+    cert: &CertificateDer<'_>,
+    signature: &rustls::DigitallySignedStruct,
+) -> Result<HandshakeSignatureValid, RustlsError> {
+    rustls::crypto::verify_tls12_signature(
+        message,
+        cert,
+        signature,
+        &default_provider().signature_verification_algorithms,
+    )
+}
+
 impl ServerCertVerifier for TempCertVerifier {
     /// Intercepts and stores the server certificate, asserting verification success without actual validation.
     fn verify_server_cert(
@@ -683,7 +696,7 @@ impl ServerCertVerifier for TempCertVerifier {
             .map_err(|e| RustlsError::General(e.to_string()))?; // Calculate fingerprint
 
         *self.cert_info.lock().unwrap() = Some((cert, fingerprint)); // Store the certificate info in shared Mutex
-        Ok(ServerCertVerified::assertion()) // Assert verification success to continue handshake
+        Ok(ServerCertVerified::assertion())
     }
 
     /// Returns a list of supported signature schemes for this verifier.
@@ -702,24 +715,27 @@ impl ServerCertVerifier for TempCertVerifier {
         ]
     }
 
-    /// Asserts handshake signature validity for TLS 1.2 without actual verification.
     fn verify_tls12_signature(
         &self,
-        _: &[u8],
-        _: &CertificateDer<'_>,
-        _: &rustls::DigitallySignedStruct,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        signature: &rustls::DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, RustlsError> {
-        Ok(HandshakeSignatureValid::assertion()) // Assert signature validity without verification
+        verify_presented_key_signature(message, cert, signature)
     }
 
-    /// Asserts handshake signature validity for TLS 1.3 without actual verification.
     fn verify_tls13_signature(
         &self,
-        _: &[u8],
-        _: &CertificateDer<'_>,
-        _: &rustls::DigitallySignedStruct,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        signature: &rustls::DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, RustlsError> {
-        Ok(HandshakeSignatureValid::assertion()) // Assert signature validity without verification
+        rustls::crypto::verify_tls13_signature(
+            message,
+            cert,
+            signature,
+            &default_provider().signature_verification_algorithms,
+        )
     }
 }
 
@@ -935,7 +951,27 @@ pub async fn measure_host_response_times(
 
 #[cfg(test)]
 mod tests {
-    use super::trusted_host_matches;
+    use super::{fetch_server_certificate, trusted_host_matches};
+    use crate::ssl::generate_self_signed_cert;
+    use rustls::crypto::ring::default_provider;
+    use rustls::{
+        ServerConfig,
+        pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
+        server::{ClientHello, ResolvesServerCert},
+        sign::CertifiedKey,
+    };
+    use std::sync::Arc;
+    use tokio::net::TcpListener;
+    use tokio_rustls::TlsAcceptor;
+
+    #[derive(Debug)]
+    struct TestCertificateResolver(Arc<CertifiedKey>);
+
+    impl ResolvesServerCert for TestCertificateResolver {
+        fn resolve(&self, _: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
+            Some(self.0.clone())
+        }
+    }
 
     #[test]
     fn trusted_entry_with_port_matches_its_host_only() {
@@ -944,5 +980,38 @@ mod tests {
         assert!(trusted_host_matches("[::1]:7863", "::1"));
         assert!(!trusted_host_matches("127.0.0.1:7863", "127.0.0.2"));
         assert!(!trusted_host_matches("127.0.0.10", "127.0.0.1"));
+    }
+
+    #[tokio::test]
+    async fn certificate_fetch_rejects_a_server_that_does_not_hold_its_key() {
+        let cert = generate_self_signed_cert("localhost", "rune", "CA", 1).unwrap();
+        let other_key = generate_self_signed_cert("other", "rune", "CA", 1).unwrap();
+        let certificate = pem::parse(&cert.certificate).unwrap();
+        let private_key = pem::parse(&other_key.private_key).unwrap();
+        let key = default_provider()
+            .key_provider
+            .load_private_key(PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
+                private_key.contents().to_vec(),
+            )))
+            .unwrap();
+        let forged = CertifiedKey::new(
+            vec![CertificateDer::from(certificate.contents().to_vec())],
+            key,
+        );
+        let server_config = ServerConfig::builder()
+            .with_no_client_auth()
+            .with_cert_resolver(Arc::new(TestCertificateResolver(Arc::new(forged))));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let acceptor = TlsAcceptor::from(Arc::new(server_config));
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let _ = acceptor.accept(stream).await;
+        });
+
+        let result =
+            fetch_server_certificate(&format!("https://127.0.0.1:{}/ping", address.port())).await;
+        assert!(result.is_err());
+        server.await.unwrap();
     }
 }

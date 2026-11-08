@@ -1422,5 +1422,7 @@
   "queueUnavailableSourceUnreachable": "La fonto ne atingeblas",
   "queueUnavailableUnreadable": "La aŭdaĵo ne legeblas",
   "rendererLinkLost": "Konekto al {alias} perdiĝis",
-  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
+  "requestPublicKeyMismatch": "La aparatŝlosilo ne kongruas kun la fingrospuro",
+  "requestRegistrationConflict": "Aparato kun ĉi tiu fingrospuro jam estas registrita"
 }

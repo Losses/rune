@@ -933,13 +933,14 @@ mod lifecycle_tests {
     use uuid::Uuid;
 
     use crate::backends::remote::{connect_remote, decode_message};
+    use crate::handlers::neighbors::select_pinned_pair_host;
     use crate::library_pool::{LibraryHandle, LibraryPool};
     use crate::messages::{
         DeviceConnectionLevel, DeviceSyncLevel, PlaybackStatus, RequestErrorKind,
         RequestFailureCause, TrustListUpdated, TrustedServerCertificate,
     };
     use crate::node::NodeSlot;
-    use crate::request_error::request_failure_cause;
+    use crate::request_error::{ExpectedRequestError, request_failure_cause};
     use crate::server::api::{add_trusted_server, edit_trusted_hosts};
     use crate::server::sync::client::sync_library;
     use database::sync::model::RuneModel;
@@ -1239,6 +1240,26 @@ mod lifecycle_tests {
         assert!(stored_hosts.contains(&host));
         assert!(stored_hosts.contains(&unreachable_host));
         server.manager.stop().await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn pinned_pair_host_reports_a_certificate_mismatch() -> Result<()> {
+        let server_dir = tempfile::tempdir()?;
+        let client_dir = tempfile::tempdir()?;
+        let server = fixture(server_dir.path()).await?;
+        let client = fixture(client_dir.path()).await?;
+        let (address, _) = start_test_tls_server(&server).await?;
+        let host = format!("127.0.0.1:{}", address.port());
+        let validator = client.global_params.cert_validator.read().await.clone();
+
+        let error = select_pinned_pair_host(vec![host], &validator, "a different fingerprint")
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::CertificateMismatch)
+        ));
         Ok(())
     }
 

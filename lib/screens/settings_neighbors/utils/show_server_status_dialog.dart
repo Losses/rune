@@ -10,11 +10,13 @@ import '../widgets/server_status_dialog.dart';
 Future<CheckDeviceOnServerResponse?> showServerStatusDialog(
   BuildContext context,
   List<String> hosts,
+  String fingerprint,
 ) async {
   return await $showModal<CheckDeviceOnServerResponse?>(
     context,
     (context, $close) => ServerStatusDialog(
       hosts: hosts,
+      fingerprint: fingerprint,
       close: $close,
     ),
     barrierDismissible: false,

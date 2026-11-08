@@ -70,36 +70,32 @@ class SearchRemoteDeviceSettingButton extends StatelessWidget {
         }
 
         try {
-          await registerDeviceOnServer(device.ips);
+          await registerDeviceOnServer(device.ips, device.fingerprint);
         } catch (e) {
           if (!context.mounted) return;
 
           showErrorDialog(
             context: context,
             title: s.unknownError,
-            errorMessage: e.toString(),
+            errorMessage: requestErrorText(S.of(context), e),
           );
 
           return;
         }
 
         if (!context.mounted) return;
-        final serverStatus = await showServerStatusDialog(context, device.ips);
+        final serverStatus = await showServerStatusDialog(
+          context,
+          device.ips,
+          device.fingerprint,
+        );
 
         if (serverStatus == null) {
           return;
         }
 
         if (!context.mounted) return;
-        if (!serverStatus.success) {
-          await showErrorDialog(
-            context: context,
-            title: s.unknownError,
-            errorMessage: serverStatus.error,
-          );
-
-          return;
-        } else if (serverStatus.status == ClientStatus.blocked) {
+        if (serverStatus.status == ClientStatus.blocked) {
           await showErrorDialog(
             context: context,
             title: s.clientBlockedTitle,

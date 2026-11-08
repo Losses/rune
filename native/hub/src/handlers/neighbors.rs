@@ -10,7 +10,7 @@ use crate::server::{
     },
     utils::device::load_device_info,
 };
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::{
     fs,
     future::Future,
@@ -38,6 +38,43 @@ use ::discovery::{
 
 use crate::utils::{GlobalParams, ParamsExtractor};
 use crate::{Session, Signal, messages::*};
+
+pub(crate) async fn select_pinned_pair_host(
+    hosts: Vec<String>,
+    validator: &CertValidator,
+    fingerprint: &str,
+) -> Result<String> {
+    match select_best_host(
+        hosts.clone(),
+        Arc::new(tls_config(validator.clone(), fingerprint)),
+    )
+    .await
+    {
+        Ok(host) => Ok(host),
+        Err(_) => {
+            for host in &hosts {
+                if let Ok(certificate) =
+                    fetch_server_certificate(&certificate_fetch_url(host)).await
+                    && certificate.fingerprint != fingerprint
+                {
+                    return Err(ExpectedRequestError::CertificateMismatch.into());
+                }
+            }
+            Err(ExpectedRequestError::Unavailable {
+                what: "paired server",
+            }
+            .into())
+        }
+    }
+}
+
+fn certificate_fetch_url(host: &str) -> String {
+    if matches!(host.parse::<IpAddr>(), Ok(IpAddr::V6(_))) {
+        format!("https://[{host}]/ping")
+    } else {
+        format!("https://{host}/ping")
+    }
+}
 
 impl ParamsExtractor for StartBroadcastRequest {
     type Params = (Arc<DiscoveryService>, Arc<String>);
@@ -670,44 +707,30 @@ impl Signal for RegisterDeviceOnServerRequest {
         req: &Self,
     ) -> Result<Option<Self::Response>> {
         let (config_path, validator) = config;
-        let validator = Arc::new(validator.read().await.clone());
-        let client_config = Arc::new(validator.clone().into_client_config());
+        let validator = validator.read().await.clone();
         let config_path = config_path.to_string();
 
         let certificate_id = req.alias.clone();
         let (fingerprint, cert, _) =
             generate_or_load_certificates(config_path, &certificate_id).await?;
 
-        let host = match select_best_host(req.hosts.clone(), client_config.clone()).await {
-            Ok(x) => x,
-            Err(e) => {
-                return Ok(Some(RegisterDeviceOnServerResponse {
-                    success: false,
-                    error: format!("{e:#?}"),
-                }));
-            }
-        };
+        let host = select_pinned_pair_host(req.hosts.clone(), &validator, &req.fingerprint).await?;
+        let client_config = Arc::new(tls_config(validator, &req.fingerprint));
 
-        match register_device(
+        register_device(
             &host,
-            client_config.clone(),
+            client_config,
             cert,
             fingerprint,
             req.alias.clone(),
             "RuneAudio".to_string(),
             "Desktop".to_string(),
         )
-        .await
-        {
-            Ok(_) => Ok(Some(RegisterDeviceOnServerResponse {
-                success: true,
-                error: String::new(),
-            })),
-            Err(e) => Ok(Some(RegisterDeviceOnServerResponse {
-                success: false,
-                error: format!("{e:#?}"),
-            })),
-        }
+        .await?;
+        Ok(Some(RegisterDeviceOnServerResponse {
+            success: true,
+            error: String::new(),
+        }))
     }
 }
 
@@ -733,21 +756,12 @@ impl Signal for CheckDeviceOnServerRequest {
         req: &Self,
     ) -> Result<Option<Self::Response>> {
         let validator = validator.read().await.clone();
-        let client_config = Arc::new(Arc::new(validator).into_client_config());
 
         let (fingerprint, _, _) =
             generate_or_load_certificates(Path::new(&*config_path), &req.alias).await?;
 
-        let host = match select_best_host(req.hosts.clone(), client_config.clone()).await {
-            Ok(host) => host,
-            Err(e) => {
-                return Ok(Some(CheckDeviceOnServerResponse {
-                    success: false,
-                    error: format!("{e:#?}"),
-                    status: None,
-                }));
-            }
-        };
+        let host = select_pinned_pair_host(req.hosts.clone(), &validator, &req.fingerprint).await?;
+        let client_config = Arc::new(tls_config(validator, &req.fingerprint));
 
         match check_fingerprint(&host, client_config, &fingerprint).await {
             Ok(response) => {
@@ -764,11 +778,7 @@ impl Signal for CheckDeviceOnServerRequest {
                     status: Some(status),
                 }))
             }
-            Err(e) => Ok(Some(CheckDeviceOnServerResponse {
-                success: false,
-                error: format!("{e:#}"),
-                status: Some(ClientStatus::Blocked),
-            })),
+            Err(_) => Err(ExpectedRequestError::CertificateMismatch.into()),
         }
     }
 }

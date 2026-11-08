@@ -31,12 +31,24 @@ use cli::{Cli, DiscoveryCmd, RemoteCmd, ReplCommand};
 use connection::WSConnection;
 use editor::{EditorConfig, create_editor};
 use fs::VirtualFS;
-use hub::server::api::{edit_trusted_hosts, remove_trusted_device};
+use hub::server::api::{add_trusted_server, edit_trusted_hosts, remove_trusted_device};
 use utils::{
     AppState, get_fingerprint_by_index, print_certificate_table, print_device_details,
     print_device_table,
 };
 use verify::{inspect_host, print_device_information, register_current_device, verify_servers};
+
+async fn trust_discovered_server(
+    validator: &CertValidator,
+    fingerprint: String,
+    hosts: Vec<String>,
+) -> Result<()> {
+    add_trusted_server(
+        validator,
+        Some(&hub::messages::TrustedServerCertificate { fingerprint, hosts }),
+    )
+    .await
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -204,9 +216,7 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<()> {
                 .unwrap_or_else(|| dev.ips.iter().map(|ip| ip.to_string()).collect());
 
             let validator = CertValidator::new(config_dir).await?;
-            validator
-                .add_trusted_domains(hosts.clone(), &dev.fingerprint)
-                .await?;
+            trust_discovered_server(&validator, dev.fingerprint.clone(), hosts.clone()).await?;
 
             info!(
                 "Trusted fingerprint: {}, with hosts: {}",
@@ -317,4 +327,24 @@ fn is_valid_host(host: &str) -> bool {
     let ip_re = Regex::new(r"^\d{1,3}(\.\d{1,3}){3}$").unwrap();
 
     domain_re.is_match(host) || ip_re.is_match(host)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::trust_discovered_server;
+    use ::discovery::client::CertValidator;
+
+    #[tokio::test]
+    async fn discovered_trust_does_not_store_an_unverified_fingerprint() {
+        let directory = tempfile::tempdir().unwrap();
+        let validator = CertValidator::new(directory.path()).await.unwrap();
+        let result = trust_discovered_server(
+            &validator,
+            "advertised-fingerprint".to_owned(),
+            vec!["127.0.0.1:1".to_owned()],
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(validator.list_trusted_fingerprints().await.is_empty());
+    }
 }

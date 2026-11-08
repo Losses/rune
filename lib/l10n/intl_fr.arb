@@ -1459,5 +1459,7 @@
   "queueUnavailableSourceUnreachable": "La source est inaccessible",
   "queueUnavailableUnreadable": "Le fichier audio est illisible",
   "rendererLinkLost": "Connexion à {alias} perdue",
-  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
+  "requestPublicKeyMismatch": "La clé de l’appareil ne correspond pas à son empreinte",
+  "requestRegistrationConflict": "Un appareil utilisant cette empreinte est déjà enregistré"
 }

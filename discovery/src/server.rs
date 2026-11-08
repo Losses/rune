@@ -108,6 +108,9 @@ pub enum PermissionError {
     /// Application grant persistence failed.
     #[error("Device grants: {0}")]
     Grants(String),
+    /// A fingerprint is already bound to different public key material.
+    #[error("Fingerprint is already registered with a different key")]
+    FingerprintConflict,
 }
 
 type TrustChangeHook = Arc<dyn Fn(&str, Option<&UserStatus>) -> Result<(), String> + Send + Sync>;
@@ -326,8 +329,10 @@ impl PermissionManager {
         self.storage
             .update(|mut permissions| async move {
                 // Update operation on persistent storage
-                if permissions.users.contains_key(&fingerprint) {
-                    // Check if user already exists
+                if let Some(existing) = permissions.users.get(&fingerprint) {
+                    if existing.public_key != public_key {
+                        return Err(PermissionError::FingerprintConflict);
+                    }
                     return Ok::<(PermissionList, ()), PermissionError>((permissions, ()));
                 }
 
@@ -535,7 +540,7 @@ impl PermissionManager {
 
 #[cfg(test)]
 mod change_tests {
-    use super::{PermissionManager, UserStatus};
+    use super::{PermissionError, PermissionManager, UserStatus};
     use crate::utils::DeviceType;
     use std::sync::{Arc, Mutex};
     use tokio::time::{Duration, timeout};
@@ -567,6 +572,48 @@ mod change_tests {
         assert_eq!(*changes.borrow_and_update(), initial + 1);
         manager.remove_user("fingerprint").await?;
         assert_eq!(*changes.borrow_and_update(), initial + 2);
+        std::fs::remove_dir_all(dir)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn existing_fingerprint_with_another_key_is_a_conflict()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = std::env::temp_dir().join(format!("permission-conflict-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let manager = PermissionManager::new(&dir)?;
+        manager
+            .add_user(
+                "original-key".into(),
+                "fingerprint".into(),
+                "one".into(),
+                "model".into(),
+                DeviceType::Desktop,
+                "ip".into(),
+            )
+            .await?;
+        let result = manager
+            .add_user(
+                "different-key".into(),
+                "fingerprint".into(),
+                "two".into(),
+                "model".into(),
+                DeviceType::Desktop,
+                "ip".into(),
+            )
+            .await;
+        assert!(matches!(result, Err(PermissionError::FingerprintConflict)));
+        let duplicate = manager
+            .add_user(
+                "original-key".into(),
+                "fingerprint".into(),
+                "one".into(),
+                "model".into(),
+                DeviceType::Desktop,
+                "ip".into(),
+            )
+            .await;
+        assert!(duplicate.is_ok());
         std::fs::remove_dir_all(dir)?;
         Ok(())
     }

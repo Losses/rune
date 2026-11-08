@@ -4,12 +4,13 @@ import '../../constants/configurations.dart';
 
 import '../settings_manager.dart';
 
-registerDeviceOnServer(List<String> hosts) async {
+registerDeviceOnServer(List<String> hosts, String fingerprint) async {
   final settingsManager = SettingsManager();
 
   final registerRequest = RegisterDeviceOnServerRequest(
     alias: await settingsManager.getValue(kDeviceAliasKey),
     hosts: hosts,
+    fingerprint: fingerprint,
   );
 
   final rustSignal = await awaitResponse(

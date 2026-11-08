@@ -5,12 +5,13 @@ import '../../constants/configurations.dart';
 import '../settings_manager.dart';
 
 Future<CheckDeviceOnServerResponse> checkDeviceOnServer(
-    List<String> hosts) async {
+    List<String> hosts, String fingerprint) async {
   final settingsManager = SettingsManager();
 
   final registerRequest = CheckDeviceOnServerRequest(
     alias: await settingsManager.getValue(kDeviceAliasKey),
     hosts: hosts,
+    fingerprint: fingerprint,
   );
 
   final rustSignal = await awaitResponse(

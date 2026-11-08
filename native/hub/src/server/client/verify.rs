@@ -123,7 +123,14 @@ pub async fn verify_servers(expected_fingerprint: &str, hosts: Vec<String>) -> R
         errors.to_string().red()
     );
 
+    if verification_failed(mismatch, errors) {
+        anyhow::bail!("{} endpoint(s) mismatched or failed", mismatch + errors);
+    }
     Ok(())
+}
+
+fn verification_failed(mismatch: usize, errors: usize) -> bool {
+    mismatch > 0 || errors > 0
 }
 
 pub async fn inspect_host(host: &str, config: Arc<ClientConfig>) -> Result<()> {
@@ -182,4 +189,17 @@ pub async fn print_device_information() -> Result<()> {
     println!("{public_key}");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::verification_failed;
+
+    #[test]
+    fn any_mismatch_or_endpoint_error_fails_verification() {
+        assert!(!verification_failed(0, 0));
+        assert!(verification_failed(1, 0));
+        assert!(verification_failed(0, 1));
+        assert!(verification_failed(1, 2));
+    }
 }

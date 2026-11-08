@@ -126,6 +126,34 @@ void main() {
     );
   });
 
+  test('pairing registration failures use localized typed messages', () {
+    final s = AppLocalizationsEn();
+    expect(
+      requestFailureMessage(
+        s,
+        const RequestFailure(
+          'RegisterDeviceOnServerRequest',
+          RequestErrorKind.invalidInput,
+          'key mismatch',
+          RequestFailureCausePublicKeyMismatch(),
+        ),
+      ),
+      s.requestPublicKeyMismatch,
+    );
+    expect(
+      requestFailureMessage(
+        s,
+        const RequestFailure(
+          'RegisterDeviceOnServerRequest',
+          RequestErrorKind.conflict,
+          'fingerprint exists',
+          RequestFailureCauseRegistrationConflict(),
+        ),
+      ),
+      s.requestRegistrationConflict,
+    );
+  });
+
   test('error text localizes request failures and preserves other errors', () {
     final s = AppLocalizationsEn();
     expect(

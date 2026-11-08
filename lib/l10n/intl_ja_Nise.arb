@@ -1420,5 +1420,7 @@
   "queueUnavailableSourceUnreachable": "ソースに接続できません",
   "queueUnavailableUnreadable": "音声を読み取れません",
   "rendererLinkLost": "{alias} との接続が失われました",
-  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
+  "requestPublicKeyMismatch": "端末金鑰與指紋不符",
+  "requestRegistrationConflict": "此指紋的裝置已註冊"
 }

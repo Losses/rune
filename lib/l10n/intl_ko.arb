@@ -1459,5 +1459,7 @@
   "queueUnavailableSourceUnreachable": "소스에 연결할 수 없습니다",
   "queueUnavailableUnreadable": "오디오를 읽을 수 없습니다",
   "rendererLinkLost": "{alias} 연결이 끊겼습니다",
-  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
+  "requestPublicKeyMismatch": "기기 키가 지문과 일치하지 않습니다",
+  "requestRegistrationConflict": "이 지문을 사용하는 기기가 이미 등록되어 있습니다"
 }

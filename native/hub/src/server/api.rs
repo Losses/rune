@@ -173,6 +173,11 @@ struct RegisterRequest {
     device_type: String,
 }
 
+#[derive(Deserialize)]
+struct RegisterErrorResponse {
+    code: String,
+}
+
 pub async fn register_device(
     host: &str,
     config: Arc<ClientConfig>,
@@ -219,6 +224,17 @@ pub async fn register_device(
     let error_body = response.into_body().collect().await?.to_bytes();
 
     if status != StatusCode::CREATED {
+        if let Ok(error) = serde_json::from_slice::<RegisterErrorResponse>(&error_body) {
+            match error.code.as_str() {
+                "public_key_mismatch" => {
+                    return Err(ExpectedRequestError::PublicKeyMismatch.into());
+                }
+                "fingerprint_conflict" => {
+                    return Err(ExpectedRequestError::RegistrationConflict.into());
+                }
+                _ => {}
+            }
+        }
         let error_message = String::from_utf8_lossy(&error_body);
         return Err(anyhow!(
             "Registration failed with status code {}: {}",

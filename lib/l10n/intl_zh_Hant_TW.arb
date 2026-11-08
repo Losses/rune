@@ -1190,5 +1190,7 @@
   "queueUnavailableSourceUnreachable": "無法連線至來源",
   "queueUnavailableUnreadable": "無法讀取音訊",
   "rendererLinkLost": "與 {alias} 的連線已中斷",
-  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
+  "requestPublicKeyMismatch": "裝置金鑰與指紋不相符",
+  "requestRegistrationConflict": "此指紋的裝置已註冊"
 }

@@ -177,6 +177,7 @@ pub struct ServerAvailabilityTestResponse {
 pub struct RegisterDeviceOnServerRequest {
     pub alias: String,
     pub hosts: Vec<String>,
+    pub fingerprint: String,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
@@ -189,6 +190,7 @@ pub struct RegisterDeviceOnServerResponse {
 pub struct CheckDeviceOnServerRequest {
     pub alias: String,
     pub hosts: Vec<String>,
+    pub fingerprint: String,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]

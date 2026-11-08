@@ -1422,5 +1422,7 @@
   "queueUnavailableSourceUnreachable": "無法度連線來源",
   "queueUnavailableUnreadable": "無法度讀取音訊",
   "rendererLinkLost": "Kah {alias} ê liân-soàⁿ í-keng tiong-toān",
-  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
+  "requestPublicKeyMismatch": "設備金鑰佮指紋無相合",
+  "requestRegistrationConflict": "這个指紋个設備已經註冊矣"
 }

@@ -1457,5 +1457,7 @@
   "queueUnavailableSourceUnreachable": "ソースに接続できません",
   "queueUnavailableUnreadable": "音声を読み取れません",
   "rendererLinkLost": "{alias} との接続が失われました",
-  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
+  "requestPublicKeyMismatch": "デバイスの鍵がフィンガープリントと一致しません",
+  "requestRegistrationConflict": "このフィンガープリントのデバイスはすでに登録されています"
 }
