@@ -1459,5 +1459,7 @@
   "rendererLinkLost": "Verbindung zu {alias} verloren",
   "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
   "requestPublicKeyMismatch": "Der Geräteschlüssel passt nicht zum Fingerabdruck",
-  "requestRegistrationConflict": "Ein Gerät mit diesem Fingerabdruck ist bereits registriert"
+  "requestRegistrationConflict": "Ein Gerät mit diesem Fingerabdruck ist bereits registriert",
+  "remoteLibraryReconnecting": "Verbindung zu {alias} wird wiederhergestellt…",
+  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}}
 }

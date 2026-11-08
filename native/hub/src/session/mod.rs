@@ -234,6 +234,13 @@ impl PlayerSession {
         let Some(node) = self.node.upgrade() else {
             return Ok(());
         };
+        self.reemit_to(&node.gui_broadcaster).await
+    }
+
+    pub(crate) async fn reemit_to(&self, broadcaster: &Arc<dyn Broadcaster>) -> Result<()> {
+        let Some(node) = self.node.upgrade() else {
+            return Ok(());
+        };
         let status = self.player.lock().await.get_status();
         let (session_id, revision) = {
             let state = self.state.lock().await;
@@ -247,7 +254,7 @@ impl PlayerSession {
             &mut item_state,
             &controls,
             None,
-            &node.gui_broadcaster,
+            broadcaster,
             &session_id,
         )
         .await;
@@ -258,7 +265,7 @@ impl PlayerSession {
         send_playlist(
             &node,
             &playlist,
-            node.gui_broadcaster.as_ref(),
+            broadcaster.as_ref(),
             &session_id,
             revision,
         )

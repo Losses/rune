@@ -1530,5 +1530,7 @@
   "rendererLinkLost": "与 {alias} 的连接已断开",
   "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
   "requestPublicKeyMismatch": "设备密钥与指纹不匹配",
-  "requestRegistrationConflict": "此指纹对应的设备已注册"
+  "requestRegistrationConflict": "此指纹对应的设备已注册",
+  "remoteLibraryReconnecting": "正在重新连接到 {alias}…",
+  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}}
 }

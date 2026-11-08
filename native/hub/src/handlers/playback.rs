@@ -1029,6 +1029,34 @@ async fn apply_cast_load(node: &NodeContext, request: &CastLoadRequest) -> Resul
     Ok(())
 }
 
+impl ParamsExtractor for RefreshSessionRequest {
+    type Params = (Arc<NodeContext>,);
+
+    fn extract_params(&self, params: &GlobalParams) -> Self::Params {
+        (params.node.clone(),)
+    }
+}
+
+impl Signal for RefreshSessionRequest {
+    type Params = (Arc<NodeContext>,);
+    type Response = ();
+
+    async fn handle(
+        &self,
+        (node,): Self::Params,
+        session: Option<Session>,
+        _: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let broadcaster = if session.is_some() {
+            &node.broadcaster
+        } else {
+            &node.gui_broadcaster
+        };
+        node.session()?.reemit_to(broadcaster).await?;
+        Ok(Some(()))
+    }
+}
+
 impl ParamsExtractor for SessionSnapshotRequest {
     type Params = (Arc<NodeContext>,);
 

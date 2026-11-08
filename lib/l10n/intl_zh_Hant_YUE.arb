@@ -1422,5 +1422,7 @@
   "rendererLinkLost": "同 {alias} 嘅連線已中斷",
   "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
   "requestPublicKeyMismatch": "裝置金鑰同指紋唔相符",
-  "requestRegistrationConflict": "呢個指紋嘅裝置已經註冊"
+  "requestRegistrationConflict": "呢個指紋嘅裝置已經註冊",
+  "remoteLibraryReconnecting": "重新連接緊 {alias}…",
+  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}}
 }

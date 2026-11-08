@@ -1461,5 +1461,7 @@
   "rendererLinkLost": "Connexion à {alias} perdue",
   "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
   "requestPublicKeyMismatch": "La clé de l’appareil ne correspond pas à son empreinte",
-  "requestRegistrationConflict": "Un appareil utilisant cette empreinte est déjà enregistré"
+  "requestRegistrationConflict": "Un appareil utilisant cette empreinte est déjà enregistré",
+  "remoteLibraryReconnecting": "Reconnexion à {alias}…",
+  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}}
 }

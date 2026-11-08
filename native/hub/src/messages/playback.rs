@@ -193,6 +193,10 @@ pub struct CastLoadResponse {}
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct SessionSnapshotRequest {}
 
+/// Re-send the renderer's current player bar and queue after attachment.
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct RefreshSessionRequest {}
+
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct SessionSnapshotResponse {
     pub items: Vec<LibraryItemRequest>,

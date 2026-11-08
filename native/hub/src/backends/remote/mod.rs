@@ -378,6 +378,10 @@ impl RendererLink {
         }
     }
 
+    pub(crate) fn is_closed(&self) -> bool {
+        self.cancel.is_cancelled()
+    }
+
     pub(crate) fn id(&self) -> Uuid {
         self.id
     }
@@ -619,6 +623,9 @@ pub(crate) async fn open_remote_library(
     let params = Arc::new(node.params_for_ui()?);
     node.attach_remote_ui(&params, fingerprint).await?;
     node.install_renderer_link(link, alias)?;
+    node.remote_ui_renderer()?
+        .call(&RefreshSessionRequest {})
+        .await?;
     node.session()?.player.lock().await.pause();
     Ok(params)
 }

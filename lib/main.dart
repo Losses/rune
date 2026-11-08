@@ -83,6 +83,7 @@ import 'providers/playback_controller.dart';
 import 'providers/controllers.dart';
 import 'providers/renderer_attachment.dart';
 import 'providers/renderer_link_loss.dart';
+import 'providers/remote_library_reconnect.dart';
 import 'providers/responsive_providers.dart';
 
 import 'theme.dart';
@@ -557,11 +558,25 @@ class RuneLifecycleState extends State<RuneLifecycle> {
   bool _shouldCallUpdate = false;
   late final RemoteConnectionLossHandler _remoteLoss;
   late final RendererLinkLossHandler _rendererLinkLoss;
+  late final RemoteLibraryReconnectNotice _remoteReconnect;
+  LibraryPathProvider? _libraryPath;
+  String? _noticeLibraryPath;
 
   @override
   void initState() {
     super.initState();
 
+    _remoteReconnect = RemoteLibraryReconnectNotice(
+      reconnecting: RemoteLibraryReconnecting.rustSignalStream.map(
+        (signal) => signal.message,
+      ),
+      reconnected: RemoteLibraryReconnected.rustSignalStream.map(
+        (signal) => signal.message,
+      ),
+      losses: RemoteConnectionLost.rustSignalStream.map(
+        (signal) => signal.message,
+      ),
+    );
     _remoteLoss = RemoteConnectionLossHandler(
       losses: RemoteConnectionLost.rustSignalStream.map(
         (signal) => signal.message,
@@ -621,6 +636,14 @@ class RuneLifecycleState extends State<RuneLifecycle> {
   void didChangeDependencies() {
     super.didChangeDependencies();
 
+    final libraryPath = context.read<LibraryPathProvider>();
+    if (_libraryPath != libraryPath) {
+      _libraryPath?.removeListener(_libraryChanged);
+      _libraryPath = libraryPath;
+      _noticeLibraryPath = libraryPath.currentPath;
+      libraryPath.addListener(_libraryChanged);
+    }
+
     status = Provider.of<PlaybackStatusProvider>(context, listen: false);
     license = Provider.of<LicenseProvider>(context, listen: false);
 
@@ -639,11 +662,21 @@ class RuneLifecycleState extends State<RuneLifecycle> {
 
     _remoteLoss.dispose();
     _rendererLinkLoss.dispose();
+    _libraryPath?.removeListener(_libraryChanged);
+    _remoteReconnect.dispose();
     license.removeListener(_updateLicense);
     status.removeListener(_throttleUpdateTray);
     $router.removeListener(_throttleUpdateTray);
     appTheme.removeListener(_throttleUpdateTray);
     _throttleTimer?.cancel();
+  }
+
+  void _libraryChanged() {
+    final path = _libraryPath?.currentPath;
+    if (path != _noticeLibraryPath) {
+      _noticeLibraryPath = path;
+      _remoteReconnect.clear();
+    }
   }
 
   void _throttleUpdateTray() {
@@ -679,6 +712,27 @@ class RuneLifecycleState extends State<RuneLifecycle> {
 
   @override
   Widget build(BuildContext context) {
-    return widget.child;
+    return ValueListenableBuilder<String?>(
+      valueListenable: _remoteReconnect,
+      child: widget.child,
+      builder: (context, alias, child) => Stack(
+        fit: StackFit.expand,
+        children: [
+          child!,
+          if (alias != null)
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 24,
+              child: SafeArea(
+                child: InfoBar(
+                  title: Text(S.of(context).remoteLibraryReconnecting(alias)),
+                  severity: InfoBarSeverity.info,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }

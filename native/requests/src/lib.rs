@@ -795,6 +795,14 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             uses_controller_library: false,
         },
         RequestResponse {
+            request: "RefreshSessionRequest".to_string(),
+            response: None,
+            scope: RequestScope::Session,
+            access: RequestAccess::Control,
+            call_id: false,
+            uses_controller_library: false,
+        },
+        RequestResponse {
             request: "SessionSnapshotRequest".to_string(),
             response: Some("SessionSnapshotResponse".to_string()),
             scope: RequestScope::Session,

@@ -1461,5 +1461,7 @@
   "rendererLinkLost": "{alias} 연결이 끊겼습니다",
   "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
   "requestPublicKeyMismatch": "기기 키가 지문과 일치하지 않습니다",
-  "requestRegistrationConflict": "이 지문을 사용하는 기기가 이미 등록되어 있습니다"
+  "requestRegistrationConflict": "이 지문을 사용하는 기기가 이미 등록되어 있습니다",
+  "remoteLibraryReconnecting": "{alias}에 다시 연결하는 중…",
+  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}}
 }

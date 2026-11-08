@@ -46,6 +46,9 @@ pub enum RequestFailureCause {
     CertificateMismatch,
     PublicKeyMismatch,
     RegistrationConflict,
+    Reconnecting {
+        alias: String,
+    },
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]

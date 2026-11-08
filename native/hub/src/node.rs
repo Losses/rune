@@ -1,3 +1,9 @@
+mod reconnect;
+pub(crate) use reconnect::ReconnectConfig;
+use reconnect::ReconnectTask;
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
+
 use std::{
     fmt::{Debug, Formatter, Result as FmtResult},
     fs,
@@ -33,7 +39,7 @@ use crate::{
     library_pool::{LibraryHandle, LibraryPool},
     messages::{
         AttachedRenderer, ClientStatus, ClientSummary, IncommingClientPermissionNotification,
-        InitializeNodeRequest, InitializeNodeResponse, RemoteConnectionLost, RemoteLossKind,
+        InitializeNodeRequest, InitializeNodeResponse, RemoteLibraryReconnecting, RemoteLossKind,
         RendererAttachmentChanged, RendererLinkLost, TrustListUpdated, TrustedClientsChanged,
         TrustedServerCertificate,
     },
@@ -64,7 +70,10 @@ fn renderer_connection_error(error: RemoteConnectError) -> anyhow::Error {
 
 enum UiLibrary {
     Local,
-    Remote { fingerprint: String },
+    Remote {
+        fingerprint: String,
+        reconnect: Option<ReconnectTask>,
+    },
 }
 
 /// Process services shared by every local library and remote controller.
@@ -81,7 +90,10 @@ pub struct NodeContext {
     pub websocket_service: Arc<WebSocketService>,
     pub gui_broadcaster: Arc<dyn Broadcaster>,
     pub renderer_link: Arc<StdMutex<Option<Arc<RendererLink>>>>,
-    ui_library: StdMutex<UiLibrary>,
+    ui_library: Arc<StdMutex<UiLibrary>>,
+    reconnect_config: ReconnectConfig,
+    #[cfg(test)]
+    reconnect_attempts: AtomicUsize,
     pub token: Arc<CancellationToken>,
     pub(crate) sync_tokens: SyncTokenStore,
     pub server_manager: OnceLock<Arc<ServerManager>>,
@@ -99,6 +111,7 @@ impl Debug for NodeContext {
 }
 
 struct NodeBroadcaster {
+    ui_library: Arc<StdMutex<UiLibrary>>,
     local: Arc<dyn Broadcaster>,
     remote: Arc<WebSocketService>,
     renderer_link: Arc<StdMutex<Option<Arc<RendererLink>>>>,
@@ -119,7 +132,11 @@ const REMOTE_SIGNALS: &[&str] = &[
 
 impl Broadcaster for NodeBroadcaster {
     fn broadcast(&self, message: &dyn RinfRustSignal) {
-        let suppress_local_status = self.renderer_link.lock().is_ok_and(|link| link.is_some())
+        let suppress_local_status = (self
+            .ui_library
+            .lock()
+            .is_ok_and(|ui| matches!(*ui, UiLibrary::Remote { .. }))
+            || self.renderer_link.lock().is_ok_and(|link| link.is_some()))
             && matches!(
                 message.name().as_str(),
                 "PlaybackStatus" | "PlaylistUpdate" | "RealtimeFFT"
@@ -145,12 +162,30 @@ impl NodeContext {
         broadcaster: Arc<dyn Broadcaster>,
         os_media_controls: bool,
     ) -> Result<Arc<Self>> {
+        Self::with_reconnect_config(
+            config_path,
+            db_path,
+            broadcaster,
+            os_media_controls,
+            ReconnectConfig::default(),
+        )
+        .await
+    }
+
+    pub(crate) async fn with_reconnect_config(
+        config_path: &str,
+        db_path: &str,
+        broadcaster: Arc<dyn Broadcaster>,
+        os_media_controls: bool,
+        reconnect_config: ReconnectConfig,
+    ) -> Result<Arc<Self>> {
         #[cfg(unix)]
         raise_nofile_soft_limit();
         fs::create_dir_all(config_path).context("Create node configuration directory")?;
         let node_id = Arc::new(get_or_create_node_id(config_path).await?.to_string());
         let websocket_service = Arc::new(WebSocketService::new());
         let renderer_link = Arc::new(StdMutex::new(None));
+        let ui_library = Arc::new(StdMutex::new(UiLibrary::Local));
         let sync_tokens = SyncTokenStore::default();
         let permission_manager = PermissionManager::new(config_path)?;
         let access_policy = Arc::new(RuneAccessPolicy::load(
@@ -167,6 +202,7 @@ impl NodeContext {
             device_scanner: Arc::new(DiscoveryService::without_store()),
             sync_settings: Arc::new(RwLock::new(SyncSettings::load(Path::new(config_path)))),
             broadcaster: Arc::new(NodeBroadcaster {
+                ui_library: ui_library.clone(),
                 local: broadcaster.clone(),
                 remote: websocket_service.clone(),
                 renderer_link: renderer_link.clone(),
@@ -174,7 +210,10 @@ impl NodeContext {
             gui_broadcaster: broadcaster,
             websocket_service,
             renderer_link,
-            ui_library: StdMutex::new(UiLibrary::Local),
+            ui_library,
+            reconnect_config,
+            #[cfg(test)]
+            reconnect_attempts: AtomicUsize::new(0),
             token: Arc::new(CancellationToken::new()),
             sync_tokens,
             server_manager: OnceLock::new(),
@@ -398,7 +437,7 @@ impl NodeContext {
         Ok(())
     }
 
-    pub(crate) async fn renderer_link_lost(&self, id: Uuid) {
+    pub(crate) async fn renderer_link_lost(self: &Arc<Self>, id: Uuid) {
         self.renderer_connection_lost(
             id,
             RemoteLossKind::NetworkLost,
@@ -408,7 +447,7 @@ impl NodeContext {
     }
 
     pub(crate) async fn renderer_connection_lost(
-        &self,
+        self: &Arc<Self>,
         id: Uuid,
         kind: RemoteLossKind,
         detail: String,
@@ -420,16 +459,26 @@ impl NodeContext {
         let Some(link) = removed else {
             return;
         };
-        let remote_ui = self.ui_library.lock().is_ok_and(|ui| {
-            matches!(&*ui, UiLibrary::Remote { fingerprint } if fingerprint == link.fingerprint())
-        });
-        if remote_ui {
-            // Dart shows the notice and sends CloseLibraryRequest. Keep its listener
-            // alive until that request has received the usual typed response.
-            self.gui_broadcaster
-                .broadcast(&RemoteConnectionLost { kind, detail });
-            self.gui_broadcaster
-                .broadcast(&RendererAttachmentChanged { renderer: None });
+        link.close();
+        if let Ok(mut ui) = self.ui_library.lock()
+            && let UiLibrary::Remote {
+                fingerprint,
+                reconnect,
+            } = &mut *ui
+            && fingerprint == link.fingerprint()
+        {
+            *reconnect = Some(ReconnectTask::start(
+                Arc::downgrade(self),
+                fingerprint.clone(),
+                link.alias().to_owned(),
+                self.token.child_token(),
+                self.reconnect_config.clone(),
+                (kind, detail),
+            ));
+            self.gui_broadcaster.broadcast(&RemoteLibraryReconnecting {
+                fingerprint: fingerprint.clone(),
+                alias: link.alias().to_owned(),
+            });
             return;
         }
         self.gui_broadcaster.broadcast(&RendererLinkLost {
@@ -445,7 +494,7 @@ impl NodeContext {
         }
     }
 
-    pub(crate) async fn revoke_outgoing_for(&self, fingerprint: &str) {
+    pub(crate) async fn revoke_outgoing_for(self: &Arc<Self>, fingerprint: &str) {
         let link = self
             .renderer_link()
             .ok()
@@ -481,8 +530,10 @@ impl NodeContext {
         *self
             .ui_library
             .lock()
-            .map_err(|_| anyhow::anyhow!("UI library lock poisoned"))? =
-            UiLibrary::Remote { fingerprint };
+            .map_err(|_| anyhow::anyhow!("UI library lock poisoned"))? = UiLibrary::Remote {
+            fingerprint,
+            reconnect: None,
+        };
         Ok(())
     }
 
@@ -650,6 +701,16 @@ impl NodeContext {
     async fn leave_remote_ui(&self) {
         let remote = self.ui_library.lock().is_ok_and(|mut ui| {
             let remote = matches!(*ui, UiLibrary::Remote { .. });
+            if matches!(
+                *ui,
+                UiLibrary::Remote {
+                    reconnect: Some(_),
+                    ..
+                }
+            ) {
+                self.gui_broadcaster
+                    .broadcast(&RendererAttachmentChanged { renderer: None });
+            }
             *ui = UiLibrary::Local;
             remote
         });
@@ -861,7 +922,7 @@ mod tests {
         time::{Duration, timeout},
     };
 
-    use super::{NodeBroadcaster, NodeContext};
+    use super::{NodeBroadcaster, NodeContext, UiLibrary};
     use crate::{
         messages::{LibraryContentChanged, TrustListUpdated},
         server::WebSocketService,
@@ -925,6 +986,7 @@ mod tests {
         let remote = Arc::new(WebSocketService::new());
         let mut received = remote.broadcast_tx.subscribe();
         let broadcaster = NodeBroadcaster {
+            ui_library: Arc::new(StdMutex::new(UiLibrary::Local)),
             local: Arc::new(Quiet(None)),
             remote,
             renderer_link: Arc::new(StdMutex::new(None)),

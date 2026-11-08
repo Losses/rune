@@ -37,8 +37,14 @@ where
             Err(_) => Arc::new(node.params_for_library(library)?),
         }
     } else {
-        // Frames without a library id (@RR calls use these) address the UI library.
-        let ui_params = node.current_ui().await?;
+        // Unaddressed library requests need the UI library; session-only requests do not.
+        let ui_params = match node.current_ui().await {
+            Ok(params) => params,
+            Err(_) if R::SCOPE == RequestScope::Session && !R::USES_CONTROLLER_LIBRARY => {
+                Arc::new(node.params_for_ui()?)
+            }
+            Err(error) => return Err(error),
+        };
         if let Some(session) = &session {
             node.authorize_request(session, R::wire_name(), Some(&ui_params), None)
                 .await?;

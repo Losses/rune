@@ -934,7 +934,7 @@ mod lifecycle_tests {
         DeviceConnectionLevel, DeviceSyncLevel, PlaybackStatus, RequestErrorKind,
         RequestFailureCause, TrustListUpdated, TrustedServerCertificate,
     };
-    use crate::node::NodeSlot;
+    use crate::node::{NodeSlot, ReconnectConfig};
     use crate::request_error::{ExpectedRequestError, request_failure_cause};
     use crate::server::api::{add_trusted_server, edit_trusted_hosts};
     use crate::server::sync::client::sync_library;
@@ -1026,6 +1026,23 @@ mod lifecycle_tests {
         idle_timeout: Duration,
         broadcaster: Arc<dyn Broadcaster>,
     ) -> Result<Fixture> {
+        fixture_with_reconnect_config(
+            dir,
+            library_id,
+            idle_timeout,
+            broadcaster,
+            ReconnectConfig::default(),
+        )
+        .await
+    }
+
+    async fn fixture_with_reconnect_config(
+        dir: &Path,
+        library_id: Uuid,
+        idle_timeout: Duration,
+        broadcaster: Arc<dyn Broadcaster>,
+        reconnect_config: ReconnectConfig,
+    ) -> Result<Fixture> {
         fs::create_dir_all(dir.join(".rune"))?;
         let node = get_or_create_node_id(dir.to_str().context("config path")?).await?;
         let pool = LibraryPool::with_idle_timeout(dir, dir, &node.to_string(), idle_timeout)?;
@@ -1052,11 +1069,12 @@ mod lifecycle_tests {
             ..SyncSettings::default()
         }
         .save(dir)?;
-        let node_context = NodeContext::new(
+        let node_context = NodeContext::with_reconnect_config(
             dir.to_str().context("config path")?,
             dir.to_str().context("db path")?,
             broadcaster,
             false,
+            reconnect_config,
         )
         .await?;
         fixture_from_library(node_context, library).await

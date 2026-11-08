@@ -11,6 +11,8 @@ use crate::rpc::UnsupportedReason;
 pub enum ExpectedRequestError {
     #[error("{detail}")]
     InvalidInput { detail: String },
+    #[error("reconnecting to {alias}")]
+    Reconnecting { alias: String },
     #[error("{what} unavailable")]
     Unavailable { what: &'static str },
     #[error("{request} is unsupported by this target: {reason}")]
@@ -82,6 +84,7 @@ pub fn classify(error: &Error) -> RequestErrorKind {
             return match expected {
                 ExpectedRequestError::InvalidInput { .. } => RequestErrorKind::InvalidInput,
                 ExpectedRequestError::Unavailable { .. }
+                | ExpectedRequestError::Reconnecting { .. }
                 | ExpectedRequestError::Unsupported { .. } => RequestErrorKind::Unavailable,
                 ExpectedRequestError::CertificateMismatch => RequestErrorKind::InvalidInput,
                 ExpectedRequestError::PublicKeyMismatch => RequestErrorKind::InvalidInput,
@@ -114,6 +117,11 @@ pub fn request_failure_cause(error: &Error) -> Option<RequestFailureCause> {
                     return Some(RequestFailureCause::CastNotPossible {
                         library_id: library_id.clone(),
                         state: *state,
+                    });
+                }
+                ExpectedRequestError::Reconnecting { alias } => {
+                    return Some(RequestFailureCause::Reconnecting {
+                        alias: alias.clone(),
                     });
                 }
                 ExpectedRequestError::Remote { cause, .. } => return cause.clone(),

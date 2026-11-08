@@ -1424,5 +1424,7 @@
   "rendererLinkLost": "Konekto al {alias} perdiĝis",
   "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
   "requestPublicKeyMismatch": "La aparatŝlosilo ne kongruas kun la fingrospuro",
-  "requestRegistrationConflict": "Aparato kun ĉi tiu fingrospuro jam estas registrita"
+  "requestRegistrationConflict": "Aparato kun ĉi tiu fingrospuro jam estas registrita",
+  "remoteLibraryReconnecting": "Rekonektante al {alias}…",
+  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}}
 }

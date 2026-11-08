@@ -73,6 +73,8 @@ Future<T> awaitResponse<T>(
 
 String requestFailureMessage(AppLocalizations s, RequestFailure failure) =>
     switch (failure.cause) {
+      RequestFailureCauseReconnecting(:final alias) =>
+        s.remoteLibraryReconnecting(alias),
       RequestFailureCauseStorageBusy() => s.requestStorageBusy,
       RequestFailureCauseCertificateMismatch() => s.requestCertificateMismatch,
       RequestFailureCausePublicKeyMismatch() => s.requestPublicKeyMismatch,

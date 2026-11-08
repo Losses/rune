@@ -85,11 +85,7 @@ impl RpcTarget {
             && matches!(R::SCOPE, RequestScope::Library | RequestScope::Session)
             && request_access(R::wire_name()) != Some(RequestAccess::NodeLocal);
         if remote_library {
-            let renderer = node
-                .renderer_link()?
-                .ok_or(ExpectedRequestError::Unavailable {
-                    what: "remote UI library",
-                })?;
+            let renderer = node.remote_ui_renderer()?;
             return Ok(Self::rune(renderer));
         }
         if routes_to_attached_renderer::<R>()

@@ -1096,7 +1096,7 @@ mod access_policy_tests {
             "OperatePlaybackWithMixQueryRequest" => RequestAccess::Control,
             "CastPreflightRequest" => RequestAccess::Control,
             "CastLoadRequest" => RequestAccess::Control,
-            "SessionSnapshotRequest" => RequestAccess::Control,
+            "SessionSnapshotRequest" | "RefreshSessionRequest" => RequestAccess::Control,
             "SetLikedRequest" => RequestAccess::ConnectionEdit,
             "GetLikedRequest" => RequestAccess::ConnectionView,
             "ComplexQueryRequest" => RequestAccess::ConnectionView,

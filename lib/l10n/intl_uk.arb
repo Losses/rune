@@ -1459,5 +1459,7 @@
   "rendererLinkLost": "З’єднання з {alias} втрачено",
   "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
   "requestPublicKeyMismatch": "Ключ пристрою не відповідає відбитку",
-  "requestRegistrationConflict": "Пристрій із таким відбитком уже зареєстровано"
+  "requestRegistrationConflict": "Пристрій із таким відбитком уже зареєстровано",
+  "remoteLibraryReconnecting": "Повторне підключення до {alias}…",
+  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}}
 }

@@ -1459,5 +1459,7 @@
   "rendererLinkLost": "{alias} との接続が失われました",
   "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
   "requestPublicKeyMismatch": "デバイスの鍵がフィンガープリントと一致しません",
-  "requestRegistrationConflict": "このフィンガープリントのデバイスはすでに登録されています"
+  "requestRegistrationConflict": "このフィンガープリントのデバイスはすでに登録されています",
+  "remoteLibraryReconnecting": "{alias} に再接続しています…",
+  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}}
 }

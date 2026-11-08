@@ -1,15 +1,19 @@
 use super::gui_listener_tests::start;
+use crate::Session;
 use crate::backends::remote::open_remote_library;
+use crate::macros::{RequestScope, request_scope, request_uses_controller_library};
 use crate::messages::{
     CloseLibraryRequest, CloseLibraryResponse, CreatePlaylistRequest, FetchAllPlaylistsRequest,
     FetchAllPlaylistsResponse, GetPlaylistByIdRequest, LibraryContentChanged,
     ListLocalLibrariesRequest, MixQuery, OperatePlaybackWithMixQueryRequest, PlaybackStatus,
-    PlaylistOperateMode, RemoteConnectionLost, RemoteLossKind, RequestFailedResponse,
-    ScanAudioLibraryProgress, ScanTaskType,
+    PlaylistOperateMode, RemoteConnectionLost, RemoteLibraryReconnected, RemoteLibraryReconnecting,
+    RemoteLossKind, RequestFailedResponse, ScanAudioLibraryProgress, ScanTaskType,
 };
+use crate::node::ReconnectConfig;
 #[cfg(target_os = "linux")]
 use std::{env, process::Command};
 use std::{path::PathBuf, sync::Mutex as StdMutex};
+use tempfile::TempDir;
 
 use crate::{
     access_policy::{ConnectionLevel, SyncLevel},
@@ -25,8 +29,8 @@ use crate::{
     },
     request_error::{ExpectedRequestError, classify},
     rpc::{RpcTarget, Slot, UnsupportedReason, dispatch_gui_request, run_on_target},
-    session::store::SessionState,
     server::api::fetch_device_info_at_port,
+    session::store::SessionState,
 };
 use database::actions::{
     downloads::cleanup_unselected_downloads,
@@ -4870,16 +4874,31 @@ async fn rpc_target_session_and_library_catalogue_matches_registered_peer_handle
         .close_ui(&peer.global_params.main_token)
         .await;
     for (name, slot) in RpcTarget::rune_slots().scoped_slots() {
-        // Without a UI, dispatch must resolve params and fail before executing commands.
-        let dispatched = dispatch_remote(name, &[255], None, None, &peer.global_params.node).await;
+        // Session-only requests authorize without a UI; catalogue requests still need one.
+        // An untrusted identity must never execute commands, including zero-argument ones.
+        let session = Session {
+            public_key: "untrusted key".into(),
+            fingerprint: "untrusted peer".into(),
+            host: "127.0.0.1".into(),
+        };
+        let dispatched =
+            dispatch_remote(name, &[255], Some(session), None, &peer.global_params.node).await;
         match slot {
             Slot::Forward => {
                 let (_, result) =
                     dispatched.with_context(|| format!("{name} has no peer handler"))?;
-                assert_eq!(
-                    classify(&result.unwrap_err()),
-                    RequestErrorKind::Unavailable
-                );
+                let error = result.unwrap_err();
+                if request_scope(name) == Some(RequestScope::Session)
+                    && !request_uses_controller_library(name)
+                {
+                    assert_eq!(
+                        classify(&error),
+                        RequestErrorKind::PermissionDenied,
+                        "{name}"
+                    );
+                } else {
+                    assert_eq!(classify(&error), RequestErrorKind::Unavailable, "{name}");
+                }
             }
             Slot::Unsupported { reason } => {
                 assert_eq!(reason, UnsupportedReason::OwnerOnly);
@@ -4964,11 +4983,12 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     let first = tempfile::tempdir()?;
     let second = tempfile::tempdir()?;
     let signals = Arc::new(RecordedSignals::default());
-    let a = super::fixture_with_broadcaster(
+    let a = super::fixture_with_reconnect_config(
         first.path(),
         Uuid::new_v4(),
         Duration::from_secs(300),
         signals.clone(),
+        reconnect_config(Duration::from_millis(400)),
     )
     .await?;
     let b = fixture(second.path()).await?;
@@ -5228,5 +5248,252 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     assert!(a.global_params.node.current_ui().await.is_err());
     a.global_params.node.shutdown().await?;
     b.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+fn reconnect_config(deadline: Duration) -> ReconnectConfig {
+    ReconnectConfig {
+        delays: [Duration::from_millis(50); 4],
+        interval: Duration::from_millis(80),
+        deadline,
+    }
+}
+
+struct ReconnectFixture {
+    a: Fixture,
+    b: Fixture,
+    remote: Arc<GlobalParams>,
+    signals: Arc<RecordedSignals>,
+    address: SocketAddr,
+    fingerprint: String,
+    _directories: [TempDir; 2],
+}
+
+impl ReconnectFixture {
+    async fn new(deadline: Duration) -> Result<Self> {
+        let directories = [tempfile::tempdir()?, tempfile::tempdir()?];
+        let signals = Arc::new(RecordedSignals::default());
+        let a = super::fixture_with_reconnect_config(
+            directories[0].path(),
+            Uuid::new_v4(),
+            Duration::from_secs(300),
+            signals.clone(),
+            reconnect_config(deadline),
+        )
+        .await?;
+        let b = fixture(directories[1].path()).await?;
+        let address = super::paired_full(&b, &a).await?;
+        let fingerprint = super::info(&b).await?.fingerprint;
+        a.global_params
+            .cert_validator
+            .read()
+            .await
+            .replace_hosts_for_fingerprint(
+                &fingerprint,
+                vec![format!("127.0.0.1:{}", address.port())],
+            )
+            .await?;
+        let track = session_audio(&b, "reconnect.ogg").await?;
+        queue_session(&b, &[track]).await?;
+        let remote =
+            open_remote_library(a.global_params.node.clone(), &format!("ws://{address}")).await?;
+        signals.clear();
+        Ok(Self {
+            a,
+            b,
+            remote,
+            signals,
+            address,
+            fingerprint,
+            _directories: directories,
+        })
+    }
+
+    async fn wait_signal<T: DeserializeOwned>(&self, name: &str) -> Result<T> {
+        timeout(Duration::from_secs(5), async {
+            loop {
+                if let Some(event) = self.signals.decoded(name).into_iter().next() {
+                    return event;
+                }
+                sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .with_context(|| format!("{name} missing"))
+    }
+
+    async fn disconnect(&self) -> Result<()> {
+        self.b.manager.stop().await?;
+        let event: RemoteLibraryReconnecting =
+            self.wait_signal("RemoteLibraryReconnecting").await?;
+        assert_eq!(event.fingerprint, self.fingerprint);
+        assert_eq!(event.alias, super::info(&self.b).await?.alias);
+        assert!(!self.remote.main_token.is_cancelled());
+        assert!(self.a.global_params.node.remote_ui_library()?);
+        assert!(
+            self.signals
+                .decoded::<RemoteConnectionLost>("RemoteConnectionLost")
+                .is_empty()
+        );
+        Ok(())
+    }
+
+    async fn shutdown(&self) -> Result<()> {
+        self.a.global_params.node.shutdown().await?;
+        self.b.global_params.node.shutdown().await?;
+        Ok(())
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rr_reconnect_restores_real_node_requests() -> Result<()> {
+    let f = ReconnectFixture::new(Duration::from_secs(10)).await?;
+    f.disconnect().await?;
+    let mut browse = start::<FetchAllPlaylistsRequest>(&f.remote);
+    browse.send(FetchAllPlaylistsRequest {});
+    let failure: RequestFailedResponse = timeout(
+        Duration::from_millis(500),
+        browse.receive("RequestFailedResponse"),
+    )
+    .await?;
+    assert_eq!(failure.kind, RequestErrorKind::Unavailable);
+    assert_eq!(
+        failure.cause,
+        Some(RequestFailureCause::Reconnecting {
+            alias: super::info(&f.b).await?.alias
+        })
+    );
+    browse.stop().await;
+    let failure = timeout(
+        Duration::from_millis(500),
+        dispatch_gui_request(&f.remote, &VolumeRequest { volume: 0.7 }),
+    )
+    .await?
+    .err()
+    .context("session request must fail")?;
+    assert!(matches!(
+        failure.downcast_ref::<ExpectedRequestError>(),
+        Some(ExpectedRequestError::Reconnecting { .. })
+    ));
+    dispatch_gui_request(&f.remote, &ListLocalLibrariesRequest {})
+        .await?
+        .context("node requests stay local")?;
+    f.signals.clear();
+    f.a.global_params
+        .node
+        .session()?
+        .player
+        .lock()
+        .await
+        .set_volume(0.2);
+    sleep(Duration::from_millis(50)).await;
+    assert!(
+        f.signals
+            .decoded::<PlaybackStatus>("PlaybackStatus")
+            .is_empty(),
+        "local session replaced the remote view"
+    );
+    f.b.manager
+        .clone()
+        .start(
+            f.address,
+            DiscoveryParams {
+                device_info: super::info(&f.b).await?,
+            },
+        )
+        .await?;
+    let event: RemoteLibraryReconnected = f.wait_signal("RemoteLibraryReconnected").await?;
+    assert_eq!(event.fingerprint, f.fingerprint);
+    assert_eq!(event.alias, super::info(&f.b).await?.alias);
+    let session_id = f.b.global_params.node.session()?.session_id().await;
+    let status: PlaybackStatus = f.wait_signal("PlaybackStatus").await?;
+    let queue: PlaylistUpdate = f.wait_signal("PlaylistUpdate").await?;
+    assert_eq!(status.session_id, session_id);
+    assert_eq!(queue.session_id, session_id);
+    assert_eq!(queue.items.len(), 1);
+    dispatch_gui_request(&f.remote, &FetchAllPlaylistsRequest {})
+        .await?
+        .context("remote request")?;
+    dispatch_gui_request(&f.remote, &VolumeRequest { volume: 0.7 }).await?;
+    wait_player(&f.b, |status| status.volume == 0.7).await?;
+    f.shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rr_reconnect_deadline_uses_existing_loss_and_close() -> Result<()> {
+    let f = ReconnectFixture::new(Duration::from_millis(400)).await?;
+    let started = Instant::now();
+    f.disconnect().await?;
+    let loss: RemoteConnectionLost = f.wait_signal("RemoteConnectionLost").await?;
+    assert_eq!(loss.kind, RemoteLossKind::ServerStopped);
+    assert!(started.elapsed() >= Duration::from_millis(400));
+    assert!(f.a.global_params.node.reconnect_attempt_count() > 0);
+    let mut close = start::<CloseLibraryRequest>(&f.remote);
+    close.send(CloseLibraryRequest {
+        path: format!("ws://{}", f.address),
+    });
+    let _: CloseLibraryResponse = close.receive("CloseLibraryResponse").await;
+    close.stop().await;
+    assert!(!f.a.global_params.node.remote_ui_library()?);
+    assert!(f.a.global_params.node.current_ui().await.is_err());
+    assert!(f.remote.main_token.is_cancelled());
+    assert!(
+        f.signals
+            .decoded::<RemoteLibraryReconnected>("RemoteLibraryReconnected")
+            .is_empty()
+    );
+    f.shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rr_reconnect_leaving_stops_attempts() -> Result<()> {
+    for exit in ["close", "switch", "shutdown"] {
+        let f = ReconnectFixture::new(Duration::from_secs(2)).await?;
+        f.disconnect().await?;
+        timeout(Duration::from_secs(1), async {
+            while f.a.global_params.node.reconnect_attempt_count() == 0 {
+                sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await?;
+        let replacement = Arc::new(
+            f.a.global_params
+                .node
+                .params_for_library(f.a.global_params.test_library().clone())?,
+        );
+        match exit {
+            "close" => f.a.global_params.node.close_ui(&f.remote.main_token).await,
+            "switch" => f.a.global_params.node.attach_ui(&replacement).await,
+            _ => f.a.global_params.node.shutdown().await?,
+        }
+        let attempts = f.a.global_params.node.reconnect_attempt_count();
+        f.b.manager
+            .clone()
+            .start(
+                f.address,
+                DiscoveryParams {
+                    device_info: super::info(&f.b).await?,
+                },
+            )
+            .await?;
+        sleep(Duration::from_millis(350)).await;
+        assert_eq!(
+            f.a.global_params.node.reconnect_attempt_count(),
+            attempts,
+            "attempt after {exit}"
+        );
+        assert!(f.a.global_params.node.renderer_link()?.is_none());
+        assert!(
+            f.signals
+                .decoded::<RemoteLibraryReconnected>("RemoteLibraryReconnected")
+                .is_empty()
+        );
+        assert!(
+            f.signals
+                .decoded::<RemoteConnectionLost>("RemoteConnectionLost")
+                .is_empty()
+        );
+        f.shutdown().await?;
+    }
     Ok(())
 }

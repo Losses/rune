@@ -1586,5 +1586,7 @@
   "rendererLinkLost": "Connection to {alias} lost",
   "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
   "requestPublicKeyMismatch": "The submitted device key does not match its fingerprint",
-  "requestRegistrationConflict": "A device with this fingerprint is already registered"
+  "requestRegistrationConflict": "A device with this fingerprint is already registered",
+  "remoteLibraryReconnecting": "Reconnecting to {alias}…",
+  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}}
 }

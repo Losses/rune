@@ -72,6 +72,21 @@ pub struct RemoteConnectionLost {
 
 crate::implement_rinf_rust_signal_trait!(RemoteConnectionLost);
 
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct RemoteLibraryReconnecting {
+    pub fingerprint: String,
+    pub alias: String,
+}
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct RemoteLibraryReconnected {
+    pub fingerprint: String,
+    pub alias: String,
+}
+
+crate::implement_rinf_rust_signal_trait!(RemoteLibraryReconnecting);
+crate::implement_rinf_rust_signal_trait!(RemoteLibraryReconnected);
+
 #[derive(Clone, Serialize, Deserialize, SignalPiece)]
 pub struct AttachedControllerInfo {
     pub id: String,

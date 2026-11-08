@@ -1461,5 +1461,7 @@
   "rendererLinkLost": "Connessione con {alias} persa",
   "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
   "requestPublicKeyMismatch": "La chiave del dispositivo non corrisponde all’impronta",
-  "requestRegistrationConflict": "Un dispositivo con questa impronta è già registrato"
+  "requestRegistrationConflict": "Un dispositivo con questa impronta è già registrato",
+  "remoteLibraryReconnecting": "Riconnessione a {alias}…",
+  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}}
 }

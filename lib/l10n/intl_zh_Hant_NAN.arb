@@ -1424,5 +1424,7 @@
   "rendererLinkLost": "Kah {alias} ê liân-soàⁿ í-keng tiong-toān",
   "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
   "requestPublicKeyMismatch": "設備金鑰佮指紋無相合",
-  "requestRegistrationConflict": "這个指紋个設備已經註冊矣"
+  "requestRegistrationConflict": "這个指紋个設備已經註冊矣",
+  "remoteLibraryReconnecting": "咧重新連接 {alias}…",
+  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}}
 }
