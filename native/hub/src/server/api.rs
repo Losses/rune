@@ -13,6 +13,31 @@ use ::http_request::{
 use super::utils::device::SanitizedDeviceInfo;
 use crate::{messages::TrustedServerCertificate, request_error::ExpectedRequestError};
 use ::discovery::client::{CertValidator, fetch_server_certificate};
+use ::discovery::server::PermissionManager;
+
+/// Remove a paired device from both trust directions.
+pub async fn remove_trusted_device(
+    permission_manager: &PermissionManager,
+    validator: &CertValidator,
+    fingerprint: &str,
+) -> Result<()> {
+    if permission_manager
+        .list_users()
+        .await
+        .iter()
+        .any(|user| user.fingerprint == fingerprint)
+    {
+        permission_manager
+            .remove_user(fingerprint)
+            .await
+            .context("Remove trusted client")?;
+    }
+    validator
+        .remove_fingerprint(fingerprint)
+        .await
+        .context("Remove trusted server")?;
+    Ok(())
+}
 
 async fn verify_hosts_for_fingerprint(hosts: &[String], expected_fingerprint: &str) -> Result<()> {
     let mut matched = false;

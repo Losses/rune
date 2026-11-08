@@ -5,11 +5,11 @@ use axum::{
     extract::{Path, State},
 };
 
-use ::discovery::server::PermissionError;
 use log::info;
 use serde_json::json;
 
 use crate::server::ServerState;
+use crate::server::api::remove_trusted_device;
 
 use super::register::AppError;
 
@@ -19,21 +19,29 @@ pub async fn delete_user_handler(
 ) -> Result<Json<serde_json::Value>, AppError> {
     info!("Deleting user {fingerprint}");
 
-    server_state
+    let node = server_state
+        .node
+        .upgrade()
+        .ok_or_else(|| AppError::Internal("Node is shutting down".into()))?;
+    if node
         .permission_manager
-        .write()
+        .read()
         .await
-        .remove_user(&fingerprint)
+        .verify_by_fingerprint(&fingerprint)
         .await
-        .map_err(|e| match e {
-            PermissionError::UserNotFound => {
-                AppError::NotFound(format!("User {fingerprint} not found"))
-            }
-            _ => AppError::Internal(e.to_string()),
-        })?;
-    if let Some(node) = server_state.node.upgrade() {
-        node.sync_tokens.remove_peer(&fingerprint);
+        .is_none()
+    {
+        return Err(AppError::NotFound(format!("User {fingerprint} not found")));
     }
+    let permissions = node.permission_manager.read().await;
+    let validator = node.cert_validator.read().await;
+    remove_trusted_device(&permissions, &validator, &fingerprint)
+        .await
+        .map_err(|error| AppError::Internal(format!("{error:#}")))?;
+    drop(validator);
+    drop(permissions);
+    node.sync_tokens.remove_peer(&fingerprint);
+    node.revoke_outgoing_for(&fingerprint).await;
 
     Ok(Json(json!({
         "success": true,

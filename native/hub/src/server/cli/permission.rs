@@ -1,15 +1,18 @@
 use anyhow::Result;
 use log::info;
 
-use hub::server::utils::permission::{parse_status, print_permission_table, validate_index};
+use hub::server::{
+    api::remove_trusted_device,
+    utils::permission::{parse_status, print_permission_table, validate_index},
+};
 
 use crate::PermissionAction;
 
-use ::discovery::{config::get_config_dir, server::PermissionManager};
+use ::discovery::{client::CertValidator, config::get_config_dir, server::PermissionManager};
 
 pub async fn handle_permission(action: PermissionAction) -> Result<()> {
     let config_path = get_config_dir()?;
-    let pm = PermissionManager::new(config_path)?;
+    let pm = PermissionManager::new(config_path.clone())?;
 
     match action {
         PermissionAction::Ls => {
@@ -28,7 +31,8 @@ pub async fn handle_permission(action: PermissionAction) -> Result<()> {
             let users = pm.list_users().await;
             validate_index(index, users.len())?;
             let user = &users[index - 1];
-            pm.remove_user(&user.fingerprint).await?;
+            let validator = CertValidator::new(config_path).await?;
+            remove_trusted_device(&pm, &validator, &user.fingerprint).await?;
             info!("User deleted successfully");
         }
     }

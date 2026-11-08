@@ -3,6 +3,7 @@ mod access_policy_tests {
     use crate::access_policy::{ConnectionLevel, DeviceGrants, SyncLevel};
     use crate::backends::remote::connect_remote;
     use crate::macros::{RequestClass, request_class};
+    use crate::messages::RemoveTrustedClientRequest;
     use crate::messages::{CastLibraryState, RendererAvailability};
     use crate::server::libraries::{
         cast_library_state, list_peer_libraries, list_renderer_candidates,
@@ -416,6 +417,140 @@ mod access_policy_tests {
             .context("replica descriptor")?;
         assert_eq!(serde_json::to_value(replica)?["access_level"], "ReadWrite");
         pair.close().await
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn removing_a_device_stops_both_sync_directions_and_keeps_replica() -> Result<()> {
+        let pair = PolicyPair::new().await?;
+        let fingerprint_b = info(&pair.b).await?.fingerprint;
+        let source = pair.a.global_params.library_pool.acquire(pair.id).await?;
+        let album = write_album(&source, "retained after removal").await?;
+        assert_eq!(pair.pass(false).await?, PeerPass::Complete);
+        let replica = pair.b.global_params.library_pool.acquire(pair.id).await?;
+        assert!(replica.library_sync.get(&album).await?.is_some());
+
+        let request = RemoveTrustedClientRequest {
+            fingerprint: fingerprint_b.clone(),
+        };
+        let response = request
+            .handle(
+                request.extract_params(&pair.a.global_params),
+                None,
+                &request,
+            )
+            .await?
+            .context("remove device response")?;
+        assert!(response.success, "{}", response.error);
+
+        assert!(
+            pair.a
+                .global_params
+                .cert_validator
+                .read()
+                .await
+                .get_hosts_for_fingerprint(&fingerprint_b)
+                .await
+                .is_empty()
+        );
+        assert!(
+            pair.a
+                .global_params
+                .permission_manager
+                .read()
+                .await
+                .verify_by_fingerprint(&fingerprint_b)
+                .await
+                .is_none()
+        );
+        let own = info(&pair.a).await?.fingerprint;
+        assert!(
+            sync_worker::peer_endpoints(&pair.a.global_params.node, &own)
+                .await
+                .is_empty()
+        );
+        assert!(
+            pair.pass(false).await.is_err(),
+            "removed host accepted a pull"
+        );
+        assert!(replica.library_sync.get(&album).await?.is_some());
+        pair.close().await
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn non_authority_changes_require_sync_push_grant() -> Result<()> {
+        let pair = PolicyPair::new().await?;
+        let third_dir = tempfile::tempdir()?;
+        let c = fixture_with_library(third_dir.path(), pair.id).await?;
+        let a_fingerprint = info(&pair.a).await?.fingerprint;
+        let c_addr = paired_full(&c, &pair.b).await?;
+        c.stop_worker().await?;
+        let c_fingerprint = info(&c).await?.fingerprint;
+
+        for fixture in [&pair.b, &c] {
+            LibraryRegistry::update(Path::new(&*fixture.global_params.config_path), |registry| {
+                let library = registry
+                    .libraries
+                    .iter_mut()
+                    .find(|library| library.library_id == pair.id)
+                    .context("replica library")?;
+                library.authority = LibraryAuthority::Hosted {
+                    fingerprint: a_fingerprint.clone(),
+                };
+                Ok(())
+            })
+            .await?;
+        }
+        pair.b
+            .global_params
+            .node
+            .access_policy
+            .set(&c_fingerprint, DeviceGrants::guest())?;
+        let third_library = c.global_params.library_pool.acquire(pair.id).await?;
+        let injected = write_album(&third_library, "third party change").await?;
+        let replica = pair.b.global_params.library_pool.acquire(pair.id).await?;
+        let own_change =
+            write_album(&replica, "change kept from a peer without a sync grant").await?;
+        let session = TestPeerSession::default();
+        let endpoint = PeerEndpoint {
+            fingerprint: c_fingerprint.clone(),
+            trusted_host: "127.0.0.1".into(),
+            host: "127.0.0.1".into(),
+            port: c_addr.port(),
+        };
+        let pass = || async {
+            timeout(Duration::from_secs(15), async {
+                loop {
+                    let result = session
+                        .pass(
+                            pair.b.global_params.clone(),
+                            &pair.b.private_key,
+                            endpoint.clone(),
+                            true,
+                        )
+                        .await?;
+                    if result != PeerPass::Incomplete {
+                        return Ok::<_, anyhow::Error>(result);
+                    }
+                    yield_now().await;
+                }
+            })
+            .await?
+        };
+        assert_eq!(pass().await?, PeerPass::Complete);
+        assert!(replica.library_sync.get(&injected).await?.is_none());
+        // B has not granted C SyncPull either, so B's own change is not sent to C.
+        assert!(third_library.library_sync.get(&own_change).await?.is_none());
+
+        pair.grants_for(&pair.b, &c, DeviceSyncLevel::PullPush)
+            .await?;
+        assert_eq!(pass().await?, PeerPass::Complete);
+        assert!(replica.library_sync.get(&injected).await?.is_some());
+        assert!(third_library.library_sync.get(&own_change).await?.is_some());
+
+        pair.a.global_params.node.shutdown().await?;
+        pair.b.global_params.node.shutdown().await?;
+        c.global_params.node.shutdown().await?;
+        Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

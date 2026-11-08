@@ -1,5 +1,6 @@
 use crate::node::NodeContext;
 use crate::request_error::ExpectedRequestError;
+use crate::server::api::remove_trusted_device;
 use crate::server::{
     ServerManager,
     api::{add_trusted_server, check_fingerprint, edit_trusted_hosts, register_device},
@@ -399,29 +400,31 @@ impl Signal for GetSslCertificateFingerprintRequest {
 }
 
 impl ParamsExtractor for RemoveTrustedClientRequest {
-    type Params = (Arc<RwLock<PermissionManager>>, SyncTokenStore);
+    type Params = Arc<NodeContext>;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (
-            Arc::clone(&all_params.permission_manager),
-            all_params.node.sync_tokens.clone(),
-        )
+        all_params.node.clone()
     }
 }
 
 impl Signal for RemoveTrustedClientRequest {
-    type Params = (Arc<RwLock<PermissionManager>>, SyncTokenStore);
+    type Params = Arc<NodeContext>;
     type Response = RemoveTrustedClientResponse;
 
     async fn handle(
         &self,
-        (validator, sync_tokens): Self::Params,
+        node: Self::Params,
         _session: Option<Session>,
         req: &Self,
     ) -> Result<Option<Self::Response>> {
-        let result = validator.write().await.remove_user(&req.fingerprint).await;
+        let permissions = node.permission_manager.read().await;
+        let validator = node.cert_validator.read().await;
+        let result = remove_trusted_device(&permissions, &validator, &req.fingerprint).await;
+        drop(validator);
+        drop(permissions);
         if result.is_ok() {
-            sync_tokens.remove_peer(&req.fingerprint);
+            node.sync_tokens.remove_peer(&req.fingerprint);
+            node.revoke_outgoing_for(&req.fingerprint).await;
         }
         match result {
             Ok(_) => Ok(Some(RemoveTrustedClientResponse {
@@ -606,34 +609,30 @@ impl Signal for AddTrustedServerRequest {
 }
 
 impl ParamsExtractor for RemoveTrustedServerRequest {
-    type Params = (Arc<RwLock<CertValidator>>, SyncTokenStore, Arc<NodeContext>);
+    type Params = Arc<NodeContext>;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (
-            Arc::clone(&all_params.cert_validator),
-            all_params.node.sync_tokens.clone(),
-            all_params.node.clone(),
-        )
+        all_params.node.clone()
     }
 }
 
 impl Signal for RemoveTrustedServerRequest {
-    type Params = (Arc<RwLock<CertValidator>>, SyncTokenStore, Arc<NodeContext>);
+    type Params = Arc<NodeContext>;
     type Response = RemoveTrustedServerResponse;
 
     async fn handle(
         &self,
-        (validator, sync_tokens, node): Self::Params,
+        node: Self::Params,
         _session: Option<Session>,
         req: &Self,
     ) -> Result<Option<Self::Response>> {
-        let result = validator
-            .write()
-            .await
-            .remove_fingerprint(&req.fingerprint)
-            .await;
+        let permissions = node.permission_manager.read().await;
+        let validator = node.cert_validator.read().await;
+        let result = remove_trusted_device(&permissions, &validator, &req.fingerprint).await;
+        drop(validator);
+        drop(permissions);
         if result.is_ok() {
-            sync_tokens.remove_peer(&req.fingerprint);
+            node.sync_tokens.remove_peer(&req.fingerprint);
             node.revoke_outgoing_for(&req.fingerprint).await;
         }
         match result {

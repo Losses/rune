@@ -972,6 +972,7 @@ async fn attached_mix_query_casts_and_stale_edits_are_rejected() -> Result<()> {
     let (_, renderer_replica) = replicate_host_library(&host, &renderer).await?;
     let host_addr = host.get_address().await.context("host listener address")?;
     pair(&host, &controller).await?;
+    pair(&controller, &host).await?;
     let (_, controller_replica) = replicate_host_library_at(&host, &controller, host_addr).await?;
     attach_pair_with_signals(&controller_replica, &renderer_replica, &signals).await?;
 
@@ -1291,6 +1292,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
         .collect::<Result<Vec<_>>>()?;
     let (host_address, controller_replica) = replicate_host_library(&host, &controller).await?;
     super::pair(&host, &renderer_node).await?;
+    super::pair(&renderer_node, &host).await?;
     let (_, renderer) = replicate_host_library_at(&host, &renderer_node, host_address).await?;
     let renderer_address = super::paired_full(&renderer_node, &controller).await?;
     let renderer_info = super::info(&renderer_node).await?;
@@ -4123,10 +4125,13 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     let (h_address, _a_h_replica) = replicate_host_library(&h, &a).await?;
     let (g_address, a_g_replica) = replicate_host_library(&g, &a).await?;
     pair(&h, &b).await?;
+    pair(&b, &h).await?;
     pair(&g, &b).await?;
+    pair(&b, &g).await?;
     let (_, _b_h) = replicate_host_library_at(&h, &b, h_address).await?;
     let (_, _b_g) = replicate_host_library_at(&g, &b, g_address).await?;
     pair(&h, &c).await?;
+    pair(&c, &h).await?;
     let (_, _c_h) = replicate_host_library_at(&h, &c, h_address).await?;
     let b_fingerprint = info(&b).await?.fingerprint;
     let b_address = paired_full(&b, &a).await?;

@@ -1735,7 +1735,28 @@ mod lifecycle_tests {
     }
 
     async fn paired_full(a: &Fixture, b: &Fixture) -> Result<SocketAddr> {
-        pair(a, b).await?;
+        let a_fingerprint = info(a).await?.fingerprint;
+        let b_fingerprint = info(b).await?.fingerprint;
+        if a.global_params
+            .permission_manager
+            .read()
+            .await
+            .verify_by_fingerprint(&b_fingerprint)
+            .await
+            .is_none()
+        {
+            pair(a, b).await?;
+        }
+        if b.global_params
+            .permission_manager
+            .read()
+            .await
+            .verify_by_fingerprint(&a_fingerprint)
+            .await
+            .is_none()
+        {
+            pair(b, a).await?;
+        }
         a.manager
             .clone()
             .start(
@@ -3536,6 +3557,7 @@ mod lifecycle_tests {
         let a_info = peer_step("read first peer identity", info(&a)).await?;
         let b_info = peer_step("read second peer identity", info(&b)).await?;
         peer_step("pair library peers", pair(&a, &b)).await?;
+        peer_step("pair library peers in reverse", pair(&b, &a)).await?;
         let a_reserve = TcpListener::bind("127.0.0.1:0")?;
         let b_reserve = TcpListener::bind("127.0.0.1:0")?;
         let a_addr = a_reserve.local_addr()?;

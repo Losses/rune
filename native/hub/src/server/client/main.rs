@@ -22,13 +22,16 @@ use tokio::{
 };
 use tracing_subscriber::EnvFilter;
 
-use ::discovery::{client::CertValidator, config::get_config_dir, protocol::DiscoveryService};
+use ::discovery::{
+    client::CertValidator, config::get_config_dir, protocol::DiscoveryService,
+    server::PermissionManager,
+};
 
 use cli::{Cli, DiscoveryCmd, RemoteCmd, ReplCommand};
 use connection::WSConnection;
 use editor::{EditorConfig, create_editor};
 use fs::VirtualFS;
-use hub::server::api::edit_trusted_hosts;
+use hub::server::api::{edit_trusted_hosts, remove_trusted_device};
 use utils::{
     AppState, get_fingerprint_by_index, print_certificate_table, print_device_details,
     print_device_table,
@@ -227,7 +230,8 @@ async fn handle_remote_command(cmd: RemoteCmd) -> Result<()> {
         }
         RemoteCmd::Untrust { index } => {
             if let Some(actual_fingerprint) = get_fingerprint_by_index(&validator, index)? {
-                validator.remove_fingerprint(&actual_fingerprint).await?;
+                let permissions = PermissionManager::new(config_dir.clone())?;
+                remove_trusted_device(&permissions, &validator, &actual_fingerprint).await?;
                 Ok(())
             } else {
                 error!("Invalid certificate index");

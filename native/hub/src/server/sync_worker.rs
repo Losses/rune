@@ -15,7 +15,9 @@ use anyhow::{Context, Result, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use database::actions::file::{ManagedAudioVerifier, file_ids_by_uuid, materialized_path};
 use database::actions::library::clean_local_orphans;
-use database::library_registry::{LibraryAccess, LibraryConnectionAccess, LibraryRegistry};
+use database::library_registry::{
+    LibraryAccess, LibraryAuthority, LibraryConnectionAccess, LibraryRegistry,
+};
 use database::sync::Maintenance;
 use database::sync::model::RuneModel;
 use discovery::access_policy::{AccessPolicy, PeerIdentity};
@@ -628,7 +630,32 @@ impl PeerFailureBackoff {
 }
 
 fn outbound_eligible(status: Option<UserStatus>) -> bool {
-    matches!(status, None | Some(UserStatus::Approved))
+    matches!(status, Some(UserStatus::Approved))
+}
+
+/// Whether a peer may exchange `action`-direction changes of `library` with this node:
+/// the library's authority always may; any other peer needs the matching grant here.
+async fn peer_may_sync(
+    global: &NodeContext,
+    library: &LibraryHandle,
+    fingerprint: &str,
+    action: Action,
+) -> bool {
+    let is_authority = matches!(
+        &library.descriptor.authority,
+        LibraryAuthority::Hosted { fingerprint: authority } if authority == fingerprint
+    );
+    let peer = global
+        .permission_manager
+        .read()
+        .await
+        .verify_by_fingerprint(fingerprint)
+        .await
+        .map(|user| PeerIdentity {
+            fingerprint: user.fingerprint,
+            public_key: user.public_key,
+        });
+    is_authority || peer.is_some_and(|peer| global.access_policy.check(&peer, &action).is_ok())
 }
 
 pub(super) async fn wait_for_revocation(global: Weak<NodeContext>, fingerprint: &str, host: &str) {
@@ -799,46 +826,40 @@ async fn sync_one(
                 .ok_or_else(|| anyhow::anyhow!("missing authenticated client"))?
                 .clone();
             let mut grant_changes = global.access_policy.changes();
-            let may_receive = if let Some(user) = global
+            let user = global
                 .permission_manager
                 .read()
                 .await
                 .verify_by_fingerprint(&endpoint.fingerprint)
-                .await
+                .await;
+            if user
+                .as_ref()
+                .is_some_and(|user| user.status != UserStatus::Approved)
             {
-                let peer = PeerIdentity {
-                    fingerprint: user.fingerprint,
-                    public_key: user.public_key,
-                };
-                if user.status != UserStatus::Approved
-                    || global
-                        .access_policy
-                        .check(
-                            &peer,
-                            &Action::SyncPull {
-                                library_id: library.descriptor.library_id,
-                            },
-                        )
-                        .is_err()
-                {
-                    return Ok(true);
-                }
-                global
-                    .access_policy
-                    .check(
-                        &peer,
-                        &Action::SyncPush {
-                            library_id: library.descriptor.library_id,
-                        },
-                    )
-                    .is_ok()
-            } else {
-                true
-            }; // A pinned authoritative server need not be paired as a client here.
+                return Ok(true);
+            }
+            let library_id = library.descriptor.library_id;
+            // Their changes are applied here only from the authority or a SyncPush grant;
+            // ours are sent only to the authority or a peer granted SyncPull.
+            let may_receive = peer_may_sync(
+                global,
+                library,
+                &endpoint.fingerprint,
+                Action::SyncPush { library_id },
+            )
+            .await;
+            let may_send = peer_may_sync(
+                global,
+                library,
+                &endpoint.fingerprint,
+                Action::SyncPull { library_id },
+            )
+            .await;
             let target = MetadataTarget {
                 global,
                 fingerprint: &endpoint.fingerprint,
                 may_receive,
+                may_send,
                 cancel,
             };
             let operation = metadata_pass(target, library, notify, &mut state, &base, &client);
@@ -924,6 +945,7 @@ struct MetadataTarget<'a> {
     global: &'a NodeContext,
     fingerprint: &'a str,
     may_receive: bool,
+    may_send: bool,
     cancel: &'a tokio_util::sync::CancellationToken,
 }
 
@@ -939,6 +961,7 @@ async fn metadata_pass(
         global,
         fingerprint,
         may_receive,
+        may_send,
         cancel,
     } = target;
     let local = library.library_sync.identity().await?;
@@ -1006,7 +1029,7 @@ async fn metadata_pass(
         state.library = None;
         return Err(SyncError::NamespaceNotServed.into());
     }
-    let read_only = level == SyncLevel::Pull || state.push_forbidden;
+    let read_only = level == SyncLevel::Pull || state.push_forbidden || !may_send;
     if read_only && !state.read_only_logged {
         log::info!(
             "Library {} is read-only on peer; synchronization is pull-only",
@@ -1016,6 +1039,12 @@ async fn metadata_pass(
     }
     if !read_only {
         state.read_only_logged = false;
+    }
+    if !may_receive {
+        log::info!(
+            "Skipping changes from peer {fingerprint} for library {}: peer is not the authority and has no SyncPush grant",
+            local.namespace
+        );
     }
     if read_only && !may_receive {
         state.session = None;
@@ -1859,7 +1888,7 @@ mod tests {
 
     #[test]
     fn outbound_pair_permissions() {
-        assert!(outbound_eligible(None));
+        assert!(!outbound_eligible(None));
         assert!(outbound_eligible(Some(UserStatus::Approved)));
         assert!(!outbound_eligible(Some(UserStatus::Blocked)));
         assert!(!outbound_eligible(Some(UserStatus::Pending)));
