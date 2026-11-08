@@ -146,6 +146,9 @@ pub async fn handle_socket(
             {
                 debug!("[{incoming_alias}] Received: {msg_type}");
 
+                let Some(node) = state.node.upgrade() else {
+                    break;
+                };
                 let result = state
                     .websocket_service
                     .handle_addressed_message(
@@ -157,6 +160,7 @@ pub async fn handle_socket(
                             host: host.to_owned(),
                         }),
                         library_id,
+                        &node,
                     )
                     .await;
                 if let Some((resp_type, response)) = result {

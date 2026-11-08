@@ -4837,23 +4837,32 @@ async fn rpc_target_local_session_changes_local_state() -> Result<()> {
 async fn rpc_target_session_catalogue_matches_registered_peer_handlers() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let peer = fixture(dir.path()).await?;
-    let service = peer.global_params.node.websocket_service.clone();
-    register_request_handlers(service.clone(), peer.global_params.node.clone()).await;
-    let handlers = service.handlers.lock().await;
+    peer.global_params
+        .node
+        .close_ui(&peer.global_params.main_token)
+        .await;
     for (name, slot) in RpcTarget::rune_slots().session_slots() {
+        // Without a UI, dispatch must resolve params and fail before executing commands.
+        let dispatched = dispatch_remote(name, &[255], None, None, &peer.global_params.node).await;
         match slot {
-            Slot::Forward => assert!(handlers.contains_key(name), "{name} has no peer handler"),
+            Slot::Forward => {
+                let (_, result) =
+                    dispatched.with_context(|| format!("{name} has no peer handler"))?;
+                assert_eq!(
+                    classify(&result.unwrap_err()),
+                    RequestErrorKind::Unavailable
+                );
+            }
             Slot::Unsupported { reason } => {
                 assert_eq!(reason, UnsupportedReason::OwnerOnly);
                 assert!(
-                    !handlers.contains_key(name),
+                    dispatched.is_none(),
                     "{name} no longer needs its blacklist entry"
                 );
             }
             _ => panic!("Rune session slot {name} is neither forwarded nor blacklisted"),
         }
     }
-    drop(handlers);
     peer.global_params.node.shutdown().await?;
     Ok(())
 }

@@ -1243,25 +1243,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         })
         .collect();
 
-    let remote_response_pairs: Vec<_> = with_response
-        .iter()
-        .filter(|t| t.access != RequestAccess::NodeLocal)
-        .map(|t| {
-            let req_ident = syn::parse_str::<syn::Ident>(&t.request).unwrap();
-            let resp_ident = syn::parse_str::<syn::Ident>(t.response.as_ref().unwrap()).unwrap();
-            quote! { (#req_ident, #resp_ident) }
-        })
-        .collect();
-
-    let remote_request_only: Vec<_> = without_response
-        .iter()
-        .filter(|t| t.access != RequestAccess::NodeLocal)
-        .map(|t| {
-            let ident = syn::parse_str::<syn::Ident>(&t.request).unwrap();
-            quote! { #ident }
-        })
-        .collect();
-
     let accesses: Vec<_> = types
         .iter()
         .map(|t| {
@@ -1298,6 +1279,29 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         #(#call_id_impls)*
         #(#typed_request_impls)*
         #(#target_request_impls)*
+
+        /// Dispatch a network request through the catalogue's non-local entries.
+        pub(crate) async fn dispatch_remote(
+            name: &str,
+            payload: &[u8],
+            session: Option<Session>,
+            library_id: Option<Uuid>,
+            node: &Arc<NodeContext>,
+        ) -> Option<(String, Result<Vec<u8>>)> {
+            let result = match name {
+                #(stringify!(#non_local_requests) => serve_remote::<#non_local_requests>(
+                    || rinf::deserialize::<#non_local_requests>(payload).map_err(Error::new),
+                    session,
+                    library_id,
+                    node,
+                ).await,)*
+                _ => return None,
+            };
+            Some(match result {
+                Ok((name, payload)) => (name, Ok(payload)),
+                Err(error) => (String::new(), Err(error)),
+            })
+        }
 
         /// Catalogue-generated slots shared by every RPC target.
         pub struct RequestSlots {
@@ -1346,13 +1350,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         macro_rules! for_all_request_pairs2 {
             ($m:tt, $param1:expr, $param2:expr) => {
                 $m!($param1, $param2 #(, #response_pairs)* #(, #request_only)*);
-            };
-        }
-
-        #[macro_export]
-        macro_rules! for_all_remote_request_pairs2 {
-            ($m:tt, $param1:expr, $param2:expr) => {
-                $m!($param1, $param2 #(, #remote_response_pairs)* #(, #remote_request_only)*);
             };
         }
 

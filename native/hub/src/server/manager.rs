@@ -47,12 +47,11 @@ use tower_governor::{
 use ::discovery::{DiscoveryParams, client::parse_certificate, ssl::generate_self_signed_cert};
 
 use crate::{
-    Signal,
     library_pool::LibraryHandle,
-    messages::*,
+    messages::{LibraryContentChanged, PeerLibrary},
     node::NodeContext,
     server::{
-        AppState, ServerState, WebSocketService,
+        AppState, ServerState,
         http::{
             check_fingerprint::check_fingerprint_handler,
             device_info::device_info_handler,
@@ -72,15 +71,7 @@ use crate::{
             websocket::websocket_handler,
         },
     },
-    utils::{ParamsExtractor, RinfRustSignal},
 };
-
-async fn register_request_handlers(
-    websocket_service: Arc<WebSocketService>,
-    node: Arc<NodeContext>,
-) {
-    for_all_remote_request_pairs2!(listen_server_event, websocket_service, node);
-}
 
 fn coalesce_worker_notify(
     notify: Arc<dyn Fn() + Send + Sync>,
@@ -269,8 +260,6 @@ impl ServerManager {
         }
         let mut device_info = discovery_params.device_info.clone();
         let websocket_service = node.websocket_service.clone();
-
-        register_request_handlers(websocket_service.clone(), node.clone()).await;
 
         let app_state = Arc::new(AppState {
             cover_temp_dir: COVER_TEMP_DIR.clone(),
@@ -857,7 +846,11 @@ mod lifecycle_tests {
     };
     use super::super::utils::device::load_device_info;
     use crate::Signal;
+    use crate::macros::dispatch_remote;
+    use crate::messages::*;
     use crate::request_error::classify;
+    use crate::server::WebSocketService;
+    use crate::utils::ParamsExtractor;
     use migration::catalog_identity::{ParentKind, parent};
     use playback::decoder::RuneDecoder;
     use playback::stream_utils::{ManagedStream, create_stream_with_authorizer};
@@ -932,6 +925,7 @@ mod lifecycle_tests {
     use tokio_util::sync::CancellationToken;
     use uuid::Uuid;
 
+    use crate::backends::remote::encode_message;
     use crate::backends::remote::{connect_remote, decode_message};
     use crate::handlers::neighbors::select_pinned_pair_host;
     use crate::library_pool::{LibraryHandle, LibraryPool};
@@ -944,9 +938,11 @@ mod lifecycle_tests {
     use crate::server::api::{add_trusted_server, edit_trusted_hosts};
     use crate::server::sync::client::sync_library;
     use database::sync::model::RuneModel;
-    use futures::StreamExt;
+    use futures::{SinkExt, StreamExt};
     use reqwest::header::CONNECTION;
     use sync::{CheckpointKey, ReceiveStore, Scope, SyncModel, scope_id};
+    use tokio::time::timeout;
+    use tokio_tungstenite::tungstenite::Message;
 
     include!("access_policy_tests.rs");
     mod player_session_tests {
@@ -1132,16 +1128,25 @@ mod lifecycle_tests {
         let dir = tempfile::tempdir()?;
         let manager = fixture(dir.path()).await?;
         let service = Arc::new(WebSocketService::new());
-        register_request_handlers(service.clone(), manager.global_params.node.clone()).await;
         assert!(
             service
-                .handle_message("FetchRemoteFileRequest", Vec::new(), None)
+                .handle_message(
+                    "FetchRemoteFileRequest",
+                    Vec::new(),
+                    None,
+                    &manager.global_params.node
+                )
                 .await
                 .is_none()
         );
         let payload = rinf::serialize(&GetMediaFilesCountRequest {})?;
         let (name, response) = service
-            .handle_message("GetMediaFilesCountRequest", payload, None)
+            .handle_message(
+                "GetMediaFilesCountRequest",
+                payload,
+                None,
+                &manager.global_params.node,
+            )
             .await
             .context("forwardable request must be dispatched")?;
         assert_eq!(name, "GetMediaFilesCountResponse");
@@ -1171,16 +1176,10 @@ mod lifecycle_tests {
         Ok(())
     }
 
-    #[test]
-    fn request_gate_owner_requests_are_not_forwardable() {
-        macro_rules! collect_names {
-            ($names:expr, $unused:expr $(, ($request:ident, $response:ident))* $(, $request_only:ident)*) => {{
-                $( $names.push(stringify!($request)); )*
-                $( $names.push(stringify!($request_only)); )*
-            }};
-        }
-        let mut names = Vec::new();
-        for_all_remote_request_pairs2!(collect_names, names, ());
+    #[tokio::test]
+    async fn request_gate_owner_requests_are_not_forwardable() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let peer = fixture(dir.path()).await?;
         for name in [
             "ListLocalLibrariesRequest",
             "SetLibraryBackgroundSyncRequest",
@@ -1193,8 +1192,15 @@ mod lifecycle_tests {
             "AuthenticateMultipleServiceRequest",
             "LogoutSingleServiceRequest",
         ] {
-            assert!(!names.contains(&name), "{name} must remain local");
+            assert!(
+                dispatch_remote(name, &[], None, None, &peer.global_params.node)
+                    .await
+                    .is_none(),
+                "{name} must remain local"
+            );
         }
+        peer.global_params.node.shutdown().await?;
+        Ok(())
     }
 
     async fn info(manager: &Fixture) -> Result<discovery::utils::DeviceInfo> {
@@ -1790,6 +1796,70 @@ mod lifecycle_tests {
         a.get_address().await.context("missing listener address")
     }
 
+    async fn assert_websocket_request_is_ignored(name: &str, payload: Vec<u8>) -> Result<()> {
+        let renderer_dir = tempfile::tempdir()?;
+        let controller_dir = tempfile::tempdir()?;
+        let renderer = fixture(renderer_dir.path()).await?;
+        let controller = fixture(controller_dir.path()).await?;
+        let addr = paired_full(&renderer, &controller).await?;
+        let mut socket = connect_remote(
+            "127.0.0.1",
+            addr.port(),
+            &controller.global_params.config_path,
+            controller.global_params.cert_validator.read().await.clone(),
+            &controller.global_params.node.sync_tokens,
+        )
+        .await?;
+        let ignored_id = Uuid::new_v4();
+        let following_id = Uuid::new_v4();
+        socket
+            .send(Message::Binary(
+                encode_message(name, &payload, Some(ignored_id)).into(),
+            ))
+            .await?;
+        let payload = rinf::serialize(&GetMediaFilesCountRequest {})?;
+        socket
+            .send(Message::Binary(
+                encode_message("GetMediaFilesCountRequest", &payload, Some(following_id)).into(),
+            ))
+            .await?;
+        timeout(Duration::from_secs(5), async {
+            loop {
+                let frame = socket.next().await.context("socket closed")??;
+                let Message::Binary(bytes) = frame else {
+                    continue;
+                };
+                let (response_name, payload, id) =
+                    decode_message(&bytes).context("response frame")?;
+                assert_ne!(id, ignored_id, "{name} must receive no reply");
+                if id == following_id {
+                    assert_eq!(response_name, "GetMediaFilesCountResponse");
+                    let response: GetMediaFilesCountResponse = rinf::deserialize(&payload)?;
+                    assert_eq!(response.count, 0);
+                    break;
+                }
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .context("following request received no reply")??;
+        drop(socket);
+        renderer.global_params.node.shutdown().await?;
+        controller.global_params.node.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn websocket_node_local_request_is_ignored() -> Result<()> {
+        let payload = rinf::serialize(&FetchRemoteFileRequest { url: String::new() })?;
+        assert_websocket_request_is_ignored("FetchRemoteFileRequest", payload).await
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn websocket_unknown_request_is_ignored() -> Result<()> {
+        assert_websocket_request_is_ignored("UnknownRequest", vec![255]).await
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn one_connection_keeps_frame_order() -> Result<()> {
         use crate::backends::remote::encode_message;
@@ -1809,7 +1879,7 @@ mod lifecycle_tests {
         let second_entered = Arc::new(Notify::new());
         let second_entered_handler = second_entered.clone();
         service
-            .register_handler("OrderSecond", move |_, _, _| {
+            .override_handler("OrderSecond", move |_, _, _| {
                 let entered = second_entered_handler.clone();
                 async move {
                     entered.notify_one();

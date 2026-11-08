@@ -1,10 +1,9 @@
-#[macro_use]
-mod server_request;
 mod access;
 pub mod api;
 pub mod http;
 pub(crate) mod libraries;
 mod manager;
+pub(crate) mod server_request;
 pub mod sync;
 mod sync_auth;
 pub(crate) mod sync_worker;
@@ -16,37 +15,38 @@ pub use manager::{
 };
 
 use std::{
-    collections::HashMap,
-    future::Future,
     path::PathBuf,
-    pin::Pin,
     sync::{Arc, Weak},
 };
 
 use anyhow::Result;
 use log::error;
-use tokio::sync::{Mutex, RwLock, broadcast};
+use tokio::sync::{RwLock, broadcast};
+use uuid::Uuid;
+
+#[cfg(test)]
+use futures::future::BoxFuture;
+#[cfg(test)]
+use std::future::Future;
+#[cfg(test)]
+use tokio::sync::{Mutex, Notify};
 
 use ::discovery::{protocol::DiscoveryService, server::PermissionManager, utils::DeviceInfo};
 
 use crate::{
     Session,
     backends::remote::encode_message,
+    macros::dispatch_remote,
     node::NodeContext,
     utils::{Broadcaster, RinfRustSignal},
 };
 
-pub type HandlerFn = Box<
-    dyn Fn(
-            Vec<u8>,
-            Option<Session>,
-            Option<uuid::Uuid>,
-        ) -> BoxFuture<'static, (String, Result<Vec<u8>>)>
+#[cfg(test)]
+type TestOverride = Box<
+    dyn Fn(Vec<u8>, Option<Session>, Option<Uuid>) -> BoxFuture<'static, (String, Result<Vec<u8>>)>
         + Send
         + Sync,
 >;
-pub type HandlerMap = Arc<Mutex<HashMap<String, HandlerFn>>>;
-pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 pub type BroadcastTx = broadcast::Sender<Vec<u8>>;
 
@@ -66,7 +66,8 @@ pub struct ServerState {
 }
 
 pub struct WebSocketService {
-    pub handlers: HandlerMap,
+    #[cfg(test)]
+    overrides: Arc<Mutex<Vec<(String, TestOverride)>>>,
     pub broadcast_tx: BroadcastTx,
 }
 
@@ -80,22 +81,24 @@ impl WebSocketService {
     pub fn new() -> Self {
         let (broadcast_tx, _) = broadcast::channel(100);
         WebSocketService {
-            handlers: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(test)]
+            overrides: Arc::new(Mutex::new(Vec::new())),
             broadcast_tx,
         }
     }
 
-    pub async fn register_handler<F, Fut>(&self, msg_type: &str, handler: F)
+    #[cfg(test)]
+    pub(crate) async fn override_handler<F, Fut>(&self, msg_type: &str, handler: F)
     where
-        F: Fn(Vec<u8>, Option<Session>, Option<uuid::Uuid>) -> Fut + Send + Sync + 'static,
+        F: Fn(Vec<u8>, Option<Session>, Option<Uuid>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = (String, Result<Vec<u8>>)> + Send + 'static,
     {
-        self.handlers.lock().await.insert(
+        self.overrides.lock().await.push((
             msg_type.to_string(),
             Box::new(move |payload, session, library_id| {
                 Box::pin(handler(payload, session, library_id))
             }),
-        );
+        ));
     }
 
     pub async fn handle_addressed_message(
@@ -103,35 +106,31 @@ impl WebSocketService {
         msg_type: &str,
         payload: Vec<u8>,
         session: Option<Session>,
-        library_id: Option<uuid::Uuid>,
+        library_id: Option<Uuid>,
+        node: &Arc<NodeContext>,
     ) -> Option<(String, Result<Vec<u8>>)> {
-        self.dispatch_message(msg_type, payload, session, library_id)
-            .await
+        #[cfg(test)]
+        {
+            let overrides = self.overrides.lock().await;
+            if let Some((_, handler)) = overrides.iter().rev().find(|(name, _)| name == msg_type) {
+                let future = handler(payload, session, library_id);
+                drop(overrides);
+                return Some(future.await);
+            }
+        }
+        dispatch_remote(msg_type, &payload, session, library_id, node).await
     }
 
-    pub async fn handle_message(
+    #[cfg(test)]
+    async fn handle_message(
         &self,
         msg_type: &str,
         payload: Vec<u8>,
         session: Option<Session>,
+        node: &Arc<NodeContext>,
     ) -> Option<(String, Result<Vec<u8>>)> {
-        self.dispatch_message(msg_type, payload, session, None)
+        self.handle_addressed_message(msg_type, payload, session, None, node)
             .await
-    }
-
-    async fn dispatch_message(
-        &self,
-        msg_type: &str,
-        payload: Vec<u8>,
-        session: Option<Session>,
-        library_id: Option<uuid::Uuid>,
-    ) -> Option<(String, Result<Vec<u8>>)> {
-        let future = {
-            let handlers = self.handlers.lock().await;
-            let handler = handlers.get(msg_type)?;
-            handler(payload, session, library_id)
-        };
-        Some(future.await)
     }
 }
 
@@ -157,7 +156,8 @@ impl Broadcaster for WebSocketService {
 impl Clone for WebSocketService {
     fn clone(&self) -> Self {
         WebSocketService {
-            handlers: self.handlers.clone(),
+            #[cfg(test)]
+            overrides: self.overrides.clone(),
             broadcast_tx: self.broadcast_tx.clone(),
         }
     }
@@ -168,14 +168,14 @@ impl Clone for WebSocketService {
 pub(crate) async fn register_gated_handler(
     service: &WebSocketService,
     name: &str,
-) -> (Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>) {
-    let entered = Arc::new(tokio::sync::Notify::new());
-    let release = Arc::new(tokio::sync::Notify::new());
+) -> (Arc<Notify>, Arc<Notify>) {
+    let entered = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
     let entered_handler = entered.clone();
     let release_handler = release.clone();
     let response = format!("{name}-response");
     service
-        .register_handler(name, move |_, _, _| {
+        .override_handler(name, move |_, _, _| {
             let entered = entered_handler.clone();
             let release = release_handler.clone();
             let response = response.clone();
@@ -192,31 +192,45 @@ pub(crate) async fn register_gated_handler(
 #[cfg(test)]
 mod tests {
     use super::{WebSocketService, register_gated_handler};
+    use crate::node::NodeContext;
     use std::sync::Arc;
+    use tempfile::TempDir;
     use tokio::time::{Duration, timeout};
+
+    async fn test_node() -> (TempDir, Arc<NodeContext>) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_str().unwrap();
+        let node = NodeContext::new(path, path, Arc::new(WebSocketService::new()), false)
+            .await
+            .unwrap();
+        (dir, node)
+    }
 
     #[tokio::test]
     async fn blocked_request_does_not_block_another_request() {
-        let service = Arc::new(WebSocketService::new());
+        let (_dir, node) = test_node().await;
+        let service = node.websocket_service.clone();
         let (entered, release) = register_gated_handler(&service, "slow").await;
         service
-            .register_handler("fast", |_, _, _| async {
+            .override_handler("fast", |_, _, _| async {
                 ("fast-response".into(), Ok(Vec::new()))
             })
             .await;
 
         let slow_service = service.clone();
-        let slow =
-            tokio::spawn(
-                async move { slow_service.handle_message("slow", Vec::new(), None).await },
-            );
+        let slow_node = node.clone();
+        let slow = tokio::spawn(async move {
+            slow_service
+                .handle_message("slow", Vec::new(), None, &slow_node)
+                .await
+        });
         timeout(Duration::from_secs(2), entered.notified())
             .await
             .expect("slow handler did not enter");
 
         let fast_result = timeout(
             Duration::from_secs(2),
-            service.handle_message("fast", Vec::new(), None),
+            service.handle_message("fast", Vec::new(), None, &node),
         )
         .await
         .expect("fast request blocked behind slow request");
@@ -238,25 +252,29 @@ mod tests {
             slow_result.expect("slow handler missing").0,
             "slow-response"
         );
+        node.shutdown().await.unwrap();
     }
 
     #[tokio::test]
     async fn registration_is_not_blocked_by_a_running_handler() {
-        let service = Arc::new(WebSocketService::new());
+        let (_dir, node) = test_node().await;
+        let service = node.websocket_service.clone();
         let (entered, release) = register_gated_handler(&service, "slow").await;
 
         let slow_service = service.clone();
-        let slow =
-            tokio::spawn(
-                async move { slow_service.handle_message("slow", Vec::new(), None).await },
-            );
+        let slow_node = node.clone();
+        let slow = tokio::spawn(async move {
+            slow_service
+                .handle_message("slow", Vec::new(), None, &slow_node)
+                .await
+        });
         timeout(Duration::from_secs(2), entered.notified())
             .await
             .expect("slow handler did not enter");
 
         timeout(
             Duration::from_secs(2),
-            service.register_handler("new", |_, _, _| async {
+            service.override_handler("new", |_, _, _| async {
                 ("new-response".into(), Ok(Vec::new()))
             }),
         )
@@ -268,5 +286,6 @@ mod tests {
             .await
             .expect("slow request did not finish after release")
             .expect("slow task panicked");
+        node.shutdown().await.unwrap();
     }
 }
