@@ -1,9 +1,10 @@
 use std::fmt::Debug;
+use std::fs::{File, OpenOptions};
 use std::future::Future;
+use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
 use std::time::Duration;
-use tokio::runtime::Runtime;
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Serialize, de::DeserializeOwned};
@@ -67,6 +68,38 @@ pub struct PersistentDataManager<T> {
     /// Broadcast channel sender to notify subscribers of data changes.
     change_tx: broadcast::Sender<T>,
     external_change_tx: broadcast::Sender<T>,
+}
+
+/// Takes the cross-process lock that serializes every read-modify-write of `path`.
+///
+/// Blocks the calling thread until the lock is free; async callers go through
+/// [`lock_persistent_file_async`].
+fn lock_persistent_file(path: &Path) -> Result<File, PersistenceError> {
+    let lock_path = path.with_extension("lock");
+    let file = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&lock_path)
+        .map_err(|source| PersistenceError::Io {
+            source,
+            context: format!("opening lock file {}", lock_path.display()),
+        })?;
+    file.lock().map_err(|source| PersistenceError::Io {
+        source,
+        context: format!("locking persistent file {}", path.display()),
+    })?;
+    Ok(file)
+}
+
+async fn lock_persistent_file_async(path: &Path) -> Result<File, PersistenceError> {
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || lock_persistent_file(&path))
+        .await
+        .map_err(|error| PersistenceError::Io {
+            source: io::Error::other(error),
+            context: "waiting for the persistent file lock".to_string(),
+        })?
 }
 
 impl<T> PersistentDataManager<T>
@@ -177,16 +210,22 @@ where
                     Ok(event) if matches!(event.kind, EventKind::Modify(_)) => {
                         if event.paths.iter().any(|p| p == &path_clone) {
                             std::thread::sleep(Duration::from_millis(100)); // Debounce to avoid reacting to partial saves
+                            // Same order as `update`: data lock, then file lock. The
+                            // opposite order deadlocks against a concurrent update.
+                            let mut data = data_clone.blocking_write();
+                            let _lock = match lock_persistent_file(&path_clone) {
+                                Ok(lock) => lock,
+                                Err(e) => {
+                                    eprintln!("Error locking file during watch: {e}");
+                                    continue;
+                                }
+                            };
                             match std::fs::read_to_string(&path_clone) {
                                 Ok(content) => {
                                     if let Ok(new_data) = toml::from_str::<T>(&content) {
-                                        let rt = Runtime::new().unwrap(); // Create a temporary runtime
-                                        rt.block_on(async {
-                                            let mut data = data_clone.write().await;
-                                            *data = new_data.clone(); // Update in-memory data
-                                            let _ = tx_clone.send(new_data.clone()); // Notify subscribers of change
-                                            let _ = external_tx_clone.send(new_data); // Notify subscribers of external change
-                                        });
+                                        *data = new_data.clone();
+                                        let _ = tx_clone.send(new_data.clone());
+                                        let _ = external_tx_clone.send(new_data);
                                     }
                                 }
                                 Err(e) => eprintln!(
@@ -231,6 +270,7 @@ where
     /// - Filesystem watcher unwatching or re-watching fails.
     pub async fn save(&self) -> Result<(), PersistenceError> {
         let data = self.data.read().await; // Acquire read lock to get current data
+        let _file_lock = lock_persistent_file_async(&self.file_path).await?;
         self.save_internal(&*data).await // Call internal save with dereferenced data
     }
 
@@ -321,8 +361,25 @@ where
         Fut: Future<Output = Result<(T, R), E>>,
         E: From<PersistenceError>,
     {
-        let mut data = self.data.write().await; // Acquire exclusive write lock
-        let current_data = (*data).clone(); // Clone current data for the updater function
+        // In-process writers queue on the data lock first, so only one task per
+        // manager ever waits on the file lock. Another process holding the file
+        // lock blocks a blocking-pool thread, never a runtime worker.
+        let mut data = self.data.write().await;
+        let _file_lock = lock_persistent_file_async(&self.file_path)
+            .await
+            .map_err(E::from)?;
+        // Another manager on the same file may have written since our last load.
+        let current_data = match tokio::fs::read_to_string(&self.file_path).await {
+            Ok(content) => toml::from_str(&content)
+                .map_err(|error| E::from(PersistenceError::Deserialization(error)))?,
+            Err(source) if source.kind() == ErrorKind::NotFound => (*data).clone(),
+            Err(source) => {
+                return Err(E::from(PersistenceError::Io {
+                    source,
+                    context: format!("reading file {} before update", self.file_path.display()),
+                }));
+            }
+        };
         let (new_data, result) = updater(current_data).await?; // Call the updater function
         *data = new_data.clone(); // Update managed data with the new data
         let _ = self.change_tx.send(new_data);

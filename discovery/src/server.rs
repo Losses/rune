@@ -546,6 +546,81 @@ mod change_tests {
     use tokio::time::{Duration, timeout};
     use tokio_util::sync::CancellationToken;
 
+    async fn add_permission_user(
+        manager: &PermissionManager,
+        fingerprint: &str,
+    ) -> Result<(), PermissionError> {
+        manager
+            .add_user(
+                format!("{fingerprint}-key"),
+                fingerprint.into(),
+                fingerprint.into(),
+                "model".into(),
+                DeviceType::Desktop,
+                format!("{fingerprint}-ip"),
+            )
+            .await
+    }
+
+    #[tokio::test]
+    async fn separate_managers_merge_updates_to_the_same_file()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir =
+            std::env::temp_dir().join(format!("permission-manager-merge-{}", uuid::Uuid::new_v4()));
+        let first = PermissionManager::new(&dir)?;
+        let second = PermissionManager::new(&dir)?;
+
+        add_permission_user(&first, "first-fingerprint").await?;
+        add_permission_user(&second, "second-fingerprint").await?;
+
+        let latest = PermissionManager::new(&dir)?;
+        assert!(
+            latest
+                .verify_by_fingerprint("first-fingerprint")
+                .await
+                .is_some()
+        );
+        assert!(
+            latest
+                .verify_by_fingerprint("second-fingerprint")
+                .await
+                .is_some()
+        );
+        std::fs::remove_dir_all(dir)?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_updates_and_watcher_reloads_do_not_deadlock()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = std::env::temp_dir().join(format!(
+            "permission-manager-concurrent-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let first = Arc::new(PermissionManager::new(&dir)?);
+        let second = Arc::new(PermissionManager::new(&dir)?);
+        let writers = [first.clone(), second.clone()].map(|manager| {
+            tokio::spawn(async move {
+                for index in 0..40 {
+                    let fingerprint = format!("{:p}-{index}", Arc::as_ptr(&manager));
+                    add_permission_user(&manager, &fingerprint).await?;
+                }
+                Ok::<_, PermissionError>(())
+            })
+        });
+        timeout(Duration::from_secs(60), async {
+            for writer in writers {
+                writer.await??;
+            }
+            Ok::<_, Box<dyn std::error::Error>>(())
+        })
+        .await??;
+        let latest = PermissionManager::new(&dir)?;
+        assert_eq!(latest.list_users().await.len(), 80);
+        std::fs::remove_dir_all(dir)?;
+        Ok(())
+    }
+
     #[tokio::test]
     async fn generation_tracks_mutations_not_reads() -> Result<(), Box<dyn std::error::Error>> {
         let dir =
