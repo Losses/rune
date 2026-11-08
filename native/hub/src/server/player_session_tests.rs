@@ -4011,7 +4011,7 @@ async fn replicate_host_library(host: &Fixture, peer: &Fixture) -> Result<(Socke
     replicate_host_library_at(host, peer, host_addr).await
 }
 
-async fn replicate_host_library_at(
+pub(super) async fn replicate_host_library_at(
     host: &Fixture,
     peer: &Fixture,
     host_addr: SocketAddr,

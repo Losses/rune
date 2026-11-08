@@ -1,5 +1,6 @@
 mod access_policy_tests {
     use super::*;
+    use super::player_session_tests::replicate_host_library_at;
     use crate::access_policy::{ConnectionLevel, DeviceGrants, SyncLevel};
     use crate::backends::remote::{connect_remote, is_mix_query_request};
     use crate::macros::{RequestAccess, request_access, request_scope};
@@ -13,7 +14,10 @@ mod access_policy_tests {
     use database::actions::stats::{get_liked, set_liked};
     use database::entities::media_cover_art;
     use http_request::sync::MetadataPeer;
-    use sea_orm::ActiveValue;
+    use sea_orm::{
+        ActiveValue,
+        sqlx::{Connection, SqliteConnection, sqlite::SqliteConnectOptions},
+    };
     use std::fs;
     use sync::protocol::SyncError;
     use tempfile::TempDir;
@@ -35,6 +39,31 @@ mod access_policy_tests {
         replica_session: TestPeerSession,
     }
     impl PolicyPair {
+        async fn new_replica() -> Result<Self> {
+            let first = tempfile::tempdir()?;
+            let second = tempfile::tempdir()?;
+            let id = Uuid::new_v4();
+            let a = fixture_with_library(first.path(), id).await?;
+            let peer = fixture(second.path()).await?;
+            let addr = paired_full(&a, &peer).await?;
+            let (_, b) = replicate_host_library_at(&a, &peer, addr).await?;
+            a.stop_worker().await?;
+            peer.stop_worker().await?;
+            let client = Self::client_for(&a, &b, addr).await?;
+            Ok(Self {
+                _first: first,
+                _second: second,
+                a,
+                b,
+                addr,
+                b_addr: addr,
+                client,
+                id,
+                owner_session: TestPeerSession::default(),
+                replica_session: TestPeerSession::default(),
+            })
+        }
+
         async fn new() -> Result<Self> {
             let first = tempfile::tempdir()?;
             let second = tempfile::tempdir()?;
@@ -111,6 +140,9 @@ mod access_policy_tests {
             Ok(())
         }
         async fn pass(&self, owner: bool) -> Result<PeerPass> {
+            self.pass_with_timeout(owner, Duration::from_secs(15)).await
+        }
+        async fn pass_with_timeout(&self, owner: bool, limit: Duration) -> Result<PeerPass> {
             let (local, remote, addr) = if owner {
                 (&self.a, &self.b, self.b_addr)
             } else {
@@ -127,7 +159,7 @@ mod access_policy_tests {
                 host: "127.0.0.1".into(),
                 port: addr.port(),
             };
-            timeout(Duration::from_secs(15), async {
+            timeout(limit, async {
                 loop {
                     match session
                         .pass(
@@ -159,6 +191,80 @@ mod access_policy_tests {
             self.a.global_params.node.shutdown().await?;
             self.b.global_params.node.shutdown().await
         }
+    }
+
+    async fn lock_replica_library(fixture: &Fixture) -> Result<SqliteConnection> {
+        let library = fixture.global_params.test_library();
+        let path = library
+            .main_db
+            .get_sqlite_connection_pool()
+            .connect_options()
+            .get_filename()
+            .to_path_buf();
+        let options = SqliteConnectOptions::new()
+            .filename(path)
+            .create_if_missing(false)
+            .busy_timeout(Duration::ZERO);
+        let mut connection = SqliteConnection::connect_with(&options).await?;
+        sea_orm::sqlx::query("BEGIN IMMEDIATE")
+            .execute(&mut connection)
+            .await?;
+        let mut contender = SqliteConnection::connect_with(&options).await?;
+        let error = sea_orm::sqlx::query("BEGIN IMMEDIATE")
+            .execute(&mut contender)
+            .await
+            .expect_err("second writer must be blocked by the held immediate transaction");
+        anyhow::ensure!(
+            error
+                .as_database_error()
+                .and_then(|error| error.code())
+                .is_some_and(|code| code == "5" || code == "6"),
+            "second writer failed for a reason other than SQLite busy/locked: {error}"
+        );
+        Ok(connection)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn sync_recovers_after_replica_write_lock_is_released() -> Result<()> {
+        let pair = PolicyPair::new_replica().await?;
+        let host = pair.a.global_params.test_library();
+        let key = write_album(host, "busy recovery").await?;
+        let mut lock = lock_replica_library(&pair.b).await?;
+        let pass = tokio::spawn(async move {
+            let result = pair.pass_with_timeout(false, Duration::from_secs(30)).await;
+            (result, pair)
+        });
+
+        // The default SQLite busy timeout is five seconds. The first metadata pass also
+        // performs authenticated HTTP setup before reaching its write; release just after
+        // that first busy result so the retry can complete.
+        sleep(Duration::from_millis(11_250)).await;
+        sea_orm::sqlx::query("ROLLBACK")
+            .execute(&mut lock)
+            .await?;
+        let (result, pair) = pass.await?;
+        assert_eq!(result?, PeerPass::Complete);
+        let replica = pair.b.global_params.test_library();
+        assert!(replica.library_sync.get(&key).await?.is_some());
+        pair.close().await
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn sync_reports_storage_busy_after_retry_cap() -> Result<()> {
+        let pair = PolicyPair::new_replica().await?;
+        let host = pair.a.global_params.test_library();
+        write_album(host, "busy cap").await?;
+        let mut lock = lock_replica_library(&pair.b).await?;
+
+        let result = pair
+            .pass_with_timeout(false, Duration::from_secs(45))
+            .await;
+        sea_orm::sqlx::query("ROLLBACK")
+            .execute(&mut lock)
+            .await?;
+        let error = result.expect_err("held SQLite lock must exhaust the retry cap");
+        assert_eq!(error.downcast_ref::<SyncError>(), Some(&SyncError::StorageBusy));
+        pair.close().await
     }
 
     /// Real files in the library root and the cover cache, so a 403 means the
