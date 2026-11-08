@@ -9,6 +9,7 @@ use axum::{
         ws::{CloseFrame, Message as WsMessage, WebSocket, WebSocketUpgrade},
     },
     http::StatusCode,
+    http::{HeaderMap, HeaderName, HeaderValue},
     response::{IntoResponse, Response},
 };
 use futures_util::{SinkExt, StreamExt};
@@ -23,6 +24,10 @@ use crate::{
     request_error::{FailedCall, classify, request_failure_cause},
     server::{ServerState, sync_auth::AuthenticatedFingerprint},
 };
+use discovery::protocol_version::{
+    Compatibility, DEVICE_ALIAS_HEADER, PROTOCOL_VERSION, PROTOCOL_VERSION_HEADER, ProtocolVersion,
+    compatibility,
+};
 use discovery::server::{User, UserStatus};
 
 pub async fn websocket_handler(
@@ -31,7 +36,28 @@ pub async fn websocket_handler(
     Query(params): Query<HashMap<String, String>>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<Arc<ServerState>>,
+    headers: HeaderMap,
 ) -> Response {
+    let (local_version, local_alias) = {
+        let info = state.discovery_device_info.read().await;
+        (
+            info.protocol_version.unwrap_or(PROTOCOL_VERSION),
+            info.alias.clone(),
+        )
+    };
+    let version_header = HeaderName::from_static(PROTOCOL_VERSION_HEADER);
+    let mut response_headers = HeaderMap::new();
+    if let Ok(value) = HeaderValue::from_str(&local_version.to_string()) {
+        response_headers.insert(version_header.clone(), value);
+    }
+    // The client names this device in its "needs update" message.
+    if let Ok(alias) = HeaderValue::from_str(&local_alias) {
+        response_headers.insert(HeaderName::from_static(DEVICE_ALIAS_HEADER), alias);
+    }
+    let peer_version = headers
+        .get(&version_header)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| ProtocolVersion::parse(value).ok());
     let host = params
         .get("host")
         .cloned()
@@ -45,10 +71,23 @@ pub async fn websocket_handler(
         .filter(|user| user.status == UserStatus::Approved);
     match user {
         Some(user) => {
+            let compatible = peer_version.is_some_and(|version| {
+                matches!(
+                    compatibility(local_version, version),
+                    Compatibility::Compatible { .. }
+                )
+            });
+            if !compatible {
+                return (StatusCode::UPGRADE_REQUIRED, response_headers).into_response();
+            }
             info!("Connection authorized for {} @ {}", user.alias, addr);
             let host = format!("https://{host}:7863");
             let broadcast_rx = state.websocket_service.broadcast_tx.subscribe();
-            ws.on_upgrade(move |socket| handle_socket(socket, state, user, host, broadcast_rx))
+            (
+                response_headers,
+                ws.on_upgrade(move |socket| handle_socket(socket, state, user, host, broadcast_rx)),
+            )
+                .into_response()
         }
         None => {
             warn!("Unauthorized connection attempt from {}", addr);

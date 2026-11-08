@@ -15,6 +15,7 @@ fn sanitize_device_info(original: &DeviceInfo) -> SanitizedDeviceInfo {
             Some(x) => x.to_string(),
             None => "Unknown".to_string(),
         },
+        protocol_version: original.protocol_version,
         capabilities: Some(Capabilities::rune_native()),
     }
 }

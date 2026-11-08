@@ -857,7 +857,7 @@ mod lifecycle_tests {
     use playback::stream_utils::{ManagedStream, create_stream_with_authorizer};
     use std::net::SocketAddr;
     use std::net::TcpListener;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use tracing_subscriber::filter::LevelFilter;
     #[tokio::test(start_paused = true)]
     async fn worker_notifications_are_coalesced() {
@@ -1087,7 +1087,7 @@ mod lifecycle_tests {
         // A replica added through the peer flow is named by id, not by folder.
         let root = match LibraryLocation::parse(root.to_str().context("replica path")?)? {
             LibraryLocation::Replica(id) => registry.replica(id)?.root(config),
-            LibraryLocation::Path(path) => std::path::PathBuf::from(path),
+            LibraryLocation::Path(path) => PathBuf::from(path),
         };
         let descriptor = resolve_library(
             &source.global_params.test_library().fsio,
@@ -1817,6 +1817,14 @@ mod lifecycle_tests {
     }
 
     async fn paired_full(a: &Fixture, b: &Fixture) -> Result<SocketAddr> {
+        paired_full_with_protocol_version(a, b, discovery::protocol_version::PROTOCOL_VERSION).await
+    }
+
+    async fn paired_full_with_protocol_version(
+        a: &Fixture,
+        b: &Fixture,
+        protocol_version: discovery::protocol_version::ProtocolVersion,
+    ) -> Result<SocketAddr> {
         let a_fingerprint = info(a).await?.fingerprint;
         let b_fingerprint = info(b).await?.fingerprint;
         if a.global_params
@@ -1844,11 +1852,72 @@ mod lifecycle_tests {
             .start(
                 ([127, 0, 0, 1], 0).into(),
                 DiscoveryParams {
-                    device_info: info(a).await?,
+                    device_info: {
+                        let mut info = info(a).await?;
+                        info.protocol_version = Some(protocol_version);
+                        info
+                    },
                 },
             )
             .await?;
         a.get_address().await.context("missing listener address")
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn websocket_handshake_rejects_major_mismatch_in_both_directions() -> Result<()> {
+        use crate::messages::{ProtocolUpdateSide, RequestErrorKind};
+        use crate::request_error::{ExpectedRequestError, classify};
+        use discovery::protocol_version::ProtocolVersion;
+
+        for (client_version, server_version, expected_side) in [
+            ("1.0.0", "2.0.0", ProtocolUpdateSide::ThisDevice),
+            ("2.0.0", "1.0.0", ProtocolUpdateSide::Peer),
+        ] {
+            let server_dir = tempfile::tempdir()?;
+            let client_dir = tempfile::tempdir()?;
+            let server = fixture(server_dir.path()).await?;
+            let client = fixture(client_dir.path()).await?;
+            client
+                .global_params
+                .node
+                .set_protocol_version_for_test(ProtocolVersion::parse(client_version)?);
+            let address = paired_full_with_protocol_version(
+                &server,
+                &client,
+                ProtocolVersion::parse(server_version)?,
+            )
+            .await?;
+            let server_info = info(&server).await?;
+            client
+                .global_params
+                .cert_validator
+                .read()
+                .await
+                .replace_hosts_for_fingerprint(
+                    &server_info.fingerprint,
+                    vec![format!("127.0.0.1:{}", address.port())],
+                )
+                .await?;
+
+            let error = client
+                .global_params
+                .node
+                .attach_renderer(&server_info.fingerprint)
+                .await
+                .unwrap_err();
+            assert_eq!(classify(&error), RequestErrorKind::PeerNeedsUpdate);
+            assert!(
+                matches!(
+                    error.downcast_ref::<ExpectedRequestError>(),
+                Some(ExpectedRequestError::PeerNeedsUpdate { update_side, peer_alias: Some(alias), .. })
+                    if *update_side == expected_side && !alias.is_empty()
+                ),
+                "unexpected typed handshake error: {error:#?}"
+            );
+            client.global_params.node.shutdown().await?;
+            server.global_params.node.shutdown().await?;
+        }
+        Ok(())
     }
 
     async fn assert_websocket_request_is_ignored(name: &str, payload: Vec<u8>) -> Result<()> {

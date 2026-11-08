@@ -4971,6 +4971,7 @@ async fn typed_renderer_call_rejects_wrong_reply_name() -> Result<()> {
         fixture.global_params.node.clone(),
         "fake-renderer".to_owned(),
         "Fake renderer".to_owned(),
+        discovery::protocol_version::PROTOCOL_VERSION,
         RendererLinkUse::Cast,
     )
     .await;
@@ -5085,6 +5086,7 @@ async fn rpc_target_blacklisted_request_returns_typed_failure_without_sending() 
         controller.global_params.node.clone(),
         "blacklist-peer".to_owned(),
         "Blacklist peer".to_owned(),
+        discovery::protocol_version::PROTOCOL_VERSION,
         RendererLinkUse::Control,
     )
     .await;
@@ -5127,6 +5129,49 @@ async fn rpc_target_blacklisted_request_returns_typed_failure_without_sending() 
             .is_err(),
         "blacklisted request sent a frame"
     );
+    // A target built from a live link keeps the owner-only blacklist.
+    assert_eq!(
+        RpcTarget::rune(
+            controller
+                .global_params
+                .node
+                .renderer_link()?
+                .context("attached renderer")?,
+        )
+        .slot_type::<crate::messages::HandoffRequest>(),
+        Slot::Unsupported {
+            reason: UnsupportedReason::OwnerOnly,
+        }
+    );
+    let peer_too_old = RpcTarget::rune(
+        controller
+            .global_params
+            .node
+            .renderer_link()?
+            .context("attached renderer")?,
+    )
+    .with_slots(|slots| {
+        slots.pause_request = Slot::Unsupported {
+            reason: UnsupportedReason::PeerTooOld,
+        }
+    });
+    assert_eq!(
+        RequestCapabilities::from_target(&peer_too_old).pause_request,
+        RequestCapability::Disabled {
+            reason: CapabilityReason::PeerTooOld,
+        }
+    );
+    let error = run_on_target(&peer_too_old, &controller.global_params, &PauseRequest {})
+        .await
+        .err()
+        .context("peer-too-old request unexpectedly succeeded")?;
+    assert!(matches!(
+        error.downcast_ref::<ExpectedRequestError>(),
+        Some(ExpectedRequestError::Unsupported {
+            request: "PauseRequest",
+            reason: UnsupportedReason::PeerTooOld,
+        })
+    ));
     controller.global_params.node.detach_renderer().await?;
     controller.global_params.node.shutdown().await?;
     Ok(())
@@ -5708,6 +5753,27 @@ async fn rr_reconnect_deadline_uses_existing_loss_and_close() -> Result<()> {
             .decoded::<RemoteLibraryReconnected>("RemoteLibraryReconnected")
             .is_empty()
     );
+    f.shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rr_reconnect_stops_after_incompatible_peer_with_permanent_loss() -> Result<()> {
+    use discovery::protocol_version::ProtocolVersion;
+
+    let f = ReconnectFixture::new(Duration::from_secs(10)).await?;
+    f.disconnect().await?;
+    let mut device_info = super::info(&f.b).await?;
+    device_info.protocol_version = Some(ProtocolVersion::parse("2.0.0")?);
+    f.b.manager
+        .clone()
+        .start(f.address, DiscoveryParams { device_info })
+        .await?;
+    let loss: RemoteConnectionLost = f.wait_signal("RemoteConnectionLost").await?;
+    assert_eq!(loss.kind, RemoteLossKind::ProtocolIncompatible);
+    let attempts = f.a.global_params.node.reconnect_attempt_count();
+    sleep(Duration::from_millis(250)).await;
+    assert_eq!(f.a.global_params.node.reconnect_attempt_count(), attempts);
+    assert_eq!(attempts, 1);
     f.shutdown().await
 }
 

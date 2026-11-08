@@ -34,6 +34,7 @@ pub enum RequestErrorKind {
     Internal,
     PermissionDenied,
     Conflict,
+    PeerNeedsUpdate,
 }
 
 #[derive(Deserialize, Serialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
@@ -49,6 +50,18 @@ pub enum RequestFailureCause {
     Reconnecting {
         alias: String,
     },
+    PeerNeedsUpdate {
+        update_side: ProtocolUpdateSide,
+        peer_alias: Option<String>,
+        local_version: String,
+        peer_version: Option<String>,
+    },
+}
+
+#[derive(Deserialize, Serialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProtocolUpdateSide {
+    ThisDevice,
+    Peer,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]

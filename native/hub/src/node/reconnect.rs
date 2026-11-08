@@ -15,7 +15,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::{NodeContext, UiLibrary};
 use crate::{
-    backends::remote::{RendererLink, RendererLinkUse},
+    backends::remote::{RemoteConnectError, RendererLink, RendererLinkUse},
     messages::{
         RefreshSessionRequest, RemoteConnectionLost, RemoteLibraryReconnected, RemoteLossKind,
         RendererAttachmentChanged,
@@ -58,25 +58,31 @@ impl ReconnectTask {
         let task_cancel = cancel.clone();
         let handle = tokio::spawn(async move {
             let deadline = Instant::now() + config.deadline;
-            let connected = tokio::select! {
+            let (connected, permanent_loss) = tokio::select! {
                 biased;
                 _ = task_cancel.cancelled() => return,
-                _ = sleep_until(deadline) => None,
+                _ = sleep_until(deadline) => (None, None),
                 connected = async {
                     for delay in config.delays.into_iter().chain(repeat(config.interval)) {
                         sleep(delay).await;
-                        let node = node.upgrade()?;
-                        if !node.begin_reconnect_attempt(&fingerprint, &task_cancel) { return None; }
+                        let Some(node) = node.upgrade() else { return (None, None); };
+                        if !node.begin_reconnect_attempt(&fingerprint, &task_cancel) { return (None, None); }
                         match RendererLink::connect(node.clone(), &fingerprint, RendererLinkUse::Control).await {
                             Ok((link, _, alias)) => {
-                                if !link.is_closed() { return Some((link, alias)); }
+                                if !link.is_closed() { return (Some((link, alias)), None); }
+                            }
+                            Err(error @ RemoteConnectError::PeerNeedsUpdate { .. }) => {
+                                return (None, Some(error.to_string()));
                             }
                             Err(error) => log::debug!("Remote library reconnect failed: {error}"),
                         }
                     }
-                    None
+                    (None, None)
                 } => connected,
             };
+            let loss = permanent_loss.map_or(loss, |detail| {
+                (RemoteLossKind::ProtocolIncompatible, detail)
+            });
             let restored = node.upgrade().and_then(|node| {
                 node.finish_reconnect(&fingerprint, connected, loss, &task_cancel)
             });

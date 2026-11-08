@@ -25,6 +25,7 @@ struct RequestResponse {
     call_id: bool,
     // This query resolves against the sender library before controlling its session.
     uses_controller_library: bool,
+    introduced_minor: Option<u32>,
 }
 
 #[proc_macro]
@@ -37,6 +38,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "DetachRendererRequest".to_string(),
@@ -45,6 +47,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "ListRenderersRequest".to_string(),
@@ -53,6 +56,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "HandoffRequest".to_string(),
@@ -61,6 +65,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "GetDeviceGrantsRequest".to_string(),
@@ -69,6 +74,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "SetDeviceGrantsRequest".to_string(),
@@ -77,6 +83,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "ListControllersRequest".to_string(),
@@ -85,6 +92,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "DetachControllerRequest".to_string(),
@@ -93,6 +101,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "ListLocalLibrariesRequest".to_string(),
@@ -101,6 +110,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "SetLibraryBackgroundSyncRequest".to_string(),
@@ -109,6 +119,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "ListPeerLibrariesRequest".to_string(),
@@ -117,6 +128,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "AddRemoteLibraryRequest".to_string(),
@@ -125,6 +137,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         // Library
         RequestResponse {
@@ -134,6 +147,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "SetSyncSettingsRequest".to_string(),
@@ -142,6 +156,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "SetDownloadRuleRequest".to_string(),
@@ -150,6 +165,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "RemoveDownloadRuleRequest".to_string(),
@@ -158,6 +174,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "TestLibraryInitializedRequest".to_string(),
@@ -166,6 +183,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "CloseLibraryRequest".to_string(),
@@ -174,6 +192,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "CancelTaskRequest".to_string(),
@@ -182,6 +201,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Administer,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "ScanAudioLibraryRequest".to_string(),
@@ -190,6 +210,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Administer,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "AnalyzeAudioLibraryRequest".to_string(),
@@ -198,6 +219,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Administer,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "DeduplicateAudioLibraryRequest".to_string(),
@@ -206,6 +228,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Administer,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         // Playback
         RequestResponse {
@@ -215,6 +238,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "LoadRequest".to_string(),
@@ -223,6 +247,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "PlayRequest".to_string(),
@@ -231,6 +256,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "PauseRequest".to_string(),
@@ -239,6 +265,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "NextRequest".to_string(),
@@ -247,6 +274,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "PreviousRequest".to_string(),
@@ -255,6 +283,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "SwitchRequest".to_string(),
@@ -263,6 +292,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "SeekRequest".to_string(),
@@ -271,6 +301,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "RemoveRequest".to_string(),
@@ -279,6 +310,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "SetPlaybackModeRequest".to_string(),
@@ -287,6 +319,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "MovePlaylistItemRequest".to_string(),
@@ -295,6 +328,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "SetRealtimeFFTEnabledRequest".to_string(),
@@ -303,6 +337,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "SetAdaptiveSwitchingEnabledRequest".to_string(),
@@ -311,6 +346,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         // This device's own audio session, so never forwarded to a renderer.
         RequestResponse {
@@ -320,6 +356,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         // Visualizer (the GPU and the frame buffer live in this process)
         RequestResponse {
@@ -329,6 +366,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "StopVisualizerRequest".to_string(),
@@ -337,6 +375,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "ResizeVisualizerRequest".to_string(),
@@ -345,6 +384,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "SetVisualizerPresetDirsRequest".to_string(),
@@ -353,6 +393,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "SetVisualizerAccentRequest".to_string(),
@@ -361,6 +402,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "SetVisualizerVisibleRequest".to_string(),
@@ -369,6 +411,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "LoadVisualizerPresetRequest".to_string(),
@@ -377,6 +420,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "NextVisualizerPresetRequest".to_string(),
@@ -385,6 +429,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "PreviousVisualizerPresetRequest".to_string(),
@@ -393,6 +438,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "RandomVisualizerPresetRequest".to_string(),
@@ -401,6 +447,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "ImportVisualizerSceneRequest".to_string(),
@@ -409,6 +456,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "RemoveVisualizerSceneRequest".to_string(),
@@ -417,6 +465,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "SetVisualizerScenesRequest".to_string(),
@@ -425,6 +474,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "SetVisualizerLogRequest".to_string(),
@@ -433,6 +483,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "SetVisualizerLabRequest".to_string(),
@@ -441,6 +492,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "VisualizerLabCommandRequest".to_string(),
@@ -449,6 +501,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "VisualizerLabRequest".to_string(),
@@ -457,6 +510,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "VisualizerPlanRequest".to_string(),
@@ -465,6 +519,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "VisualizerSupportRequest".to_string(),
@@ -473,6 +528,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "VisualizerStatusRequest".to_string(),
@@ -481,6 +537,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "ListVisualizerPresetsRequest".to_string(),
@@ -489,6 +546,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "ListVisualizerCreditsRequest".to_string(),
@@ -497,6 +555,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "VisualizerTextureShownRequest".to_string(),
@@ -505,6 +564,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         // SFX
         RequestResponse {
@@ -514,6 +574,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         // Analyze
         RequestResponse {
@@ -523,6 +584,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "GetAnalyzeCountRequest".to_string(),
@@ -531,6 +593,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         // Media File
         RequestResponse {
@@ -540,6 +603,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "FetchMediaFileByIdsRequest".to_string(),
@@ -548,6 +612,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "FetchParsedMediaFileRequest".to_string(),
@@ -556,6 +621,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "SearchMediaFileSummaryRequest".to_string(),
@@ -564,6 +630,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         // Lyric
         RequestResponse {
@@ -573,6 +640,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "GetLyricByTrackIdRequest".to_string(),
@@ -581,6 +649,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         // Collection
         RequestResponse {
@@ -590,6 +659,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "FetchCollectionGroupsRequest".to_string(),
@@ -598,6 +668,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "FetchCollectionByIdsRequest".to_string(),
@@ -606,6 +677,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "SearchCollectionSummaryRequest".to_string(),
@@ -614,6 +686,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         // Cover Art
         RequestResponse {
@@ -623,6 +696,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "GetPrimaryColorByTrackIdRequest".to_string(),
@@ -631,6 +705,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         // Playlist
         RequestResponse {
@@ -640,6 +715,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "CreatePlaylistRequest".to_string(),
@@ -648,6 +724,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "CreateM3u8PlaylistRequest".to_string(),
@@ -656,6 +733,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "UpdatePlaylistRequest".to_string(),
@@ -664,6 +742,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "RemovePlaylistRequest".to_string(),
@@ -672,6 +751,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "AddItemToPlaylistRequest".to_string(),
@@ -680,6 +760,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "ReorderPlaylistItemPositionRequest".to_string(),
@@ -688,6 +769,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "FetchPlaylistOccurrencesRequest".to_string(),
@@ -696,6 +778,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "GetPlaylistByIdRequest".to_string(),
@@ -704,6 +787,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         // Mix
         RequestResponse {
@@ -713,6 +797,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "CreateMixRequest".to_string(),
@@ -721,6 +806,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "UpdateMixRequest".to_string(),
@@ -729,6 +815,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "RemoveMixRequest".to_string(),
@@ -737,6 +824,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "AddItemToMixRequest".to_string(),
@@ -745,6 +833,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "GetMixByIdRequest".to_string(),
@@ -753,6 +842,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "MixQueryRequest".to_string(),
@@ -761,6 +851,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "FetchMixQueriesRequest".to_string(),
@@ -769,6 +860,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "OperatePlaybackWithMixQueryRequest".to_string(),
@@ -777,6 +869,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             uses_controller_library: true,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "CastPreflightRequest".to_string(),
@@ -785,6 +878,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "CastLoadRequest".to_string(),
@@ -793,6 +887,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "RefreshSessionRequest".to_string(),
@@ -801,6 +896,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "SessionSnapshotRequest".to_string(),
@@ -809,6 +905,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         // Like
         RequestResponse {
@@ -818,6 +915,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "GetLikedRequest".to_string(),
@@ -826,6 +924,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         // Query and Search
         RequestResponse {
@@ -835,6 +934,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "SearchForRequest".to_string(),
@@ -843,6 +943,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: true,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         // Directory
         RequestResponse {
@@ -852,6 +953,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         // Scrobbler
         RequestResponse {
@@ -861,6 +963,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "AuthenticateMultipleServiceRequest".to_string(),
@@ -869,6 +972,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "LogoutSingleServiceRequest".to_string(),
@@ -877,6 +981,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         // Log
         RequestResponse {
@@ -886,6 +991,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "ClearLogRequest".to_string(),
@@ -894,6 +1000,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "RemoveLogRequest".to_string(),
@@ -902,6 +1009,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         // System
         RequestResponse {
@@ -911,6 +1019,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         // License
         RequestResponse {
@@ -920,6 +1029,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "ValidateLicenseRequest".to_string(),
@@ -928,6 +1038,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         // Neighbors
         RequestResponse {
@@ -937,6 +1048,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "StopBroadcastRequest".to_string(),
@@ -945,6 +1057,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "StartListeningRequest".to_string(),
@@ -953,6 +1066,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "StopListeningRequest".to_string(),
@@ -961,6 +1075,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "GetDiscoveredDeviceRequest".to_string(),
@@ -969,6 +1084,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "StartServerRequest".to_string(),
@@ -977,6 +1093,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "StopServerRequest".to_string(),
@@ -985,6 +1102,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "ListClientsRequest".to_string(),
@@ -993,6 +1111,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "GetSslCertificateFingerprintRequest".to_string(),
@@ -1001,6 +1120,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "AddTrustedServerRequest".to_string(),
@@ -1009,6 +1129,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "RemoveTrustedClientRequest".to_string(),
@@ -1017,6 +1138,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "UpdateClientStatusRequest".to_string(),
@@ -1025,6 +1147,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "EditHostsRequest".to_string(),
@@ -1033,6 +1156,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "RemoveTrustedServerRequest".to_string(),
@@ -1041,6 +1165,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "ServerAvailabilityTestRequest".to_string(),
@@ -1049,6 +1174,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "RegisterDeviceOnServerRequest".to_string(),
@@ -1057,6 +1183,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "CheckDeviceOnServerRequest".to_string(),
@@ -1065,6 +1192,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "ConnectRequest".to_string(),
@@ -1073,6 +1201,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "FetchServerCertificateRequest".to_string(),
@@ -1081,6 +1210,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "FetchRemoteFileRequest".to_string(),
@@ -1089,6 +1219,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
         RequestResponse {
             request: "RemoveItemFromPlaylistRequest".to_string(),
@@ -1097,6 +1228,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             uses_controller_library: false,
+            introduced_minor: None,
         },
     ];
 
@@ -1208,10 +1340,12 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             RequestScope::Library => quote! { RequestScope::Library },
         };
         let controller_library = entry.uses_controller_library;
+        let introduced_minor = entry.introduced_minor.unwrap_or(0);
         quote! {
             impl TargetRequest for #request {
                 const SCOPE: RequestScope = #scope;
                 const USES_CONTROLLER_LIBRARY: bool = #controller_library;
+                const INTRODUCED_MINOR: u32 = #introduced_minor;
 
                 fn slot(slots: &RequestSlots) -> Slot {
                     slots.#field
@@ -1251,6 +1385,10 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             };
             quote! { #request => Some(#access), }
         })
+        .collect();
+    let introduced_minors: Vec<_> = types
+        .iter()
+        .map(|entry| entry.introduced_minor.unwrap_or(0))
         .collect();
     let scopes: Vec<_> = types
         .iter()
@@ -1325,6 +1463,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
                 let mut slots = Self::unimplemented();
                 #(slots.#slot_fields = Slot::Forward;)*
                 slots
+            }
+
+            /// Mark every request newer than the peer's protocol minor unsupported.
+            pub fn narrow_to_minor(&mut self, peer_minor: u32) {
+                #(self.#slot_fields = narrow_slot(self.#slot_fields, #introduced_minors, peer_minor);)*
             }
 
             #[cfg(test)]

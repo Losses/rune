@@ -8,6 +8,7 @@ use rustls::{
 use serde::{Deserialize, Serialize};
 
 use crate::capabilities::Capabilities;
+use crate::protocol_version::ProtocolVersion;
 
 #[derive(Debug, Copy, Serialize, Deserialize, Clone, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -73,6 +74,8 @@ pub struct DeviceInfo {
     pub fingerprint: String,
     pub api_port: u16,
     pub protocol: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol_version: Option<ProtocolVersion>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Capabilities>,
 }

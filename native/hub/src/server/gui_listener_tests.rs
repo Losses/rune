@@ -109,6 +109,7 @@ impl TypedRequest for DelayedRequest {
 impl TargetRequest for DelayedRequest {
     const SCOPE: RequestScope = RequestScope::Node;
     const USES_CONTROLLER_LIBRARY: bool = false;
+    const INTRODUCED_MINOR: u32 = 0;
     fn slot(_: &RequestSlots) -> Slot {
         Slot::Native
     }

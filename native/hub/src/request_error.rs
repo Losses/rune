@@ -3,8 +3,11 @@ use database::error::ExpectedError;
 use thiserror::Error as ThisError;
 
 use crate::access_policy::Denial;
-use crate::messages::{CastLibraryState, RequestErrorKind, RequestFailureCause};
+use crate::messages::{
+    CastLibraryState, ProtocolUpdateSide, RequestErrorKind, RequestFailureCause,
+};
 use crate::rpc::UnsupportedReason;
+use discovery::protocol_version::ProtocolVersion;
 
 /// Expected failures at the request boundary.
 #[derive(Debug, ThisError)]
@@ -26,6 +29,15 @@ pub enum ExpectedRequestError {
     PublicKeyMismatch,
     #[error("A device with this fingerprint is already registered")]
     RegistrationConflict,
+    #[error(
+        "protocol versions are incompatible: this device {local_version}, peer {peer_version:?}"
+    )]
+    PeerNeedsUpdate {
+        update_side: ProtocolUpdateSide,
+        peer_alias: Option<String>,
+        local_version: ProtocolVersion,
+        peer_version: Option<ProtocolVersion>,
+    },
     #[error("Renderer request failed: {detail}")]
     Remote {
         kind: RequestErrorKind,
@@ -89,6 +101,7 @@ pub fn classify(error: &Error) -> RequestErrorKind {
                 ExpectedRequestError::CertificateMismatch => RequestErrorKind::InvalidInput,
                 ExpectedRequestError::PublicKeyMismatch => RequestErrorKind::InvalidInput,
                 ExpectedRequestError::RegistrationConflict => RequestErrorKind::Conflict,
+                ExpectedRequestError::PeerNeedsUpdate { .. } => RequestErrorKind::PeerNeedsUpdate,
                 ExpectedRequestError::Remote { kind, .. } => *kind,
                 ExpectedRequestError::UnexpectedResponse { .. } => RequestErrorKind::Internal,
                 ExpectedRequestError::StaleQueueRevision { .. } => RequestErrorKind::Conflict,
@@ -133,6 +146,19 @@ pub fn request_failure_cause(error: &Error) -> Option<RequestFailureCause> {
                 }
                 ExpectedRequestError::RegistrationConflict => {
                     return Some(RequestFailureCause::RegistrationConflict);
+                }
+                ExpectedRequestError::PeerNeedsUpdate {
+                    update_side,
+                    peer_alias,
+                    local_version,
+                    peer_version,
+                } => {
+                    return Some(RequestFailureCause::PeerNeedsUpdate {
+                        update_side: *update_side,
+                        peer_alias: peer_alias.clone(),
+                        local_version: local_version.to_string(),
+                        peer_version: peer_version.map(|version| version.to_string()),
+                    });
                 }
                 _ => {}
             }

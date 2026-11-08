@@ -20,6 +20,8 @@ pub enum UnsupportedReason {
     NotImplemented,
     #[error("only available on the owning device")]
     OwnerOnly,
+    #[error("peer needs a newer protocol version")]
+    PeerTooOld,
 }
 
 /// Execution assigned to one catalogue request on a target.
@@ -35,6 +37,7 @@ pub enum Slot {
 pub trait TargetRequest: TypedRequest {
     const SCOPE: RequestScope;
     const USES_CONTROLLER_LIBRARY: bool;
+    const INTRODUCED_MINOR: u32;
 
     fn slot(slots: &RequestSlots) -> Slot;
 }
@@ -62,8 +65,10 @@ impl RpcTarget {
     }
 
     pub fn rune(renderer: Arc<RendererLink>) -> Self {
+        let mut slots = Self::rune_slots();
+        slots.narrow_to_minor(renderer.peer_version().minor);
         Self {
-            slots: Self::rune_slots(),
+            slots,
             renderer: Some(renderer),
         }
     }
@@ -106,9 +111,13 @@ impl RpcTarget {
     pub(crate) fn select_capability_type<R: TargetRequest>(node: &NodeContext) -> Result<Self> {
         Ok(match target_choice::<R>(node)? {
             TargetChoice::Local => Self::local(),
-            TargetChoice::RemoteUi | TargetChoice::Attached(_) => Self {
-                slots: Self::rune_slots(),
-                renderer: None,
+            TargetChoice::Attached(renderer) => Self::rune(renderer),
+            TargetChoice::RemoteUi => match node.renderer_link()? {
+                Some(renderer) => Self::rune(renderer),
+                None => Self {
+                    slots: Self::rune_slots(),
+                    renderer: None,
+                },
             },
         })
     }
@@ -146,6 +155,18 @@ fn target_choice<R: TargetRequest>(node: &NodeContext) -> Result<TargetChoice> {
         return Ok(TargetChoice::Attached(renderer));
     }
     Ok(TargetChoice::Local)
+}
+
+/// A request introduced in a protocol minor newer than the peer's cannot run there;
+/// a slot that is already unsupported keeps its own reason.
+pub(crate) fn narrow_slot(slot: Slot, introduced_minor: u32, peer_minor: u32) -> Slot {
+    match slot {
+        Slot::Unsupported { .. } => slot,
+        _ if introduced_minor > peer_minor => Slot::Unsupported {
+            reason: UnsupportedReason::PeerTooOld,
+        },
+        _ => slot,
+    }
 }
 
 /// Whether a request goes to the attached renderer rather than this node. Session
@@ -237,5 +258,24 @@ mod tests {
         assert!(!routes_to_attached_renderer::<
             OperatePlaybackWithMixQueryRequest,
         >());
+    }
+}
+
+#[cfg(test)]
+mod narrow_tests {
+    use super::{Slot, UnsupportedReason, narrow_slot};
+
+    #[test]
+    fn requests_newer_than_the_peer_minor_are_unsupported() {
+        let too_old = Slot::Unsupported {
+            reason: UnsupportedReason::PeerTooOld,
+        };
+        assert_eq!(narrow_slot(Slot::Forward, 1, 0), too_old);
+        assert_eq!(narrow_slot(Slot::Forward, 1, 1), Slot::Forward);
+        assert_eq!(narrow_slot(Slot::Forward, 0, 3), Slot::Forward);
+        let owner_only = Slot::Unsupported {
+            reason: UnsupportedReason::OwnerOnly,
+        };
+        assert_eq!(narrow_slot(owner_only, 2, 0), owner_only);
     }
 }

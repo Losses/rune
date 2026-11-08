@@ -17,6 +17,7 @@ pub enum RequestCapability {
 pub enum CapabilityReason {
     NotImplemented,
     OwnerOnly,
+    PeerTooOld,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, RustSignal)]
@@ -531,6 +532,11 @@ impl From<Slot> for RequestCapability {
                 reason: UnsupportedReason::OwnerOnly,
             } => Self::Disabled {
                 reason: CapabilityReason::OwnerOnly,
+            },
+            Slot::Unsupported {
+                reason: UnsupportedReason::PeerTooOld,
+            } => Self::Disabled {
+                reason: CapabilityReason::PeerTooOld,
             },
         }
     }

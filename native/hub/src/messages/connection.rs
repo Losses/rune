@@ -62,6 +62,7 @@ pub enum RemoteLossKind {
     ServerStopped,
     NetworkLost,
     Detached,
+    ProtocolIncompatible,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]

@@ -41,6 +41,11 @@ use crate::{
     },
     utils::{GlobalParams, RemoteEventScope, broadcastable::REMOTE_EVENT_DECLARATIONS},
 };
+#[cfg(test)]
+use ::discovery::protocol_version::PROTOCOL_VERSION;
+use ::discovery::protocol_version::{
+    Compatibility, DEVICE_ALIAS_HEADER, PROTOCOL_VERSION_HEADER, ProtocolVersion, compatibility,
+};
 use ::discovery::{
     client::{CertValidator, select_best_host},
     endpoint::endpoint_host_port,
@@ -136,6 +141,13 @@ pub enum RemoteConnectError {
     Unreachable,
     #[error("remote protocol error: {0}")]
     Protocol(String),
+    #[error("remote protocol version {peer:?} is incompatible with local version {local}")]
+    PeerNeedsUpdate {
+        local: ProtocolVersion,
+        peer: Option<ProtocolVersion>,
+        update_peer: bool,
+        peer_alias: Option<String>,
+    },
 }
 
 impl RemoteConnectError {
@@ -145,6 +157,7 @@ impl RemoteConnectError {
             Self::NotAuthorized => LibraryOpenErrorKind::RemoteNotAuthorized,
             Self::Unreachable => LibraryOpenErrorKind::RemoteUnreachable,
             Self::Protocol(_) => LibraryOpenErrorKind::RemoteProtocol,
+            Self::PeerNeedsUpdate { .. } => LibraryOpenErrorKind::RemoteProtocol,
         }
     }
 }
@@ -185,6 +198,7 @@ pub struct RendererLink {
     id: Uuid,
     fingerprint: String,
     alias: String,
+    peer_version: ProtocolVersion,
     write: Arc<Mutex<SplitSink<RemoteStream, TungsteniteMessage>>>,
     cancel: CancellationToken,
     locally_detached: Arc<AtomicBool>,
@@ -218,27 +232,37 @@ impl RendererLink {
             .host_str()
             .ok_or_else(|| protocol("invalid renderer host"))?;
         let port = parsed.port().unwrap_or(7863);
-        let stream = connect_remote(
+        let stream = connect_remote_with_version(
             host,
             port,
             &node.config_path,
             validator.clone(),
             &node.sync_tokens,
+            node.protocol_version(),
         )
         .await?;
-        let alias = fetch_device_info_at_port(
+        let device_info = fetch_device_info_at_port(
             host,
             port,
             Arc::new(Arc::new(validator.clone()).into_client_config()),
         )
         .await
-        .map(|info| info.alias)
         .map_err(|_| RemoteConnectError::Unreachable)?;
+        let alias = device_info.alias;
+        let Some(peer_version) = device_info.protocol_version else {
+            return Err(RemoteConnectError::PeerNeedsUpdate {
+                local: node.protocol_version(),
+                peer: None,
+                update_peer: true,
+                peer_alias: Some(alias.clone()),
+            });
+        };
         let link = Self::new(
             stream,
             node.clone(),
             fingerprint.to_owned(),
             alias.clone(),
+            peer_version,
             link_use,
         )
         .await;
@@ -250,6 +274,7 @@ impl RendererLink {
         node: Arc<NodeContext>,
         fingerprint: String,
         alias: String,
+        peer_version: ProtocolVersion,
         link_use: RendererLinkUse,
     ) -> Self {
         let id = Uuid::new_v4();
@@ -311,6 +336,7 @@ impl RendererLink {
             id,
             fingerprint,
             alias,
+            peer_version,
             write,
             cancel,
             locally_detached,
@@ -394,6 +420,10 @@ impl RendererLink {
         &self.alias
     }
 
+    pub(crate) fn peer_version(&self) -> ProtocolVersion {
+        self.peer_version
+    }
+
     pub(crate) fn close(&self) {
         self.locally_detached.store(true, Ordering::Release);
         self.cancel.cancel();
@@ -454,12 +484,32 @@ async fn register_session_handlers(handlers: &HandlerMap, node: &Arc<NodeContext
     }
 }
 
+#[cfg(test)]
 pub(crate) async fn connect_remote(
     host: &str,
     port: u16,
     config_path: &str,
     validator: CertValidator,
     sync_tokens: &SyncTokenStore,
+) -> std::result::Result<RemoteStream, RemoteConnectError> {
+    connect_remote_with_version(
+        host,
+        port,
+        config_path,
+        validator,
+        sync_tokens,
+        PROTOCOL_VERSION,
+    )
+    .await
+}
+
+async fn connect_remote_with_version(
+    host: &str,
+    port: u16,
+    config_path: &str,
+    validator: CertValidator,
+    sync_tokens: &SyncTokenStore,
+    local_version: ProtocolVersion,
 ) -> std::result::Result<RemoteStream, RemoteConnectError> {
     tokio::time::timeout(Duration::from_secs(10), async {
         let entries = validator.clone_trusted_entries().await;
@@ -511,6 +561,10 @@ pub(crate) async fn connect_remote(
             reqwest::header::AUTHORIZATION,
             format!("Bearer {token}").parse().map_err(protocol)?,
         );
+        request.headers_mut().insert(
+            PROTOCOL_VERSION_HEADER,
+            local_version.to_string().parse().map_err(protocol)?,
+        );
         let result = connect_async_tls_with_config(
             request,
             None,
@@ -518,7 +572,7 @@ pub(crate) async fn connect_remote(
             Some(Connector::Rustls(Arc::new(pinned_config.clone()))),
         )
         .await;
-        let (stream, _) = match result {
+        let (stream, response) = match result {
             Ok(connection) => connection,
             Err(TungsteniteError::Http(response))
                 if response.status() == reqwest::StatusCode::UNAUTHORIZED =>
@@ -539,6 +593,10 @@ pub(crate) async fn connect_remote(
                     reqwest::header::AUTHORIZATION,
                     format!("Bearer {fresh_token}").parse().map_err(protocol)?,
                 );
+                retry.headers_mut().insert(
+                    PROTOCOL_VERSION_HEADER,
+                    local_version.to_string().parse().map_err(protocol)?,
+                );
                 connect_async_tls_with_config(
                     retry,
                     None,
@@ -546,24 +604,73 @@ pub(crate) async fn connect_remote(
                     Some(Connector::Rustls(Arc::new(pinned_config))),
                 )
                 .await
-                .map_err(map_websocket_connect_error)?
+                .map_err(|error| map_websocket_connect_error(error, local_version))?
             }
-            Err(error) => return Err(map_websocket_connect_error(error)),
+            Err(error) => return Err(map_websocket_connect_error(error, local_version)),
         };
+        let peer_version = response
+            .headers()
+            .get(PROTOCOL_VERSION_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| ProtocolVersion::parse(value).ok());
+        if !peer_version.is_some_and(|peer| {
+            matches!(
+                compatibility(local_version, peer),
+                Compatibility::Compatible { .. }
+            )
+        }) {
+            return Err(incompatible_peer(local_version, peer_version, None));
+        }
         Ok(stream)
     })
     .await
     .map_err(|_| RemoteConnectError::Unreachable)?
 }
 
-fn map_websocket_connect_error(error: TungsteniteError) -> RemoteConnectError {
+fn map_websocket_connect_error(
+    error: TungsteniteError,
+    local_version: ProtocolVersion,
+) -> RemoteConnectError {
     error!("WebSocket upgrade failed: {error}");
     match error {
+        TungsteniteError::Http(response)
+            if response.status() == reqwest::StatusCode::UPGRADE_REQUIRED =>
+        {
+            let peer = response
+                .headers()
+                .get(PROTOCOL_VERSION_HEADER)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| ProtocolVersion::parse(value).ok());
+            let alias = response
+                .headers()
+                .get(DEVICE_ALIAS_HEADER)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned);
+            incompatible_peer(local_version, peer, alias)
+        }
         TungsteniteError::Http(response) if matches!(response.status().as_u16(), 401 | 403) => {
             RemoteConnectError::NotAuthorized
         }
         TungsteniteError::Io(_) | TungsteniteError::Tls(_) => RemoteConnectError::Unreachable,
         other => protocol(other),
+    }
+}
+
+fn incompatible_peer(
+    local: ProtocolVersion,
+    peer: Option<ProtocolVersion>,
+    peer_alias: Option<String>,
+) -> RemoteConnectError {
+    let update_peer = peer.is_none_or(|peer| match compatibility(local, peer) {
+        Compatibility::PeerOlder => true,
+        Compatibility::PeerNewer => false,
+        Compatibility::PreReleaseMismatch | Compatibility::Compatible { .. } => true,
+    });
+    RemoteConnectError::PeerNeedsUpdate {
+        local,
+        peer,
+        update_peer,
+        peer_alias,
     }
 }
 

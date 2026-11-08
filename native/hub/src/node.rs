@@ -44,9 +44,9 @@ use crate::{
     library_pool::{LibraryHandle, LibraryPool},
     messages::{
         AttachedRenderer, ClientStatus, ClientSummary, IncommingClientPermissionNotification,
-        InitializeNodeRequest, InitializeNodeResponse, PauseRequest, RemoteLibraryReconnecting,
-        RemoteLossKind, RendererAttachmentChanged, RendererLinkLost, RequestCapabilities,
-        TrustListUpdated, TrustedClientsChanged, TrustedServerCertificate,
+        InitializeNodeRequest, InitializeNodeResponse, PauseRequest, ProtocolUpdateSide,
+        RemoteLibraryReconnecting, RemoteLossKind, RendererAttachmentChanged, RendererLinkLost,
+        RequestCapabilities, TrustListUpdated, TrustedClientsChanged, TrustedServerCertificate,
     },
     request_error::classify,
     server::{ServerManager, WebSocketService, utils::device::load_device_info},
@@ -57,6 +57,7 @@ use crate::{
 };
 use discovery::DiscoveryParams;
 use discovery::access_policy::{AccessPolicy, PeerIdentity};
+use discovery::protocol_version::{PROTOCOL_VERSION, ProtocolVersion};
 
 static NODE: NodeSlot = NodeSlot::new();
 
@@ -70,6 +71,22 @@ fn renderer_connection_error(error: RemoteConnectError) -> anyhow::Error {
             anyhow::Error::new(ExpectedRequestError::Unavailable { what: "renderer" })
                 .context(detail)
         }
+        RemoteConnectError::PeerNeedsUpdate {
+            local,
+            peer,
+            update_peer,
+            peer_alias,
+        } => anyhow::Error::new(ExpectedRequestError::PeerNeedsUpdate {
+            update_side: if update_peer {
+                ProtocolUpdateSide::Peer
+            } else {
+                ProtocolUpdateSide::ThisDevice
+            },
+            peer_alias,
+            local_version: local,
+            peer_version: peer,
+        })
+        .context(detail),
     }
 }
 
@@ -83,6 +100,7 @@ enum UiLibrary {
 
 /// Process services shared by every local library and remote controller.
 pub struct NodeContext {
+    protocol_version: StdMutex<ProtocolVersion>,
     pub config_path: Arc<String>,
     pub node_id: Arc<String>,
     pub library_pool: Arc<LibraryPool>,
@@ -147,6 +165,21 @@ impl Broadcaster for NodeBroadcaster {
 }
 
 impl NodeContext {
+    pub(crate) fn protocol_version(&self) -> ProtocolVersion {
+        *self
+            .protocol_version
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_protocol_version_for_test(&self, version: ProtocolVersion) {
+        *self
+            .protocol_version
+            .lock()
+            .expect("protocol version lock poisoned") = version;
+    }
+
     /// Send the request capability snapshot to Dart if it changed. It reads the UI
     /// library and renderer link locks, so never call it while holding either.
     pub(crate) fn publish_capabilities(&self) -> Result<()> {
@@ -203,6 +236,7 @@ impl NodeContext {
             &permission_manager.list_users().await,
         )?);
         let node = Arc::new(Self {
+            protocol_version: StdMutex::new(PROTOCOL_VERSION),
             config_path: Arc::new(config_path.to_owned()),
             library_pool: LibraryPool::new(Path::new(config_path), Path::new(db_path), &node_id)?,
             node_id,

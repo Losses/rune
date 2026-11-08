@@ -135,6 +135,7 @@ async fn main() -> anyhow::Result<()> {
         fingerprint,
         api_port,
         protocol: "http".to_string(),
+        protocol_version: Some(discovery::protocol_version::PROTOCOL_VERSION),
         capabilities: None,
     };
 

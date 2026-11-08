@@ -53,6 +53,6 @@ use crate::utils::{GlobalParams, RinfRustSignal};
 use tokio_util::sync::CancellationToken;
 
 use crate::messages::*;
-use crate::rpc::{Slot, TargetRequest, UnsupportedReason};
+use crate::rpc::{Slot, TargetRequest, UnsupportedReason, narrow_slot};
 
 define_request_types!();
