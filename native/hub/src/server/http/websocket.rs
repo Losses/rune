@@ -15,7 +15,10 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, error, info, warn};
-use tokio::sync::{Mutex, broadcast::Receiver, mpsc};
+use tokio::{
+    sync::{Mutex, broadcast::Receiver, mpsc},
+    task::JoinHandle,
+};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -347,9 +350,23 @@ pub async fn handle_socket(
     controller_watch_cancel.cancel();
     let _ = controller_watch.await;
 
-    // Wait for the send task to complete
-    let _ = send_task.await;
+    wait_for_send_task(send_task).await;
     info!("[{alias}] WebSocket connection closed");
+}
+
+async fn wait_for_send_task(mut send_task: JoinHandle<()>) {
+    match tokio::time::timeout(Duration::from_secs(1), &mut send_task).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) if !error.is_cancelled() => {
+            warn!("WebSocket send task failed during shutdown: {error}");
+        }
+        Ok(Err(_)) => {}
+        Err(_) => {
+            send_task.abort();
+            let _ = send_task.await;
+            warn!("WebSocket send task did not stop within one second");
+        }
+    }
 }
 
 /// The failure frame for a request that failed on this node. It carries the
@@ -368,7 +385,9 @@ fn remote_failure(request: String, error: &anyhow::Error) -> RemoteRequestFailed
 
 #[cfg(test)]
 mod failure_tests {
-    use super::{FailedCall, remote_failure};
+    use super::{FailedCall, remote_failure, wait_for_send_task};
+    use std::time::Duration;
+    use tokio::time::timeout;
 
     #[test]
     fn failure_frame_names_the_failed_call() {
@@ -379,5 +398,13 @@ mod failure_tests {
         );
         let plain = anyhow::anyhow!("pause failed");
         assert_eq!(remote_failure("PauseRequest".into(), &plain).call_id, None);
+    }
+
+    #[tokio::test]
+    async fn stalled_send_task_is_cancelled_during_shutdown() {
+        let send_task = tokio::spawn(std::future::pending());
+        timeout(Duration::from_secs(3), wait_for_send_task(send_task))
+            .await
+            .expect("send task shutdown must be bounded");
     }
 }

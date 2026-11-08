@@ -972,6 +972,27 @@ mod lifecycle_tests {
         peer_step_with_timeout(name, Duration::from_secs(15), future).await
     }
 
+    /// A diagnostic watchdog: it names the step a hung test is stuck in. The limit is far
+    /// above any normal step, even on a loaded host, and still well below the suite limit.
+    async fn step<T>(name: &'static str, future: impl Future<Output = T>) -> T {
+        step_with_timeout(name, Duration::from_secs(300), future).await
+    }
+
+    async fn step_with_timeout<T>(
+        name: &'static str,
+        limit: Duration,
+        future: impl Future<Output = T>,
+    ) -> T {
+        eprintln!("test step started: {name}");
+        match tokio::time::timeout(limit, future).await {
+            Ok(result) => {
+                eprintln!("test step finished: {name}");
+                result
+            }
+            Err(_) => panic!("test step did not finish: {name}"),
+        }
+    }
+
     async fn peer_step_with_timeout<T>(
         name: &'static str,
         limit: Duration,
@@ -1372,19 +1393,27 @@ mod lifecycle_tests {
     #[tokio::test]
     async fn add_trusted_server_rejects_when_no_host_is_reachable() -> Result<()> {
         let dir = tempfile::tempdir()?;
-        let client = fixture(dir.path()).await?;
+        let client = step("fixture", fixture(dir.path())).await?;
         let validator = client.global_params.cert_validator.read().await.clone();
-        let error = add_trusted_server(
-            &validator,
-            Some(&TrustedServerCertificate {
-                fingerprint: "expected fingerprint".into(),
-                hosts: vec!["127.0.0.1:1".into()],
-            }),
+        let error = step(
+            "verify unreachable certificate host",
+            add_trusted_server(
+                &validator,
+                Some(&TrustedServerCertificate {
+                    fingerprint: "expected fingerprint".into(),
+                    hosts: vec!["127.0.0.1:1".into()],
+                }),
+            ),
         )
         .await
         .expect_err("unreachable hosts must be refused");
         assert_eq!(classify(&error), RequestErrorKind::Unavailable);
         assert!(validator.list_trusted_fingerprints().await.is_empty());
+        step(
+            "shutdown client fixture",
+            client.global_params.node.shutdown(),
+        )
+        .await?;
         Ok(())
     }
 
@@ -1879,36 +1908,46 @@ mod lifecycle_tests {
         ] {
             let server_dir = tempfile::tempdir()?;
             let client_dir = tempfile::tempdir()?;
-            let server = fixture(server_dir.path()).await?;
-            let client = fixture(client_dir.path()).await?;
+            let server = step("create handshake server", fixture(server_dir.path())).await?;
+            let client = step("create handshake client", fixture(client_dir.path())).await?;
             client
                 .global_params
                 .node
                 .set_protocol_version_for_test(ProtocolVersion::parse(client_version)?);
-            let address = paired_full_with_protocol_version(
-                &server,
-                &client,
-                ProtocolVersion::parse(server_version)?,
+            let address = step(
+                "pair handshake fixtures",
+                paired_full_with_protocol_version(
+                    &server,
+                    &client,
+                    ProtocolVersion::parse(server_version)?,
+                ),
             )
             .await?;
-            let server_info = info(&server).await?;
-            client
-                .global_params
-                .cert_validator
-                .read()
-                .await
-                .replace_hosts_for_fingerprint(
-                    &server_info.fingerprint,
-                    vec![format!("127.0.0.1:{}", address.port())],
-                )
-                .await?;
+            let server_info = step("read handshake server identity", info(&server)).await?;
+            step("store handshake endpoint", async {
+                client
+                    .global_params
+                    .cert_validator
+                    .read()
+                    .await
+                    .replace_hosts_for_fingerprint(
+                        &server_info.fingerprint,
+                        vec![format!("127.0.0.1:{}", address.port())],
+                    )
+                    .await?;
+                Ok::<_, anyhow::Error>(())
+            })
+            .await?;
 
-            let error = client
-                .global_params
-                .node
-                .attach_renderer(&server_info.fingerprint)
-                .await
-                .unwrap_err();
+            let error = step(
+                "reject incompatible websocket peer",
+                client
+                    .global_params
+                    .node
+                    .attach_renderer(&server_info.fingerprint),
+            )
+            .await
+            .unwrap_err();
             assert_eq!(classify(&error), RequestErrorKind::PeerNeedsUpdate);
             assert!(
                 matches!(
@@ -1918,8 +1957,16 @@ mod lifecycle_tests {
                 ),
                 "unexpected typed handshake error: {error:#?}"
             );
-            client.global_params.node.shutdown().await?;
-            server.global_params.node.shutdown().await?;
+            step(
+                "shutdown handshake client",
+                client.global_params.node.shutdown(),
+            )
+            .await?;
+            step(
+                "shutdown handshake server",
+                server.global_params.node.shutdown(),
+            )
+            .await?;
         }
         Ok(())
     }

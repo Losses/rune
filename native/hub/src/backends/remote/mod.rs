@@ -331,13 +331,23 @@ impl RendererLink {
                         Some(Ok(TungsteniteMessage::Close(frame))) => {
                             close_code = frame.as_ref().map(|frame| u16::from(frame.code));
                             detail = format!("Renderer closed the connection: {frame:?}");
-                            if let Err(error) = reader_write
-                                .lock()
-                                .await
-                                .send(TungsteniteMessage::Close(frame.clone()))
-                                .await
-                            {
-                                detail = format!("Could not reply to renderer close frame: {error}");
+                            let reply = async {
+                                reader_write
+                                    .lock()
+                                    .await
+                                    .send(TungsteniteMessage::Close(frame.clone()))
+                                    .await
+                            };
+                            match tokio::time::timeout(Duration::from_secs(1), reply).await {
+                                Ok(Ok(())) => {}
+                                Ok(Err(error)) => {
+                                    detail = format!(
+                                        "Could not reply to renderer close frame: {error}"
+                                    );
+                                }
+                                Err(_) => {
+                                    detail = "Timed out replying to renderer close frame".into();
+                                }
                             }
                             break;
                         }
@@ -401,16 +411,22 @@ impl RendererLink {
             return Err(ExpectedRequestError::Unavailable { what: "renderer" }.into());
         }
         let frame = encode_message(name, payload, Some(request_id));
-        if let Err(error) = self
-            .write
-            .lock()
-            .await
-            .send(TungsteniteMessage::Binary(frame.into()))
-            .await
-        {
+        let send = async {
+            self.write
+                .lock()
+                .await
+                .send(TungsteniteMessage::Binary(frame.into()))
+                .await
+        };
+        let send_result = tokio::time::timeout(Duration::from_secs(10), send).await;
+        let send_error = match send_result {
+            Ok(Ok(())) => None,
+            Ok(Err(error)) => Some(format!("Could not send request to renderer: {error}")),
+            Err(_) => Some("Timed out sending request to renderer".to_owned()),
+        };
+        if let Some(detail) = send_error {
             self.pending_replies.lock().await.remove(&request_id);
-            self.report_send_failure(format!("Could not send request to renderer: {error}"))
-                .await;
+            self.report_send_failure(detail).await;
             return Err(ExpectedRequestError::Unavailable { what: "renderer" }.into());
         }
         match tokio::time::timeout(Duration::from_secs(30), receiver).await {

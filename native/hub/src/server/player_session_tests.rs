@@ -757,47 +757,73 @@ async fn removing_renderer_trust_restores_local_session() -> Result<()> {
         signals.clone(),
     )
     .await?;
-    let b = fixture(b_dir.path()).await?;
-    let alias = super::info(&b).await?.alias;
-    let fingerprint = attach_pair_with_signals(&a, &b, &signals).await?;
-    let local_track = session_audio(&a, "trust-revoked.ogg").await?;
-    queue_session(&a, &[local_track]).await?;
-    let local_session_id = a.global_params.node.session()?.session_id().await;
+    let b = step("create renderer fixture", fixture(b_dir.path())).await?;
+    let alias = step("read renderer identity", super::info(&b)).await?.alias;
+    let fingerprint = step(
+        "attach renderer",
+        attach_pair_with_signals(&a, &b, &signals),
+    )
+    .await?;
+    let local_track = step("create local track", session_audio(&a, "trust-revoked.ogg")).await?;
+    step("queue local session", queue_session(&a, &[local_track])).await?;
+    let local_session_id = step("read local session id", async {
+        Ok::<_, anyhow::Error>(a.global_params.node.session()?.session_id().await)
+    })
+    .await?;
     signals.0.lock().unwrap().clear();
 
-    a.global_params.node.revoke_outgoing_for(&fingerprint).await;
+    step(
+        "revoke renderer trust",
+        a.global_params.node.revoke_outgoing_for(&fingerprint),
+    )
+    .await;
 
-    timeout(Duration::from_secs(5), async {
-        loop {
-            let complete = {
-                let records = signals.0.lock().unwrap();
-                let lost = records.iter().any(|(name, bytes)| {
-                    name == "RendererLinkLost"
-                        && rinf::deserialize::<RendererLinkLost>(bytes).is_ok_and(|event| {
-                            event.fingerprint == fingerprint && event.alias == alias
-                        })
-                });
-                let detached = records.iter().any(|(name, bytes)| {
-                    name == "RendererAttachmentChanged"
-                        && rinf::deserialize::<RendererAttachmentChanged>(bytes)
-                            .is_ok_and(|event| event.renderer.is_none())
-                });
-                let local_session = records.iter().any(|(name, bytes)| {
-                    name == "PlaylistUpdate"
-                        && rinf::deserialize::<PlaylistUpdate>(bytes)
-                            .is_ok_and(|event| event.session_id == local_session_id)
-                });
-                lost && detached && local_session
-            };
-            if complete {
-                return;
+    step("observe restored local session", async {
+        timeout(Duration::from_secs(5), async {
+            loop {
+                let complete = {
+                    let records = signals.0.lock().unwrap();
+                    let lost = records.iter().any(|(name, bytes)| {
+                        name == "RendererLinkLost"
+                            && rinf::deserialize::<RendererLinkLost>(bytes).is_ok_and(|event| {
+                                event.fingerprint == fingerprint && event.alias == alias
+                            })
+                    });
+                    let detached = records.iter().any(|(name, bytes)| {
+                        name == "RendererAttachmentChanged"
+                            && rinf::deserialize::<RendererAttachmentChanged>(bytes)
+                                .is_ok_and(|event| event.renderer.is_none())
+                    });
+                    let local_session = records.iter().any(|(name, bytes)| {
+                        name == "PlaylistUpdate"
+                            && rinf::deserialize::<PlaylistUpdate>(bytes)
+                                .is_ok_and(|event| event.session_id == local_session_id)
+                    });
+                    lost && detached && local_session
+                };
+                if complete {
+                    return;
+                }
+                sleep(Duration::from_millis(20)).await;
             }
-            sleep(Duration::from_millis(20)).await;
-        }
+        })
+        .await
+        .context("trust revocation did not restore the local session")
     })
-    .await
-    .context("trust revocation did not restore the local session")?;
-    assert!(a.global_params.node.renderer_link()?.is_none());
+    .await?;
+    assert!(
+        step("check renderer link", async {
+            a.global_params.node.renderer_link()
+        })
+        .await?
+        .is_none()
+    );
+    step("shutdown renderer fixture", b.global_params.node.shutdown()).await?;
+    step(
+        "shutdown controller fixture",
+        a.global_params.node.shutdown(),
+    )
+    .await?;
     Ok(())
 }
 
@@ -841,16 +867,27 @@ async fn stopped_renderer_clears_link_and_reports_server_stopped() -> Result<()>
                         && rinf::deserialize::<RendererAttachmentChanged>(bytes)
                             .is_ok_and(|event| event.renderer.is_none())
                 });
-                let status = records.iter().position(|(name, bytes)| {
-                    name == "PlaybackStatus"
-                        && rinf::deserialize::<PlaybackStatus>(bytes)
-                            .is_ok_and(|event| event.session_id == local_session_id_text)
-                });
-                let queue = records.iter().position(|(name, bytes)| {
-                    name == "PlaylistUpdate"
-                        && rinf::deserialize::<PlaylistUpdate>(bytes)
-                            .is_ok_and(|event| event.session_id == local_session_id)
-                });
+                // The local player may tick a status as soon as the link is gone, before the
+                // loss is announced; what matters is the re-emit after the detach.
+                let after_attachment = attachment.map_or(records.len(), |index| index + 1);
+                let status = records
+                    .iter()
+                    .skip(after_attachment)
+                    .position(|(name, bytes)| {
+                        name == "PlaybackStatus"
+                            && rinf::deserialize::<PlaybackStatus>(bytes)
+                                .is_ok_and(|event| event.session_id == local_session_id_text)
+                    })
+                    .map(|index| index + after_attachment);
+                let queue = records
+                    .iter()
+                    .skip(after_attachment)
+                    .position(|(name, bytes)| {
+                        name == "PlaylistUpdate"
+                            && rinf::deserialize::<PlaylistUpdate>(bytes)
+                                .is_ok_and(|event| event.session_id == local_session_id)
+                    })
+                    .map(|index| index + after_attachment);
                 let no_legacy_loss = !records.iter().any(|(name, bytes)| {
                     name == "RemoteConnectionLost"
                         && rinf::deserialize::<RemoteConnectionLost>(bytes).is_ok()
@@ -5880,30 +5917,42 @@ impl ReconnectFixture {
     async fn new(deadline: Duration) -> Result<Self> {
         let directories = [tempfile::tempdir()?, tempfile::tempdir()?];
         let signals = Arc::new(RecordedSignals::default());
-        let a = super::fixture_with_reconnect_config(
-            directories[0].path(),
-            Uuid::new_v4(),
-            Duration::from_secs(300),
-            signals.clone(),
-            reconnect_config(deadline),
+        let a = step(
+            "create controller fixture",
+            super::fixture_with_reconnect_config(
+                directories[0].path(),
+                Uuid::new_v4(),
+                Duration::from_secs(300),
+                signals.clone(),
+                reconnect_config(deadline),
+            ),
         )
         .await?;
-        let b = fixture(directories[1].path()).await?;
-        let address = super::paired_full(&b, &a).await?;
-        let fingerprint = super::info(&b).await?.fingerprint;
-        a.global_params
-            .cert_validator
-            .read()
-            .await
-            .replace_hosts_for_fingerprint(
-                &fingerprint,
-                vec![format!("127.0.0.1:{}", address.port())],
-            )
-            .await?;
-        let track = session_audio(&b, "reconnect.ogg").await?;
-        queue_session(&b, &[track]).await?;
-        let remote =
-            open_remote_library(a.global_params.node.clone(), &format!("ws://{address}")).await?;
+        let b = step("create renderer fixture", fixture(directories[1].path())).await?;
+        let address = step("pair reconnect fixtures", super::paired_full(&b, &a)).await?;
+        let fingerprint = step("read renderer identity", super::info(&b))
+            .await?
+            .fingerprint;
+        step("store reconnect endpoint", async {
+            a.global_params
+                .cert_validator
+                .read()
+                .await
+                .replace_hosts_for_fingerprint(
+                    &fingerprint,
+                    vec![format!("127.0.0.1:{}", address.port())],
+                )
+                .await?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await?;
+        let track = step("create reconnect track", session_audio(&b, "reconnect.ogg")).await?;
+        step("queue reconnect track", queue_session(&b, &[track])).await?;
+        let remote = step(
+            "open remote library",
+            open_remote_library(a.global_params.node.clone(), &format!("ws://{address}")),
+        )
+        .await?;
         signals.clear();
         Ok(Self {
             a,
@@ -6082,52 +6131,77 @@ async fn rr_reconnect_stops_after_incompatible_peer_with_permanent_loss() -> Res
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn rr_reconnect_leaving_stops_attempts() -> Result<()> {
     for exit in ["close", "switch", "shutdown"] {
-        let f = ReconnectFixture::new(Duration::from_secs(2)).await?;
-        f.disconnect().await?;
-        timeout(Duration::from_secs(1), async {
-            while f.a.global_params.node.reconnect_attempt_count() == 0 {
-                sleep(Duration::from_millis(10)).await;
-            }
+        // Boxed: the fixture future is large, and nesting it in the watchdog's future on the
+        // stack overflowed the test thread.
+        let f = step(
+            "create reconnect fixture",
+            Box::pin(ReconnectFixture::new(Duration::from_secs(2))),
+        )
+        .await?;
+        step("disconnect renderer", f.disconnect()).await?;
+        step("wait for first reconnect attempt", async {
+            timeout(Duration::from_secs(1), async {
+                while f.a.global_params.node.reconnect_attempt_count() == 0 {
+                    sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
         })
         .await?;
-        let replacement = Arc::new(
-            f.a.global_params
-                .node
-                .params_for_library(f.a.global_params.test_library().clone())?,
-        );
-        match exit {
-            "close" => f.a.global_params.node.close_ui(&f.remote.main_token).await,
-            "switch" => f.a.global_params.node.attach_ui(&replacement).await,
-            _ => f.a.global_params.node.shutdown().await?,
-        }
+        let replacement = step("prepare replacement library", async {
+            Ok::<_, anyhow::Error>(Arc::new(
+                f.a.global_params
+                    .node
+                    .params_for_library(f.a.global_params.test_library().clone())?,
+            ))
+        })
+        .await?;
+        step("leave remote library", async {
+            match exit {
+                "close" => f.a.global_params.node.close_ui(&f.remote.main_token).await,
+                "switch" => f.a.global_params.node.attach_ui(&replacement).await,
+                _ => f.a.global_params.node.shutdown().await?,
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await?;
         let attempts = f.a.global_params.node.reconnect_attempt_count();
-        f.b.manager
-            .clone()
-            .start(
+        step(
+            "restart renderer",
+            f.b.manager.clone().start(
                 f.address,
                 DiscoveryParams {
                     device_info: super::info(&f.b).await?,
                 },
-            )
-            .await?;
-        sleep(Duration::from_millis(350)).await;
-        assert_eq!(
-            f.a.global_params.node.reconnect_attempt_count(),
-            attempts,
-            "attempt after {exit}"
-        );
-        assert!(f.a.global_params.node.renderer_link()?.is_none());
-        assert!(
-            f.signals
-                .decoded::<RemoteLibraryReconnected>("RemoteLibraryReconnected")
-                .is_empty()
-        );
-        assert!(
-            f.signals
-                .decoded::<RemoteConnectionLost>("RemoteConnectionLost")
-                .is_empty()
-        );
-        f.shutdown().await?;
+            ),
+        )
+        .await?;
+        step(
+            "wait for cancellation to settle",
+            sleep(Duration::from_millis(350)),
+        )
+        .await;
+        step("verify reconnect stopped", async {
+            assert_eq!(
+                f.a.global_params.node.reconnect_attempt_count(),
+                attempts,
+                "attempt after {exit}"
+            );
+            assert!(f.a.global_params.node.renderer_link()?.is_none());
+            assert!(
+                f.signals
+                    .decoded::<RemoteLibraryReconnected>("RemoteLibraryReconnected")
+                    .is_empty()
+            );
+            assert!(
+                f.signals
+                    .decoded::<RemoteConnectionLost>("RemoteConnectionLost")
+                    .is_empty()
+            );
+            Ok::<_, anyhow::Error>(())
+        })
+        .await?;
+        step("shutdown reconnect fixtures", f.shutdown()).await?;
     }
     Ok(())
 }
