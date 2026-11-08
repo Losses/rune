@@ -1590,5 +1590,13 @@
   "remoteLibraryReconnecting": "Reconnecting to {alias}…",
   "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
   "capabilityNotImplemented": "This device doesn't support this control",
-  "capabilityOwnerOnly": "Only the device that owns this can do this"
+  "capabilityOwnerOnly": "Only the device that owns this can do this",
+  "requestOtherDeviceName": "the other device",
+  "requestPeerNeedsUpdatePeer": "{alias} is running an older version of Rune. Update Rune on {alias} to connect.",
+  "requestPeerNeedsUpdateThisDevice": "{alias} is running a newer version of Rune. Update Rune on this device to connect.",
+  "remoteLossProtocolIncompatible": "Rune versions no longer match. Update Rune on both devices to reconnect.",
+  "capabilityPeerTooOld": "Update Rune on the other device to use this.",
+  "requestPeerNeedsUpdateFallback": "Update Rune on both devices to connect.",
+  "@requestPeerNeedsUpdatePeer": {"placeholders": {"alias": {"type": "String"}}},
+  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}}
 }

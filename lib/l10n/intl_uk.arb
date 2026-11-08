@@ -1463,5 +1463,13 @@
   "remoteLibraryReconnecting": "Повторне підключення до {alias}…",
   "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
   "capabilityNotImplemented": "Цей пристрій не підтримує цю дію",
-  "capabilityOwnerOnly": "Лише пристрій-власник може це зробити"
+  "capabilityOwnerOnly": "Лише пристрій-власник може це зробити",
+  "requestOtherDeviceName": "інший пристрій",
+  "requestPeerNeedsUpdatePeer": "{alias} використовує старішу версію Rune. Оновіть Rune на пристрої {alias}, щоб підключитися.",
+  "requestPeerNeedsUpdateThisDevice": "{alias} використовує новішу версію Rune. Оновіть Rune на цьому пристрої, щоб підключитися.",
+  "remoteLossProtocolIncompatible": "Версії Rune більше не збігаються. Оновіть Rune на обох пристроях, щоб підключитися знову.",
+  "capabilityPeerTooOld": "Оновіть Rune на іншому пристрої, щоб скористатися цією функцією.",
+  "requestPeerNeedsUpdateFallback": "Оновіть Rune на обох пристроях, щоб підключитися.",
+  "@requestPeerNeedsUpdatePeer": {"placeholders": {"alias": {"type": "String"}}},
+  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}}
 }

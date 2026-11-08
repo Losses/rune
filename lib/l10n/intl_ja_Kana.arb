@@ -1426,5 +1426,13 @@
   "remoteLibraryReconnecting": "{alias} に さいせつぞくしています…",
   "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
   "capabilityNotImplemented": "コノ デバイスハ コノ ソウサニ タイオウ シテイマセン",
-  "capabilityOwnerOnly": "コノ ソウサハ ショユウシャノ デバイスデノミ オコナエマス"
+  "capabilityOwnerOnly": "コノ ソウサハ ショユウシャノ デバイスデノミ オコナエマス",
+  "requestOtherDeviceName": "もういっぽうのデバイス",
+  "requestPeerNeedsUpdatePeer": "{alias} は ふるいバージョンの Rune を つかっています。せつぞくするには {alias} の Rune を こうしんしてください。",
+  "requestPeerNeedsUpdateThisDevice": "{alias} は あたらしいバージョンの Rune を つかっています。せつぞくするには このデバイスの Rune を こうしんしてください。",
+  "remoteLossProtocolIncompatible": "Rune の バージョンが あわなくなりました。さいせつぞくするには りょうほうの デバイスで Rune を こうしんしてください。",
+  "capabilityPeerTooOld": "これを つかうには、もういっぽうの デバイスで Rune を こうしんしてください。",
+  "requestPeerNeedsUpdateFallback": "せつぞくするには りょうほうの デバイスで Rune を こうしんしてください。",
+  "@requestPeerNeedsUpdatePeer": {"placeholders": {"alias": {"type": "String"}}},
+  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}}
 }

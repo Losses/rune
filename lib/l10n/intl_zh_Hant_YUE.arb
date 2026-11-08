@@ -1426,5 +1426,13 @@
   "remoteLibraryReconnecting": "重新連接緊 {alias}…",
   "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
   "capabilityNotImplemented": "呢部裝置唔支援呢個操作",
-  "capabilityOwnerOnly": "只有擁有者裝置先可以做呢個操作"
+  "capabilityOwnerOnly": "只有擁有者裝置先可以做呢個操作",
+  "requestOtherDeviceName": "另一部裝置",
+  "requestPeerNeedsUpdatePeer": "{alias}用緊較舊嘅 Rune 版本。請喺{alias}更新 Rune 以連線。",
+  "requestPeerNeedsUpdateThisDevice": "{alias}用緊較新嘅 Rune 版本。請喺呢部裝置更新 Rune 以連線。",
+  "remoteLossProtocolIncompatible": "Rune 版本唔再相符。請喺兩部裝置更新 Rune 以重新連線。",
+  "capabilityPeerTooOld": "請喺另一部裝置更新 Rune 以使用呢項功能。",
+  "requestPeerNeedsUpdateFallback": "請喺兩部裝置更新 Rune 以連線。",
+  "@requestPeerNeedsUpdatePeer": {"placeholders": {"alias": {"type": "String"}}},
+  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}}
 }

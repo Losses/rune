@@ -22,6 +22,10 @@ void main() {
       remoteLossMessage(s, RemoteLossKind.networkLost),
       s.remoteLossNetworkLost,
     );
+    expect(
+      remoteLossMessage(s, RemoteLossKind.protocolIncompatible),
+      'Rune versions no longer match. Update Rune on both devices to reconnect.',
+    );
   });
 
   test('remote open error kinds map to localized messages', () {

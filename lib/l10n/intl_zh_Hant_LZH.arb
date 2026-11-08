@@ -1426,5 +1426,13 @@
   "remoteLibraryReconnecting": "正重連 {alias}…",
   "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
   "capabilityNotImplemented": "此器不應此令",
-  "capabilityOwnerOnly": "唯主器可為之"
+  "capabilityOwnerOnly": "唯主器可為之",
+  "requestOtherDeviceName": "另一裝置",
+  "requestPeerNeedsUpdatePeer": "{alias}所用 Rune 較舊。請於{alias}更新 Rune 以連接。",
+  "requestPeerNeedsUpdateThisDevice": "{alias}所用 Rune 較新。請於此裝置更新 Rune 以連接。",
+  "remoteLossProtocolIncompatible": "Rune 版本已不相合。請於兩裝置更新 Rune 以重新連接。",
+  "capabilityPeerTooOld": "請於另一裝置更新 Rune 以使用此功能。",
+  "requestPeerNeedsUpdateFallback": "請於兩裝置更新 Rune 以連接。",
+  "@requestPeerNeedsUpdatePeer": {"placeholders": {"alias": {"type": "String"}}},
+  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}}
 }

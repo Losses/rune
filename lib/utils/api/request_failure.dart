@@ -79,14 +79,24 @@ String requestFailureMessage(AppLocalizations s, RequestFailure failure) =>
       RequestFailureCauseCertificateMismatch() => s.requestCertificateMismatch,
       RequestFailureCausePublicKeyMismatch() => s.requestPublicKeyMismatch,
       RequestFailureCauseRegistrationConflict() => s.requestRegistrationConflict,
-      RequestFailureCausePeerNeedsUpdate() => 'A protocol update is required to connect.', // R10b
+      RequestFailureCausePeerNeedsUpdate(
+        :final updateSide,
+        :final peerAlias,
+      ) => switch (updateSide) {
+        ProtocolUpdateSide.peer => s.requestPeerNeedsUpdatePeer(
+          peerAlias ?? s.requestOtherDeviceName,
+        ),
+        ProtocolUpdateSide.thisDevice => s.requestPeerNeedsUpdateThisDevice(
+          peerAlias ?? s.requestOtherDeviceName,
+        ),
+      },
       _ => switch (failure.kind) {
       RequestErrorKind.notFound => s.requestItemMissing,
       RequestErrorKind.invalidInput => s.requestInvalid,
       RequestErrorKind.unavailable => s.requestUnavailable,
       RequestErrorKind.permissionDenied => s.requestPermissionDenied,
       RequestErrorKind.conflict => s.requestConflict,
-      RequestErrorKind.peerNeedsUpdate => 'A protocol update is required.', // R10b
+      RequestErrorKind.peerNeedsUpdate => s.requestPeerNeedsUpdateFallback,
       RequestErrorKind.internal => s.unknownError,
       },
     };

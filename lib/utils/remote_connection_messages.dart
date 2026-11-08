@@ -18,6 +18,6 @@ String remoteLossMessage(AppLocalizations s, RemoteLossKind kind) {
     RemoteLossKind.serverStopped => s.remoteLossServerStopped,
     RemoteLossKind.networkLost => s.remoteLossNetworkLost,
     RemoteLossKind.detached => s.remoteLossDetached,
-    RemoteLossKind.protocolIncompatible => 'A protocol update is required to reconnect.', // R10b
+    RemoteLossKind.protocolIncompatible => s.remoteLossProtocolIncompatible,
   };
 }

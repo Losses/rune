@@ -1426,5 +1426,13 @@
   "remoteLibraryReconnecting": "{alias} 再接続中…",
   "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
   "capabilityNotImplemented": "此器、此操作不対応",
-  "capabilityOwnerOnly": "所有者器以外不可"
+  "capabilityOwnerOnly": "所有者器以外不可",
+  "requestOtherDeviceName": "もういっぽうのデバイス",
+  "requestPeerNeedsUpdatePeer": "{alias} はふるいバージョンの Rune をつかっています。せつぞくするには {alias} の Rune をこうしんしてください。",
+  "requestPeerNeedsUpdateThisDevice": "{alias} はあたらしいバージョンの Rune をつかっています。せつぞくするにはこのデバイスの Rune をこうしんしてください。",
+  "remoteLossProtocolIncompatible": "Rune のバージョンがあわなくなりました。さいせつぞくするにはりょうほうのデバイスで Rune をこうしんしてください。",
+  "capabilityPeerTooOld": "これをつかうには、もういっぽうのデバイスで Rune をこうしんしてください。",
+  "requestPeerNeedsUpdateFallback": "せつぞくするにはりょうほうのデバイスで Rune をこうしんしてください。",
+  "@requestPeerNeedsUpdatePeer": {"placeholders": {"alias": {"type": "String"}}},
+  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}}
 }

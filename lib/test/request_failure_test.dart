@@ -98,7 +98,82 @@ void main() {
     );
     expect(message(RequestErrorKind.permissionDenied), "This device isn't allowed to do that");
     expect(message(RequestErrorKind.conflict), 'The queue changed; try again');
+    expect(
+      message(RequestErrorKind.peerNeedsUpdate),
+      'Update Rune on both devices to connect.',
+    );
     expect(message(RequestErrorKind.internal), s.unknownError);
+  });
+
+  test('peer update failures name the device that must update', () {
+    final s = AppLocalizationsEn();
+    const kind = RequestErrorKind.peerNeedsUpdate;
+    expect(
+      requestFailureMessage(
+        s,
+        const RequestFailure(
+          'Connect',
+          kind,
+          'incompatible',
+          RequestFailureCausePeerNeedsUpdate(
+            updateSide: ProtocolUpdateSide.peer,
+            peerAlias: 'Bedroom',
+            localVersion: '1',
+            peerVersion: '0',
+          ),
+        ),
+      ),
+      'Bedroom is running an older version of Rune. Update Rune on Bedroom to connect.',
+    );
+    expect(
+      requestFailureMessage(
+        s,
+        const RequestFailure(
+          'Connect',
+          kind,
+          'incompatible',
+          RequestFailureCausePeerNeedsUpdate(
+            updateSide: ProtocolUpdateSide.peer,
+            localVersion: '1',
+            peerVersion: '0',
+          ),
+        ),
+      ),
+      'the other device is running an older version of Rune. Update Rune on the other device to connect.',
+    );
+    expect(
+      requestFailureMessage(
+        s,
+        const RequestFailure(
+          'Connect',
+          kind,
+          'incompatible',
+          RequestFailureCausePeerNeedsUpdate(
+            updateSide: ProtocolUpdateSide.thisDevice,
+            peerAlias: 'Studio',
+            localVersion: '0',
+            peerVersion: '1',
+          ),
+        ),
+      ),
+      'Studio is running a newer version of Rune. Update Rune on this device to connect.',
+    );
+    expect(
+      requestFailureMessage(
+        s,
+        const RequestFailure(
+          'Connect',
+          kind,
+          'incompatible',
+          RequestFailureCausePeerNeedsUpdate(
+            updateSide: ProtocolUpdateSide.thisDevice,
+            localVersion: '0',
+            peerVersion: '1',
+          ),
+        ),
+      ),
+      'the other device is running a newer version of Rune. Update Rune on this device to connect.',
+    );
   });
 
   test('storage busy cause has its localized retry message', () {

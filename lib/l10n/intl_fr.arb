@@ -1465,5 +1465,13 @@
   "remoteLibraryReconnecting": "Reconnexion à {alias}…",
   "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
   "capabilityNotImplemented": "Cet appareil ne prend pas en charge cette commande",
-  "capabilityOwnerOnly": "Seul l’appareil propriétaire peut faire cela"
+  "capabilityOwnerOnly": "Seul l’appareil propriétaire peut faire cela",
+  "requestOtherDeviceName": "l’autre appareil",
+  "requestPeerNeedsUpdatePeer": "{alias} utilise une ancienne version de Rune. Mettez Rune à jour sur {alias} pour vous connecter.",
+  "requestPeerNeedsUpdateThisDevice": "{alias} utilise une version plus récente de Rune. Mettez Rune à jour sur cet appareil pour vous connecter.",
+  "remoteLossProtocolIncompatible": "Les versions de Rune ne correspondent plus. Mettez Rune à jour sur les deux appareils pour vous reconnecter.",
+  "capabilityPeerTooOld": "Mettez Rune à jour sur l’autre appareil pour utiliser cette fonction.",
+  "requestPeerNeedsUpdateFallback": "Mettez Rune à jour sur les deux appareils pour vous connecter.",
+  "@requestPeerNeedsUpdatePeer": {"placeholders": {"alias": {"type": "String"}}},
+  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}}
 }

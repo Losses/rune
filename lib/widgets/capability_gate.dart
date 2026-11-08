@@ -8,7 +8,7 @@ String capabilityReasonText(BuildContext context, CapabilityReason reason) {
   return switch (reason) {
     CapabilityReason.notImplemented => strings.capabilityNotImplemented,
     CapabilityReason.ownerOnly => strings.capabilityOwnerOnly,
-    CapabilityReason.peerTooOld => 'The peer needs a protocol update.', // R10b
+    CapabilityReason.peerTooOld => strings.capabilityPeerTooOld,
   };
 }
 

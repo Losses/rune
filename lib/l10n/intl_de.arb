@@ -1463,5 +1463,13 @@
   "remoteLibraryReconnecting": "Verbindung zu {alias} wird wiederhergestellt…",
   "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
   "capabilityNotImplemented": "Dieses Gerät unterstützt diese Steuerung nicht",
-  "capabilityOwnerOnly": "Nur das besitzende Gerät kann das tun"
+  "capabilityOwnerOnly": "Nur das besitzende Gerät kann das tun",
+  "requestOtherDeviceName": "das andere Gerät",
+  "requestPeerNeedsUpdatePeer": "{alias} verwendet eine ältere Rune-Version. Aktualisiere Rune auf {alias}, um eine Verbindung herzustellen.",
+  "requestPeerNeedsUpdateThisDevice": "{alias} verwendet eine neuere Rune-Version. Aktualisiere Rune auf diesem Gerät, um eine Verbindung herzustellen.",
+  "remoteLossProtocolIncompatible": "Die Rune-Versionen stimmen nicht mehr überein. Aktualisiere Rune auf beiden Geräten, um die Verbindung wiederherzustellen.",
+  "capabilityPeerTooOld": "Aktualisiere Rune auf dem anderen Gerät, um dies zu verwenden.",
+  "requestPeerNeedsUpdateFallback": "Aktualisiere Rune auf beiden Geräten, um eine Verbindung herzustellen.",
+  "@requestPeerNeedsUpdatePeer": {"placeholders": {"alias": {"type": "String"}}},
+  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}}
 }
