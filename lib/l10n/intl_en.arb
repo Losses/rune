@@ -1602,5 +1602,16 @@
   "capabilityAccountRoleMissing": "Your account on this server is not allowed to do this.",
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
-  }
+  },
+  "libraryRecordNotFound": "This library record no longer exists.",
+  "libraryRecordIsOpen": "Close the library before removing its record.",
+  "libraryMediaFolderMissing": "The library folder is missing.",
+  "libraryUntrusted": "This device is not trusted.",
+  "libraryInvalidSource": "This folder cannot be used as a library.",
+  "libraryStorageFailure": "The library could not be stored.",
+  "libraryRemoteNotAuthorized": "The device did not authorize this connection.",
+  "libraryRemoteUnreachable": "The device could not be reached.",
+  "libraryRemoteProtocolFailure": "The device returned an incompatible response.",
+  "libraryProtocolIncompatible": "This device uses an incompatible protocol version.",
+  "libraryNotSupportedYet": "This library type is not supported yet."
 }

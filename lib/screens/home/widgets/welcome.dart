@@ -12,15 +12,16 @@ import '../../../utils/ax_shadow.dart';
 import '../../../utils/get_dir_path.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../widgets/band_screen_fallback_button.dart';
-import '../../../providers/library_path.dart';
 import '../../../providers/library_manager.dart';
+import '../../../providers/library_registry.dart';
+import '../../../utils/library_registry_messages.dart';
 import '../../../providers/responsive_providers.dart';
 
 class WelcomePage extends StatelessWidget {
   const WelcomePage({super.key});
 
   selectDirectory(BuildContext context) async {
-    final libraryPath = Provider.of<LibraryPathProvider>(
+    final registry = Provider.of<LibraryRegistryProvider>(
       context,
       listen: false,
     );
@@ -38,17 +39,24 @@ class WelcomePage extends StatelessWidget {
     if (path == null) return;
     if (!context.mounted) return;
 
-    final (success, cancelled, error, _) = await libraryPath.setLibraryPath(
-      context,
-      path,
-      null,
-    );
-
-    if (success) {
+    final alias = path.split('/').where((part) => part.isNotEmpty).last;
+    try {
+      final record = await registerAndOpenLocalFolder(
+        context,
+        registry,
+        path,
+        alias,
+      );
+      if (record == null) return;
       libraryManager.scanLibrary(path, isInitializeTask: true);
-    } else if (!cancelled) {
+    } catch (error) {
       if (!context.mounted) return;
-      await showFailedToInitializeLibrary(context, error);
+      await showFailedToInitializeLibrary(
+        context,
+        error is LibraryRegistryFailure
+            ? libraryRegistryFailureMessage(S.of(context), error.kind)
+            : S.of(context).unknownError,
+      );
     }
   }
 

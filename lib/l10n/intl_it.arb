@@ -1477,5 +1477,16 @@
   "capabilityAccountRoleMissing": "Il tuo account su questo server non è autorizzato a farlo.",
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
-  }
+  },
+  "libraryRecordNotFound": "Questo record della raccolta non esiste più.",
+  "libraryRecordIsOpen": "Chiudi la raccolta prima di rimuoverne il record.",
+  "libraryMediaFolderMissing": "La cartella della raccolta non è presente.",
+  "libraryUntrusted": "Questo dispositivo non è attendibile.",
+  "libraryInvalidSource": "Questa cartella non può essere usata come raccolta.",
+  "libraryStorageFailure": "Impossibile salvare la raccolta.",
+  "libraryRemoteNotAuthorized": "Il dispositivo non ha autorizzato questa connessione.",
+  "libraryRemoteUnreachable": "Impossibile raggiungere il dispositivo.",
+  "libraryRemoteProtocolFailure": "Il dispositivo ha restituito una risposta incompatibile.",
+  "libraryProtocolIncompatible": "Il dispositivo usa una versione del protocollo incompatibile.",
+  "libraryNotSupportedYet": "Questo tipo di raccolta non è ancora supportato."
 }

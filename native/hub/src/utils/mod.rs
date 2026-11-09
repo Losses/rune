@@ -587,7 +587,7 @@ pub(crate) async fn register_local_library_on_node(
     .await;
     match result {
         Ok(record) => {
-            if let Err(error) = publish_library_records_changed(node) {
+            if let Err(error) = publish_library_records_changed(node).await {
                 log::warn!("Could not publish library record change: {error:#}");
             }
             RegisterLibraryResponse {
@@ -641,7 +641,7 @@ pub(crate) async fn register_remote_control_on_node(
     .await
     {
         Ok(record) => {
-            if let Err(error) = publish_library_records_changed(node) {
+            if let Err(error) = publish_library_records_changed(node).await {
                 log::warn!("Could not publish library record change: {error:#}");
             }
             RegisterLibraryResponse {
@@ -798,12 +798,22 @@ pub(crate) async fn open_library_by_record_on_node(
         )),
     };
     match result {
-        Ok(generation) => OpenLibraryResponse {
-            call_id: request.call_id,
-            record_id: request.record_id.clone(),
-            generation,
-            result: OpenLibraryResult::Opened,
-        },
+        Ok(generation) => {
+            if let Err(error) = LibraryRegistry::update(Path::new(&*node.config_path), |registry| {
+                registry.last_open_record = Some(record_id);
+                Ok(())
+            })
+            .await
+            {
+                log::error!("Could not persist last open library record: {error:#}");
+            }
+            OpenLibraryResponse {
+                call_id: request.call_id,
+                record_id: request.record_id.clone(),
+                generation,
+                result: OpenLibraryResult::Opened,
+            }
+        }
         Err((kind, error)) => failed(kind, error),
     }
 }

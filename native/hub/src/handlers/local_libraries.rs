@@ -18,7 +18,9 @@ use crate::{
     utils::{GlobalParams, ParamsExtractor},
 };
 
-fn record_summaries(node: &NodeContext) -> Result<(Vec<LibraryRecordSummary>, Option<OpenRecord>)> {
+async fn record_summaries(
+    node: &NodeContext,
+) -> Result<(Vec<LibraryRecordSummary>, Option<OpenRecord>)> {
     let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
     let devices = node.device_scanner.get_all_devices();
     let aliases: HashMap<_, _> = registry
@@ -57,11 +59,34 @@ fn record_summaries(node: &NodeContext) -> Result<(Vec<LibraryRecordSummary>, Op
             LibraryRecordKindSummary::RemoteControl {
                 fingerprint,
                 device_alias,
+                endpoint,
             } => {
-                *device_alias = devices
+                let device = devices
                     .iter()
-                    .find(|device| device.fingerprint == *fingerprint)
-                    .map(|device| device.alias.clone());
+                    .find(|device| device.fingerprint == *fingerprint);
+                *device_alias = device.map(|device| device.alias.clone());
+                let discovered_endpoint = device.and_then(|device| {
+                    let addresses: Vec<_> = device
+                        .ips
+                        .iter()
+                        .filter(|ip| ip.is_ipv4())
+                        .map(ToString::to_string)
+                        .collect();
+                    let addresses: Vec<_> = addresses.iter().map(String::as_str).collect();
+                    discovery::url::encode_rnsrv_url(&addresses)
+                        .ok()
+                        .map(|url| format!("@RR|{url}"))
+                });
+                let hosts = node
+                    .cert_validator
+                    .read()
+                    .await
+                    .get_hosts_for_fingerprint(fingerprint)
+                    .await;
+                *endpoint = hosts
+                    .first()
+                    .map(|host| format!("@RR|wss://{host}"))
+                    .or(discovered_endpoint);
             }
             _ => {}
         }
@@ -77,8 +102,8 @@ fn record_summaries(node: &NodeContext) -> Result<(Vec<LibraryRecordSummary>, Op
     ))
 }
 
-pub(crate) fn publish_library_records_changed(node: &NodeContext) -> Result<()> {
-    let (records, open) = record_summaries(node)?;
+pub(crate) async fn publish_library_records_changed(node: &NodeContext) -> Result<()> {
+    let (records, open) = record_summaries(node).await?;
     node.gui_broadcaster
         .broadcast(&LibraryRecordsChanged { records, open });
     Ok(())
@@ -102,8 +127,14 @@ impl Signal for ListLibraryRecordsRequest {
         _: Option<Session>,
         _: &Self,
     ) -> Result<Option<Self::Response>> {
-        let (records, open) = record_summaries(&node)?;
-        Ok(Some(ListLibraryRecordsResponse { records, open }))
+        let (records, open) = record_summaries(&node).await?;
+        Ok(Some(ListLibraryRecordsResponse {
+            records,
+            open,
+            last_open_record: LibraryRegistry::load(Path::new(&*node.config_path))?
+                .last_open_record
+                .map(|record_id| record_id.0.to_string()),
+        }))
     }
 }
 
@@ -169,7 +200,7 @@ impl Signal for RemoveLibraryRecordRequest {
             node.stop_library_sync(library_id).await;
             node.library_pool.release_background(library_id).await;
         }
-        publish_library_records_changed(&node)?;
+        publish_library_records_changed(&node).await?;
         Ok(Some(RemoveLibraryRecordResponse {
             outcome: RemoveLibraryRecordOutcome::Removed,
         }))
@@ -245,7 +276,7 @@ impl Signal for SetLibraryBackgroundSyncRequest {
         }
         .await;
         if result.is_ok() {
-            publish_library_records_changed(&node)?;
+            publish_library_records_changed(&node).await?;
         }
         Ok(Some(SetLibraryBackgroundSyncResponse {
             error: result.err().map(|error| format!("{error:#}")),

@@ -2,8 +2,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
 
 import '../../../bindings/bindings.dart';
-import '../../../providers/library_path.dart';
-import '../../../utils/api/close_library.dart';
+import '../../../providers/library_registry.dart';
+import '../../../utils/library_registry_messages.dart';
 import '../../../utils/api/library_registry.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../utils/l10n.dart';
@@ -37,16 +37,25 @@ class _PeerLibrariesDialogState extends State<PeerLibrariesDialog> {
   }
 
   Future<void> _load() async {
+    final registry = Provider.of<LibraryRegistryProvider>(
+      context,
+      listen: false,
+    );
     try {
       final result = await listPeerLibraries(widget.client.fingerprint);
       if (mounted) setState(() => response = result);
       if (result.errorKind == null && result.libraries.any((e) => e.added)) {
-        final local = await listLocalLibraries();
+        await registry.refresh();
         if (mounted) {
           setState(() {
-            for (final library in local.libraries) {
-              if (library.ownerFingerprint == widget.client.fingerprint) {
-                paths[library.libraryId] = library.path;
+            for (final record in registry.records) {
+              if (record.kind case LibraryRecordKindSummaryReplica(
+                :final libraryId,
+                :final ownerFingerprint,
+              )) {
+                if (ownerFingerprint == widget.client.fingerprint) {
+                  paths[libraryId] = record.recordId;
+                }
               }
             }
           });
@@ -68,13 +77,24 @@ class _PeerLibrariesDialogState extends State<PeerLibrariesDialog> {
       if (result.error != null) {
         setState(() => errors[library.libraryId] = result.error!);
       } else {
-        await Provider.of<LibraryPathProvider>(
+        final registry = Provider.of<LibraryRegistryProvider>(
           context,
           listen: false,
-        ).addLibraryPath(context, result.path, library.alias);
+        );
+        await registry.refresh();
+        LibraryRecordSummary? record;
+        for (final candidate in registry.records) {
+          if (candidate.kind case LibraryRecordKindSummaryReplica(
+            :final libraryId,
+          ) when libraryId == library.libraryId) {
+            record = candidate;
+            break;
+          }
+        }
         if (!mounted) return;
+        if (record == null) return;
         setState(() {
-          paths[library.libraryId] = result.path;
+          paths[library.libraryId] = record!.recordId;
           response = response!.copyWith(
             libraries: response!.libraries
                 .map(
@@ -94,20 +114,20 @@ class _PeerLibrariesDialogState extends State<PeerLibrariesDialog> {
   }
 
   Future<void> _open(String path) async {
-    final libraryPath = Provider.of<LibraryPathProvider>(
+    final registry = Provider.of<LibraryRegistryProvider>(
       context,
       listen: false,
     );
-    await closeLibrary(context);
-    if (!mounted) return;
-    final (success, _, error, _) = await libraryPath.setLibraryPath(
-      context,
-      path,
-      LibraryInitializeMode.portable,
-    );
-    if (!mounted) return;
-    if (!success) {
-      await showFailedToInitializeLibrary(context, error);
+    try {
+      await registry.open(path);
+    } catch (error) {
+      if (!mounted) return;
+      await showFailedToInitializeLibrary(
+        context,
+        error is LibraryRegistryFailure
+            ? libraryRegistryFailureMessage(S.of(context), error.kind)
+            : S.of(context).unknownError,
+      );
       if (mounted) $$replace('/');
       return;
     }

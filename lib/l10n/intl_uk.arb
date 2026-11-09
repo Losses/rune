@@ -1475,5 +1475,16 @@
   "capabilityAccountRoleMissing": "Ваш обліковий запис на цьому сервері не має права виконувати цю дію.",
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
-  }
+  },
+  "libraryRecordNotFound": "Цей запис медіатеки більше не існує.",
+  "libraryRecordIsOpen": "Закрийте медіатеку, перш ніж видаляти її запис.",
+  "libraryMediaFolderMissing": "Папку медіатеки не знайдено.",
+  "libraryUntrusted": "Цей пристрій не є довіреним.",
+  "libraryInvalidSource": "Цю папку не можна використовувати як медіатеку.",
+  "libraryStorageFailure": "Не вдалося зберегти медіатеку.",
+  "libraryRemoteNotAuthorized": "Пристрій не дозволив це з’єднання.",
+  "libraryRemoteUnreachable": "Не вдалося під’єднатися до пристрою.",
+  "libraryRemoteProtocolFailure": "Пристрій надіслав несумісну відповідь.",
+  "libraryProtocolIncompatible": "Цей пристрій використовує несумісну версію протоколу.",
+  "libraryNotSupportedYet": "Цей тип медіатеки ще не підтримується."
 }

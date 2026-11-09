@@ -76,6 +76,7 @@ import 'providers/broadcast.dart';
 import 'providers/full_screen.dart';
 import 'providers/router_path.dart';
 import 'providers/library_path.dart';
+import 'providers/library_registry.dart';
 import 'providers/library_home.dart';
 import 'providers/library_manager.dart';
 import 'providers/linux_custom_window_controls.dart';
@@ -384,7 +385,14 @@ void mainLoop(
         ),
         ChangeNotifierProvider(
           lazy: false,
-          create: (_) => LibraryPathProvider(initialPath),
+          create: (_) => LibraryRegistryProvider(),
+        ),
+        ChangeNotifierProvider(
+          lazy: false,
+          create: (context) => LibraryPathProvider(
+            initialPath,
+            context.read<LibraryRegistryProvider>(),
+          ),
         ),
         ChangeNotifierProxyProvider<ScreenSizeProvider, ResponsiveProvider>(
           create: (context) =>

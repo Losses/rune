@@ -8,10 +8,10 @@ import '../../../utils/api/request_failure.dart';
 import '../../../utils/api/register_device_on_server.dart';
 import '../../../utils/dialogs/information/error.dart';
 import '../../../utils/dialogs/information/information.dart';
-import '../../../utils/discovery_url.dart';
 import '../../../widgets/settings/settings_button.dart';
 import '../../../bindings/bindings.dart';
-import '../../../providers/library_path.dart';
+import '../../../providers/library_registry.dart';
+import '../../../utils/library_registry_messages.dart';
 
 import '../utils/show_search_remote_device_dialog.dart';
 import '../utils/show_server_status_dialog.dart';
@@ -28,8 +28,10 @@ class SearchRemoteDeviceSettingButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final libraryPath =
-        Provider.of<LibraryPathProvider>(context, listen: false);
+    final libraryRegistry = Provider.of<LibraryRegistryProvider>(
+      context,
+      listen: false,
+    );
     final s = S.of(context);
 
     return SettingsButton(
@@ -106,11 +108,24 @@ class SearchRemoteDeviceSettingButton extends StatelessWidget {
         }
 
         if (!context.mounted) return;
-        libraryPath.addLibraryPath(
-          context,
-          '@RR|${encodeRnSrvUrl(device.ips)}',
-          device.alias,
-        );
+        try {
+          final registered = await libraryRegistry.registerRemoteControl(
+            device.fingerprint,
+            device.alias,
+          );
+          if (registered.record != null) {
+            await libraryRegistry.open(registered.record!.recordId);
+          }
+        } catch (error) {
+          if (!context.mounted) return;
+          await showErrorDialog(
+            context: context,
+            title: s.unknownError,
+            errorMessage: error is LibraryRegistryFailure
+                ? libraryRegistryFailureMessage(s, error.kind)
+                : requestErrorText(s, error),
+          );
+        }
       },
     );
   }

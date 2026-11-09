@@ -9,22 +9,21 @@ import '../../utils/l10n.dart';
 import '../../utils/library_reference.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';
-import '../../utils/api/close_library.dart';
 import '../../utils/router/navigation.dart';
-import '../../utils/dialogs/select_library_mode/test_and_select_library_mode.dart';
 import '../../widgets/library_task_button.dart';
 import '../../widgets/settings/settings_button.dart';
 import '../../widgets/settings/settings_tile_title.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../screens/settings_library/widgets/add_library_setting_button.dart';
-import '../../providers/library_path.dart';
+import '../../providers/library_registry.dart';
 import '../../providers/library_manager.dart';
 import '../../providers/broadcast.dart';
 import '../../bindings/bindings.dart';
 import '../../utils/api/library_registry.dart';
 import '../../utils/library_ui/library_ui_state.dart';
 import '../../utils/dialogs/information/error.dart';
+import '../../utils/library_registry_messages.dart';
 
 import 'utils/show_reset_library_dialog.dart';
 
@@ -57,11 +56,13 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
   }
 
   void _loadLibraries() {
-    listLocalLibraries().then((response) {
-      if (mounted) setState(() => registeredLibraries = response.libraries);
-    }).catchError((Object error) {
-      debugPrint('Could not load libraries: $error');
-    });
+    listLocalLibraries()
+        .then((response) {
+          if (mounted) setState(() => registeredLibraries = response.libraries);
+        })
+        .catchError((Object error) {
+          debugPrint('Could not load libraries: $error');
+        });
   }
 
   @override
@@ -83,8 +84,10 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
     });
     String? error;
     try {
-      final response =
-          await setLibraryBackgroundSync(library.libraryId, enabled);
+      final response = await setLibraryBackgroundSync(
+        library.libraryId,
+        enabled,
+      );
       error = response.error;
     } catch (exception) {
       error = exception.toString();
@@ -113,11 +116,20 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
 
   @override
   Widget build(BuildContext context) {
-    final libraryPath = Provider.of<LibraryPathProvider>(context, listen: true);
-    final allOpenedFiles =
-        libraryPath.getLLPaths().reversed.map((x) => x.rawPath).toList();
-    final libraryManager =
-        Provider.of<LibraryManagerProvider>(context, listen: false);
+    final registry = Provider.of<LibraryRegistryProvider>(context);
+    final allRecords = registry.records.reversed
+        .where(
+          (record) => switch (record.kind) {
+            LibraryRecordKindSummaryLocal() ||
+            LibraryRecordKindSummaryReplica() => true,
+            _ => false,
+          },
+        )
+        .toList();
+    final libraryManager = Provider.of<LibraryManagerProvider>(
+      context,
+      listen: false,
+    );
 
     return PageContentFrame(
       builder: (context) => UnavailablePageOnBand(
@@ -142,8 +154,9 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                       if (!context.mounted) return;
                       if (result != true) return;
 
-                      await closeLibrary(context);
-                      libraryPath.clearAllOpenedFiles();
+                      for (final record in registry.records.toList()) {
+                        await registry.remove(record.recordId);
+                      }
                       $$replace("/");
                     },
                   ),
@@ -152,12 +165,18 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                     width: double.maxFinite,
                     child: ListView.builder(
                       shrinkWrap: true,
-                      itemCount: allOpenedFiles.length,
+                      itemCount: allRecords.length,
                       itemBuilder: (context, index) {
-                        final itemPath = allOpenedFiles[index];
+                        final record = allRecords[index];
+                        final itemPath = switch (record.kind) {
+                          LibraryRecordKindSummaryLocal(:final path) => path,
+                          LibraryRecordKindSummaryReplica(:final path) => path,
+                          _ => '',
+                        };
                         final aliases = {
-                          for (final user
-                              in Provider.of<BroadcastProvider>(context).users)
+                          for (final user in Provider.of<BroadcastProvider>(
+                            context,
+                          ).users)
                             if (user.status == ClientStatus.approved)
                               user.fingerprint: user.alias,
                         };
@@ -173,13 +192,15 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                         final owner = row.library?.ownerFingerprint;
                         final shared = owner != null && owner.isNotEmpty;
                         final isCurrentLibrary =
-                            itemPath == libraryPath.currentPath;
-                        final isSelectedLibrary = itemPath == selectedItem;
+                            record.recordId == registry.openRecordId;
+                        final isSelectedLibrary =
+                            record.recordId == selectedItem;
 
-                        final scanProgress =
-                            libraryManager.getScanTaskProgress(itemPath);
-                        final analyzeProgress =
-                            libraryManager.getAnalyzeTaskProgress(itemPath);
+                        final scanProgress = libraryManager.getScanTaskProgress(
+                          itemPath,
+                        );
+                        final analyzeProgress = libraryManager
+                            .getAnalyzeTaskProgress(itemPath);
 
                         final scanWorking =
                             scanProgress?.status == TaskStatus.working;
@@ -188,9 +209,12 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
 
                         final initializing =
                             (scanProgress?.initialize ?? false) ||
-                                (analyzeProgress?.isInitializeTask ?? false);
+                            (analyzeProgress?.isInitializeTask ?? false);
 
-                        String fileName = libraryFolderName(itemPath);
+                        String fileName = switch (record.kind) {
+                          LibraryRecordKindSummaryReplica() => record.alias,
+                          _ => libraryFolderName(itemPath),
+                        };
 
                         void Function()? whileWorking(void Function() x) {
                           return isCurrentLibrary ||
@@ -209,57 +233,56 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                             actionsBuilder: (context) => Row(
                               children: [
                                 Button(
-                                  onPressed: whileWorking(
-                                    () async {
-                                      final result =
-                                          await testAndSelectLibraryMode(
+                                  onPressed: whileWorking(() async {
+                                    try {
+                                      await registry.open(record.recordId);
+                                    } catch (error) {
+                                      if (!context.mounted) return;
+                                      await showFailedToInitializeLibrary(
                                         context,
-                                        allOpenedFiles[index],
+                                        error is LibraryRegistryFailure
+                                            ? libraryRegistryFailureMessage(
+                                                S.of(context),
+                                                error.kind,
+                                              )
+                                            : S.of(context).unknownError,
                                       );
+                                      $$replace('/');
+                                      return;
+                                    }
 
-                                      if (result == null) return;
-                                      final (initialized, initializeMode) =
-                                          result;
-                                      if (!initialized &&
-                                          initializeMode == null) {
-                                        return;
-                                      }
-
-                                      if (!context.mounted) return;
-                                      await closeLibrary(context);
-
-                                      if (!context.mounted) return;
-
-                                      final (success, notReady, error, _) =
-                                          await libraryPath.setLibraryPath(
-                                        context,
-                                        allOpenedFiles[index],
-                                        initializeMode,
-                                      );
-
-                                      if (!success) {
-                                        await showFailedToInitializeLibrary(
-                                          context,
-                                          error,
-                                        );
-
-                                        $$replace("/");
-                                        return;
-                                      }
-
-                                      if (!context.mounted) return;
-                                      $push('/library');
-                                    },
-                                  ),
+                                    if (!context.mounted) return;
+                                    $push('/library');
+                                  }),
                                   child: Text(S.of(context).switchTo),
                                 ),
                                 const SizedBox(width: 12),
                                 Button(
-                                  onPressed: whileWorking(() async {
-                                    libraryPath.removeOpenedFile(
-                                      allOpenedFiles[index],
-                                    );
-                                  }),
+                                  onPressed:
+                                      (initializing &&
+                                          (scanWorking || analyzeWorking))
+                                      ? null
+                                      : () async {
+                                          try {
+                                            await registry.remove(
+                                              record.recordId,
+                                            );
+                                          } catch (error) {
+                                            if (!context.mounted) return;
+                                            await showErrorDialog(
+                                              context: context,
+                                              title: S.of(context).unknownError,
+                                              errorMessage:
+                                                  error
+                                                      is LibraryRegistryFailure
+                                                  ? libraryRegistryFailureMessage(
+                                                      S.of(context),
+                                                      error.kind,
+                                                    )
+                                                  : S.of(context).unknownError,
+                                            );
+                                          }
+                                        },
                                   child: Text(S.of(context).removeLibrary),
                                 ),
                                 if (row.library case final library?) ...[
@@ -269,11 +292,15 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                       S.of(context).backgroundLibrarySync,
                                     ),
                                     checked: library.backgroundSync,
-                                    onChanged: updatingLibraries
-                                            .contains(library.libraryId)
+                                    onChanged:
+                                        updatingLibraries.contains(
+                                          library.libraryId,
+                                        )
                                         ? null
-                                        : (value) =>
-                                            _setBackgroundSync(library, value),
+                                        : (value) => _setBackgroundSync(
+                                            library,
+                                            value,
+                                          ),
                                   ),
                                 ],
                                 if (isCurrentLibrary) ...[
@@ -283,13 +310,13 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                   const AnalyzeLibraryButton(),
                                   const SizedBox(width: 12),
                                   const DeduplicateLibraryButton(),
-                                ]
+                                ],
                               ],
                             ),
                           ),
                           selected: isSelectedLibrary,
                           onSelectionChange: (v) =>
-                              setState(() => selectedItem = itemPath),
+                              setState(() => selectedItem = record.recordId),
                         );
                       },
                     ),

@@ -4,12 +4,12 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../utils/l10n.dart';
 import '../../../utils/get_dir_path.dart';
-import '../../../utils/api/close_library.dart';
 import '../../../utils/router/navigation.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../widgets/settings/settings_button.dart';
 import '../../../providers/library_manager.dart';
-import '../../../providers/library_path.dart';
+import '../../../providers/library_registry.dart';
+import '../../../utils/library_registry_messages.dart';
 
 class AddLibrarySettingButton extends StatelessWidget {
   const AddLibrarySettingButton({
@@ -23,9 +23,14 @@ class AddLibrarySettingButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final libraryPath = Provider.of<LibraryPathProvider>(context, listen: true);
-    final libraryManager =
-        Provider.of<LibraryManagerProvider>(context, listen: false);
+    final registry = Provider.of<LibraryRegistryProvider>(
+      context,
+      listen: false,
+    );
+    final libraryManager = Provider.of<LibraryManagerProvider>(
+      context,
+      listen: false,
+    );
 
     return SettingsButton(
       icon: Symbols.add,
@@ -37,24 +42,24 @@ class AddLibrarySettingButton extends StatelessWidget {
         if (path == null) return;
         if (!context.mounted) return;
 
-        if (tryClose) {
-          if (!context.mounted) return;
-          await closeLibrary(context);
-        }
-
-        if (!context.mounted) return;
-
-        final (switched, cancelled, error, _) =
-            await libraryPath.setLibraryPath(context, path, null);
-
-        if (switched) {
-          libraryManager.scanLibrary(
+        final alias = path.split('/').where((part) => part.isNotEmpty).last;
+        try {
+          final record = await registerAndOpenLocalFolder(
+            context,
+            registry,
             path,
-            isInitializeTask: true,
+            alias,
           );
-        } else if (!cancelled) {
+          if (record == null) return;
+          libraryManager.scanLibrary(path, isInitializeTask: true);
+        } catch (error) {
           if (!context.mounted) return;
-          await showFailedToInitializeLibrary(context, error);
+          await showFailedToInitializeLibrary(
+            context,
+            error is LibraryRegistryFailure
+                ? libraryRegistryFailureMessage(S.of(context), error.kind)
+                : S.of(context).unknownError,
+          );
           if (navigateIfFailed) {
             $$replace('/');
           }

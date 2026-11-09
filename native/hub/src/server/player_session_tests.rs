@@ -5826,6 +5826,10 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
         .handle(node.clone(), None, &ListLibraryRecordsRequest {})
         .await?
         .context("list library records")?;
+    assert_eq!(
+        listed.last_open_record.as_deref(),
+        Some(second_record_id.as_str())
+    );
     let local_summary = listed
         .records
         .iter()

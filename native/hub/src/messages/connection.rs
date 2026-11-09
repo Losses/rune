@@ -87,6 +87,7 @@ pub enum LibraryRecordKindSummary {
     RemoteControl {
         fingerprint: String,
         device_alias: Option<String>,
+        endpoint: Option<String>,
     },
     Subsonic {
         endpoint: String,
@@ -143,6 +144,7 @@ impl From<&LibraryRecord> for LibraryRecordSummary {
                 LibraryRecordKindSummary::RemoteControl {
                     fingerprint: fingerprint.clone(),
                     device_alias: None,
+                    endpoint: None,
                 }
             }
             LibraryKind::Subsonic {
@@ -194,6 +196,7 @@ pub struct ListLibraryRecordsRequest {}
 pub struct ListLibraryRecordsResponse {
     pub records: Vec<LibraryRecordSummary>,
     pub open: Option<OpenRecord>,
+    pub last_open_record: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]

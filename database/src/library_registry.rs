@@ -253,6 +253,8 @@ pub enum DbPlacement {
 struct RegistryFile {
     version: u32,
     libraries: Vec<LibraryRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_open_record: Option<LibraryRecordId>,
 }
 #[derive(Serialize, Deserialize)]
 struct PortableFile {
@@ -285,6 +287,7 @@ fn check_version(data: &[u8]) -> Result<()> {
 /// The libraries known to this node, stored under its configuration directory.
 pub struct LibraryRegistry {
     pub libraries: Vec<LibraryRecord>,
+    pub last_open_record: Option<LibraryRecordId>,
     path: PathBuf,
 }
 
@@ -309,7 +312,7 @@ impl LibraryRegistry {
                 Ok(()) => {
                     let file: RegistryFile =
                         serde_json::from_slice(&data).context("Invalid library registry")?;
-                    file.libraries
+                    (file.libraries, file.last_open_record)
                 }
                 Err(error)
                     if error
@@ -328,14 +331,19 @@ impl LibraryRegistry {
                         "Old library registry moved to {}; the registry was reset",
                         old_path.display()
                     );
-                    Vec::new()
+                    (Vec::new(), None)
                 }
                 Err(error) => return Err(error),
             },
-            Err(e) if e.kind() == ErrorKind::NotFound => Vec::new(),
+            Err(e) if e.kind() == ErrorKind::NotFound => (Vec::new(), None),
             Err(e) => return Err(e).context("Failed to read library registry"),
         };
-        Ok(Self { libraries, path })
+        let (libraries, last_open_record) = libraries;
+        Ok(Self {
+            libraries,
+            last_open_record,
+            path,
+        })
     }
     pub fn record(&self, record_id: LibraryRecordId) -> Result<&LibraryRecord> {
         self.libraries
@@ -387,8 +395,9 @@ impl LibraryRegistry {
         let _guard = REGISTRY_WRITE.lock().await;
         let mut registry = Self::load(config_dir)?;
         let before = registry.libraries.clone();
+        let before_last_open_record = registry.last_open_record;
         let result = change(&mut registry)?;
-        if registry.libraries != before {
+        if registry.libraries != before || registry.last_open_record != before_last_open_record {
             registry.save()?;
         }
         Ok(result)
@@ -427,6 +436,9 @@ impl LibraryRegistry {
                 return Ok(false);
             };
             registry.libraries.remove(index);
+            if registry.last_open_record == Some(record_id) {
+                registry.last_open_record = None;
+            }
             Ok(true)
         })
         .await
@@ -532,6 +544,7 @@ impl LibraryRegistry {
         let data = serde_json::to_vec_pretty(&RegistryFile {
             version: 2,
             libraries: self.libraries.clone(),
+            last_open_record: self.last_open_record,
         })?;
         let result = (|| -> Result<()> {
             fs::write(&temp, data).context("Failed to write temporary registry")?;
@@ -1294,6 +1307,7 @@ mod tests {
                     },
                 },
             ],
+            last_open_record: None,
             path: PathBuf::new(),
         };
         assert_eq!(registry.catalogs().count(), 0);

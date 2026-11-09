@@ -1438,5 +1438,16 @@
   "capabilityAccountRoleMissing": "此伺服器之帳戶，不得行此事。",
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
-  }
+  },
+  "libraryRecordNotFound": "此媒體庫記錄已不存在。",
+  "libraryRecordIsOpen": "請先關閉媒體庫，再移除其記錄。",
+  "libraryMediaFolderMissing": "找不到媒體庫資料夾。",
+  "libraryUntrusted": "此裝置未受信任。",
+  "libraryInvalidSource": "此資料夾無法用作媒體庫。",
+  "libraryStorageFailure": "無法儲存媒體庫。",
+  "libraryRemoteNotAuthorized": "裝置未授權此連線。",
+  "libraryRemoteUnreachable": "無法連線到裝置。",
+  "libraryRemoteProtocolFailure": "裝置傳回不相容的回應。",
+  "libraryProtocolIncompatible": "此裝置使用不相容的協定版本。",
+  "libraryNotSupportedYet": "目前尚不支援此媒體庫類型。"
 }

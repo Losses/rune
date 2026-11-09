@@ -1438,5 +1438,16 @@
   "capabilityAccountRoleMissing": "このさーばーのあかうんとでは、このそうさをおこなうけんげんがありません。",
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
-  }
+  },
+  "libraryRecordNotFound": "このライブラリーレコードは存在しません。",
+  "libraryRecordIsOpen": "レコードを削除する前にライブラリーを閉じてください。",
+  "libraryMediaFolderMissing": "ライブラリーフォルダーが見つかりません。",
+  "libraryUntrusted": "このデバイスは信頼されていません。",
+  "libraryInvalidSource": "このフォルダーはライブラリーとして使用できません。",
+  "libraryStorageFailure": "ライブラリーを保存できませんでした。",
+  "libraryRemoteNotAuthorized": "デバイスが接続を許可しませんでした。",
+  "libraryRemoteUnreachable": "デバイスに接続できません。",
+  "libraryRemoteProtocolFailure": "デバイスから互換性のない応答がありました。",
+  "libraryProtocolIncompatible": "このデバイスのプロトコルバージョンには互換性がありません。",
+  "libraryNotSupportedYet": "このライブラリー形式はまだサポートされていません。"
 }

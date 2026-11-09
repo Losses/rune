@@ -1556,5 +1556,16 @@
   "capabilityAccountRoleMissing": "您在此服务器上的账户无权执行此操作。",
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
-  }
+  },
+  "libraryRecordNotFound": "此媒体库记录已不存在。",
+  "libraryRecordIsOpen": "请先关闭媒体库，再移除其记录。",
+  "libraryMediaFolderMissing": "找不到媒体库文件夹。",
+  "libraryUntrusted": "此设备不受信任。",
+  "libraryInvalidSource": "此文件夹无法用作媒体库。",
+  "libraryStorageFailure": "无法保存媒体库。",
+  "libraryRemoteNotAuthorized": "设备未授权此连接。",
+  "libraryRemoteUnreachable": "无法连接到设备。",
+  "libraryRemoteProtocolFailure": "设备返回了不兼容的响应。",
+  "libraryProtocolIncompatible": "此设备使用不兼容的协议版本。",
+  "libraryNotSupportedYet": "目前尚不支持此媒体库类型。"
 }

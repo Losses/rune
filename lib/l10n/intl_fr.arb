@@ -1477,5 +1477,16 @@
   "capabilityAccountRoleMissing": "Votre compte sur ce serveur n’est pas autorisé à effectuer cette action.",
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
-  }
+  },
+  "libraryRecordNotFound": "Cet enregistrement de bibliothèque n’existe plus.",
+  "libraryRecordIsOpen": "Fermez la bibliothèque avant de supprimer son enregistrement.",
+  "libraryMediaFolderMissing": "Le dossier de la bibliothèque est introuvable.",
+  "libraryUntrusted": "Cet appareil n’est pas approuvé.",
+  "libraryInvalidSource": "Ce dossier ne peut pas servir de bibliothèque.",
+  "libraryStorageFailure": "Impossible d’enregistrer la bibliothèque.",
+  "libraryRemoteNotAuthorized": "L’appareil n’a pas autorisé cette connexion.",
+  "libraryRemoteUnreachable": "L’appareil est injoignable.",
+  "libraryRemoteProtocolFailure": "L’appareil a renvoyé une réponse incompatible.",
+  "libraryProtocolIncompatible": "Cet appareil utilise une version incompatible du protocole.",
+  "libraryNotSupportedYet": "Ce type de bibliothèque n’est pas encore pris en charge."
 }

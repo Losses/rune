@@ -1,15 +1,3 @@
-/// This key is used to store and retrieve the paths of files that have been
-/// previously opened by the user. This allows the application to maintain a
-/// history of accessed files and provide quick access to recently used content
-/// across sessions.
-const kOpenedFilesKey = 'library_path';
-
-/// The purpose of this key is to track the version of the stored file path data
-/// structure. When the application's data model changes, this version number is
-/// incremented, enabling seamless migration of user data from older formats to
-/// newer ones without data loss.
-const kDataVersionKey = 'library_path_version';
-
 /// The key is used to check if there is a predefined layout mode that the user
 /// or application has set, which should take precedence over the dynamically
 /// calculated device type based on screen size and orientation.

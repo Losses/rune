@@ -7,9 +7,11 @@ import '../../../utils/l10n.dart';
 import '../../../utils/router/navigation.dart';
 import '../../../utils/library_reference.dart';
 import '../../../utils/library_ui/library_ui_state.dart';
+import '../../../bindings/bindings.dart';
+import '../../../utils/library_registry_messages.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../widgets/settings/settings_button.dart';
-import '../../../providers/library_path.dart';
+import '../../../providers/library_registry.dart';
 import '../../../providers/responsive_providers.dart';
 
 import '../../settings_library/widgets/add_library_setting_button.dart';
@@ -22,31 +24,22 @@ class SelectLibraryPage extends StatefulWidget {
 }
 
 class _SelectLibraryPageState extends State<SelectLibraryPage> {
-  bool requested = false;
-  List<String> allOpenedFiles = [];
-
-  @override
-  void didChangeDependencies() {
-    if (requested) return;
-
-    final libraryPath =
-        Provider.of<LibraryPathProvider>(context, listen: false);
-
-    setState(() {
-      allOpenedFiles = libraryPath.getLLPaths().map((x) => x.rawPath).toList();
-    });
-
-    super.didChangeDependencies();
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
 
     final r = Provider.of<ResponsiveProvider>(context);
 
-    final libraryPath =
-        Provider.of<LibraryPathProvider>(context, listen: false);
+    final registry = Provider.of<LibraryRegistryProvider>(context);
+    final records = registry.records
+        .where(
+          (record) => switch (record.kind) {
+            LibraryRecordKindSummaryLocal() ||
+            LibraryRecordKindSummaryReplica() => true,
+            _ => false,
+          },
+        )
+        .toList();
 
     return Center(
       child: ConstrainedBox(
@@ -68,7 +61,7 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
                   DeviceType.band,
                   DeviceType.belt,
                   DeviceType.car,
-                  DeviceType.station
+                  DeviceType.station,
                 ],
                 builder: (context, activeBreakpoint) {
                   switch (activeBreakpoint) {
@@ -94,7 +87,7 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
                       // edges.
                       padding: EdgeInsets.zero,
                       shrinkWrap: true,
-                      itemCount: allOpenedFiles.length + 1,
+                      itemCount: records.length + 1,
                       itemBuilder: (context, index) {
                         if (index == 0) {
                           return const AddLibrarySettingButton(
@@ -103,9 +96,16 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
                           );
                         }
 
-                        final itemPath = allOpenedFiles[index - 1];
-
-                        String fileName = libraryFolderName(itemPath);
+                        final record = records[index - 1];
+                        final itemPath = switch (record.kind) {
+                          LibraryRecordKindSummaryLocal(:final path) => path,
+                          LibraryRecordKindSummaryReplica(:final path) => path,
+                          _ => '',
+                        };
+                        final fileName = switch (record.kind) {
+                          LibraryRecordKindSummaryReplica() => record.alias,
+                          _ => libraryFolderName(itemPath),
+                        };
 
                         return SettingsButton(
                           icon: Symbols.folder,
@@ -115,26 +115,21 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
                             itemPath,
                           ),
                           onPressed: () async {
-                            final path = allOpenedFiles[index - 1];
-
-                            final (switched, cancelled, error, _) =
-                                await libraryPath.setLibraryPath(
-                              context,
-                              path,
-                              null,
-                            );
-
-                            if (switched) {
+                            try {
+                              await registry.open(record.recordId);
                               $$replace('/library');
-                              return;
+                            } catch (error) {
+                              if (!context.mounted) return;
+                              await showFailedToInitializeLibrary(
+                                context,
+                                error is LibraryRegistryFailure
+                                    ? libraryRegistryFailureMessage(
+                                        S.of(context),
+                                        error.kind,
+                                      )
+                                    : S.of(context).unknownError,
+                              );
                             }
-                            if (cancelled) return;
-                            if (!context.mounted) return;
-
-                            await showFailedToInitializeLibrary(
-                              context,
-                              error,
-                            );
                           },
                         );
                       },

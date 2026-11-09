@@ -3,10 +3,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:rune/bindings/bindings.dart';
 import 'package:rune/l10n/app_localizations.dart';
 import 'package:rune/providers/app_scale.dart';
 import 'package:rune/providers/library_manager.dart';
-import 'package:rune/providers/library_path.dart';
+import 'package:rune/providers/library_registry.dart';
 import 'package:rune/providers/responsive_providers.dart';
 import 'package:rune/providers/status.dart';
 import 'package:rune/screens/home/home.dart';
@@ -748,7 +749,7 @@ void main() {
         providers: [
           ChangeNotifierProvider.value(value: sizes),
           ChangeNotifierProvider.value(value: responsive),
-          ChangeNotifierProvider<LibraryPathProvider>.value(
+          ChangeNotifierProvider<LibraryRegistryProvider>.value(
             value: _Libraries(),
           ),
           ChangeNotifierProvider<LibraryManagerProvider>.value(
@@ -902,14 +903,18 @@ void main() {
   });
 }
 
-class _Libraries extends ChangeNotifier implements LibraryPathProvider {
-  final _entries = [LibraryPathEntry('/music'), LibraryPathEntry('/podcasts')];
-
+class _Libraries extends ChangeNotifier implements LibraryRegistryProvider {
   @override
-  Set<LibraryPathEntry> get libraryHistory => _entries.toSet();
-
-  @override
-  List<LibraryPathEntry> getLLPaths() => _entries;
+  final records = [
+    LibraryRecordSummary(
+      recordId: 'record-1',
+      alias: 'music',
+      kind: const LibraryRecordKindSummaryLocal(
+        libraryId: 'library-1',
+        path: '/music',
+      ),
+    ),
+  ];
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
