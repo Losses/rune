@@ -261,10 +261,14 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                           (scanWorking || analyzeWorking))
                                       ? null
                                       : () async {
+                                          // Removing the open library closes it, so leave the
+                                          // library pages as Factory Reset does.
+                                          final wasOpen = isCurrentLibrary;
                                           try {
                                             await registry.remove(
                                               record.recordId,
                                             );
+                                            if (wasOpen) $$replace("/");
                                           } catch (error) {
                                             if (!context.mounted) return;
                                             await showErrorDialog(

@@ -92,6 +92,9 @@ import 'theme.dart';
 
 late bool disableBrandingAnimation;
 late String? initialPath;
+late final LibraryRegistryProvider libraryRegistry;
+// Whether startup opens a library: the development LIBRARY_PATH or the record open last.
+late bool hasStartupLibrary;
 bool isWindows11 = false;
 late bool cafeMode;
 
@@ -258,6 +261,14 @@ void main(List<String> arguments) async {
   };
 
   initialPath = await getInitialPath();
+  libraryRegistry = LibraryRegistryProvider();
+  try {
+    await libraryRegistry.ready;
+  } on Object catch (error) {
+    error$('Could not list the libraries: $error');
+  }
+  hasStartupLibrary =
+      initialPath != null || libraryRegistry.lastOpenRecordId != null;
   await findSystemLocale();
 
   $closeManager;
@@ -383,10 +394,7 @@ void mainLoop(
           lazy: false,
           create: (_) => PlaybackStatusProvider(),
         ),
-        ChangeNotifierProvider(
-          lazy: false,
-          create: (_) => LibraryRegistryProvider(),
-        ),
+        ChangeNotifierProvider.value(value: libraryRegistry),
         ChangeNotifierProvider(
           lazy: false,
           create: (context) => LibraryOpenStateProvider(
@@ -484,7 +492,7 @@ class _RuneState extends State<Rune> {
 
         return FluentApp(
           title: appTitle,
-          initialRoute: initialPath == null
+          initialRoute: !hasStartupLibrary
               ? "/"
               : cafeMode
               ? '/cover_wall'
@@ -626,7 +634,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
       },
     );
 
-    if (cafeMode && initialPath != null) {
+    if (cafeMode && hasStartupLibrary) {
       unawaited(
         startCafePlaybackAfterOpen(
           libraryOpened: context.read<LibraryOpenStateProvider>().initialOpen,
