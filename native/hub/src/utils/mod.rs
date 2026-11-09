@@ -22,7 +22,7 @@ use crate::handlers::local_libraries::publish_library_records_changed;
 use crate::node::{NodeContext, current_node};
 use anyhow::{Context, Result};
 use fsio::FsIo;
-use log::info;
+use log::{info, warn};
 use rinf::DartSignal;
 use scrobbling::manager::ScrobblingServiceManager;
 use tokio::sync::{Mutex, RwLock};
@@ -51,14 +51,16 @@ use ::playback::{
 };
 use ::scrobbling::manager::ScrobblingManager;
 
+use crate::backends::local::gui_request::GuiRequest;
 use crate::backends::{
     local::local_player_loop,
     remote::{RemoteConnectError, open_remote_library_for_fingerprint},
 };
 use crate::library_pool::{LibraryHandle, LibraryPool};
 use crate::messages::*;
-use crate::request_error::ExpectedRequestError;
+use crate::request_error::{ExpectedRequestError, classify, request_failure_cause};
 use crate::server::ServerManager;
+use crate::{CallIdentified, Signal, TypedRequest};
 
 #[cfg(target_os = "android")]
 use tracing_logcat::{LogcatMakeWriter, LogcatTag};
@@ -245,9 +247,13 @@ pub async fn receive_library_record_requests(
     let local_receiver = RegisterLocalLibraryRequest::get_dart_signal_receiver();
     let remote_receiver = RegisterRemoteControlRequest::get_dart_signal_receiver();
     let open_receiver = OpenLibraryRequest::get_dart_signal_receiver();
+    let list_receiver = ListLibraryRecordsRequest::get_dart_signal_receiver();
+    let remove_receiver = RemoveLibraryRecordRequest::get_dart_signal_receiver();
     let broadcaster: Arc<dyn Broadcaster> = Arc::new(LocalGuiBroadcaster);
     loop {
         tokio::select! {
+            Some(signal) = list_receiver.recv() => answer_node_request(&signal.message).await,
+            Some(signal) = remove_receiver.recv() => answer_node_request(&signal.message).await,
             Some(signal) = local_receiver.recv() => {
                 let result = register_local_library(&signal.message).await;
                 broadcaster.broadcast(&result);
@@ -261,6 +267,35 @@ pub async fn receive_library_record_requests(
                 broadcaster.broadcast(&result);
             }
             else => tokio::time::sleep(Duration::from_secs(1)).await,
+        }
+    }
+}
+
+/// Answers a node-lifetime request that is handled by a `Signal` impl on the node context.
+/// Such requests are not served by the per-library GUI listeners, so this loop is their only
+/// receiver.
+async fn answer_node_request<R>(request: &R)
+where
+    R: GuiRequest
+        + Signal<Params = Arc<NodeContext>, Response = <R as TypedRequest>::Response>
+        + CallIdentified,
+{
+    let emit = |signal: &dyn RinfRustSignal| signal.send_to_dart();
+    let result = match current_node().await {
+        Ok(node) => request.handle(node, None, request).await,
+        Err(error) => Err(error),
+    };
+    match result {
+        Ok(response) => R::emit_response(response, &emit),
+        Err(error) => {
+            warn!("Request {} failed: {error:#}", R::wire_name());
+            emit(&RequestFailedResponse::for_request(
+                request,
+                R::wire_name(),
+                classify(&error),
+                format!("{error:#}"),
+                request_failure_cause(&error),
+            ));
         }
     }
 }

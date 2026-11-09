@@ -110,6 +110,10 @@ async fn main() {
     tokio::spawn(node::receive_initialize_node());
     tokio::spawn(receive_library_record_requests(Arc::clone(&scrobbler)));
 
+    // Every receiver runs as a spawned task on this runtime, so main must stay alive until
+    // Dart shuts down; returning earlier drops the runtime and every receiver with it.
+    rinf::dart_shutdown().await;
+
     if let Err(error) = node::shutdown_node().await {
         error!("Node shutdown failed: {error:#}");
     }
