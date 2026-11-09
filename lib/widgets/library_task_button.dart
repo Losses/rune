@@ -8,6 +8,7 @@ import '../screens/settings_library/widgets/progress_button.dart';
 import '../bindings/bindings.dart';
 import '../providers/library_manager.dart';
 import '../providers/library_open_state.dart';
+import '../utils/dialogs/information/error.dart';
 
 Future<bool?> showCancelDialog(BuildContext context) {
   return $showModal<bool>(
@@ -55,7 +56,10 @@ class LibraryTaskButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final libraryPath = Provider.of<LibraryOpenStateProvider>(context, listen: true);
+    final libraryPath = Provider.of<LibraryOpenStateProvider>(
+      context,
+      listen: true,
+    );
     final recordId = libraryPath.openRecord?.recordId;
 
     if (!libraryPath.hasCatalog || recordId == null) {
@@ -134,23 +138,12 @@ class ScanLibraryButton extends StatelessWidget {
         libraryManager.scanLibrary(recordId, isInitializeTask: false);
         final status = await libraryManager.waitForScanToComplete(recordId);
         if (status == TaskStatus.failed && context.mounted) {
-          await $showModal<void>(
-            context,
-            (context, close) => ContentDialog(
-              title: Text(
-                S
-                    .of(context)
-                    .error(
-                      libraryManager.getScanTaskProgress(recordId)?.error ?? '',
-                    ),
-              ),
-              actions: [
-                Button(
-                  onPressed: () => close(null),
-                  child: Text(S.of(context).back),
-                ),
-              ],
-            ),
+          await showErrorDialog(
+            context: context,
+            title: S.of(context).scanLibrary,
+            errorMessage:
+                libraryManager.getScanTaskProgress(recordId)?.error ??
+                S.of(context).unknownError,
           );
         }
         if (status == TaskStatus.finished && onFinished != null) {
@@ -165,23 +158,12 @@ class ScanLibraryButton extends StatelessWidget {
         );
         final status = await libraryManager.waitForScanToComplete(recordId);
         if (status == TaskStatus.failed && context.mounted) {
-          await $showModal<void>(
-            context,
-            (context, close) => ContentDialog(
-              title: Text(
-                S
-                    .of(context)
-                    .error(
-                      libraryManager.getScanTaskProgress(recordId)?.error ?? '',
-                    ),
-              ),
-              actions: [
-                Button(
-                  onPressed: () => close(null),
-                  child: Text(S.of(context).back),
-                ),
-              ],
-            ),
+          await showErrorDialog(
+            context: context,
+            title: S.of(context).scanLibrary,
+            errorMessage:
+                libraryManager.getScanTaskProgress(recordId)?.error ??
+                S.of(context).unknownError,
           );
         }
         if (status == TaskStatus.finished && onFinished != null) {
@@ -203,8 +185,9 @@ class AnalyzeLibraryButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final libraryManager = Provider.of<LibraryManagerProvider>(context);
-    final recordId =
-        Provider.of<LibraryOpenStateProvider>(context).openRecord?.recordId;
+    final recordId = Provider.of<LibraryOpenStateProvider>(
+      context,
+    ).openRecord?.recordId;
     final analyzeProgress = recordId == null
         ? null
         : libraryManager.getAnalyzeTaskProgress(recordId);
@@ -250,8 +233,9 @@ class DeduplicateLibraryButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final libraryManager = Provider.of<LibraryManagerProvider>(context);
-    final recordId =
-        Provider.of<LibraryOpenStateProvider>(context).openRecord?.recordId;
+    final recordId = Provider.of<LibraryOpenStateProvider>(
+      context,
+    ).openRecord?.recordId;
     final deduplicateProgress = recordId == null
         ? null
         : libraryManager.getDeduplicateTaskProgress(recordId);

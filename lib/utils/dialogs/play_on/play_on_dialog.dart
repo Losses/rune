@@ -13,6 +13,8 @@ import '../../../providers/playlist.dart';
 import '../../../providers/library_open_state.dart';
 import '../../../utils/playing_item.dart';
 import '../../../widgets/rune_clickable.dart';
+import '../../../widgets/no_shortcuts.dart';
+import '../../../widgets/settings/settings_tile_title.dart';
 
 typedef RendererLoader =
     Future<List<RendererCandidate>> Function(List<String> libraryIds);
@@ -117,6 +119,8 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
   String? _working;
   Object? _error;
   String? _errorAlias;
+  String? _selectedFingerprint;
+  bool _loadFailed = false;
 
   @override
   void initState() {
@@ -128,6 +132,7 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
   void _load() {
     _error = null;
     _errorAlias = null;
+    _loadFailed = false;
     _renderers = widget.loader(widget.libraryIds);
   }
 
@@ -177,100 +182,100 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
     final strings = S.of(context);
     final currentRenderer = widget.attachment.renderer;
     final thisDeviceSelected = currentRenderer == null;
-    return ContentDialog(
-      title: Text(strings.playOn),
-      content: SizedBox(
-        width: 380,
-        child: FutureBuilder<Map<String, String>>(
-          future: _libraryNames,
-          builder: (context, namesSnapshot) =>
-              FutureBuilder<List<RendererCandidate>>(
-                future: _renderers,
-                builder: (context, snapshot) {
-                  if (snapshot.hasError) {
-                    return _loadError(strings, snapshot.error!);
-                  }
-                  if (!snapshot.hasData || !namesSnapshot.hasData) {
-                    return const Center(child: ProgressRing());
-                  }
-                  final names = namesSnapshot.data!;
-                  return Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (_error != null) ...[
-                        Text(_errorText(strings, _error!, _errorAlias, names)),
-                        const SizedBox(height: 8),
-                      ],
-                      if (!widget.castMode)
-                        _row(
-                          alias: strings.thisDevice,
-                          selected: thisDeviceSelected,
-                          enabled: currentRenderer != null,
-                          working: _working == 'this-device',
-                          onTap: currentRenderer == null
-                              ? null
-                              : () => _select(
-                                  'this-device',
-                                  () => widget.handoff(null),
-                                ),
-                        ),
-                      for (final candidate in snapshot.data!) ...[
-                        const Divider(),
-                        _row(
-                          alias: candidate.alias,
-                          reason:
-                              candidate.availability ==
-                                  RendererAvailability.available
-                              ? null
-                              : _reason(strings, candidate, names),
-                          selected:
-                              currentRenderer?.fingerprint ==
+    final loadFailed = _loadFailed;
+    return NoShortcuts(
+      ContentDialog(
+        title: Column(children: [SizedBox(height: 8), Text(strings.playOn)]),
+        content: SizedBox(
+          width: 420,
+          child: FutureBuilder<Map<String, String>>(
+            future: _libraryNames,
+            builder: (context, namesSnapshot) =>
+                FutureBuilder<List<RendererCandidate>>(
+                  future: _renderers,
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) {
+                      if (!_loadFailed) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (mounted) setState(() => _loadFailed = true);
+                        });
+                      }
+                      return Text(requestErrorText(strings, snapshot.error!));
+                    }
+                    if (!snapshot.hasData || !namesSnapshot.hasData) {
+                      return const Center(child: ProgressRing());
+                    }
+                    final names = namesSnapshot.data!;
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_error != null) ...[
+                          Text(
+                            _errorText(strings, _error!, _errorAlias, names),
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                        if (!widget.castMode)
+                          _row(
+                            fingerprint: 'this-device',
+                            alias: strings.thisDevice,
+                            subtitle: '',
+                            selected: _selectedFingerprint == 'this-device',
+                            playing: thisDeviceSelected,
+                            enabled: currentRenderer != null,
+                            working: _working == 'this-device',
+                            onAction: () => _select(
+                              'this-device',
+                              () => widget.handoff(null),
+                            ),
+                          ),
+                        for (final candidate in snapshot.data!)
+                          _row(
+                            fingerprint: candidate.fingerprint,
+                            alias: candidate.alias,
+                            subtitle:
+                                candidate.availability ==
+                                    RendererAvailability.available
+                                ? ''
+                                : _reason(strings, candidate, names),
+                            selected:
+                                _selectedFingerprint == candidate.fingerprint,
+                            playing:
+                                currentRenderer?.fingerprint ==
+                                candidate.fingerprint,
+                            enabled:
+                                candidate.availability ==
+                                    RendererAvailability.available &&
+                                (widget.castMode || !candidate.attached),
+                            working: _working == candidate.fingerprint,
+                            onAction: () => _select(
                               candidate.fingerprint,
-                          enabled:
-                              candidate.availability ==
-                                  RendererAvailability.available &&
-                              (widget.castMode || !candidate.attached),
-                          working: _working == candidate.fingerprint,
-                          onTap:
-                              candidate.availability ==
-                                      RendererAvailability.available &&
-                                  (widget.castMode || !candidate.attached)
-                              ? () => _select(
-                                  candidate.fingerprint,
-                                  () => widget.castMode
-                                      ? widget.cast!(candidate)
-                                      : widget.handoff(candidate.fingerprint),
-                                  alias: candidate.alias,
-                                )
-                              : null,
-                        ),
+                              () => widget.castMode
+                                  ? widget.cast!(candidate)
+                                  : widget.handoff(candidate.fingerprint),
+                              alias: candidate.alias,
+                            ),
+                          ),
                       ],
-                    ],
-                  );
-                },
-              ),
+                    );
+                  },
+                ),
+          ),
         ),
+        actions: [
+          if (loadFailed)
+            Button(
+              onPressed: () => setState(_load),
+              child: Text(strings.playOnRetry),
+            ),
+          Button(
+            child: Text(strings.close),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ],
       ),
-      actions: [
-        Button(
-          child: Text(strings.close),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ],
     );
   }
-
-  Widget _loadError(AppLocalizations strings, Object error) => Column(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Text(requestErrorText(strings, error)),
-      const SizedBox(height: 12),
-      Button(
-        onPressed: () => setState(_load),
-        child: Text(strings.playOnRetry),
-      ),
-    ],
-  );
 
   String _errorText(
     AppLocalizations strings,
@@ -291,24 +296,36 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
   }
 
   Widget _row({
+    required String fingerprint,
     required String alias,
-    String? reason,
+    required String subtitle,
     required bool selected,
+    required bool playing,
     required bool enabled,
     required bool working,
-    required VoidCallback? onTap,
-  }) => Opacity(
-    opacity: enabled ? 1 : 0.48,
-    child: ListTile(
-      leading: working
-          ? const SizedBox.square(dimension: 20, child: ProgressRing())
-          : selected
-          ? const Icon(Symbols.check)
-          : const Icon(Symbols.cast),
-      title: Text(alias),
-      subtitle: reason == null ? null : Text(reason),
-      onPressed: onTap,
+    required VoidCallback onAction,
+  }) => ListTile.selectable(
+    title: SettingsTileTitle(
+      icon: Symbols.cast,
+      badgeContent: playing
+          ? const Icon(Symbols.play_arrow, size: 12, color: Colors.white)
+          : null,
+      badgeColor: FluentTheme.of(context).accentColor,
+      title: alias,
+      subtitle: subtitle,
+      showActions: selected,
+      actionsBuilder: (context) => Row(
+        children: [
+          Button(
+            onPressed: enabled && !working ? onAction : null,
+            child: working ? const ProgressRing() : Text(S.of(context).playOn),
+          ),
+        ],
+      ),
     ),
+    selected: selected,
+    onSelectionChange: (_) =>
+        setState(() => _selectedFingerprint = fingerprint),
   );
 }
 
@@ -318,10 +335,9 @@ class PlayOnButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final renderer = Provider.of<RendererAttachmentProvider>(context).renderer;
-    final remoteLibrary =
-        Provider.of<LibraryOpenStateProvider>(
-          context,
-        ).isRemoteControl;
+    final remoteLibrary = Provider.of<LibraryOpenStateProvider>(
+      context,
+    ).isRemoteControl;
     return RuneClickable(
       onPressed: remoteLibrary ? null : () => showPlayOnDialog(context),
       child: Opacity(

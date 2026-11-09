@@ -163,13 +163,10 @@ class _QueueState extends State<Queue> {
         .failureFeedback
         .listen((failure) {
           if (!mounted) return;
-          displayInfoBar(
-            context,
-            builder: (_, close) => InfoBar(
-              title: Text(requestFailureMessage(S.of(context), failure)),
-              severity: InfoBarSeverity.error,
-              onClose: close,
-            ),
+          showErrorDialog(
+            context: context,
+            title: S.of(context).unavailable,
+            errorMessage: requestFailureMessage(S.of(context), failure),
           );
         });
   }

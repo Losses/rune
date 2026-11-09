@@ -31,6 +31,8 @@ import '../settings_server/utils/show_confirm_remove_device_dialog.dart';
 import '../settings_server/utils/show_review_connection_dialog.dart';
 import '../settings_server/widgets/server_control_setting_button.dart';
 import '../settings_server/widgets/enable_broadcast_setting_button.dart';
+import '../../utils/api/request_failure.dart';
+import '../../utils/dialogs/information/error.dart';
 
 class SettingsDevicesPage extends StatefulWidget {
   const SettingsDevicesPage({super.key});
@@ -57,7 +59,8 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
     do {
       refreshGrantsAgain = false;
       final clients = Provider.of<BroadcastProvider>(
-        context, listen: false,
+        context,
+        listen: false,
       ).users;
       for (final client in clients.where(
         (c) => c.status == ClientStatus.approved,
@@ -112,7 +115,13 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
           if (mounted) setState(() => syncSettings = value);
         })
         .catchError((Object error) {
-          debugPrint('Could not load sync settings: $error');
+          if (mounted) {
+            showErrorDialog(
+              context: context,
+              title: S.of(context).allowPairedSync,
+              errorMessage: requestErrorText(S.of(context), error),
+            );
+          }
         });
   }
 
@@ -148,7 +157,15 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
                           final updated = await getSyncSettings();
                           if (mounted) setState(() => syncSettings = updated);
                         } catch (error) {
-                          debugPrint('Could not update sync settings: $error');
+                          if (!context.mounted) return;
+                          await showErrorDialog(
+                            context: context,
+                            title: S.of(context).allowPairedSync,
+                            errorMessage: requestErrorText(
+                              S.of(context),
+                              error,
+                            ),
+                          );
                         }
                       },
                     ),
@@ -234,7 +251,8 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
                     Button(
                       onPressed: () async {
                         await $push(
-                          '/settings/device-access', arguments: client,
+                          '/settings/device-access',
+                          arguments: client,
                         );
                         if (mounted) _refreshGrants();
                       },
@@ -252,8 +270,8 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
                   const SizedBox(width: 12),
                   if (client.status == ClientStatus.approved &&
                       !(Provider.of<LibraryOpenStateProvider>(
-                            context,
-                          ).isRemoteControl)) ...[
+                        context,
+                      ).isRemoteControl)) ...[
                     Button(
                       onPressed: () => $showModal<void>(
                         context,
