@@ -234,7 +234,9 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                             title: shared ? row.library!.alias : fileName,
                             subtitle: subtitle,
                             showActions: isSelectedLibrary,
-                            actionsBuilder: (context) => Row(
+                            actionsBuilder: (context) => Wrap(
+                              spacing: 12,
+                              runSpacing: 8,
                               children: [
                                 Button(
                                   onPressed: whileWorking(() async {
@@ -260,7 +262,6 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                   }),
                                   child: Text(S.of(context).switchTo),
                                 ),
-                                const SizedBox(width: 12),
                                 Button(
                                   onPressed:
                                       (initializing &&
@@ -294,7 +295,6 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                   child: Text(S.of(context).removeLibrary),
                                 ),
                                 if (row.library case final library?) ...[
-                                  const SizedBox(width: 12),
                                   Button(
                                     onPressed:
                                         updatingLibraries.contains(
@@ -313,11 +313,8 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                   ),
                                 ],
                                 if (isCurrentLibrary) ...[
-                                  const SizedBox(width: 12),
                                   const ScanLibraryButton(),
-                                  const SizedBox(width: 12),
                                   const AnalyzeLibraryButton(),
-                                  const SizedBox(width: 12),
                                   const DeduplicateLibraryButton(),
                                 ],
                               ],
