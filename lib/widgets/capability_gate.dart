@@ -27,13 +27,7 @@ class CapabilityGate extends StatelessWidget {
   Widget build(BuildContext context) => switch (capability) {
     RequestCapabilityAvailable() => child,
     RequestCapabilityHidden() => const SizedBox.shrink(),
-    RequestCapabilityDisabled(:final reason) => Tooltip(
-      message: capabilityReasonText(context, reason),
-      child: Semantics(
-        enabled: false,
-        child: Opacity(opacity: 0.45, child: IgnorePointer(child: child)),
-      ),
-    ),
+    RequestCapabilityDisabled() => const SizedBox.shrink(),
     _ => child,
   };
 }

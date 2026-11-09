@@ -206,6 +206,9 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
                       return const Center(child: ProgressRing());
                     }
                     final names = namesSnapshot.data!;
+                    if (widget.castMode && snapshot.data!.isEmpty) {
+                      return Center(child: Text(strings.noDevicesFound));
+                    }
                     return Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [

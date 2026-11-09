@@ -219,8 +219,6 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
   }).toList();
 
   List<MenuFlyoutItemBase> items = [
-    if (supportsOfflineSelection(context))
-      offlineSelectionMenu(context, type, id),
     MenuFlyoutItem(
       leading: const Icon(Symbols.play_circle),
       text: Text(S.of(context).startPlaying),
@@ -384,6 +382,11 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
         ],
       ),
     );
+  }
+
+  if (supportsOfflineSelection(context)) {
+    items.add(const MenuFlyoutSeparator());
+    items.add(offlineSelectionMenu(context, type, id));
   }
 
   return MenuFlyout(items: items);

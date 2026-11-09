@@ -207,24 +207,6 @@ class _BandViewTrackItemState extends State<BandViewTrackItem> {
                         'Total Time ${formatTime(widget.item.duration)}',
                       ),
                     ),
-                    if (widget.item.availabilityLabel(context)
-                        case final label?)
-                      Align(
-                        alignment: Alignment.bottomCenter,
-                        child: Container(
-                          color: Colors.black.withValues(alpha: 0.75),
-                          width: double.infinity,
-                          child: Text(
-                            label,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 9,
-                            ),
-                          ),
-                        ),
-                      ),
                   ],
                 ),
               ),

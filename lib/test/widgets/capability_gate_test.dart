@@ -236,9 +236,7 @@ void main() {
     expect(find.byType(PreviousButton), findsOneWidget);
   });
 
-  testWidgets('disabled next stays present and exposes the localized reason', (
-    tester,
-  ) async {
+  testWidgets('disabled next is hidden', (tester) async {
     final provider = RequestCapabilitiesProvider(
       initial: snapshot(
         next: const RequestCapabilityDisabled(
@@ -250,24 +248,7 @@ void main() {
 
     await tester.pumpWidget(playbackControls(provider));
 
-    expect(find.byType(NextButton), findsOneWidget);
-    final disabledOpacity = find
-        .ancestor(of: find.byType(NextButton), matching: find.byType(Opacity))
-        .first;
-    expect(tester.widget<Opacity>(disabledOpacity).opacity, 0.45);
-    expect(
-      tester
-          .widget<Tooltip>(
-            find
-                .ancestor(
-                  of: find.byType(NextButton),
-                  matching: find.byType(Tooltip),
-                )
-                .first,
-          )
-          .message,
-      S.of(tester.element(find.byType(NextButton))).capabilityOwnerOnly,
-    );
+    expect(find.byType(NextButton), findsNothing);
   });
 
   testWidgets('controls are available before the first snapshot', (

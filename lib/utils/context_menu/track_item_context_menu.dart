@@ -226,8 +226,6 @@ Widget buildTrackItemContextMenu(
 
   return MenuFlyout(
     items: [
-      if (supportsOfflineSelection(context))
-        offlineSelectionMenu(context, CollectionType.track, item.file.id),
       MenuFlyoutItem(
         leading: const Icon(Symbols.play_circle),
         text: Text(S.of(context).startPlaying),
@@ -413,6 +411,9 @@ Widget buildTrackItemContextMenu(
             ...mixItems,
           ],
         ),
+      if (supportsOfflineSelection(context)) const MenuFlyoutSeparator(),
+      if (supportsOfflineSelection(context))
+        offlineSelectionMenu(context, CollectionType.track, item.file.id),
     ],
   );
 }

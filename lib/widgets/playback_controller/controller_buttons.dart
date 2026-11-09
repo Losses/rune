@@ -16,6 +16,9 @@ import '../../providers/playback_controller.dart';
 import '../../providers/responsive_providers.dart';
 import '../capability_gate.dart';
 import '../rune_clickable.dart';
+import 'next_button.dart';
+import 'play_pause_button.dart';
+import 'previous_button.dart';
 
 class ControllerButtons extends StatefulWidget {
   const ControllerButtons({super.key});
@@ -55,6 +58,37 @@ class _ControllerButtonsState extends State<ControllerButtons> {
   }
 
   final _menuController = RouterAwareFlyoutController();
+
+  Widget _buildEntryButton(ControllerEntry entry) {
+    final capability = entry.capability(context, true);
+    if (capability case RequestCapabilityDisabled(:final reason)
+        when entry.id == 'previous' ||
+            entry.id == 'next' ||
+            entry.id == 'toggle') {
+      final status = context.read<PlaybackStatusProvider>();
+      final button = switch (entry.id) {
+        'previous' => PreviousButton(disabled: true, shadows: null),
+        'next' => NextButton(disabled: true, shadows: null),
+        _ => PlayPauseButton(
+          disabled: true,
+          state: status.playbackStatus.state,
+          shadows: null,
+        ),
+      };
+      return Tooltip(
+        message: capabilityReasonText(context, reason),
+        child: AxReveal0(child: button),
+      );
+    }
+
+    return Tooltip(
+      message: entry.tooltipBuilder(context),
+      child: CapabilityGate(
+        capability: capability,
+        child: AxReveal0(child: entry.controllerButtonBuilder(context, null)),
+      ),
+    );
+  }
 
   @override
   void dispose() {
@@ -112,15 +146,7 @@ class _ControllerButtonsState extends State<ControllerButtons> {
             in (miniLayout && !coverArtWallLayout)
                 ? miniEntries
                 : visibleEntries)
-          Tooltip(
-            message: entry.tooltipBuilder(context),
-            child: CapabilityGate(
-              capability: entry.capability(context, true),
-              child: AxReveal0(
-                child: entry.controllerButtonBuilder(context, null),
-              ),
-            ),
-          ),
+          _buildEntryButton(entry),
         if (hiddenEntries.isNotEmpty)
           FlyoutTarget(
             controller: _menuController.controller,

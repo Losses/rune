@@ -11,9 +11,10 @@ import '../../bindings/bindings.dart';
 import '../../providers/playlist.dart';
 import '../../providers/status.dart';
 import '../../providers/request_capabilities.dart';
-import '../capability_gate.dart';
 import '../../utils/dialogs/information/error.dart';
 import '../../utils/api/request_failure.dart';
+import '../../utils/router/router_aware_flyout_controller.dart';
+import '../context_menu_wrapper.dart';
 
 String? _unavailableReason(
   BuildContext context,
@@ -31,7 +32,7 @@ String? _unavailableReason(
   };
 }
 
-class PlaylistQueueItem extends StatelessWidget {
+class PlaylistQueueItem extends StatefulWidget {
   const PlaylistQueueItem({
     super.key,
     required this.entry,
@@ -44,18 +45,63 @@ class PlaylistQueueItem extends StatelessWidget {
   final VoidCallback onPlay;
 
   @override
+  State<PlaylistQueueItem> createState() => _PlaylistQueueItemState();
+}
+
+class _PlaylistQueueItemState extends State<PlaylistQueueItem> {
+  final _contextController = RouterAwareFlyoutController();
+  final _contextAttachKey = GlobalKey();
+
+  @override
+  void dispose() {
+    _contextController.dispose();
+    super.dispose();
+  }
+
+  void _showContextMenu(Offset localPosition) {
+    final targetContext = _contextAttachKey.currentContext;
+    if (targetContext == null) return;
+
+    final box = targetContext.findRenderObject() as RenderBox;
+    final position = box.localToGlobal(
+      localPosition,
+      ancestor: Navigator.of(context).context.findRenderObject(),
+    );
+    final removeCapability = capabilityForRequest(
+      context,
+      (capabilities) => capabilities.removeRequest,
+      listen: false,
+    );
+    if (removeCapability is! RequestCapabilityAvailable) return;
+
+    _contextController.showFlyout(
+      position: position,
+      builder: (context) => MenuFlyout(
+        items: [
+          MenuFlyoutItem(
+            leading: const Icon(Symbols.delete),
+            text: Text(S.of(context).removeFromPlaylist),
+            onPressed: () {
+              Navigator.pop(context);
+              this.context.read<PlaylistProvider>().removeItem(
+                widget.entry.index,
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     final typography = FluentTheme.of(context).typography;
     final accentColor = Color.alphaBlend(
       FluentTheme.of(context).inactiveColor.withAlpha(100),
       FluentTheme.of(context).accentColor,
     );
-    final reason = _unavailableReason(context, entry.entry.unavailable);
-    final color = isCurrent ? accentColor : null;
-    final moveCapability = capabilityForRequest(
-      context,
-      (capabilities) => capabilities.movePlaylistItemRequest,
-    );
+    final reason = _unavailableReason(context, widget.entry.entry.unavailable);
+    final color = widget.isCurrent ? accentColor : null;
 
     // The queue stays visible on any target; only switching to an item is gated.
     final canSwitch =
@@ -65,81 +111,62 @@ class PlaylistQueueItem extends StatelessWidget {
             )
             is RequestCapabilityAvailable;
 
-    return ListTile.selectable(
+    final tile = ListTile.selectable(
       title: Transform.translate(
         offset: const Offset(-8, 0),
         child: Row(
           children: [
-            isCurrent
+            widget.isCurrent
                 ? Icon(Symbols.play_arrow, color: color, size: 24)
                 : const SizedBox(width: 24),
             const SizedBox(width: 4),
             SizedBox(
               width: 320,
-              child: Opacity(
-                opacity: reason == null ? 1 : 0.5,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      entry.entry.title,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.entry.entry.title,
+                    overflow: TextOverflow.ellipsis,
+                    style: typography.body?.apply(color: color),
+                  ),
+                  Opacity(
+                    opacity: widget.isCurrent ? 0.8 : 0.46,
+                    child: Text(
+                      widget.entry.entry.artist,
                       overflow: TextOverflow.ellipsis,
-                      style: typography.body?.apply(color: color),
+                      style: typography.caption?.apply(color: color),
                     ),
-                    Opacity(
-                      opacity: isCurrent ? 0.8 : 0.46,
-                      child: Text(
-                        entry.entry.artist,
-                        overflow: TextOverflow.ellipsis,
-                        style: typography.caption?.apply(color: color),
-                      ),
+                  ),
+                  if (reason != null)
+                    Text(
+                      reason,
+                      key: const Key('queue-unavailable-reason'),
+                      overflow: TextOverflow.ellipsis,
+                      style: typography.caption?.apply(color: color),
                     ),
-                    if (reason != null)
-                      Text(
-                        reason,
-                        key: const Key('queue-unavailable-reason'),
-                        overflow: TextOverflow.ellipsis,
-                        style: typography.caption?.apply(color: color),
-                      ),
-                  ],
-                ),
+                ],
               ),
             ),
           ],
         ),
       ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (moveCapability case RequestCapabilityDisabled(:final reason))
-            Tooltip(
-              message: capabilityReasonText(context, reason),
-              child: const Padding(
-                padding: EdgeInsets.all(8),
-                child: Icon(FluentIcons.info),
-              ),
-            ),
-          CapabilityGate(
-            capability: capabilityForRequest(
-              context,
-              (capabilities) => capabilities.removeRequest,
-            ),
-            child: IconButton(
-              icon: const Icon(Symbols.close),
-              onPressed: () =>
-                  context.read<PlaylistProvider>().removeItem(entry.index),
-            ),
-          ),
-        ],
-      ),
       onPressed: reason == null
-          ? (canSwitch ? onPlay : null)
+          ? (canSwitch ? widget.onPlay : null)
           : () => showErrorDialog(
               context: context,
               title: S.of(context).unavailable,
-              subtitle: entry.entry.title,
+              subtitle: widget.entry.entry.title,
               errorMessage: reason,
             ),
+    );
+
+    return ContextMenuWrapper(
+      contextAttachKey: _contextAttachKey,
+      contextController: _contextController,
+      onContextMenu: _showContextMenu,
+      onMiddleClick: (_) {},
+      child: tile,
     );
   }
 }
