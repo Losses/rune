@@ -48,7 +48,7 @@ class WelcomePage extends StatelessWidget {
         alias,
       );
       if (record == null) return;
-      libraryManager.scanLibrary(path, isInitializeTask: true);
+      libraryManager.scanLibrary(record.recordId, isInitializeTask: true);
     } catch (error) {
       if (!context.mounted) return;
       await showFailedToInitializeLibrary(

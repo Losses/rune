@@ -43,9 +43,8 @@ class _ScanningPageState extends State<ScanningPage>
     final libraryPath = Provider.of<LibraryOpenStateProvider>(context);
     final libraryManager = Provider.of<LibraryManagerProvider>(context);
 
-    final progress = libraryManager.getScanTaskProgress(
-      libraryPath.openLocalFolderPath ?? "",
-    );
+    final recordId = libraryPath.openRecord?.recordId;
+    final progress = libraryManager.getScanTaskProgress(recordId);
 
     final task = progress?.type ?? ScanTaskType.indexFiles;
     final count = progress?.progress ?? 0;
@@ -78,7 +77,7 @@ class _ScanningPageState extends State<ScanningPage>
                   const SizedBox(height: 12),
                   Button(
                     onPressed: () => libraryManager.scanLibrary(
-                      libraryPath.openLocalFolderPath ?? '',
+                      recordId ?? '',
                       isInitializeTask: true,
                     ),
                     child: Text(S.of(context).scan),

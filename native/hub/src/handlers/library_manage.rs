@@ -29,7 +29,6 @@ use crate::{
     library_pool::LibraryHandle,
     messages::*,
     node::NodeContext,
-    server::http::file::validate_remote_media_path,
     utils::{Broadcaster, GlobalParams, ParamsExtractor, determine_batch_size, require_library},
 };
 
@@ -99,20 +98,11 @@ impl Signal for ScanAudioLibraryRequest {
     async fn handle(
         &self,
         (library, node_id, task_tokens, broadcaster, sync_settings): Self::Params,
-        session: Option<Session>,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<()>> {
         let library = require_library(library)?;
-        let local_folder = library
-            .descriptor
-            .local_folder_path()
-            .context("Open record has no local folder to scan")?;
-        validate_remote_media_path(
-            session.as_ref(),
-            &library.fsio,
-            Path::new(local_folder),
-            Path::new(&library.fs_path(&dart_signal.path)),
-        )?;
+        let record_id = library.descriptor.record_id.0.to_string();
         let mut tokens = task_tokens.lock().await;
         // If there is scanning task
         if let Some(token) = tokens.scan_token.take() {
@@ -123,14 +113,13 @@ impl Signal for ScanAudioLibraryRequest {
         let new_token = CancellationToken::new();
         tokens.scan_token = Some(new_token.clone());
         tokens.scan_id = Some(dart_signal.scan_id.clone());
+        tokens.scan_record_id = Some(record_id.clone());
         drop(tokens); // Release the lock
 
         // Clone all the data we need before spawning the task
-        let request_path = dart_signal.path.clone();
-        let fs_path = library.fs_path(&request_path);
-        // FsIo on Android is rooted at the granted SAF tree; the content://
-        // URI Dart passes is not a path inside that tree. Scans always start
-        // at the tree root there.
+        let fs_path = library.media_root.clone();
+        // FsIo on Android is rooted at the granted SAF tree, so an empty path
+        // addresses the tree root.
         #[cfg(target_os = "android")]
         let scan_path = if fs_path.starts_with("content://") {
             String::new()
@@ -147,7 +136,7 @@ impl Signal for ScanAudioLibraryRequest {
         let scan_id = dart_signal.scan_id.clone();
         let worker_id = scan_id.clone();
         let supervisor_token = new_token.clone();
-        let supervisor_path = request_path.clone();
+        let supervisor_record_id = record_id.clone();
         let supervisor_broadcaster = broadcaster.clone();
         let supervisor_tokens = task_tokens.clone();
         let worker = task::spawn_blocking(move || {
@@ -180,7 +169,7 @@ impl Signal for ScanAudioLibraryRequest {
                             broadcaster_clone.broadcast(&ScanAudioLibraryProgress {
                                 scan_id: worker_id.clone(),
                                 task: ScanTaskType::IndexFiles,
-                                path: request_path.clone(),
+                                record_id: record_id.clone(),
                                 progress: progress.try_into().unwrap(),
                                 total: 0,
                             });
@@ -197,7 +186,7 @@ impl Signal for ScanAudioLibraryRequest {
 
                     let batch_size = determine_batch_size(0.75);
                     let cloned_broadcaster = Arc::clone(&broadcaster_clone);
-                    let path_for_closure = request_path.clone();
+                    let record_id_for_closure = record_id.clone();
                     let id_for_closure = worker_id.clone();
 
                     scan_cover_arts(
@@ -209,7 +198,7 @@ impl Signal for ScanAudioLibraryRequest {
                             cloned_broadcaster.broadcast(&ScanAudioLibraryProgress {
                                 scan_id: id_for_closure.clone(),
                                 task: ScanTaskType::ScanCoverArts,
-                                path: path_for_closure.clone(),
+                                record_id: record_id_for_closure.clone(),
                                 progress: now.try_into().unwrap(),
                                 total: total.try_into().unwrap(),
                             });
@@ -230,7 +219,7 @@ impl Signal for ScanAudioLibraryRequest {
         task::spawn(supervise_scan(
             worker,
             supervisor_token,
-            supervisor_path,
+            supervisor_record_id,
             scan_id,
             supervisor_broadcaster,
             supervisor_tokens,
@@ -243,7 +232,7 @@ impl Signal for ScanAudioLibraryRequest {
 async fn supervise_scan(
     worker: task::JoinHandle<Result<usize>>,
     supervisor_token: CancellationToken,
-    supervisor_path: String,
+    record_id: String,
     scan_id: String,
     supervisor_broadcaster: Arc<dyn Broadcaster>,
     supervisor_tokens: Arc<Mutex<TaskTokens>>,
@@ -263,18 +252,19 @@ async fn supervise_scan(
         },
     };
     if status == "failed" {
-        warn!("Scan failed for {supervisor_path}: {error}");
+        warn!("Scan failed for library record {record_id}: {error}");
     }
     if tokens.scan_id.as_ref() == Some(&scan_id) {
         tokens.scan_token = None;
         tokens.scan_id = None;
+        tokens.scan_record_id = None;
     }
     drop(tokens);
     supervisor_broadcaster.broadcast(&ScanAudioLibraryResponse {
         scan_id,
         status: status.to_string(),
         error,
-        path: supervisor_path,
+        record_id,
         progress,
     });
 }
@@ -318,20 +308,10 @@ impl Signal for AnalyzeAudioLibraryRequest {
     async fn handle(
         &self,
         (library, _node_id, task_tokens, broadcaster): Self::Params,
-        session: Option<Session>,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let library = require_library(library)?;
-        let local_folder = library
-            .descriptor
-            .local_folder_path()
-            .context("Open record has no local folder to analyze")?;
-        validate_remote_media_path(
-            session.as_ref(),
-            &library.fsio,
-            Path::new(local_folder),
-            Path::new(&library.fs_path(&dart_signal.path)),
-        )?;
         let mut tokens = task_tokens.lock().await;
         if let Some(token) = tokens.scan_token.take() {
             token.cancel();
@@ -339,17 +319,17 @@ impl Signal for AnalyzeAudioLibraryRequest {
 
         let new_token = CancellationToken::new();
         tokens.analyze_token = Some(new_token.clone());
+        let record_id = library.descriptor.record_id.0.to_string();
+        tokens.analyze_record_id = Some(record_id.clone());
         drop(tokens);
 
         // Clone the data from dart_signal before spawning the task
         let request = dart_signal;
         debug!("Analyzing media files: {request:#?}");
 
-        let request_path = request.path.clone();
-        let closure_request_path = request_path.clone();
-        let fs_path = library.fs_path(&request_path);
-        // See ScanAudioLibraryRequest: on Android the content:// URI is not a
-        // path inside the SAF tree; analysis starts at the tree root.
+        let closure_record_id = record_id.clone();
+        let fs_path = library.media_root.clone();
+        // See ScanAudioLibraryRequest: analysis starts at the FsIo root on Android.
         #[cfg(target_os = "android")]
         let analysis_path = if fs_path.starts_with("content://") {
             String::new()
@@ -375,7 +355,7 @@ impl Signal for AnalyzeAudioLibraryRequest {
                         computing_device.into(),
                         move |progress, total| {
                             cloned_broadcaster.broadcast(&AnalyzeAudioLibraryProgress {
-                                path: closure_request_path.clone(),
+                                record_id: closure_record_id.clone(),
                                 progress: progress.try_into().unwrap(),
                                 total: total.try_into().unwrap(),
                             });
@@ -390,7 +370,7 @@ impl Signal for AnalyzeAudioLibraryRequest {
                         .with_context(|| "Recommendation synchronization failed")?;
 
                     broadcaster.broadcast(&AnalyzeAudioLibraryResponse {
-                        path: request_path.clone(),
+                        record_id: record_id.clone(),
                         total: total_files as i32,
                     });
 
@@ -438,20 +418,10 @@ impl Signal for DeduplicateAudioLibraryRequest {
     async fn handle(
         &self,
         (library, node_id, task_tokens, broadcaster): Self::Params,
-        session: Option<Session>,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let library = require_library(library)?;
-        let local_folder = library
-            .descriptor
-            .local_folder_path()
-            .context("Open record has no local folder to deduplicate")?;
-        validate_remote_media_path(
-            session.as_ref(),
-            &library.fsio,
-            Path::new(local_folder),
-            Path::new(&library.fs_path(&dart_signal.path)),
-        )?;
         let mut tokens = task_tokens.lock().await;
         if let Some(token) = tokens.deduplicate_token.take() {
             token.cancel();
@@ -459,21 +429,30 @@ impl Signal for DeduplicateAudioLibraryRequest {
 
         let new_token = CancellationToken::new();
         tokens.deduplicate_token = Some(new_token.clone());
+        let record_id = library.descriptor.record_id.0.to_string();
+        tokens.deduplicate_record_id = Some(record_id.clone());
         drop(tokens);
 
         let request = dart_signal;
-        let request_path = Arc::new(request.path.clone());
-        let fs_path = library.fs_path(&request.path);
+        let fs_path = library.media_root.clone();
+        #[cfg(target_os = "android")]
+        let deduplicate_path = if fs_path.starts_with("content://") {
+            String::new()
+        } else {
+            fs_path
+        };
+        #[cfg(not(target_os = "android"))]
+        let deduplicate_path = fs_path;
         let batch_size = determine_batch_size(request.workload_factor);
         let config = Configuration::default();
         let similarity_threshold = request.similarity_threshold;
 
-        let request_path_clone = request_path.clone();
+        let request_record_id = record_id.clone();
         task::spawn_blocking(move || {
             let _library = library;
             let rt = Runtime::new().unwrap();
 
-            let request_path_clone = request_path_clone.clone();
+            let request_record_id = request_record_id.clone();
             rt.block_on(async {
                 let uuid_node_id = match Uuid::parse_str(&node_id) {
                     Ok(id) => id,
@@ -483,7 +462,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
                         // But for now logging it and returning.
                         log::error!("Invalid node ID {node_id}: {e}");
                         broadcaster_clone.broadcast(&DeduplicateAudioLibraryResponse {
-                            path: request_path_clone.to_string(),
+                            record_id: request_record_id.clone(),
                         });
                         return Ok(());
                     }
@@ -493,19 +472,19 @@ impl Signal for DeduplicateAudioLibraryRequest {
                 let record_store = _library.library_sync.record_store();
                 // Stage 1: Compute fingerprints (0% - 33%)
                 let broadcaster_clone = Arc::clone(&broadcaster);
-                let progress_path = request_path_clone.to_string();
+                let progress_record_id = request_record_id.clone();
 
-                let request_path_clone = request_path_clone.to_string();
+                let request_record_id = request_record_id.clone();
                 compute_file_fingerprints(
                     Arc::clone(&_library.fsio),
                     &_library.main_db,
-                    Path::new(&fs_path),
+                    Path::new(&deduplicate_path),
                     batch_size,
                     move |cur, total| {
                         let progress = cur as f32 / total as f32 * 0.33;
 
                         broadcaster_clone.broadcast(&DeduplicateAudioLibraryProgress {
-                            path: progress_path.clone(),
+                            record_id: progress_record_id.clone(),
                             progress: (progress * 100.0) as i32,
                             total: 100,
                         })
@@ -519,7 +498,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
 
                 // Stage 2: Compare all pairs (33% - 66%)
                 let broadcaster_clone = Arc::clone(&broadcaster);
-                let progress_path = request_path_clone.to_string();
+                let progress_record_id = request_record_id.clone();
 
                 compare_all_pairs(
                     &_library.main_db,
@@ -527,7 +506,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
                         let progress = 0.33 + cur as f32 / total as f32 * 0.33;
 
                         broadcaster_clone.broadcast(&DeduplicateAudioLibraryProgress {
-                            path: progress_path.clone(),
+                            record_id: progress_record_id.clone(),
                             progress: (progress * 100.0) as i32,
                             total: 100,
                         });
@@ -543,7 +522,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
                 // Stage 3: Mark duplicates (66% - 100%)
                 if !new_token.is_cancelled() {
                     let broadcaster_clone = Arc::clone(&broadcaster);
-                    let progress_path = request_path_clone.to_string();
+                    let progress_record_id = request_record_id.clone();
 
                     mark_duplicate_files(
                         &_library.main_db,
@@ -552,7 +531,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
                             let progress = 0.66 + cur as f32 / total as f32 * 0.34;
 
                             broadcaster_clone.broadcast(&DeduplicateAudioLibraryProgress {
-                                path: progress_path.clone(),
+                                record_id: progress_record_id.clone(),
                                 progress: (progress * 100.0) as i32,
                                 total: 100,
                             });
@@ -562,9 +541,8 @@ impl Signal for DeduplicateAudioLibraryRequest {
                     .await?;
                 }
 
-                let request_path_clone = request_path_clone.to_string();
                 broadcaster.broadcast(&DeduplicateAudioLibraryResponse {
-                    path: request_path_clone,
+                    record_id: request_record_id,
                 });
 
                 Ok::<(), anyhow::Error>(())
@@ -598,16 +576,27 @@ impl Signal for CancelTaskRequest {
 
         let success = match request.r#type {
             CancelTaskType::AnalyzeAudioLibrary => {
-                if let Some(token) = tokens.analyze_token.take() {
+                if tokens.analyze_record_id.as_deref() == Some(&request.record_id) {
+                    let Some(token) = tokens.analyze_token.take() else {
+                        return Ok(Some(CancelTaskResponse {
+                            record_id: request.record_id.clone(),
+                            r#type: request.r#type,
+                            success: false,
+                        }));
+                    };
                     warn!("Cancelling analyze task");
                     token.cancel();
+                    tokens.analyze_record_id = None;
                     true
                 } else {
                     false
                 }
             }
             CancelTaskType::ScanAudioLibrary => {
-                if request.scan_id.is_none() || request.scan_id != tokens.scan_id {
+                if request.scan_id.is_none()
+                    || request.scan_id != tokens.scan_id
+                    || tokens.scan_record_id.as_deref() != Some(&request.record_id)
+                {
                     false
                 } else if let Some(token) = tokens.scan_token.take() {
                     warn!("Cancelling scan task");
@@ -617,11 +606,27 @@ impl Signal for CancelTaskRequest {
                     false
                 }
             }
-            _ => false,
+            CancelTaskType::DeduplicateAudioLibrary => {
+                if tokens.deduplicate_record_id.as_deref() == Some(&request.record_id) {
+                    let Some(token) = tokens.deduplicate_token.take() else {
+                        return Ok(Some(CancelTaskResponse {
+                            record_id: request.record_id.clone(),
+                            r#type: request.r#type,
+                            success: false,
+                        }));
+                    };
+                    warn!("Cancelling deduplicate task");
+                    token.cancel();
+                    tokens.deduplicate_record_id = None;
+                    true
+                } else {
+                    false
+                }
+            }
         };
 
         Ok(Some(CancelTaskResponse {
-            path: request.path.clone(),
+            record_id: request.record_id.clone(),
             r#type: request.r#type,
             success,
         }))
@@ -756,7 +761,7 @@ mod scan_supervisor_tests {
             ..Default::default()
         }));
         let request = CancelTaskRequest {
-            path: "library".into(),
+            record_id: "library".into(),
             scan_id: Some("old".into()),
             r#type: CancelTaskType::ScanAudioLibrary,
         };
@@ -775,7 +780,6 @@ mod scan_supervisor_tests {
         let tokens = Arc::new(Mutex::new(TaskTokens::default()));
         let request = ScanAudioLibraryRequest {
             scan_id: "handler".into(),
-            path: "/tmp".into(),
             force: false,
         };
         let error = request
@@ -795,7 +799,7 @@ mod scan_supervisor_tests {
         assert!(format!("{error:#}").contains("no library is open on this device"));
     }
     #[tokio::test]
-    async fn scan_requires_the_open_record_to_have_a_local_folder() -> Result<()> {
+    async fn scanning_an_open_replica_scans_its_folder() -> Result<()> {
         use crate::library_pool::LibraryPool;
         use database::library_registry::{LibraryRegistry, create_replica};
 
@@ -825,30 +829,24 @@ mod scan_supervisor_tests {
             host: "127.0.0.1".into(),
         };
 
-        let outside = tempfile::TempDir::new()?;
-        let request = ScanAudioLibraryRequest {
-            scan_id: "outside".into(),
-            path: outside.path().to_string_lossy().into_owned(),
-            force: false,
-        };
-        assert!(
-            request
-                .handle(params(), Some(session()), &request)
-                .await
-                .is_err()
-        );
-
         let request = ScanAudioLibraryRequest {
             scan_id: "replica".into(),
-            path: library.media_root.clone(),
             force: false,
         };
-        assert!(
-            request
-                .handle(params(), Some(session()), &request)
-                .await
-                .is_err()
-        );
+        request.handle(params(), Some(session()), &request).await?;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if !capture.0.lock().unwrap().is_empty() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await?;
+        let events = capture.0.lock().unwrap();
+        let response: ScanAudioLibraryResponse = rinf::deserialize(&events[0])?;
+        assert_eq!(response.status, "success");
+        assert_eq!(response.progress, 1);
         Ok(())
     }
 }

@@ -5313,7 +5313,7 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
         .broadcaster
         .broadcast(&ScanAudioLibraryProgress {
             scan_id: "declared-scan".into(),
-            path: "declared-library".into(),
+            record_id: "declared-library".into(),
             progress: 1,
             total: 2,
             task: ScanTaskType::IndexFiles,
@@ -5324,20 +5324,20 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
             scan_id: "declared-scan".into(),
             status: "complete".into(),
             error: String::new(),
-            path: "declared-library".into(),
+            record_id: "declared-library".into(),
             progress: 2,
         });
     b.global_params
         .broadcaster
         .broadcast(&AnalyzeAudioLibraryProgress {
-            path: "declared-library".into(),
+            record_id: "declared-library".into(),
             progress: 1,
             total: 2,
         });
     b.global_params
         .broadcaster
         .broadcast(&AnalyzeAudioLibraryResponse {
-            path: "declared-library".into(),
+            record_id: "declared-library".into(),
             total: 2,
         });
     timeout(Duration::from_secs(10), async {
@@ -5491,7 +5491,7 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
         .broadcaster
         .broadcast(&ScanAudioLibraryProgress {
             scan_id: "rr-scan".into(),
-            path: "B".into(),
+            record_id: "B".into(),
             progress: 3,
             total: 10,
             task: ScanTaskType::IndexFiles,

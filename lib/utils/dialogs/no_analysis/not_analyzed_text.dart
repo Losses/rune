@@ -18,10 +18,10 @@ class NotAnalyzedText extends StatelessWidget {
     final libraryManager =
         Provider.of<LibraryManagerProvider>(context, listen: true);
     final libraryPath = Provider.of<LibraryOpenStateProvider>(context, listen: true);
-    final itemPath = libraryPath.openLocalFolderPath ?? '';
+    final recordId = libraryPath.openRecord?.recordId ?? '';
 
-    final scanProgress = libraryManager.getScanTaskProgress(itemPath);
-    final analyzeProgress = libraryManager.getAnalyzeTaskProgress(itemPath);
+    final scanProgress = libraryManager.getScanTaskProgress(recordId);
+    final analyzeProgress = libraryManager.getAnalyzeTaskProgress(recordId);
 
     final scanWorking = scanProgress?.status == TaskStatus.working;
     final analyzeWorking = analyzeProgress?.status == TaskStatus.working;

@@ -17,10 +17,7 @@ use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use tower::ServiceExt;
 use tower_http::services::ServeDir;
 
-use crate::{
-    Session,
-    server::{ServerState, access::AuthorizedLibrary},
-};
+use crate::server::{ServerState, access::AuthorizedLibrary};
 use futures::StreamExt;
 
 /// Canonicalize a requested media path and require it to remain within the library root.
@@ -51,18 +48,6 @@ pub fn canonicalize_media_path(
         return Err(invalid_media_path().into());
     }
     Ok(canonical)
-}
-
-pub fn validate_remote_media_path(
-    session: Option<&Session>,
-    fsio: &FsIo,
-    media_root: &FilePath,
-    requested: &FilePath,
-) -> Result<()> {
-    if session.is_some() {
-        canonicalize_media_path(fsio, media_root, requested)?;
-    }
-    Ok(())
 }
 
 fn invalid_media_path() -> ExpectedError {

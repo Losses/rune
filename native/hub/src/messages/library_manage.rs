@@ -22,7 +22,6 @@ pub struct CloseLibraryResponse {}
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct ScanAudioLibraryRequest {
     pub scan_id: String,
-    pub path: String,
     pub force: bool,
 }
 
@@ -35,7 +34,7 @@ pub enum ScanTaskType {
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct ScanAudioLibraryProgress {
     pub scan_id: String,
-    pub path: String,
+    pub record_id: String,
     pub progress: i32,
     pub total: i32,
     pub task: ScanTaskType,
@@ -46,7 +45,7 @@ pub struct ScanAudioLibraryResponse {
     pub scan_id: String,
     pub status: String,
     pub error: String,
-    pub path: String,
+    pub record_id: String,
     pub progress: i32,
 }
 
@@ -58,41 +57,39 @@ pub enum ComputingDeviceRequest {
 
 #[derive(Debug, Serialize, Deserialize, DartSignal)]
 pub struct AnalyzeAudioLibraryRequest {
-    pub path: String,
     pub computing_device: ComputingDeviceRequest,
     pub workload_factor: f32,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct AnalyzeAudioLibraryProgress {
-    pub path: String,
+    pub record_id: String,
     pub progress: i32,
     pub total: i32,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct AnalyzeAudioLibraryResponse {
-    pub path: String,
+    pub record_id: String,
     pub total: i32,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct DeduplicateAudioLibraryRequest {
-    pub path: String,
     pub similarity_threshold: f32,
     pub workload_factor: f32,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct DeduplicateAudioLibraryProgress {
-    pub path: String,
+    pub record_id: String,
     pub progress: i32,
     pub total: i32,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct DeduplicateAudioLibraryResponse {
-    pub path: String,
+    pub record_id: String,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,13 +102,13 @@ pub enum CancelTaskType {
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct CancelTaskRequest {
     pub scan_id: Option<String>,
-    pub path: String,
+    pub record_id: String,
     pub r#type: CancelTaskType,
 }
 
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct CancelTaskResponse {
-    pub path: String,
+    pub record_id: String,
     pub r#type: CancelTaskType,
     pub success: bool,
 }

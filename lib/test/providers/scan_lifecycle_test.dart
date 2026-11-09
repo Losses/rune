@@ -11,7 +11,15 @@ import 'package:rune/providers/library_manager.dart';
 
 class FakeLibraryPath extends ChangeNotifier implements LibraryOpenStateProvider {
   @override
+  LibraryRecordSummary? get openRecord => const LibraryRecordSummary(
+    recordId: 'test-record',
+    alias: 'Test',
+    kind: LibraryRecordKindSummaryLocal(libraryId: 'test-library', path: '/test/library'),
+  );
+  @override
   String? get openLocalFolderPath => '/test/library';
+  @override
+  bool get hasCatalog => true;
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -25,21 +33,21 @@ void main() {
       final requests = <ScanAudioLibraryRequest>[];
       final manager = LibraryManagerProvider(sendScanRequest: requests.add);
       addTearDown(manager.dispose);
-      const path = '/test/library';
-      await manager.scanLibrary(path);
+      const recordId = 'test-record';
+      await manager.scanLibrary(recordId);
       final old = requests.last.scanId;
-      final firstWait = manager.waitForScanToComplete(path);
-      await manager.scanLibrary(path);
+      final firstWait = manager.waitForScanToComplete(recordId);
+      await manager.scanLibrary(recordId);
       expect(await firstWait, TaskStatus.cancelled);
       final active = requests.last.scanId;
-      final wait = manager.waitForScanToComplete(path);
+      final wait = manager.waitForScanToComplete(recordId);
 
       void terminal(String id, String status) {
         final response = ScanAudioLibraryResponse(
           scanId: id,
           status: status,
           error: status == 'failed' ? 'injected failure' : '',
-          path: path,
+          recordId: recordId,
           progress: 0,
         );
         assignRustSignal['ScanAudioLibraryResponse']!(
@@ -50,26 +58,26 @@ void main() {
 
       terminal(old, 'success');
       await Future<void>.delayed(Duration.zero);
-      expect(manager.getScanTaskProgress(path)?.status, TaskStatus.working);
+      expect(manager.getScanTaskProgress(recordId)?.status, TaskStatus.working);
       terminal(active, 'failed');
       expect(await wait, TaskStatus.failed);
-      expect(await manager.waitForScanToComplete(path), TaskStatus.failed);
-      expect(manager.getScanTaskProgress(path)?.error, 'injected failure');
+      expect(await manager.waitForScanToComplete(recordId), TaskStatus.failed);
+      expect(manager.getScanTaskProgress(recordId)?.error, 'injected failure');
 
-      await manager.scanLibrary(path);
-      final cancelled = manager.waitForScanToComplete(path);
+      await manager.scanLibrary(recordId);
+      final cancelled = manager.waitForScanToComplete(recordId);
       terminal(requests.last.scanId, 'cancelled');
       expect(await cancelled, TaskStatus.cancelled);
-      expect(await manager.waitForScanToComplete(path), TaskStatus.cancelled);
+      expect(await manager.waitForScanToComplete(recordId), TaskStatus.cancelled);
 
-      await manager.scanLibrary(path);
-      final cleared = manager.waitForScanToComplete(path);
+      await manager.scanLibrary(recordId);
+      final cleared = manager.waitForScanToComplete(recordId);
       final stale = requests.last.scanId;
-      manager.clearAll(path);
+      manager.clearAll(recordId);
       expect(await cleared, TaskStatus.cancelled);
       terminal(stale, 'success');
       await Future<void>.delayed(Duration.zero);
-      expect(manager.getScanTaskProgress(path), isNull);
+      expect(manager.getScanTaskProgress(recordId), isNull);
     },
   );
   test('successful initialization navigates only for success', () async {
@@ -80,12 +88,12 @@ void main() {
       navigate: routes.add,
     );
     addTearDown(manager.dispose);
-    await manager.scanLibrary('/test/library', isInitializeTask: true);
+    await manager.scanLibrary('test-record', isInitializeTask: true);
     final response = ScanAudioLibraryResponse(
       scanId: requests.last.scanId,
       status: 'success',
       error: '',
-      path: '/test/library',
+      recordId: 'test-record',
       progress: 1,
     );
     assignRustSignal['ScanAudioLibraryResponse']!(
@@ -95,12 +103,12 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     expect(routes, ['/scanning', '/library']);
     for (final status in ['failed', 'cancelled']) {
-      await manager.scanLibrary('/test/library', isInitializeTask: true);
+      await manager.scanLibrary('test-record', isInitializeTask: true);
       final response = ScanAudioLibraryResponse(
         scanId: requests.last.scanId,
         status: status,
         error: '',
-        path: '/test/library',
+        recordId: 'test-record',
         progress: 0,
       );
       assignRustSignal['ScanAudioLibraryResponse']!(
@@ -119,12 +127,12 @@ void main() {
       navigate: (_) {},
     );
     addTearDown(manager.dispose);
-    await manager.scanLibrary('/test/library', isInitializeTask: true);
+    await manager.scanLibrary('test-record', isInitializeTask: true);
     final response = ScanAudioLibraryResponse(
       scanId: requests.last.scanId,
       status: 'failed',
       error: 'injected failure',
-      path: '/test/library',
+      recordId: 'test-record',
       progress: 0,
     );
     assignRustSignal['ScanAudioLibraryResponse']!(
@@ -150,12 +158,12 @@ void main() {
     await tester.pump();
     expect(find.textContaining('injected failure'), findsOneWidget);
     expect(find.byType(Button), findsNWidgets(2));
-    await manager.scanLibrary('/test/library', isInitializeTask: true);
+    await manager.scanLibrary('test-record', isInitializeTask: true);
     final cancelled = ScanAudioLibraryResponse(
       scanId: requests.last.scanId,
       status: 'cancelled',
       error: '',
-      path: '/test/library',
+      recordId: 'test-record',
       progress: 0,
     );
     assignRustSignal['ScanAudioLibraryResponse']!(

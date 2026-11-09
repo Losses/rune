@@ -195,10 +195,10 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                             record.recordId == selectedItem;
 
                         final scanProgress = libraryManager.getScanTaskProgress(
-                          itemPath,
+                          record.recordId,
                         );
                         final analyzeProgress = libraryManager
-                            .getAnalyzeTaskProgress(itemPath);
+                            .getAnalyzeTaskProgress(record.recordId);
 
                         final scanWorking =
                             scanProgress?.status == TaskStatus.working;

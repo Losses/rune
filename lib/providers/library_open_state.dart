@@ -27,6 +27,7 @@ class LibraryOpenStateProvider with ChangeNotifier {
     LibraryRecordKindSummaryReplica(:final libraryId) => libraryId,
     _ => null,
   };
+  bool get hasCatalog => catalogLibraryId != null;
   bool get isReadOnlyReplica => switch (openRecord) {
     LibraryRecordSummary(
       kind: LibraryRecordKindSummaryReplica(:final ownerFingerprint),

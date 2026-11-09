@@ -98,8 +98,11 @@ pub async fn initialize_databases(
 pub struct TaskTokens {
     pub scan_token: Option<CancellationToken>,
     pub scan_id: Option<String>,
+    pub scan_record_id: Option<String>,
     pub analyze_token: Option<CancellationToken>,
+    pub analyze_record_id: Option<String>,
     pub deduplicate_token: Option<CancellationToken>,
+    pub deduplicate_record_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]

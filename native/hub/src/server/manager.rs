@@ -2747,7 +2747,6 @@ mod lifecycle_tests {
                 "ScanAudioLibraryRequest",
                 rinf::serialize(&ScanAudioLibraryRequest {
                     scan_id: "forbidden".into(),
-                    path: first.path().to_string_lossy().into_owned(),
                     force: false,
                 })?,
             ),
