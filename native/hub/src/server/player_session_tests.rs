@@ -4999,6 +4999,9 @@ async fn typed_renderer_call_rejects_wrong_reply_name() -> Result<()> {
                 encode_message("SessionSnapshotResponse", &[], Some(request_id)).into(),
             ))
             .await?;
+        // Stay open until the link closes: dropping the socket now makes Windows reset the
+        // connection, which can discard the reply before the link reads it.
+        while let Some(Ok(_)) = socket.next().await {}
         Ok::<_, anyhow::Error>(())
     });
     let (stream, _) = connect_async(format!("ws://{address}")).await?;
@@ -5037,6 +5040,7 @@ async fn typed_renderer_call_rejects_wrong_reply_name() -> Result<()> {
         "unexpected typed call error: {error:#}"
     );
     link.close();
+    drop(link);
     fake_renderer.await??;
     fixture.global_params.node.shutdown().await?;
     Ok(())
