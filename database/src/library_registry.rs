@@ -8,10 +8,11 @@ use anyhow::{Context, Result, bail, ensure};
 use fsio::FsIo;
 use log::warn;
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, MutexGuard};
 use uuid::Uuid;
 
 use crate::connection::StorageMode;
+use crate::credentials::{CredentialRef, CredentialStore, CredentialStoreError};
 
 static REGISTRY_WRITE: Mutex<()> = Mutex::const_new(());
 
@@ -59,7 +60,7 @@ pub enum LibraryKind {
     },
     Subsonic {
         endpoint: String,
-        account: String,
+        credential: CredentialRef,
         mode: SubsonicOpenMode,
     },
 }
@@ -413,22 +414,37 @@ impl LibraryRegistry {
     }
 
     /// Remove one node-local record without changing its catalog or storage files.
-    pub async fn remove_record(config_dir: &Path, record_id: LibraryRecordId) -> Result<bool> {
-        Self::update(config_dir, |registry| {
+    pub async fn remove_record(
+        config_dir: &Path,
+        record_id: LibraryRecordId,
+        credentials: &CredentialStore,
+    ) -> Result<bool> {
+        let (removed, credential) = Self::update(config_dir, |registry| {
             let Some(index) = registry
                 .libraries
                 .iter()
                 .position(|record| record.record_id == record_id)
             else {
-                return Ok(false);
+                return Ok((false, None));
             };
-            registry.libraries.remove(index);
+            let record = registry.libraries.remove(index);
+            let credential = match record.kind {
+                LibraryKind::Subsonic { credential, .. } => Some(credential),
+                _ => None,
+            };
             if registry.last_open_record == Some(record_id) {
                 registry.last_open_record = None;
             }
-            Ok(true)
+            Ok((true, credential))
         })
-        .await
+        .await?;
+        if let Some(credential) = credential {
+            match credentials.remove(credential).await {
+                Ok(()) | Err(CredentialStoreError::CredentialMissing(_)) => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(removed)
     }
 
     /// Record an authority's current grant on its replica.
@@ -543,6 +559,10 @@ impl LibraryRegistry {
         }
         result
     }
+}
+
+pub(crate) async fn registry_write_guard() -> MutexGuard<'static, ()> {
+    REGISTRY_WRITE.lock().await
 }
 
 /// Resolve a local library's identity and update the node registry.
@@ -1215,7 +1235,7 @@ mod tests {
                 alias: "Subsonic".into(),
                 kind: LibraryKind::Subsonic {
                     endpoint: "https://music.example/base".into(),
-                    account: "alice".into(),
+                    credential: CredentialRef(Uuid::new_v4()),
                     mode: SubsonicOpenMode::PlayOnThisDevice,
                 },
             },
@@ -1269,7 +1289,7 @@ mod tests {
                     alias: "Subsonic".into(),
                     kind: LibraryKind::Subsonic {
                         endpoint: "https://music.example".into(),
-                        account: "alice".into(),
+                        credential: CredentialRef(Uuid::new_v4()),
                         mode: SubsonicOpenMode::RemoteControl,
                     },
                 },

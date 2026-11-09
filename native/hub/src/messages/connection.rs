@@ -118,11 +118,9 @@ impl From<&LibraryRecord> for LibraryRecordSummary {
                     endpoint: None,
                 }
             }
-            LibraryKind::Subsonic {
-                endpoint, account, ..
-            } => LibraryRecordKindSummary::Subsonic {
+            LibraryKind::Subsonic { endpoint, .. } => LibraryRecordKindSummary::Subsonic {
                 endpoint: endpoint.clone(),
-                account: account.clone(),
+                account: String::new(),
             },
         };
         Self {

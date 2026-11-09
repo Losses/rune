@@ -3,6 +3,7 @@ use std::{collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::Result;
 use database::library_registry::{LibraryKind, LibraryRecordId, LibraryRegistry};
+use log::warn;
 use uuid::Uuid;
 
 use crate::{
@@ -36,6 +37,21 @@ async fn record_summaries(
     let mut records = Vec::with_capacity(registry.libraries.len());
     for record in &registry.libraries {
         let mut summary = LibraryRecordSummary::from(record);
+        if let (
+            LibraryKind::Subsonic { credential, .. },
+            LibraryRecordKindSummary::Subsonic { account, .. },
+        ) = (&record.kind, &mut summary.kind)
+        {
+            // An unreadable credential must not hide every other library; opening this one
+            // reports the typed error instead.
+            match node.credentials.get(*credential).await {
+                Ok(stored) => *account = stored.username,
+                Err(error) => warn!(
+                    "Could not read the account of {}: {error}",
+                    record.record_id.0
+                ),
+            }
+        }
         match &mut summary.kind {
             LibraryRecordKindSummary::Replica {
                 owner_fingerprint,
@@ -170,7 +186,7 @@ impl Signal for RemoveLibraryRecordRequest {
             }));
         };
         let library_id = record.catalog_library_id();
-        if !LibraryRegistry::remove_record(config, LibraryRecordId(id)).await? {
+        if !LibraryRegistry::remove_record(config, LibraryRecordId(id), &node.credentials).await? {
             return Ok(Some(RemoveLibraryRecordResponse {
                 outcome: RemoveLibraryRecordOutcome::Failed(
                     RemoveLibraryRecordFailureKind::RecordNotFound,

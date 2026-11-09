@@ -1,5 +1,6 @@
 pub mod actions;
 pub mod connection;
+pub mod credentials;
 pub mod entities;
 pub mod error;
 pub mod playing_item;

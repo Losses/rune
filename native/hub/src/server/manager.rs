@@ -903,6 +903,7 @@ mod lifecycle_tests {
         MissingHostFilePolicy, ScanOptions, scan_audio_file, scan_audio_library,
     };
     use database::connection::StorageMode;
+    use database::credentials::CredentialRef;
     use database::entities::{media_files, media_files::Column};
     use database::library_registry::{
         DbPlacement, LibraryKind, LibraryRecord, LibraryRecordId, LibraryRegistry, OwnedStorage,
@@ -3266,7 +3267,7 @@ mod lifecycle_tests {
                     alias: "Subsonic".into(),
                     kind: LibraryKind::Subsonic {
                         endpoint: "https://music.example".into(),
-                        account: "alice".into(),
+                        credential: CredentialRef(Uuid::new_v4()),
                         mode: SubsonicOpenMode::RemoteControl,
                     },
                 },

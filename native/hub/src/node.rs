@@ -19,6 +19,7 @@ use std::{
 use uuid::Uuid;
 
 use anyhow::{Context, Result, ensure};
+use database::credentials::CredentialStore;
 use database::error::ExpectedError;
 use discovery::{
     client::CertValidator,
@@ -129,6 +130,7 @@ pub struct NodeContext {
     pub config_path: Arc<String>,
     pub node_id: Arc<String>,
     pub library_pool: Arc<LibraryPool>,
+    pub credentials: Arc<CredentialStore>,
     pub access_policy: Arc<RuneAccessPolicy>,
     pub permission_manager: Arc<RwLock<PermissionManager>>,
     pub cert_validator: Arc<RwLock<CertValidator>>,
@@ -276,6 +278,7 @@ impl NodeContext {
         let renderer_link = Arc::new(StdMutex::new(None));
         let ui_library = Arc::new(StdMutex::new(UiLibrary::Closed));
         let sync_tokens = SyncTokenStore::default();
+        let credentials = Arc::new(CredentialStore::open(Path::new(config_path)));
         let permission_manager = PermissionManager::new(config_path)?;
         let access_policy = Arc::new(RuneAccessPolicy::load(
             Path::new(config_path),
@@ -285,6 +288,7 @@ impl NodeContext {
             protocol_version: StdMutex::new(PROTOCOL_VERSION),
             config_path: Arc::new(config_path.to_owned()),
             library_pool: LibraryPool::new(Path::new(config_path), Path::new(db_path), &node_id)?,
+            credentials,
             node_id,
             permission_manager: Arc::new(RwLock::new(permission_manager)),
             access_policy,

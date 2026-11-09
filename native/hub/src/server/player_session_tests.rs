@@ -43,6 +43,7 @@ use database::actions::{
     mixes::query_mix_media_files,
     playback_queue::{list_legacy_playback_queue, replace_playback_queue},
 };
+use database::credentials::{Credential, Secret};
 use database::entities::media_file_stats;
 use database::entities::media_files;
 use database::entities::media_metadata;
@@ -5904,12 +5905,19 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     assert!(matches!(missing.result, OpenLibraryResult::Failed(failure)
         if failure.kind == OpenLibraryFailureKind::MediaFolderMissing));
 
+    let subsonic_credential = node
+        .credentials
+        .put(Credential {
+            username: "account".into(),
+            secret: Secret::new(b"test-secret".to_vec()),
+        })
+        .await?;
     let subsonic = LibraryRecord {
         record_id: LibraryRecordId(Uuid::new_v4()),
         alias: "Unsupported".into(),
         kind: LibraryKind::Subsonic {
             endpoint: "https://example.invalid".into(),
-            account: "account".into(),
+            credential: subsonic_credential,
             mode: SubsonicOpenMode::PlayOnThisDevice,
         },
     };
