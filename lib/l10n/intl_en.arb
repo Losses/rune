@@ -995,11 +995,11 @@
   "@adaptiveSwitchingSubtitle": {
     "description": "Settings description of an entry in the playback settings page"
   },
-  "mixWithOthers": "Play Alongside Other Apps",
+  "mixWithOthers": "Play Alongside Other Audio",
   "@mixWithOthers": {
     "description": "Settings title of an entry in the playback settings page"
   },
-  "mixWithOthersSubtitle": "Other apps keep playing while Rune plays.",
+  "mixWithOthersSubtitle": "Other audio keeps playing while Rune plays.",
   "@mixWithOthersSubtitle": {
     "description": "Settings description of an entry in the playback settings page"
   },
@@ -1428,7 +1428,7 @@
     "description": "Subtitle of the playback controller entry that turns the visualizer lab on and off."
   },
   "interfaceScale": "Interface Scale",
-  "interfaceScaleSubtitle": "Adjust the size of text and app content.",
+  "interfaceScaleSubtitle": "Adjust the size of text and content in Rune.",
   "interfaceScaleSaveError": "Could not save interface scale",
   "@interfaceScale": {
     "description": "Title of the application interface scale setting."
