@@ -76,12 +76,17 @@ class LibraryRegistryProvider extends ChangeNotifier {
        _removeRecord = removeRecord {
     _recordsSubscription =
         (recordsChanged ?? LibraryRecordsChanged.rustSignalStream).listen(
-          (signal) => _setRecords(signal.message.records, signal.message.open),
+          (signal) => _setRecords(
+            signal.message.records,
+            signal.message.invalidRecords,
+            signal.message.open,
+          ),
         );
     ready = refresh();
   }
 
   List<LibraryRecordSummary> _records = const [];
+  List<InvalidLibraryRecordSummary> _invalidRecords = const [];
   String? _openRecordId;
   int? _openGeneration;
   String? _lastOpenRecordId;
@@ -103,6 +108,8 @@ class LibraryRegistryProvider extends ChangeNotifier {
   final Future<RemoveLibraryRecordResponse> Function(String)? _removeRecord;
 
   List<LibraryRecordSummary> get records => List.unmodifiable(_records);
+  List<InvalidLibraryRecordSummary> get invalidRecords =>
+      List.unmodifiable(_invalidRecords);
   String? get openRecordId => _openRecordId;
   int? get openGeneration => _openGeneration;
   String? get lastOpenRecordId => _lastOpenRecordId;
@@ -121,8 +128,13 @@ class LibraryRegistryProvider extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
-  void _setRecords(List<LibraryRecordSummary> records, OpenRecord? open) {
+  void _setRecords(
+    List<LibraryRecordSummary> records,
+    List<InvalidLibraryRecordSummary> invalidRecords,
+    OpenRecord? open,
+  ) {
     _records = List.unmodifiable(records);
+    _invalidRecords = List.unmodifiable(invalidRecords);
     _openRecordId = open?.recordId;
     _openGeneration = open?.generation.toInt();
     if (!_disposed) notifyListeners();
@@ -136,7 +148,7 @@ class LibraryRegistryProvider extends ChangeNotifier {
             send: () => const ListLibraryRecordsRequest().sendSignalToRust(),
           )).message
         : await _loadRecords();
-    _setRecords(response.records, response.open);
+    _setRecords(response.records, response.invalidRecords, response.open);
     _lastOpenRecordId = response.lastOpenRecord;
     if (!_disposed) notifyListeners();
   }
@@ -258,6 +270,9 @@ class LibraryRegistryProvider extends ChangeNotifier {
       throw LibraryRegistryFailure(value, value.toString());
     }
     _records = _records.where((record) => record.recordId != recordId).toList();
+    _invalidRecords = _invalidRecords
+        .where((record) => record.recordId != recordId)
+        .toList();
     if (!_disposed) notifyListeners();
   }
 

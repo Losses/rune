@@ -11,11 +11,12 @@ use uuid::Uuid;
 use crate::{
     Session, Signal,
     messages::{
-        LibraryRecordKindSummary, LibraryRecordSummary, LibraryRecordsChanged,
-        ListLibraryRecordsRequest, ListLibraryRecordsResponse, ListLocalLibrariesRequest,
-        ListLocalLibrariesResponse, LocalLibrary, OpenRecord, RemoveLibraryRecordFailureKind,
-        RemoveLibraryRecordOutcome, RemoveLibraryRecordRequest, RemoveLibraryRecordResponse,
-        SetLibraryBackgroundSyncRequest, SetLibraryBackgroundSyncResponse,
+        InvalidLibraryRecordSummary, InvalidRecordReasonSummary, LibraryRecordKindSummary,
+        LibraryRecordSummary, LibraryRecordsChanged, ListLibraryRecordsRequest,
+        ListLibraryRecordsResponse, ListLocalLibrariesRequest, ListLocalLibrariesResponse,
+        LocalLibrary, OpenRecord, RemoveLibraryRecordFailureKind, RemoveLibraryRecordOutcome,
+        RemoveLibraryRecordRequest, RemoveLibraryRecordResponse, SetLibraryBackgroundSyncRequest,
+        SetLibraryBackgroundSyncResponse,
     },
     node::NodeContext,
     utils::{GlobalParams, ParamsExtractor},
@@ -23,7 +24,11 @@ use crate::{
 
 async fn record_summaries(
     node: &NodeContext,
-) -> Result<(Vec<LibraryRecordSummary>, Option<OpenRecord>)> {
+) -> Result<(
+    Vec<LibraryRecordSummary>,
+    Vec<InvalidLibraryRecordSummary>,
+    Option<OpenRecord>,
+)> {
     let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
     let devices = node.device_scanner.get_all_devices();
     let aliases: HashMap<_, _> = registry
@@ -92,9 +97,19 @@ async fn record_summaries(
         }
         records.push(summary);
     }
+    let invalid_records = registry
+        .invalid_records()
+        .map(|(record, reason)| InvalidLibraryRecordSummary {
+            record_id: record.record_id.0.to_string(),
+            alias: record.alias.clone(),
+            kind: LibraryRecordSummary::from(record).kind,
+            reason: InvalidRecordReasonSummary::from(reason),
+        })
+        .collect();
     let (record_id, generation) = node.capability_library_identity()?;
     Ok((
         records,
+        invalid_records,
         record_id.map(|record_id| OpenRecord {
             record_id,
             generation,
@@ -103,9 +118,12 @@ async fn record_summaries(
 }
 
 pub(crate) async fn publish_library_records_changed(node: &NodeContext) -> Result<()> {
-    let (records, open) = record_summaries(node).await?;
-    node.gui_broadcaster
-        .broadcast(&LibraryRecordsChanged { records, open });
+    let (records, invalid_records, open) = record_summaries(node).await?;
+    node.gui_broadcaster.broadcast(&LibraryRecordsChanged {
+        records,
+        invalid_records,
+        open,
+    });
     Ok(())
 }
 
@@ -127,9 +145,10 @@ impl Signal for ListLibraryRecordsRequest {
         _: Option<Session>,
         _: &Self,
     ) -> Result<Option<Self::Response>> {
-        let (records, open) = record_summaries(&node).await?;
+        let (records, invalid_records, open) = record_summaries(&node).await?;
         Ok(Some(ListLibraryRecordsResponse {
             records,
+            invalid_records,
             open,
             last_open_record: LibraryRegistry::load(Path::new(&*node.config_path))?
                 .last_open_record

@@ -420,6 +420,16 @@ impl LibraryRegistry {
             .context("Library record is not registered on this node")
     }
 
+    /// Iterate over records that were retained because their configuration is invalid.
+    pub fn invalid_records(&self) -> impl Iterator<Item = (&LibraryRecord, InvalidRecord)> {
+        self.invalid_records.iter().filter_map(|record| {
+            self.invalid
+                .iter()
+                .find(|(record_id, _)| *record_id == record.record_id)
+                .map(|(_, reason)| (record, *reason))
+        })
+    }
+
     pub fn catalog(&self, library_id: Uuid) -> Result<&LibraryRecord> {
         self.libraries
             .iter()

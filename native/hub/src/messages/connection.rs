@@ -1,7 +1,7 @@
 use super::system::{RequestErrorKind, RequestFailureCause};
 use database::library_registry::{
-    CatalogPlacement, LibraryAccess, LibraryConnectionAccess, LibraryRecord, ProtocolAdapter,
-    RuneForwardMode,
+    CatalogPlacement, InvalidRecord, LibraryAccess, LibraryConnectionAccess, LibraryRecord,
+    ProtocolAdapter, RuneForwardMode,
 };
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
@@ -76,6 +76,37 @@ pub struct LibraryRecordSummary {
     pub background_sync: Option<bool>,
     pub connection_access: Option<LibraryConnectionAccessSummary>,
     pub sync_access: Option<LibraryAccessSummary>,
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
+pub struct InvalidLibraryRecordSummary {
+    pub record_id: String,
+    pub alias: String,
+    pub kind: LibraryRecordKindSummary,
+    pub reason: InvalidRecordReasonSummary,
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InvalidRecordReasonSummary {
+    NativeInvalid,
+    ReplicaInvalid,
+    RemoteControlInvalid,
+    SubsonicInvalid,
+    BackgroundSyncWithoutCatalog,
+    DuplicateLibraryId,
+}
+
+impl From<InvalidRecord> for InvalidRecordReasonSummary {
+    fn from(value: InvalidRecord) -> Self {
+        match value {
+            InvalidRecord::NativeInvalid => Self::NativeInvalid,
+            InvalidRecord::ReplicaInvalid => Self::ReplicaInvalid,
+            InvalidRecord::RemoteControlInvalid => Self::RemoteControlInvalid,
+            InvalidRecord::SubsonicInvalid => Self::SubsonicInvalid,
+            InvalidRecord::BackgroundSyncWithoutCatalog => Self::BackgroundSyncWithoutCatalog,
+            InvalidRecord::DuplicateLibraryId => Self::DuplicateLibraryId,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
@@ -160,6 +191,7 @@ pub struct ListLibraryRecordsRequest {}
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct ListLibraryRecordsResponse {
     pub records: Vec<LibraryRecordSummary>,
+    pub invalid_records: Vec<InvalidLibraryRecordSummary>,
     pub open: Option<OpenRecord>,
     pub last_open_record: Option<String>,
 }
@@ -173,6 +205,7 @@ pub struct OpenRecord {
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct LibraryRecordsChanged {
     pub records: Vec<LibraryRecordSummary>,
+    pub invalid_records: Vec<InvalidLibraryRecordSummary>,
     pub open: Option<OpenRecord>,
 }
 

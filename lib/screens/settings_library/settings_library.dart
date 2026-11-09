@@ -27,7 +27,9 @@ import '../../utils/library_registry_messages.dart';
 import 'utils/show_reset_library_dialog.dart';
 
 class SettingsLibraryPage extends StatefulWidget {
-  const SettingsLibraryPage({super.key});
+  const SettingsLibraryPage({super.key, this.loadLibraries});
+
+  final Future<ListLocalLibrariesResponse> Function()? loadLibraries;
 
   @override
   State<SettingsLibraryPage> createState() => _SettingsLibraryPageState();
@@ -55,7 +57,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
   }
 
   void _loadLibraries() {
-    listLocalLibraries()
+    (widget.loadLibraries?.call() ?? listLocalLibraries())
         .then((response) {
           if (mounted) setState(() => registeredLibraries = response.libraries);
         })
@@ -125,6 +127,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
           },
         )
         .toList();
+    final invalidRecords = registry.invalidRecords.reversed.toList();
     final libraryManager = Provider.of<LibraryManagerProvider>(
       context,
       listen: false,
@@ -164,8 +167,71 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                     width: double.maxFinite,
                     child: ListView.builder(
                       shrinkWrap: true,
-                      itemCount: allRecords.length,
+                      itemCount: allRecords.length + invalidRecords.length,
                       itemBuilder: (context, index) {
+                        if (index >= allRecords.length) {
+                          final record =
+                              invalidRecords[index - allRecords.length];
+                          final isSelected = record.recordId == selectedItem;
+                          final icon = switch (record.kind) {
+                            LibraryRecordKindSummaryLocal() => Symbols.folder,
+                            LibraryRecordKindSummaryReplica() =>
+                              Symbols.cloud_sync,
+                            LibraryRecordKindSummaryRemoteControl() =>
+                              Symbols.devices,
+                            LibraryRecordKindSummarySubsonic() =>
+                              Symbols.folder,
+                            _ => Symbols.folder,
+                          };
+                          return ListTile.selectable(
+                            title: SettingsTileTitle(
+                              icon: icon,
+                              badgeContent: Icon(
+                                Symbols.block,
+                                size: 12,
+                                color: Colors.white,
+                              ),
+                              badgeColor: Colors.red,
+                              title: record.alias,
+                              subtitle: S
+                                  .of(context)
+                                  .invalidLibrarySettingsSubtitle,
+                              showActions: isSelected,
+                              actionsBuilder: (context) => Wrap(
+                                spacing: 12,
+                                runSpacing: 8,
+                                children: [
+                                  Button(
+                                    onPressed: () async {
+                                      try {
+                                        await registry.remove(record.recordId);
+                                      } catch (error) {
+                                        if (!context.mounted) return;
+                                        await showErrorDialog(
+                                          context: context,
+                                          title: S.of(context).unknownError,
+                                          errorMessage:
+                                              error is LibraryRegistryFailure
+                                              ? libraryRegistryFailureMessage(
+                                                  S.of(context),
+                                                  error.kind,
+                                                )
+                                              : S.of(context).unknownError,
+                                        );
+                                      }
+                                    },
+                                    child: Text(S.of(context).removeLibrary),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            onSelectionChange: (selected) => setState(
+                              () => selectedItem = selected
+                                  ? record.recordId
+                                  : '',
+                            ),
+                          );
+                        }
                         final record = allRecords[index];
                         final itemPath = switch (record.kind) {
                           LibraryRecordKindSummaryLocal(:final path) => path,

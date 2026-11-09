@@ -1553,6 +1553,10 @@
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
   },
+  "invalidLibrarySettingsSubtitle": "Не вдалося прочитати налаштування цієї бібліотеки.",
+  "@invalidLibrarySettingsSubtitle": {
+    "description": "Shown below a library record whose settings cannot be read."
+  },
   "libraryRecordNotFound": "Цієї медіатеки більше немає.",
   "libraryRecordIsOpen": "Закрийте медіатеку, перш ніж видалити її.",
   "libraryMediaFolderMissing": "Папку медіатеки не знайдено.",

@@ -1555,6 +1555,10 @@
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
   },
+  "invalidLibrarySettingsSubtitle": "Les paramètres de cette bibliothèque sont illisibles.",
+  "@invalidLibrarySettingsSubtitle": {
+    "description": "Shown below a library record whose settings cannot be read."
+  },
   "libraryRecordNotFound": "Cette bibliothèque n’existe plus.",
   "libraryRecordIsOpen": "Fermez la bibliothèque avant de la supprimer.",
   "libraryMediaFolderMissing": "Le dossier de la bibliothèque est introuvable.",

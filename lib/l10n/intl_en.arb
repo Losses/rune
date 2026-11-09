@@ -1654,6 +1654,10 @@
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
   },
+  "invalidLibrarySettingsSubtitle": "This library's settings can't be read.",
+  "@invalidLibrarySettingsSubtitle": {
+    "description": "Shown below a library record whose settings cannot be read."
+  },
   "libraryRecordNotFound": "This library no longer exists.",
   "libraryRecordIsOpen": "Close the library before removing it.",
   "libraryMediaFolderMissing": "The library folder is missing.",

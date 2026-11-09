@@ -18,6 +18,7 @@ LibraryRecordSummary _record() => const LibraryRecordSummary(
 ListLibraryRecordsResponse _listed({OpenRecord? open}) =>
     ListLibraryRecordsResponse(
       records: [_record()],
+      invalidRecords: const [],
       open: open,
       lastOpenRecord: open?.recordId,
     );
@@ -115,8 +116,11 @@ void main() {
     final modes = <LibraryInitializeMode?>[];
     final opened = <String>[];
     final provider = LibraryRegistryProvider(
-      loadRecords: () async =>
-          ListLibraryRecordsResponse(records: const [], lastOpenRecord: null),
+      loadRecords: () async => ListLibraryRecordsResponse(
+        records: const [],
+        invalidRecords: const [],
+        lastOpenRecord: null,
+      ),
       registerLocal: (path, alias, mode) async {
         expect(path, '/new/music');
         expect(alias, 'Music');

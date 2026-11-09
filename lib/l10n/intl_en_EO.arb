@@ -1484,6 +1484,10 @@
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
   },
+  "invalidLibrarySettingsSubtitle": "La agordoj de ĉi tiu biblioteko ne legeblas.",
+  "@invalidLibrarySettingsSubtitle": {
+    "description": "Shown below a library record whose settings cannot be read."
+  },
   "libraryRecordNotFound": "Tiu biblioteka registro ne plu ekzistas.",
   "libraryRecordIsOpen": "Fermu la bibliotekon antaŭ ol forigi ĝian registron.",
   "libraryMediaFolderMissing": "La biblioteka dosierujo mankas.",

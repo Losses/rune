@@ -1286,6 +1286,8 @@
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
   },
+  "invalidLibrarySettingsSubtitle": "無法讀取此資料庫的設定。",
+  "@invalidLibrarySettingsSubtitle": {},
   "libraryRecordNotFound": "此資料庫已不存在。",
   "libraryRecordIsOpen": "請先關閉資料庫，再將其移除。",
   "libraryMediaFolderMissing": "找不到資料庫資料夾。",

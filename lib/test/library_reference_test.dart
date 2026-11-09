@@ -21,6 +21,7 @@ Future<_OpenStateFixture> _stateFor(LibraryRecordSummary record) async {
   final registry = LibraryRegistryProvider(
     loadRecords: () async => ListLibraryRecordsResponse(
       records: [record],
+      invalidRecords: const [],
       open: OpenRecord(
         recordId: record.recordId,
         generation: Uint64.fromBigInt(BigInt.one),

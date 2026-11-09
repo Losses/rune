@@ -5744,11 +5744,11 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> Result<()> {
     use crate::messages::{
-        LibraryInitializeMode, LibraryRecordKindSummary, LibraryRecordsChanged,
-        ListLibraryRecordsRequest, OpenLibraryFailureKind, OpenLibraryRequest, OpenLibraryResult,
-        RegisterLibraryFailureKind, RegisterLibraryOutcome, RegisterLocalLibraryRequest,
-        RegisterRemoteControlRequest, RemoveLibraryRecordFailureKind, RemoveLibraryRecordOutcome,
-        RemoveLibraryRecordRequest,
+        InvalidRecordReasonSummary, LibraryInitializeMode, LibraryRecordKindSummary,
+        LibraryRecordsChanged, ListLibraryRecordsRequest, OpenLibraryFailureKind,
+        OpenLibraryRequest, OpenLibraryResult, RegisterLibraryFailureKind, RegisterLibraryOutcome,
+        RegisterLocalLibraryRequest, RegisterRemoteControlRequest, RemoveLibraryRecordFailureKind,
+        RemoveLibraryRecordOutcome, RemoveLibraryRecordRequest,
     };
     use database::library_registry::{
         CatalogPlacement, FsAdapter, LibraryRecord, LibraryRecordId, LibraryRegistry,
@@ -6022,6 +6022,16 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
         .handle(node.clone(), None, &ListLibraryRecordsRequest {})
         .await?
         .context("list library records")?;
+    let invalid_summary = listed
+        .invalid_records
+        .iter()
+        .find(|record| record.record_id == invalid_id.0.to_string())
+        .context("invalid library record summary")?;
+    assert_eq!(invalid_summary.alias, invalid_record.alias);
+    assert_eq!(
+        invalid_summary.reason,
+        InvalidRecordReasonSummary::NativeInvalid
+    );
     assert_eq!(
         listed.last_open_record.as_deref(),
         Some(second_record_id.as_str())

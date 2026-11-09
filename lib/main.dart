@@ -267,8 +267,7 @@ void main(List<String> arguments) async {
   } on Object catch (error) {
     error$('Could not list the libraries: $error');
   }
-  hasStartupLibrary =
-      initialPath != null || libraryRegistry.lastOpenRecordId != null;
+  hasStartupLibrary = shouldOpenLibraryAtStartup(initialPath, libraryRegistry);
   await findSystemLocale();
 
   $closeManager;

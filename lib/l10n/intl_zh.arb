@@ -1624,6 +1624,10 @@
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
   },
+  "invalidLibrarySettingsSubtitle": "無法讀取此媒體庫的設置。",
+  "@invalidLibrarySettingsSubtitle": {
+    "description": "Shown below a library record whose settings cannot be read."
+  },
   "libraryRecordNotFound": "此媒體庫已不存在。",
   "libraryRecordIsOpen": "請先關閉媒體庫，再將其移除。",
   "libraryMediaFolderMissing": "找不到媒體庫資料夾。",

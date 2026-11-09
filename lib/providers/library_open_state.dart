@@ -9,6 +9,18 @@ Future<String?> getInitialPath() async {
   return libraryPath.isEmpty ? null : libraryPath;
 }
 
+bool shouldOpenLibraryAtStartup(
+  String? initialPath,
+  LibraryRegistryProvider registry,
+) {
+  final lastOpenRecordId = registry.lastOpenRecordId;
+  return initialPath != null ||
+      (lastOpenRecordId != null &&
+          !registry.invalidRecords.any(
+            (record) => record.recordId == lastOpenRecordId,
+          ));
+}
+
 class LibraryOpenStateProvider with ChangeNotifier {
   LibraryOpenStateProvider(String? initialPath, this.registry) {
     registry.addListener(_registryChanged);

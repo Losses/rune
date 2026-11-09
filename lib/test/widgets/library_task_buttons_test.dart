@@ -19,6 +19,7 @@ Future<(LibraryOpenStateProvider, LibraryRegistryProvider)> _openState(
   final registry = LibraryRegistryProvider(
     loadRecords: () async => ListLibraryRecordsResponse(
       records: [record],
+      invalidRecords: const [],
       open: OpenRecord(
         recordId: record.recordId,
         generation: Uint64.fromBigInt(BigInt.one),
