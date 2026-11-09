@@ -34,12 +34,12 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 QueueModeSetting(),
-                CastTrackModeSetting(),
-                CastControlRendererSetting(),
                 MiddleClickActionSetting(),
                 PlaybackModeSetting(),
                 AdaptiveSwitchingSetting(),
                 MixWithOthersSetting(),
+                CastTrackModeSetting(),
+                CastControlRendererSetting(),
                 Padding(
                   padding: EdgeInsets.only(
                     top: 8,

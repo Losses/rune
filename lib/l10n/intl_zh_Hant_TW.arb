@@ -602,11 +602,11 @@
   "@laboratory": {
     "description": "連結標題的標題"
   },
-  "libraryMode": "媒體庫設定",
+  "libraryMode": "資料庫設定",
   "@libraryMode": {
     "description": "視窗的標題，用於指導使用者選擇儲存資料庫的位置"
   },
-  "libraryModeSubtitle": "我們需要更多了解您的媒體庫。您的媒體檔案儲存在哪裡？",
+  "libraryModeSubtitle": "我們需要更多了解您的資料庫。您的媒體檔案儲存在哪裡？",
   "@libraryModeSubtitle": {
     "description": "視窗的副標題，引導使用者選擇資料庫的儲存位置"
   },
@@ -614,7 +614,7 @@
   "@portableMode": {
     "description": "使用者的一個候選庫模式"
   },
-  "portableModeSubtitle": "我們會將您的媒體索引一併儲存在媒體庫所在的資料夾中。",
+  "portableModeSubtitle": "我們會將您的媒體索引一併儲存在資料庫所在的資料夾中。",
   "@portableModeSubtitle": {
     "description": "使用者的候選庫模式的副標題"
   },
@@ -1149,11 +1149,11 @@
   },
   "remoteLossServerStopped": "另一部裝置已停止分享。",
   "remoteLossNetworkLost": "連線已中斷。",
-  "deviceLibraries": "媒體庫",
+  "deviceLibraries": "資料庫",
   "addSharedLibrary": "新增",
   "sharedLibraryAdded": "已新增",
   "openSharedLibrary": "開啟",
-  "noSharedLibraries": "此裝置沒有共享的媒體庫。",
+  "noSharedLibraries": "此裝置沒有共享的資料庫。",
   "libraryFromDevice": "來自 {device}",
   "backgroundLibrarySync": "在背景同步",
   "@libraryFromDevice": {
@@ -1219,14 +1219,14 @@
   "controllingNow": "正在控制此裝置",
   "waitingForApproval": "等待核准",
   "guest": "訪客",
-  "myDeviceAccessDescription": "可以播放、瀏覽和同步您的媒體庫",
+  "myDeviceAccessDescription": "可以播放、瀏覽和同步您的資料庫",
   "guestAccessDescription": "可以控制播放並在控制時瀏覽",
   "guestControlSummary": "訪客 · 可以控制播放",
   "customDeviceAccess": "自訂",
   "customizeDevice": "自訂",
   "controlPlayback": "控制播放",
   "controlPlaybackDescription": "可以在此裝置上播放、暫停、加入佇列並投放",
-  "deviceAccessLibraries": "媒體庫",
+  "deviceAccessLibraries": "資料庫",
   "deviceConnection": "連線",
   "deviceSync": "同步",
   "deviceConnectionOff": "關閉",
@@ -1239,7 +1239,7 @@
   "requestPermissionDenied": "此裝置不允許執行此操作",
   "readOnly": "唯讀",
   "queueUnavailableAccessRevoked": "存取權已撤銷",
-  "queueUnavailableLibraryUnavailable": "媒體庫無法使用",
+  "queueUnavailableLibraryUnavailable": "資料庫無法使用",
   "queueUnavailableSourceUnreachable": "無法連線至來源",
   "queueUnavailableUnreadable": "無法讀取音訊",
   "rendererLinkLost": "與 {alias} 的連線已中斷",
@@ -1286,17 +1286,17 @@
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
   },
-  "libraryRecordNotFound": "此媒體庫已不存在。",
-  "libraryRecordIsOpen": "請先關閉媒體庫，再將其移除。",
-  "libraryMediaFolderMissing": "找不到媒體庫資料夾。",
+  "libraryRecordNotFound": "此資料庫已不存在。",
+  "libraryRecordIsOpen": "請先關閉資料庫，再將其移除。",
+  "libraryMediaFolderMissing": "找不到資料庫資料夾。",
   "libraryUntrusted": "此裝置未受信任。",
-  "libraryInvalidSource": "此資料夾無法用作媒體庫。",
-  "libraryStorageFailure": "無法儲存媒體庫。",
+  "libraryInvalidSource": "此資料夾無法用作資料庫。",
+  "libraryStorageFailure": "無法儲存資料庫。",
   "libraryRemoteNotAuthorized": "裝置未授權此連線。",
   "libraryRemoteUnreachable": "無法連線到裝置。",
   "libraryRemoteProtocolFailure": "裝置傳回不相容的回應。",
   "libraryProtocolIncompatible": "此裝置使用不相容的協定版本。",
-  "libraryNotSupportedYet": "目前尚不支援此媒體庫類型。",
+  "libraryNotSupportedYet": "目前尚不支援此資料庫類型。",
   "onMyIPhone": "我的 iPhone",
   "@onMyIPhone": {
     "description": "The Files app location for folders on an iPhone, shown as the start of a library's location."
