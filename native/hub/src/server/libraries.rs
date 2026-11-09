@@ -10,7 +10,8 @@ use std::{
 use anyhow::{Context, Result};
 use axum::{Extension, Json, http::StatusCode};
 use database::library_registry::{
-    LibraryConnectionAccess, LibraryKind, LibraryRecord, LibraryRegistry, create_replica,
+    LibraryConnectionAccess, LibraryRecord, LibraryRegistry, ProtocolAdapter, RuneForwardMode,
+    create_replica,
 };
 use discovery::server::UserStatus;
 use serde::{Deserialize, Serialize};
@@ -341,10 +342,10 @@ pub(crate) async fn cast_library_state(node: &NodeContext, library_id: Uuid) -> 
     let Ok(library) = registry.catalog(library_id) else {
         return CastLibraryState::NotHeld;
     };
-    let LibraryKind::RuneReplica {
+    let ProtocolAdapter::RuneForward {
         owner_fingerprint: fingerprint,
-        ..
-    } = &library.kind
+        mode: RuneForwardMode::Replica { .. },
+    } = &library.protocol
     else {
         return CastLibraryState::Ready;
     };
@@ -461,7 +462,7 @@ pub(super) async fn list_libraries(
     Ok(Json(
         registry
             .catalogs()
-            .filter(|library| matches!(library.kind, LibraryKind::Owned { .. }))
+            .filter(|library| matches!(library.protocol, ProtocolAdapter::Native))
             .filter(|library| library_visible_to_peer(&node, &peer, library))
             .filter_map(|library| {
                 library

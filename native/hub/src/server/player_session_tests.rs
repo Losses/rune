@@ -5751,8 +5751,8 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
         RemoveLibraryRecordRequest,
     };
     use database::library_registry::{
-        LibraryKind, LibraryRecord, LibraryRecordId, LibraryRegistry, ReplicaStorage,
-        SubsonicOpenMode,
+        CatalogPlacement, FsAdapter, LibraryRecord, LibraryRecordId, LibraryRegistry,
+        ProtocolAdapter, RuneForwardMode, SubsonicOpenMode,
     };
     use scrobbling::manager::ScrobblingManager;
     use tokio::sync::Mutex;
@@ -5861,6 +5861,60 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
         Some(second_record_id.as_str())
     );
     assert_eq!(second_snapshot.generation, second_opened.generation);
+    let invalid_id = LibraryRecordId(Uuid::new_v4());
+    let mut invalid_record = LibraryRegistry::load(PathBuf::from(&*node.config_path).as_path())?
+        .record(LibraryRecordId(Uuid::parse_str(&second_record_id)?))?
+        .clone();
+    invalid_record.record_id = invalid_id;
+    invalid_record.library_id = Some(Uuid::new_v4());
+    invalid_record.fs.clear();
+    let registry_path = PathBuf::from(&*node.config_path).join("libraries.json");
+    let mut registry_json: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&registry_path)?)?;
+    registry_json["libraries"]
+        .as_array_mut()
+        .context("registry libraries")?
+        .push(serde_json::to_value(&invalid_record)?);
+    std::fs::write(&registry_path, serde_json::to_vec_pretty(&registry_json)?)?;
+    let valid_reopen = open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: 30,
+            record_id: record_id.clone(),
+        },
+        node.clone(),
+        scrobbler.clone(),
+    )
+    .await;
+    assert_eq!(valid_reopen.result, OpenLibraryResult::Opened);
+    let invalid_open = open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: 31,
+            record_id: invalid_id.0.to_string(),
+        },
+        node.clone(),
+        scrobbler.clone(),
+    )
+    .await;
+    assert!(
+        matches!(invalid_open.result, OpenLibraryResult::Failed(failure)
+        if failure.kind == OpenLibraryFailureKind::InvalidRecord)
+    );
+    assert!(
+        LibraryRegistry::load(PathBuf::from(&*node.config_path).as_path())?
+            .invalid
+            .iter()
+            .any(|(id, _)| *id == invalid_id)
+    );
+    let valid_again = open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: 32,
+            record_id: second_record_id.clone(),
+        },
+        node.clone(),
+        scrobbler.clone(),
+    )
+    .await;
+    assert_eq!(valid_again.result, OpenLibraryResult::Opened);
     let current = node.current_ui().await?;
 
     let unknown = open_library_by_record_on_node(
@@ -5879,14 +5933,19 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     let missing_replica = LibraryRecord {
         record_id: LibraryRecordId(Uuid::new_v4()),
         alias: "Missing replica".into(),
-        kind: LibraryKind::RuneReplica {
-            library_id: Uuid::new_v4(),
+        library_id: Some(Uuid::new_v4()),
+        protocol: ProtocolAdapter::RuneForward {
             owner_fingerprint: unreachable.clone(),
-            access_level: None,
-            connection_access: None,
-            background_sync: true,
-            storage: ReplicaStorage::Replica,
+            mode: RuneForwardMode::Replica {
+                access_level: None,
+                connection_access: None,
+            },
         },
+        fs: vec![FsAdapter::RunePeer {
+            fingerprint: unreachable.clone(),
+        }],
+        catalog: CatalogPlacement::ConfigReplica,
+        background_sync: true,
     };
     LibraryRegistry::update(PathBuf::from(&*node.config_path).as_path(), |registry| {
         registry.libraries.push(missing_replica.clone());
@@ -5915,11 +5974,15 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     let subsonic = LibraryRecord {
         record_id: LibraryRecordId(Uuid::new_v4()),
         alias: "Unsupported".into(),
-        kind: LibraryKind::Subsonic {
+        library_id: None,
+        protocol: ProtocolAdapter::SubsonicTranslate {
             endpoint: "https://example.invalid".into(),
             credential: subsonic_credential,
             mode: SubsonicOpenMode::PlayOnThisDevice,
         },
+        fs: Vec::new(),
+        catalog: CatalogPlacement::None,
+        background_sync: false,
     };
     LibraryRegistry::update(PathBuf::from(&*node.config_path).as_path(), |registry| {
         registry.libraries.push(subsonic.clone());
@@ -6054,6 +6117,17 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
             .handle(node.clone(), None, &remove_remote)
             .await?
             .context("remote record removal")?
+            .outcome,
+        RemoveLibraryRecordOutcome::Removed
+    );
+    let remove_invalid = RemoveLibraryRecordRequest {
+        record_id: invalid_id.0.to_string(),
+    };
+    assert_eq!(
+        remove_invalid
+            .handle(node.clone(), None, &remove_invalid)
+            .await?
+            .context("invalid record removal")?
             .outcome,
         RemoveLibraryRecordOutcome::Removed
     );

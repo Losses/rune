@@ -2,7 +2,9 @@ use crate::request_error::ExpectedRequestError;
 use std::{collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::Result;
-use database::library_registry::{LibraryKind, LibraryRecordId, LibraryRegistry};
+use database::library_registry::{
+    LibraryRecordId, LibraryRegistry, ProtocolAdapter, RuneForwardMode,
+};
 use log::warn;
 use uuid::Uuid;
 
@@ -27,10 +29,11 @@ async fn record_summaries(
     let aliases: HashMap<_, _> = registry
         .libraries
         .iter()
-        .filter_map(|record| match &record.kind {
-            LibraryKind::RuneRemoteControl { fingerprint } => {
-                Some((fingerprint.as_str(), record.alias.as_str()))
-            }
+        .filter_map(|record| match &record.protocol {
+            ProtocolAdapter::RuneForward {
+                owner_fingerprint: fingerprint,
+                mode: RuneForwardMode::RemoteControl,
+            } => Some((fingerprint.as_str(), record.alias.as_str())),
             _ => None,
         })
         .collect();
@@ -38,9 +41,9 @@ async fn record_summaries(
     for record in &registry.libraries {
         let mut summary = LibraryRecordSummary::from(record);
         if let (
-            LibraryKind::Subsonic { credential, .. },
+            ProtocolAdapter::SubsonicTranslate { credential, .. },
             LibraryRecordKindSummary::Subsonic { account, .. },
-        ) = (&record.kind, &mut summary.kind)
+        ) = (&record.protocol, &mut summary.kind)
         {
             // An unreadable credential must not hide every other library; opening this one
             // reports the typed error instead.
@@ -174,18 +177,23 @@ impl Signal for RemoveLibraryRecordRequest {
         }
         let config = Path::new(&*node.config_path);
         let registry = LibraryRegistry::load(config)?;
-        let Some(record) = registry
+        let record = registry
             .libraries
             .iter()
-            .find(|record| record.record_id.0 == id)
-        else {
+            .find(|record| record.record_id.0 == id);
+        if record.is_none()
+            && !registry
+                .invalid
+                .iter()
+                .any(|(record_id, _)| record_id.0 == id)
+        {
             return Ok(Some(RemoveLibraryRecordResponse {
                 outcome: RemoveLibraryRecordOutcome::Failed(
                     RemoveLibraryRecordFailureKind::RecordNotFound,
                 ),
             }));
-        };
-        let library_id = record.catalog_library_id();
+        }
+        let library_id = record.and_then(|record| record.catalog_library_id());
         if !LibraryRegistry::remove_record(config, LibraryRecordId(id), &node.credentials).await? {
             return Ok(Some(RemoveLibraryRecordResponse {
                 outcome: RemoveLibraryRecordOutcome::Failed(

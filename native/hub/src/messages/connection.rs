@@ -1,6 +1,7 @@
 use super::system::{RequestErrorKind, RequestFailureCause};
 use database::library_registry::{
-    LibraryAccess, LibraryConnectionAccess, LibraryKind, LibraryRecord, OwnedStorage,
+    CatalogPlacement, LibraryAccess, LibraryConnectionAccess, LibraryRecord, ProtocolAdapter,
+    RuneForwardMode,
 };
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
@@ -93,45 +94,40 @@ pub enum LibraryConnectionAccessSummary {
 
 impl From<&LibraryRecord> for LibraryRecordSummary {
     fn from(record: &LibraryRecord) -> Self {
-        let kind = match &record.kind {
-            LibraryKind::Owned {
-                library_id,
-                storage: OwnedStorage::Local { path, .. },
-                ..
-            } => LibraryRecordKindSummary::Local {
-                library_id: library_id.to_string(),
-                path: path.clone(),
+        let kind = match &record.protocol {
+            ProtocolAdapter::Native => LibraryRecordKindSummary::Local {
+                library_id: record.library_id.unwrap_or_default().to_string(),
+                path: record.local_folder_path().unwrap_or_default().to_owned(),
             },
-            LibraryKind::RuneReplica {
-                library_id,
+            ProtocolAdapter::RuneForward {
                 owner_fingerprint,
-                ..
+                mode: RuneForwardMode::Replica { .. },
             } => LibraryRecordKindSummary::Replica {
-                library_id: library_id.to_string(),
+                library_id: record.library_id.unwrap_or_default().to_string(),
                 owner_fingerprint: owner_fingerprint.clone(),
                 owner_alias: None,
             },
-            LibraryKind::RuneRemoteControl { fingerprint } => {
-                LibraryRecordKindSummary::RemoteControl {
-                    fingerprint: fingerprint.clone(),
-                    device_alias: None,
-                    endpoint: None,
+            ProtocolAdapter::RuneForward {
+                owner_fingerprint: fingerprint,
+                mode: RuneForwardMode::RemoteControl,
+            } => LibraryRecordKindSummary::RemoteControl {
+                fingerprint: fingerprint.clone(),
+                device_alias: None,
+                endpoint: None,
+            },
+            ProtocolAdapter::SubsonicTranslate { endpoint, .. } => {
+                LibraryRecordKindSummary::Subsonic {
+                    endpoint: endpoint.clone(),
+                    account: String::new(),
                 }
             }
-            LibraryKind::Subsonic { endpoint, .. } => LibraryRecordKindSummary::Subsonic {
-                endpoint: endpoint.clone(),
-                account: String::new(),
-            },
         };
         Self {
             record_id: record.record_id.0.to_string(),
             alias: record.alias.clone(),
             kind,
-            background_sync: matches!(
-                &record.kind,
-                LibraryKind::Owned { .. } | LibraryKind::RuneReplica { .. }
-            )
-            .then(|| record.background_sync()),
+            background_sync: (record.catalog != CatalogPlacement::None)
+                .then(|| record.background_sync()),
             connection_access: record.connection_access().map(Into::into),
             sync_access: record.access_level().map(Into::into),
         }
@@ -204,6 +200,7 @@ pub struct RemoveLibraryRecordResponse {
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RegisterLibraryFailureKind {
+    InvalidRecord,
     Untrusted,
     InvalidSource,
     Storage,
@@ -235,6 +232,7 @@ pub struct OpenLibraryRequest {
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OpenLibraryFailureKind {
+    InvalidRecord,
     RecordNotFound,
     MediaFolderMissing,
     RemoteUntrusted,

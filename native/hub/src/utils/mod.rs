@@ -39,8 +39,8 @@ use ::database::{
     },
     entities::media_files,
     library_registry::{
-        LibraryKind, LibraryRecord, LibraryRecordId, LibraryRegistry, OwnedStorage, ReplicaStorage,
-        resolve_library,
+        InvalidRecord, LibraryRecord, LibraryRecordId, LibraryRegistry, ProtocolAdapter,
+        RuneForwardMode, resolve_library,
     },
     playing_item::MediaFileHandle,
 };
@@ -363,6 +363,9 @@ pub(crate) async fn register_local_library_on_node(
                 detail: None,
             }
         }
+        Err(error) if error.downcast_ref::<InvalidRecord>().is_some() => {
+            fail(RegisterLibraryFailureKind::InvalidRecord, error)
+        }
         Err(error) => fail(RegisterLibraryFailureKind::Storage, error),
     }
 }
@@ -417,6 +420,11 @@ pub(crate) async fn register_remote_control_on_node(
                 detail: None,
             }
         }
+        Err(error) if error.downcast_ref::<InvalidRecord>().is_some() => RegisterLibraryResponse {
+            record: None,
+            outcome: RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::InvalidRecord),
+            detail: Some(format!("{error:#}")),
+        },
         Err(error) => RegisterLibraryResponse {
             record: None,
             outcome: RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::Storage),
@@ -468,68 +476,68 @@ pub(crate) async fn open_library_by_record_on_node(
         .and_then(|registry| registry.record(record_id).cloned())
     {
         Ok(record) => record,
+        Err(error) if error.downcast_ref::<InvalidRecord>().is_some() => {
+            return failed(OpenLibraryFailureKind::InvalidRecord, error);
+        }
         Err(error) => return failed(OpenLibraryFailureKind::RecordNotFound, error),
     };
-    let result = match &record.kind {
-        LibraryKind::Owned {
-            library_id,
-            storage,
-            ..
-        } => {
+    let result = match &record.protocol {
+        ProtocolAdapter::Native => {
             open_catalog_record(
                 &node,
                 &record,
-                *library_id,
-                storage_path_owned(storage),
+                record.library_id.unwrap_or_default(),
+                record.local_folder_path(),
                 Arc::clone(&scrobbler),
             )
             .await
         }
-        LibraryKind::RuneReplica {
-            library_id,
-            storage,
+        ProtocolAdapter::RuneForward {
+            mode: RuneForwardMode::Replica { .. },
             ..
         } => {
             let owned_path;
-            let path = match storage {
-                ReplicaStorage::Local { path, .. } => path.as_str(),
-                ReplicaStorage::Replica => {
-                    owned_path = match record.root(Path::new(&*node.config_path)) {
-                        Some(path) => path,
-                        None => {
-                            return failed(
-                                OpenLibraryFailureKind::Storage,
-                                anyhow::anyhow!("Replica has no storage root"),
-                            );
-                        }
-                    };
-                    if !owned_path.join(".rune/library.json").is_file() {
+            let path = if let Some(path) = record.local_folder_path() {
+                path
+            } else {
+                owned_path = match record.root(Path::new(&*node.config_path)) {
+                    Some(path) => path,
+                    None => {
                         return failed(
-                            OpenLibraryFailureKind::MediaFolderMissing,
-                            anyhow::anyhow!("Replica folder is missing: {}", owned_path.display()),
+                            OpenLibraryFailureKind::Storage,
+                            anyhow::anyhow!("Replica has no storage root"),
                         );
                     }
-                    match owned_path.to_str() {
-                        Some(path) => path,
-                        None => {
-                            return failed(
-                                OpenLibraryFailureKind::Storage,
-                                anyhow::anyhow!("Replica path is not UTF-8"),
-                            );
-                        }
+                };
+                if !owned_path.join(".rune/library.json").is_file() {
+                    return failed(
+                        OpenLibraryFailureKind::MediaFolderMissing,
+                        anyhow::anyhow!("Replica folder is missing: {}", owned_path.display()),
+                    );
+                }
+                match owned_path.to_str() {
+                    Some(path) => path,
+                    None => {
+                        return failed(
+                            OpenLibraryFailureKind::Storage,
+                            anyhow::anyhow!("Replica path is not UTF-8"),
+                        );
                     }
                 }
             };
             open_catalog_record(
                 &node,
                 &record,
-                *library_id,
+                record.library_id.unwrap_or_default(),
                 Some(path),
                 Arc::clone(&scrobbler),
             )
             .await
         }
-        LibraryKind::RuneRemoteControl { fingerprint } => {
+        ProtocolAdapter::RuneForward {
+            owner_fingerprint: fingerprint,
+            mode: RuneForwardMode::RemoteControl,
+        } => {
             let hosts = node
                 .cert_validator
                 .read()
@@ -555,7 +563,7 @@ pub(crate) async fn open_library_by_record_on_node(
                 }
             }
         }
-        LibraryKind::Subsonic { .. } => Err((
+        ProtocolAdapter::SubsonicTranslate { .. } => Err((
             OpenLibraryFailureKind::NotSupportedYet,
             anyhow::anyhow!("Subsonic record opening is not implemented yet"),
         )),
@@ -578,12 +586,6 @@ pub(crate) async fn open_library_by_record_on_node(
             }
         }
         Err((kind, error)) => failed(kind, error),
-    }
-}
-
-fn storage_path_owned(storage: &OwnedStorage) -> Option<&str> {
-    match storage {
-        OwnedStorage::Local { path, .. } => Some(path),
     }
 }
 

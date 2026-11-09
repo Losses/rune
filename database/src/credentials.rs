@@ -357,7 +357,8 @@ fn temporary_path(path: &Path) -> PathBuf {
 mod tests {
     use super::{Credential, CredentialRef, CredentialStore, CredentialStoreError, Secret};
     use crate::library_registry::{
-        LibraryKind, LibraryRecord, LibraryRecordId, LibraryRegistry, SubsonicOpenMode,
+        CatalogPlacement, LibraryRecord, LibraryRecordId, LibraryRegistry, ProtocolAdapter,
+        SubsonicOpenMode,
     };
     use std::{fs, io, sync::Arc};
     use tempfile::TempDir;
@@ -403,11 +404,15 @@ mod tests {
         let record = LibraryRecord {
             record_id: LibraryRecordId(Uuid::new_v4()),
             alias: "Subsonic".into(),
-            kind: LibraryKind::Subsonic {
+            library_id: None,
+            protocol: ProtocolAdapter::SubsonicTranslate {
                 endpoint: "https://music.example".into(),
                 credential: reference,
                 mode: SubsonicOpenMode::PlayOnThisDevice,
             },
+            fs: Vec::new(),
+            catalog: CatalogPlacement::None,
+            background_sync: false,
         };
         LibraryRegistry::update(dir.path(), |registry| {
             registry.libraries.push(record);
@@ -499,11 +504,15 @@ mod tests {
             registry.libraries.push(LibraryRecord {
                 record_id,
                 alias: "Subsonic".into(),
-                kind: LibraryKind::Subsonic {
+                library_id: None,
+                protocol: ProtocolAdapter::SubsonicTranslate {
                     endpoint: "https://music.example".into(),
                     credential: reference,
                     mode: SubsonicOpenMode::PlayOnThisDevice,
                 },
+                fs: Vec::new(),
+                catalog: CatalogPlacement::None,
+                background_sync: false,
             });
             Ok(())
         })

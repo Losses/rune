@@ -44,26 +44,27 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [[ -z "${DISPLAY:-}" ]]; then
-  xorg_server=$(nix eval --raw nixpkgs#xorg-server.outPath)
-  openbox=$(nix build --no-link --print-out-paths nixpkgs#openbox)
-  "$xorg_server/bin/Xvfb" -displayfd 3 -screen 0 1600x1200x24 -nolisten tcp \
-    -ac 3>"$run_root/xvfb-display" >"$run_root/xvfb.log" 2>&1 &
-  xvfb_pid=$!
-  for _ in $(seq 1 100); do
-    [[ -s "$run_root/xvfb-display" ]] && break
-    kill -0 "$xvfb_pid" || { cat "$run_root/xvfb.log" >&2; exit 1; }
-    sleep 0.1
-  done
-  if [[ ! -s "$run_root/xvfb-display" ]]; then
-    printf 'Timed out waiting for the isolated Xvfb display\n' >&2
-    exit 1
-  fi
-  export DISPLAY=":$(cat "$run_root/xvfb-display")"
-  unset WAYLAND_DISPLAY
-  "$openbox/bin/openbox" >"$run_root/openbox.log" 2>&1 &
-  wm_pid=$!
+# Always run on a private Xvfb display: the app must never open windows on the
+# developer's desktop, even when the script is started from a desktop session.
+xorg_server=$(nix eval --raw nixpkgs#xorg-server.outPath)
+openbox=$(nix build --no-link --print-out-paths nixpkgs#openbox)
+"$xorg_server/bin/Xvfb" -displayfd 3 -screen 0 1600x1200x24 -nolisten tcp \
+  -ac 3>"$run_root/xvfb-display" >"$run_root/xvfb.log" 2>&1 &
+xvfb_pid=$!
+for _ in $(seq 1 100); do
+  [[ -s "$run_root/xvfb-display" ]] && break
+  kill -0 "$xvfb_pid" || { cat "$run_root/xvfb.log" >&2; exit 1; }
+  sleep 0.1
+done
+if [[ ! -s "$run_root/xvfb-display" ]]; then
+  printf 'Timed out waiting for the isolated Xvfb display\n' >&2
+  exit 1
 fi
+export DISPLAY=":$(cat "$run_root/xvfb-display")"
+unset WAYLAND_DISPLAY
+export GTK_USE_PORTAL=0 GDK_DEBUG=no-portals
+"$openbox/bin/openbox" >"$run_root/openbox.log" 2>&1 &
+wm_pid=$!
 
 export HOME="$home"
 export XDG_CONFIG_HOME="$run_root/config"
@@ -77,7 +78,7 @@ export E2E_LIBRARY_B="$music_b"
 started=$SECONDS
 for phase in 1 2 3 4; do
   export E2E_PHASE="$phase"
-  command=(nix develop -c flutter test integration_test/e2e_library_flow_test.dart -d linux)
+  command=(dbus-run-session -- nix develop -c flutter test integration_test/e2e_library_flow_test.dart -d linux)
   printf 'E2E library flow phase %s/4\n' "$phase"
   timeout --signal=TERM --kill-after=10s 3600s "${command[@]}"
 

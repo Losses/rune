@@ -906,8 +906,8 @@ mod lifecycle_tests {
     use database::credentials::CredentialRef;
     use database::entities::{media_files, media_files::Column};
     use database::library_registry::{
-        DbPlacement, LibraryKind, LibraryRecord, LibraryRecordId, LibraryRegistry, OwnedStorage,
-        SubsonicOpenMode, create_replica, resolve_library,
+        CatalogPlacement, FsAdapter, LibraryRecord, LibraryRecordId, LibraryRegistry,
+        ProtocolAdapter, RuneForwardMode, SubsonicOpenMode, create_replica, resolve_library,
     };
     use database::sync::{
         LibrarySyncStore,
@@ -1119,14 +1119,13 @@ mod lifecycle_tests {
             registry.libraries.push(LibraryRecord {
                 record_id: LibraryRecordId(Uuid::new_v4()),
                 alias: "Owned".into(),
-                kind: LibraryKind::Owned {
-                    library_id,
-                    storage: OwnedStorage::Local {
-                        path: dir.to_string_lossy().into_owned(),
-                        placement: DbPlacement::Portable,
-                    },
-                    background_sync: true,
-                },
+                library_id: Some(library_id),
+                protocol: ProtocolAdapter::Native,
+                fs: vec![FsAdapter::Local {
+                    path: dir.to_string_lossy().into_owned(),
+                }],
+                catalog: CatalogPlacement::InMediaRoot,
+                background_sync: true,
             });
             Ok(())
         })
@@ -3258,18 +3257,27 @@ mod lifecycle_tests {
                 LibraryRecord {
                     record_id: remote_control_id,
                     alias: "Remote control".into(),
-                    kind: LibraryKind::RuneRemoteControl {
-                        fingerprint: "remote".into(),
+                    library_id: None,
+                    protocol: ProtocolAdapter::RuneForward {
+                        owner_fingerprint: "remote".into(),
+                        mode: RuneForwardMode::RemoteControl,
                     },
+                    fs: Vec::new(),
+                    catalog: CatalogPlacement::None,
+                    background_sync: false,
                 },
                 LibraryRecord {
                     record_id: subsonic_id,
                     alias: "Subsonic".into(),
-                    kind: LibraryKind::Subsonic {
+                    library_id: None,
+                    protocol: ProtocolAdapter::SubsonicTranslate {
                         endpoint: "https://music.example".into(),
                         credential: CredentialRef(Uuid::new_v4()),
                         mode: SubsonicOpenMode::RemoteControl,
                     },
+                    fs: Vec::new(),
+                    catalog: CatalogPlacement::None,
+                    background_sync: false,
                 },
             ]);
             Ok(())

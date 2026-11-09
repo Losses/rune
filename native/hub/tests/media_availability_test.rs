@@ -12,7 +12,9 @@ use database::{
         metadata::get_metadata_summary_by_files,
     },
     entities::media_files,
-    library_registry::{DbPlacement, LibraryKind, LibraryRecord, LibraryRecordId, OwnedStorage},
+    library_registry::{
+        CatalogPlacement, FsAdapter, LibraryRecord, LibraryRecordId, ProtocolAdapter,
+    },
     sync::LibrarySyncStore,
     sync::model::BlobRef,
 };
@@ -41,14 +43,13 @@ async fn request_library(
     let descriptor = LibraryRecord {
         record_id: LibraryRecordId(Uuid::new_v4()),
         alias: "Test library".into(),
-        kind: LibraryKind::Owned {
-            library_id,
-            storage: OwnedStorage::Local {
-                path: media_root.clone(),
-                placement: DbPlacement::Portable,
-            },
-            background_sync: false,
-        },
+        library_id: Some(library_id),
+        protocol: ProtocolAdapter::Native,
+        fs: vec![FsAdapter::Local {
+            path: media_root.clone(),
+        }],
+        catalog: CatalogPlacement::InMediaRoot,
+        background_sync: false,
     };
     pool.register_ui(LibraryResources {
         library_id,

@@ -16,7 +16,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use database::actions::file::{ManagedAudioVerifier, file_ids_by_uuid, materialized_path};
 use database::actions::library::clean_local_orphans;
 use database::library_registry::{
-    LibraryAccess, LibraryConnectionAccess, LibraryKind, LibraryRegistry,
+    LibraryAccess, LibraryConnectionAccess, LibraryRegistry, ProtocolAdapter, RuneForwardMode,
 };
 use database::sync::Maintenance;
 use database::sync::model::RuneModel;
@@ -648,8 +648,8 @@ async fn peer_may_sync(
     action: Action,
 ) -> bool {
     let is_authority = matches!(
-        &library.descriptor.kind,
-        LibraryKind::RuneReplica { owner_fingerprint: authority, .. } if authority == fingerprint
+        &library.descriptor.protocol,
+        ProtocolAdapter::RuneForward { owner_fingerprint: authority, mode: RuneForwardMode::Replica { .. } } if authority == fingerprint
     );
     let peer = global
         .permission_manager
