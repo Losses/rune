@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../widgets/playback_controller/queue.dart';
 import '../../utils/l10n.dart';
-import '../../providers/library_path.dart';
+import '../../providers/library_open_state.dart';
 import 'play_on/play_on_dialog.dart';
 
 import '../../widgets/rune_clickable.dart';
@@ -19,11 +19,10 @@ Future<void> showPlayQueueDialog(
   PlayOnDialogOpener playOnDialog = showPlayOnDialog,
 }) async {
   final remoteLibrary =
-      Provider.of<LibraryPathProvider>(
+      Provider.of<LibraryOpenStateProvider>(
         context,
         listen: false,
-      ).currentPath?.startsWith('@RR|') ??
-      false;
+      ).isRemoteControl;
   final parentContext = context;
   return await $showModal<void>(
     context,

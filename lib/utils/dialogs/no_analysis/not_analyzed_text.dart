@@ -2,7 +2,7 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/l10n.dart';
-import '../../../providers/library_path.dart';
+import '../../../providers/library_open_state.dart';
 import '../../../providers/library_manager.dart';
 
 class NotAnalyzedText extends StatelessWidget {
@@ -17,8 +17,8 @@ class NotAnalyzedText extends StatelessWidget {
   Widget build(BuildContext context) {
     final libraryManager =
         Provider.of<LibraryManagerProvider>(context, listen: true);
-    final libraryPath = Provider.of<LibraryPathProvider>(context, listen: true);
-    final itemPath = libraryPath.currentPath ?? '';
+    final libraryPath = Provider.of<LibraryOpenStateProvider>(context, listen: true);
+    final itemPath = libraryPath.openLocalFolderPath ?? '';
 
     final scanProgress = libraryManager.getScanTaskProgress(itemPath);
     final analyzeProgress = libraryManager.getAnalyzeTaskProgress(itemPath);

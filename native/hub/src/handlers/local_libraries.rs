@@ -38,14 +38,10 @@ async fn record_summaries(
         let mut summary = LibraryRecordSummary::from(record);
         match &mut summary.kind {
             LibraryRecordKindSummary::Replica {
-                path,
                 owner_fingerprint,
                 owner_alias,
                 ..
             } => {
-                if let Some(root) = record.root(Path::new(&*node.config_path)) {
-                    *path = root.to_string_lossy().into_owned();
-                }
                 *owner_alias = aliases
                     .get(owner_fingerprint.as_str())
                     .map(|alias| (*alias).to_owned())
@@ -65,28 +61,13 @@ async fn record_summaries(
                     .iter()
                     .find(|device| device.fingerprint == *fingerprint);
                 *device_alias = device.map(|device| device.alias.clone());
-                let discovered_endpoint = device.and_then(|device| {
-                    let addresses: Vec<_> = device
-                        .ips
-                        .iter()
-                        .filter(|ip| ip.is_ipv4())
-                        .map(ToString::to_string)
-                        .collect();
-                    let addresses: Vec<_> = addresses.iter().map(String::as_str).collect();
-                    discovery::url::encode_rnsrv_url(&addresses)
-                        .ok()
-                        .map(|url| format!("@RR|{url}"))
-                });
                 let hosts = node
                     .cert_validator
                     .read()
                     .await
                     .get_hosts_for_fingerprint(fingerprint)
                     .await;
-                *endpoint = hosts
-                    .first()
-                    .map(|host| format!("@RR|wss://{host}"))
-                    .or(discovered_endpoint);
+                *endpoint = hosts.first().cloned();
             }
             _ => {}
         }
@@ -232,7 +213,7 @@ impl Signal for ListLocalLibrariesRequest {
                 let id = library.catalog_library_id()?;
                 Some(LocalLibrary {
                     library_id: id.to_string(),
-                    path: library.app_name()?,
+                    path: library.local_folder_path().unwrap_or_default().to_owned(),
                     alias: library.alias.clone(),
                     owner_fingerprint: library.owner_fingerprint().map(str::to_owned),
                     background_sync: library.background_sync(),
@@ -348,7 +329,7 @@ mod tests {
             .find(|library| library.library_id == owned.catalog_library_id().unwrap().to_string())
             .unwrap();
         assert_eq!(local.alias, "Owned");
-        assert_eq!(local.path, owned.app_name().unwrap());
+        assert_eq!(local.path, owned.display_name().unwrap());
         assert_eq!(local.owner_fingerprint, None);
         assert!(local.background_sync);
         let remote = libraries
@@ -356,10 +337,7 @@ mod tests {
             .find(|library| library.library_id == replica.catalog_library_id().unwrap().to_string())
             .unwrap();
         assert_eq!(remote.alias, "Replica");
-        assert_eq!(
-            remote.path,
-            format!("replica://{}", replica.catalog_library_id().unwrap())
-        );
+        assert_eq!(remote.path, "");
         assert_eq!(remote.owner_fingerprint.as_deref(), Some("owner"));
         assert!(remote.background_sync);
         for id in [

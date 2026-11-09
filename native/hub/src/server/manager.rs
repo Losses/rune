@@ -464,7 +464,7 @@ impl ServerManager {
                         && let Some(library) = &params.library
                     {
                         node.broadcaster.broadcast(&LibraryContentChanged {
-                            path: library.app_name.clone(),
+                            path: library.display_name.clone(),
                         });
                     }
                 });
@@ -846,7 +846,6 @@ mod lifecycle_tests {
     };
     use super::super::utils::device::load_device_info;
     use crate::Signal;
-    use crate::backends::remote::open_remote_library;
     use crate::macros::dispatch_remote;
     use crate::messages::*;
     use crate::request_error::classify;
@@ -857,7 +856,7 @@ mod lifecycle_tests {
     use playback::stream_utils::{ManagedStream, create_stream_with_authorizer};
     use std::net::SocketAddr;
     use std::net::TcpListener;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use tracing_subscriber::filter::LevelFilter;
     #[tokio::test(start_paused = true)]
     async fn worker_notifications_are_coalesced() {
@@ -906,8 +905,8 @@ mod lifecycle_tests {
     use database::connection::StorageMode;
     use database::entities::{media_files, media_files::Column};
     use database::library_registry::{
-        DbPlacement, LibraryKind, LibraryLocation, LibraryRecord, LibraryRecordId, LibraryRegistry,
-        OwnedStorage, SubsonicOpenMode, create_replica, resolve_library,
+        DbPlacement, LibraryKind, LibraryRecord, LibraryRecordId, LibraryRegistry, OwnedStorage,
+        SubsonicOpenMode, create_replica, resolve_library,
     };
     use database::sync::{
         LibrarySyncStore,
@@ -932,8 +931,10 @@ mod lifecycle_tests {
     use crate::handlers::neighbors::select_pinned_pair_host;
     use crate::library_pool::{LibraryHandle, LibraryPool};
     use crate::messages::{
-        DeviceConnectionLevel, DeviceSyncLevel, PlaybackStatus, RequestErrorKind,
-        RequestFailureCause, TrustListUpdated, TrustedServerCertificate,
+        DeviceConnectionLevel, DeviceSyncLevel, LibraryInitializeMode, OpenLibraryRequest,
+        OpenLibraryResult, PlaybackStatus, RegisterLocalLibraryRequest,
+        RegisterRemoteControlRequest, RequestErrorKind, RequestFailureCause, TrustListUpdated,
+        TrustedServerCertificate,
     };
     use crate::node::{NodeSlot, ReconnectConfig};
     use crate::request_error::{ExpectedRequestError, request_failure_cause};
@@ -964,6 +965,62 @@ mod lifecycle_tests {
     struct Fixture {
         manager: Arc<ServerManager>,
         global_params: Arc<GlobalParams>,
+    }
+
+    async fn open_remote_control_record(
+        node: Arc<NodeContext>,
+        fingerprint: &str,
+    ) -> Result<Arc<GlobalParams>> {
+        use crate::utils::register_remote_control_on_node;
+
+        let registered = register_remote_control_on_node(
+            &RegisterRemoteControlRequest {
+                fingerprint: fingerprint.to_owned(),
+                alias: "Test remote".into(),
+            },
+            &node,
+        )
+        .await;
+        let record = registered.record.context("remote record")?;
+        open_registered_library_record(node, record.record_id).await
+    }
+
+    async fn open_registered_library_record(
+        node: Arc<NodeContext>,
+        record_id: String,
+    ) -> Result<Arc<GlobalParams>> {
+        use crate::utils::open_library_by_record_on_node;
+        use scrobbling::manager::ScrobblingManager;
+        use tokio::sync::Mutex;
+
+        let opened = open_library_by_record_on_node(
+            &OpenLibraryRequest {
+                call_id: 1,
+                record_id: record_id.clone(),
+            },
+            node.clone(),
+            Arc::new(Mutex::new(ScrobblingManager::new(
+                10,
+                Duration::from_secs(5),
+            ))),
+        )
+        .await;
+        match opened.result {
+            OpenLibraryResult::Opened => {
+                let params = node.current_ui().await?;
+                let record_id = LibraryRecordId(Uuid::parse_str(&record_id)?);
+                let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
+                let record = registry.record(record_id)?;
+                match record.catalog_library_id() {
+                    Some(library_id) => {
+                        let library = node.library_pool.acquire_ui(library_id).await?;
+                        Ok(Arc::new(params.for_library(library)))
+                    }
+                    None => Ok(params),
+                }
+            }
+            OpenLibraryResult::Failed(failure) => Err(anyhow::anyhow!(failure.detail)),
+        }
     }
 
     async fn peer_step<T>(
@@ -1102,32 +1159,36 @@ mod lifecycle_tests {
         fixture_from_library(node_context, library).await
     }
 
-    async fn fixture_open_replica(source: &Fixture, root: &Path) -> Result<Fixture> {
+    async fn fixture_open_record(source: &Fixture, record_id: String) -> Result<Fixture> {
         let node = source.global_params.node.clone();
-        let config = Path::new(&*node.config_path);
-        let mut registry = LibraryRegistry::load(config)?;
-        // A replica added through the peer flow is named by id, not by folder.
-        let root = match LibraryLocation::parse(root.to_str().context("replica path")?)? {
-            LibraryLocation::Replica(id) => {
-                registry.replica(id)?.root(config).context("replica root")?
-            }
-            LibraryLocation::Path(path) => PathBuf::from(path),
-        };
-        let descriptor = resolve_library(
-            &source.global_params.test_library().fsio,
-            &mut registry,
-            root.to_str().context("replica path")?,
-            "",
-            StorageMode::Portable,
-        )
-        .await?;
+        let params = open_registered_library_record(node, record_id).await?;
         fixture_from_library(
-            node.clone(),
-            node.library_pool
-                .acquire_ui(descriptor.catalog_library_id().context("fixture catalog")?)
-                .await?,
+            params.node.clone(),
+            params.library.clone().context("open catalog")?,
         )
         .await
+    }
+
+    async fn fixture_open_local_library(source: &Fixture, path: &Path) -> Result<Fixture> {
+        let node = source.global_params.node.clone();
+        let response = register_local_library_on_node(
+            &RegisterLocalLibraryRequest {
+                path: path.to_str().context("test library path")?.to_owned(),
+                alias: "Test local".into(),
+                mode: Some(LibraryInitializeMode::Portable),
+            },
+            &node,
+        )
+        .await;
+        let record = response.record.context("registered local record")?;
+        fixture_open_record(source, record.record_id).await
+    }
+
+    async fn fixture_open_replica(source: &Fixture, library_id: Uuid) -> Result<Fixture> {
+        let node = source.global_params.node.clone();
+        let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
+        let record_id = registry.catalog(library_id)?.record_id.0.to_string();
+        fixture_open_record(source, record_id).await
     }
 
     async fn reopen_fixture(original: &Fixture) -> Result<Fixture> {
@@ -1217,9 +1278,7 @@ mod lifecycle_tests {
             &params.test_library().main_db
         ));
         assert!(params.ui_library.lock().await.is_some());
-        let close = CloseLibraryRequest {
-            path: params.test_library().media_root.clone(),
-        };
+        let close = CloseLibraryRequest {};
         assert!(
             close
                 .handle(close.extract_params(params), None, &close)
@@ -1232,20 +1291,17 @@ mod lifecycle_tests {
     }
 
     #[tokio::test]
-    async fn a_replica_opened_by_its_folder_closes_by_that_folder() -> Result<()> {
+    async fn closing_a_replica_closes_the_open_record() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let source = fixture(dir.path()).await?;
         let config = Path::new(&*source.global_params.config_path);
         let id = Uuid::new_v4();
         let mut registry = LibraryRegistry::load(config)?;
         create_replica(config, &mut registry, id, "Replica", "owner").await?;
-        let root = registry.replica(id)?.root(config).context("replica root")?;
-        let opened = fixture_open_replica(&source, &root).await?;
+        let opened = fixture_open_replica(&source, id).await?;
         let params = &opened.global_params;
         assert_eq!(params.library_id, Some(id));
-        let close = CloseLibraryRequest {
-            path: root.to_string_lossy().into_owned(),
-        };
+        let close = CloseLibraryRequest {};
         assert!(
             close
                 .handle(close.extract_params(params), None, &close)
@@ -1565,10 +1621,8 @@ mod lifecycle_tests {
     }
 
     async fn close_ui(params: &GlobalParams) -> Result<()> {
-        if let Some(library) = &params.library {
-            let request = CloseLibraryRequest {
-                path: library.media_root.clone(),
-            };
+        if params.library.is_some() {
+            let request = CloseLibraryRequest {};
             request
                 .handle(request.extract_params(params), None, &request)
                 .await?;
@@ -3184,7 +3238,7 @@ mod lifecycle_tests {
             .await?
             .context("add response")?;
         anyhow::ensure!(response.error.is_none(), "add failed: {:?}", response.error);
-        Ok(response.path)
+        Ok(response.record_id)
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -3297,12 +3351,12 @@ mod lifecycle_tests {
         assert_eq!(libraries[0].alias, "Owned");
         assert!(!libraries[0].added);
         assert_ne!(b.global_params.library_id, Some(library_id));
-        let path = request_add_library(&b, &fingerprint, &libraries[0]).await?;
+        let record_id = request_add_library(&b, &fingerprint, &libraries[0]).await?;
         assert_eq!(
-            path,
+            record_id,
             request_add_library(&b, &fingerprint, &libraries[0]).await?
         );
-        let replica = fixture_open_replica(&b, Path::new(&path)).await?;
+        let replica = fixture_open_replica(&b, library_id).await?;
         assert_eq!(replica.global_params.library_id, Some(library_id));
         let endpoint = PeerEndpoint {
             fingerprint: fingerprint.clone(),
@@ -3362,8 +3416,9 @@ mod lifecycle_tests {
         let libraries = listed.libraries;
         assert_eq!(libraries.len(), 1);
         assert!(libraries[0].added);
+        let replica_record_id = request_add_library(&replica, &fingerprint, &libraries[0]).await?;
         assert_eq!(
-            path,
+            replica_record_id,
             request_add_library(&replica, &fingerprint, &libraries[0]).await?
         );
         let registry = LibraryRegistry::load(second.path())?;
@@ -3582,9 +3637,10 @@ mod lifecycle_tests {
             wait_for_album(&right, &forward)
         )?;
         let worker = b.sync_handle.lock().await.as_ref().context("worker")?.id();
+        let remote_fingerprint = info(&a).await?.fingerprint;
         let remote_ui = peer_step(
             "open headless controller library",
-            open_remote_library(b.global_params.node.clone(), &format!("@RR|ws://{a_addr}")),
+            open_remote_control_record(b.global_params.node.clone(), &remote_fingerprint),
         )
         .await?;
         assert!(remote_ui.library_id.is_none());

@@ -44,12 +44,9 @@ class _RemoteDestinationsListState extends State<RemoteDestinationsList> {
         itemBuilder: (context, index) {
           final item = allRecords[index];
           final path = switch (item.kind) {
-            LibraryRecordKindSummaryReplica(:final path) => path,
-            LibraryRecordKindSummaryRemoteControl(
-              :final fingerprint,
-              :final endpoint,
-            ) =>
-              endpoint ?? '@RR|$fingerprint',
+            LibraryRecordKindSummaryReplica() => item.alias,
+            LibraryRecordKindSummaryRemoteControl(:final endpoint) =>
+              endpoint ?? '',
             _ => '',
           };
           final isCurrentLibrary = item.recordId == registry.openRecordId;

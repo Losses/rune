@@ -6,7 +6,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:fast_file_picker/fast_file_picker.dart';
 import 'package:file_selector/file_selector.dart' show XTypeGroup;
 
-import '../../providers/library_path.dart';
+import '../../providers/library_open_state.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 
@@ -167,7 +167,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                 );
               },
             ),
-            if (!context.read<LibraryPathProvider>().isReadOnlyReplica &&
+            if (!context.read<LibraryOpenStateProvider>().isReadOnlyReplica &&
                 data.collectionType == CollectionType.mix)
               MenuFlyoutItem(
                 leading: const Icon(Symbols.add),
@@ -178,7 +178,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                   if (x != null) data.reloadData();
                 },
               ),
-            if (!context.read<LibraryPathProvider>().isReadOnlyReplica &&
+            if (!context.read<LibraryOpenStateProvider>().isReadOnlyReplica &&
                 data.collectionType == CollectionType.playlist)
               MenuFlyoutItem(
                 leading: const Icon(Symbols.add),
@@ -189,7 +189,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                   if (x != null) data.reloadData();
                 },
               ),
-            if (!context.read<LibraryPathProvider>().isReadOnlyReplica &&
+            if (!context.read<LibraryOpenStateProvider>().isReadOnlyReplica &&
                 data.collectionType == CollectionType.playlist)
               MenuFlyoutItem(
                 leading: const Icon(Symbols.download),

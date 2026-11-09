@@ -4,14 +4,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
 import 'package:rune/l10n/app_localizations.dart';
-import 'package:rune/providers/library_path.dart';
+import 'package:rune/providers/library_open_state.dart';
 import 'package:rune/screens/welcome/scanning.dart';
 import 'package:rune/bindings/bindings.dart';
 import 'package:rune/providers/library_manager.dart';
 
-class FakeLibraryPath extends ChangeNotifier implements LibraryPathProvider {
+class FakeLibraryPath extends ChangeNotifier implements LibraryOpenStateProvider {
   @override
-  String? get currentPath => '/test/library';
+  String? get openLocalFolderPath => '/test/library';
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -135,7 +135,7 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-          ChangeNotifierProvider<LibraryPathProvider>(
+          ChangeNotifierProvider<LibraryOpenStateProvider>(
             create: (_) => FakeLibraryPath(),
           ),
           ChangeNotifierProvider<LibraryManagerProvider>.value(value: manager),

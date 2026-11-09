@@ -7,7 +7,7 @@ import '../utils/router/navigation.dart';
 import '../screens/settings_library/widgets/progress_button.dart';
 import '../bindings/bindings.dart';
 import '../providers/library_manager.dart';
-import '../providers/library_path.dart';
+import '../providers/library_open_state.dart';
 
 Future<bool?> showCancelDialog(BuildContext context) {
   return $showModal<bool>(
@@ -55,8 +55,8 @@ class LibraryTaskButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final libraryPath = Provider.of<LibraryPathProvider>(context, listen: true);
-    final itemPath = libraryPath.currentPath;
+    final libraryPath = Provider.of<LibraryOpenStateProvider>(context, listen: true);
+    final itemPath = libraryPath.openLocalFolderPath;
 
     if (itemPath == null) {
       return Container();
@@ -202,8 +202,8 @@ class AnalyzeLibraryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final libraryPath = Provider.of<LibraryPathProvider>(context, listen: true);
-    final itemPath = libraryPath.currentPath;
+    final libraryPath = Provider.of<LibraryOpenStateProvider>(context, listen: true);
+    final itemPath = libraryPath.openLocalFolderPath;
 
     if (itemPath == null) return Container();
 
@@ -254,8 +254,8 @@ class DeduplicateLibraryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final libraryPath = Provider.of<LibraryPathProvider>(context, listen: true);
-    final itemPath = libraryPath.currentPath;
+    final libraryPath = Provider.of<LibraryOpenStateProvider>(context, listen: true);
+    final itemPath = libraryPath.openLocalFolderPath;
 
     if (itemPath == null) return Container();
 

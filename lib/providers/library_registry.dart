@@ -8,8 +8,14 @@ import '../bindings/bindings.dart';
 import '../utils/api/request_failure.dart';
 import '../utils/rune_log.dart';
 import '../utils/dialogs/select_library_mode/show_select_library_mode_dialog.dart';
-import '../utils/api/set_media_library_path.dart';
 import '../utils/file_storage/mac_secure_manager.dart';
+
+LibraryInitializeMode? stringToLibraryInitializeMode(String? value) {
+  if (value == null) return null;
+  return value == 'Redirected'
+      ? LibraryInitializeMode.redirected
+      : LibraryInitializeMode.portable;
+}
 
 class LibraryRegistryFailure implements Exception {
   const LibraryRegistryFailure(this.kind, this.detail);
@@ -59,7 +65,7 @@ class LibraryRegistryProvider extends ChangeNotifier {
     registerLocal,
     Future<RegisterLibraryResponse> Function(String fingerprint, String alias)?
     registerRemote,
-    Future<void> Function(String path)? closeRecord,
+    Future<void> Function()? closeRecord,
     Future<RemoveLibraryRecordResponse> Function(String recordId)? removeRecord,
     Stream<RustSignalPack<LibraryRecordsChanged>>? recordsChanged,
   }) : _loadRecords = loadRecords,
@@ -93,13 +99,21 @@ class LibraryRegistryProvider extends ChangeNotifier {
   _registerLocal;
   final Future<RegisterLibraryResponse> Function(String, String)?
   _registerRemote;
-  final Future<void> Function(String)? _closeRecord;
+  final Future<void> Function()? _closeRecord;
   final Future<RemoveLibraryRecordResponse> Function(String)? _removeRecord;
 
   List<LibraryRecordSummary> get records => List.unmodifiable(_records);
   String? get openRecordId => _openRecordId;
   int? get openGeneration => _openGeneration;
   String? get lastOpenRecordId => _lastOpenRecordId;
+  LibraryRecordSummary? get openRecord {
+    final id = _openRecordId;
+    if (id == null) return null;
+    for (final record in _records) {
+      if (record.recordId == id) return record;
+    }
+    return null;
+  }
 
   void onClosed() {
     _openRecordId = null;
@@ -219,16 +233,12 @@ class LibraryRegistryProvider extends ChangeNotifier {
   Future<void> remove(String recordId) async {
     if (_openRecordId == recordId) {
       if (_closeRecord != null) {
-        await _closeRecord(_derivedPath(recordId));
+        await _closeRecord();
       } else {
         await awaitResponse(
           'CloseLibraryRequest',
-          CloseLibraryResponse.rustSignalStream.where(
-            (event) => event.message.path == _derivedPath(recordId),
-          ),
-          send: () => CloseLibraryRequest(
-            path: _derivedPath(recordId),
-          ).sendSignalToRust(),
+          CloseLibraryResponse.rustSignalStream,
+          send: () => CloseLibraryRequest().sendSignalToRust(),
         );
       }
       _openRecordId = null;
@@ -249,21 +259,6 @@ class LibraryRegistryProvider extends ChangeNotifier {
     }
     _records = _records.where((record) => record.recordId != recordId).toList();
     if (!_disposed) notifyListeners();
-  }
-
-  String _derivedPath(String id) {
-    final record = _records.firstWhere((record) => record.recordId == id);
-    return switch (record.kind) {
-      LibraryRecordKindSummaryLocal(:final path) => path,
-      LibraryRecordKindSummaryReplica(:final path) => path,
-      LibraryRecordKindSummaryRemoteControl(
-        :final fingerprint,
-        :final endpoint,
-      ) =>
-        endpoint ?? '@RR|$fingerprint',
-      LibraryRecordKindSummarySubsonic(:final endpoint) => endpoint,
-      _ => '',
-    };
   }
 
   @override

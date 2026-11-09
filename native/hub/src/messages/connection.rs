@@ -25,38 +25,11 @@ pub struct TestLibraryInitializedResponse {
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum OperationDestination {
-    Local,
-    Remote,
-}
-
-#[derive(Serialize, Deserialize, DartSignal)]
-pub struct SetMediaLibraryPathRequest {
-    pub path: String,
-    pub db_path: String,
-    pub config_path: String,
-    pub alias: String,
-    pub mode: Option<LibraryInitializeMode>,
-    pub plays_on: OperationDestination,
-    pub hosted_on: OperationDestination,
-}
-
-#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LibraryOpenErrorKind {
     RemoteUntrusted,
     RemoteNotAuthorized,
     RemoteUnreachable,
     RemoteProtocol,
-}
-
-#[derive(Deserialize, Serialize, RustSignal)]
-pub struct SetMediaLibraryPathResponse {
-    pub restore_last_index: bool,
-    pub error_kind: Option<LibraryOpenErrorKind>,
-    pub path: String,
-    pub success: bool,
-    pub error: Option<String>,
-    pub not_ready: bool,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
@@ -80,7 +53,6 @@ pub enum LibraryRecordKindSummary {
     },
     Replica {
         library_id: String,
-        path: String,
         owner_fingerprint: String,
         owner_alias: Option<String>,
     },
@@ -136,7 +108,6 @@ impl From<&LibraryRecord> for LibraryRecordSummary {
                 ..
             } => LibraryRecordKindSummary::Replica {
                 library_id: library_id.to_string(),
-                path: record.app_name().unwrap_or_default(),
                 owner_fingerprint: owner_fingerprint.clone(),
                 owner_alias: None,
             },

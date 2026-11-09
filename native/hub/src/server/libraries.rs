@@ -591,9 +591,7 @@ pub(crate) async fn add_remote_library(
         connection_access,
     )
     .await?;
-    descriptor
-        .app_name()
-        .context("Added replica has no app name")
+    Ok(descriptor.record_id.0.to_string())
 }
 
 #[derive(Default, Deserialize)]

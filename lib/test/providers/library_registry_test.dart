@@ -89,8 +89,7 @@ void main() {
             generation: Uint64.fromBigInt(BigInt.from(8)),
           ),
         ),
-        closeRecord: (path) async {
-          expect(path, '/music');
+        closeRecord: () async {
           sequence.add('close');
         },
         removeRecord: (recordId) async {

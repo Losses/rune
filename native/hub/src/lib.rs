@@ -34,10 +34,7 @@ pub use utils::{RemoteEventDeclaration, RemoteEventScope, RinfRustSignal};
 
 use ::scrobbling::manager::ScrobblingManager;
 
-use utils::{
-    TaskTokens, diagnostics::receive_fs_self_test, receive_library_record_requests,
-    receive_media_library_path,
-};
+use utils::{TaskTokens, diagnostics::receive_fs_self_test, receive_library_record_requests};
 
 use crate::utils::init_logging;
 
@@ -112,14 +109,6 @@ async fn main() {
     tokio::spawn(receive_fs_self_test());
     tokio::spawn(node::receive_initialize_node());
     tokio::spawn(receive_library_record_requests(Arc::clone(&scrobbler)));
-
-    // Start receiving the media library path
-    tokio::select! {
-        result = receive_media_library_path(scrobbler) => {
-            if let Err(error) = result { error!("Failed to receive media library path: {error:?}"); }
-        }
-        _ = rinf::dart_shutdown() => {}
-    }
 
     if let Err(error) = node::shutdown_node().await {
         error!("Node shutdown failed: {error:#}");

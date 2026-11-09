@@ -49,7 +49,7 @@ impl DownloadParams {
         )
         .await;
         self.broadcaster.broadcast(&LibraryContentChanged {
-            path: library.app_name.clone(),
+            path: library.display_name.clone(),
         });
         result.map(|_| ())
     }

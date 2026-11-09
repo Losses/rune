@@ -34,6 +34,6 @@ pub struct AddRemoteLibraryRequest {
 
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct AddRemoteLibraryResponse {
-    pub path: String,
+    pub record_id: String,
     pub error: Option<String>,
 }

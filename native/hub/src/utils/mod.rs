@@ -19,11 +19,11 @@ use std::{
 };
 
 use crate::handlers::local_libraries::publish_library_records_changed;
-use crate::node::{NodeContext, current_node, initialize_node};
+use crate::node::{NodeContext, current_node};
 use anyhow::{Context, Result};
 use fsio::FsIo;
-use log::{error, info};
-use rinf::{DartSignal, DartSignalPack};
+use log::info;
+use rinf::DartSignal;
 use scrobbling::manager::ScrobblingServiceManager;
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -39,8 +39,8 @@ use ::database::{
     },
     entities::media_files,
     library_registry::{
-        LibraryKind, LibraryLocation, LibraryRecord, LibraryRecordId, LibraryRegistry,
-        OwnedStorage, ReplicaStorage, resolve_library,
+        LibraryKind, LibraryRecord, LibraryRecordId, LibraryRegistry, OwnedStorage, ReplicaStorage,
+        resolve_library,
     },
     playing_item::MediaFileHandle,
 };
@@ -53,7 +53,7 @@ use ::scrobbling::manager::ScrobblingManager;
 
 use crate::backends::{
     local::local_player_loop,
-    remote::{RemoteConnectError, open_remote_library, open_remote_library_for_fingerprint},
+    remote::{RemoteConnectError, open_remote_library_for_fingerprint},
 };
 use crate::library_pool::{LibraryHandle, LibraryPool};
 use crate::messages::*;
@@ -235,277 +235,6 @@ impl Broadcaster for LocalGuiBroadcaster {
     }
 }
 
-pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>) -> Result<()> {
-    let receiver = SetMediaLibraryPathRequest::get_dart_signal_receiver();
-    let broadcaster: Arc<dyn Broadcaster> = Arc::new(LocalGuiBroadcaster);
-
-    info!("Receive media library path loop started");
-
-    loop {
-        while let Some(dart_signal) = receiver.recv().await {
-            let path = dart_signal.message.path.clone();
-            // A panic while handling one message must not wedge the whole rinf
-            // channel (the process stays alive but every Dart signal goes
-            // unanswered). Catch it, report, keep listening.
-            let handling = std::panic::AssertUnwindSafe(handle_media_library_path(
-                dart_signal,
-                Arc::clone(&scrobbler),
-                Arc::clone(&broadcaster),
-            ));
-            if let Err(panic) = futures::FutureExt::catch_unwind(handling).await {
-                error!("Panicked while handling media library path {path}: {panic:?}");
-                broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                    restore_last_index: false,
-                    error_kind: None,
-                    path,
-                    success: false,
-                    error: Some(
-                        "Internal error while opening the library; details are in the logs"
-                            .to_string(),
-                    ),
-                    not_ready: false,
-                });
-            }
-        }
-
-        tokio::time::sleep(Duration::from_secs(1)).await;
-    }
-}
-
-async fn handle_media_library_path(
-    dart_signal: DartSignalPack<SetMediaLibraryPathRequest>,
-    scrobbler: Arc<Mutex<ScrobblingManager>>,
-    broadcaster: Arc<dyn Broadcaster>,
-) {
-    {
-        info!("Received media library path message");
-        let media_library_path = &dart_signal.message.path;
-
-        info!("Received media library {media_library_path}");
-
-        let config_path = &dart_signal.message.config_path;
-        let alias = &dart_signal.message.alias;
-        // A replica is named by its library id; it lives in the data directory, which can
-        // move, so its folder comes from the registry rather than from Dart.
-        let replica_root =
-            match LibraryLocation::parse(media_library_path).and_then(|location| match location {
-                LibraryLocation::Replica(id) => {
-                    let registry = LibraryRegistry::load(Path::new(config_path))?;
-                    let descriptor = registry.replica(id)?;
-                    let root = descriptor
-                        .root(Path::new(config_path))
-                        .context("Replica has no storage root")?;
-                    Ok(Some((
-                        id,
-                        descriptor.record_id,
-                        root.to_str()
-                            .context("Replica path is not UTF-8")?
-                            .to_owned(),
-                    )))
-                }
-                LibraryLocation::Path(_) => Ok(None),
-            }) {
-                Ok(replica) => replica,
-                Err(error) => {
-                    broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                        restore_last_index: false,
-                        error_kind: None,
-                        path: media_library_path.to_string(),
-                        success: false,
-                        error: Some(format!("{error:#}")),
-                        not_ready: false,
-                    });
-                    return;
-                }
-            };
-        #[cfg(not(target_os = "android"))]
-        let fsio = Arc::new(FsIo::new());
-        #[cfg(target_os = "android")]
-        let fsio = match FsIo::new(
-            Path::new(".rune/.android-fs.db"),
-            replica_root
-                .as_ref()
-                .map_or(media_library_path, |(_, root)| root),
-        ) {
-            Ok(fsio) => Arc::new(fsio),
-            Err(e) => {
-                error!("Failed to initialize Android SAF filesystem: {e:#?}");
-                broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                    restore_last_index: false,
-                    error_kind: None,
-                    path: media_library_path.to_string(),
-                    success: false,
-                    error: Some(format!("Failed to access the selected directory: {e:#?}")),
-                    not_ready: false,
-                });
-                return;
-            }
-        };
-        let node = match initialize_node(
-            config_path,
-            &dart_signal.message.db_path,
-            broadcaster.clone(),
-        )
-        .await
-        {
-            Ok(node) => node,
-            Err(error) => {
-                broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                    restore_last_index: false,
-                    error_kind: None,
-                    path: media_library_path.to_string(),
-                    success: false,
-                    error: Some(format!("Failed to initialize node: {error:#}")),
-                    not_ready: false,
-                });
-                return;
-            }
-        };
-
-        match &dart_signal.message.hosted_on {
-            OperationDestination::Local => {
-                let database_mode = dart_signal.message.mode;
-                info!("Received path: {media_library_path}");
-
-                if let Some((id, record_id, _)) = replica_root {
-                    let opened = node.library_pool.acquire_ui(id).await;
-                    finish_local_open(
-                        opened,
-                        Some(record_id),
-                        &node,
-                        &scrobbler,
-                        &broadcaster,
-                        media_library_path,
-                    )
-                    .await;
-                    return;
-                }
-
-                let library_test = match check_library_state(&fsio, media_library_path) {
-                    Ok(x) => x,
-                    Err(e) => {
-                        error!("Failed to check library state: {e:#?}");
-                        broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                            restore_last_index: false,
-                            error_kind: None,
-                            path: media_library_path.to_string(),
-                            success: false,
-                            error: Some(format!("{e:#?}")),
-                            not_ready: false,
-                        });
-                        return;
-                    }
-                };
-
-                if database_mode.is_none() {
-                    match &library_test {
-                        LibraryState::Uninitialized => {
-                            broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                                restore_last_index: false,
-                                error_kind: None,
-                                path: media_library_path.to_string(),
-                                success: true,
-                                error: None,
-                                not_ready: true,
-                            });
-                            return;
-                        }
-                        LibraryState::Initialized(_) => {}
-                    }
-                }
-
-                if let Some(mode) = database_mode
-                    && mode == LibraryInitializeMode::Redirected
-                    && let Err(e) = create_redirect(&fsio, media_library_path).await
-                {
-                    broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                        restore_last_index: false,
-                        error_kind: None,
-                        path: media_library_path.to_string(),
-                        success: false,
-                        error: Some(format!("{e:#?}")),
-                        not_ready: false,
-                    });
-                    return;
-                }
-
-                let opened = async {
-                    let mode = check_storage_mode(&fsio, media_library_path)?;
-                    let mut registry = LibraryRegistry::load(Path::new(config_path))?;
-                    let descriptor =
-                        resolve_library(&fsio, &mut registry, media_library_path, alias, mode)
-                            .await?;
-                    let record_id = descriptor.record_id;
-                    let opened = node
-                        .library_pool
-                        .acquire_ui(
-                            descriptor
-                                .catalog_library_id()
-                                .context("Resolved endpoint has no catalog")?,
-                        )
-                        .await?;
-                    Ok::<_, anyhow::Error>((opened, Some(record_id)))
-                }
-                .await;
-                match opened {
-                    Ok((opened, record_id)) => {
-                        finish_local_open(
-                            Ok(opened),
-                            record_id,
-                            &node,
-                            &scrobbler,
-                            &broadcaster,
-                            media_library_path,
-                        )
-                        .await
-                    }
-                    Err(error) => {
-                        finish_local_open(
-                            Err(error),
-                            None,
-                            &node,
-                            &scrobbler,
-                            &broadcaster,
-                            media_library_path,
-                        )
-                        .await
-                    }
-                }
-            }
-            OperationDestination::Remote => {
-                match open_remote_library(node, media_library_path).await {
-                    Ok(_) => {
-                        broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                            restore_last_index: false,
-                            error_kind: None,
-                            path: media_library_path.to_string(),
-                            success: true,
-                            error: None,
-                            not_ready: false,
-                        });
-                    }
-                    Err(e) => {
-                        error!("Failed to open remote library: {e:#?}");
-                        broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                            restore_last_index: false,
-                            error_kind: Some(
-                                e.downcast_ref::<RemoteConnectError>()
-                                    .map_or(LibraryOpenErrorKind::RemoteProtocol, |error| {
-                                        error.kind()
-                                    }),
-                            ),
-                            path: media_library_path.to_string(),
-                            success: false,
-                            error: Some(format!("{e:#?}")),
-                            not_ready: false,
-                        });
-                    }
-                }
-            }
-        }
-    }
-}
-
 /// Receive record-oriented registration and open requests independently of an open UI library.
 pub async fn receive_library_record_requests(
     scrobbler: Arc<Mutex<ScrobblingManager>>,
@@ -525,7 +254,7 @@ pub async fn receive_library_record_requests(
                 broadcaster.broadcast(&result);
             }
             Some(signal) = open_receiver.recv() => {
-                let result = open_library_by_record(&signal.message, Arc::clone(&scrobbler), Arc::clone(&broadcaster)).await;
+                let result = open_library_by_record(&signal.message, Arc::clone(&scrobbler)).await;
                 broadcaster.broadcast(&result);
             }
             else => tokio::time::sleep(Duration::from_secs(1)).await,
@@ -661,7 +390,6 @@ pub(crate) async fn register_remote_control_on_node(
 async fn open_library_by_record(
     request: &OpenLibraryRequest,
     scrobbler: Arc<Mutex<ScrobblingManager>>,
-    broadcaster: Arc<dyn Broadcaster>,
 ) -> OpenLibraryResponse {
     let node = match current_node().await {
         Ok(node) => node,
@@ -677,14 +405,13 @@ async fn open_library_by_record(
             };
         }
     };
-    open_library_by_record_on_node(request, node, scrobbler, broadcaster).await
+    open_library_by_record_on_node(request, node, scrobbler).await
 }
 
 pub(crate) async fn open_library_by_record_on_node(
     request: &OpenLibraryRequest,
     node: Arc<NodeContext>,
     scrobbler: Arc<Mutex<ScrobblingManager>>,
-    broadcaster: Arc<dyn Broadcaster>,
 ) -> OpenLibraryResponse {
     let failed = |kind, error: anyhow::Error| OpenLibraryResponse {
         call_id: request.call_id,
@@ -717,7 +444,6 @@ pub(crate) async fn open_library_by_record_on_node(
                 *library_id,
                 storage_path_owned(storage),
                 Arc::clone(&scrobbler),
-                &broadcaster,
             )
             .await
         }
@@ -762,7 +488,6 @@ pub(crate) async fn open_library_by_record_on_node(
                 *library_id,
                 Some(path),
                 Arc::clone(&scrobbler),
-                &broadcaster,
             )
             .await
         }
@@ -830,7 +555,6 @@ async fn open_catalog_record(
     library_id: Uuid,
     path: Option<&str>,
     scrobbler: Arc<Mutex<ScrobblingManager>>,
-    broadcaster: &Arc<dyn Broadcaster>,
 ) -> std::result::Result<u64, (OpenLibraryFailureKind, anyhow::Error)> {
     if let Some(path) = path {
         #[cfg(not(target_os = "android"))]
@@ -855,16 +579,6 @@ async fn open_catalog_record(
     let generation = run_local_open(Ok(opened), Some(record.record_id), node, &scrobbler)
         .await
         .map_err(|error| (OpenLibraryFailureKind::Storage, error))?;
-    broadcaster.broadcast(&SetMediaLibraryPathResponse {
-        restore_last_index: node
-            .session()
-            .is_ok_and(|session| session.take_legacy_restore()),
-        error_kind: None,
-        path: record.app_name().unwrap_or_default(),
-        success: true,
-        error: None,
-        not_ready: false,
-    });
     Ok(generation)
 }
 
@@ -878,41 +592,6 @@ fn remote_open_failure(error: &anyhow::Error) -> OpenLibraryFailureKind {
         }
         Some(RemoteConnectError::Protocol(_)) => OpenLibraryFailureKind::RemoteProtocol,
         None => OpenLibraryFailureKind::RemoteProtocol,
-    }
-}
-
-/// Run the local player loop for an opened library and report the result to Dart.
-async fn finish_local_open(
-    opened: Result<LibraryHandle>,
-    record_id: Option<LibraryRecordId>,
-    node: &Arc<NodeContext>,
-    scrobbler: &Arc<Mutex<ScrobblingManager>>,
-    broadcaster: &Arc<dyn Broadcaster>,
-    media_library_path: &str,
-) {
-    let result = run_local_open(opened, record_id, node, scrobbler).await;
-    match result {
-        Ok(_) => broadcaster.broadcast(&SetMediaLibraryPathResponse {
-            restore_last_index: node
-                .session()
-                .is_ok_and(|session| session.take_legacy_restore()),
-            error_kind: None,
-            path: media_library_path.to_string(),
-            success: true,
-            error: None,
-            not_ready: false,
-        }),
-        Err(error) => {
-            error!("Library initialization failed: {error:#?}");
-            broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                restore_last_index: false,
-                error_kind: None,
-                path: media_library_path.to_string(),
-                success: false,
-                error: Some(format!("{error:#?}")),
-                not_ready: false,
-            });
-        }
     }
 }
 

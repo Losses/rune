@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../bindings/bindings.dart';
-import '../../api/set_media_library_path.dart';
+import '../../../providers/library_registry.dart';
 import '../../api/testlibrary_initialized.dart';
 
 import '../failed_to_initialize_library.dart';

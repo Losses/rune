@@ -34,12 +34,10 @@ const groupTitleLinks = {
 };
 
 class LargeScreenLibraryHomeListView extends StatefulWidget {
-  final String libraryPath;
   final StartScreenLayoutManager layoutManager;
 
   const LargeScreenLibraryHomeListView({
     super.key,
-    required this.libraryPath,
     required this.layoutManager,
   });
 

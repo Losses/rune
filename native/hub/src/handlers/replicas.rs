@@ -75,9 +75,12 @@ impl Signal for AddRemoteLibraryRequest {
         )
         .await
         {
-            Ok(path) => AddRemoteLibraryResponse { path, error: None },
+            Ok(record_id) => AddRemoteLibraryResponse {
+                record_id,
+                error: None,
+            },
             Err(error) => AddRemoteLibraryResponse {
-                path: String::new(),
+                record_id: String::new(),
                 error: Some(format!("{error:#}")),
             },
         };

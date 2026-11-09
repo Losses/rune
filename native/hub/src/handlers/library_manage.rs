@@ -28,13 +28,12 @@ use crate::{
     Session, Signal, TaskTokens,
     library_pool::LibraryHandle,
     messages::*,
-    node::{CatalogTarget, NodeContext},
+    node::NodeContext,
     server::http::file::validate_remote_media_path,
     utils::{Broadcaster, GlobalParams, ParamsExtractor, determine_batch_size, require_library},
 };
 
 pub struct CloseLibraryParams {
-    library: Option<LibraryHandle>,
     main_token: Arc<CancellationToken>,
     node: Arc<NodeContext>,
 }
@@ -44,7 +43,6 @@ impl ParamsExtractor for CloseLibraryRequest {
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         CloseLibraryParams {
-            library: all_params.library.clone(),
             main_token: Arc::clone(&all_params.main_token),
             node: all_params.node.clone(),
         }
@@ -59,53 +57,12 @@ impl Signal for CloseLibraryRequest {
         &self,
         params: Self::Params,
         _session: Option<Session>,
-        dart_signal: &Self,
+        _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        let CloseLibraryParams {
-            library,
-            main_token,
-            node,
-        } = params;
-        let request = dart_signal;
-        if library.is_none()
-            && let CatalogTarget::RemotePeer = node.catalog_target()?
-        {
-            node.close_ui(&main_token).await;
-            return Ok(Some(CloseLibraryResponse {
-                path: request.path.clone(),
-            }));
-        }
-        let library = require_library(library)?;
-
-        info!("Closing library: {:#?}", request.path);
-
-        // A replica opened by its folder path is closed by that path too.
-        let app_name = library.app_name.clone();
-        let folder_matches = if request.path == app_name {
-            true
-        } else {
-            match (
-                dunce::canonicalize(Path::new(&request.path)),
-                dunce::canonicalize(Path::new(&library.media_root)),
-            ) {
-                (Ok(request_path), Ok(media_root)) => request_path == media_root,
-                // A folder that no longer exists can still be closed by its old name.
-                _ => Path::new(&request.path) == Path::new(&library.media_root),
-            }
-        };
-        if !folder_matches {
-            warn!(
-                "Library path mismatch: {:#?} != {:#?}",
-                request.path, app_name
-            );
-            return Ok(None);
-        }
-
+        let CloseLibraryParams { main_token, node } = params;
+        info!("Closing open library");
         node.close_ui(&main_token).await;
-
-        Ok(Some(CloseLibraryResponse {
-            path: request.path.clone(),
-        }))
+        Ok(Some(CloseLibraryResponse {}))
     }
 }
 
@@ -146,10 +103,14 @@ impl Signal for ScanAudioLibraryRequest {
         dart_signal: &Self,
     ) -> Result<Option<()>> {
         let library = require_library(library)?;
+        let local_folder = library
+            .descriptor
+            .local_folder_path()
+            .context("Open record has no local folder to scan")?;
         validate_remote_media_path(
             session.as_ref(),
             &library.fsio,
-            Path::new(&library.media_root),
+            Path::new(local_folder),
             Path::new(&library.fs_path(&dart_signal.path)),
         )?;
         let mut tokens = task_tokens.lock().await;
@@ -361,10 +322,14 @@ impl Signal for AnalyzeAudioLibraryRequest {
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let library = require_library(library)?;
+        let local_folder = library
+            .descriptor
+            .local_folder_path()
+            .context("Open record has no local folder to analyze")?;
         validate_remote_media_path(
             session.as_ref(),
             &library.fsio,
-            Path::new(&library.media_root),
+            Path::new(local_folder),
             Path::new(&library.fs_path(&dart_signal.path)),
         )?;
         let mut tokens = task_tokens.lock().await;
@@ -477,10 +442,14 @@ impl Signal for DeduplicateAudioLibraryRequest {
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let library = require_library(library)?;
+        let local_folder = library
+            .descriptor
+            .local_folder_path()
+            .context("Open record has no local folder to deduplicate")?;
         validate_remote_media_path(
             session.as_ref(),
             &library.fsio,
-            Path::new(&library.media_root),
+            Path::new(local_folder),
             Path::new(&library.fs_path(&dart_signal.path)),
         )?;
         let mut tokens = task_tokens.lock().await;
@@ -826,7 +795,7 @@ mod scan_supervisor_tests {
         assert!(format!("{error:#}").contains("no library is open on this device"));
     }
     #[tokio::test]
-    async fn remote_scan_by_replica_name_checks_the_replica_folder() -> Result<()> {
+    async fn scan_requires_the_open_record_to_have_a_local_folder() -> Result<()> {
         use crate::library_pool::LibraryPool;
         use database::library_registry::{LibraryRegistry, create_replica};
 
@@ -871,23 +840,15 @@ mod scan_supervisor_tests {
 
         let request = ScanAudioLibraryRequest {
             scan_id: "replica".into(),
-            path: format!("replica://{id}"),
+            path: library.media_root.clone(),
             force: false,
         };
-        request.handle(params(), Some(session()), &request).await?;
-        // The scan runs in the background, so wait for its result.
-        let response = tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                if let Some(event) = capture.0.lock().unwrap().first().cloned() {
-                    break rinf::deserialize::<ScanAudioLibraryResponse>(&event).unwrap();
-                }
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-        })
-        .await?;
-        assert_eq!(response.status, "success", "{}", response.error);
-        // The track in the replica folder was found, so the folder itself was scanned.
-        assert_eq!(response.progress, 1);
+        assert!(
+            request
+                .handle(params(), Some(session()), &request)
+                .await
+                .is_err()
+        );
         Ok(())
     }
 }

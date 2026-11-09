@@ -14,7 +14,7 @@ import '../../utils/api/get_parsed_media_file.dart';
 import '../../utils/dialogs/mix/create_edit_mix.dart';
 import '../../bindings/bindings.dart';
 import '../../providers/responsive_providers.dart';
-import '../../providers/library_path.dart';
+import '../../providers/library_open_state.dart';
 import '../dialogs/play_on/play_on_dialog.dart';
 
 import '../rune_log.dart';
@@ -105,7 +105,7 @@ void openTrackItemContextMenu(
             text: Text(S.of(context).audioUnavailable),
             onPressed: null,
           ),
-          if (!context.read<LibraryPathProvider>().isReadOnlyReplica &&
+          if (!context.read<LibraryOpenStateProvider>().isReadOnlyReplica &&
               playlistId != null &&
               occurrenceId != null)
             MenuFlyoutItem(
@@ -221,7 +221,8 @@ Widget buildTrackItemContextMenu(
       },
     );
   }).toList();
-  final libraryPath = context.read<LibraryPathProvider>().currentPath;
+  final libraryState = context.read<LibraryOpenStateProvider>();
+  final castLibraryId = libraryState.catalogLibraryId ?? libraryState.openRecord?.recordId;
 
   return MenuFlyout(
     items: [
@@ -237,7 +238,7 @@ Widget buildTrackItemContextMenu(
           );
         },
       ),
-      if (libraryPath != null && !libraryPath.startsWith('@RR|'))
+      if (libraryState.openRecord != null && !libraryState.isRemoteControl)
         MenuFlyoutItem(
           leading: const Icon(Symbols.cast),
           text: Text(S.of(context).playOn),
@@ -247,7 +248,7 @@ Widget buildTrackItemContextMenu(
             await _runTrackAction(host, () async {
               await showCastOnDialog(
                 host,
-                libraryPath: libraryPath,
+                libraryId: castLibraryId!,
                 cast: (candidate) =>
                     castTrackWithSettings(item.file.id, candidate.fingerprint),
               );
@@ -279,11 +280,11 @@ Widget buildTrackItemContextMenu(
           );
         },
       ),
-      if (!context.read<LibraryPathProvider>().isReadOnlyReplica &&
+      if (!context.read<LibraryOpenStateProvider>().isReadOnlyReplica &&
           playlistId != null &&
           occurrenceId != null)
         const MenuFlyoutSeparator(),
-      if (!context.read<LibraryPathProvider>().isReadOnlyReplica &&
+      if (!context.read<LibraryOpenStateProvider>().isReadOnlyReplica &&
           playlistId != null &&
           occurrenceId != null)
         MenuFlyoutItem(
@@ -346,9 +347,9 @@ Widget buildTrackItemContextMenu(
           ),
         },
       ),
-      if (!context.read<LibraryPathProvider>().isReadOnlyReplica)
+      if (!context.read<LibraryOpenStateProvider>().isReadOnlyReplica)
         const MenuFlyoutSeparator(),
-      if (!context.read<LibraryPathProvider>().isReadOnlyReplica)
+      if (!context.read<LibraryOpenStateProvider>().isReadOnlyReplica)
         MenuFlyoutSubItem(
           leading: const Icon(Symbols.list_alt),
           text: Text(S.of(context).addToPlaylist),
@@ -377,7 +378,7 @@ Widget buildTrackItemContextMenu(
             ...playlistItems,
           ],
         ),
-      if (!context.read<LibraryPathProvider>().isReadOnlyReplica)
+      if (!context.read<LibraryOpenStateProvider>().isReadOnlyReplica)
         MenuFlyoutSubItem(
           leading: const Icon(Symbols.magic_button),
           text: Text(S.of(context).addToMix),
@@ -424,7 +425,8 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
   String? occurrenceId,
   void Function()? refreshList,
 }) {
-  final libraryPath = context.read<LibraryPathProvider>().currentPath;
+  final libraryState = context.read<LibraryOpenStateProvider>();
+  final castLibraryId = libraryState.catalogLibraryId ?? libraryState.openRecord?.recordId;
   List<CommandBarButton> items = [
     CommandBarButton(
       icon: Tooltip(
@@ -438,7 +440,7 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
         );
       },
     ),
-    if (libraryPath != null && !libraryPath.startsWith('@RR|'))
+    if (libraryState.openRecord != null && !libraryState.isRemoteControl)
       CommandBarButton(
         icon: Tooltip(
           message: S.of(context).playOn,
@@ -448,7 +450,7 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
           await _runTrackAction(context, () async {
             await showCastOnDialog(
               context,
-              libraryPath: libraryPath,
+              libraryId: castLibraryId!,
               cast: (candidate) =>
                   castTrackWithSettings(item.file.id, candidate.fingerprint),
             );
@@ -484,7 +486,7 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
         );
       },
     ),
-    if (!context.read<LibraryPathProvider>().isReadOnlyReplica &&
+    if (!context.read<LibraryOpenStateProvider>().isReadOnlyReplica &&
         playlistId != null &&
         occurrenceId != null)
       CommandBarButton(

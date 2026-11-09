@@ -30,7 +30,7 @@ static POOLS: OnceLock<StdMutex<HashMap<PathBuf, Weak<LibraryPool>>>> = OnceLock
 /// Connections and storage belonging to one library. Keep a handle alive while using them.
 pub struct LibraryResources {
     pub library_id: Uuid,
-    pub app_name: String,
+    pub display_name: String,
     pub main_db: Arc<MainDbConnection>,
     pub library_sync: LibrarySyncStore,
     pub recommend_db: Arc<RecommendationDbConnection>,
@@ -40,14 +40,9 @@ pub struct LibraryResources {
 }
 
 impl LibraryResources {
-    /// The folder a library name sent by Dart refers to. A replica is named by id, so its
-    /// name maps to the root computed from the current data directory.
+    /// Task requests carry the local folder selected by the user.
     pub fn fs_path(&self, name: &str) -> String {
-        if self.descriptor.app_name().as_deref() == Some(name) {
-            self.media_root.clone()
-        } else {
-            name.to_owned()
-        }
+        name.to_owned()
     }
 }
 
@@ -249,7 +244,9 @@ impl LibraryPool {
         let entry = Entry {
             resources: Arc::new(LibraryResources {
                 library_id,
-                app_name: descriptor.app_name().context("Catalog has no app name")?,
+                display_name: descriptor
+                    .display_name()
+                    .context("Catalog has no app name")?,
                 main_db: databases.main_db,
                 recommend_db: databases.recommend_db,
                 library_sync,
@@ -474,9 +471,9 @@ mod tests {
                     .descriptor
                     .catalog_library_id()
                     .context("catalog fixture")?,
-                app_name: self
+                display_name: self
                     .descriptor
-                    .app_name()
+                    .display_name()
                     .context("catalog fixture app name")?,
                 main_db: databases.main_db,
                 recommend_db: databases.recommend_db,
@@ -563,7 +560,6 @@ mod tests {
             Path::new(&first.media_root),
             old.path().join("replicas").join(id.to_string())
         );
-        assert_eq!(first.fs_path(&format!("replica://{id}")), first.media_root);
         pool.unregister_ui(id).await;
         drop(first);
         // A reinstall cannot relocate app data while Windows still has the library database open.

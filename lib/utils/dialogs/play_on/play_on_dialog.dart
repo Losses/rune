@@ -10,7 +10,7 @@ import '../../../utils/api/request_failure.dart';
 import '../../../utils/l10n.dart';
 import '../../../providers/renderer_attachment.dart';
 import '../../../providers/playlist.dart';
-import '../../../providers/library_path.dart';
+import '../../../providers/library_open_state.dart';
 import '../../../utils/playing_item.dart';
 import '../../../widgets/rune_clickable.dart';
 
@@ -65,28 +65,16 @@ Future<void> showPlayOnDialog(
 
 Future<void> showCastOnDialog(
   BuildContext context, {
-  required String libraryPath,
+  required String libraryId,
   required RendererCast cast,
   RendererLoader loader = listRenderers,
   LibraryNamesLoader loadLibraryNames = _loadLibraryNames,
 }) async {
-  final libraries = await listLocalLibraries();
-  if (!context.mounted) return;
-  final library = libraries.libraries.where(
-    (entry) => entry.path == libraryPath,
-  );
-  if (library.isEmpty) {
-    throw const RequestFailure(
-      'ListLocalLibrariesRequest',
-      RequestErrorKind.unavailable,
-      'The open library is unavailable',
-    );
-  }
   await showPlayOnDialog(
     context,
     loader: loader,
     loadLibraryNames: loadLibraryNames,
-    castLibraryIds: [library.first.libraryId],
+    castLibraryIds: [libraryId],
     cast: cast,
   );
 }
@@ -331,10 +319,9 @@ class PlayOnButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final renderer = Provider.of<RendererAttachmentProvider>(context).renderer;
     final remoteLibrary =
-        Provider.of<LibraryPathProvider>(
+        Provider.of<LibraryOpenStateProvider>(
           context,
-        ).currentPath?.startsWith('@RR|') ??
-        false;
+        ).isRemoteControl;
     return RuneClickable(
       onPressed: remoteLibrary ? null : () => showPlayOnDialog(context),
       child: Opacity(

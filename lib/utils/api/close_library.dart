@@ -3,25 +3,19 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../bindings/bindings.dart';
-import '../../providers/library_path.dart';
+import '../../providers/library_registry.dart';
 
 Future<void> closeLibrary(BuildContext context) async {
-  final library = Provider.of<LibraryPathProvider>(context, listen: false);
-
-  final path = LibraryPathEntry.removePrefix(library.currentPath);
+  final library = Provider.of<LibraryRegistryProvider>(context, listen: false);
 
   while (true) {
-    final rustSignal = await awaitResponse(
+    await awaitResponse(
       'CloseLibraryRequest',
-      CloseLibraryResponse.rustSignalStream.where(
-        (event) => event.message.path == path,
-      ),
-      send: () => CloseLibraryRequest(path: path).sendSignalToRust(),
+      CloseLibraryResponse.rustSignalStream,
+      send: () => CloseLibraryRequest().sendSignalToRust(),
     );
 
-    if (rustSignal.message.path == path) {
-      library.removeCurrentPath();
-      return;
-    }
+    library.onClosed();
+    return;
   }
 }

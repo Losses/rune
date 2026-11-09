@@ -2,7 +2,6 @@ use crate::node::{CatalogTarget, NodeContext};
 use crate::request_error::ExpectedRequestError;
 use std::{
     collections::HashMap,
-    path::Path,
     sync::{
         Arc, Weak,
         atomic::{AtomicBool, Ordering},
@@ -11,7 +10,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use database::library_registry::{LibraryKind, LibraryRecordId, LibraryRegistry};
+use database::library_registry::LibraryRecordId;
 use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
 use log::{error, warn};
@@ -52,7 +51,6 @@ use ::discovery::protocol_version::{
 use ::discovery::{
     client::{CertValidator, select_best_host},
     endpoint::endpoint_host_port,
-    url::decode_rnsrv_url,
 };
 
 pub fn encode_message(type_name: &str, payload: &[u8], uuid: Option<Uuid>) -> Vec<u8> {
@@ -722,69 +720,6 @@ fn classify_remote_loss(close_code: Option<u16>) -> RemoteLossKind {
         Some(4409) => RemoteLossKind::Detached,
         _ => RemoteLossKind::NetworkLost,
     }
-}
-
-/// Open the peer's current UI library using the same target as its session.
-pub(crate) async fn open_remote_library(
-    node: Arc<NodeContext>,
-    path: &str,
-) -> Result<Arc<GlobalParams>> {
-    let url = path.strip_prefix("@RR|").unwrap_or(path);
-    let hosts = if url.starts_with("rnsrv://") {
-        decode_rnsrv_url(url)
-            .map_err(protocol)?
-            .into_iter()
-            .map(|host| (host, 7863))
-            .collect::<Vec<_>>()
-    } else {
-        let parsed = url::Url::parse(url).map_err(protocol)?;
-        if !matches!(parsed.scheme(), "ws" | "wss") {
-            return Err(protocol("invalid remote library scheme").into());
-        }
-        vec![(
-            parsed
-                .host_str()
-                .ok_or_else(|| protocol("invalid remote host"))?
-                .to_owned(),
-            parsed.port().unwrap_or(7863),
-        )]
-    };
-    let entries = node
-        .cert_validator
-        .read()
-        .await
-        .clone_trusted_entries()
-        .await;
-    let fingerprint = entries
-        .iter()
-        .find(|(_, candidates)| {
-            candidates.iter().any(|candidate| {
-                endpoint_host_port(candidate).is_some_and(|(name, port)| {
-                    hosts.iter().any(|(host, wanted_port)| {
-                        name == *host && port.is_none_or(|port| port == *wanted_port)
-                    })
-                })
-            })
-        })
-        .map(|(fingerprint, _)| fingerprint.clone())
-        .ok_or(RemoteConnectError::UntrustedEndpoint)?;
-    let trusted_hosts = entries
-        .into_iter()
-        .find(|(candidate, _)| candidate == &fingerprint)
-        .map(|(_, hosts)| hosts)
-        .unwrap_or_default();
-    let record_id = LibraryRegistry::load(Path::new(&*node.config_path))
-        .ok()
-        .and_then(|registry| {
-            registry
-                .libraries
-                .into_iter()
-                .find(|record| matches!(&record.kind, LibraryKind::RuneRemoteControl { fingerprint: current } if current == &fingerprint))
-                .map(|record| record.record_id)
-        });
-    open_remote_library_for_fingerprint(node, &fingerprint, trusted_hosts, record_id)
-        .await
-        .map(|(params, _)| params)
 }
 
 /// Open a trusted peer's current UI library by stable identity and its trusted addresses.

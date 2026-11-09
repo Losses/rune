@@ -52,7 +52,7 @@ async fn request_library(
     };
     pool.register_ui(LibraryResources {
         library_id,
-        app_name: media_root.clone(),
+        display_name: media_root.clone(),
         main_db: Arc::new(db),
         library_sync,
         recommend_db: Arc::new(RecommendationDbConnection::new()),

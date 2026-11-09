@@ -8,7 +8,7 @@ import '../../l10n/app_localizations.dart';
 import '../../providers/playlist.dart';
 import '../../providers/renderer_attachment.dart';
 import '../../providers/request_capabilities.dart';
-import '../../providers/library_path.dart';
+import '../../providers/library_open_state.dart';
 import '../../providers/status.dart';
 import '../../utils/api/request_failure.dart';
 import '../../utils/dialogs/play_on/play_on_dialog.dart';
@@ -258,7 +258,7 @@ void main() {
     var opened = 0;
     await _openQueue(
       tester,
-      libraryPath: '/music',
+      remote: false,
       onPlayOn: (_) async => opened++,
     );
     await tester.tap(find.byKey(const Key('queue-play-on')));
@@ -270,7 +270,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await _openQueue(
       tester,
-      libraryPath: '@RR|ws://renderer',
+      remote: true,
       onPlayOn: (_) async => opened++,
     );
     expect(find.byKey(const Key('queue-play-on')), findsNothing);
@@ -336,7 +336,7 @@ Future<void> _open(
 
 Future<void> _openQueue(
   WidgetTester tester, {
-  required String? libraryPath,
+  required bool remote,
   required PlayOnDialogOpener onPlayOn,
 }) async {
   await tester.pumpWidget(
@@ -345,8 +345,8 @@ Future<void> _openQueue(
         ChangeNotifierProvider(create: (_) => PlaylistProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackStatusProvider()),
         ChangeNotifierProvider(create: (_) => RequestCapabilitiesProvider()),
-        ChangeNotifierProvider<LibraryPathProvider>(
-          create: (_) => _TestLibraryPathProvider(libraryPath),
+        ChangeNotifierProvider<LibraryOpenStateProvider>(
+          create: (_) => _TestLibraryOpenStateProvider(remote: remote),
         ),
       ],
       child: FluentApp(
@@ -366,11 +366,31 @@ Future<void> _openQueue(
   await tester.pumpAndSettle();
 }
 
-class _TestLibraryPathProvider extends LibraryPathProvider {
-  _TestLibraryPathProvider(this.path) : super(null);
+class _TestLibraryOpenStateProvider extends ChangeNotifier
+    implements LibraryOpenStateProvider {
+  _TestLibraryOpenStateProvider({required this.remote});
 
-  final String? path;
+  final bool remote;
 
   @override
-  String? get currentPath => path;
+  bool get isRemoteControl => remote;
+
+  @override
+  LibraryRecordSummary? get openRecord => remote
+      ? const LibraryRecordSummary(
+          recordId: 'remote-record',
+          alias: 'Renderer',
+          kind: LibraryRecordKindSummaryRemoteControl(fingerprint: 'renderer'),
+        )
+      : const LibraryRecordSummary(
+          recordId: 'local-record',
+          alias: 'Music',
+          kind: LibraryRecordKindSummaryLocal(
+            libraryId: 'library-id',
+            path: '/music',
+          ),
+        );
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

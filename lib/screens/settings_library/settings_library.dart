@@ -6,7 +6,6 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../utils/l10n.dart';
-import '../../utils/library_reference.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';
 import '../../utils/router/navigation.dart';
@@ -170,7 +169,6 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                         final record = allRecords[index];
                         final itemPath = switch (record.kind) {
                           LibraryRecordKindSummaryLocal(:final path) => path,
-                          LibraryRecordKindSummaryReplica(:final path) => path,
                           _ => '',
                         };
                         final aliases = {
@@ -213,7 +211,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
 
                         String fileName = switch (record.kind) {
                           LibraryRecordKindSummaryReplica() => record.alias,
-                          _ => libraryFolderName(itemPath),
+                          _ => localFolderName(itemPath),
                         };
 
                         void Function()? whileWorking(void Function() x) {

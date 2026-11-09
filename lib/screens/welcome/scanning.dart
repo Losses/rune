@@ -5,7 +5,7 @@ import 'package:animated_flip_counter/animated_flip_counter.dart';
 
 import '../../utils/color_brightness.dart';
 import '../../bindings/bindings.dart';
-import '../../providers/library_path.dart';
+import '../../providers/library_open_state.dart';
 import '../../providers/library_manager.dart';
 import '../../utils/l10n.dart';
 import '../../utils/router/navigation.dart';
@@ -40,11 +40,11 @@ class _ScanningPageState extends State<ScanningPage>
     final theme = FluentTheme.of(context);
     final typography = theme.typography;
 
-    final libraryPath = Provider.of<LibraryPathProvider>(context);
+    final libraryPath = Provider.of<LibraryOpenStateProvider>(context);
     final libraryManager = Provider.of<LibraryManagerProvider>(context);
 
     final progress = libraryManager.getScanTaskProgress(
-      libraryPath.currentPath ?? "",
+      libraryPath.openLocalFolderPath ?? "",
     );
 
     final task = progress?.type ?? ScanTaskType.indexFiles;
@@ -78,7 +78,7 @@ class _ScanningPageState extends State<ScanningPage>
                   const SizedBox(height: 12),
                   Button(
                     onPressed: () => libraryManager.scanLibrary(
-                      libraryPath.currentPath ?? '',
+                      libraryPath.openLocalFolderPath ?? '',
                       isInitializeTask: true,
                     ),
                     child: Text(S.of(context).scan),

@@ -14,14 +14,10 @@ pub struct InitializeNodeResponse {
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
-pub struct CloseLibraryRequest {
-    pub path: String,
-}
+pub struct CloseLibraryRequest {}
 
 #[derive(Deserialize, Serialize, RustSignal)]
-pub struct CloseLibraryResponse {
-    pub path: String,
-}
+pub struct CloseLibraryResponse {}
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct ScanAudioLibraryRequest {

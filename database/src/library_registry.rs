@@ -105,29 +105,6 @@ pub enum LibraryConnectionAccess {
     View,
     ViewEdit,
 }
-/// Scheme of the name the app uses for a replica instead of a folder path.
-pub const REPLICA_SCHEME: &str = "replica://";
-
-/// What a library name given by the app refers to.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum LibraryLocation {
-    /// A folder the user chose, by its path.
-    Path(String),
-    /// A replica in this node's data directory, by its library id.
-    Replica(Uuid),
-}
-impl LibraryLocation {
-    /// Parse an app-facing library name. A malformed replica name is an error rather than a path.
-    pub fn parse(name: &str) -> Result<Self> {
-        match name.strip_prefix(REPLICA_SCHEME) {
-            None => Ok(Self::Path(name.to_owned())),
-            Some(id) => Ok(Self::Replica(
-                Uuid::parse_str(id).context("Invalid replica library name")?,
-            )),
-        }
-    }
-}
-
 fn replica_root(config_dir: &Path, library_id: Uuid) -> PathBuf {
     config_dir.join("replicas").join(library_id.to_string())
 }
@@ -139,6 +116,17 @@ impl LibraryRecord {
                 Some(library_id)
             }
             LibraryKind::RuneRemoteControl { .. } | LibraryKind::Subsonic { .. } => None,
+        }
+    }
+
+    /// A folder path available to UI operations that scan local files.
+    pub fn local_folder_path(&self) -> Option<&str> {
+        match &self.kind {
+            LibraryKind::Owned {
+                storage: OwnedStorage::Local { path, .. },
+                ..
+            } => Some(path),
+            _ => None,
         }
     }
 
@@ -162,8 +150,8 @@ impl LibraryRecord {
         }
     }
 
-    /// The name the app uses to refer to this library.
-    pub fn app_name(&self) -> Option<String> {
+    /// A display value for logs and task notifications; replicas use their alias.
+    pub fn display_name(&self) -> Option<String> {
         match &self.kind {
             LibraryKind::Owned {
                 storage: OwnedStorage::Local { path, .. },
@@ -174,10 +162,9 @@ impl LibraryRecord {
                 ..
             } => Some(path.clone()),
             LibraryKind::RuneReplica {
-                library_id,
                 storage: ReplicaStorage::Replica,
                 ..
-            } => Some(format!("{REPLICA_SCHEME}{library_id}")),
+            } => Some(self.alias.clone()),
             LibraryKind::RuneRemoteControl { .. } | LibraryKind::Subsonic { .. } => None,
         }
     }
@@ -372,7 +359,7 @@ impl LibraryRegistry {
             .context("Library is not registered on this node")
     }
 
-    /// Resolve the app's replica:// name.
+    /// Resolve a config-local replica by its catalog identity.
     pub fn replica(&self, library_id: Uuid) -> Result<&LibraryRecord> {
         let record = self.catalog(library_id)?;
         ensure!(
@@ -1129,7 +1116,7 @@ mod tests {
             replica.root(f.dir.path()).unwrap(),
             f.dir.path().join("replicas").join(id.to_string())
         );
-        assert_eq!(replica.app_name().unwrap(), format!("replica://{id}"));
+        assert_eq!(replica.display_name().unwrap(), "Remote");
         let json = fs::read_to_string(f.dir.path().join("libraries.json")).unwrap();
         assert!(!json.contains(f.dir.path().to_str().unwrap()));
         // An iOS reinstall gives the app a new data directory holding the same files.
@@ -1184,26 +1171,6 @@ mod tests {
         ));
         // Replicas do not collide with each other the way path entries do.
         assert_eq!(f.registry.libraries.len(), 2);
-    }
-
-    #[test]
-    fn library_location_parsing() {
-        let id = Uuid::new_v4();
-        assert_eq!(
-            LibraryLocation::parse(&format!("replica://{id}")).unwrap(),
-            LibraryLocation::Replica(id)
-        );
-        assert_eq!(
-            LibraryLocation::parse("/music").unwrap(),
-            LibraryLocation::Path("/music".into())
-        );
-        for bad in ["replica://", "replica://not-a-uuid", "replica:///tmp/x"] {
-            assert!(LibraryLocation::parse(bad).is_err(), "{bad}");
-        }
-        assert_eq!(
-            LibraryLocation::parse("replica:/x").unwrap(),
-            LibraryLocation::Path("replica:/x".into())
-        );
     }
 
     #[test]
@@ -1314,7 +1281,7 @@ mod tests {
         for record in &registry.libraries {
             assert_eq!(record.catalog_library_id(), None);
             assert_eq!(record.root(Path::new("/config")), None);
-            assert_eq!(record.app_name(), None);
+            assert_eq!(record.display_name(), None);
         }
     }
 }

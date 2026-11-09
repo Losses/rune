@@ -9,7 +9,7 @@ import '../../widgets/band_screen/band_screen_feature_list.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../widgets/playback_controller/now_playing_track_cover_art_button.dart';
-import '../../providers/library_path.dart';
+import '../../providers/library_open_state.dart';
 import '../../providers/responsive_providers.dart';
 
 import 'constants/first_column.dart';
@@ -33,9 +33,9 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final libraryPath = Provider.of<LibraryPathProvider>(context).currentPath;
+    final libraryOpen = Provider.of<LibraryOpenStateProvider>(context).hasOpenLibrary;
 
-    if (libraryPath == null) {
+    if (!libraryOpen) {
       return Container();
     }
 
@@ -106,7 +106,6 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
                 }
 
                 return LargeScreenLibraryHomeListView(
-                  libraryPath: libraryPath,
                   layoutManager: _layoutManager,
                 );
               },

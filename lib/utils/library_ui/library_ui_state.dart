@@ -109,14 +109,7 @@ String describeLibraryPath(AppLocalizations s, String path) {
   );
 }
 
-// Whether the open local library is a read-only replica.
-bool currentLibraryIsReadOnly(String? path, List<LocalLibrary> libraries) {
-  if (path == null || path.startsWith('@RR|')) return false;
-  return libraries.any(
-    (library) =>
-        library.path == path &&
-        library.ownerFingerprint != null &&
-        library.ownerFingerprint!.isNotEmpty &&
-        library.syncAccess == DeviceSyncLevel.pull,
-  );
+String localFolderName(String path) {
+  final segments = path.split('/').where((part) => part.isNotEmpty);
+  return segments.isEmpty ? path : segments.last;
 }

@@ -6,14 +6,15 @@ import '../../bindings/bindings.dart';
 import '../../constants/configurations.dart';
 import '../../constants/settings_manager.dart';
 import '../router/navigation.dart';
-import '../../providers/library_path.dart';
+import '../../providers/library_open_state.dart';
 import '../api/set_download_rule.dart';
 import '../api/request_failure.dart';
 import '../l10n.dart';
 
 bool supportsOfflineSelection(BuildContext context) {
-  final path = context.read<LibraryPathProvider>().currentPath;
-  return path != null && !path.startsWith('@RR|') && !path.startsWith('@LR|');
+  final record = context.read<LibraryOpenStateProvider>().openRecord;
+  return record != null &&
+      record.kind is! LibraryRecordKindSummaryRemoteControl;
 }
 
 MenuFlyoutSubItem offlineSelectionMenu(

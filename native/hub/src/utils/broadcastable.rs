@@ -2,7 +2,7 @@ use crate::messages::*;
 use rinf::RustSignal;
 use std::any::TypeId;
 
-implement_rinf_rust_signal_trait!(SetMediaLibraryPathResponse, ControllersUpdated);
+implement_rinf_rust_signal_trait!(ControllersUpdated);
 implement_rinf_rust_signal_trait!(
     DeduplicateAudioLibraryProgress,
     DeduplicateAudioLibraryResponse

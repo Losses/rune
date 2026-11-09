@@ -25,7 +25,7 @@ import '../../widgets/status_bar_style.dart';
 
 import '../../providers/crash.dart';
 import '../../providers/router_path.dart';
-import '../../providers/library_path.dart';
+import '../../providers/library_open_state.dart';
 import '../../providers/responsive_providers.dart';
 import '../../providers/visualizer_scenes.dart';
 import '../visualizer/visualizer_dark_theme.dart';
@@ -104,7 +104,7 @@ class _RuneRouterFrameImplementationState
       return widget.child;
     }
 
-    final library = Provider.of<LibraryPathProvider>(context);
+    final library = Provider.of<LibraryOpenStateProvider>(context);
     final r = Provider.of<ResponsiveProvider>(context);
     final crash = Provider.of<CrashProvider>(context);
 
@@ -122,7 +122,7 @@ class _RuneRouterFrameImplementationState
       );
     }
 
-    if (library.currentPath == null) {
+    if (!library.hasOpenLibrary) {
       return Container();
     }
 

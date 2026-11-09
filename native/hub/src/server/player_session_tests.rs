@@ -1,6 +1,5 @@
 use super::gui_listener_tests::start;
 use crate::Session;
-use crate::backends::remote::open_remote_library;
 use crate::macros::{
     RequestScope, capability_snapshot, request_scope, request_uses_controller_library,
 };
@@ -1765,7 +1764,7 @@ async fn session_f2_batches_playlist_metadata_per_library_in_queue_order() -> Re
     .await?;
     let a1 = session_audio(&a, "f2-a1.ogg").await?;
     let a2 = session_audio(&a, "f2-a2.ogg").await?;
-    let b = fixture_open_replica(&a, bdir.path()).await?;
+    let b = fixture_open_local_library(&a, bdir.path()).await?;
     let b1 = session_audio(&b, "f2-b1.ogg").await?;
     set_session_title(&a, a1, "A1").await?;
     set_session_title(&b, b1, "B1").await?;
@@ -1865,7 +1864,7 @@ async fn session_d1_survives_library_switch() -> Result<()> {
     a.global_params.player.lock().await.seek(0.1);
     let before = wait_player(&a, |s| s.position >= Duration::from_millis(80)).await?;
     close_ui(&a.global_params).await?;
-    let b = fixture_open_replica(&a, bdir.path()).await?;
+    let b = fixture_open_local_library(&a, bdir.path()).await?;
     assert!(Arc::ptr_eq(
         &a.global_params.player,
         &b.global_params.player
@@ -2121,7 +2120,7 @@ async fn playlist_update_uses_library_item_after_switching_ui_library() -> Resul
     .await?;
     let a_id = session_audio(&a, "boundary-switch.ogg").await?;
     let a_item = library_item_for_id(&a, a_id).await?;
-    let b = fixture_open_replica(&a, bdir.path()).await?;
+    let b = fixture_open_local_library(&a, bdir.path()).await?;
     assert_ne!(a_item.library_id, b.global_params.test_library().library_id);
 
     a.global_params
@@ -2223,7 +2222,7 @@ async fn session_d4_queue_queries_and_download_rules_are_library_scoped() -> Res
     let bdir = tempfile::tempdir()?;
     let a = fixture(dir.path()).await?;
     let aid = session_audio(&a, "queued.ogg").await?;
-    let b = fixture_open_replica(&a, bdir.path()).await?;
+    let b = fixture_open_local_library(&a, bdir.path()).await?;
     let bid = session_audio(&b, "other.ogg").await?;
     assert_eq!(aid, bid, "exercise colliding catalog integer IDs");
     queue_session(&a, &[aid]).await?;
@@ -2289,7 +2288,7 @@ async fn session_f4_nodes_with_matching_sqlite_filenames_keep_queues_separate() 
     let bdir = tempfile::tempdir()?;
     let a = fixture(dir.path()).await?;
     let aid = session_audio(&a, "queue-a.ogg").await?;
-    let b = fixture_open_replica(&a, bdir.path()).await?;
+    let b = fixture_open_local_library(&a, bdir.path()).await?;
     let bid = session_audio(&b, "queue-b.ogg").await?;
     assert_eq!(aid, bid, "exercise colliding catalog integer IDs");
 
@@ -2339,7 +2338,7 @@ async fn session_d5_stats_follow_item_library() -> Result<()> {
     let id = session_audio(&a, "stats.ogg").await?;
     queue_session(&a, &[id]).await?;
     close_ui(&a.global_params).await?;
-    let b = fixture_open_replica(&a, bdir.path()).await?;
+    let b = fixture_open_local_library(&a, bdir.path()).await?;
     session_audio(&b, "collision.ogg").await?;
     b.global_params.player.lock().await.switch(0);
     timeout(Duration::from_secs(15), async {
@@ -2375,7 +2374,7 @@ async fn session_d6_removed_library_is_unavailable_without_crash() -> Result<()>
     )
     .await?;
     let aid = session_audio(&a, "removed.ogg").await?;
-    let b = fixture_open_replica(&a, bdir.path()).await?;
+    let b = fixture_open_local_library(&a, bdir.path()).await?;
     let bid = session_audio(&b, "available.ogg").await?;
     queue_session(&a, &[aid]).await?;
     let good = PlayingItem::InLibrary(library_item_for_id(&b, bid).await?);
@@ -2472,7 +2471,7 @@ async fn session_f1_repeat_all_wraps_after_failed_last_item() -> Result<()> {
     let bdir = tempfile::tempdir()?;
     let a = fixture(dir.path()).await?;
     let bad_id = session_audio(&a, "repeat-bad.ogg").await?;
-    let b = fixture_open_replica(&a, bdir.path()).await?;
+    let b = fixture_open_local_library(&a, bdir.path()).await?;
     let good_id = session_audio(&b, "repeat-good.ogg").await?;
     let good = PlayingItem::InLibrary(library_item_for_id(&b, good_id).await?);
     let bad = PlayingItem::InLibrary(library_item_for_id(&a, bad_id).await?);
@@ -2524,7 +2523,7 @@ async fn session_f1_all_failed_items_stop_without_hanging() -> Result<()> {
         session_audio(&a, "all-fail-a.ogg").await?,
         session_audio(&a, "all-fail-b.ogg").await?,
     ];
-    let b = fixture_open_replica(&a, bdir.path()).await?;
+    let b = fixture_open_local_library(&a, bdir.path()).await?;
     b.global_params
         .player
         .lock()
@@ -4150,7 +4149,7 @@ pub(super) async fn replicate_host_library_at(
             )
         })?;
     let replica_path = request_add_library(peer, &host_info.fingerprint, hosted).await?;
-    let replica = fixture_open_replica(peer, Path::new(&replica_path)).await?;
+    let replica = fixture_open_record(peer, replica_path).await?;
     let endpoint = PeerEndpoint {
         fingerprint: host_info.fingerprint,
         trusted_host,
@@ -5273,8 +5272,8 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     let local_queue = a.global_params.player.lock().await.get_playlist();
     let b_track = session_audio(&b, "rr-remote.ogg").await?;
     let remote_session_id = b.global_params.node.session()?.session_id().await;
-    let path = format!("ws://{address}");
-    let remote = open_remote_library(a.global_params.node.clone(), &format!("@RR|{path}")).await?;
+    let remote =
+        super::open_remote_control_record(a.global_params.node.clone(), &fingerprint).await?;
     assert!(Arc::ptr_eq(&remote.player, &a.global_params.player));
     assert!(Arc::ptr_eq(&remote.scrobbler, &a.global_params.scrobbler));
     assert!(remote.library.is_none());
@@ -5528,9 +5527,8 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     .context("RR pushed status/content/scan events missing")?;
 
     let mut close = start::<CloseLibraryRequest>(&remote);
-    close.send(CloseLibraryRequest { path: path.clone() });
-    let closed: CloseLibraryResponse = close.receive("CloseLibraryResponse").await;
-    assert_eq!(closed.path, path);
+    close.send(CloseLibraryRequest {});
+    let _: CloseLibraryResponse = close.receive("CloseLibraryResponse").await;
     close.stop().await;
     assert!(a.global_params.node.renderer_link()?.is_none());
     assert!(matches!(
@@ -5559,7 +5557,8 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     );
 
     // Switching directly to a local library also leaves RR.
-    let remote = open_remote_library(a.global_params.node.clone(), &path).await?;
+    let remote =
+        super::open_remote_control_record(a.global_params.node.clone(), &fingerprint).await?;
     let replacement = Arc::new(
         a.global_params
             .node
@@ -5570,7 +5569,8 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     assert!(a.global_params.node.renderer_link()?.is_none());
     assert_eq!(names(&replacement).await?, ["only on A"]);
 
-    let remote = open_remote_library(a.global_params.node.clone(), &path).await?;
+    let remote =
+        super::open_remote_control_record(a.global_params.node.clone(), &fingerprint).await?;
     signals.0.lock().unwrap().clear();
     b.global_params.node.manager()?.stop().await?;
     timeout(Duration::from_secs(10), async {
@@ -5596,7 +5596,7 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     assert_eq!(classify(&failure), RequestErrorKind::Unavailable);
     // This is the existing Dart loss handler's final step: close and await its response.
     let mut close = start::<CloseLibraryRequest>(&remote);
-    close.send(CloseLibraryRequest { path: path.clone() });
+    close.send(CloseLibraryRequest {});
     let _: CloseLibraryResponse = close.receive("CloseLibraryResponse").await;
     close.stop().await;
     assert!(matches!(
@@ -5672,7 +5672,6 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
         10,
         Duration::from_secs(5),
     )));
-    let broadcaster: Arc<dyn Broadcaster> = Arc::new(super::Quiet);
     let opened = open_library_by_record_on_node(
         &OpenLibraryRequest {
             call_id: 4,
@@ -5680,7 +5679,6 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
         },
         node.clone(),
         scrobbler.clone(),
-        broadcaster.clone(),
     )
     .await;
     assert_eq!(opened.result, OpenLibraryResult::Opened);
@@ -5721,7 +5719,6 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
         },
         node.clone(),
         scrobbler.clone(),
-        broadcaster.clone(),
     )
     .await;
     assert_eq!(second_opened.result, OpenLibraryResult::Opened);
@@ -5741,7 +5738,6 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
         },
         node.clone(),
         scrobbler.clone(),
-        broadcaster.clone(),
     )
     .await;
     assert!(matches!(unknown.result, OpenLibraryResult::Failed(failure)
@@ -5772,7 +5768,6 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
         },
         node.clone(),
         scrobbler.clone(),
-        broadcaster.clone(),
     )
     .await;
     assert!(matches!(missing.result, OpenLibraryResult::Failed(failure)
@@ -5799,7 +5794,6 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
         },
         node.clone(),
         scrobbler.clone(),
-        broadcaster.clone(),
     )
     .await;
     assert!(
@@ -5848,8 +5842,8 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
         .context("replica record summary")?;
     assert!(matches!(
         &replica_summary.kind,
-        LibraryRecordKindSummary::Replica { owner_fingerprint, owner_alias: Some(owner_alias), path, .. }
-            if owner_fingerprint == &unreachable && owner_alias == "Away" && path == &missing_replica.root(Path::new(&*node.config_path)).unwrap().to_string_lossy()
+        LibraryRecordKindSummary::Replica { owner_fingerprint, owner_alias: Some(owner_alias), .. }
+            if owner_fingerprint == &unreachable && owner_alias == "Away"
     ));
     assert!(listed.records.iter().any(|record| {
         record.record_id == remote_id
@@ -5878,7 +5872,6 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
         },
         node.clone(),
         scrobbler,
-        broadcaster,
     )
     .await;
     assert!(matches!(failure.result, OpenLibraryResult::Failed(_)));
@@ -5995,7 +5988,6 @@ async fn registered_remote_control_opens_and_routes_library_and_session_requests
         10,
         Duration::from_secs(5),
     )));
-    let broadcaster: Arc<dyn Broadcaster> = Arc::new(super::Quiet);
     let opened = open_library_by_record_on_node(
         &OpenLibraryRequest {
             call_id: 22,
@@ -6003,7 +5995,6 @@ async fn registered_remote_control_opens_and_routes_library_and_session_requests
         },
         a.global_params.node.clone(),
         scrobbler,
-        broadcaster,
     )
     .await;
     assert_eq!(opened.result, OpenLibraryResult::Opened);
@@ -6071,7 +6062,7 @@ impl ReconnectFixture {
         step("queue reconnect track", queue_session(&b, &[track])).await?;
         let remote = step(
             "open remote library",
-            open_remote_library(a.global_params.node.clone(), &format!("ws://{address}")),
+            super::open_remote_control_record(a.global_params.node.clone(), &fingerprint),
         )
         .await?;
         signals.clear();
@@ -6209,9 +6200,7 @@ async fn rr_reconnect_deadline_uses_existing_loss_and_close() -> Result<()> {
     assert!(started.elapsed() >= Duration::from_millis(400));
     assert!(f.a.global_params.node.reconnect_attempt_count() > 0);
     let mut close = start::<CloseLibraryRequest>(&f.remote);
-    close.send(CloseLibraryRequest {
-        path: format!("ws://{}", f.address),
-    });
+    close.send(CloseLibraryRequest {});
     let _: CloseLibraryResponse = close.receive("CloseLibraryResponse").await;
     close.stop().await;
     assert!(matches!(
@@ -6501,9 +6490,9 @@ async fn rr_capability_snapshot_uses_rune_library_and_local_close_slots() -> Res
             vec![format!("127.0.0.1:{}", address.port())],
         )
         .await?;
-    let remote_params = open_remote_library(
+    let remote_params = super::open_remote_control_record(
         local.global_params.node.clone(),
-        &format!("@RR|ws://{address}"),
+        &remote_info.fingerprint,
     )
     .await?;
 

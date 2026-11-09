@@ -5,7 +5,6 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../utils/l10n.dart';
 import '../../../utils/router/navigation.dart';
-import '../../../utils/library_reference.dart';
 import '../../../utils/library_ui/library_ui_state.dart';
 import '../../../bindings/bindings.dart';
 import '../../../utils/library_registry_messages.dart';
@@ -99,12 +98,11 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
                         final record = records[index - 1];
                         final itemPath = switch (record.kind) {
                           LibraryRecordKindSummaryLocal(:final path) => path,
-                          LibraryRecordKindSummaryReplica(:final path) => path,
                           _ => '',
                         };
                         final fileName = switch (record.kind) {
                           LibraryRecordKindSummaryReplica() => record.alias,
-                          _ => libraryFolderName(itemPath),
+                          _ => localFolderName(itemPath),
                         };
 
                         return SettingsButton(

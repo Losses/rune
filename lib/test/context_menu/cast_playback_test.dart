@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../bindings/bindings.dart';
 import '../../l10n/app_localizations.dart';
-import '../../providers/library_path.dart';
+import '../../providers/library_open_state.dart';
 import '../../utils/context_menu/collection_item_context_menu.dart';
 import '../../utils/execute_middle_click_action.dart';
 
@@ -35,8 +35,8 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      ChangeNotifierProvider<LibraryPathProvider>(
-        create: (_) => _TestLibraryPathProvider('@RR|ws://renderer'),
+      ChangeNotifierProvider<LibraryOpenStateProvider>(
+        create: (_) => _TestLibraryOpenStateProvider(remote: true),
         child: FluentApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
@@ -69,11 +69,28 @@ void main() {
   });
 }
 
-class _TestLibraryPathProvider extends LibraryPathProvider {
-  _TestLibraryPathProvider(this.path) : super(null);
+class _TestLibraryOpenStateProvider extends ChangeNotifier
+    implements LibraryOpenStateProvider {
+  _TestLibraryOpenStateProvider({required this.remote});
 
-  final String path;
+  final bool remote;
 
   @override
-  String? get currentPath => path;
+  bool get isRemoteControl => remote;
+
+  @override
+  String? get catalogLibraryId => null;
+
+  @override
+  bool get isReadOnlyReplica => false;
+
+  @override
+  LibraryRecordSummary? get openRecord => const LibraryRecordSummary(
+    recordId: 'remote-record',
+    alias: 'Renderer',
+    kind: LibraryRecordKindSummaryRemoteControl(fingerprint: 'renderer'),
+  );
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

@@ -25,7 +25,7 @@ import '../../../providers/responsive_providers.dart';
 import '../../../providers/visualizer_lab.dart';
 import '../../../providers/renderer_attachment.dart';
 import '../../../providers/request_capabilities.dart';
-import '../../../providers/library_path.dart';
+import '../../../providers/library_open_state.dart';
 import '../../../utils/visualizer_supported.dart';
 
 import '../lyric_button.dart';
@@ -521,8 +521,8 @@ List<ControllerEntry> controllerItems = [
     shortcuts: null,
     onShortcut: null,
     tooltipBuilder: (context) {
-      final remotePath = Provider.of<LibraryPathProvider>(context).currentPath;
-      if (remotePath?.startsWith('@RR|') ?? false) {
+      final remotePath = Provider.of<LibraryOpenStateProvider>(context).isRemoteControl;
+      if (remotePath) {
         return S.of(context).playOnFixedToRemote;
       }
       final renderer = Provider.of<RendererAttachmentProvider>(
@@ -534,14 +534,14 @@ List<ControllerEntry> controllerItems = [
     },
     controllerButtonBuilder: (context, shadows) => const PlayOnButton(),
     flyoutEntryBuilder: (context) async {
-      final remotePath = Provider.of<LibraryPathProvider>(
+      final remotePath = Provider.of<LibraryOpenStateProvider>(
         context,
         listen: false,
-      ).currentPath;
+      ).isRemoteControl;
       return MenuFlyoutItem(
         leading: const Icon(Symbols.cast),
         text: Text(S.of(context).playOn),
-        onPressed: remotePath?.startsWith('@RR|') ?? false
+        onPressed: remotePath
             ? null
             : () {
                 Navigator.pop(context);

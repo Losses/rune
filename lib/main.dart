@@ -75,7 +75,7 @@ import 'providers/scrobble.dart';
 import 'providers/broadcast.dart';
 import 'providers/full_screen.dart';
 import 'providers/router_path.dart';
-import 'providers/library_path.dart';
+import 'providers/library_open_state.dart';
 import 'providers/library_registry.dart';
 import 'providers/library_home.dart';
 import 'providers/library_manager.dart';
@@ -389,7 +389,7 @@ void mainLoop(
         ),
         ChangeNotifierProvider(
           lazy: false,
-          create: (context) => LibraryPathProvider(
+          create: (context) => LibraryOpenStateProvider(
             initialPath,
             context.read<LibraryRegistryProvider>(),
           ),
@@ -575,8 +575,8 @@ class RuneLifecycleState extends State<RuneLifecycle> {
   late final RemoteConnectionLossHandler _remoteLoss;
   late final RendererLinkLossHandler _rendererLinkLoss;
   late final RemoteLibraryReconnectNotice _remoteReconnect;
-  LibraryPathProvider? _libraryPath;
-  String? _noticeLibraryPath;
+  LibraryOpenStateProvider? _libraryState;
+  String? _noticeOpenRecordId;
 
   @override
   void initState() {
@@ -629,7 +629,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
     if (cafeMode && initialPath != null) {
       unawaited(
         startCafePlaybackAfterOpen(
-          libraryOpened: context.read<LibraryPathProvider>().initialOpen,
+          libraryOpened: context.read<LibraryOpenStateProvider>().initialOpen,
           play: () => operatePlaybackWithMixQuery(
             queries: const QueryList([
               ("lib::random", "1"),
@@ -652,11 +652,11 @@ class RuneLifecycleState extends State<RuneLifecycle> {
   void didChangeDependencies() {
     super.didChangeDependencies();
 
-    final libraryPath = context.read<LibraryPathProvider>();
-    if (_libraryPath != libraryPath) {
-      _libraryPath?.removeListener(_libraryChanged);
-      _libraryPath = libraryPath;
-      _noticeLibraryPath = libraryPath.currentPath;
+    final libraryPath = context.read<LibraryOpenStateProvider>();
+    if (_libraryState != libraryPath) {
+      _libraryState?.removeListener(_libraryChanged);
+      _libraryState = libraryPath;
+      _noticeOpenRecordId = libraryPath.registry.openRecordId;
       libraryPath.addListener(_libraryChanged);
     }
 
@@ -678,7 +678,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
 
     _remoteLoss.dispose();
     _rendererLinkLoss.dispose();
-    _libraryPath?.removeListener(_libraryChanged);
+    _libraryState?.removeListener(_libraryChanged);
     _remoteReconnect.dispose();
     license.removeListener(_updateLicense);
     status.removeListener(_throttleUpdateTray);
@@ -688,9 +688,9 @@ class RuneLifecycleState extends State<RuneLifecycle> {
   }
 
   void _libraryChanged() {
-    final path = _libraryPath?.currentPath;
-    if (path != _noticeLibraryPath) {
-      _noticeLibraryPath = path;
+    final recordId = _libraryState?.registry.openRecordId;
+    if (recordId != _noticeOpenRecordId) {
+      _noticeOpenRecordId = recordId;
       _remoteReconnect.clear();
     }
   }
