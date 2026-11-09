@@ -1655,5 +1655,7 @@
   "interfaceScaleFollowTextSize": "За розміром тексту",
   "@interfaceScaleFollowTextSize": {
     "description": "Option that sizes the interface to match the system text size."
-  }
+  },
+  "turnOnBackgroundSync": "Увімкнути Фонову Синхронізацію",
+  "turnOffBackgroundSync": "Вимкнути Фонову Синхронізацію"
 }

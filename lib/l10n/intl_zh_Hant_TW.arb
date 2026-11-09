@@ -1388,5 +1388,7 @@
   "interfaceScaleFollowTextSize": "跟隨文字大小",
   "@interfaceScaleFollowTextSize": {
     "description": "Option that sizes the interface to match the system text size."
-  }
+  },
+  "turnOnBackgroundSync": "開啟背景同步",
+  "turnOffBackgroundSync": "關閉背景同步"
 }

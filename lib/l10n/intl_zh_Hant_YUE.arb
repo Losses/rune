@@ -1655,5 +1655,7 @@
   "offlineSelectionCleaned": "離線選擇已更新，並已嘗試清理。",
   "@offlineSelectionCleaned": {
     "description": "Confirmation after attempting to clean up offline downloads."
-  }
+  },
+  "turnOnBackgroundSync": "開啟背景同步",
+  "turnOffBackgroundSync": "關閉背景同步"
 }

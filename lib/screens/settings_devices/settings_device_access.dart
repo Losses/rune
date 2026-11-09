@@ -1,8 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:material_symbols_icons/symbols.dart';
 
 import '../../bindings/bindings.dart';
-import '../../providers/responsive_providers.dart';
 import '../../utils/api/device_grants.dart';
 import '../../utils/api/request_failure.dart';
 import '../../utils/dialogs/information/error.dart';
@@ -10,8 +8,9 @@ import '../../utils/l10n.dart';
 import '../../utils/settings_body_padding.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
+import '../../widgets/settings/settings_box_combo_box.dart';
 import '../../widgets/settings/settings_box_toggle.dart';
-import '../../widgets/settings/settings_tile_title.dart';
+import '../../widgets/unavailable_page_on_band.dart';
 
 class SettingsDeviceAccessPage extends StatefulWidget {
   const SettingsDeviceAccessPage({
@@ -81,211 +80,104 @@ class _SettingsDeviceAccessPageState extends State<SettingsDeviceAccessPage> {
     final s = S.of(context);
     final current = data;
     return PageContentFrame(
-      builder: (context) => SettingsPagePadding(
-        child: SingleChildScrollView(
-          padding: getScrollContainerPadding(context),
-          child: SettingsBodyPadding(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.client.alias,
-                  style: FluentTheme.of(context).typography.title,
-                ),
-                if (current != null) ...[
-                  SettingsBoxToggle(
-                    title: s.controlPlayback,
-                    subtitle: s.controlPlaybackDescription,
-                    value: current.grants.control,
-                    onChanged: saving ? null : (value) => _save(control: value),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.only(top: 24, bottom: 8),
-                    child: Text(
-                      s.deviceAccessLibraries,
-                      style: FluentTheme.of(context).typography.subtitle,
+      builder: (context) => UnavailablePageOnBand(
+        child: SettingsPagePadding(
+          child: SingleChildScrollView(
+            padding: getScrollContainerPadding(context),
+            child: SettingsBodyPadding(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _sectionTitle(widget.client.alias),
+                  if (current != null) ...[
+                    SettingsBoxToggle(
+                      title: s.controlPlayback,
+                      subtitle: s.controlPlaybackDescription,
+                      value: current.grants.control,
+                      onChanged: saving
+                          ? null
+                          : (value) => _save(control: value),
                     ),
-                  ),
-                  _LibraryAccessHeader(
-                    title: '',
-                    connection: s.deviceConnection,
-                    sync: s.deviceSync,
-                  ),
-                  for (final library in current.libraries)
-                    _LibraryAccessRow(
-                      alias: library.alias,
-                      connection: library.connection,
-                      sync: library.sync,
-                      saving: saving,
-                      onConnectionChanged: (value) => _save(
-                        library: DeviceLibraryGrant(
-                          libraryId: library.libraryId,
-                          connection: value,
-                          sync: library.sync,
-                        ),
+                    _sectionTitle(s.deviceAccessLibraries),
+                    for (final library in current.libraries) ...[
+                      SettingsBoxComboBox<DeviceConnectionLevel>(
+                        title: library.alias,
+                        subtitle: s.deviceConnection,
+                        value: library.connection,
+                        items: [
+                          SettingsBoxComboBoxItem(
+                            value: DeviceConnectionLevel.none,
+                            title: s.deviceConnectionOff,
+                          ),
+                          SettingsBoxComboBoxItem(
+                            value: DeviceConnectionLevel.view,
+                            title: s.deviceConnectionView,
+                          ),
+                          SettingsBoxComboBoxItem(
+                            value: DeviceConnectionLevel.viewEdit,
+                            title: s.deviceConnectionViewEdit,
+                          ),
+                        ],
+                        onChanged: saving
+                            ? null
+                            : (value) {
+                                if (value != null &&
+                                    value != library.connection) {
+                                  _save(
+                                    library: DeviceLibraryGrant(
+                                      libraryId: library.libraryId,
+                                      connection: value,
+                                      sync: library.sync,
+                                    ),
+                                  );
+                                }
+                              },
                       ),
-                      onSyncChanged: (value) => _save(
-                        library: DeviceLibraryGrant(
-                          libraryId: library.libraryId,
-                          connection: library.connection,
-                          sync: value,
-                        ),
+                      SettingsBoxComboBox<DeviceSyncLevel>(
+                        title: library.alias,
+                        subtitle: s.deviceSync,
+                        value: library.sync,
+                        items: [
+                          SettingsBoxComboBoxItem(
+                            value: DeviceSyncLevel.none,
+                            title: s.deviceSyncOff,
+                          ),
+                          SettingsBoxComboBoxItem(
+                            value: DeviceSyncLevel.pull,
+                            title: s.deviceSyncPull,
+                          ),
+                          SettingsBoxComboBoxItem(
+                            value: DeviceSyncLevel.pullPush,
+                            title: s.deviceSyncPullPush,
+                          ),
+                        ],
+                        onChanged: saving
+                            ? null
+                            : (value) {
+                                if (value != null && value != library.sync) {
+                                  _save(
+                                    library: DeviceLibraryGrant(
+                                      libraryId: library.libraryId,
+                                      connection: library.connection,
+                                      sync: value,
+                                    ),
+                                  );
+                                }
+                              },
                       ),
-                    ),
+                    ],
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),
       ),
     );
   }
-}
 
-class _LibraryAccessHeader extends StatelessWidget {
-  const _LibraryAccessHeader({
-    required this.title,
-    required this.connection,
-    required this.sync,
-  });
-
-  final String title;
-  final String connection;
-  final String sync;
-
-  @override
-  Widget build(BuildContext context) => SmallerOrEqualToScreenSize(
-    maxSize: 650,
-    builder: (context, isNarrow) => isNarrow
-        ? const SizedBox.shrink()
-        : Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Row(
-              children: [
-                Expanded(child: Text(title)),
-                Expanded(child: Text(connection)),
-                Expanded(child: Text(sync)),
-              ],
-            ),
-          ),
+  Widget _sectionTitle(String title) => Padding(
+    padding: const EdgeInsets.only(top: 8, bottom: 2, left: 6, right: 6),
+    child: Text(title),
   );
-}
-
-class _LibraryAccessRow extends StatelessWidget {
-  const _LibraryAccessRow({
-    required this.alias,
-    required this.connection,
-    required this.sync,
-    required this.saving,
-    required this.onConnectionChanged,
-    required this.onSyncChanged,
-  });
-
-  final String alias;
-  final DeviceConnectionLevel connection;
-  final DeviceSyncLevel sync;
-  final bool saving;
-  final ValueChanged<DeviceConnectionLevel> onConnectionChanged;
-  final ValueChanged<DeviceSyncLevel> onSyncChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final s = S.of(context);
-    return SmallerOrEqualToScreenSize(
-      maxSize: 650,
-      builder: (context, isNarrow) {
-        final connectionBox = ComboBox<DeviceConnectionLevel>(
-          value: connection,
-          items: [
-            ComboBoxItem(
-              value: DeviceConnectionLevel.none,
-              child: Text(s.deviceConnectionOff),
-            ),
-            ComboBoxItem(
-              value: DeviceConnectionLevel.view,
-              child: Text(s.deviceConnectionView),
-            ),
-            ComboBoxItem(
-              value: DeviceConnectionLevel.viewEdit,
-              child: Text(s.deviceConnectionViewEdit),
-            ),
-          ],
-          onChanged: saving
-              ? null
-              : (value) {
-                  if (value != null && value != connection) {
-                    onConnectionChanged(value);
-                  }
-                },
-        );
-        final syncBox = ComboBox<DeviceSyncLevel>(
-          value: sync,
-          items: [
-            ComboBoxItem(
-              value: DeviceSyncLevel.none,
-              child: Text(s.deviceSyncOff),
-            ),
-            ComboBoxItem(
-              value: DeviceSyncLevel.pull,
-              child: Text(s.deviceSyncPull),
-            ),
-            ComboBoxItem(
-              value: DeviceSyncLevel.pullPush,
-              child: Text(s.deviceSyncPullPush),
-            ),
-          ],
-          onChanged: saving
-              ? null
-              : (value) {
-                  if (value != null && value != sync) onSyncChanged(value);
-                },
-        );
-        final controls = Column(
-          children: [
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(s.deviceConnection),
-            ),
-            connectionBox,
-            const SizedBox(height: 8),
-            Align(alignment: Alignment.centerLeft, child: Text(s.deviceSync)),
-            syncBox,
-          ],
-        );
-        return ListTile(
-          title: isNarrow
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SettingsTileTitle(
-                      icon: Symbols.library_music,
-                      title: alias,
-                      subtitle: '',
-                      showActions: false,
-                      actionsBuilder: (_) => const SizedBox.shrink(),
-                    ),
-                    const SizedBox(height: 8),
-                    controls,
-                  ],
-                )
-              : Row(
-                  children: [
-                    Expanded(
-                      child: SettingsTileTitle(
-                        icon: Symbols.library_music,
-                        title: alias,
-                        subtitle: '',
-                        showActions: false,
-                        actionsBuilder: (_) => const SizedBox.shrink(),
-                      ),
-                    ),
-                    Expanded(child: connectionBox),
-                    const SizedBox(width: 8),
-                    Expanded(child: syncBox),
-                  ],
-                ),
-        );
-      },
-    );
-  }
 }

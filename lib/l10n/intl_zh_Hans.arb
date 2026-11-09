@@ -1655,5 +1655,7 @@
   },
   "@interfaceScaleFollowTextSize": {
     "description": "Option that sizes the interface to match the system text size."
-  }
+  },
+  "turnOnBackgroundSync": "开启后台同步",
+  "turnOffBackgroundSync": "关闭后台同步"
 }

@@ -11,7 +11,7 @@ void main() {
     final strings = AppLocalizationsEn();
     expect(deviceStatusPresentation(ClientStatus.approved, strings), (
       subtitle: 'My Device',
-      showBadge: false,
+      showBadge: true,
     ));
     expect(deviceStatusPresentation(ClientStatus.pending, strings), (
       subtitle: 'Waiting for Approval',

@@ -1580,7 +1580,7 @@
       }
     }
   },
-  "thisDevice": "This device",
+  "thisDevice": "This Device",
   "devicesThatCanConnect": "Devices That Can Connect",
   "otherDevices": "Other Devices",
   "myDevice": "My Device",
@@ -1664,5 +1664,7 @@
   "libraryRemoteUnreachable": "The device could not be reached.",
   "libraryRemoteProtocolFailure": "The device returned an incompatible response.",
   "libraryProtocolIncompatible": "This device uses an incompatible protocol version.",
-  "libraryNotSupportedYet": "This library type is not supported yet."
+  "libraryNotSupportedYet": "This library type is not supported yet.",
+  "turnOnBackgroundSync": "Turn On Background Sync",
+  "turnOffBackgroundSync": "Turn Off Background Sync"
 }

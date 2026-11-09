@@ -222,11 +222,17 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                               : x;
                         }
 
+                        final subtitle = switch (row.library) {
+                          final library? when library.backgroundSync =>
+                            '${row.subtitle} • ${S.of(context).backgroundLibrarySync}',
+                          _ => row.subtitle,
+                        };
+
                         return ListTile.selectable(
                           title: SettingsTileTitle(
                             icon: shared ? Symbols.cloud_sync : Symbols.folder,
                             title: shared ? row.library!.alias : fileName,
-                            subtitle: row.subtitle,
+                            subtitle: subtitle,
                             showActions: isSelectedLibrary,
                             actionsBuilder: (context) => Row(
                               children: [
@@ -289,20 +295,21 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                 ),
                                 if (row.library case final library?) ...[
                                   const SizedBox(width: 12),
-                                  ToggleSwitch(
-                                    content: Text(
-                                      S.of(context).backgroundLibrarySync,
-                                    ),
-                                    checked: library.backgroundSync,
-                                    onChanged:
+                                  Button(
+                                    onPressed:
                                         updatingLibraries.contains(
                                           library.libraryId,
                                         )
                                         ? null
-                                        : (value) => _setBackgroundSync(
+                                        : () => _setBackgroundSync(
                                             library,
-                                            value,
+                                            !library.backgroundSync,
                                           ),
+                                    child: Text(
+                                      library.backgroundSync
+                                          ? S.of(context).turnOffBackgroundSync
+                                          : S.of(context).turnOnBackgroundSync,
+                                    ),
                                   ),
                                 ],
                                 if (isCurrentLibrary) ...[

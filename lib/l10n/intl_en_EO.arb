@@ -1657,5 +1657,7 @@
   "offlineSelectionCleaned": "Offline selection updated.",
   "@offlineSelectionCleaned": {
     "description": "Confirmation after attempting to clean up offline downloads."
-  }
+  },
+  "turnOnBackgroundSync": "Ŝalti Sinkronigon en la Fono",
+  "turnOffBackgroundSync": "Malŝalti Sinkronigon en la Fono"
 }

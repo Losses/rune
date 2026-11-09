@@ -5,7 +5,7 @@ import '../../l10n/app_localizations.dart';
   ClientStatus status,
   AppLocalizations strings,
 ) => switch (status) {
-  ClientStatus.approved => (subtitle: strings.myDevice, showBadge: false),
+  ClientStatus.approved => (subtitle: strings.myDevice, showBadge: true),
   ClientStatus.pending => (
     subtitle: strings.waitingForApproval,
     showBadge: true,

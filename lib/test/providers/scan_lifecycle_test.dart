@@ -157,7 +157,8 @@ void main() {
     );
     await tester.pump();
     expect(find.textContaining('injected failure'), findsOneWidget);
-    expect(find.byType(Button), findsNWidgets(2));
+    expect(find.byType(FilledButton), findsOneWidget);
+    expect(find.byType(Button), findsOneWidget);
     await manager.scanLibrary('test-record', isInitializeTask: true);
     final cancelled = ScanAudioLibraryResponse(
       scanId: requests.last.scanId,
@@ -171,7 +172,8 @@ void main() {
       Uint8List(0),
     );
     await tester.pump();
-    expect(find.byType(Button), findsNWidgets(2));
+    expect(find.byType(FilledButton), findsOneWidget);
+    expect(find.byType(Button), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 100));
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(milliseconds: 100));

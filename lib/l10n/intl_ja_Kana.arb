@@ -1655,5 +1655,7 @@
   "offlineSelectionCleaned": "オフラインの選択を更新し、クリーンアップを試みました。",
   "@offlineSelectionCleaned": {
     "description": "Confirmation after attempting to clean up offline downloads."
-  }
+  },
+  "turnOnBackgroundSync": "バックグラウンドデドウキヲオンニスル",
+  "turnOffBackgroundSync": "バックグラウンドデドウキヲオフニスル"
 }

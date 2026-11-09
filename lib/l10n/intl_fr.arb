@@ -1657,5 +1657,7 @@
   "interfaceScaleFollowTextSize": "Suivre la taille du texte",
   "@interfaceScaleFollowTextSize": {
     "description": "Option that sizes the interface to match the system text size."
-  }
+  },
+  "turnOnBackgroundSync": "Activer la Synchronisation en Arrière-plan",
+  "turnOffBackgroundSync": "Désactiver la Synchronisation en Arrière-plan"
 }

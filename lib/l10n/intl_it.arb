@@ -1657,5 +1657,7 @@
   "interfaceScaleFollowTextSize": "Segui dimensione testo",
   "@interfaceScaleFollowTextSize": {
     "description": "Option that sizes the interface to match the system text size."
-  }
+  },
+  "turnOnBackgroundSync": "Attiva la Sincronizzazione in Background",
+  "turnOffBackgroundSync": "Disattiva la Sincronizzazione in Background"
 }

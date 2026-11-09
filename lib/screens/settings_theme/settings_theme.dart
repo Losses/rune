@@ -1,8 +1,7 @@
-import 'dart:math' as math;
-
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/settings_page_padding.dart';
+import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 
 import 'widgets/color_mode_setting.dart';
@@ -26,29 +25,22 @@ class _SettingsThemeState extends State<SettingsTheme> {
   @override
   Widget build(BuildContext context) {
     return PageContentFrame(
-      left: false,
-      child: LayoutBuilder(
-        builder: (context, constraints) => SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: SizedBox(
-            width: math.max(220, constraints.maxWidth),
-            child: SingleChildScrollView(
-              padding: getScrollContainerPadding(context),
-              child: SettingsPagePadding(
-                child: Column(
-                  children: [
-                    InterfaceScaleSetting(),
-                    ColorModeSetting(),
-                    ThemeColorSetting(),
-                    DynamicColorsSetting(),
-                    BrandingAnimationSetting(),
-                    WindowSizeSetting(),
-                    RememberWindowSizeSetting(),
-                    LinuxCustomWindowControlsSetting(),
-                    VisualizerScenesSetting(),
-                  ],
-                ),
-              ),
+      builder: (context) => UnavailablePageOnBand(
+        child: SettingsPagePadding(
+          child: SingleChildScrollView(
+            padding: getScrollContainerPadding(context),
+            child: Column(
+              children: [
+                ColorModeSetting(),
+                ThemeColorSetting(),
+                DynamicColorsSetting(),
+                BrandingAnimationSetting(),
+                WindowSizeSetting(),
+                RememberWindowSizeSetting(),
+                LinuxCustomWindowControlsSetting(),
+                VisualizerScenesSetting(),
+                InterfaceScaleSetting(),
+              ],
             ),
           ),
         ),

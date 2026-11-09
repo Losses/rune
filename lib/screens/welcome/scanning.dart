@@ -70,21 +70,24 @@ class _ScanningPageState extends State<ScanningPage>
               children: [
                 if (progress?.status == TaskStatus.failed ||
                     progress?.status == TaskStatus.cancelled) ...[
-                  Text(
-                    S.of(context).error(progress?.error ?? ''),
-                    style: typography.bodyLarge?.apply(color: Colors.white),
-                  ),
+                  Text(S.of(context).error(progress?.error ?? '')),
                   const SizedBox(height: 12),
-                  Button(
-                    onPressed: () => libraryManager.scanLibrary(
-                      recordId ?? '',
-                      isInitializeTask: true,
-                    ),
-                    child: Text(S.of(context).scan),
-                  ),
-                  Button(
-                    onPressed: () => $$replace('/'),
-                    child: Text(S.of(context).cancel),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      FilledButton(
+                        onPressed: () => libraryManager.scanLibrary(
+                          recordId ?? '',
+                          isInitializeTask: true,
+                        ),
+                        child: Text(S.of(context).scan),
+                      ),
+                      const SizedBox(width: 12),
+                      Button(
+                        onPressed: () => $$replace('/'),
+                        child: Text(S.of(context).cancel),
+                      ),
+                    ],
                   ),
                 ] else ...[
                   Text(

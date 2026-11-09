@@ -1655,5 +1655,7 @@
   "interfaceScaleFollowTextSize": "Textgröße übernehmen",
   "@interfaceScaleFollowTextSize": {
     "description": "Option that sizes the interface to match the system text size."
-  }
+  },
+  "turnOnBackgroundSync": "Hintergrundsynchronisierung Einschalten",
+  "turnOffBackgroundSync": "Hintergrundsynchronisierung Ausschalten"
 }

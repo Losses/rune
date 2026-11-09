@@ -123,7 +123,7 @@ void main() {
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
     expect(loads, 2);
-    await tester.tap(find.text('This device'));
+    await tester.tap(find.text('This Device'));
     await tester.pumpAndSettle();
     await _tapPlayAction(tester);
     await tester.pumpAndSettle();
@@ -179,7 +179,7 @@ void main() {
       },
     );
 
-    expect(find.text('This device'), findsNothing);
+    expect(find.text('This Device'), findsNothing);
     expect(requestedLibraries, ['library-h']);
     await tester.tap(find.text('Bedroom'));
     await tester.pumpAndSettle();

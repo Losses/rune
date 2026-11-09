@@ -1655,5 +1655,7 @@
   "interfaceScaleFollowTextSize": "文字サイズに合わせる",
   "@interfaceScaleFollowTextSize": {
     "description": "Option that sizes the interface to match the system text size."
-  }
+  },
+  "turnOnBackgroundSync": "バックグラウンド同期をオンにする",
+  "turnOffBackgroundSync": "バックグラウンド同期をオフにする"
 }

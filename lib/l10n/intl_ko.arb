@@ -1657,5 +1657,7 @@
   "interfaceScaleFollowTextSize": "텍스트 크기 따르기",
   "@interfaceScaleFollowTextSize": {
     "description": "Option that sizes the interface to match the system text size."
-  }
+  },
+  "turnOnBackgroundSync": "백그라운드 동기화 켜기",
+  "turnOffBackgroundSync": "백그라운드 동기화 끄기"
 }

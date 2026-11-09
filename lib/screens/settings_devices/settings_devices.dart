@@ -140,9 +140,9 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _sectionTitle(context, S.of(context).thisDevice),
-                  const EditDeviceInformationSettingButton(),
-                  const EnableBroadcastSetting(),
                   const ServerControlSetting(),
+                  const EnableBroadcastSetting(),
+                  const EditDeviceInformationSettingButton(),
                   if (syncSettings case final settings?)
                     SettingsBoxToggle(
                       title: S.of(context).allowPairedSync,
@@ -181,8 +181,10 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
                       );
                     },
                   ),
-                  _sectionTitle(context, S.of(context).devicesThatCanConnect),
-                  _buildUserListView(users, context),
+                  if (users.isNotEmpty) ...[
+                    _sectionTitle(context, S.of(context).devicesThatCanConnect),
+                    _buildUserListView(users, context),
+                  ],
                   _sectionTitle(context, S.of(context).otherDevices),
                   const SearchRemoteDeviceSettingButton(
                     tryClose: true,
@@ -203,8 +205,8 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
   }
 
   Widget _sectionTitle(BuildContext context, String title) => Padding(
-    padding: const EdgeInsets.only(top: 24, bottom: 8),
-    child: Text(title, style: FluentTheme.of(context).typography.subtitle),
+    padding: const EdgeInsets.only(top: 8, bottom: 2, left: 6, right: 6),
+    child: Text(title),
   );
 
   Widget _buildUserListView(List<ClientSummary> clients, BuildContext context) {
@@ -223,6 +225,14 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
             client.status,
             S.of(context),
           );
+          final status = deviceRowSubtitle(
+            status: client.status,
+            grants: grants[client.fingerprint],
+            isControlling: controllersProvider.isControlling(
+              client.fingerprint,
+            ),
+            strings: S.of(context),
+          );
           return ListTile.selectable(
             title: SettingsTileTitle(
               icon: Symbols.devices,
@@ -235,17 +245,9 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
                   : null,
               badgeColor: _getStatusColor(client.status),
               title: client.alias,
-              subtitle: deviceRowSubtitle(
-                status: client.status,
-                grants: grants[client.fingerprint],
-                isControlling: controllersProvider.isControlling(
-                  client.fingerprint,
-                ),
-                strings: S.of(context),
-              ),
+              subtitle: '${client.deviceModel} • $status',
               showActions: selectedUserId == client.fingerprint,
-              actionsBuilder: (context) => Wrap(
-                crossAxisAlignment: WrapCrossAlignment.center,
+              actionsBuilder: (context) => Row(
                 children: [
                   if (client.status == ClientStatus.approved) ...[
                     Button(
