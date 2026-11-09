@@ -29,7 +29,7 @@ void main() {
         ),
         s,
       ),
-      'My device',
+      'My Device',
     );
     expect(deviceAccessSummary(grants(), s), 'Guest · Can control playback');
     expect(
@@ -92,7 +92,7 @@ void main() {
         isControlling: true,
         strings: s,
       ),
-      'Guest · Can control playback · Controlling now',
+      'Guest · Can control playback · Controlling Now',
     );
     expect(
       deviceRowSubtitle(

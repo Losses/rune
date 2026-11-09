@@ -1091,11 +1091,11 @@
   "@editDeviceInformationSubtitle": {
     "description": "Підкреслює, що зміни впливають на видимість у списках сканування інших. Уникає технічних термінів. Фокусується на 'скануваннях' як контексті взаємодії."
   },
-  "enableBroadcast": "Видимий для пристроїв поблизу",
+  "enableBroadcast": "Увімкнути трансляцію",
   "@enableBroadcast": {
     "description": "'Трансляція' означає активне надсилання інформації про пристрій. Якщо цільова мова не має прямого еквіваленту, пріоритизуйте 'зробити видимим' або 'поділитися доступністю'."
   },
-  "enableBroadcastSubtitle": "Дозволити пристроям поблизу знаходити цей пристрій.",
+  "enableBroadcastSubtitle": "Поділіться інформацією про ваш пристрій публічно, щоб інші могли його знайти.",
   "@enableBroadcastSubtitle": {
     "description": "Уникає двозначності: 'публічно' = для користувачів у локальній мережі, а не весь інтернет."
   },
@@ -1167,15 +1167,15 @@
       }
     }
   },
-  "server": "Спільний доступ",
+  "server": "Сервер",
   "@server": {
     "description": "Заголовок сторінки налаштувань для керування поведінкою спільного використання медіаплеєра. Включає управління авторизованими користувачами та трансляцію присутності пристрою."
   },
-  "serverControl": "Дозволити іншим пристроям підключатися",
+  "serverControl": "Керування сервером",
   "@serverControl": {
     "description": "Заголовок розділу для керування сервером локальної мережі. 'Сервер' тут стосується фонової служби, яка обробляє виявлення пристроїв."
   },
-  "serverControlSubtitle": "Дозволити іншим пристроям підключатися до цього пристрою.",
+  "serverControlSubtitle": "Запустіть сервер, щоб дозволити іншим пристроям виявляти цей пристрій у локальній мережі.",
   "@serverControlSubtitle": {
     "description": "Уточнює, що сервер працює лише в локальній мережі. Підкреслює, що запуск дозволяє видимість для інших."
   },
@@ -1199,7 +1199,7 @@
   "@unknownStatus": {
     "description": "Показується як значок статусу користувача/клієнта. Вказує, що статус не розпізнано або не визначено. Пропонуйте терміни як 'Нерозпізнано' або 'Не визначено', але зберігайте нейтральний тон без натяку на помилки. Асоціюється з нейтральними кольорами як сірий у UI."
   },
-  "review": "Відповісти",
+  "review": "Переглянути",
   "@review": {
     "description": "Кнопка для перегляду очікуючих запитів на підключення пристрою. Запускає модальне вікно для затвердження або блокування пристрою."
   },
@@ -1207,13 +1207,9 @@
   "@reviewRequestTitle": {
     "description": "Заголовок, що показується в модальному вікні при перегляді підключення пристрою. Тримайте стисло, фокусуйтеся на необхідній дії."
   },
-  "blockDevice": "Заблокувати",
+  "blockDevice": "Заблокувати пристрій",
   "@blockDevice": {
     "description": "Дія для постійної відмови в доступі. Використовуйте сильні дієслова як 'Заборонити', якщо культурно більш доречно, але уникайте негативних конотацій."
-  },
-  "allowAccess": "Мій пристрій",
-  "@allowAccess": {
-    "description": "Дія для надання дозволу на підключення. Узгоджуйте з термінами як 'Затвердити' або 'Авторизувати', якщо краще підходить для цільової мови."
   },
   "connectionVerificationMessage": "Щоб дозволити пристрою {alias} ({model}) підключитися, поділіться відбитком ключа комунікації нижче, щоб допомогти підтвердити вашу особистість.",
   "@connectionVerificationMessage": {
@@ -1228,10 +1224,6 @@
         "description": "Ідентифікатор моделі пристрою виробника"
       }
     }
-  },
-  "allowAccessSubtitle": "Цей пристрій може переглядати, відтворювати та синхронізувати ваші бібліотеки.",
-  "@allowAccessSubtitle": {
-    "description": "Пояснює дозволи, надані при дозволі доступу. Використовуйте 'Авторизувати' або 'Надати дозволи' як альтернативи. Уточніть, що 'завантаження' стосується отримання медіавмісту."
   },
   "blockDeviceSubtitle": "Запобігти майбутньому підключенню. Ви можете розблокувати цей пристрій у будь-який час.",
   "@blockDeviceSubtitle": {
@@ -1340,45 +1332,79 @@
     "description": "Мітка, що вказує на те, що процес дедуплікації наразі активний. Показується користувачам, поки дублікати треків видаляються з їх музичної бібліотеки або плейлиста. Альтернативні формулювання можуть включати 'Видалення дублікатів у процесі' або 'Дедуплікація в процесі' залежно від того, що найбільш природно в цільовій мові."
   },
   "interfaceScale": "Масштаб інтерфейсу",
-  "interfaceScaleSubtitle": "Одразу змінює текст і вміст програми відносно системного масштабу. Розмір вікна й роздільна здатність не змінюються. 100% відповідає системному масштабу.",
+  "interfaceScaleSubtitle": "Змінює розмір тексту й вмісту програми.",
   "interfaceScaleSaveError": "Не вдалося зберегти масштаб інтерфейсу",
   "linuxCustomWindowControls": "Власні елементи керування вікном",
-  "@linuxCustomWindowControls": {"description": "Title for the Linux custom window controls setting option."},
+  "@linuxCustomWindowControls": {
+    "description": "Title for the Linux custom window controls setting option."
+  },
   "linuxCustomWindowControlsSubtitle": "Увімкнути власні елементи керування для вікна без рамки, як у режимі Windows.",
-  "@linuxCustomWindowControlsSubtitle": {"description": "Subtitle explaining what the Linux custom window controls setting does."},
+  "@linuxCustomWindowControlsSubtitle": {
+    "description": "Subtitle explaining what the Linux custom window controls setting does."
+  },
   "offlineAvailability": "Доступність офлайн",
-  "@offlineAvailability": {"description": "Context menu for the audio retained on this device."},
-  "keepAvailableOffline": "Зберігати для прослуховування офлайн",
-  "@keepAvailableOffline": {"description": "Save a mix-query selection for background audio downloads."},
+  "@offlineAvailability": {
+    "description": "Context menu for the audio retained on this device."
+  },
+  "keepAvailableOffline": "Зберігати офлайн",
+  "@keepAvailableOffline": {
+    "description": "Save a mix-query selection for background audio downloads."
+  },
   "stopKeepingOffline": "Припинити зберігати офлайн",
-  "@stopKeepingOffline": {"description": "Disable future downloads for this selection without deleting existing files."},
+  "@stopKeepingOffline": {
+    "description": "Disable future downloads for this selection without deleting existing files."
+  },
   "offlineSelectionSaved": "Вибір для офлайну збережено",
-  "@offlineSelectionSaved": {"description": "Acknowledges that a persistent download selection has been saved."},
+  "@offlineSelectionSaved": {
+    "description": "Acknowledges that a persistent download selection has been saved."
+  },
   "offlineSelectionRemoved": "Автоматичні завантаження зупинено",
-  "@offlineSelectionRemoved": {"description": "Acknowledges disabling an offline selection."},
+  "@offlineSelectionRemoved": {
+    "description": "Acknowledges disabling an offline selection."
+  },
   "offlineSelectionFailed": "Не вдалося зберегти вибір для офлайну",
-  "@offlineSelectionFailed": {"description": "Error title when saving a download selection fails."},
-  "offlineSelectionQueued": "Відповідні треки завантажаться, коли спарений пристрій стане доступним. Поки він у мережі, їх можна слухати потоково.",
-  "@offlineSelectionQueued": {"description": "Explains the difference between a queued offline selection and online playback."},
+  "@offlineSelectionFailed": {
+    "description": "Error title when saving a download selection fails."
+  },
+  "offlineSelectionQueued": "Треки завантажаться, коли спарений пристрій стане доступним.",
+  "@offlineSelectionQueued": {
+    "description": "Explains the difference between a queued offline selection and online playback."
+  },
   "offlineSelectionRetained": "Наявні локальні файли зберігаються.",
-  "@offlineSelectionRetained": {"description": "Explains that disabling downloads does not delete audio."},
+  "@offlineSelectionRetained": {
+    "description": "Explains that disabling downloads does not delete audio."
+  },
   "audioRemoteReference": "Віддалене аудіо (стан з’єднання невідомий)",
   "audioUnavailable": "Аудіо недоступне",
   "audioImportPending": "Імпортування триває",
-  "allowPairedSync": "Дозволити спареним пристроям синхронізуватися з цього пристрою",
-  "@allowPairedSync": {"description": "Label for allowing incoming paired device sync"},
-  "allowPairedSyncDescription": "Вимкнення зупиняє прослуховування з’єднань та оголошення в локальній мережі. Цей пристрій усе ще може синхронізуватися з інших.",
-  "@allowPairedSyncDescription": {"description": "Explanation of the incoming sync setting"},
+  "allowPairedSync": "Дозволити синхронізацію",
+  "@allowPairedSync": {
+    "description": "Label for allowing incoming paired device sync"
+  },
+  "allowPairedSyncDescription": "Вимкніть, щоб заборонити іншим пристроям підключатися до цього.",
+  "@allowPairedSyncDescription": {
+    "description": "Explanation of the incoming sync setting"
+  },
   "audioSyncedCopy": "Синхронізована копія",
-  "@audioSyncedCopy": {"description": "Label for audio downloaded from a paired device."},
-  "offlineCleanupDefault": "Видаляти завантажені файли, коли вони більше не потрібні офлайн",
-  "@offlineCleanupDefault": {"description": "Default option to clean up unneeded offline downloads."},
-  "offlineCleanupDefaultDescription": "Виберіть типову дію для видалення непотрібних завантажень після вимкнення офлайн-доступу.",
-  "@offlineCleanupDefaultDescription": {"description": "Explanation of the offline cleanup default."},
+  "@audioSyncedCopy": {
+    "description": "Label for audio downloaded from a paired device."
+  },
+  "offlineCleanupDefault": "Видаляти непотрібні завантаження",
+  "@offlineCleanupDefault": {
+    "description": "Default option to clean up unneeded offline downloads."
+  },
+  "offlineCleanupDefaultDescription": "Виберіть, чи видаляти завантаження, більше не потрібні офлайн.",
+  "@offlineCleanupDefaultDescription": {
+    "description": "Explanation of the offline cleanup default."
+  },
   "offlineCleanupCheckbox": "Також видалити завантажені файли, які більше не потрібні",
-  "@offlineCleanupCheckbox": {"description": "Option to delete downloads no enabled offline rule needs."},
+  "@offlineCleanupCheckbox": {
+    "description": "Option to delete downloads no enabled offline rule needs."
+  },
   "offlineSelectionCleaned": "Вибір для офлайну оновлено та виконано спробу очищення.",
-  "@offlineSelectionCleaned": {"description": "Confirmation after attempting to clean up offline downloads."},
+  "@offlineSelectionCleaned": {
+    "description": "Confirmation after attempting to clean up offline downloads."
+  },
   "remoteOpenUntrusted": "Цей пристрій ще не довіряє серверу. Спочатку створіть пару.",
   "remoteOpenNotAuthorized": "Інший пристрій не дозволив доступ цьому пристрою або заблокував його.",
   "remoteOpenUnreachable": "Пристрій недоступний. Перевірте, чи він увімкнений і в тій самій мережі.",
@@ -1397,7 +1423,13 @@
   "noSharedLibraries": "На цьому пристрої немає медіатек для спільного доступу",
   "libraryFromDevice": "Від {device}",
   "backgroundLibrarySync": "Синхронізувати у фоновому режимі",
-  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}},
+  "@libraryFromDevice": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
   "requestItemMissing": "Цього елемента більше не існує",
   "requestInvalid": "Запит був недійсним",
   "requestCertificateMismatch": "Сертифікат цього пристрою не збігається",
@@ -1409,15 +1441,27 @@
   "playOnSubtitle": "Виберіть пристрій для відтворення звуку.",
   "playOnFixedToRemote": "Закріплено за цим віддаленим пристроєм",
   "playOnPlayingOn": "Відтворюється на {alias}",
-  "@playOnPlayingOn": {"placeholders": {"alias": {"type": "String"}}},
+  "@playOnPlayingOn": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "playOnOffline": "Не в мережі",
   "playOnNotApproved": "Цей пристрій ще не схвалив вас",
   "playOnNoControl": "Не можна керувати цим пристроєм",
   "playOnCantPlay": "Не можна відтворити {library}",
-  "@playOnCantPlay": {"placeholders": {"library": {"type": "String"}}},
+  "@playOnCantPlay": {
+    "placeholders": {
+      "library": {
+        "type": "String"
+      }
+    }
+  },
   "playOnRetry": "Повторити",
   "castTrackMode": "Під час трансляції треку",
-  "castTrackReplace": "Замінити чергу й відтворити зараз",
+  "castTrackReplace": "Замінити чергу",
   "castTrackPlayNext": "Відтворити наступним",
   "castControlRenderer": "Після трансляції",
   "castKeepControlling": "Продовжити керувати цим пристроєм",
@@ -1425,9 +1469,18 @@
   "castTrackModeSubtitle": "Виберіть, як змінити чергу пристрою відтворення.",
   "castControlRendererSubtitle": "Виберіть пристрій, яким керуватимете далі.",
   "castNotPossible": "{alias} не може відтворити {library}",
-  "@castNotPossible": {"placeholders": {"alias": {"type": "String"}, "library": {"type": "String"}}},
+  "@castNotPossible": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      },
+      "library": {
+        "type": "String"
+      }
+    }
+  },
   "thisDevice": "Цей пристрій",
-  "devicesThatCanConnect": "Пристрої, які можуть підключатися до цього",
+  "devicesThatCanConnect": "Доступні для підключення пристрої",
   "otherDevices": "Інші пристрої",
   "myDevice": "Мій пристрій",
   "controllingNow": "Зараз керує цим пристроєм",
@@ -1457,27 +1510,51 @@
   "queueUnavailableSourceUnreachable": "Не вдалося підключитися до джерела",
   "queueUnavailableUnreadable": "Не вдалося прочитати аудіо",
   "rendererLinkLost": "З’єднання з {alias} втрачено",
-  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
+  "@rendererLinkLost": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "requestPublicKeyMismatch": "Ключ пристрою не відповідає відбитку",
   "requestRegistrationConflict": "Пристрій із таким відбитком уже зареєстровано",
   "remoteLibraryReconnecting": "Повторне підключення до {alias}…",
-  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
+  "@remoteLibraryReconnecting": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "capabilityNotImplemented": "Цей пристрій не підтримує цю дію",
   "capabilityOwnerOnly": "Лише пристрій-власник може це зробити",
   "requestOtherDeviceName": "інший пристрій",
-  "requestPeerNeedsUpdatePeer": "{alias} використовує старішу версію Rune. Оновіть Rune на пристрої {alias}, щоб підключитися.",
-  "requestPeerNeedsUpdateThisDevice": "{alias} використовує новішу версію Rune. Оновіть Rune на цьому пристрої, щоб підключитися.",
+  "requestPeerNeedsUpdatePeer": "Щоб підключитися, оновіть Rune на пристрої {alias}.",
+  "requestPeerNeedsUpdateThisDevice": "Оновіть Rune на цьому пристрої, щоб підключитися до {alias}.",
   "remoteLossProtocolIncompatible": "Версії Rune більше не збігаються. Оновіть Rune на обох пристроях, щоб підключитися знову.",
   "capabilityPeerTooOld": "Оновіть Rune на іншому пристрої, щоб скористатися цією функцією.",
   "requestPeerNeedsUpdateFallback": "Оновіть Rune на обох пристроях, щоб підключитися.",
-  "@requestPeerNeedsUpdatePeer": {"placeholders": {"alias": {"type": "String"}}},
-  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}},
+  "@requestPeerNeedsUpdatePeer": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "@requestPeerNeedsUpdateThisDevice": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "capabilityAccountRoleMissing": "Ваш обліковий запис на цьому сервері не має права виконувати цю дію.",
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
   },
-  "libraryRecordNotFound": "Цей запис медіатеки більше не існує.",
-  "libraryRecordIsOpen": "Закрийте медіатеку, перш ніж видаляти її запис.",
+  "libraryRecordNotFound": "Цієї медіатеки більше немає.",
+  "libraryRecordIsOpen": "Закрийте медіатеку, перш ніж видалити її.",
   "libraryMediaFolderMissing": "Папку медіатеки не знайдено.",
   "libraryUntrusted": "Цей пристрій не є довіреним.",
   "libraryInvalidSource": "Цю папку не можна використовувати як медіатеку.",
@@ -1486,5 +1563,97 @@
   "libraryRemoteUnreachable": "Не вдалося під’єднатися до пристрою.",
   "libraryRemoteProtocolFailure": "Пристрій надіслав несумісну відповідь.",
   "libraryProtocolIncompatible": "Цей пристрій використовує несумісну версію протоколу.",
-  "libraryNotSupportedYet": "Цей тип медіатеки ще не підтримується."
+  "libraryNotSupportedYet": "Цей тип медіатеки ще не підтримується.",
+  "onMyIPhone": "На моєму iPhone",
+  "@onMyIPhone": {
+    "description": "The Files app location for folders on an iPhone, shown as the start of a library's location."
+  },
+  "onMyIPad": "На моєму iPad",
+  "@onMyIPad": {
+    "description": "The Files app location for folders on an iPad, shown as the start of a library's location."
+  },
+  "iCloudDrive": "iCloud Drive",
+  "@iCloudDrive": {
+    "description": "The Files app location for folders in iCloud Drive, shown as the start of a library's location."
+  },
+  "trayIconColorMode": "Колір піктограми",
+  "@trayIconColorMode": {
+    "description": "A settings entry that allows users to control the color of the system tray icon, choosing between automatic, light, and dark modes."
+  },
+  "trayIconColorModeSubtitle": "Виберіть колір піктограми.",
+  "@trayIconColorModeSubtitle": {},
+  "automaticTrayIconMode": "Автоматично",
+  "@automaticTrayIconMode": {
+    "description": "An option for tray icon color mode that automatically switches between light and dark based on the system theme."
+  },
+  "mixWithOthers": "Відтворювати з іншими програмами",
+  "@mixWithOthers": {
+    "description": "Settings title of an entry in the playback settings page"
+  },
+  "mixWithOthersSubtitle": "Інші програми продовжують відтворення, поки працює Rune.",
+  "@mixWithOthersSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
+  },
+  "visualizerScenes": "Сцени",
+  "@visualizerScenes": {
+    "description": "Title of the setting that lists the visualizer scenes to check, uncheck and reorder."
+  },
+  "visualizerScenesSubtitle": "Виберіть сцени для меню обкладинок. Перетягніть, щоб змінити порядок.",
+  "@visualizerScenesSubtitle": {
+    "description": "Subtitle of the visualizer scenes setting."
+  },
+  "visualizerSceneImported": "Імпортовано {name}",
+  "@visualizerSceneImported": {
+    "description": "Notification after a visualizer scene file was imported.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerSceneImportFailed": "Не вдалося імпортувати {name}",
+  "@visualizerSceneImportFailed": {
+    "description": "Notification when a file is not a visualizer scene; the reason, in English, follows below it.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerDeleteScene": "Видалити сцену",
+  "@visualizerDeleteScene": {
+    "description": "Button and dialog title that delete an imported visualizer scene."
+  },
+  "visualizerDeleteSceneConfirm": "Видалити {name}? Імпортуйте її знову, щоб відновити.",
+  "@visualizerDeleteSceneConfirm": {
+    "description": "Text of the dialog that confirms deleting an imported visualizer scene.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizer": "Візуалізатор",
+  "@visualizer": {
+    "description": "Title of the visualizer settings page and the navigation entries that open it, also the name of the cover wall button while the visualizer is available."
+  },
+  "coverWallVisualizerSubtitle": "Візуальні ефекти під музику",
+  "@coverWallVisualizerSubtitle": {
+    "description": "Subtitle of the playback controller entry that opens the cover wall while it is set to show the visualizer."
+  },
+  "visualizerLab": "Лабораторія візуалізатора",
+  "@visualizerLab": {
+    "description": "Name of the playback controller entry that turns the visualizer lab on the cover wall page on and off."
+  },
+  "visualizerLabSubtitle": "Показувати лабораторію поверх візуалізатора.",
+  "@visualizerLabSubtitle": {
+    "description": "Subtitle of the playback controller entry that turns the visualizer lab on and off."
+  },
+  "interfaceScaleFollowTextSize": "За розміром тексту",
+  "@interfaceScaleFollowTextSize": {
+    "description": "Option that sizes the interface to match the system text size."
+  }
 }

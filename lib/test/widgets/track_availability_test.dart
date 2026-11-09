@@ -49,15 +49,15 @@ void main() {
       );
       expect(find.text('local: true: local'), findsOneWidget);
       expect(
-        find.text('remoteOnly: true: Remote audio (connection unknown)'),
+        find.text('remoteOnly: true: Remote Audio'),
         findsOneWidget,
       );
       expect(
-        find.text('unavailable: false: Audio unavailable'),
+        find.text('unavailable: false: Audio Unavailable'),
         findsOneWidget,
       );
       expect(
-        find.text('importPending: false: Import in progress'),
+        find.text('importPending: false: Importing'),
         findsOneWidget,
       );
     },
@@ -96,10 +96,10 @@ void main() {
         ),
       ),
     );
-    expect(find.text('Artist • Synced copy'), findsOneWidget);
+    expect(find.text('Artist • Synced Copy'), findsOneWidget);
     expect(find.text('Artist'), findsOneWidget);
     expect(
-      find.text('Artist • Remote audio (connection unknown)'),
+      find.text('Artist • Remote Audio'),
       findsOneWidget,
     );
   });
@@ -133,14 +133,14 @@ void main() {
     }
 
     await render(AudioAvailability.importPending);
-    expect(find.textContaining('Import in progress'), findsOneWidget);
+    expect(find.textContaining('Importing'), findsOneWidget);
     expect(tester.widget<Button>(find.byType(Button).first).onPressed, isNull);
     await render(AudioAvailability.unavailable);
-    expect(find.textContaining('Audio unavailable'), findsOneWidget);
+    expect(find.textContaining('Audio Unavailable'), findsOneWidget);
     expect(tester.widget<Button>(find.byType(Button).first).onPressed, isNull);
     await render(AudioAvailability.remoteOnly);
     expect(
-      find.textContaining('Remote audio (connection unknown)'),
+      find.textContaining('Remote Audio'),
       findsOneWidget,
     );
     expect(

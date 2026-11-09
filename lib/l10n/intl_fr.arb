@@ -1093,11 +1093,11 @@
   "@editDeviceInformationSubtitle": {
     "description": "Met l'accent sur le fait que les modifications affectent la visibilité dans les listes de scan des autres. Évite les termes techniques. Se concentre sur les 'scans' comme contexte d'interaction."
   },
-  "enableBroadcast": "Visible par les appareils à proximité",
+  "enableBroadcast": "Activer la Diffusion",
   "@enableBroadcast": {
     "description": "'Diffusion' implique l'envoi actif d'informations d'appareil. Si la langue cible manque d'équivalent direct, privilégiez 'rendre visible' ou 'partager la disponibilité'."
   },
-  "enableBroadcastSubtitle": "Permettre aux appareils proches de trouver cet appareil.",
+  "enableBroadcastSubtitle": "Partagez publiquement vos informations d'appareil pour que d'autres puissent les découvrir.",
   "@enableBroadcastSubtitle": {
     "description": "Évite l'ambiguïté : 'publiquement' = aux utilisateurs du réseau local, pas tout l'internet."
   },
@@ -1169,15 +1169,15 @@
       }
     }
   },
-  "server": "Partage",
+  "server": "Serveur",
   "@server": {
     "description": "Le titre de la page de paramètres pour contrôler les comportements de partage du lecteur multimédia. Inclut la gestion des utilisateurs autorisés et la diffusion de la présence de l'appareil."
   },
-  "serverControl": "Autoriser les autres appareils à se connecter",
+  "serverControl": "Contrôle du Serveur",
   "@serverControl": {
     "description": "Titre de section pour contrôler le serveur de réseau local. 'Serveur' ici fait référence au service d'arrière-plan qui gère la découverte d'appareils."
   },
-  "serverControlSubtitle": "Permettre aux autres appareils de se connecter à cet appareil.",
+  "serverControlSubtitle": "Démarrez le serveur pour permettre aux autres appareils de découvrir cet appareil sur le réseau local.",
   "@serverControlSubtitle": {
     "description": "Clarifie que le serveur n'opère que sur le réseau local. Met l'accent sur le fait que démarrer permet la visibilité aux autres."
   },
@@ -1201,7 +1201,7 @@
   "@unknownStatus": {
     "description": "Affiché comme badge de statut utilisateur/client. Indique que le statut n'est pas reconnu ou indéfini. Suggérez des termes comme 'Non reconnu' ou 'Indéfini' mais maintenez un ton neutre sans impliquer d'erreurs. Associé avec des couleurs neutres comme le gris dans l'interface."
   },
-  "review": "Répondre",
+  "review": "Examiner",
   "@review": {
     "description": "Bouton pour examiner les demandes de connexion d'appareil en attente. Déclenche une modale pour approuver ou bloquer l'appareil."
   },
@@ -1209,13 +1209,9 @@
   "@reviewRequestTitle": {
     "description": "Titre affiché dans la modale lors de l'examen d'une connexion d'appareil. Garder concis, se concentrer sur l'action requise."
   },
-  "blockDevice": "Bloquer",
+  "blockDevice": "Bloquer l'Appareil",
   "@blockDevice": {
     "description": "Action pour refuser définitivement l'accès. Utilisez des verbes forts comme 'Bannir' si culturellement plus appropriés, mais évitez les connotations négatives."
-  },
-  "allowAccess": "Mon appareil",
-  "@allowAccess": {
-    "description": "Action pour accorder la permission de connexion. Alignez avec des termes comme 'Approuver' ou 'Autoriser' si mieux adaptés à la langue cible."
   },
   "connectionVerificationMessage": "Pour permettre à l'appareil {alias} ({model}) de se connecter, partagez l'empreinte de clé de communication ci-dessous pour aider à vérifier votre identité.",
   "@connectionVerificationMessage": {
@@ -1230,10 +1226,6 @@
         "description": "Identifiant de modèle d'appareil du fabricant"
       }
     }
-  },
-  "allowAccessSubtitle": "Cet appareil peut parcourir, lire et synchroniser vos bibliothèques.",
-  "@allowAccessSubtitle": {
-    "description": "Explique les permissions accordées lors de l'autorisation d'accès. Utilisez 'Autoriser' ou 'Accorder des permissions' comme alternatives. Clarifiez que 'télécharger' fait référence à la récupération de contenu multimédia."
   },
   "blockDeviceSubtitle": "Empêchez les connexions futures. Vous pouvez débloquer cet appareil à tout moment.",
   "@blockDeviceSubtitle": {
@@ -1342,45 +1334,79 @@
     "description": "Étiquette indiquant que le processus de déduplication est actuellement actif. Affiché aux utilisateurs pendant que les pistes dupliquées sont supprimées de leur bibliothèque musicale ou playlist. Les phrasés alternatifs pourraient inclure 'Suppression des doublons en cours' ou 'Déduplication en cours' selon ce qui est le plus naturel dans la langue cible."
   },
   "interfaceScale": "Échelle de l’interface",
-  "interfaceScaleSubtitle": "Modifie immédiatement le texte et le contenu par rapport à l’échelle du système. La taille de la fenêtre et la résolution ne changent pas. 100 % suit l’échelle du système.",
+  "interfaceScaleSubtitle": "Ajuste la taille du texte et du contenu de l’application.",
   "interfaceScaleSaveError": "Impossible d’enregistrer l’échelle de l’interface",
   "linuxCustomWindowControls": "Contrôles de fenêtre personnalisés",
-  "@linuxCustomWindowControls": {"description": "Title for the Linux custom window controls setting option."},
+  "@linuxCustomWindowControls": {
+    "description": "Title for the Linux custom window controls setting option."
+  },
   "linuxCustomWindowControlsSubtitle": "Activer les contrôles personnalisés pour une fenêtre sans cadre, comme en mode Windows.",
-  "@linuxCustomWindowControlsSubtitle": {"description": "Subtitle explaining what the Linux custom window controls setting does."},
+  "@linuxCustomWindowControlsSubtitle": {
+    "description": "Subtitle explaining what the Linux custom window controls setting does."
+  },
   "offlineAvailability": "Disponibilité hors ligne",
-  "@offlineAvailability": {"description": "Context menu for the audio retained on this device."},
-  "keepAvailableOffline": "Conserver hors ligne",
-  "@keepAvailableOffline": {"description": "Save a mix-query selection for background audio downloads."},
+  "@offlineAvailability": {
+    "description": "Context menu for the audio retained on this device."
+  },
+  "keepAvailableOffline": "Garder hors ligne",
+  "@keepAvailableOffline": {
+    "description": "Save a mix-query selection for background audio downloads."
+  },
   "stopKeepingOffline": "Ne plus conserver hors ligne",
-  "@stopKeepingOffline": {"description": "Disable future downloads for this selection without deleting existing files."},
+  "@stopKeepingOffline": {
+    "description": "Disable future downloads for this selection without deleting existing files."
+  },
   "offlineSelectionSaved": "Sélection hors ligne enregistrée",
-  "@offlineSelectionSaved": {"description": "Acknowledges that a persistent download selection has been saved."},
+  "@offlineSelectionSaved": {
+    "description": "Acknowledges that a persistent download selection has been saved."
+  },
   "offlineSelectionRemoved": "Téléchargements automatiques arrêtés",
-  "@offlineSelectionRemoved": {"description": "Acknowledges disabling an offline selection."},
+  "@offlineSelectionRemoved": {
+    "description": "Acknowledges disabling an offline selection."
+  },
   "offlineSelectionFailed": "Impossible d’enregistrer la sélection hors ligne",
-  "@offlineSelectionFailed": {"description": "Error title when saving a download selection fails."},
-  "offlineSelectionQueued": "Les morceaux correspondants seront téléchargés dès qu’un appareil associé sera disponible. Vous pouvez les écouter en streaming tant qu’il est en ligne.",
-  "@offlineSelectionQueued": {"description": "Explains the difference between a queued offline selection and online playback."},
+  "@offlineSelectionFailed": {
+    "description": "Error title when saving a download selection fails."
+  },
+  "offlineSelectionQueued": "Les morceaux seront téléchargés dès qu’un appareil associé sera disponible.",
+  "@offlineSelectionQueued": {
+    "description": "Explains the difference between a queued offline selection and online playback."
+  },
   "offlineSelectionRetained": "Les fichiers locaux existants sont conservés.",
-  "@offlineSelectionRetained": {"description": "Explains that disabling downloads does not delete audio."},
+  "@offlineSelectionRetained": {
+    "description": "Explains that disabling downloads does not delete audio."
+  },
   "audioRemoteReference": "Audio distant (connexion inconnue)",
   "audioUnavailable": "Audio indisponible",
   "audioImportPending": "Importation en cours",
-  "allowPairedSync": "Autoriser les appareils associés à synchroniser depuis cet appareil",
-  "@allowPairedSync": {"description": "Label for allowing incoming paired device sync"},
-  "allowPairedSyncDescription": "La désactivation arrête les connexions entrantes et les annonces sur le réseau local. Cet appareil peut toujours synchroniser depuis les autres.",
-  "@allowPairedSyncDescription": {"description": "Explanation of the incoming sync setting"},
+  "allowPairedSync": "Autoriser la synchronisation",
+  "@allowPairedSync": {
+    "description": "Label for allowing incoming paired device sync"
+  },
+  "allowPairedSyncDescription": "Désactivez cette option pour empêcher les autres appareils de se connecter à celui-ci.",
+  "@allowPairedSyncDescription": {
+    "description": "Explanation of the incoming sync setting"
+  },
   "audioSyncedCopy": "Copie synchronisée",
-  "@audioSyncedCopy": {"description": "Label for audio downloaded from a paired device."},
-  "offlineCleanupDefault": "Supprimer les fichiers téléchargés lorsqu’ils ne sont plus conservés hors ligne",
-  "@offlineCleanupDefault": {"description": "Default option to clean up unneeded offline downloads."},
-  "offlineCleanupDefaultDescription": "Choisir le comportement par défaut pour supprimer les téléchargements inutiles lorsque la disponibilité hors ligne est arrêtée.",
-  "@offlineCleanupDefaultDescription": {"description": "Explanation of the offline cleanup default."},
+  "@audioSyncedCopy": {
+    "description": "Label for audio downloaded from a paired device."
+  },
+  "offlineCleanupDefault": "Supprimer les téléchargements inutiles",
+  "@offlineCleanupDefault": {
+    "description": "Default option to clean up unneeded offline downloads."
+  },
+  "offlineCleanupDefaultDescription": "Choisissez si les téléchargements inutiles hors ligne doivent être supprimés.",
+  "@offlineCleanupDefaultDescription": {
+    "description": "Explanation of the offline cleanup default."
+  },
   "offlineCleanupCheckbox": "Supprimer aussi les fichiers téléchargés devenus inutiles",
-  "@offlineCleanupCheckbox": {"description": "Option to delete downloads no enabled offline rule needs."},
+  "@offlineCleanupCheckbox": {
+    "description": "Option to delete downloads no enabled offline rule needs."
+  },
   "offlineSelectionCleaned": "Sélection hors ligne mise à jour et nettoyage tenté.",
-  "@offlineSelectionCleaned": {"description": "Confirmation after attempting to clean up offline downloads."},
+  "@offlineSelectionCleaned": {
+    "description": "Confirmation after attempting to clean up offline downloads."
+  },
   "remoteOpenUntrusted": "Cet appareil ne fait pas encore confiance au serveur. Associez-les d’abord.",
   "remoteOpenNotAuthorized": "L’autre appareil n’a pas autorisé cet appareil ou l’a bloqué.",
   "remoteOpenUnreachable": "L’appareil est inaccessible. Vérifiez qu’il est allumé et sur le même réseau.",
@@ -1399,7 +1425,13 @@
   "noSharedLibraries": "Cet appareil ne possède aucune bibliothèque à partager",
   "libraryFromDevice": "De {device}",
   "backgroundLibrarySync": "Synchroniser en arrière-plan",
-  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}},
+  "@libraryFromDevice": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
   "requestItemMissing": "Cet élément n’existe plus",
   "requestInvalid": "La demande était invalide",
   "requestCertificateMismatch": "Le certificat de cet appareil ne correspond pas",
@@ -1411,15 +1443,27 @@
   "playOnSubtitle": "Choisissez où le son est diffusé.",
   "playOnFixedToRemote": "Fixé à cet appareil distant",
   "playOnPlayingOn": "Lecture sur {alias}",
-  "@playOnPlayingOn": {"placeholders": {"alias": {"type": "String"}}},
+  "@playOnPlayingOn": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "playOnOffline": "Hors ligne",
   "playOnNotApproved": "Cet appareil ne vous a pas encore autorisé",
   "playOnNoControl": "Impossible de contrôler cet appareil",
   "playOnCantPlay": "Impossible de lire {library}",
-  "@playOnCantPlay": {"placeholders": {"library": {"type": "String"}}},
+  "@playOnCantPlay": {
+    "placeholders": {
+      "library": {
+        "type": "String"
+      }
+    }
+  },
   "playOnRetry": "Réessayer",
   "castTrackMode": "Lors de la diffusion d’un morceau",
-  "castTrackReplace": "Remplacer la file et lire maintenant",
+  "castTrackReplace": "Remplacer la file",
   "castTrackPlayNext": "Lire ensuite",
   "castControlRenderer": "Après la diffusion",
   "castKeepControlling": "Continuer à contrôler cet appareil",
@@ -1427,9 +1471,18 @@
   "castTrackModeSubtitle": "Choisissez comment modifier la file du lecteur.",
   "castControlRendererSubtitle": "Choisissez quel appareil reste contrôlé.",
   "castNotPossible": "{alias} ne peut pas lire {library}",
-  "@castNotPossible": {"placeholders": {"alias": {"type": "String"}, "library": {"type": "String"}}},
+  "@castNotPossible": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      },
+      "library": {
+        "type": "String"
+      }
+    }
+  },
   "thisDevice": "Cet appareil",
-  "devicesThatCanConnect": "Appareils pouvant se connecter à celui-ci",
+  "devicesThatCanConnect": "Appareils connectables",
   "otherDevices": "Autres appareils",
   "myDevice": "Mon appareil",
   "controllingNow": "Contrôle actuellement cet appareil",
@@ -1459,27 +1512,51 @@
   "queueUnavailableSourceUnreachable": "La source est inaccessible",
   "queueUnavailableUnreadable": "Le fichier audio est illisible",
   "rendererLinkLost": "Connexion à {alias} perdue",
-  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
+  "@rendererLinkLost": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "requestPublicKeyMismatch": "La clé de l’appareil ne correspond pas à son empreinte",
   "requestRegistrationConflict": "Un appareil utilisant cette empreinte est déjà enregistré",
   "remoteLibraryReconnecting": "Reconnexion à {alias}…",
-  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
+  "@remoteLibraryReconnecting": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "capabilityNotImplemented": "Cet appareil ne prend pas en charge cette commande",
   "capabilityOwnerOnly": "Seul l’appareil propriétaire peut faire cela",
   "requestOtherDeviceName": "l’autre appareil",
-  "requestPeerNeedsUpdatePeer": "{alias} utilise une ancienne version de Rune. Mettez Rune à jour sur {alias} pour vous connecter.",
-  "requestPeerNeedsUpdateThisDevice": "{alias} utilise une version plus récente de Rune. Mettez Rune à jour sur cet appareil pour vous connecter.",
+  "requestPeerNeedsUpdatePeer": "{alias} doit mettre Rune à jour pour se connecter.",
+  "requestPeerNeedsUpdateThisDevice": "Mettez Rune à jour sur cet appareil pour vous connecter à {alias}.",
   "remoteLossProtocolIncompatible": "Les versions de Rune ne correspondent plus. Mettez Rune à jour sur les deux appareils pour vous reconnecter.",
   "capabilityPeerTooOld": "Mettez Rune à jour sur l’autre appareil pour utiliser cette fonction.",
   "requestPeerNeedsUpdateFallback": "Mettez Rune à jour sur les deux appareils pour vous connecter.",
-  "@requestPeerNeedsUpdatePeer": {"placeholders": {"alias": {"type": "String"}}},
-  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}},
+  "@requestPeerNeedsUpdatePeer": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "@requestPeerNeedsUpdateThisDevice": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "capabilityAccountRoleMissing": "Votre compte sur ce serveur n’est pas autorisé à effectuer cette action.",
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
   },
-  "libraryRecordNotFound": "Cet enregistrement de bibliothèque n’existe plus.",
-  "libraryRecordIsOpen": "Fermez la bibliothèque avant de supprimer son enregistrement.",
+  "libraryRecordNotFound": "Cette bibliothèque n’existe plus.",
+  "libraryRecordIsOpen": "Fermez la bibliothèque avant de la supprimer.",
   "libraryMediaFolderMissing": "Le dossier de la bibliothèque est introuvable.",
   "libraryUntrusted": "Cet appareil n’est pas approuvé.",
   "libraryInvalidSource": "Ce dossier ne peut pas servir de bibliothèque.",
@@ -1488,5 +1565,97 @@
   "libraryRemoteUnreachable": "L’appareil est injoignable.",
   "libraryRemoteProtocolFailure": "L’appareil a renvoyé une réponse incompatible.",
   "libraryProtocolIncompatible": "Cet appareil utilise une version incompatible du protocole.",
-  "libraryNotSupportedYet": "Ce type de bibliothèque n’est pas encore pris en charge."
+  "libraryNotSupportedYet": "Ce type de bibliothèque n’est pas encore pris en charge.",
+  "onMyIPhone": "Sur mon iPhone",
+  "@onMyIPhone": {
+    "description": "The Files app location for folders on an iPhone, shown as the start of a library's location."
+  },
+  "onMyIPad": "Sur mon iPad",
+  "@onMyIPad": {
+    "description": "The Files app location for folders on an iPad, shown as the start of a library's location."
+  },
+  "iCloudDrive": "iCloud Drive",
+  "@iCloudDrive": {
+    "description": "The Files app location for folders in iCloud Drive, shown as the start of a library's location."
+  },
+  "trayIconColorMode": "Couleur de l'icône",
+  "@trayIconColorMode": {
+    "description": "A settings entry that allows users to control the color of the system tray icon, choosing between automatic, light, and dark modes."
+  },
+  "trayIconColorModeSubtitle": "Choisir la couleur de l'icône.",
+  "@trayIconColorModeSubtitle": {},
+  "automaticTrayIconMode": "Automatique",
+  "@automaticTrayIconMode": {
+    "description": "An option for tray icon color mode that automatically switches between light and dark based on the system theme."
+  },
+  "mixWithOthers": "Lire avec d'autres apps",
+  "@mixWithOthers": {
+    "description": "Settings title of an entry in the playback settings page"
+  },
+  "mixWithOthersSubtitle": "Les autres apps continuent de lire pendant Rune.",
+  "@mixWithOthersSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
+  },
+  "visualizerScenes": "Scènes",
+  "@visualizerScenes": {
+    "description": "Title of the setting that lists the visualizer scenes to check, uncheck and reorder."
+  },
+  "visualizerScenesSubtitle": "Choisissez les scènes du menu du mur de pochettes. Faites glisser pour trier.",
+  "@visualizerScenesSubtitle": {
+    "description": "Subtitle of the visualizer scenes setting."
+  },
+  "visualizerSceneImported": "{name} importé",
+  "@visualizerSceneImported": {
+    "description": "Notification after a visualizer scene file was imported.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerSceneImportFailed": "Impossible d'importer {name}",
+  "@visualizerSceneImportFailed": {
+    "description": "Notification when a file is not a visualizer scene; the reason, in English, follows below it.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerDeleteScene": "Supprimer la scène",
+  "@visualizerDeleteScene": {
+    "description": "Button and dialog title that delete an imported visualizer scene."
+  },
+  "visualizerDeleteSceneConfirm": "Supprimer {name} ? Réimportez-la pour la restaurer.",
+  "@visualizerDeleteSceneConfirm": {
+    "description": "Text of the dialog that confirms deleting an imported visualizer scene.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizer": "Visualiseur",
+  "@visualizer": {
+    "description": "Title of the visualizer settings page and the navigation entries that open it, also the name of the cover wall button while the visualizer is available."
+  },
+  "coverWallVisualizerSubtitle": "Des visuels au rythme de la musique.",
+  "@coverWallVisualizerSubtitle": {
+    "description": "Subtitle of the playback controller entry that opens the cover wall while it is set to show the visualizer."
+  },
+  "visualizerLab": "Labo du visualiseur",
+  "@visualizerLab": {
+    "description": "Name of the playback controller entry that turns the visualizer lab on the cover wall page on and off."
+  },
+  "visualizerLabSubtitle": "Afficher le labo sur le visualiseur.",
+  "@visualizerLabSubtitle": {
+    "description": "Subtitle of the playback controller entry that turns the visualizer lab on and off."
+  },
+  "interfaceScaleFollowTextSize": "Suivre la taille du texte",
+  "@interfaceScaleFollowTextSize": {
+    "description": "Option that sizes the interface to match the system text size."
+  }
 }

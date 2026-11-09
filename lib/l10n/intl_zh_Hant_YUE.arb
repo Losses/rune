@@ -1091,11 +1091,11 @@
   "@editDeviceInformationSubtitle": {
     "description": "強調更改會影響喺其他人掃描列表度嘅可見性。避免用技術術語，突出「掃描」呢個互動場景。"
   },
-  "enableBroadcast": "附近裝置可見",
+  "enableBroadcast": "啟用廣播",
   "@enableBroadcast": {
     "description": "「廣播」即係主動傳送裝置資訊。如果目標語言冇直接對應嘅詞，可以優先用「設定為可被發現」或「分享可用狀態」。"
   },
-  "enableBroadcastSubtitle": "畀附近裝置搵到此裝置。",
+  "enableBroadcastSubtitle": "展示你嘅裝置資訊，俾其他人發現。",
   "@enableBroadcastSubtitle": {
     "description": "避免歧義：呢度嘅「公開」只係指對本機網絡入面嘅用戶，而唔係成個互聯網。"
   },
@@ -1167,15 +1167,15 @@
       }
     }
   },
-  "server": "分享",
+  "server": "伺服器",
   "@server": {
     "description": "用嚟控制媒體播放器共享行為嘅設定頁面標題，包括管理授權用戶同廣播裝置狀態。"
   },
-  "serverControl": "容許其他裝置連接",
+  "serverControl": "伺服器控制",
   "@serverControl": {
     "description": "用嚟控制本機網絡伺服器嘅部分標題。「伺服器」指用嚟俾裝置發現嘅後台服務。"
   },
-  "serverControlSubtitle": "畀其他裝置連接此裝置。",
+  "serverControlSubtitle": "啟動伺服器，等其他裝置可以喺本機網絡搵到呢個裝置。",
   "@serverControlSubtitle": {
     "description": "明確伺服器只會喺本機網絡運行。強調啟動伺服器會令裝置對其他人可見。"
   },
@@ -1199,7 +1199,7 @@
   "@unknownStatus": {
     "description": "作為用戶/客戶端狀態徽章顯示，表示狀態無法識別或未定義。建議用「無法識別」或「未定義」，保持中性語氣，唔暗示錯誤。UI 中通常配灰色。"
   },
-  "review": "處理請求",
+  "review": "審查",
   "@review": {
     "description": "用嚟審查待處理嘅裝置連線請求嘅按鈕。會彈出一個對話框俾你允許或封鎖裝置。"
   },
@@ -1207,13 +1207,9 @@
   "@reviewRequestTitle": {
     "description": "審查裝置連線時對話框顯示嘅標題。保持簡潔，突出所需操作。"
   },
-  "blockDevice": "封鎖",
+  "blockDevice": "封鎖裝置",
   "@blockDevice": {
     "description": "永久拒絕存取嘅操作。根據文化習慣亦可用「禁用」，但避免負面情緒過重。"
-  },
-  "allowAccess": "我嘅裝置",
-  "@allowAccess": {
-    "description": "授權連線權限嘅操作。可根據習慣用「批准」或「授權」。"
   },
   "connectionVerificationMessage": "如果要允許裝置 {alias} ({model}) 連線，請分享以下嘅通訊密鑰指紋嚟驗證你嘅身份。",
   "@connectionVerificationMessage": {
@@ -1228,10 +1224,6 @@
         "description": "廠商定義嘅裝置型號標識"
       }
     }
-  },
-  "allowAccessSubtitle": "此裝置可以瀏覽、播放同同步你嘅音樂庫。",
-  "@allowAccessSubtitle": {
-    "description": "說明允許存取時會授予嘅權限。「攞取」指獲取媒體內容。"
   },
   "blockDeviceSubtitle": "封鎖未來嘅連線。你可以隨時取消對呢個裝置嘅封鎖。",
   "@blockDeviceSubtitle": {
@@ -1360,7 +1352,13 @@
   "noSharedLibraries": "呢部裝置冇可以分享嘅音樂庫",
   "libraryFromDevice": "來自 {device}",
   "backgroundLibrarySync": "喺背景保持同步",
-  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}},
+  "@libraryFromDevice": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
   "requestItemMissing": "呢個項目已經唔存在",
   "requestInvalid": "要求無效",
   "requestCertificateMismatch": "呢部裝置嘅憑證唔相符",
@@ -1372,12 +1370,24 @@
   "playOnSubtitle": "揀選音訊播放嘅位置。",
   "playOnFixedToRemote": "固定喺呢部遠端裝置",
   "playOnPlayingOn": "喺 {alias} 播放緊",
-  "@playOnPlayingOn": {"placeholders": {"alias": {"type": "String"}}},
+  "@playOnPlayingOn": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "playOnOffline": "離線",
   "playOnNotApproved": "呢部裝置仲未批准你",
   "playOnNoControl": "控制唔到呢部裝置",
   "playOnCantPlay": "播唔到 {library}",
-  "@playOnCantPlay": {"placeholders": {"library": {"type": "String"}}},
+  "@playOnCantPlay": {
+    "placeholders": {
+      "library": {
+        "type": "String"
+      }
+    }
+  },
   "playOnRetry": "再試",
   "castTrackMode": "投放歌曲時",
   "castTrackReplace": "取代播放清單並即刻播放",
@@ -1388,7 +1398,16 @@
   "castTrackModeSubtitle": "揀點樣更改播放裝置嘅播放清單。",
   "castControlRendererSubtitle": "揀繼續控制邊部裝置。",
   "castNotPossible": "{alias} 播唔到 {library}",
-  "@castNotPossible": {"placeholders": {"alias": {"type": "String"}, "library": {"type": "String"}}},
+  "@castNotPossible": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      },
+      "library": {
+        "type": "String"
+      }
+    }
+  },
   "thisDevice": "此裝置",
   "devicesThatCanConnect": "可以連接此裝置嘅裝置",
   "otherDevices": "其他裝置",
@@ -1420,11 +1439,23 @@
   "queueUnavailableSourceUnreachable": "連接唔到來源",
   "queueUnavailableUnreadable": "讀取唔到音訊",
   "rendererLinkLost": "同 {alias} 嘅連線已中斷",
-  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
+  "@rendererLinkLost": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "requestPublicKeyMismatch": "裝置金鑰同指紋唔相符",
   "requestRegistrationConflict": "呢個指紋嘅裝置已經註冊",
   "remoteLibraryReconnecting": "重新連接緊 {alias}…",
-  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
+  "@remoteLibraryReconnecting": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "capabilityNotImplemented": "呢部裝置唔支援呢個操作",
   "capabilityOwnerOnly": "只有擁有者裝置先可以做呢個操作",
   "requestOtherDeviceName": "另一部裝置",
@@ -1433,8 +1464,20 @@
   "remoteLossProtocolIncompatible": "Rune 版本唔再相符。請喺兩部裝置更新 Rune 以重新連線。",
   "capabilityPeerTooOld": "請喺另一部裝置更新 Rune 以使用呢項功能。",
   "requestPeerNeedsUpdateFallback": "請喺兩部裝置更新 Rune 以連線。",
-  "@requestPeerNeedsUpdatePeer": {"placeholders": {"alias": {"type": "String"}}},
-  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}},
+  "@requestPeerNeedsUpdatePeer": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "@requestPeerNeedsUpdateThisDevice": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "capabilityAccountRoleMissing": "你喺呢個伺服器嘅帳戶冇權限做呢件事。",
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
@@ -1449,5 +1492,168 @@
   "libraryRemoteUnreachable": "無法連線到裝置。",
   "libraryRemoteProtocolFailure": "裝置傳回不相容的回應。",
   "libraryProtocolIncompatible": "此裝置使用不相容的協定版本。",
-  "libraryNotSupportedYet": "目前尚不支援此媒體庫類型。"
+  "libraryNotSupportedYet": "目前尚不支援此媒體庫類型。",
+  "onMyIPhone": "我的 iPhone",
+  "@onMyIPhone": {
+    "description": "The Files app location for folders on an iPhone, shown as the start of a library's location."
+  },
+  "onMyIPad": "我的 iPad",
+  "@onMyIPad": {
+    "description": "The Files app location for folders on an iPad, shown as the start of a library's location."
+  },
+  "iCloudDrive": "iCloud Drive",
+  "@iCloudDrive": {
+    "description": "The Files app location for folders in iCloud Drive, shown as the start of a library's location."
+  },
+  "trayIconColorMode": "工具列图标顏色",
+  "@trayIconColorMode": {
+    "description": "A settings entry that allows users to control the color of the system tray icon, choosing between automatic, light, and dark modes."
+  },
+  "trayIconColorModeSubtitle": "揀图标顏色。",
+  "@trayIconColorModeSubtitle": {},
+  "automaticTrayIconMode": "自动",
+  "@automaticTrayIconMode": {
+    "description": "An option for tray icon color mode that automatically switches between light and dark based on the system theme."
+  },
+  "mixWithOthers": "与其他應用同时播放",
+  "@mixWithOthers": {
+    "description": "Settings title of an entry in the playback settings page"
+  },
+  "mixWithOthersSubtitle": "Rune 播放时，其他應用也会继续播放。",
+  "@mixWithOthersSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
+  },
+  "visualizerScenes": "場景",
+  "@visualizerScenes": {
+    "description": "Title of the setting that lists the visualizer scenes to check, uncheck and reorder."
+  },
+  "visualizerScenesSubtitle": "揀封面墙菜单中的場景。拖动以排序。",
+  "@visualizerScenesSubtitle": {
+    "description": "Subtitle of the visualizer scenes setting."
+  },
+  "visualizerSceneImported": "已导入 {name}",
+  "@visualizerSceneImported": {
+    "description": "Notification after a visualizer scene file was imported.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerSceneImportFailed": "无法导入 {name}",
+  "@visualizerSceneImportFailed": {
+    "description": "Notification when a file is not a visualizer scene; the reason, in English, follows below it.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerDeleteScene": "刪除場景",
+  "@visualizerDeleteScene": {
+    "description": "Button and dialog title that delete an imported visualizer scene."
+  },
+  "visualizerDeleteSceneConfirm": "刪除 {name}？重新导入即可恢复。",
+  "@visualizerDeleteSceneConfirm": {
+    "description": "Text of the dialog that confirms deleting an imported visualizer scene.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizer": "可视化效果",
+  "@visualizer": {
+    "description": "Title of the visualizer settings page and the navigation entries that open it, also the name of the cover wall button while the visualizer is available."
+  },
+  "coverWallVisualizerSubtitle": "随音乐律动的视觉效果",
+  "@coverWallVisualizerSubtitle": {
+    "description": "Subtitle of the playback controller entry that opens the cover wall while it is set to show the visualizer."
+  },
+  "visualizerLab": "可视化实验室",
+  "@visualizerLab": {
+    "description": "Name of the playback controller entry that turns the visualizer lab on the cover wall page on and off."
+  },
+  "visualizerLabSubtitle": "在可视化效果上顯示实验室。",
+  "@visualizerLabSubtitle": {
+    "description": "Subtitle of the playback controller entry that turns the visualizer lab on and off."
+  },
+  "interfaceScaleFollowTextSize": "跟隨文字大小",
+  "@interfaceScaleFollowTextSize": {
+    "description": "Option that sizes the interface to match the system text size."
+  },
+  "linuxCustomWindowControls": "自訂視窗控制項",
+  "@linuxCustomWindowControls": {
+    "description": "Title for the Linux custom window controls setting option."
+  },
+  "linuxCustomWindowControlsSubtitle": "啟用自訂視窗控制項，使用類似 Windows 模式的無邊框視窗。",
+  "@linuxCustomWindowControlsSubtitle": {
+    "description": "Subtitle explaining what the Linux custom window controls setting does."
+  },
+  "offlineAvailability": "離線可用性",
+  "@offlineAvailability": {
+    "description": "Context menu for the audio retained on this device."
+  },
+  "keepAvailableOffline": "保持離線可用",
+  "@keepAvailableOffline": {
+    "description": "Save a mix-query selection for background audio downloads."
+  },
+  "stopKeepingOffline": "停止保持離線可用",
+  "@stopKeepingOffline": {
+    "description": "Disable future downloads for this selection without deleting existing files."
+  },
+  "offlineSelectionSaved": "已儲存離線選擇",
+  "@offlineSelectionSaved": {
+    "description": "Acknowledges that a persistent download selection has been saved."
+  },
+  "offlineSelectionRemoved": "已停止自動下載",
+  "@offlineSelectionRemoved": {
+    "description": "Acknowledges disabling an offline selection."
+  },
+  "offlineSelectionFailed": "無法儲存離線選擇",
+  "@offlineSelectionFailed": {
+    "description": "Error title when saving a download selection fails."
+  },
+  "offlineSelectionQueued": "配對裝置可用時將下載曲目。",
+  "@offlineSelectionQueued": {
+    "description": "Explains the difference between a queued offline selection and online playback."
+  },
+  "offlineSelectionRetained": "現有本機檔案會保留。",
+  "@offlineSelectionRetained": {
+    "description": "Explains that disabling downloads does not delete audio."
+  },
+  "audioRemoteReference": "遠端音訊（連線狀態未知）",
+  "audioUnavailable": "音訊無法使用",
+  "audioImportPending": "正在匯入",
+  "allowPairedSync": "允許同步",
+  "@allowPairedSync": {
+    "description": "Label for allowing incoming paired device sync"
+  },
+  "allowPairedSyncDescription": "關閉後，其他裝置將無法連線至此裝置。",
+  "@allowPairedSyncDescription": {
+    "description": "Explanation of the incoming sync setting"
+  },
+  "audioSyncedCopy": "已同步的副本",
+  "@audioSyncedCopy": {
+    "description": "Label for audio downloaded from a paired device."
+  },
+  "offlineCleanupDefault": "刪除不需要的下載",
+  "@offlineCleanupDefault": {
+    "description": "Default option to clean up unneeded offline downloads."
+  },
+  "offlineCleanupDefaultDescription": "選擇是否刪除不再需要離線保存的下載。",
+  "@offlineCleanupDefaultDescription": {
+    "description": "Explanation of the offline cleanup default."
+  },
+  "offlineCleanupCheckbox": "同時刪除不再需要的下載檔案",
+  "@offlineCleanupCheckbox": {
+    "description": "Option to delete downloads no enabled offline rule needs."
+  },
+  "offlineSelectionCleaned": "離線選擇已更新，並已嘗試清理。",
+  "@offlineSelectionCleaned": {
+    "description": "Confirmation after attempting to clean up offline downloads."
+  }
 }

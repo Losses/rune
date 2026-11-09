@@ -1093,11 +1093,11 @@
   "@editDeviceInformationSubtitle": {
     "description": "변경 사항이 다른 사용자의 스캔 목록에서의 가시성에 영향을 미친다는 점을 강조. 기술 용어 피함. '스캔'을 상호작용 컨텍스트로 집중."
   },
-  "enableBroadcast": "주변 기기에 표시",
+  "enableBroadcast": "브로드캐스트 활성화",
   "@enableBroadcast": {
     "description": "'브로드캐스트'는 기기 정보를 능동적으로 전송하는 것을 의미. 대상 언어에 직접적인 동등어가 없다면 '표시하기' 또는 '가용성 공유'를 우선시."
   },
-  "enableBroadcastSubtitle": "주변 기기가 이 기기를 찾을 수 있습니다.",
+  "enableBroadcastSubtitle": "다른 사용자가 발견할 수 있도록 기기 정보를 공개적으로 공유하세요.",
   "@enableBroadcastSubtitle": {
     "description": "모호함 피하기: '공개적으로' = 로컬 네트워크의 사용자들에게, 전체 인터넷이 아님."
   },
@@ -1169,15 +1169,15 @@
       }
     }
   },
-  "server": "공유",
+  "server": "서버",
   "@server": {
     "description": "미디어 플레이어 공유 동작을 제어하는 설정 페이지 제목. 승인된 사용자 관리 및 기기 존재 브로드캐스트 포함."
   },
-  "serverControl": "다른 기기의 연결 허용",
+  "serverControl": "서버 제어",
   "@serverControl": {
     "description": "로컬 네트워크 서버를 제어하는 섹션 제목. 여기서 '서버'는 기기 발견을 처리하는 백그라운드 서비스를 의미."
   },
-  "serverControlSubtitle": "다른 기기가 이 기기에 연결할 수 있습니다.",
+  "serverControlSubtitle": "다른 기기들이 로컬 네트워크에서 이 기기를 발견할 수 있도록 서버를 시작하세요.",
   "@serverControlSubtitle": {
     "description": "서버가 로컬 네트워크에서만 작동한다는 점을 명확히. 시작하면 다른 기기들에게 가시성이 활성화된다는 점을 강조."
   },
@@ -1201,7 +1201,7 @@
   "@unknownStatus": {
     "description": "사용자/클라이언트 상태 배지로 표시. 상태가 인식되지 않거나 정의되지 않았음을 나타냄. '인식되지 않음' 또는 '정의되지 않음'과 같은 용어를 제안하되 오류를 의미하지 않도록 중립적인 톤을 유지. UI에서 회색과 같은 중립적인 색상과 연관됨."
   },
-  "review": "요청 처리",
+  "review": "검토",
   "@review": {
     "description": "대기 중인 기기 연결 요청을 검토하는 버튼. 기기를 승인하거나 차단하는 모달을 트리거."
   },
@@ -1209,13 +1209,9 @@
   "@reviewRequestTitle": {
     "description": "기기 연결을 검토할 때 모달에 표시되는 제목. 간결하게 유지하고 필요한 작업에 집중."
   },
-  "blockDevice": "차단",
+  "blockDevice": "기기 차단",
   "@blockDevice": {
     "description": "접근을 영구적으로 거부하는 작업. 문화적으로 더 적절하다면 '금지'와 같은 강한 동사를 사용하되 부정적인 함의는 피함."
-  },
-  "allowAccess": "내 기기",
-  "@allowAccess": {
-    "description": "연결 권한을 부여하는 작업. 대상 언어에 더 적합하다면 '승인' 또는 '권한 부여'와 같은 용어로 일치시킴."
   },
   "connectionVerificationMessage": "기기 {alias} ({model})의 연결을 허용하려면, 신원 확인을 위해 아래의 통신 키 지문을 공유하세요.",
   "@connectionVerificationMessage": {
@@ -1230,10 +1226,6 @@
         "description": "제조사 기기 모델 식별자"
       }
     }
-  },
-  "allowAccessSubtitle": "이 기기에서 내 보관함을 둘러보고 재생하고 동기화할 수 있습니다.",
-  "@allowAccessSubtitle": {
-    "description": "접근을 허용할 때 부여되는 권한을 설명. '권한 부여' 또는 '권한 허용'을 대안으로 사용. '다운로드'는 미디어 콘텐츠 검색을 의미함을 명확히."
   },
   "blockDeviceSubtitle": "향후 연결을 방지합니다. 언제든지 이 기기의 차단을 해제할 수 있습니다.",
   "@blockDeviceSubtitle": {
@@ -1342,45 +1334,79 @@
     "description": "중복 제거 프로세스가 현재 활성화되어 있음을 나타내는 라벨. 음악 라이브러리나 재생목록에서 중복 트랙이 제거되는 동안 사용자에게 표시. 대상 언어에서 가장 자연스러운 것에 따라 '중복 제거 진행 중' 또는 '중복 삭제 중'과 같은 대체 표현 사용 가능."
   },
   "interfaceScale": "인터페이스 배율",
-  "interfaceScaleSubtitle": "시스템 배율을 기준으로 텍스트와 앱 콘텐츠에 즉시 적용됩니다. 창 크기와 화면 해상도는 변경되지 않습니다. 100%는 시스템 배율을 따릅니다.",
+  "interfaceScaleSubtitle": "텍스트와 앱 콘텐츠 크기를 조정합니다.",
   "interfaceScaleSaveError": "인터페이스 배율을 저장할 수 없습니다",
   "linuxCustomWindowControls": "사용자 지정 창 제어",
-  "@linuxCustomWindowControls": {"description": "Title for the Linux custom window controls setting option."},
+  "@linuxCustomWindowControls": {
+    "description": "Title for the Linux custom window controls setting option."
+  },
   "linuxCustomWindowControlsSubtitle": "Windows 모드처럼 테두리 없는 창에 사용자 지정 제어를 사용합니다.",
-  "@linuxCustomWindowControlsSubtitle": {"description": "Subtitle explaining what the Linux custom window controls setting does."},
+  "@linuxCustomWindowControlsSubtitle": {
+    "description": "Subtitle explaining what the Linux custom window controls setting does."
+  },
   "offlineAvailability": "오프라인 사용",
-  "@offlineAvailability": {"description": "Context menu for the audio retained on this device."},
-  "keepAvailableOffline": "오프라인에서 사용 가능하게 유지",
-  "@keepAvailableOffline": {"description": "Save a mix-query selection for background audio downloads."},
+  "@offlineAvailability": {
+    "description": "Context menu for the audio retained on this device."
+  },
+  "keepAvailableOffline": "오프라인에서 유지",
+  "@keepAvailableOffline": {
+    "description": "Save a mix-query selection for background audio downloads."
+  },
   "stopKeepingOffline": "오프라인 유지 중지",
-  "@stopKeepingOffline": {"description": "Disable future downloads for this selection without deleting existing files."},
+  "@stopKeepingOffline": {
+    "description": "Disable future downloads for this selection without deleting existing files."
+  },
   "offlineSelectionSaved": "오프라인 선택을 저장했습니다",
-  "@offlineSelectionSaved": {"description": "Acknowledges that a persistent download selection has been saved."},
+  "@offlineSelectionSaved": {
+    "description": "Acknowledges that a persistent download selection has been saved."
+  },
   "offlineSelectionRemoved": "자동 다운로드를 중지했습니다",
-  "@offlineSelectionRemoved": {"description": "Acknowledges disabling an offline selection."},
+  "@offlineSelectionRemoved": {
+    "description": "Acknowledges disabling an offline selection."
+  },
   "offlineSelectionFailed": "오프라인 선택을 저장할 수 없습니다",
-  "@offlineSelectionFailed": {"description": "Error title when saving a download selection fails."},
-  "offlineSelectionQueued": "연결된 기기를 사용할 수 있게 되면 해당 트랙을 다운로드합니다. 기기가 온라인 상태일 때 스트리밍할 수 있습니다.",
-  "@offlineSelectionQueued": {"description": "Explains the difference between a queued offline selection and online playback."},
+  "@offlineSelectionFailed": {
+    "description": "Error title when saving a download selection fails."
+  },
+  "offlineSelectionQueued": "연결된 기기를 사용할 수 있게 되면 트랙을 다운로드합니다.",
+  "@offlineSelectionQueued": {
+    "description": "Explains the difference between a queued offline selection and online playback."
+  },
   "offlineSelectionRetained": "기존 로컬 파일은 유지됩니다.",
-  "@offlineSelectionRetained": {"description": "Explains that disabling downloads does not delete audio."},
+  "@offlineSelectionRetained": {
+    "description": "Explains that disabling downloads does not delete audio."
+  },
   "audioRemoteReference": "원격 오디오 (연결 상태 알 수 없음)",
   "audioUnavailable": "오디오를 사용할 수 없음",
   "audioImportPending": "가져오는 중",
-  "allowPairedSync": "연결된 기기가 이 기기에서 동기화하도록 허용",
-  "@allowPairedSync": {"description": "Label for allowing incoming paired device sync"},
-  "allowPairedSyncDescription": "끄면 수신 대기와 LAN 알림이 중지됩니다. 이 기기는 다른 기기에서 계속 동기화할 수 있습니다.",
-  "@allowPairedSyncDescription": {"description": "Explanation of the incoming sync setting"},
+  "allowPairedSync": "동기화 허용",
+  "@allowPairedSync": {
+    "description": "Label for allowing incoming paired device sync"
+  },
+  "allowPairedSyncDescription": "끄면 다른 기기가 이 기기에 연결할 수 없습니다.",
+  "@allowPairedSyncDescription": {
+    "description": "Explanation of the incoming sync setting"
+  },
   "audioSyncedCopy": "동기화된 사본",
-  "@audioSyncedCopy": {"description": "Label for audio downloaded from a paired device."},
-  "offlineCleanupDefault": "더 이상 오프라인으로 유지하지 않는 다운로드 파일 삭제",
-  "@offlineCleanupDefault": {"description": "Default option to clean up unneeded offline downloads."},
-  "offlineCleanupDefaultDescription": "오프라인 사용을 중지할 때 불필요한 다운로드를 삭제할 기본 설정을 선택합니다.",
-  "@offlineCleanupDefaultDescription": {"description": "Explanation of the offline cleanup default."},
+  "@audioSyncedCopy": {
+    "description": "Label for audio downloaded from a paired device."
+  },
+  "offlineCleanupDefault": "불필요한 다운로드 삭제",
+  "@offlineCleanupDefault": {
+    "description": "Default option to clean up unneeded offline downloads."
+  },
+  "offlineCleanupDefaultDescription": "오프라인에서 더 이상 필요하지 않은 다운로드를 삭제할지 선택합니다.",
+  "@offlineCleanupDefaultDescription": {
+    "description": "Explanation of the offline cleanup default."
+  },
   "offlineCleanupCheckbox": "더 이상 필요하지 않은 다운로드 파일도 삭제",
-  "@offlineCleanupCheckbox": {"description": "Option to delete downloads no enabled offline rule needs."},
+  "@offlineCleanupCheckbox": {
+    "description": "Option to delete downloads no enabled offline rule needs."
+  },
   "offlineSelectionCleaned": "오프라인 선택을 업데이트하고 정리를 시도했습니다.",
-  "@offlineSelectionCleaned": {"description": "Confirmation after attempting to clean up offline downloads."},
+  "@offlineSelectionCleaned": {
+    "description": "Confirmation after attempting to clean up offline downloads."
+  },
   "remoteOpenUntrusted": "이 기기는 아직 서버를 신뢰하지 않습니다. 먼저 페어링하세요.",
   "remoteOpenNotAuthorized": "다른 기기에서 이 기기를 허용하지 않았거나 차단했습니다.",
   "remoteOpenUnreachable": "기기에 연결할 수 없습니다. 켜져 있고 같은 네트워크에 있는지 확인하세요.",
@@ -1398,8 +1424,14 @@
   "openSharedLibrary": "열기",
   "noSharedLibraries": "이 기기에 공유할 라이브러리가 없습니다",
   "libraryFromDevice": "{device}에서",
-  "backgroundLibrarySync": "백그라운드에서 동기화 유지",
-  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}},
+  "backgroundLibrarySync": "백그라운드 동기화",
+  "@libraryFromDevice": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
   "requestItemMissing": "이 항목이 더 이상 존재하지 않습니다",
   "requestInvalid": "요청이 유효하지 않습니다",
   "requestCertificateMismatch": "이 기기의 인증서가 일치하지 않습니다",
@@ -1411,15 +1443,27 @@
   "playOnSubtitle": "오디오를 재생할 위치를 선택하세요.",
   "playOnFixedToRemote": "이 원격 기기로 고정됨",
   "playOnPlayingOn": "{alias}에서 재생 중",
-  "@playOnPlayingOn": {"placeholders": {"alias": {"type": "String"}}},
+  "@playOnPlayingOn": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "playOnOffline": "오프라인",
   "playOnNotApproved": "이 기기는 아직 사용자를 승인하지 않았습니다",
   "playOnNoControl": "이 기기를 제어할 수 없습니다",
   "playOnCantPlay": "{library}을(를) 재생할 수 없습니다",
-  "@playOnCantPlay": {"placeholders": {"library": {"type": "String"}}},
+  "@playOnCantPlay": {
+    "placeholders": {
+      "library": {
+        "type": "String"
+      }
+    }
+  },
   "playOnRetry": "다시 시도",
   "castTrackMode": "트랙 캐스팅 시",
-  "castTrackReplace": "대기열을 바꾸고 지금 재생",
+  "castTrackReplace": "대기열 바꾸기",
   "castTrackPlayNext": "다음에 재생",
   "castControlRenderer": "캐스팅 후",
   "castKeepControlling": "이 기기 계속 제어",
@@ -1427,9 +1471,18 @@
   "castTrackModeSubtitle": "재생 기기의 대기열 변경 방식을 선택하세요.",
   "castControlRendererSubtitle": "계속 제어할 기기를 선택하세요.",
   "castNotPossible": "{alias}에서 {library}을(를) 재생할 수 없습니다",
-  "@castNotPossible": {"placeholders": {"alias": {"type": "String"}, "library": {"type": "String"}}},
+  "@castNotPossible": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      },
+      "library": {
+        "type": "String"
+      }
+    }
+  },
   "thisDevice": "이 기기",
-  "devicesThatCanConnect": "이 기기에 연결할 수 있는 기기",
+  "devicesThatCanConnect": "연결 가능한 기기",
   "otherDevices": "다른 기기",
   "myDevice": "내 기기",
   "controllingNow": "현재 이 기기를 제어 중",
@@ -1459,27 +1512,51 @@
   "queueUnavailableSourceUnreachable": "소스에 연결할 수 없습니다",
   "queueUnavailableUnreadable": "오디오를 읽을 수 없습니다",
   "rendererLinkLost": "{alias} 연결이 끊겼습니다",
-  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
+  "@rendererLinkLost": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "requestPublicKeyMismatch": "기기 키가 지문과 일치하지 않습니다",
   "requestRegistrationConflict": "이 지문을 사용하는 기기가 이미 등록되어 있습니다",
   "remoteLibraryReconnecting": "{alias}에 다시 연결하는 중…",
-  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
+  "@remoteLibraryReconnecting": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "capabilityNotImplemented": "이 기기는 이 조작을 지원하지 않습니다",
   "capabilityOwnerOnly": "소유자 기기에서만 할 수 있습니다",
   "requestOtherDeviceName": "다른 기기",
-  "requestPeerNeedsUpdatePeer": "{alias}에서 이전 버전의 Rune을 사용하고 있습니다. 연결하려면 {alias}에서 Rune을 업데이트하세요.",
-  "requestPeerNeedsUpdateThisDevice": "{alias}에서 더 최신 버전의 Rune을 사용하고 있습니다. 연결하려면 이 기기에서 Rune을 업데이트하세요.",
+  "requestPeerNeedsUpdatePeer": "연결하려면 {alias}에서 Rune을 업데이트하세요.",
+  "requestPeerNeedsUpdateThisDevice": "{alias}에 연결하려면 이 기기에서 Rune을 업데이트하세요.",
   "remoteLossProtocolIncompatible": "Rune 버전이 더 이상 일치하지 않습니다. 다시 연결하려면 두 기기 모두에서 Rune을 업데이트하세요.",
   "capabilityPeerTooOld": "이 기능을 사용하려면 다른 기기에서 Rune을 업데이트하세요.",
   "requestPeerNeedsUpdateFallback": "연결하려면 두 기기 모두에서 Rune을 업데이트하세요.",
-  "@requestPeerNeedsUpdatePeer": {"placeholders": {"alias": {"type": "String"}}},
-  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}},
+  "@requestPeerNeedsUpdatePeer": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "@requestPeerNeedsUpdateThisDevice": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "capabilityAccountRoleMissing": "이 서버의 계정에는 이 작업을 수행할 권한이 없습니다.",
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
   },
-  "libraryRecordNotFound": "이 라이브러리 레코드는 더 이상 없습니다.",
-  "libraryRecordIsOpen": "레코드를 삭제하기 전에 라이브러리를 닫으세요.",
+  "libraryRecordNotFound": "이 라이브러리는 더 이상 없습니다.",
+  "libraryRecordIsOpen": "라이브러리를 삭제하기 전에 닫으세요.",
   "libraryMediaFolderMissing": "라이브러리 폴더를 찾을 수 없습니다.",
   "libraryUntrusted": "이 기기는 신뢰할 수 없습니다.",
   "libraryInvalidSource": "이 폴더를 라이브러리로 사용할 수 없습니다.",
@@ -1488,5 +1565,97 @@
   "libraryRemoteUnreachable": "기기에 연결할 수 없습니다.",
   "libraryRemoteProtocolFailure": "기기에서 호환되지 않는 응답을 보냈습니다.",
   "libraryProtocolIncompatible": "이 기기의 프로토콜 버전은 호환되지 않습니다.",
-  "libraryNotSupportedYet": "이 라이브러리 유형은 아직 지원되지 않습니다."
+  "libraryNotSupportedYet": "이 라이브러리 유형은 아직 지원되지 않습니다.",
+  "onMyIPhone": "나의 iPhone",
+  "@onMyIPhone": {
+    "description": "The Files app location for folders on an iPhone, shown as the start of a library's location."
+  },
+  "onMyIPad": "나의 iPad",
+  "@onMyIPad": {
+    "description": "The Files app location for folders on an iPad, shown as the start of a library's location."
+  },
+  "iCloudDrive": "iCloud Drive",
+  "@iCloudDrive": {
+    "description": "The Files app location for folders in iCloud Drive, shown as the start of a library's location."
+  },
+  "trayIconColorMode": "트레이 아이콘 색상",
+  "@trayIconColorMode": {
+    "description": "A settings entry that allows users to control the color of the system tray icon, choosing between automatic, light, and dark modes."
+  },
+  "trayIconColorModeSubtitle": "아이콘 색상을 선택합니다.",
+  "@trayIconColorModeSubtitle": {},
+  "automaticTrayIconMode": "자동",
+  "@automaticTrayIconMode": {
+    "description": "An option for tray icon color mode that automatically switches between light and dark based on the system theme."
+  },
+  "mixWithOthers": "다른 앱과 함께 재생",
+  "@mixWithOthers": {
+    "description": "Settings title of an entry in the playback settings page"
+  },
+  "mixWithOthersSubtitle": "Rune이 재생되는 동안 다른 앱도 계속 재생됩니다.",
+  "@mixWithOthersSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
+  },
+  "visualizerScenes": "장면",
+  "@visualizerScenes": {
+    "description": "Title of the setting that lists the visualizer scenes to check, uncheck and reorder."
+  },
+  "visualizerScenesSubtitle": "커버 월 메뉴에 표시할 장면을 선택하세요. 드래그하여 정렬하세요.",
+  "@visualizerScenesSubtitle": {
+    "description": "Subtitle of the visualizer scenes setting."
+  },
+  "visualizerSceneImported": "{name} 가져옴",
+  "@visualizerSceneImported": {
+    "description": "Notification after a visualizer scene file was imported.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerSceneImportFailed": "{name}을(를) 가져올 수 없습니다",
+  "@visualizerSceneImportFailed": {
+    "description": "Notification when a file is not a visualizer scene; the reason, in English, follows below it.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerDeleteScene": "장면 삭제",
+  "@visualizerDeleteScene": {
+    "description": "Button and dialog title that delete an imported visualizer scene."
+  },
+  "visualizerDeleteSceneConfirm": "{name}을(를) 삭제할까요? 다시 가져오면 복원됩니다.",
+  "@visualizerDeleteSceneConfirm": {
+    "description": "Text of the dialog that confirms deleting an imported visualizer scene.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizer": "비주얼라이저",
+  "@visualizer": {
+    "description": "Title of the visualizer settings page and the navigation entries that open it, also the name of the cover wall button while the visualizer is available."
+  },
+  "coverWallVisualizerSubtitle": "음악에 맞춘 비주얼",
+  "@coverWallVisualizerSubtitle": {
+    "description": "Subtitle of the playback controller entry that opens the cover wall while it is set to show the visualizer."
+  },
+  "visualizerLab": "비주얼라이저 실험실",
+  "@visualizerLab": {
+    "description": "Name of the playback controller entry that turns the visualizer lab on the cover wall page on and off."
+  },
+  "visualizerLabSubtitle": "비주얼라이저 위에 실험실을 표시합니다.",
+  "@visualizerLabSubtitle": {
+    "description": "Subtitle of the playback controller entry that turns the visualizer lab on and off."
+  },
+  "interfaceScaleFollowTextSize": "텍스트 크기 따르기",
+  "@interfaceScaleFollowTextSize": {
+    "description": "Option that sizes the interface to match the system text size."
+  }
 }

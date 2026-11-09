@@ -22,10 +22,10 @@ PlaylistEntry queueEntry(PlaylistUnavailableReason? reason) => PlaylistEntry(
 
 void main() {
   const reasons = {
-    PlaylistUnavailableReason.accessRevoked: 'Access was revoked',
-    PlaylistUnavailableReason.libraryUnavailable: 'Library is unavailable',
-    PlaylistUnavailableReason.sourceUnreachable: 'Source is unreachable',
-    PlaylistUnavailableReason.unreadable: 'Audio cannot be read',
+    PlaylistUnavailableReason.accessRevoked: 'Access was revoked.',
+    PlaylistUnavailableReason.libraryUnavailable: 'Library is unavailable.',
+    PlaylistUnavailableReason.sourceUnreachable: 'Source is unreachable.',
+    PlaylistUnavailableReason.unreadable: 'Audio cannot be read.',
   };
 
   Future<void> pumpItem(
@@ -126,7 +126,7 @@ void main() {
     expect(
       find.descendant(
         of: find.byType(ContentDialog),
-        matching: find.text('Access was revoked'),
+        matching: find.text('Access was revoked.'),
       ),
       findsOneWidget,
     );

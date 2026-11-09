@@ -24,7 +24,7 @@ void main() {
     );
     expect(
       remoteLossMessage(s, RemoteLossKind.protocolIncompatible),
-      'Rune versions no longer match. Update Rune on both devices to reconnect.',
+      'Update Rune on both devices to reconnect.',
     );
   });
 
@@ -88,7 +88,7 @@ void main() {
     );
     expect(
       await noticed.future.timeout(const Duration(seconds: 1)),
-      'Connection to Bedroom lost',
+      'Connection to Bedroom was lost.',
     );
     handler.dispose();
     await losses.close();

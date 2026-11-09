@@ -38,9 +38,9 @@ void main() {
     );
 
     expect(find.text('Offline'), findsOneWidget);
-    expect(find.text('This device has not approved you yet'), findsOneWidget);
-    expect(find.text("Can't control this device"), findsOneWidget);
-    expect(find.text("Can't play My Music"), findsOneWidget);
+    expect(find.text('This device has not approved access.'), findsOneWidget);
+    expect(find.text("This device cannot be controlled."), findsOneWidget);
+    expect(find.text("Cannot play My Music."), findsOneWidget);
     for (final alias in ['offline', 'unapproved', 'no-control', 'cant-play']) {
       final row = tester.widget<ListTile>(
         find.ancestor(of: find.text(alias), matching: find.byType(ListTile)),
@@ -114,14 +114,14 @@ void main() {
       },
       handoff: (target) async => handedOffToThisDevice = target == null,
     );
-    expect(find.text("This isn't available right now"), findsOneWidget);
+    expect(find.text("This is not available right now."), findsOneWidget);
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
     expect(loads, 2);
     await tester.tap(find.text('This device'));
     await tester.pumpAndSettle();
     expect(handedOffToThisDevice, isTrue);
-    expect(find.text('Play on'), findsNothing);
+    expect(find.text('Play On'), findsNothing);
   });
 
   test(
@@ -177,7 +177,7 @@ void main() {
     await tester.tap(find.text('Bedroom'));
     await tester.pumpAndSettle();
     expect(castTarget, const CastTarget(fingerprint: 'fp-b', attach: true));
-    expect(find.text('Play on'), findsNothing);
+    expect(find.text('Play On'), findsNothing);
   });
 
   testWidgets('typed cast failures name the renderer and blocked library', (
@@ -202,8 +202,8 @@ void main() {
 
     await tester.tap(find.text('Bedroom'));
     await tester.pumpAndSettle();
-    expect(find.text("Bedroom can't play My Music"), findsOneWidget);
-    expect(find.text('Play on'), findsOneWidget);
+    expect(find.text("Bedroom cannot play My Music."), findsOneWidget);
+    expect(find.text('Play On'), findsOneWidget);
   });
 
   testWidgets('cast failures without a cause keep the generic message', (
@@ -224,7 +224,7 @@ void main() {
 
     await tester.tap(find.text('Bedroom'));
     await tester.pumpAndSettle();
-    expect(find.text("This device isn't allowed to do that"), findsOneWidget);
+    expect(find.text("This device is not allowed to do that."), findsOneWidget);
   });
 
   testWidgets('handoff reports typed cast failures in the dialog', (
@@ -248,8 +248,8 @@ void main() {
 
     await tester.tap(find.text('Bedroom'));
     await tester.pumpAndSettle();
-    expect(find.text("Bedroom can't play My Music"), findsOneWidget);
-    expect(find.text('Play on'), findsOneWidget);
+    expect(find.text("Bedroom cannot play My Music."), findsOneWidget);
+    expect(find.text('Play On'), findsOneWidget);
   });
 
   testWidgets('queue panel opens Play on and hides it for a remote library', (

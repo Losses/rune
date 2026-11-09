@@ -832,7 +832,7 @@
   "background": "背景",
   "@background": {
     "description": "Input field title of the cover art wall modal"
-   },
+  },
   "evaluationMode": "試用期間",
   "@evaluationMode": {
     "description": "Title of the evaluation mode modal"
@@ -868,8 +868,8 @@
   "laboratory": "研究室",
   "@laboratory": {
     "description": "The title of a link title"
-   },
-"libraryMode": "資料集設置",
+  },
+  "libraryMode": "資料集設置",
   "@libraryMode": {
     "description": "The title of a modal, which guides user to select where to store the database"
   },
@@ -914,7 +914,7 @@
     "description": "Title of the register tile in the settings page"
   },
   "evaluationModeContent4": "下記商店中鍵音楽購入為事出、登録証明使用出来。「登録」押、認証済使用者確認仕手下。",
-  "@evaluationModeContent4" : {
+  "@evaluationModeContent4": {
     "description": "Content of the evaluation mode modal"
   },
   "registerAction": "登録",
@@ -1091,11 +1091,11 @@
   "@editDeviceInformationSubtitle": {
     "description": "Emphasize that changes affect visibility in others' scan lists. Avoid technical terms. Focus on 'scans' as interaction context."
   },
-  "enableBroadcast": "近くのデバイスに表示",
+  "enableBroadcast": "広報有効",
   "@enableBroadcast": {
     "description": "'Broadcast' implies actively sending device info. If target language lacks direct equivalent, prioritize 'make visible' or 'share availability'."
   },
-  "enableBroadcastSubtitle": "近くのデバイスがこのデバイスを見つけられます。",
+  "enableBroadcastSubtitle": "貴方装置情報公開、局地通信網中他人発見出来用為。",
   "@enableBroadcastSubtitle": {
     "description": "Avoid ambiguity: 'publicly' = to users in the local network, not the entire internet."
   },
@@ -1167,15 +1167,15 @@
       }
     }
   },
-  "server": "共有",
+  "server": "通信管理機",
   "@server": {
     "description": "The settings page title for controlling media player sharing behaviors. Includes managing authorized users and broadcasting device presence."
   },
-  "serverControl": "他のデバイスからの接続を許可",
+  "serverControl": "通信管理機制御",
   "@serverControl": {
     "description": "Section title for controlling the local network server. 'Server' here refers to the background service that handles device discovery."
   },
-  "serverControlSubtitle": "他のデバイスがこのデバイスに接続できます。",
+  "serverControlSubtitle": "通信管理機起動、他装置局地通信網上本装置検出出来様為。",
   "@serverControlSubtitle": {
     "description": "Clarify that the server only operates on the local network. Emphasize that starting enables visibility to others."
   },
@@ -1199,7 +1199,7 @@
   "@unknownStatus": {
     "description": "Shown as a user/client status badge. Indicates the status is unrecognized or undefined. Suggest terms like 'Unrecognized' or 'Undefined' but maintain neutral tone without implying errors. Associated with neutral colors like grey in the UI."
   },
-  "review": "リクエストに対応",
+  "review": "審査",
   "@review": {
     "description": "Button to review pending device connection requests. Triggers a modal to approve or block the device."
   },
@@ -1207,13 +1207,9 @@
   "@reviewRequestTitle": {
     "description": "Title shown in the modal when reviewing a device connection. Keep concise, focus on action required."
   },
-  "blockDevice": "ブロック",
+  "blockDevice": "装置接続遮断",
   "@blockDevice": {
     "description": "Action to permanently deny access. Use strong verbs like 'Ban' if culturally more appropriate, but avoid negative connotations."
-  },
-  "allowAccess": "自分のデバイス",
-  "@allowAccess": {
-    "description": "Action to grant connection permission. Align with terms like 'Approve' or 'Authorize' if better suited to target language."
   },
   "connectionVerificationMessage": "装置{alias} ({model}) 接続許可為、以下通信鍵識別情報共有、本人確認役立下。",
   "@connectionVerificationMessage": {
@@ -1228,10 +1224,6 @@
         "description": "Manufacturer's device model identifier"
       }
     }
-  },
-  "allowAccessSubtitle": "このデバイスでライブラリの閲覧、再生、同期ができます。",
-  "@allowAccessSubtitle": {
-    "description": "Explains permissions granted when allowing access. Use 'Authorize' or 'Grant permissions' as alternatives. Clarify that 'download' refers to media content retrieval."
   },
   "blockDeviceSubtitle": "今後接続防止。此装置遮断何時解除出来。",
   "@blockDeviceSubtitle": {
@@ -1340,7 +1332,7 @@
     "description": "Label indicating that the deduplication process is currently active. Shown to users while duplicate tracks are being removed from their music library or playlist. Alternative phrasings could include 'Removing duplicates in progress' or 'Deduplication in progress' depending on what's most natural in the target language."
   },
   "interfaceScale": "インターフェースの拡大率",
-  "interfaceScaleSubtitle": "システムの拡大率を基準に、文字やアプリの内容をすぐに変更します。ウィンドウのサイズや画面解像度は変わりません。100% はシステムの拡大率に従います。",
+  "interfaceScaleSubtitle": "もじやアプリないようのおおきさをかえます。",
   "interfaceScaleSaveError": "拡大率を保存できませんでした",
   "remoteOpenUntrusted": "このデバイスはまだサーバーを信頼していません。先にペアリングしてください。",
   "remoteOpenNotAuthorized": "相手のデバイスがこのデバイスを許可していないか、ブロックしています。",
@@ -1360,7 +1352,13 @@
   "noSharedLibraries": "このでばいすにきょうゆうできるらいぶらりはありません",
   "libraryFromDevice": "{device} から",
   "backgroundLibrarySync": "ばっくぐらうんどでどうきをいじ",
-  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}},
+  "@libraryFromDevice": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
   "requestItemMissing": "此項目既不存在",
   "requestInvalid": "要求無効",
   "requestCertificateMismatch": "このデバイスの証明書が一致しません",
@@ -1372,12 +1370,24 @@
   "playOnSubtitle": "音声を再生する場所を選択します。",
   "playOnFixedToRemote": "このリモートデバイスに固定されています",
   "playOnPlayingOn": "{alias} で再生中",
-  "@playOnPlayingOn": {"placeholders": {"alias": {"type": "String"}}},
+  "@playOnPlayingOn": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "playOnOffline": "オフライン",
   "playOnNotApproved": "このデバイスはまだあなたを承認していません",
   "playOnNoControl": "このデバイスを操作できません",
   "playOnCantPlay": "{library} を再生できません",
-  "@playOnCantPlay": {"placeholders": {"library": {"type": "String"}}},
+  "@playOnCantPlay": {
+    "placeholders": {
+      "library": {
+        "type": "String"
+      }
+    }
+  },
   "playOnRetry": "再試行",
   "castTrackMode": "トラックをキャストするとき",
   "castTrackReplace": "キューを置き換えて今すぐ再生",
@@ -1388,7 +1398,16 @@
   "castTrackModeSubtitle": "再生先のキューの変更方法を選択します。",
   "castControlRendererSubtitle": "操作を続けるデバイスを選択します。",
   "castNotPossible": "{alias} では {library} を再生できません",
-  "@castNotPossible": {"placeholders": {"alias": {"type": "String"}, "library": {"type": "String"}}},
+  "@castNotPossible": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      },
+      "library": {
+        "type": "String"
+      }
+    }
+  },
   "thisDevice": "このデバイス",
   "devicesThatCanConnect": "このデバイスに接続できるデバイス",
   "otherDevices": "その他のデバイス",
@@ -1420,27 +1439,51 @@
   "queueUnavailableSourceUnreachable": "ソースに接続できません",
   "queueUnavailableUnreadable": "音声を読み取れません",
   "rendererLinkLost": "{alias} との接続が失われました",
-  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
+  "@rendererLinkLost": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "requestPublicKeyMismatch": "端末金鑰與指紋不符",
   "requestRegistrationConflict": "此指紋的裝置已註冊",
   "remoteLibraryReconnecting": "{alias} 再接続中…",
-  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
+  "@remoteLibraryReconnecting": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "capabilityNotImplemented": "此器、此操作不対応",
   "capabilityOwnerOnly": "所有者器以外不可",
   "requestOtherDeviceName": "もういっぽうのデバイス",
-  "requestPeerNeedsUpdatePeer": "{alias} はふるいバージョンの Rune をつかっています。せつぞくするには {alias} の Rune をこうしんしてください。",
-  "requestPeerNeedsUpdateThisDevice": "{alias} はあたらしいバージョンの Rune をつかっています。せつぞくするにはこのデバイスの Rune をこうしんしてください。",
+  "requestPeerNeedsUpdatePeer": "せつぞくするには、{alias}でRuneをこうしんしてください。",
+  "requestPeerNeedsUpdateThisDevice": "{alias}にせつぞくするには、このデバイスでRuneをこうしんしてください。",
   "remoteLossProtocolIncompatible": "Rune のバージョンがあわなくなりました。さいせつぞくするにはりょうほうのデバイスで Rune をこうしんしてください。",
   "capabilityPeerTooOld": "これをつかうには、もういっぽうのデバイスで Rune をこうしんしてください。",
   "requestPeerNeedsUpdateFallback": "せつぞくするにはりょうほうのデバイスで Rune をこうしんしてください。",
-  "@requestPeerNeedsUpdatePeer": {"placeholders": {"alias": {"type": "String"}}},
-  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}},
+  "@requestPeerNeedsUpdatePeer": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "@requestPeerNeedsUpdateThisDevice": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "capabilityAccountRoleMissing": "このサーバーのアカウントでは、この操作を行う権限がありません。",
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
   },
-  "libraryRecordNotFound": "このライブラリーレコードは存在しません。",
-  "libraryRecordIsOpen": "レコードを削除する前にライブラリーを閉じてください。",
+  "libraryRecordNotFound": "このライブラリーはありません。",
+  "libraryRecordIsOpen": "けすまえにライブラリーをとじてください。",
   "libraryMediaFolderMissing": "ライブラリーフォルダーが見つかりません。",
   "libraryUntrusted": "このデバイスは信頼されていません。",
   "libraryInvalidSource": "このフォルダーはライブラリーとして使用できません。",
@@ -1449,5 +1492,168 @@
   "libraryRemoteUnreachable": "デバイスに接続できません。",
   "libraryRemoteProtocolFailure": "デバイスから互換性のない応答がありました。",
   "libraryProtocolIncompatible": "このデバイスのプロトコルバージョンには互換性がありません。",
-  "libraryNotSupportedYet": "このライブラリー形式はまだサポートされていません。"
+  "libraryNotSupportedYet": "このライブラリー形式はまだサポートされていません。",
+  "onMyIPhone": "このアイフォンない",
+  "@onMyIPhone": {
+    "description": "The Files app location for folders on an iPhone, shown as the start of a library's location."
+  },
+  "onMyIPad": "このアイパッドない",
+  "@onMyIPad": {
+    "description": "The Files app location for folders on an iPad, shown as the start of a library's location."
+  },
+  "iCloudDrive": "iCloud Drive",
+  "@iCloudDrive": {
+    "description": "The Files app location for folders in iCloud Drive, shown as the start of a library's location."
+  },
+  "trayIconColorMode": "トレイアイコンの色",
+  "@trayIconColorMode": {
+    "description": "A settings entry that allows users to control the color of the system tray icon, choosing between automatic, light, and dark modes."
+  },
+  "trayIconColorModeSubtitle": "アイコンの色をえらびます。",
+  "@trayIconColorModeSubtitle": {},
+  "automaticTrayIconMode": "自動",
+  "@automaticTrayIconMode": {
+    "description": "An option for tray icon color mode that automatically switches between light and dark based on the system theme."
+  },
+  "mixWithOthers": "他のアプリと同時に再生",
+  "@mixWithOthers": {
+    "description": "Settings title of an entry in the playback settings page"
+  },
+  "mixWithOthersSubtitle": "Runeの再生中も他のアプリは再生を続けます。",
+  "@mixWithOthersSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
+  },
+  "visualizerScenes": "シーン",
+  "@visualizerScenes": {
+    "description": "Title of the setting that lists the visualizer scenes to check, uncheck and reorder."
+  },
+  "visualizerScenesSubtitle": "カバーウォールのメニューに表示するシーンを選びます。ドラッグして並べ替えます。",
+  "@visualizerScenesSubtitle": {
+    "description": "Subtitle of the visualizer scenes setting."
+  },
+  "visualizerSceneImported": "{name}をインポートしました",
+  "@visualizerSceneImported": {
+    "description": "Notification after a visualizer scene file was imported.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerSceneImportFailed": "{name}をインポートできませんでした",
+  "@visualizerSceneImportFailed": {
+    "description": "Notification when a file is not a visualizer scene; the reason, in English, follows below it.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerDeleteScene": "シーンをけす",
+  "@visualizerDeleteScene": {
+    "description": "Button and dialog title that delete an imported visualizer scene."
+  },
+  "visualizerDeleteSceneConfirm": "{name}をけすしますか？再インポートすると復元できます。",
+  "@visualizerDeleteSceneConfirm": {
+    "description": "Text of the dialog that confirms deleting an imported visualizer scene.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizer": "ビジュアライザー",
+  "@visualizer": {
+    "description": "Title of the visualizer settings page and the navigation entries that open it, also the name of the cover wall button while the visualizer is available."
+  },
+  "coverWallVisualizerSubtitle": "音楽に合わせたビジュアル",
+  "@coverWallVisualizerSubtitle": {
+    "description": "Subtitle of the playback controller entry that opens the cover wall while it is set to show the visualizer."
+  },
+  "visualizerLab": "ビジュアライザーラボ",
+  "@visualizerLab": {
+    "description": "Name of the playback controller entry that turns the visualizer lab on the cover wall page on and off."
+  },
+  "visualizerLabSubtitle": "ビジュアライザー上にラボを表示します。",
+  "@visualizerLabSubtitle": {
+    "description": "Subtitle of the playback controller entry that turns the visualizer lab on and off."
+  },
+  "interfaceScaleFollowTextSize": "文字サイズに合わせる",
+  "@interfaceScaleFollowTextSize": {
+    "description": "Option that sizes the interface to match the system text size."
+  },
+  "linuxCustomWindowControls": "カスタムウィンドウコントロール",
+  "@linuxCustomWindowControls": {
+    "description": "Title for the Linux custom window controls setting option."
+  },
+  "linuxCustomWindowControlsSubtitle": "Windowsモードのような枠のないウィンドウでカスタムコントロールを使用します。",
+  "@linuxCustomWindowControlsSubtitle": {
+    "description": "Subtitle explaining what the Linux custom window controls setting does."
+  },
+  "offlineAvailability": "オフライン利用",
+  "@offlineAvailability": {
+    "description": "Context menu for the audio retained on this device."
+  },
+  "keepAvailableOffline": "オフラインで利用",
+  "@keepAvailableOffline": {
+    "description": "Save a mix-query selection for background audio downloads."
+  },
+  "stopKeepingOffline": "オフラインでの保持を停止",
+  "@stopKeepingOffline": {
+    "description": "Disable future downloads for this selection without deleting existing files."
+  },
+  "offlineSelectionSaved": "オフラインの選択を保存しました",
+  "@offlineSelectionSaved": {
+    "description": "Acknowledges that a persistent download selection has been saved."
+  },
+  "offlineSelectionRemoved": "自動ダウンロードを停止しました",
+  "@offlineSelectionRemoved": {
+    "description": "Acknowledges disabling an offline selection."
+  },
+  "offlineSelectionFailed": "オフラインの選択を保存できませんでした",
+  "@offlineSelectionFailed": {
+    "description": "Error title when saving a download selection fails."
+  },
+  "offlineSelectionQueued": "ペアリング済みデバイスが利用可能になると曲をダウンロードします。",
+  "@offlineSelectionQueued": {
+    "description": "Explains the difference between a queued offline selection and online playback."
+  },
+  "offlineSelectionRetained": "既存のローカルファイルは保持されます。",
+  "@offlineSelectionRetained": {
+    "description": "Explains that disabling downloads does not delete audio."
+  },
+  "audioRemoteReference": "リモート音声（接続状態不明）",
+  "audioUnavailable": "音声を利用できません",
+  "audioImportPending": "インポート中",
+  "allowPairedSync": "同期を許可",
+  "@allowPairedSync": {
+    "description": "Label for allowing incoming paired device sync"
+  },
+  "allowPairedSyncDescription": "オフにすると、他のデバイスから接続できなくなります。",
+  "@allowPairedSyncDescription": {
+    "description": "Explanation of the incoming sync setting"
+  },
+  "audioSyncedCopy": "同期されたコピー",
+  "@audioSyncedCopy": {
+    "description": "Label for audio downloaded from a paired device."
+  },
+  "offlineCleanupDefault": "不要なダウンロードを削除",
+  "@offlineCleanupDefault": {
+    "description": "Default option to clean up unneeded offline downloads."
+  },
+  "offlineCleanupDefaultDescription": "オフラインで不要になったダウンロードを削除するか選択します。",
+  "@offlineCleanupDefaultDescription": {
+    "description": "Explanation of the offline cleanup default."
+  },
+  "offlineCleanupCheckbox": "不要になったダウンロードファイルも削除",
+  "@offlineCleanupCheckbox": {
+    "description": "Option to delete downloads no enabled offline rule needs."
+  },
+  "offlineSelectionCleaned": "オフラインの選択を更新し、クリーンアップを試みました。",
+  "@offlineSelectionCleaned": {
+    "description": "Confirmation after attempting to clean up offline downloads."
+  }
 }

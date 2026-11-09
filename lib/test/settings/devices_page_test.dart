@@ -10,11 +10,11 @@ void main() {
   test('device status describes each state and badge', () {
     final strings = AppLocalizationsEn();
     expect(deviceStatusPresentation(ClientStatus.approved, strings), (
-      subtitle: 'My device',
+      subtitle: 'My Device',
       showBadge: false,
     ));
     expect(deviceStatusPresentation(ClientStatus.pending, strings), (
-      subtitle: 'Waiting for approval',
+      subtitle: 'Waiting for Approval',
       showBadge: true,
     ));
     expect(deviceStatusPresentation(ClientStatus.blocked, strings), (

@@ -999,7 +999,7 @@
   "@mixWithOthers": {
     "description": "播放设置页面中条目的设置标题"
   },
-  "mixWithOthersSubtitle": "其他应用在 Rune 播放时继续播放。开启后，锁屏、控制中心和耳机按键无法控制 Rune。",
+  "mixWithOthersSubtitle": "Rune 播放时，其他应用也会继续播放。",
   "@mixWithOthersSubtitle": {
     "description": "播放设置页面中条目的设置描述"
   },
@@ -1121,11 +1121,11 @@
   "@editDeviceInformationSubtitle": {
     "description": "强调更改将影响在他人扫描列表中的可见性。避免使用技术术语，突出“扫描”这一交互场景。"
   },
-  "enableBroadcast": "对附近设备可见",
+  "enableBroadcast": "启用广播",
   "@enableBroadcast": {
     "description": "“广播”意味着主动发送设备信息。如目标语言中没有直接对应词汇，可优先使用“使可见”或“共享可用性”。"
   },
-  "enableBroadcastSubtitle": "让附近的设备找到此设备。",
+  "enableBroadcastSubtitle": "展示您的设备信息，供他人发现。",
   "@enableBroadcastSubtitle": {
     "description": "避免歧义：此处“公开”仅指对本地网络中的用户，而非整个互联网。"
   },
@@ -1197,15 +1197,15 @@
       }
     }
   },
-  "server": "共享",
+  "server": "服务器",
   "@server": {
     "description": "用于控制媒体播放器共享行为的设置页面标题，包括管理授权用户和广播设备状态。"
   },
-  "serverControl": "允许其他设备连接",
+  "serverControl": "服务器控制",
   "@serverControl": {
     "description": "用于控制本地网络服务器的部分标题。“服务器”指的是用于设备发现的后台服务。"
   },
-  "serverControlSubtitle": "让其他设备连接到此设备。",
+  "serverControlSubtitle": "启动服务器以便其他设备在本地网络中发现此设备。",
   "@serverControlSubtitle": {
     "description": "明确服务器仅在本地网络中运行。强调启动服务器会使设备对他人可见。"
   },
@@ -1229,7 +1229,7 @@
   "@unknownStatus": {
     "description": "作为用户/客户端状态徽章显示，表示状态无法识别或未定义。建议使用“未识别”或“未定义”，保持中性语气，不暗示错误。UI 中常配灰色。"
   },
-  "review": "处理请求",
+  "review": "审查",
   "@review": {
     "description": "用于审查待处理设备连接请求的按钮。会弹出一个允许或阻止设备的对话框。"
   },
@@ -1237,13 +1237,9 @@
   "@reviewRequestTitle": {
     "description": "审查设备连接时对话框显示的标题。保持简洁，突出所需操作。"
   },
-  "blockDevice": "阻止",
+  "blockDevice": "阻止设备",
   "@blockDevice": {
     "description": "永久拒绝访问的操作。根据文化习惯也可用“封禁”，但避免负面情绪过重。"
-  },
-  "allowAccess": "我的设备",
-  "@allowAccess": {
-    "description": "授权连接权限的操作。可根据习惯使用“批准”或“授权”。"
   },
   "connectionVerificationMessage": "若要允许设备 {alias}（{model}）连接，请分享以下通信密钥指纹以验证您的身份。",
   "@connectionVerificationMessage": {
@@ -1258,10 +1254,6 @@
         "description": "厂商定义的设备型号标识"
       }
     }
-  },
-  "allowAccessSubtitle": "此设备可以浏览、播放和同步你的媒体库。",
-  "@allowAccessSubtitle": {
-    "description": "说明允许访问时会授予的权限。“获取”指的是获取媒体内容。"
   },
   "blockDeviceSubtitle": "阻止未来的连接。您可随时取消对该设备的阻止。",
   "@blockDeviceSubtitle": {
@@ -1420,46 +1412,80 @@
     "description": "封面墙设为显示可视化时，播放控制栏中打开封面墙的项目的副标题。"
   },
   "interfaceScale": "界面缩放",
-  "interfaceScaleSubtitle": "相对于系统缩放立即调整文字和应用内容。窗口大小和屏幕分辨率不会改变。100% 遵循系统缩放。",
+  "interfaceScaleSubtitle": "调整文字和应用内容的大小。",
   "interfaceScaleSaveError": "无法保存界面缩放",
   "interfaceScaleFollowTextSize": "跟随文字大小",
   "linuxCustomWindowControls": "自定义窗口控件",
-  "@linuxCustomWindowControls": {"description": "Title for the Linux custom window controls setting option."},
+  "@linuxCustomWindowControls": {
+    "description": "Title for the Linux custom window controls setting option."
+  },
   "linuxCustomWindowControlsSubtitle": "启用自定义窗口控件，使用类似 Windows 模式的无边框窗口。",
-  "@linuxCustomWindowControlsSubtitle": {"description": "Subtitle explaining what the Linux custom window controls setting does."},
+  "@linuxCustomWindowControlsSubtitle": {
+    "description": "Subtitle explaining what the Linux custom window controls setting does."
+  },
   "offlineAvailability": "离线可用性",
-  "@offlineAvailability": {"description": "Context menu for the audio retained on this device."},
+  "@offlineAvailability": {
+    "description": "Context menu for the audio retained on this device."
+  },
   "keepAvailableOffline": "保持离线可用",
-  "@keepAvailableOffline": {"description": "Save a mix-query selection for background audio downloads."},
+  "@keepAvailableOffline": {
+    "description": "Save a mix-query selection for background audio downloads."
+  },
   "stopKeepingOffline": "停止保持离线可用",
-  "@stopKeepingOffline": {"description": "Disable future downloads for this selection without deleting existing files."},
+  "@stopKeepingOffline": {
+    "description": "Disable future downloads for this selection without deleting existing files."
+  },
   "offlineSelectionSaved": "已保存离线选择",
-  "@offlineSelectionSaved": {"description": "Acknowledges that a persistent download selection has been saved."},
+  "@offlineSelectionSaved": {
+    "description": "Acknowledges that a persistent download selection has been saved."
+  },
   "offlineSelectionRemoved": "已停止自动下载",
-  "@offlineSelectionRemoved": {"description": "Acknowledges disabling an offline selection."},
+  "@offlineSelectionRemoved": {
+    "description": "Acknowledges disabling an offline selection."
+  },
   "offlineSelectionFailed": "无法保存离线选择",
-  "@offlineSelectionFailed": {"description": "Error title when saving a download selection fails."},
-  "offlineSelectionQueued": "配对设备可用时将下载匹配的曲目。设备在线时可在线播放。",
-  "@offlineSelectionQueued": {"description": "Explains the difference between a queued offline selection and online playback."},
+  "@offlineSelectionFailed": {
+    "description": "Error title when saving a download selection fails."
+  },
+  "offlineSelectionQueued": "配对设备可用时将下载曲目。",
+  "@offlineSelectionQueued": {
+    "description": "Explains the difference between a queued offline selection and online playback."
+  },
   "offlineSelectionRetained": "现有本地文件将予以保留。",
-  "@offlineSelectionRetained": {"description": "Explains that disabling downloads does not delete audio."},
+  "@offlineSelectionRetained": {
+    "description": "Explains that disabling downloads does not delete audio."
+  },
   "audioRemoteReference": "远程音频（连接状态未知）",
   "audioUnavailable": "音频不可用",
   "audioImportPending": "正在导入",
   "allowPairedSync": "允许配对设备从此设备同步",
-  "@allowPairedSync": {"description": "Label for allowing incoming paired device sync"},
-  "allowPairedSyncDescription": "关闭后将停止监听和局域网广播。此设备仍可从其他设备同步。",
-  "@allowPairedSyncDescription": {"description": "Explanation of the incoming sync setting"},
+  "@allowPairedSync": {
+    "description": "Label for allowing incoming paired device sync"
+  },
+  "allowPairedSyncDescription": "关闭后，其他设备将无法连接此设备。",
+  "@allowPairedSyncDescription": {
+    "description": "Explanation of the incoming sync setting"
+  },
   "audioSyncedCopy": "已同步的副本",
-  "@audioSyncedCopy": {"description": "Label for audio downloaded from a paired device."},
+  "@audioSyncedCopy": {
+    "description": "Label for audio downloaded from a paired device."
+  },
   "offlineCleanupDefault": "不再保持离线可用时删除下载的文件",
-  "@offlineCleanupDefault": {"description": "Default option to clean up unneeded offline downloads."},
-  "offlineCleanupDefaultDescription": "选择停止离线可用时删除不再需要的下载文件的默认行为。",
-  "@offlineCleanupDefaultDescription": {"description": "Explanation of the offline cleanup default."},
+  "@offlineCleanupDefault": {
+    "description": "Default option to clean up unneeded offline downloads."
+  },
+  "offlineCleanupDefaultDescription": "选择是否删除不再需要离线保存的下载。",
+  "@offlineCleanupDefaultDescription": {
+    "description": "Explanation of the offline cleanup default."
+  },
   "offlineCleanupCheckbox": "同时删除不再需要的下载文件",
-  "@offlineCleanupCheckbox": {"description": "Option to delete downloads no enabled offline rule needs."},
+  "@offlineCleanupCheckbox": {
+    "description": "Option to delete downloads no enabled offline rule needs."
+  },
   "offlineSelectionCleaned": "离线选择已更新，并已尝试清理。",
-  "@offlineSelectionCleaned": {"description": "Confirmation after attempting to clean up offline downloads."},
+  "@offlineSelectionCleaned": {
+    "description": "Confirmation after attempting to clean up offline downloads."
+  },
   "remoteOpenUntrusted": "此设备尚未信任该服务器，请先配对。",
   "remoteOpenNotAuthorized": "另一台设备尚未允许此设备，或已将其阻止。",
   "remoteOpenUnreachable": "无法连接设备，请检查设备是否已开启并连接到同一网络。",
@@ -1478,7 +1504,13 @@
   "noSharedLibraries": "这台设备没有可共享的音乐库",
   "libraryFromDevice": "来自 {device}",
   "backgroundLibrarySync": "在后台保持同步",
-  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}},
+  "@libraryFromDevice": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
   "requestItemMissing": "此项目已不存在",
   "requestInvalid": "请求无效",
   "requestCertificateMismatch": "此设备的证书不匹配",
@@ -1490,12 +1522,24 @@
   "playOnSubtitle": "选择音频播放的位置。",
   "playOnFixedToRemote": "固定到此远程设备",
   "playOnPlayingOn": "正在 {alias} 上播放",
-  "@playOnPlayingOn": {"placeholders": {"alias": {"type": "String"}}},
+  "@playOnPlayingOn": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "playOnOffline": "离线",
   "playOnNotApproved": "此设备尚未批准你",
   "playOnNoControl": "无法控制此设备",
   "playOnCantPlay": "无法播放 {library}",
-  "@playOnCantPlay": {"placeholders": {"library": {"type": "String"}}},
+  "@playOnCantPlay": {
+    "placeholders": {
+      "library": {
+        "type": "String"
+      }
+    }
+  },
   "playOnRetry": "重试",
   "castTrackMode": "投放曲目时",
   "castTrackReplace": "替换队列并立即播放",
@@ -1506,7 +1550,16 @@
   "castTrackModeSubtitle": "选择如何更改播放设备的队列。",
   "castControlRendererSubtitle": "选择继续控制的设备。",
   "castNotPossible": "{alias} 无法播放 {library}",
-  "@castNotPossible": {"placeholders": {"alias": {"type": "String"}, "library": {"type": "String"}}},
+  "@castNotPossible": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      },
+      "library": {
+        "type": "String"
+      }
+    }
+  },
   "thisDevice": "此设备",
   "devicesThatCanConnect": "可以连接到此设备的设备",
   "otherDevices": "其他设备",
@@ -1538,27 +1591,51 @@
   "queueUnavailableSourceUnreachable": "无法连接到来源",
   "queueUnavailableUnreadable": "无法读取音频",
   "rendererLinkLost": "与 {alias} 的连接已断开",
-  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
+  "@rendererLinkLost": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "requestPublicKeyMismatch": "设备密钥与指纹不匹配",
   "requestRegistrationConflict": "此指纹对应的设备已注册",
   "remoteLibraryReconnecting": "正在重新连接到 {alias}…",
-  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
+  "@remoteLibraryReconnecting": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "capabilityNotImplemented": "此设备不支持该操作",
   "capabilityOwnerOnly": "只有拥有者设备才能执行此操作",
   "requestOtherDeviceName": "另一台设备",
-  "requestPeerNeedsUpdatePeer": "{alias}使用的是较旧版本的 Rune。请在{alias}上更新 Rune 以连接。",
-  "requestPeerNeedsUpdateThisDevice": "{alias}使用的是较新版本的 Rune。请在此设备上更新 Rune 以连接。",
+  "requestPeerNeedsUpdatePeer": "{alias}需要更新 Rune 才能连接。",
+  "requestPeerNeedsUpdateThisDevice": "更新此设备上的 Rune 以连接到{alias}。",
   "remoteLossProtocolIncompatible": "Rune 版本不再匹配。请在两台设备上更新 Rune 以重新连接。",
   "capabilityPeerTooOld": "请在另一台设备上更新 Rune 以使用此功能。",
   "requestPeerNeedsUpdateFallback": "请在两台设备上更新 Rune 以连接。",
-  "@requestPeerNeedsUpdatePeer": {"placeholders": {"alias": {"type": "String"}}},
-  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}},
+  "@requestPeerNeedsUpdatePeer": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "@requestPeerNeedsUpdateThisDevice": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "capabilityAccountRoleMissing": "您在此服务器上的账户无权执行此操作。",
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
   },
-  "libraryRecordNotFound": "此媒体库记录已不存在。",
-  "libraryRecordIsOpen": "请先关闭媒体库，再移除其记录。",
+  "libraryRecordNotFound": "此媒体库已不存在。",
+  "libraryRecordIsOpen": "请先关闭媒体库，再将其移除。",
   "libraryMediaFolderMissing": "找不到媒体库文件夹。",
   "libraryUntrusted": "此设备不受信任。",
   "libraryInvalidSource": "此文件夹无法用作媒体库。",
@@ -1567,5 +1644,16 @@
   "libraryRemoteUnreachable": "无法连接到设备。",
   "libraryRemoteProtocolFailure": "设备返回了不兼容的响应。",
   "libraryProtocolIncompatible": "此设备使用不兼容的协议版本。",
-  "libraryNotSupportedYet": "目前尚不支持此媒体库类型。"
+  "libraryNotSupportedYet": "目前尚不支持此媒体库类型。",
+  "visualizerLab": "可视化实验室",
+  "@visualizerLab": {
+    "description": "Name of the playback controller entry that turns the visualizer lab on the cover wall page on and off."
+  },
+  "visualizerLabSubtitle": "在可视化效果上显示实验室。",
+  "@visualizerLabSubtitle": {
+    "description": "Subtitle of the playback controller entry that turns the visualizer lab on and off."
+  },
+  "@interfaceScaleFollowTextSize": {
+    "description": "Option that sizes the interface to match the system text size."
+  }
 }

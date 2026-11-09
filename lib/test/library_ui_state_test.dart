@@ -74,8 +74,8 @@ void main() {
       (device) => 'From $device',
       s.readOnly,
     );
-    expect(row('/one', {'peer': 'Laptop'}).subtitle, 'From Laptop · Read only');
-    expect(row('/one').subtitle, 'From Music · Read only');
+    expect(row('/one', {'peer': 'Laptop'}).subtitle, 'From Laptop · Read Only');
+    expect(row('/one').subtitle, 'From Music · Read Only');
     expect(row('/one').library?.backgroundSync, true);
     expect(row('/two').subtitle, '/two');
     expect(row('/two').library?.backgroundSync, false);

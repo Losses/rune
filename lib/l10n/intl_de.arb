@@ -1091,11 +1091,11 @@
   "@editDeviceInformationSubtitle": {
     "description": "Betont, dass Änderungen die Sichtbarkeit in den Scan-Listen anderer beeinflussen. Vermeidet technische Begriffe. Fokussiert auf 'Scans' als Interaktionskontext."
   },
-  "enableBroadcast": "Für Geräte in der Nähe sichtbar",
+  "enableBroadcast": "Broadcast aktivieren",
   "@enableBroadcast": {
     "description": "'Broadcast' impliziert aktives Senden von Geräteinformationen. Wenn die Zielsprache keine direkte Entsprechung hat, priorisieren Sie 'sichtbar machen' oder 'Verfügbarkeit teilen'."
   },
-  "enableBroadcastSubtitle": "Geräte in der Nähe können dieses Gerät finden.",
+  "enableBroadcastSubtitle": "Teilen Sie Ihre Geräteinformationen öffentlich, damit andere sie entdecken können.",
   "@enableBroadcastSubtitle": {
     "description": "Vermeidet Mehrdeutigkeit: 'öffentlich' = für Benutzer im lokalen Netzwerk, nicht das gesamte Internet."
   },
@@ -1167,15 +1167,15 @@
       }
     }
   },
-  "server": "Freigabe",
+  "server": "Server",
   "@server": {
     "description": "Der Titel der Einstellungsseite zur Steuerung der Mediaplayer-Freigabeverhalten. Beinhaltet die Verwaltung autorisierter Benutzer und das Übertragen der Gerätepräsenz."
   },
-  "serverControl": "Verbindungen von anderen Geräten erlauben",
+  "serverControl": "Server-Steuerung",
   "@serverControl": {
     "description": "Abschnittstitel zur Steuerung des lokalen Netzwerkservers. 'Server' bezieht sich hier auf den Hintergrunddienst, der die Geräteerkennung verwaltet."
   },
-  "serverControlSubtitle": "Andere Geräte können sich mit diesem Gerät verbinden.",
+  "serverControlSubtitle": "Starten Sie den Server, damit andere Geräte dieses Gerät im lokalen Netzwerk entdecken können.",
   "@serverControlSubtitle": {
     "description": "Klarstellt, dass der Server nur im lokalen Netzwerk operiert. Betont, dass das Starten die Sichtbarkeit für andere ermöglicht."
   },
@@ -1199,7 +1199,7 @@
   "@unknownStatus": {
     "description": "Angezeigt als Benutzer-/Client-Status-Badge. Zeigt an, dass der Status nicht erkannt oder undefiniert ist. Schlagen Sie Begriffe wie 'Nicht erkannt' oder 'Undefiniert' vor, aber behalten Sie einen neutralen Ton bei, ohne Fehler zu implizieren. Mit neutralen Farben wie Grau in der Benutzeroberfläche verbunden."
   },
-  "review": "Anfrage bearbeiten",
+  "review": "Überprüfen",
   "@review": {
     "description": "Button zur Überprüfung ausstehender Geräteverbindungsanfragen. Löst ein Modal aus, um das Gerät zu genehmigen oder zu blockieren."
   },
@@ -1207,13 +1207,9 @@
   "@reviewRequestTitle": {
     "description": "Titel angezeigt im Modal bei der Überprüfung einer Geräteverbindung. Kurz halten, auf erforderliche Aktion fokussieren."
   },
-  "blockDevice": "Blockieren",
+  "blockDevice": "Gerät blockieren",
   "@blockDevice": {
     "description": "Aktion zum dauerhaften Verweigern des Zugriffs. Verwenden Sie starke Verben wie 'Sperren', wenn kulturell angemessener, aber vermeiden Sie negative Konnotationen."
-  },
-  "allowAccess": "Mein Gerät",
-  "@allowAccess": {
-    "description": "Aktion zur Gewährung der Verbindungsberechtigung. Angleichen mit Begriffen wie 'Genehmigen' oder 'Autorisieren', wenn besser für die Zielsprache geeignet."
   },
   "connectionVerificationMessage": "Um dem Gerät {alias} ({model}) die Verbindung zu erlauben, teilen Sie den unten stehenden Kommunikationsschlüssel-Fingerabdruck, um Ihre Identität zu verifizieren.",
   "@connectionVerificationMessage": {
@@ -1228,10 +1224,6 @@
         "description": "Herstellergerätemodell-Identifikator"
       }
     }
-  },
-  "allowAccessSubtitle": "Dieses Gerät kann deine Bibliotheken durchsuchen, abspielen und synchronisieren.",
-  "@allowAccessSubtitle": {
-    "description": "Erklärt die gewährten Berechtigungen bei Zugriffsgenehmigung. Verwenden Sie 'Autorisieren' oder 'Berechtigungen gewähren' als Alternativen. Klarstellen, dass sich 'Herunterladen' auf Medieninhalts-Abruf bezieht."
   },
   "blockDeviceSubtitle": "Zukünftige Verbindung verhindern. Sie können dieses Gerät jederzeit entsperren.",
   "@blockDeviceSubtitle": {
@@ -1340,45 +1332,79 @@
     "description": "Beschriftung, die anzeigt, dass der Duplikate-Entfernungs-Prozess derzeit aktiv ist. Angezeigt für Benutzer, während doppelte Titel aus ihrer Musikbibliothek oder Playlist entfernt werden. Alternative Formulierungen könnten 'Duplikate entfernen läuft' oder 'Duplikate-Entfernung läuft' sein, je nachdem, was in der Zielsprache am natürlichsten ist."
   },
   "interfaceScale": "Oberflächenskalierung",
-  "interfaceScaleSubtitle": "Ändert Text und App-Inhalte sofort relativ zur Systemskalierung. Fenstergröße und Bildschirmauflösung bleiben unverändert. 100 % entspricht der Systemskalierung.",
+  "interfaceScaleSubtitle": "Passt die Größe von Text und App-Inhalten an.",
   "interfaceScaleSaveError": "Oberflächenskalierung konnte nicht gespeichert werden",
   "linuxCustomWindowControls": "Benutzerdefinierte Fenstersteuerung",
-  "@linuxCustomWindowControls": {"description": "Title for the Linux custom window controls setting option."},
+  "@linuxCustomWindowControls": {
+    "description": "Title for the Linux custom window controls setting option."
+  },
   "linuxCustomWindowControlsSubtitle": "Benutzerdefinierte Fenstersteuerung für ein rahmenloses Fenster wie im Windows-Modus aktivieren.",
-  "@linuxCustomWindowControlsSubtitle": {"description": "Subtitle explaining what the Linux custom window controls setting does."},
+  "@linuxCustomWindowControlsSubtitle": {
+    "description": "Subtitle explaining what the Linux custom window controls setting does."
+  },
   "offlineAvailability": "Offline-Verfügbarkeit",
-  "@offlineAvailability": {"description": "Context menu for the audio retained on this device."},
+  "@offlineAvailability": {
+    "description": "Context menu for the audio retained on this device."
+  },
   "keepAvailableOffline": "Offline verfügbar halten",
-  "@keepAvailableOffline": {"description": "Save a mix-query selection for background audio downloads."},
+  "@keepAvailableOffline": {
+    "description": "Save a mix-query selection for background audio downloads."
+  },
   "stopKeepingOffline": "Nicht mehr offline verfügbar halten",
-  "@stopKeepingOffline": {"description": "Disable future downloads for this selection without deleting existing files."},
+  "@stopKeepingOffline": {
+    "description": "Disable future downloads for this selection without deleting existing files."
+  },
   "offlineSelectionSaved": "Offline-Auswahl gespeichert",
-  "@offlineSelectionSaved": {"description": "Acknowledges that a persistent download selection has been saved."},
+  "@offlineSelectionSaved": {
+    "description": "Acknowledges that a persistent download selection has been saved."
+  },
   "offlineSelectionRemoved": "Automatische Downloads gestoppt",
-  "@offlineSelectionRemoved": {"description": "Acknowledges disabling an offline selection."},
+  "@offlineSelectionRemoved": {
+    "description": "Acknowledges disabling an offline selection."
+  },
   "offlineSelectionFailed": "Offline-Auswahl konnte nicht gespeichert werden",
-  "@offlineSelectionFailed": {"description": "Error title when saving a download selection fails."},
-  "offlineSelectionQueued": "Passende Titel werden heruntergeladen, sobald ein gekoppeltes Gerät verfügbar ist. Solange es online ist, kannst du sie streamen.",
-  "@offlineSelectionQueued": {"description": "Explains the difference between a queued offline selection and online playback."},
+  "@offlineSelectionFailed": {
+    "description": "Error title when saving a download selection fails."
+  },
+  "offlineSelectionQueued": "Passende Titel werden heruntergeladen, sobald ein gekoppeltes Gerät verfügbar ist.",
+  "@offlineSelectionQueued": {
+    "description": "Explains the difference between a queued offline selection and online playback."
+  },
   "offlineSelectionRetained": "Vorhandene lokale Dateien bleiben erhalten.",
-  "@offlineSelectionRetained": {"description": "Explains that disabling downloads does not delete audio."},
+  "@offlineSelectionRetained": {
+    "description": "Explains that disabling downloads does not delete audio."
+  },
   "audioRemoteReference": "Audio auf entferntem Gerät (Verbindung unbekannt)",
   "audioUnavailable": "Audio nicht verfügbar",
   "audioImportPending": "Import läuft",
-  "allowPairedSync": "Gekoppelten Geräten die Synchronisierung von diesem Gerät erlauben",
-  "@allowPairedSync": {"description": "Label for allowing incoming paired device sync"},
-  "allowPairedSyncDescription": "Beim Ausschalten werden eingehende Verbindungen und LAN-Ankündigungen beendet. Dieses Gerät kann weiterhin von anderen synchronisieren.",
-  "@allowPairedSyncDescription": {"description": "Explanation of the incoming sync setting"},
+  "allowPairedSync": "Gerätesynchronisierung erlauben",
+  "@allowPairedSync": {
+    "description": "Label for allowing incoming paired device sync"
+  },
+  "allowPairedSyncDescription": "Ausschalten, damit sich keine anderen Geräte mehr mit diesem Gerät verbinden können.",
+  "@allowPairedSyncDescription": {
+    "description": "Explanation of the incoming sync setting"
+  },
   "audioSyncedCopy": "Synchronisierte Kopie",
-  "@audioSyncedCopy": {"description": "Label for audio downloaded from a paired device."},
-  "offlineCleanupDefault": "Heruntergeladene Dateien löschen, wenn sie nicht mehr offline verfügbar gehalten werden",
-  "@offlineCleanupDefault": {"description": "Default option to clean up unneeded offline downloads."},
-  "offlineCleanupDefaultDescription": "Standard für das Löschen nicht mehr benötigter Downloads beim Beenden der Offline-Verfügbarkeit wählen.",
-  "@offlineCleanupDefaultDescription": {"description": "Explanation of the offline cleanup default."},
+  "@audioSyncedCopy": {
+    "description": "Label for audio downloaded from a paired device."
+  },
+  "offlineCleanupDefault": "Nicht mehr benötigte Downloads löschen",
+  "@offlineCleanupDefault": {
+    "description": "Default option to clean up unneeded offline downloads."
+  },
+  "offlineCleanupDefaultDescription": "Wählen Sie, ob nicht mehr offline benötigte Downloads gelöscht werden sollen.",
+  "@offlineCleanupDefaultDescription": {
+    "description": "Explanation of the offline cleanup default."
+  },
   "offlineCleanupCheckbox": "Auch nicht mehr benötigte heruntergeladene Dateien löschen",
-  "@offlineCleanupCheckbox": {"description": "Option to delete downloads no enabled offline rule needs."},
+  "@offlineCleanupCheckbox": {
+    "description": "Option to delete downloads no enabled offline rule needs."
+  },
   "offlineSelectionCleaned": "Offline-Auswahl aktualisiert und Bereinigung versucht.",
-  "@offlineSelectionCleaned": {"description": "Confirmation after attempting to clean up offline downloads."},
+  "@offlineSelectionCleaned": {
+    "description": "Confirmation after attempting to clean up offline downloads."
+  },
   "remoteOpenUntrusted": "Dieses Gerät vertraut dem Server noch nicht. Kopple es zuerst.",
   "remoteOpenNotAuthorized": "Das andere Gerät hat dieses Gerät noch nicht zugelassen oder blockiert.",
   "remoteOpenUnreachable": "Das Gerät ist nicht erreichbar. Prüfe, ob es eingeschaltet und im selben Netzwerk ist.",
@@ -1397,7 +1423,13 @@
   "noSharedLibraries": "Dieses Gerät hat keine Bibliotheken zum Teilen",
   "libraryFromDevice": "Von {device}",
   "backgroundLibrarySync": "Im Hintergrund synchron halten",
-  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}},
+  "@libraryFromDevice": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
   "requestItemMissing": "Dieses Element existiert nicht mehr",
   "requestInvalid": "Die Anfrage war ungültig",
   "requestCertificateMismatch": "Das Zertifikat dieses Geräts stimmt nicht überein",
@@ -1409,15 +1441,27 @@
   "playOnSubtitle": "Wähle, wo die Wiedergabe erfolgt.",
   "playOnFixedToRemote": "Auf dieses Remotegerät festgelegt",
   "playOnPlayingOn": "Wiedergabe auf {alias}",
-  "@playOnPlayingOn": {"placeholders": {"alias": {"type": "String"}}},
+  "@playOnPlayingOn": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "playOnOffline": "Offline",
   "playOnNotApproved": "Dieses Gerät hat dich noch nicht zugelassen",
   "playOnNoControl": "Dieses Gerät kann nicht gesteuert werden",
   "playOnCantPlay": "{library} kann nicht wiedergegeben werden",
-  "@playOnCantPlay": {"placeholders": {"library": {"type": "String"}}},
+  "@playOnCantPlay": {
+    "placeholders": {
+      "library": {
+        "type": "String"
+      }
+    }
+  },
   "playOnRetry": "Erneut versuchen",
   "castTrackMode": "Beim Übertragen eines Titels",
-  "castTrackReplace": "Warteschlange ersetzen und jetzt abspielen",
+  "castTrackReplace": "Warteschlange ersetzen",
   "castTrackPlayNext": "Als Nächstes abspielen",
   "castControlRenderer": "Nach dem Übertragen",
   "castKeepControlling": "Dieses Gerät weiter steuern",
@@ -1425,9 +1469,18 @@
   "castTrackModeSubtitle": "Lege fest, wie sich die Warteschlange des Wiedergabegeräts ändert.",
   "castControlRendererSubtitle": "Lege fest, welches Gerät weiter gesteuert wird.",
   "castNotPossible": "{alias} kann {library} nicht wiedergeben",
-  "@castNotPossible": {"placeholders": {"alias": {"type": "String"}, "library": {"type": "String"}}},
+  "@castNotPossible": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      },
+      "library": {
+        "type": "String"
+      }
+    }
+  },
   "thisDevice": "Dieses Gerät",
-  "devicesThatCanConnect": "Geräte, die sich mit diesem verbinden können",
+  "devicesThatCanConnect": "Verbindbare Geräte",
   "otherDevices": "Andere Geräte",
   "myDevice": "Mein Gerät",
   "controllingNow": "Steuert dieses Gerät gerade",
@@ -1457,27 +1510,51 @@
   "queueUnavailableSourceUnreachable": "Die Quelle ist nicht erreichbar",
   "queueUnavailableUnreadable": "Die Audiodatei ist nicht lesbar",
   "rendererLinkLost": "Verbindung zu {alias} verloren",
-  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
+  "@rendererLinkLost": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "requestPublicKeyMismatch": "Der Geräteschlüssel passt nicht zum Fingerabdruck",
   "requestRegistrationConflict": "Ein Gerät mit diesem Fingerabdruck ist bereits registriert",
   "remoteLibraryReconnecting": "Verbindung zu {alias} wird wiederhergestellt…",
-  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
+  "@remoteLibraryReconnecting": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "capabilityNotImplemented": "Dieses Gerät unterstützt diese Steuerung nicht",
   "capabilityOwnerOnly": "Nur das besitzende Gerät kann das tun",
   "requestOtherDeviceName": "das andere Gerät",
-  "requestPeerNeedsUpdatePeer": "{alias} verwendet eine ältere Rune-Version. Aktualisiere Rune auf {alias}, um eine Verbindung herzustellen.",
-  "requestPeerNeedsUpdateThisDevice": "{alias} verwendet eine neuere Rune-Version. Aktualisiere Rune auf diesem Gerät, um eine Verbindung herzustellen.",
+  "requestPeerNeedsUpdatePeer": "{alias} benötigt ein Rune-Update, um eine Verbindung herzustellen.",
+  "requestPeerNeedsUpdateThisDevice": "Aktualisieren Sie Rune auf diesem Gerät, um eine Verbindung mit {alias} herzustellen.",
   "remoteLossProtocolIncompatible": "Die Rune-Versionen stimmen nicht mehr überein. Aktualisiere Rune auf beiden Geräten, um die Verbindung wiederherzustellen.",
   "capabilityPeerTooOld": "Aktualisiere Rune auf dem anderen Gerät, um dies zu verwenden.",
   "requestPeerNeedsUpdateFallback": "Aktualisiere Rune auf beiden Geräten, um eine Verbindung herzustellen.",
-  "@requestPeerNeedsUpdatePeer": {"placeholders": {"alias": {"type": "String"}}},
-  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}},
+  "@requestPeerNeedsUpdatePeer": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "@requestPeerNeedsUpdateThisDevice": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "capabilityAccountRoleMissing": "Dein Konto auf diesem Server darf diese Aktion nicht ausführen.",
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
   },
-  "libraryRecordNotFound": "Dieser Bibliothekseintrag ist nicht mehr vorhanden.",
-  "libraryRecordIsOpen": "Schließen Sie die Bibliothek, bevor Sie ihren Eintrag entfernen.",
+  "libraryRecordNotFound": "Diese Bibliothek ist nicht mehr vorhanden.",
+  "libraryRecordIsOpen": "Schließen Sie die Bibliothek, bevor Sie sie entfernen.",
   "libraryMediaFolderMissing": "Der Bibliotheksordner fehlt.",
   "libraryUntrusted": "Diesem Gerät wird nicht vertraut.",
   "libraryInvalidSource": "Dieser Ordner kann nicht als Bibliothek verwendet werden.",
@@ -1486,5 +1563,97 @@
   "libraryRemoteUnreachable": "Das Gerät ist nicht erreichbar.",
   "libraryRemoteProtocolFailure": "Das Gerät hat eine inkompatible Antwort gesendet.",
   "libraryProtocolIncompatible": "Dieses Gerät verwendet eine inkompatible Protokollversion.",
-  "libraryNotSupportedYet": "Dieser Bibliothekstyp wird noch nicht unterstützt."
+  "libraryNotSupportedYet": "Dieser Bibliothekstyp wird noch nicht unterstützt.",
+  "onMyIPhone": "Auf meinem iPhone",
+  "@onMyIPhone": {
+    "description": "The Files app location for folders on an iPhone, shown as the start of a library's location."
+  },
+  "onMyIPad": "Auf meinem iPad",
+  "@onMyIPad": {
+    "description": "The Files app location for folders on an iPad, shown as the start of a library's location."
+  },
+  "iCloudDrive": "iCloud Drive",
+  "@iCloudDrive": {
+    "description": "The Files app location for folders in iCloud Drive, shown as the start of a library's location."
+  },
+  "trayIconColorMode": "Farbe des Taskleistensymbols",
+  "@trayIconColorMode": {
+    "description": "A settings entry that allows users to control the color of the system tray icon, choosing between automatic, light, and dark modes."
+  },
+  "trayIconColorModeSubtitle": "Farbe des Symbols in der Taskleiste wählen.",
+  "@trayIconColorModeSubtitle": {},
+  "automaticTrayIconMode": "Automatisch",
+  "@automaticTrayIconMode": {
+    "description": "An option for tray icon color mode that automatically switches between light and dark based on the system theme."
+  },
+  "mixWithOthers": "Neben anderen Apps abspielen",
+  "@mixWithOthers": {
+    "description": "Settings title of an entry in the playback settings page"
+  },
+  "mixWithOthersSubtitle": "Andere Apps spielen weiter, während Rune Musik abspielt.",
+  "@mixWithOthersSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
+  },
+  "visualizerScenes": "Szenen",
+  "@visualizerScenes": {
+    "description": "Title of the setting that lists the visualizer scenes to check, uncheck and reorder."
+  },
+  "visualizerScenesSubtitle": "Szenen für das Cover-Wall-Menü wählen. Ziehen zum Sortieren.",
+  "@visualizerScenesSubtitle": {
+    "description": "Subtitle of the visualizer scenes setting."
+  },
+  "visualizerSceneImported": "{name} importiert",
+  "@visualizerSceneImported": {
+    "description": "Notification after a visualizer scene file was imported.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerSceneImportFailed": "{name} konnte nicht importiert werden",
+  "@visualizerSceneImportFailed": {
+    "description": "Notification when a file is not a visualizer scene; the reason, in English, follows below it.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerDeleteScene": "Szene löschen",
+  "@visualizerDeleteScene": {
+    "description": "Button and dialog title that delete an imported visualizer scene."
+  },
+  "visualizerDeleteSceneConfirm": "{name} löschen? Zum Wiederherstellen erneut importieren.",
+  "@visualizerDeleteSceneConfirm": {
+    "description": "Text of the dialog that confirms deleting an imported visualizer scene.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizer": "Visualisierung",
+  "@visualizer": {
+    "description": "Title of the visualizer settings page and the navigation entries that open it, also the name of the cover wall button while the visualizer is available."
+  },
+  "coverWallVisualizerSubtitle": "Musikvisualisierung",
+  "@coverWallVisualizerSubtitle": {
+    "description": "Subtitle of the playback controller entry that opens the cover wall while it is set to show the visualizer."
+  },
+  "visualizerLab": "Visualisierungslabor",
+  "@visualizerLab": {
+    "description": "Name of the playback controller entry that turns the visualizer lab on the cover wall page on and off."
+  },
+  "visualizerLabSubtitle": "Labor über der Visualisierung anzeigen.",
+  "@visualizerLabSubtitle": {
+    "description": "Subtitle of the playback controller entry that turns the visualizer lab on and off."
+  },
+  "interfaceScaleFollowTextSize": "Textgröße übernehmen",
+  "@interfaceScaleFollowTextSize": {
+    "description": "Option that sizes the interface to match the system text size."
+  }
 }

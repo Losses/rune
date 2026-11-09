@@ -999,7 +999,7 @@
   "@mixWithOthers": {
     "description": "Settings title of an entry in the playback settings page"
   },
-  "mixWithOthersSubtitle": "Other apps keep playing while Rune plays. The lock screen, Control Center and headphone buttons can't control Rune while this is on.",
+  "mixWithOthersSubtitle": "Other apps keep playing while Rune plays.",
   "@mixWithOthersSubtitle": {
     "description": "Settings description of an entry in the playback settings page"
   },
@@ -1121,11 +1121,11 @@
   "@editDeviceInformationSubtitle": {
     "description": "Emphasize that changes affect visibility in others' scan lists. Avoid technical terms. Focus on 'scans' as interaction context."
   },
-  "enableBroadcast": "Visible to nearby devices",
+  "enableBroadcast": "Enable Broadcast",
   "@enableBroadcast": {
     "description": "'Broadcast' implies actively sending device info. If target language lacks direct equivalent, prioritize 'make visible' or 'share availability'."
   },
-  "enableBroadcastSubtitle": "Let nearby devices find this device.",
+  "enableBroadcastSubtitle": "Share your device information publicly for others to discover.",
   "@enableBroadcastSubtitle": {
     "description": "Avoid ambiguity: 'publicly' = to users in the local network, not the entire internet."
   },
@@ -1197,15 +1197,15 @@
       }
     }
   },
-  "server": "Sharing",
+  "server": "Server",
   "@server": {
     "description": "The settings page title for controlling media player sharing behaviors. Includes managing authorized users and broadcasting device presence."
   },
-  "serverControl": "Allow other devices to connect",
+  "serverControl": "Server Control",
   "@serverControl": {
     "description": "Section title for controlling the local network server. 'Server' here refers to the background service that handles device discovery."
   },
-  "serverControlSubtitle": "Let other devices connect to this device.",
+  "serverControlSubtitle": "Start the server to allow other devices to discover this device on the local network.",
   "@serverControlSubtitle": {
     "description": "Clarify that the server only operates on the local network. Emphasize that starting enables visibility to others."
   },
@@ -1229,7 +1229,7 @@
   "@unknownStatus": {
     "description": "Shown as a user/client status badge. Indicates the status is unrecognized or undefined. Suggest terms like 'Unrecognized' or 'Undefined' but maintain neutral tone without implying errors. Associated with neutral colors like grey in the UI."
   },
-  "review": "Respond",
+  "review": "Review",
   "@review": {
     "description": "Button to review pending device connection requests. Triggers a modal to approve or block the device."
   },
@@ -1237,13 +1237,9 @@
   "@reviewRequestTitle": {
     "description": "Title shown in the modal when reviewing a device connection. Keep concise, focus on action required."
   },
-  "blockDevice": "Block",
+  "blockDevice": "Block Device",
   "@blockDevice": {
     "description": "Action to permanently deny access. Use strong verbs like 'Ban' if culturally more appropriate, but avoid negative connotations."
-  },
-  "allowAccess": "My device",
-  "@allowAccess": {
-    "description": "Action to grant connection permission. Align with terms like 'Approve' or 'Authorize' if better suited to target language."
   },
   "connectionVerificationMessage": "To allow the device {alias} ({model}) to connect, share the communication key fingerprint below to help verify your identity.",
   "@connectionVerificationMessage": {
@@ -1258,10 +1254,6 @@
         "description": "Manufacturer's device model identifier"
       }
     }
-  },
-  "allowAccessSubtitle": "This device can browse, play and sync your libraries.",
-  "@allowAccessSubtitle": {
-    "description": "Explains permissions granted when allowing access. Use 'Authorize' or 'Grant permissions' as alternatives. Clarify that 'download' refers to media content retrieval."
   },
   "blockDeviceSubtitle": "Prevent future connection. You can unblock this device at any time.",
   "@blockDeviceSubtitle": {
@@ -1436,22 +1428,30 @@
     "description": "Subtitle of the playback controller entry that turns the visualizer lab on and off."
   },
   "interfaceScale": "Interface Scale",
-  "interfaceScaleSubtitle": "Changes text and app content immediately relative to the system scale. Window size and display resolution do not change. 100% follows the system scale.",
+  "interfaceScaleSubtitle": "Adjust the size of text and app content.",
   "interfaceScaleSaveError": "Could not save interface scale",
-  "@interfaceScale": {"description": "Title of the application interface scale setting."},
-  "@interfaceScaleSubtitle": {"description": "Explains interface scaling relative to system scaling."},
-  "@interfaceScaleSaveError": {"description": "Error title when saving interface scale fails."},
+  "@interfaceScale": {
+    "description": "Title of the application interface scale setting."
+  },
+  "@interfaceScaleSubtitle": {
+    "description": "Explains interface scaling relative to system scaling."
+  },
+  "@interfaceScaleSaveError": {
+    "description": "Error title when saving interface scale fails."
+  },
   "interfaceScaleFollowTextSize": "Follow Text Size",
-  "@interfaceScaleFollowTextSize": {"description": "Option that sizes the interface to match the system text size."},
-  "offlineAvailability": "Offline availability",
+  "@interfaceScaleFollowTextSize": {
+    "description": "Option that sizes the interface to match the system text size."
+  },
+  "offlineAvailability": "Offline Availability",
   "@offlineAvailability": {
     "description": "Context menu for the audio retained on this device."
   },
-  "keepAvailableOffline": "Keep available offline",
+  "keepAvailableOffline": "Keep Offline",
   "@keepAvailableOffline": {
     "description": "Save a mix-query selection for background audio downloads."
   },
-  "stopKeepingOffline": "Stop keeping offline",
+  "stopKeepingOffline": "Stop Keeping Offline",
   "@stopKeepingOffline": {
     "description": "Disable future downloads for this selection without deleting existing files."
   },
@@ -1467,49 +1467,49 @@
   "@offlineSelectionFailed": {
     "description": "Error title when saving a download selection fails."
   },
-  "offlineSelectionQueued": "Matching tracks will download when a paired device is available. You can stream them while it is online.",
+  "offlineSelectionQueued": "Tracks will download when a paired device is available.",
   "@offlineSelectionQueued": {
     "description": "Explains the difference between a queued offline selection and online playback."
   },
-  "offlineSelectionRetained": "Existing local files are kept.",
+  "offlineSelectionRetained": "Existing files are kept.",
   "@offlineSelectionRetained": {
     "description": "Explains that disabling downloads does not delete audio."
   },
-  "audioRemoteReference": "Remote audio (connection unknown)",
-  "audioUnavailable": "Audio unavailable",
-  "audioImportPending": "Import in progress",
-  "allowPairedSync": "Allow paired devices to sync from this device",
+  "audioRemoteReference": "Remote Audio",
+  "audioUnavailable": "Audio Unavailable",
+  "audioImportPending": "Importing",
+  "allowPairedSync": "Allow Paired Sync",
   "@allowPairedSync": {
     "description": "Label for allowing incoming paired device sync"
   },
-  "allowPairedSyncDescription": "Turning this off stops listening and LAN announcements. This device can still sync from others.",
+  "allowPairedSyncDescription": "Turn off to stop other devices from connecting to this device.",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
   },
-  "audioSyncedCopy": "Synced copy",
+  "audioSyncedCopy": "Synced Copy",
   "@audioSyncedCopy": {
     "description": "Label for audio downloaded from a paired device."
   },
-  "offlineCleanupDefault": "Delete downloaded files when they are no longer kept offline",
+  "offlineCleanupDefault": "Delete Unneeded Downloads",
   "@offlineCleanupDefault": {
     "description": "Default option to clean up unneeded offline downloads."
   },
-  "offlineCleanupDefaultDescription": "Choose the default for deleting unneeded downloads when stopping offline availability.",
+  "offlineCleanupDefaultDescription": "Choose whether to delete downloads when they are no longer kept offline.",
   "@offlineCleanupDefaultDescription": {
     "description": "Explanation of the offline cleanup default."
   },
-  "offlineCleanupCheckbox": "Also delete downloaded files that are no longer needed",
+  "offlineCleanupCheckbox": "Delete Unneeded Downloads",
   "@offlineCleanupCheckbox": {
     "description": "Option to delete downloads no enabled offline rule needs."
   },
-  "offlineSelectionCleaned": "Offline selection updated and cleanup attempted.",
+  "offlineSelectionCleaned": "Offline selection updated.",
   "@offlineSelectionCleaned": {
     "description": "Confirmation after attempting to clean up offline downloads."
   },
-  "remoteOpenUntrusted": "This device does not trust that server yet. Pair it first.",
-  "remoteOpenNotAuthorized": "The other device has not allowed this device, or has blocked it.",
-  "remoteOpenUnreachable": "The device cannot be reached. Check that it is on and on the same network.",
-  "remoteOpenProtocol": "Could not talk to the device. Both devices need the same version of Rune.",
+  "remoteOpenUntrusted": "This device does not trust the server. Pair it first.",
+  "remoteOpenNotAuthorized": "The other device has not allowed this device to connect.",
+  "remoteOpenUnreachable": "The device cannot be reached. Check its network connection.",
+  "remoteOpenProtocol": "Could not connect. Update Rune on both devices.",
   "remoteLossRevoked": "This device's access was removed.",
   "remoteLossDetached": "The playing device disconnected this remote control.",
   "@remoteLossDetached": {
@@ -1521,95 +1521,146 @@
   "addSharedLibrary": "Add",
   "sharedLibraryAdded": "Added",
   "openSharedLibrary": "Open",
-  "noSharedLibraries": "This device has no libraries to share",
+  "noSharedLibraries": "This device has no shared libraries.",
   "libraryFromDevice": "From {device}",
-  "backgroundLibrarySync": "Keep in sync in the background",
-  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}},
-  "requestItemMissing": "This item no longer exists",
-  "requestInvalid": "The request was not valid",
-  "requestCertificateMismatch": "This device's certificate does not match",
-  "requestUnavailable": "This isn't available right now",
+  "backgroundLibrarySync": "Background Sync",
+  "@libraryFromDevice": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "requestItemMissing": "This item no longer exists.",
+  "requestInvalid": "The request is invalid.",
+  "requestCertificateMismatch": "This device's certificate does not match.",
+  "requestUnavailable": "This is not available right now.",
   "requestStorageBusy": "Storage is busy. Try again.",
-  "mixNoLongerExists": "This mix no longer exists",
+  "mixNoLongerExists": "This mix no longer exists.",
   "devices": "Devices",
-  "playOn": "Play on",
-  "playOnSubtitle": "Choose where audio plays.",
+  "playOn": "Play On",
+  "playOnSubtitle": "Choose where to play audio.",
   "playOnFixedToRemote": "Fixed to this remote device",
   "playOnPlayingOn": "Playing on {alias}",
-  "@playOnPlayingOn": {"placeholders": {"alias": {"type": "String"}}},
+  "@playOnPlayingOn": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "playOnOffline": "Offline",
-  "playOnNotApproved": "This device has not approved you yet",
-  "playOnNoControl": "Can't control this device",
-  "playOnCantPlay": "Can't play {library}",
-  "@playOnCantPlay": {"placeholders": {"library": {"type": "String"}}},
+  "playOnNotApproved": "This device has not approved access.",
+  "playOnNoControl": "This device cannot be controlled.",
+  "playOnCantPlay": "Cannot play {library}.",
+  "@playOnCantPlay": {
+    "placeholders": {
+      "library": {
+        "type": "String"
+      }
+    }
+  },
   "playOnRetry": "Retry",
-  "castTrackMode": "When casting a track",
-  "castTrackReplace": "Replace the queue and play now",
-  "castTrackPlayNext": "Play it next",
-  "castControlRenderer": "After casting",
-  "castKeepControlling": "Keep controlling this device",
-  "castControlCastDevice": "Control the device it was cast to",
-  "castTrackModeSubtitle": "Choose how the renderer queue changes.",
-  "castControlRendererSubtitle": "Choose which device stays under control.",
-  "castNotPossible": "{alias} can't play {library}",
-  "@castNotPossible": {"placeholders": {"alias": {"type": "String"}, "library": {"type": "String"}}},
+  "castTrackMode": "When Casting a Track",
+  "castTrackReplace": "Replace Queue",
+  "castTrackPlayNext": "Play Next",
+  "castControlRenderer": "After Casting",
+  "castKeepControlling": "Keep Controlling This Device",
+  "castControlCastDevice": "Control the Cast Device",
+  "castTrackModeSubtitle": "Choose how casting changes the queue.",
+  "castControlRendererSubtitle": "Choose which device to control after casting.",
+  "castNotPossible": "{alias} cannot play {library}.",
+  "@castNotPossible": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      },
+      "library": {
+        "type": "String"
+      }
+    }
+  },
   "thisDevice": "This device",
-  "devicesThatCanConnect": "Devices that can connect to this one",
-  "otherDevices": "Other devices",
-  "myDevice": "My device",
-  "controllingNow": "Controlling now",
-  "waitingForApproval": "Waiting for approval",
+  "devicesThatCanConnect": "Devices That Can Connect",
+  "otherDevices": "Other Devices",
+  "myDevice": "My Device",
+  "controllingNow": "Controlling Now",
+  "waitingForApproval": "Waiting for Approval",
   "guest": "Guest",
-  "myDeviceAccessDescription": "Can play, browse and sync your libraries",
-  "guestAccessDescription": "Can control playback and browse while doing so",
+  "myDeviceAccessDescription": "Can play, browse, and sync your libraries.",
+  "guestAccessDescription": "Can control playback and browse libraries.",
   "guestControlSummary": "Guest · Can control playback",
   "customDeviceAccess": "Custom",
   "customizeDevice": "Customize",
-  "controlPlayback": "Control playback",
-  "controlPlaybackDescription": "Can play, pause, queue, and cast to this device",
+  "controlPlayback": "Control Playback",
+  "controlPlaybackDescription": "Can control playback and cast to this device.",
   "deviceAccessLibraries": "Libraries",
   "deviceConnection": "Connection",
   "deviceSync": "Sync",
   "deviceConnectionOff": "Off",
   "deviceConnectionView": "View",
-  "deviceConnectionViewEdit": "View & edit",
+  "deviceConnectionViewEdit": "View & Edit",
   "deviceSyncOff": "Off",
   "deviceSyncPull": "Pull",
-  "deviceSyncPullPush": "Pull & push",
-  "requestConflict": "The queue changed; try again",
-  "requestPermissionDenied": "This device isn't allowed to do that",
-  "readOnly": "Read only",
-  "queueUnavailableAccessRevoked": "Access was revoked",
-  "queueUnavailableLibraryUnavailable": "Library is unavailable",
-  "queueUnavailableSourceUnreachable": "Source is unreachable",
-  "queueUnavailableUnreadable": "Audio cannot be read",
-  "rendererLinkLost": "Connection to {alias} lost",
-  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}},
-  "requestPublicKeyMismatch": "The submitted device key does not match its fingerprint",
-  "requestRegistrationConflict": "A device with this fingerprint is already registered",
+  "deviceSyncPullPush": "Pull & Push",
+  "requestConflict": "The queue changed. Try again.",
+  "requestPermissionDenied": "This device is not allowed to do that.",
+  "readOnly": "Read Only",
+  "queueUnavailableAccessRevoked": "Access was revoked.",
+  "queueUnavailableLibraryUnavailable": "Library is unavailable.",
+  "queueUnavailableSourceUnreachable": "Source is unreachable.",
+  "queueUnavailableUnreadable": "Audio cannot be read.",
+  "rendererLinkLost": "Connection to {alias} was lost.",
+  "@rendererLinkLost": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "requestPublicKeyMismatch": "The device key does not match its fingerprint.",
+  "requestRegistrationConflict": "A device with this fingerprint is already registered.",
   "remoteLibraryReconnecting": "Reconnecting to {alias}…",
-  "@remoteLibraryReconnecting": {"placeholders": {"alias": {"type": "String"}}},
-  "capabilityNotImplemented": "This device doesn't support this control",
-  "capabilityOwnerOnly": "Only the device that owns this can do this",
+  "@remoteLibraryReconnecting": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "capabilityNotImplemented": "This device does not support this control.",
+  "capabilityOwnerOnly": "Only the device owner can do this.",
   "requestOtherDeviceName": "the other device",
-  "requestPeerNeedsUpdatePeer": "{alias} is running an older version of Rune. Update Rune on {alias} to connect.",
-  "requestPeerNeedsUpdateThisDevice": "{alias} is running a newer version of Rune. Update Rune on this device to connect.",
-  "remoteLossProtocolIncompatible": "Rune versions no longer match. Update Rune on both devices to reconnect.",
-  "capabilityPeerTooOld": "Update Rune on the other device to use this.",
+  "requestPeerNeedsUpdatePeer": "{alias} needs a Rune update to connect.",
+  "requestPeerNeedsUpdateThisDevice": "Update Rune on this device to connect to {alias}.",
+  "remoteLossProtocolIncompatible": "Update Rune on both devices to reconnect.",
+  "capabilityPeerTooOld": "Update Rune on the other device to use this feature.",
   "requestPeerNeedsUpdateFallback": "Update Rune on both devices to connect.",
-  "@requestPeerNeedsUpdatePeer": {"placeholders": {"alias": {"type": "String"}}},
-  "@requestPeerNeedsUpdateThisDevice": {"placeholders": {"alias": {"type": "String"}}},
-  "capabilityAccountRoleMissing": "Your account on this server is not allowed to do this.",
+  "@requestPeerNeedsUpdatePeer": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "@requestPeerNeedsUpdateThisDevice": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "capabilityAccountRoleMissing": "Your account is not allowed to do this.",
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
   },
-  "libraryRecordNotFound": "This library record no longer exists.",
-  "libraryRecordIsOpen": "Close the library before removing its record.",
+  "libraryRecordNotFound": "This library no longer exists.",
+  "libraryRecordIsOpen": "Close the library before removing it.",
   "libraryMediaFolderMissing": "The library folder is missing.",
   "libraryUntrusted": "This device is not trusted.",
   "libraryInvalidSource": "This folder cannot be used as a library.",
-  "libraryStorageFailure": "The library could not be stored.",
-  "libraryRemoteNotAuthorized": "The device did not authorize this connection.",
+  "libraryStorageFailure": "The library could not be saved.",
+  "libraryRemoteNotAuthorized": "The device did not allow this connection.",
   "libraryRemoteUnreachable": "The device could not be reached.",
   "libraryRemoteProtocolFailure": "The device returned an incompatible response.",
   "libraryProtocolIncompatible": "This device uses an incompatible protocol version.",

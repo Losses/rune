@@ -77,7 +77,7 @@ void main() {
 
     await tester.tap(find.byType(ComboBox<DeviceConnectionLevel>));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('View & edit').last);
+    await tester.tap(find.text('View & Edit').last);
     await tester.pumpAndSettle();
 
     expect(
@@ -111,7 +111,7 @@ void main() {
 
     await tester.tap(find.byType(ComboBox<DeviceSyncLevel>));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Pull & push').last);
+    await tester.tap(find.text('Pull & Push').last);
     await tester.pumpAndSettle();
 
     expect(
@@ -124,7 +124,7 @@ void main() {
     );
   });
 
-  testWidgets('device summaries identify Guest and My device presets', (
+  testWidgets('device summaries identify Guest and My Device presets', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -158,7 +158,7 @@ void main() {
                 ),
                 strings,
               ),
-              'My device',
+              'My Device',
             );
             return const SizedBox();
           },

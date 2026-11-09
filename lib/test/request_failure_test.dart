@@ -90,14 +90,14 @@ void main() {
     final s = AppLocalizationsEn();
     String message(RequestErrorKind kind) =>
         requestFailureMessage(s, RequestFailure('Wanted', kind, 'detail'));
-    expect(message(RequestErrorKind.notFound), 'This item no longer exists');
-    expect(message(RequestErrorKind.invalidInput), 'The request was not valid');
+    expect(message(RequestErrorKind.notFound), 'This item no longer exists.');
+    expect(message(RequestErrorKind.invalidInput), 'The request is invalid.');
     expect(
       message(RequestErrorKind.unavailable),
-      "This isn't available right now",
+      "This is not available right now.",
     );
-    expect(message(RequestErrorKind.permissionDenied), "This device isn't allowed to do that");
-    expect(message(RequestErrorKind.conflict), 'The queue changed; try again');
+    expect(message(RequestErrorKind.permissionDenied), "This device is not allowed to do that.");
+    expect(message(RequestErrorKind.conflict), 'The queue changed. Try again.');
     expect(
       message(RequestErrorKind.peerNeedsUpdate),
       'Update Rune on both devices to connect.',
@@ -123,7 +123,7 @@ void main() {
           ),
         ),
       ),
-      'Bedroom is running an older version of Rune. Update Rune on Bedroom to connect.',
+      'Bedroom needs a Rune update to connect.',
     );
     expect(
       requestFailureMessage(
@@ -139,7 +139,7 @@ void main() {
           ),
         ),
       ),
-      'the other device is running an older version of Rune. Update Rune on the other device to connect.',
+      'the other device needs a Rune update to connect.',
     );
     expect(
       requestFailureMessage(
@@ -156,7 +156,7 @@ void main() {
           ),
         ),
       ),
-      'Studio is running a newer version of Rune. Update Rune on this device to connect.',
+      'Update Rune on this device to connect to Studio.',
     );
     expect(
       requestFailureMessage(
@@ -172,7 +172,7 @@ void main() {
           ),
         ),
       ),
-      'the other device is running a newer version of Rune. Update Rune on this device to connect.',
+      'Update Rune on this device to connect to the other device.',
     );
   });
 
@@ -197,7 +197,7 @@ void main() {
     );
     expect(
       requestFailureMessage(s, failure),
-      "This device's certificate does not match",
+      "This device's certificate does not match.",
     );
   });
 
@@ -236,7 +236,7 @@ void main() {
         s,
         const RequestFailure('Wanted', RequestErrorKind.notFound, 'gone'),
       ),
-      'This item no longer exists',
+      'This item no longer exists.',
     );
     expect(
       requestErrorText(s, StateError('broken')),
