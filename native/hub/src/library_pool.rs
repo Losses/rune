@@ -333,6 +333,15 @@ impl LibraryPool {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) async fn ui_user_count(&self, library_id: Uuid) -> usize {
+        self.entries
+            .lock()
+            .await
+            .get(&library_id)
+            .map_or(0, |entry| entry.ui_users)
+    }
+
     /// Drop the pool's background-only connection after a record is removed.
     pub async fn release_background(&self, library_id: Uuid) {
         let mut entries = self.entries.lock().await;

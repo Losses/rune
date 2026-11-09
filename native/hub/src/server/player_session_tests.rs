@@ -6,10 +6,10 @@ use crate::macros::{
 use crate::messages::{
     CapabilityReason, CloseLibraryRequest, CloseLibraryResponse, CreatePlaylistRequest,
     FetchAllPlaylistsRequest, FetchAllPlaylistsResponse, GetPlaylistByIdRequest,
-    LibraryContentChanged, ListLocalLibrariesRequest, MixQuery, OperatePlaybackWithMixQueryRequest,
-    PlaybackStatus, PlaylistOperateMode, RemoteConnectionLost, RemoteLibraryReconnected,
-    RemoteLibraryReconnecting, RemoteLossKind, RequestCapabilities, RequestCapability,
-    RequestFailedResponse, ScanAudioLibraryProgress, ScanTaskType,
+    LibraryContentChanged, LibraryInitializeMode, ListLocalLibrariesRequest, MixQuery,
+    OperatePlaybackWithMixQueryRequest, PlaybackStatus, PlaylistOperateMode, RemoteConnectionLost,
+    RemoteLibraryReconnected, RemoteLibraryReconnecting, RemoteLossKind, RequestCapabilities,
+    RequestCapability, RequestFailedResponse, ScanAudioLibraryProgress, ScanTaskType,
 };
 use crate::node::{CatalogTarget, ReconnectConfig, SessionBinding};
 use crate::utils::{
@@ -1920,38 +1920,128 @@ async fn session_d2_restart_restores_state() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn session_d3_imports_legacy_queue_once() -> Result<()> {
     let dir = tempfile::tempdir()?;
-    let a = fixture(dir.path()).await?;
-    let id = session_audio(&a, "legacy.ogg").await?;
-    replace_playback_queue(&a.global_params.test_library().main_db, vec![id, id]).await?;
-    a.global_params
-        .node
-        .session()?
-        .migrate_legacy(a.global_params.test_library())
-        .await?;
-    wait_player(&a, |s| s.playlist.len() == 2).await?;
-    a.global_params.player.lock().await.clear_playlist();
-    wait_player(&a, |s| s.playlist.is_empty()).await?;
-    let b = reopen_fixture(&a).await?;
-    b.global_params
-        .node
-        .session()?
-        .migrate_legacy(b.global_params.test_library())
-        .await?;
+    let a = super::step("create legacy queue fixture", fixture(dir.path())).await?;
+    let id = super::step("scan legacy queue track", session_audio(&a, "legacy.ogg")).await?;
+    super::step(
+        "write legacy queue rows",
+        replace_playback_queue(&a.global_params.test_library().main_db, vec![id, id]),
+    )
+    .await?;
+    super::step("import legacy queue", async {
+        a.global_params
+            .node
+            .session()?
+            .migrate_legacy(a.global_params.test_library())
+            .await
+    })
+    .await?;
+    super::step(
+        "wait for imported queue",
+        wait_player(&a, |s| s.playlist.len() == 2),
+    )
+    .await?;
+    super::step("clear imported queue", async {
+        a.global_params.player.lock().await.clear_playlist();
+    })
+    .await;
+    super::step(
+        "wait for cleared queue",
+        wait_player(&a, |s| s.playlist.is_empty()),
+    )
+    .await?;
+    let b = super::step("shutdown and reopen node", reopen_fixture(&a)).await?;
+    super::step("verify legacy queue is not reimported", async {
+        b.global_params
+            .node
+            .session()?
+            .migrate_legacy(b.global_params.test_library())
+            .await
+    })
+    .await?;
     sleep(Duration::from_millis(400)).await;
     assert!(
-        b.global_params
-            .player
-            .lock()
-            .await
-            .get_playlist()
-            .is_empty()
+        super::step("read reopened session queue", async {
+            b.global_params
+                .player
+                .lock()
+                .await
+                .get_playlist()
+                .is_empty()
+        })
+        .await
     );
     // The legacy rows remain untouched; they are no longer the live queue.
     assert_eq!(
-        list_legacy_playback_queue(&b.global_params.test_library().main_db).await?,
+        super::step(
+            "read retained legacy rows",
+            list_legacy_playback_queue(&b.global_params.test_library().main_db),
+        )
+        .await?,
         vec![id, id]
     );
-    b.global_params.node.shutdown().await
+    super::step("shutdown reopened node", b.global_params.node.shutdown()).await
+}
+
+#[tokio::test]
+async fn registered_open_helper_releases_its_ui_lease() -> Result<()> {
+    let node_dir = tempfile::tempdir()?;
+    let library_dir = tempfile::tempdir()?;
+    let source = super::step("create lease fixture", super::fixture(node_dir.path())).await?;
+    let registered = super::step(
+        "register lease test library",
+        register_local_library_on_node(
+            &RegisterLocalLibraryRequest {
+                path: library_dir
+                    .path()
+                    .to_str()
+                    .context("library path")?
+                    .to_owned(),
+                alias: "Lease test".into(),
+                mode: Some(LibraryInitializeMode::Portable),
+            },
+            &source.global_params.node,
+        ),
+    )
+    .await;
+    let record = registered.record.context("registered library")?;
+    let opened = super::step(
+        "open lease test library",
+        super::open_registered_library_record(source.global_params.node.clone(), record.record_id),
+    )
+    .await?;
+    let library_id = opened.library_id.context("opened library id")?;
+    assert_eq!(
+        super::step(
+            "read UI leases after open",
+            source
+                .global_params
+                .node
+                .library_pool
+                .ui_user_count(library_id),
+        )
+        .await,
+        1
+    );
+
+    super::step("close lease test library", super::close_ui(&opened)).await?;
+    assert_eq!(
+        super::step(
+            "read UI leases after close",
+            source
+                .global_params
+                .node
+                .library_pool
+                .ui_user_count(library_id),
+        )
+        .await,
+        0
+    );
+    super::step(
+        "shutdown lease fixture",
+        source.global_params.node.shutdown(),
+    )
+    .await?;
+    Ok(())
 }
 
 #[tokio::test]
@@ -4608,27 +4698,41 @@ fn session_snapshot_rejects_independent_files() {
 #[tokio::test]
 async fn playback_snapshot_waits_for_accepted_queue_changes() -> Result<()> {
     let temp = tempfile::tempdir()?;
-    let fixture = fixture(temp.path()).await?;
-    let track = session_audio(&fixture, "snapshot-barrier.ogg").await?;
-    let item = library_item_for_id(&fixture, track).await?;
+    let fixture = super::step("create snapshot fixture", fixture(temp.path())).await?;
+    let track = super::step(
+        "scan snapshot track",
+        session_audio(&fixture, "snapshot-barrier.ogg"),
+    )
+    .await?;
+    let item = super::step(
+        "resolve snapshot track",
+        library_item_for_id(&fixture, track),
+    )
+    .await?;
     let session = fixture.global_params.node.session()?;
 
-    session
-        .edit_queue(None, move |player| {
+    super::step(
+        "accept queue edit",
+        session.edit_queue(None, move |player| {
             player.add_to_playlist_with_sources(
                 vec![(PlayingItem::InLibrary(item), PlaybackSource::LibraryStream)],
                 AddMode::AppendToEnd,
             );
             true
-        })
-        .await?;
+        }),
+    )
+    .await?;
 
     let (status, revision) = timeout(Duration::from_secs(2), session.playback_snapshot())
         .await
         .context("snapshot barrier did not return")?;
     assert_eq!(status.playlist, [PlayingItem::InLibrary(item)]);
     assert_eq!(revision, 1);
-    fixture.global_params.node.shutdown().await?;
+    super::step(
+        "shutdown snapshot fixture",
+        fixture.global_params.node.shutdown(),
+    )
+    .await?;
     Ok(())
 }
 
@@ -5112,22 +5216,32 @@ async fn rpc_target_session_and_library_catalogue_matches_registered_peer_handle
 #[tokio::test]
 async fn rpc_target_blacklisted_request_returns_typed_failure_without_sending() -> Result<()> {
     let dir = tempfile::tempdir()?;
-    let controller = fixture(dir.path()).await?;
+    let controller = super::step("create blacklist fixture", fixture(dir.path())).await?;
     let listener = TokioTcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
     let accepting = tokio::spawn(async move {
         let (stream, _) = listener.accept().await?;
         Ok::<_, anyhow::Error>(accept_async(stream).await?)
     });
-    let (stream, _) = connect_async(format!("ws://{address}")).await?;
-    let mut peer = accepting.await??;
-    let link = RendererLink::new(
-        stream,
-        controller.global_params.node.clone(),
-        "blacklist-peer".to_owned(),
-        "Blacklist peer".to_owned(),
-        discovery::protocol_version::PROTOCOL_VERSION,
-        RendererLinkUse::Control,
+    let (stream, _) = timeout(
+        Duration::from_secs(5),
+        connect_async(format!("ws://{address}")),
+    )
+    .await
+    .context("blacklist peer connection timed out")??;
+    let mut peer = timeout(Duration::from_secs(5), accepting)
+        .await
+        .context("blacklist peer accept timed out")???;
+    let link = super::step(
+        "initialize renderer link",
+        RendererLink::new(
+            stream,
+            controller.global_params.node.clone(),
+            "blacklist-peer".to_owned(),
+            "Blacklist peer".to_owned(),
+            discovery::protocol_version::PROTOCOL_VERSION,
+            RendererLinkUse::Control,
+        ),
     )
     .await;
     controller
@@ -5135,9 +5249,12 @@ async fn rpc_target_blacklisted_request_returns_typed_failure_without_sending() 
         .node
         .install_renderer_link(link, "Blacklist peer".to_owned())?;
     // This node's own coordinators stay local while a renderer is attached.
-    let controllers = dispatch_gui_request(&controller.global_params, &ListControllersRequest {})
-        .await?
-        .context("local controller list")?;
+    let controllers = super::step(
+        "dispatch local controller list",
+        dispatch_gui_request(&controller.global_params, &ListControllersRequest {}),
+    )
+    .await?
+    .context("local controller list")?;
     assert!(controllers.controllers.is_empty());
 
     // A request the Rune target lists as unsupported fails before anything is sent.
@@ -5151,10 +5268,13 @@ async fn rpc_target_blacklisted_request_returns_typed_failure_without_sending() 
             reason: UnsupportedReason::OwnerOnly,
         }
     });
-    let error = run_on_target(&target, &controller.global_params, &PauseRequest {})
-        .await
-        .err()
-        .context("blacklisted request unexpectedly succeeded")?;
+    let error = super::step(
+        "reject blacklisted request",
+        run_on_target(&target, &controller.global_params, &PauseRequest {}),
+    )
+    .await
+    .err()
+    .context("blacklisted request unexpectedly succeeded")?;
     assert!(matches!(
         error.downcast_ref::<ExpectedRequestError>(),
         Some(ExpectedRequestError::Unsupported {
@@ -5201,10 +5321,13 @@ async fn rpc_target_blacklisted_request_returns_typed_failure_without_sending() 
             reason: CapabilityReason::PeerTooOld,
         }
     );
-    let error = run_on_target(&peer_too_old, &controller.global_params, &PauseRequest {})
-        .await
-        .err()
-        .context("peer-too-old request unexpectedly succeeded")?;
+    let error = super::step(
+        "reject request for older peer",
+        run_on_target(&peer_too_old, &controller.global_params, &PauseRequest {}),
+    )
+    .await
+    .err()
+    .context("peer-too-old request unexpectedly succeeded")?;
     assert!(matches!(
         error.downcast_ref::<ExpectedRequestError>(),
         Some(ExpectedRequestError::Unsupported {
@@ -5212,8 +5335,16 @@ async fn rpc_target_blacklisted_request_returns_typed_failure_without_sending() 
             reason: UnsupportedReason::PeerTooOld,
         })
     ));
-    controller.global_params.node.detach_renderer().await?;
-    controller.global_params.node.shutdown().await?;
+    super::step(
+        "detach blacklist renderer",
+        controller.global_params.node.detach_renderer(),
+    )
+    .await?;
+    super::step(
+        "shutdown blacklist fixture",
+        controller.global_params.node.shutdown(),
+    )
+    .await?;
     Ok(())
 }
 

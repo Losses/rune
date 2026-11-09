@@ -1006,19 +1006,7 @@ mod lifecycle_tests {
         )
         .await;
         match opened.result {
-            OpenLibraryResult::Opened => {
-                let params = node.current_ui().await?;
-                let record_id = LibraryRecordId(Uuid::parse_str(&record_id)?);
-                let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
-                let record = registry.record(record_id)?;
-                match record.catalog_library_id() {
-                    Some(library_id) => {
-                        let library = node.library_pool.acquire_ui(library_id).await?;
-                        Ok(Arc::new(params.for_library(library)))
-                    }
-                    None => Ok(params),
-                }
-            }
+            OpenLibraryResult::Opened => node.current_ui().await,
             OpenLibraryResult::Failed(failure) => Err(anyhow::anyhow!(failure.detail)),
         }
     }
@@ -1162,11 +1150,7 @@ mod lifecycle_tests {
     async fn fixture_open_record(source: &Fixture, record_id: String) -> Result<Fixture> {
         let node = source.global_params.node.clone();
         let params = open_registered_library_record(node, record_id).await?;
-        fixture_from_library(
-            params.node.clone(),
-            params.library.clone().context("open catalog")?,
-        )
-        .await
+        fixture_from_params(params)
     }
 
     async fn fixture_open_local_library(source: &Fixture, path: &Path) -> Result<Fixture> {
@@ -1237,6 +1221,14 @@ mod lifecycle_tests {
         Ok(Fixture {
             manager,
             global_params: params,
+        })
+    }
+
+    fn fixture_from_params(global_params: Arc<GlobalParams>) -> Result<Fixture> {
+        let manager = global_params.node.manager()?;
+        Ok(Fixture {
+            manager,
+            global_params,
         })
     }
     #[tokio::test]
