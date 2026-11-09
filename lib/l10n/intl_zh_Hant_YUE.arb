@@ -1332,12 +1332,12 @@
     "description": "表示當前執行緊移除重複過程嘅標籤。向用戶展示系統喺度移除音樂庫或播放清單入面嘅重複歌曲。亦可用「移除緊重複項」或「去重進行中」等表達。"
   },
   "interfaceScale": "介面縮放",
-  "interfaceScaleSubtitle": "相對於系統縮放立即調整文字與應用程式內容。視窗大小和螢幕解析度不會改變。100% 遵循系統縮放。",
+  "interfaceScaleSubtitle": "調整 Rune 入面文字同內容嘅大小。",
   "interfaceScaleSaveError": "無法儲存介面縮放",
-  "remoteOpenUntrusted": "呢部裝置仲未信任伺服器，請先配對。",
-  "remoteOpenNotAuthorized": "另一部裝置未允許呢部裝置，或者已經封鎖咗佢。",
-  "remoteOpenUnreachable": "連接唔到裝置，請檢查佢有冇開機同連接同一個網絡。",
-  "remoteOpenProtocol": "無法同裝置通訊，兩部裝置需要相同版本嘅 Rune。",
+  "remoteOpenUntrusted": "呢部裝置未信任嗰部伺服器，請先配對。",
+  "remoteOpenNotAuthorized": "另一部裝置未允許呢部裝置連線。",
+  "remoteOpenUnreachable": "連唔到嗰部裝置。請檢查佢嘅網絡連線。",
+  "remoteOpenProtocol": "連線唔到。請更新兩部裝置上嘅 Rune。",
   "remoteLossRevoked": "呢部裝置嘅存取權已被移除。",
   "remoteLossDetached": "播放裝置已中斷呢個控制器嘅連線。",
   "@remoteLossDetached": {
@@ -1349,7 +1349,7 @@
   "addSharedLibrary": "加入",
   "sharedLibraryAdded": "已加入",
   "openSharedLibrary": "開啟",
-  "noSharedLibraries": "呢部裝置冇可以分享嘅音樂庫",
+  "noSharedLibraries": "呢部裝置冇共享音樂庫。",
   "libraryFromDevice": "來自 {device}",
   "backgroundLibrarySync": "喺背景保持同步",
   "@libraryFromDevice": {
@@ -1362,12 +1362,12 @@
   "requestItemMissing": "呢個項目已經唔存在",
   "requestInvalid": "要求無效",
   "requestCertificateMismatch": "呢部裝置嘅憑證唔相符",
-  "requestUnavailable": "而家用唔到",
-  "requestStorageBusy": "儲存空間忙緊，請再試一次。",
+  "requestUnavailable": "而家用唔到。",
+  "requestStorageBusy": "儲存空間忙緊，請再試吓。",
   "mixNoLongerExists": "呢個混音已經唔存在",
   "devices": "裝置",
-  "playOn": "播放裝置",
-  "playOnSubtitle": "揀選音訊播放嘅位置。",
+  "playOn": "播放到",
+  "playOnSubtitle": "揀喺邊度播放音訊。",
   "playOnFixedToRemote": "固定喺呢部遠端裝置",
   "playOnPlayingOn": "喺 {alias} 播放緊",
   "@playOnPlayingOn": {
@@ -1395,8 +1395,8 @@
   "castControlRenderer": "投放之後",
   "castKeepControlling": "繼續控制呢部裝置",
   "castControlCastDevice": "控制投放到嘅裝置",
-  "castTrackModeSubtitle": "揀點樣更改播放裝置嘅播放清單。",
-  "castControlRendererSubtitle": "揀繼續控制邊部裝置。",
+  "castTrackModeSubtitle": "揀投放曲目時如何改佇列。",
+  "castControlRendererSubtitle": "揀投放後要控制的裝置。",
   "castNotPossible": "{alias} 播唔到 {library}",
   "@castNotPossible": {
     "placeholders": {
@@ -1408,14 +1408,14 @@
       }
     }
   },
-  "thisDevice": "此裝置",
-  "devicesThatCanConnect": "可以連接此裝置嘅裝置",
+  "thisDevice": "呢部裝置",
+  "devicesThatCanConnect": "可以連線呢部裝置嘅裝置",
   "otherDevices": "其他裝置",
-  "myDevice": "我的裝置",
+  "myDevice": "我嘅裝置",
   "controllingNow": "現正控制呢部裝置",
   "waitingForApproval": "等候批准",
   "guest": "訪客",
-  "myDeviceAccessDescription": "可以播放、瀏覽和同步你的音樂庫",
+  "myDeviceAccessDescription": "可以播放、瀏覽和同步你嘅音樂庫",
   "guestAccessDescription": "可以控制播放並在控制時瀏覽",
   "guestControlSummary": "訪客 · 可以控制播放",
   "customDeviceAccess": "自訂",
@@ -1431,12 +1431,12 @@
   "deviceSyncOff": "關閉",
   "deviceSyncPull": "拉取",
   "deviceSyncPullPush": "拉取同推送",
-  "requestConflict": "播放隊列已經變咗，請再試一次",
-  "requestPermissionDenied": "此裝置不允許執行此操作",
+  "requestConflict": "播放佇列變咗，請再試吓。",
+  "requestPermissionDenied": "呢部裝置不允許執行此操作",
   "readOnly": "只讀",
   "queueUnavailableAccessRevoked": "存取權已撤銷",
   "queueUnavailableLibraryUnavailable": "媒體庫用唔到",
-  "queueUnavailableSourceUnreachable": "連接唔到來源",
+  "queueUnavailableSourceUnreachable": "連線唔到來源",
   "queueUnavailableUnreadable": "讀取唔到音訊",
   "rendererLinkLost": "同 {alias} 嘅連線已中斷",
   "@rendererLinkLost": {
@@ -1448,7 +1448,7 @@
   },
   "requestPublicKeyMismatch": "裝置金鑰同指紋唔相符",
   "requestRegistrationConflict": "呢個指紋嘅裝置已經註冊",
-  "remoteLibraryReconnecting": "重新連接緊 {alias}…",
+  "remoteLibraryReconnecting": "重新連線緊 {alias}…",
   "@remoteLibraryReconnecting": {
     "placeholders": {
       "alias": {
@@ -1459,9 +1459,9 @@
   "capabilityNotImplemented": "呢部裝置唔支援呢個操作",
   "capabilityOwnerOnly": "只有擁有者裝置先可以做呢個操作",
   "requestOtherDeviceName": "另一部裝置",
-  "requestPeerNeedsUpdatePeer": "{alias}用緊較舊嘅 Rune 版本。請喺{alias}更新 Rune 以連線。",
+  "requestPeerNeedsUpdatePeer": "{alias} 嘅 Rune 要更新先可以連線。",
   "requestPeerNeedsUpdateThisDevice": "{alias}用緊較新嘅 Rune 版本。請喺呢部裝置更新 Rune 以連線。",
-  "remoteLossProtocolIncompatible": "Rune 版本唔再相符。請喺兩部裝置更新 Rune 以重新連線。",
+  "remoteLossProtocolIncompatible": "Rune 版本唔再相符。請喺兩部裝置更新 Rune 以再連線。",
   "capabilityPeerTooOld": "請喺另一部裝置更新 Rune 以使用呢項功能。",
   "requestPeerNeedsUpdateFallback": "請喺兩部裝置更新 Rune 以連線。",
   "@requestPeerNeedsUpdatePeer": {
@@ -1485,14 +1485,14 @@
   "libraryRecordNotFound": "此媒體庫記錄已不存在。",
   "libraryRecordIsOpen": "請先關閉媒體庫，再移除其記錄。",
   "libraryMediaFolderMissing": "找不到媒體庫資料夾。",
-  "libraryUntrusted": "此裝置未受信任。",
+  "libraryUntrusted": "呢部裝置未受信任。",
   "libraryInvalidSource": "此資料夾無法用作媒體庫。",
   "libraryStorageFailure": "無法儲存媒體庫。",
   "libraryRemoteNotAuthorized": "裝置未授權此連線。",
-  "libraryRemoteUnreachable": "無法連線到裝置。",
+  "libraryRemoteUnreachable": "連唔到到裝置。",
   "libraryRemoteProtocolFailure": "裝置傳回不相容的回應。",
-  "libraryProtocolIncompatible": "此裝置使用不相容的協定版本。",
-  "libraryNotSupportedYet": "目前尚不支援此媒體庫類型。",
+  "libraryProtocolIncompatible": "呢部裝置使用不相容的協定版本。",
+  "libraryNotSupportedYet": "而家尚不支援此媒體庫類型。",
   "onMyIPhone": "我的 iPhone",
   "@onMyIPhone": {
     "description": "The Files app location for folders on an iPhone, shown as the start of a library's location."
@@ -1515,11 +1515,11 @@
   "@automaticTrayIconMode": {
     "description": "An option for tray icon color mode that automatically switches between light and dark based on the system theme."
   },
-  "mixWithOthers": "与其他應用同时播放",
+  "mixWithOthers": "同時播放其他音訊",
   "@mixWithOthers": {
     "description": "Settings title of an entry in the playback settings page"
   },
-  "mixWithOthersSubtitle": "Rune 播放时，其他應用也会继续播放。",
+  "mixWithOthersSubtitle": "Rune 播放緊嗰陣，其他音訊都會繼續播。",
   "@mixWithOthersSubtitle": {
     "description": "Settings description of an entry in the playback settings page"
   },
@@ -1527,11 +1527,11 @@
   "@visualizerScenes": {
     "description": "Title of the setting that lists the visualizer scenes to check, uncheck and reorder."
   },
-  "visualizerScenesSubtitle": "揀封面墙菜单中的場景。拖动以排序。",
+  "visualizerScenesSubtitle": "睇吓封面牆選單有咩場景。拖曳嚟重新排序。",
   "@visualizerScenesSubtitle": {
     "description": "Subtitle of the visualizer scenes setting."
   },
-  "visualizerSceneImported": "已导入 {name}",
+  "visualizerSceneImported": "已導入 {name}",
   "@visualizerSceneImported": {
     "description": "Notification after a visualizer scene file was imported.",
     "placeholders": {
@@ -1541,7 +1541,7 @@
       }
     }
   },
-  "visualizerSceneImportFailed": "无法导入 {name}",
+  "visualizerSceneImportFailed": "無法導入 {name}",
   "@visualizerSceneImportFailed": {
     "description": "Notification when a file is not a visualizer scene; the reason, in English, follows below it.",
     "placeholders": {
@@ -1555,7 +1555,7 @@
   "@visualizerDeleteScene": {
     "description": "Button and dialog title that delete an imported visualizer scene."
   },
-  "visualizerDeleteSceneConfirm": "刪除 {name}？重新导入即可恢复。",
+  "visualizerDeleteSceneConfirm": "刪除 {name}？重新導入即可恢復。",
   "@visualizerDeleteSceneConfirm": {
     "description": "Text of the dialog that confirms deleting an imported visualizer scene.",
     "placeholders": {
@@ -1569,15 +1569,15 @@
   "@visualizer": {
     "description": "Title of the visualizer settings page and the navigation entries that open it, also the name of the cover wall button while the visualizer is available."
   },
-  "coverWallVisualizerSubtitle": "随音乐律动的视觉效果",
+  "coverWallVisualizerSubtitle": "随音樂律動的视觉效果",
   "@coverWallVisualizerSubtitle": {
     "description": "Subtitle of the playback controller entry that opens the cover wall while it is set to show the visualizer."
   },
-  "visualizerLab": "可视化实验室",
+  "visualizerLab": "可视化實驗室",
   "@visualizerLab": {
     "description": "Name of the playback controller entry that turns the visualizer lab on the cover wall page on and off."
   },
-  "visualizerLabSubtitle": "在可视化效果上顯示实验室。",
+  "visualizerLabSubtitle": "在可视化效果上顯示實驗室。",
   "@visualizerLabSubtitle": {
     "description": "Subtitle of the playback controller entry that turns the visualizer lab on and off."
   },
@@ -1605,7 +1605,7 @@
   "@stopKeepingOffline": {
     "description": "Disable future downloads for this selection without deleting existing files."
   },
-  "offlineSelectionSaved": "已儲存離線選擇",
+  "offlineSelectionSaved": "已儲存離線揀",
   "@offlineSelectionSaved": {
     "description": "Acknowledges that a persistent download selection has been saved."
   },
@@ -1613,7 +1613,7 @@
   "@offlineSelectionRemoved": {
     "description": "Acknowledges disabling an offline selection."
   },
-  "offlineSelectionFailed": "無法儲存離線選擇",
+  "offlineSelectionFailed": "無法儲存離線揀",
   "@offlineSelectionFailed": {
     "description": "Error title when saving a download selection fails."
   },
@@ -1625,14 +1625,14 @@
   "@offlineSelectionRetained": {
     "description": "Explains that disabling downloads does not delete audio."
   },
-  "audioRemoteReference": "遠端音訊（連線狀態未知）",
-  "audioUnavailable": "音訊無法使用",
-  "audioImportPending": "正在匯入",
+  "audioRemoteReference": "遠端音訊",
+  "audioUnavailable": "音訊用唔到",
+  "audioImportPending": "匯入中",
   "allowPairedSync": "允許同步",
   "@allowPairedSync": {
     "description": "Label for allowing incoming paired device sync"
   },
-  "allowPairedSyncDescription": "關閉後，其他裝置將無法連線至此裝置。",
+  "allowPairedSyncDescription": "關閉後，其他裝置將連唔到至呢部裝置。",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
   },
@@ -1644,7 +1644,7 @@
   "@offlineCleanupDefault": {
     "description": "Default option to clean up unneeded offline downloads."
   },
-  "offlineCleanupDefaultDescription": "選擇是否刪除不再需要離線保存的下載。",
+  "offlineCleanupDefaultDescription": "揀是否刪除不再需要離線儲存的下載。",
   "@offlineCleanupDefaultDescription": {
     "description": "Explanation of the offline cleanup default."
   },
@@ -1652,7 +1652,7 @@
   "@offlineCleanupCheckbox": {
     "description": "Option to delete downloads no enabled offline rule needs."
   },
-  "offlineSelectionCleaned": "離線選擇已更新，並已嘗試清理。",
+  "offlineSelectionCleaned": "離線揀已更新，並已嘗試清理。",
   "@offlineSelectionCleaned": {
     "description": "Confirmation after attempting to clean up offline downloads."
   },

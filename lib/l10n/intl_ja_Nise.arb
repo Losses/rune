@@ -178,7 +178,7 @@
   "@playbackMode": {
     "description": "A title in the settings interface that helps users select the desired playback mode, such as shuffle or sequential play."
   },
-  "playbackModeSubtitle": "音楽再生方法付、希望再生形式選択下",
+  "playbackModeSubtitle": "偏好的音樂播放模式",
   "@playbackModeSubtitle": {},
   "colorMode": "配色模式",
   "@colorMode": {
@@ -499,49 +499,49 @@
   "@previous": {
     "description": "Button prompt text for controlling playback, used to skip to the previous track."
   },
-  "previousSubtitle": "前曲移動",
+  "previousSubtitle": "跳至上一首曲目",
   "@previousSubtitle": {},
   "playPause": "再生/一時停止",
   "@playPause": {
     "description": "Button prompt text for controlling playback, used to toggle between play and pause states."
   },
-  "playPauseSubtitle": "再生同一時停止切替",
+  "playPauseSubtitle": "在播放和暫停之間切換",
   "@playPauseSubtitle": {},
   "next": "次",
   "@next": {
     "description": "Button prompt text for controlling playback, used to skip to the next track."
   },
-  "nextSubtitle": "次曲移動",
+  "nextSubtitle": "跳至下一首曲目",
   "@nextSubtitle": {},
   "volume": "音量",
   "@volume": {
     "description": "Button prompt text for controlling playback, used to adjust the volume."
   },
-  "volumeSubtitle": "音量調整",
+  "volumeSubtitle": "調整音量",
   "@volumeSubtitle": {},
   "playlist": "再生一覧表",
   "@playlist": {
     "description": "Button prompt text for controlling playback, used to display the playlist."
   },
-  "playlistSubtitle": "再生一覧表表示",
+  "playlistSubtitle": "查看播放佇列",
   "@playlistSubtitle": {},
   "hidden": "非表示",
   "@hidden": {
     "description": "Button prompt text indicating a hidden button; this text is typically not used."
   },
-  "hiddenSubtitle": " 以下内容「其他」一覧非表示",
+  "hiddenSubtitle": "以下內容將在他清單中隱藏",
   "@hiddenSubtitle": {},
   "coverWall": "表紙画像壁",
   "@coverWall": {
     "description": "Button prompt text for controlling playback, used to switch to the cover wall page, a decorative page composed of album covers."
   },
-  "coverWallSubtitle": "表紙画像表示、特別雰囲気、楽増",
+  "coverWallSubtitle": "顯示封面藝術以營造獨特氛圍",
   "@coverWallSubtitle": {},
   "fullscreen": "全画面",
   "@fullscreen": {
     "description": "Button prompt text for controlling playback, used to toggle fullscreen mode."
   },
-  "fullscreenSubtitle": "全画面入／解除",
+  "fullscreenSubtitle": "進入或退出全螢幕模式",
   "@fullscreenSubtitle": {},
   "pause": "一時停止",
   "@pause": {
@@ -773,27 +773,27 @@
   "@personalize": {
     "description": "Entry in the context menu of the library home page."
   },
-  "artistsLibraryHomeSubtitle": "気入芸人世界発見、探検行",
+  "artistsLibraryHomeSubtitle": "探索與發現您最喜愛的藝術家的世界",
   "@artistsLibraryHomeSubtitle": {
     "description": "Subtitle for the artists section in the library home."
   },
-  "albumsLibraryHomeSubtitle": "才能有芸人達手桁歌集世界浸行",
+  "albumsLibraryHomeSubtitle": "沉浸在才華洋溢的藝術家創作的專輯中",
   "@albumsLibraryHomeSubtitle": {
     "description": "Subtitle for the albums section in the library home."
   },
-  "playlistsLibraryHomeSubtitle": "貴方丈個性化去音楽旅作上",
+  "playlistsLibraryHomeSubtitle": "策劃您專屬的個人聆聽之旅",
   "@playlistsLibraryHomeSubtitle": {
     "description": "Subtitle for the playlists section in the library home."
   },
-  "tracksLibraryHomeSubtitle": "知入曲愛入曲深浸行",
+  "tracksLibraryHomeSubtitle": "深入研究您熟悉且喜愛的音軌",
   "@tracksLibraryHomeSubtitle": {
     "description": "Subtitle for the tracks section in the library home."
   },
-  "likedLibraryHomeSubtitle": "最大切入曲追体験楽行",
+  "likedLibraryHomeSubtitle": "重溫您最珍視的音軌",
   "@likedLibraryHomeSubtitle": {
     "description": "Subtitle for the liked section in the library home."
   },
-  "mostLibraryHomeSubtitle": "何度心惹旋律再楽行",
+  "mostLibraryHomeSubtitle": "再次聆聽那些反覆吸引您的旋律",
   "@mostLibraryHomeSubtitle": {
     "description": "Subtitle for the most played section in the library home."
   },
@@ -981,7 +981,7 @@
   "@lyrics": {
     "description": "Button prompt text for controlling playback, used to switch to the lyrics page."
   },
-  "lyricsSubtitle": "歌詞全容掲載",
+  "lyricsSubtitle": "顯示歌曲的完整歌詞",
   "@lyricsSubtitle": {},
   "onlineServices": "通信回線通業務",
   "@onlineServices": {
@@ -1331,27 +1331,27 @@
   "@deduplicating": {
     "description": "Label indicating that the deduplication process is currently active. Shown to users while duplicate tracks are being removed from their music library or playlist. Alternative phrasings could include 'Removing duplicates in progress' or 'Deduplication in progress' depending on what's most natural in the target language."
   },
-  "interfaceScale": "インターフェースの拡大率",
-  "interfaceScaleSubtitle": "もじやアプリないようのおおきさをかえます。",
-  "interfaceScaleSaveError": "拡大率を保存できませんでした",
-  "remoteOpenUntrusted": "このデバイスはまだサーバーを信頼していません。先にペアリングしてください。",
-  "remoteOpenNotAuthorized": "相手のデバイスがこのデバイスを許可していないか、ブロックしています。",
-  "remoteOpenUnreachable": "デバイスに接続できません。電源が入り、同じネットワークにあるか確認してください。",
-  "remoteOpenProtocol": "デバイスと通信できません。両方で同じバージョンのRuneが必要です。",
-  "remoteLossRevoked": "このデバイスのアクセス権が削除されました。",
-  "remoteLossDetached": "レンダラーがこのコントローラーを切断しました。",
+  "interfaceScale": "介面縮放",
+  "interfaceScaleSubtitle": "調 Rune 內文字與內容大小。",
+  "interfaceScaleSaveError": "不可儲存介面縮放",
+  "remoteOpenUntrusted": "此器尚未信任該伺服器，請先配對。",
+  "remoteOpenNotAuthorized": "另一部器尚未允許此器，或已封鎖它。",
+  "remoteOpenUnreachable": "不可連接器，請確認器已開啟並連接至相同網路。",
+  "remoteOpenProtocol": "不可與器通訊，兩部器需要相同版本的 Rune。",
+  "remoteLossRevoked": "此器的存取權限已移除。",
+  "remoteLossDetached": "播放器已中斷此控制器的連線。",
   "@remoteLossDetached": {
     "description": "Shown when the renderer owner detaches this controller."
   },
-  "remoteLossServerStopped": "相手のデバイスが共有を停止しました。",
-  "remoteLossNetworkLost": "接続が失われました。",
-  "deviceLibraries": "らいぶらり",
-  "addSharedLibrary": "ついか",
-  "sharedLibraryAdded": "ついかずみ",
-  "openSharedLibrary": "ひらく",
-  "noSharedLibraries": "このでばいすにきょうゆうできるらいぶらりはありません",
-  "libraryFromDevice": "{device} から",
-  "backgroundLibrarySync": "ばっくぐらうんどでどうきをいじ",
+  "remoteLossServerStopped": "另一部器已停止分享。",
+  "remoteLossNetworkLost": "連線已中斷。",
+  "deviceLibraries": "音樂庫",
+  "addSharedLibrary": "新增",
+  "sharedLibraryAdded": "已新增",
+  "openSharedLibrary": "開啟",
+  "noSharedLibraries": "此器沒有共享的音樂庫。",
+  "libraryFromDevice": "來自 {device}",
+  "backgroundLibrarySync": "在背景同步",
   "@libraryFromDevice": {
     "placeholders": {
       "device": {
@@ -1359,17 +1359,17 @@
       }
     }
   },
-  "requestItemMissing": "此項目既不存在",
-  "requestInvalid": "要求無効",
-  "requestCertificateMismatch": "このデバイスの証明書が一致しません",
-  "requestUnavailable": "現在利用不可",
-  "requestStorageBusy": "ストレージが使用中です。再試行してください。",
-  "mixNoLongerExists": "此混合既不存在",
-  "devices": "デバイス",
-  "playOn": "再生先",
-  "playOnSubtitle": "音声を再生する場所を選択します。",
-  "playOnFixedToRemote": "このリモートデバイスに固定されています",
-  "playOnPlayingOn": "{alias} で再生中",
+  "requestItemMissing": "此項目已不存在",
+  "requestInvalid": "請求無效",
+  "requestCertificateMismatch": "此器的憑證不相符",
+  "requestUnavailable": "今不可使用",
+  "requestStorageBusy": "儲存空間忙碌中，請再試一次。",
+  "mixNoLongerExists": "此混音已不存在",
+  "devices": "器",
+  "playOn": "播放至",
+  "playOnSubtitle": "選擇音訊的播放位置。",
+  "playOnFixedToRemote": "固定至此遠端器",
+  "playOnPlayingOn": "正 {alias} 上播放",
   "@playOnPlayingOn": {
     "placeholders": {
       "alias": {
@@ -1377,10 +1377,10 @@
       }
     }
   },
-  "playOnOffline": "オフライン",
-  "playOnNotApproved": "このデバイスはまだあなたを承認していません",
-  "playOnNoControl": "このデバイスを操作できません",
-  "playOnCantPlay": "{library} を再生できません",
+  "playOnOffline": "離線",
+  "playOnNotApproved": "此器尚未核准你",
+  "playOnNoControl": "不可控制此器",
+  "playOnCantPlay": "不可播放 {library}",
   "@playOnCantPlay": {
     "placeholders": {
       "library": {
@@ -1388,16 +1388,16 @@
       }
     }
   },
-  "playOnRetry": "再試行",
-  "castTrackMode": "トラックをキャストするとき",
-  "castTrackReplace": "キューを置き換えて今すぐ再生",
-  "castTrackPlayNext": "次に再生",
-  "castControlRenderer": "キャスト後",
-  "castKeepControlling": "このデバイスの操作を続ける",
-  "castControlCastDevice": "キャスト先のデバイスを操作",
-  "castTrackModeSubtitle": "再生先のキューの変更方法を選択します。",
-  "castControlRendererSubtitle": "操作を続けるデバイスを選択します。",
-  "castNotPossible": "{alias} では {library} を再生できません",
+  "playOnRetry": "重試",
+  "castTrackMode": "投放曲目時",
+  "castTrackReplace": "取代佇列",
+  "castTrackPlayNext": "接著播放",
+  "castControlRenderer": "投放後",
+  "castKeepControlling": "繼續控制此器",
+  "castControlCastDevice": "控制投放的器",
+  "castTrackModeSubtitle": "選擇投放曲目時如何變更佇列。",
+  "castControlRendererSubtitle": "選擇投放後要控制的器。",
+  "castNotPossible": "{alias} 不可播放 {library}",
   "@castNotPossible": {
     "placeholders": {
       "alias": {
@@ -1408,37 +1408,37 @@
       }
     }
   },
-  "thisDevice": "このデバイス",
-  "devicesThatCanConnect": "このデバイスに接続できるデバイス",
-  "otherDevices": "その他のデバイス",
-  "myDevice": "自分のデバイス",
-  "controllingNow": "今このデバイスを操作中",
-  "waitingForApproval": "承認待ち",
-  "guest": "ゲスト",
-  "myDeviceAccessDescription": "ライブラリの再生、閲覧、同期ができます",
-  "guestAccessDescription": "再生を操作しながら閲覧できます",
-  "guestControlSummary": "ゲスト · 再生を操作できます",
-  "customDeviceAccess": "カスタム",
-  "customizeDevice": "カスタマイズ",
-  "controlPlayback": "再生を操作",
-  "controlPlaybackDescription": "このデバイスで再生、一時停止、キュー追加、キャストができます",
-  "deviceAccessLibraries": "ライブラリ",
-  "deviceConnection": "接続",
-  "deviceSync": "同期",
-  "deviceConnectionOff": "オフ",
-  "deviceConnectionView": "表示",
-  "deviceConnectionViewEdit": "表示・編集",
-  "deviceSyncOff": "オフ",
-  "deviceSyncPull": "取得",
-  "deviceSyncPullPush": "取得・送信",
-  "requestConflict": "再生キューが変更されました。もう一度お試しください",
-  "requestPermissionDenied": "このデバイスはその操作を許可されていません",
-  "readOnly": "読み取り専用",
-  "queueUnavailableAccessRevoked": "アクセスが取り消されました",
-  "queueUnavailableLibraryUnavailable": "ライブラリを利用できません",
-  "queueUnavailableSourceUnreachable": "ソースに接続できません",
-  "queueUnavailableUnreadable": "音声を読み取れません",
-  "rendererLinkLost": "{alias} との接続が失われました",
+  "thisDevice": "此器",
+  "devicesThatCanConnect": "可連線的器",
+  "otherDevices": "他器",
+  "myDevice": "我的器",
+  "controllingNow": "正控制此器",
+  "waitingForApproval": "等待核准",
+  "guest": "訪客",
+  "myDeviceAccessDescription": "可播放、瀏覽和同步你的音樂庫",
+  "guestAccessDescription": "可控制播放並在控制時瀏覽",
+  "guestControlSummary": "訪客 · 可控制播放",
+  "customDeviceAccess": "自訂",
+  "customizeDevice": "自訂",
+  "controlPlayback": "控制播放",
+  "controlPlaybackDescription": "可在此器上播放、暫停、加入佇列並投放",
+  "deviceAccessLibraries": "音樂庫",
+  "deviceConnection": "連線",
+  "deviceSync": "同步",
+  "deviceConnectionOff": "關閉",
+  "deviceConnectionView": "檢視",
+  "deviceConnectionViewEdit": "檢視與編輯",
+  "deviceSyncOff": "關閉",
+  "deviceSyncPull": "拉取",
+  "deviceSyncPullPush": "拉取與推送",
+  "requestConflict": "播放佇列已變更，請再試一次",
+  "requestPermissionDenied": "此器不允許執行此操作",
+  "readOnly": "唯讀",
+  "queueUnavailableAccessRevoked": "存取權已撤銷",
+  "queueUnavailableLibraryUnavailable": "媒體庫不可使用",
+  "queueUnavailableSourceUnreachable": "不可連線至來源",
+  "queueUnavailableUnreadable": "不可讀取音訊",
+  "rendererLinkLost": "與 {alias} 的連線已中斷",
   "@rendererLinkLost": {
     "placeholders": {
       "alias": {
@@ -1446,9 +1446,9 @@
       }
     }
   },
-  "requestPublicKeyMismatch": "端末金鑰與指紋不符",
-  "requestRegistrationConflict": "此指紋的裝置已註冊",
-  "remoteLibraryReconnecting": "{alias} 再接続中…",
+  "requestPublicKeyMismatch": "器金鑰與指紋不相符",
+  "requestRegistrationConflict": "此指紋的器已註冊",
+  "remoteLibraryReconnecting": "正再連線至 {alias}…",
   "@remoteLibraryReconnecting": {
     "placeholders": {
       "alias": {
@@ -1456,14 +1456,14 @@
       }
     }
   },
-  "capabilityNotImplemented": "此器、此操作不対応",
-  "capabilityOwnerOnly": "所有者器以外不可",
-  "requestOtherDeviceName": "もういっぽうのデバイス",
-  "requestPeerNeedsUpdatePeer": "せつぞくするには、{alias}でRuneをこうしんしてください。",
-  "requestPeerNeedsUpdateThisDevice": "{alias}にせつぞくするには、このデバイスでRuneをこうしんしてください。",
-  "remoteLossProtocolIncompatible": "Rune のバージョンがあわなくなりました。さいせつぞくするにはりょうほうのデバイスで Rune をこうしんしてください。",
-  "capabilityPeerTooOld": "これをつかうには、もういっぽうのデバイスで Rune をこうしんしてください。",
-  "requestPeerNeedsUpdateFallback": "せつぞくするにはりょうほうのデバイスで Rune をこうしんしてください。",
+  "capabilityNotImplemented": "此器不支援此操作",
+  "capabilityOwnerOnly": "只有擁有者器才能執行此操作",
+  "requestOtherDeviceName": "另一部器",
+  "requestPeerNeedsUpdatePeer": "{alias}需更新 Rune 方可連線。",
+  "requestPeerNeedsUpdateThisDevice": "更新此器之 Rune，方可連 {alias}。",
+  "remoteLossProtocolIncompatible": "Rune 版本不再相符。請在兩部器上更新 Rune 以再連線。",
+  "capabilityPeerTooOld": "請在另一部器上更新 Rune 以使用此功能。",
+  "requestPeerNeedsUpdateFallback": "請在兩部器上更新 Rune 以連線。",
   "@requestPeerNeedsUpdatePeer": {
     "placeholders": {
       "alias": {
@@ -1478,26 +1478,26 @@
       }
     }
   },
-  "capabilityAccountRoleMissing": "このサーバーのアカウントでは、この操作を行う権限がありません。",
+  "capabilityAccountRoleMissing": "您在此伺服器上的帳號無權執行此操作。",
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
   },
-  "libraryRecordNotFound": "このライブラリーはありません。",
-  "libraryRecordIsOpen": "けすまえにライブラリーをとじてください。",
-  "libraryMediaFolderMissing": "ライブラリーフォルダーが見つかりません。",
-  "libraryUntrusted": "このデバイスは信頼されていません。",
-  "libraryInvalidSource": "このフォルダーはライブラリーとして使用できません。",
-  "libraryStorageFailure": "ライブラリーを保存できませんでした。",
-  "libraryRemoteNotAuthorized": "デバイスが接続を許可しませんでした。",
-  "libraryRemoteUnreachable": "デバイスに接続できません。",
-  "libraryRemoteProtocolFailure": "デバイスから互換性のない応答がありました。",
-  "libraryProtocolIncompatible": "このデバイスのプロトコルバージョンには互換性がありません。",
-  "libraryNotSupportedYet": "このライブラリー形式はまだサポートされていません。",
-  "onMyIPhone": "このアイフォンない",
+  "libraryRecordNotFound": "此媒體庫已不存在。",
+  "libraryRecordIsOpen": "請先關閉媒體庫，再將其移除。",
+  "libraryMediaFolderMissing": "找不到媒體庫資料夾。",
+  "libraryUntrusted": "此器未受信任。",
+  "libraryInvalidSource": "此資料夾不可用作媒體庫。",
+  "libraryStorageFailure": "不可儲存媒體庫。",
+  "libraryRemoteNotAuthorized": "器未授權此連線。",
+  "libraryRemoteUnreachable": "不可連線到器。",
+  "libraryRemoteProtocolFailure": "器傳回不相容的回應。",
+  "libraryProtocolIncompatible": "此器使用不相容的協定版本。",
+  "libraryNotSupportedYet": "今尚不支援此媒體庫類型。",
+  "onMyIPhone": "我的 iPhone",
   "@onMyIPhone": {
     "description": "The Files app location for folders on an iPhone, shown as the start of a library's location."
   },
-  "onMyIPad": "このアイパッドない",
+  "onMyIPad": "我的 iPad",
   "@onMyIPad": {
     "description": "The Files app location for folders on an iPad, shown as the start of a library's location."
   },
@@ -1515,23 +1515,23 @@
   "@automaticTrayIconMode": {
     "description": "An option for tray icon color mode that automatically switches between light and dark based on the system theme."
   },
-  "mixWithOthers": "他のアプリと同時に再生",
+  "mixWithOthers": "他音並奏",
   "@mixWithOthers": {
     "description": "Settings title of an entry in the playback settings page"
   },
-  "mixWithOthersSubtitle": "Runeの再生中も他のアプリは再生を続けます。",
+  "mixWithOthersSubtitle": "Rune 播時，他音仍續奏。",
   "@mixWithOthersSubtitle": {
     "description": "Settings description of an entry in the playback settings page"
   },
-  "visualizerScenes": "シーン",
+  "visualizerScenes": "景",
   "@visualizerScenes": {
     "description": "Title of the setting that lists the visualizer scenes to check, uncheck and reorder."
   },
-  "visualizerScenesSubtitle": "カバーウォールのメニューに表示するシーンを選びます。ドラッグして並べ替えます。",
+  "visualizerScenesSubtitle": "查看封面牆選單提供的景。拖曳以再排序。",
   "@visualizerScenesSubtitle": {
     "description": "Subtitle of the visualizer scenes setting."
   },
-  "visualizerSceneImported": "{name}をインポートしました",
+  "visualizerSceneImported": "已導入 {name}",
   "@visualizerSceneImported": {
     "description": "Notification after a visualizer scene file was imported.",
     "placeholders": {
@@ -1541,7 +1541,7 @@
       }
     }
   },
-  "visualizerSceneImportFailed": "{name}をインポートできませんでした",
+  "visualizerSceneImportFailed": "不可導入 {name}",
   "@visualizerSceneImportFailed": {
     "description": "Notification when a file is not a visualizer scene; the reason, in English, follows below it.",
     "placeholders": {
@@ -1551,11 +1551,11 @@
       }
     }
   },
-  "visualizerDeleteScene": "シーンをけす",
+  "visualizerDeleteScene": "刪除景",
   "@visualizerDeleteScene": {
     "description": "Button and dialog title that delete an imported visualizer scene."
   },
-  "visualizerDeleteSceneConfirm": "{name}をけすしますか？再インポートすると復元できます。",
+  "visualizerDeleteSceneConfirm": "刪除 {name}？再導入即可恢復。",
   "@visualizerDeleteSceneConfirm": {
     "description": "Text of the dialog that confirms deleting an imported visualizer scene.",
     "placeholders": {
@@ -1565,23 +1565,23 @@
       }
     }
   },
-  "visualizer": "ビジュアライザー",
+  "visualizer": "視覺化",
   "@visualizer": {
     "description": "Title of the visualizer settings page and the navigation entries that open it, also the name of the cover wall button while the visualizer is available."
   },
-  "coverWallVisualizerSubtitle": "音楽に合わせたビジュアル",
+  "coverWallVisualizerSubtitle": "随音樂律動的视觉效果",
   "@coverWallVisualizerSubtitle": {
     "description": "Subtitle of the playback controller entry that opens the cover wall while it is set to show the visualizer."
   },
-  "visualizerLab": "ビジュアライザーラボ",
+  "visualizerLab": "視覺化實驗室",
   "@visualizerLab": {
     "description": "Name of the playback controller entry that turns the visualizer lab on the cover wall page on and off."
   },
-  "visualizerLabSubtitle": "ビジュアライザー上にラボを表示します。",
+  "visualizerLabSubtitle": "在可视化效果上顯示實驗室。",
   "@visualizerLabSubtitle": {
     "description": "Subtitle of the playback controller entry that turns the visualizer lab on and off."
   },
-  "interfaceScaleFollowTextSize": "文字サイズに合わせる",
+  "interfaceScaleFollowTextSize": "跟隨文字大小",
   "@interfaceScaleFollowTextSize": {
     "description": "Option that sizes the interface to match the system text size."
   },
@@ -1589,73 +1589,75 @@
   "@linuxCustomWindowControls": {
     "description": "Title for the Linux custom window controls setting option."
   },
-  "linuxCustomWindowControlsSubtitle": "Windowsモードのような枠のないウィンドウでカスタムコントロールを使用します。",
+  "linuxCustomWindowControlsSubtitle": "啟用自訂視窗控制項，使用類似 Windows 模式的無邊框視窗。",
   "@linuxCustomWindowControlsSubtitle": {
     "description": "Subtitle explaining what the Linux custom window controls setting does."
   },
-  "offlineAvailability": "オフライン利用",
+  "offlineAvailability": "離線可用性",
   "@offlineAvailability": {
     "description": "Context menu for the audio retained on this device."
   },
-  "keepAvailableOffline": "オフラインで利用",
+  "keepAvailableOffline": "保持離線可用",
   "@keepAvailableOffline": {
     "description": "Save a mix-query selection for background audio downloads."
   },
-  "stopKeepingOffline": "オフラインでの保持を停止",
+  "stopKeepingOffline": "停止保持離線可用",
   "@stopKeepingOffline": {
     "description": "Disable future downloads for this selection without deleting existing files."
   },
-  "offlineSelectionSaved": "オフラインの選択を保存しました",
+  "offlineSelectionSaved": "已儲存離線選擇",
   "@offlineSelectionSaved": {
     "description": "Acknowledges that a persistent download selection has been saved."
   },
-  "offlineSelectionRemoved": "自動ダウンロードを停止しました",
+  "offlineSelectionRemoved": "已停止自動下載",
   "@offlineSelectionRemoved": {
     "description": "Acknowledges disabling an offline selection."
   },
-  "offlineSelectionFailed": "オフラインの選択を保存できませんでした",
+  "offlineSelectionFailed": "不可儲存離線選擇",
   "@offlineSelectionFailed": {
     "description": "Error title when saving a download selection fails."
   },
-  "offlineSelectionQueued": "ペアリング済みデバイスが利用可能になると曲をダウンロードします。",
+  "offlineSelectionQueued": "配對器可用時將下載曲目。",
   "@offlineSelectionQueued": {
     "description": "Explains the difference between a queued offline selection and online playback."
   },
-  "offlineSelectionRetained": "既存のローカルファイルは保持されます。",
+  "offlineSelectionRetained": "現有本機檔會保留。",
   "@offlineSelectionRetained": {
     "description": "Explains that disabling downloads does not delete audio."
   },
-  "audioRemoteReference": "リモート音声（接続状態不明）",
-  "audioUnavailable": "音声を利用できません",
-  "audioImportPending": "インポート中",
-  "allowPairedSync": "同期を許可",
+  "audioRemoteReference": "遠端音訊",
+  "audioUnavailable": "音訊不可使用",
+  "audioImportPending": "匯入中",
+  "allowPairedSync": "允許同步",
   "@allowPairedSync": {
     "description": "Label for allowing incoming paired device sync"
   },
-  "allowPairedSyncDescription": "オフにすると、他のデバイスから接続できなくなります。",
+  "allowPairedSyncDescription": "關閉後，他器將不可連線至此器。",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
   },
-  "audioSyncedCopy": "同期されたコピー",
+  "audioSyncedCopy": "已同步的副本",
   "@audioSyncedCopy": {
     "description": "Label for audio downloaded from a paired device."
   },
-  "offlineCleanupDefault": "不要なダウンロードを削除",
+  "offlineCleanupDefault": "刪除不需要的下載",
   "@offlineCleanupDefault": {
     "description": "Default option to clean up unneeded offline downloads."
   },
-  "offlineCleanupDefaultDescription": "オフラインで不要になったダウンロードを削除するか選択します。",
+  "offlineCleanupDefaultDescription": "選擇是否刪除不再需要離線保存的下載。",
   "@offlineCleanupDefaultDescription": {
     "description": "Explanation of the offline cleanup default."
   },
-  "offlineCleanupCheckbox": "不要になったダウンロードファイルも削除",
+  "offlineCleanupCheckbox": "同時刪除不再需要的下載檔",
   "@offlineCleanupCheckbox": {
     "description": "Option to delete downloads no enabled offline rule needs."
   },
-  "offlineSelectionCleaned": "オフラインの選択を更新し、クリーンアップを試みました。",
+  "offlineSelectionCleaned": "離線選擇已更新，並已嘗試清理。",
   "@offlineSelectionCleaned": {
     "description": "Confirmation after attempting to clean up offline downloads."
   },
-  "turnOnBackgroundSync": "ばっくぐらうんどでどうきをおんにする",
-  "turnOffBackgroundSync": "ばっくぐらうんどでどうきをおふにする"
+  "turnOnBackgroundSync": "背景同步起動",
+  "turnOffBackgroundSync": "背景同步停止",
+  "allowAccess": "接続許可",
+  "allowAccessSubtitle": "此装置再生制御共楽曲保存接続許可。"
 }

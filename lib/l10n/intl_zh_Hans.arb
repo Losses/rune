@@ -995,11 +995,11 @@
   "@adaptiveSwitchingSubtitle": {
     "description": "播放设置页面中条目的设置描述"
   },
-  "mixWithOthers": "与其他应用同时播放",
+  "mixWithOthers": "同时播放其他音频",
   "@mixWithOthers": {
     "description": "播放设置页面中条目的设置标题"
   },
-  "mixWithOthersSubtitle": "Rune 播放时，其他应用也会继续播放。",
+  "mixWithOthersSubtitle": "Rune 播放时，其他音频仍会继续播放。",
   "@mixWithOthersSubtitle": {
     "description": "播放设置页面中条目的设置描述"
   },
@@ -1412,7 +1412,7 @@
     "description": "封面墙设为显示可视化时，播放控制栏中打开封面墙的项目的副标题。"
   },
   "interfaceScale": "界面缩放",
-  "interfaceScaleSubtitle": "调整文字和应用内容的大小。",
+  "interfaceScaleSubtitle": "调整 Rune 中文字和内容的大小。",
   "interfaceScaleSaveError": "无法保存界面缩放",
   "interfaceScaleFollowTextSize": "跟随文字大小",
   "linuxCustomWindowControls": "自定义窗口控件",

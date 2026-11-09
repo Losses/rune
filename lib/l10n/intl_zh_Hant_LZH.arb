@@ -178,7 +178,7 @@
   "@playbackMode": {
     "description": "A title in the settings interface that helps users select the desired playback mode, such as shuffle or sequential play."
   },
-  "playbackModeSubtitle": "偏善律乐鼓奏之法",
+  "playbackModeSubtitle": "偏善律樂鼓奏之法",
   "@playbackModeSubtitle": {},
   "colorMode": "晦明",
   "@colorMode": {
@@ -1331,27 +1331,27 @@
   "@deduplicating": {
     "description": "Label indicating that the deduplication process is currently active. Shown to users while duplicate tracks are being removed from their music library or playlist. Alternative phrasings could include 'Removing duplicates in progress' or 'Deduplication in progress' depending on what's most natural in the target language."
   },
-  "interfaceScale": "介面縮放",
-  "interfaceScaleSubtitle": "相對於系統縮放立即調整文字與應用程式內容。視窗大小和螢幕解析度不會改變。100% 遵循系統縮放。",
-  "interfaceScaleSaveError": "無法儲存介面縮放",
-  "remoteOpenUntrusted": "此器未信彼伺服器，請先配對。",
-  "remoteOpenNotAuthorized": "彼器未允此器，或已封之。",
-  "remoteOpenUnreachable": "不能連彼器，請察其開啟且同網。",
-  "remoteOpenProtocol": "不能通訊，兩器須用同版 Rune。",
+  "interfaceScale": "介面之度",
+  "interfaceScaleSubtitle": "調 符石聆音 中之字與物大小。",
+  "interfaceScaleSaveError": "不可儲存介面縮放",
+  "remoteOpenUntrusted": "此器未信彼主，先配之。",
+  "remoteOpenNotAuthorized": "彼器未許此器相連。",
+  "remoteOpenUnreachable": "不可達彼器。察其網路。",
+  "remoteOpenProtocol": "不可相連。更兩器之 符石聆音。",
   "remoteLossRevoked": "此器之存取權已除。",
-  "remoteLossDetached": "播器已斷此控器之連線。",
+  "remoteLossDetached": "播器已斷此控器之連。",
   "@remoteLossDetached": {
     "description": "Shown when the renderer owner detaches this controller."
   },
   "remoteLossServerStopped": "彼器已止共享。",
-  "remoteLossNetworkLost": "連線已斷。",
-  "deviceLibraries": "樂庫",
+  "remoteLossNetworkLost": "連已斷。",
+  "deviceLibraries": "諸庫",
   "addSharedLibrary": "添",
   "sharedLibraryAdded": "已添",
   "openSharedLibrary": "啟",
-  "noSharedLibraries": "此器無樂庫可共",
+  "noSharedLibraries": "此器無共享之庫。",
   "libraryFromDevice": "來自 {device}",
-  "backgroundLibrarySync": "於後臺保持同步",
+  "backgroundLibrarySync": "後臺同步",
   "@libraryFromDevice": {
     "placeholders": {
       "device": {
@@ -1361,14 +1361,14 @@
   },
   "requestItemMissing": "此項已不存",
   "requestInvalid": "所請有誤",
-  "requestCertificateMismatch": "此設備的憑證不相符",
-  "requestUnavailable": "今不可用",
+  "requestCertificateMismatch": "此器的憑證不相符",
+  "requestUnavailable": "今不可用。",
   "requestStorageBusy": "儲存空間正忙，請再試。",
   "mixNoLongerExists": "此輯已不存",
-  "devices": "裝置",
-  "playOn": "播音於",
-  "playOnSubtitle": "選播音之所。",
-  "playOnFixedToRemote": "定於此遠端裝置",
+  "devices": "器",
+  "playOn": "奏於",
+  "playOnSubtitle": "擇音所奏之處。",
+  "playOnFixedToRemote": "定於此遠端器",
   "playOnPlayingOn": "播音於 {alias}",
   "@playOnPlayingOn": {
     "placeholders": {
@@ -1378,8 +1378,8 @@
     }
   },
   "playOnOffline": "離線",
-  "playOnNotApproved": "此裝置未許汝",
-  "playOnNoControl": "不可控此裝置",
+  "playOnNotApproved": "此器未許汝",
+  "playOnNoControl": "不可控此器",
   "playOnCantPlay": "不可播 {library}",
   "@playOnCantPlay": {
     "placeholders": {
@@ -1395,8 +1395,8 @@
   "castControlRenderer": "播畢之後",
   "castKeepControlling": "仍御此器",
   "castControlCastDevice": "御所播之器",
-  "castTrackModeSubtitle": "擇播器佇列之變法。",
-  "castControlRendererSubtitle": "擇仍御之器。",
+  "castTrackModeSubtitle": "擇投放曲目時如何變更佇列。",
+  "castControlRendererSubtitle": "擇投放後要控制的器。",
   "castNotPossible": "{alias} 不可播 {library}",
   "@castNotPossible": {
     "placeholders": {
@@ -1408,37 +1408,37 @@
       }
     }
   },
-  "thisDevice": "此裝置",
-  "devicesThatCanConnect": "可連此裝置之裝置",
-  "otherDevices": "他裝置",
-  "myDevice": "我的裝置",
-  "controllingNow": "正控制此裝置",
-  "waitingForApproval": "待允",
-  "guest": "訪客",
-  "myDeviceAccessDescription": "可以播放、瀏覽和同步你的音樂庫",
-  "guestAccessDescription": "可以控制播放並在控制時瀏覽",
-  "guestControlSummary": "訪客 · 可以控制播放",
+  "thisDevice": "此器",
+  "devicesThatCanConnect": "可連此器之諸器",
+  "otherDevices": "他器",
+  "myDevice": "吾器",
+  "controllingNow": "正控制此器",
+  "waitingForApproval": "俟核",
+  "guest": "客",
+  "myDeviceAccessDescription": "可奏、瀏覽和同你的樂庫",
+  "guestAccessDescription": "可控制奏並在控制時瀏覽",
+  "guestControlSummary": "訪客 · 可控制奏",
   "customDeviceAccess": "自訂",
   "customizeDevice": "自訂",
-  "controlPlayback": "控制播放",
-  "controlPlaybackDescription": "可以喺呢部裝置播放、暫停、加入佇列同投放",
-  "deviceAccessLibraries": "音樂庫",
-  "deviceConnection": "連線",
-  "deviceSync": "同步",
+  "controlPlayback": "控制奏",
+  "controlPlaybackDescription": "可喺呢部器奏、暫停、加入佇列同投放",
+  "deviceAccessLibraries": "樂庫",
+  "deviceConnection": "連",
+  "deviceSync": "同",
   "deviceConnectionOff": "關閉",
   "deviceConnectionView": "檢視",
   "deviceConnectionViewEdit": "檢視與編輯",
   "deviceSyncOff": "關閉",
   "deviceSyncPull": "拉取",
   "deviceSyncPullPush": "拉取與推送",
-  "requestConflict": "播列已易，請復試之",
-  "requestPermissionDenied": "此裝置不允許執行此操作",
+  "requestConflict": "奏列已易，復試之。",
+  "requestPermissionDenied": "此器不允許執行此操作",
   "readOnly": "唯讀",
   "queueUnavailableAccessRevoked": "存取權已撤銷",
-  "queueUnavailableLibraryUnavailable": "資料庫無法使用",
-  "queueUnavailableSourceUnreachable": "無法連線至來源",
-  "queueUnavailableUnreadable": "無法讀取音訊",
-  "rendererLinkLost": "與 {alias} 之連線已失",
+  "queueUnavailableLibraryUnavailable": "資料庫不可使用",
+  "queueUnavailableSourceUnreachable": "不可連至來源",
+  "queueUnavailableUnreadable": "不可讀取音",
+  "rendererLinkLost": "與 {alias} 之連已失",
   "@rendererLinkLost": {
     "placeholders": {
       "alias": {
@@ -1458,12 +1458,12 @@
   },
   "capabilityNotImplemented": "此器不應此令",
   "capabilityOwnerOnly": "唯主器可為之",
-  "requestOtherDeviceName": "另一裝置",
-  "requestPeerNeedsUpdatePeer": "{alias}所用 Rune 較舊。請於{alias}更新 Rune 以連接。",
-  "requestPeerNeedsUpdateThisDevice": "{alias}所用 Rune 較新。請於此裝置更新 Rune 以連接。",
-  "remoteLossProtocolIncompatible": "Rune 版本已不相合。請於兩裝置更新 Rune 以重新連接。",
-  "capabilityPeerTooOld": "請於另一裝置更新 Rune 以使用此功能。",
-  "requestPeerNeedsUpdateFallback": "請於兩裝置更新 Rune 以連接。",
+  "requestOtherDeviceName": "另一器",
+  "requestPeerNeedsUpdatePeer": "{alias} 之 符石聆音 須更方可連。",
+  "requestPeerNeedsUpdateThisDevice": "{alias}所用 符石聆音 較新。請於此器更 符石聆音 以連。",
+  "remoteLossProtocolIncompatible": "符石聆音 版已不相合。請於兩器更 符石聆音 以復連。",
+  "capabilityPeerTooOld": "請於另一器更 符石聆音 以使用此功能。",
+  "requestPeerNeedsUpdateFallback": "請於兩器更 符石聆音 以連。",
   "@requestPeerNeedsUpdatePeer": {
     "placeholders": {
       "alias": {
@@ -1482,17 +1482,17 @@
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
   },
-  "libraryRecordNotFound": "此媒體庫記錄已不存在。",
-  "libraryRecordIsOpen": "請先關閉媒體庫，再移除其記錄。",
-  "libraryMediaFolderMissing": "找不到媒體庫資料夾。",
-  "libraryUntrusted": "此裝置未受信任。",
-  "libraryInvalidSource": "此資料夾無法用作媒體庫。",
-  "libraryStorageFailure": "無法儲存媒體庫。",
-  "libraryRemoteNotAuthorized": "裝置未授權此連線。",
-  "libraryRemoteUnreachable": "無法連線到裝置。",
-  "libraryRemoteProtocolFailure": "裝置傳回不相容的回應。",
-  "libraryProtocolIncompatible": "此裝置使用不相容的協定版本。",
-  "libraryNotSupportedYet": "目前尚不支援此媒體庫類型。",
+  "libraryRecordNotFound": "此庫已亡。",
+  "libraryRecordIsOpen": "移除此庫前，先閉之。",
+  "libraryMediaFolderMissing": "找不到樂庫目錄。",
+  "libraryUntrusted": "此器未受信任。",
+  "libraryInvalidSource": "此目錄不可用作樂庫。",
+  "libraryStorageFailure": "不可儲存樂庫。",
+  "libraryRemoteNotAuthorized": "器未授權此連。",
+  "libraryRemoteUnreachable": "不可連到器。",
+  "libraryRemoteProtocolFailure": "器傳回不合的回應。",
+  "libraryProtocolIncompatible": "此器之協定版不合。",
+  "libraryNotSupportedYet": "今尚不支援此樂庫類型。",
   "onMyIPhone": "我的 iPhone",
   "@onMyIPhone": {
     "description": "The Files app location for folders on an iPhone, shown as the start of a library's location."
@@ -1515,11 +1515,11 @@
   "@automaticTrayIconMode": {
     "description": "An option for tray icon color mode that automatically switches between light and dark based on the system theme."
   },
-  "mixWithOthers": "与其他應用同时播放",
+  "mixWithOthers": "與他音並奏",
   "@mixWithOthers": {
     "description": "Settings title of an entry in the playback settings page"
   },
-  "mixWithOthersSubtitle": "Rune 播放时，其他應用也会继续播放。",
+  "mixWithOthersSubtitle": "符石聆音 奏時，他音仍續。",
   "@mixWithOthersSubtitle": {
     "description": "Settings description of an entry in the playback settings page"
   },
@@ -1527,11 +1527,11 @@
   "@visualizerScenes": {
     "description": "Title of the setting that lists the visualizer scenes to check, uncheck and reorder."
   },
-  "visualizerScenesSubtitle": "選擇封面墙菜单中的場景。拖动以排序。",
+  "visualizerScenesSubtitle": "覽封面牆所列諸景。曳以易其序。",
   "@visualizerScenesSubtitle": {
     "description": "Subtitle of the visualizer scenes setting."
   },
-  "visualizerSceneImported": "已导入 {name}",
+  "visualizerSceneImported": "已導入 {name}",
   "@visualizerSceneImported": {
     "description": "Notification after a visualizer scene file was imported.",
     "placeholders": {
@@ -1541,7 +1541,7 @@
       }
     }
   },
-  "visualizerSceneImportFailed": "无法导入 {name}",
+  "visualizerSceneImportFailed": "不可導入 {name}",
   "@visualizerSceneImportFailed": {
     "description": "Notification when a file is not a visualizer scene; the reason, in English, follows below it.",
     "placeholders": {
@@ -1551,11 +1551,11 @@
       }
     }
   },
-  "visualizerDeleteScene": "刪除場景",
+  "visualizerDeleteScene": "除場景",
   "@visualizerDeleteScene": {
     "description": "Button and dialog title that delete an imported visualizer scene."
   },
-  "visualizerDeleteSceneConfirm": "刪除 {name}？重新导入即可恢复。",
+  "visualizerDeleteSceneConfirm": "除 {name}？復導入即可恢復。",
   "@visualizerDeleteSceneConfirm": {
     "description": "Text of the dialog that confirms deleting an imported visualizer scene.",
     "placeholders": {
@@ -1565,19 +1565,19 @@
       }
     }
   },
-  "visualizer": "可视化效果",
+  "visualizer": "視音",
   "@visualizer": {
     "description": "Title of the visualizer settings page and the navigation entries that open it, also the name of the cover wall button while the visualizer is available."
   },
-  "coverWallVisualizerSubtitle": "随音乐律动的视觉效果",
+  "coverWallVisualizerSubtitle": "随音樂律動的视觉效果",
   "@coverWallVisualizerSubtitle": {
     "description": "Subtitle of the playback controller entry that opens the cover wall while it is set to show the visualizer."
   },
-  "visualizerLab": "可视化实验室",
+  "visualizerLab": "視音之試室",
   "@visualizerLab": {
     "description": "Name of the playback controller entry that turns the visualizer lab on the cover wall page on and off."
   },
-  "visualizerLabSubtitle": "在可视化效果上顯示实验室。",
+  "visualizerLabSubtitle": "於視音上示試室。",
   "@visualizerLabSubtitle": {
     "description": "Subtitle of the playback controller entry that turns the visualizer lab on and off."
   },
@@ -1605,7 +1605,7 @@
   "@stopKeepingOffline": {
     "description": "Disable future downloads for this selection without deleting existing files."
   },
-  "offlineSelectionSaved": "已儲存離線選擇",
+  "offlineSelectionSaved": "已儲存離線擇",
   "@offlineSelectionSaved": {
     "description": "Acknowledges that a persistent download selection has been saved."
   },
@@ -1613,49 +1613,49 @@
   "@offlineSelectionRemoved": {
     "description": "Acknowledges disabling an offline selection."
   },
-  "offlineSelectionFailed": "無法儲存離線選擇",
+  "offlineSelectionFailed": "不可儲存離線擇",
   "@offlineSelectionFailed": {
     "description": "Error title when saving a download selection fails."
   },
-  "offlineSelectionQueued": "配對裝置可用時將下載曲目。",
+  "offlineSelectionQueued": "配對器可用時將下載曲目。",
   "@offlineSelectionQueued": {
     "description": "Explains the difference between a queued offline selection and online playback."
   },
-  "offlineSelectionRetained": "現有本機檔案會保留。",
+  "offlineSelectionRetained": "現有本機檔會保留。",
   "@offlineSelectionRetained": {
     "description": "Explains that disabling downloads does not delete audio."
   },
-  "audioRemoteReference": "遠端音訊（連線狀態未知）",
-  "audioUnavailable": "音訊無法使用",
-  "audioImportPending": "正在匯入",
-  "allowPairedSync": "允許同步",
+  "audioRemoteReference": "遠端音",
+  "audioUnavailable": "音不可使用",
+  "audioImportPending": "匯入中",
+  "allowPairedSync": "允許同",
   "@allowPairedSync": {
     "description": "Label for allowing incoming paired device sync"
   },
-  "allowPairedSyncDescription": "關閉後，其他裝置將無法連線至此裝置。",
+  "allowPairedSyncDescription": "關閉後，他器將不可連至此器。",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
   },
-  "audioSyncedCopy": "已同步的副本",
+  "audioSyncedCopy": "已同的副本",
   "@audioSyncedCopy": {
     "description": "Label for audio downloaded from a paired device."
   },
-  "offlineCleanupDefault": "刪除不需要的下載",
+  "offlineCleanupDefault": "除不需要的下載",
   "@offlineCleanupDefault": {
     "description": "Default option to clean up unneeded offline downloads."
   },
-  "offlineCleanupDefaultDescription": "選擇是否刪除不再需要離線保存的下載。",
+  "offlineCleanupDefaultDescription": "擇是否除不再需要離線保存的下載。",
   "@offlineCleanupDefaultDescription": {
     "description": "Explanation of the offline cleanup default."
   },
-  "offlineCleanupCheckbox": "同時刪除不再需要的下載檔案",
+  "offlineCleanupCheckbox": "同時除不再需要的下載檔",
   "@offlineCleanupCheckbox": {
     "description": "Option to delete downloads no enabled offline rule needs."
   },
-  "offlineSelectionCleaned": "離線選擇已更新，並已嘗試清理。",
+  "offlineSelectionCleaned": "離線擇已更，並已嘗試清理。",
   "@offlineSelectionCleaned": {
     "description": "Confirmation after attempting to clean up offline downloads."
   },
-  "turnOnBackgroundSync": "開啟後臺同步",
-  "turnOffBackgroundSync": "關閉後臺同步"
+  "turnOnBackgroundSync": "啟背景同",
+  "turnOffBackgroundSync": "止背景同"
 }

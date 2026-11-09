@@ -1332,7 +1332,7 @@
     "description": "Мітка, що вказує на те, що процес дедуплікації наразі активний. Показується користувачам, поки дублікати треків видаляються з їх музичної бібліотеки або плейлиста. Альтернативні формулювання можуть включати 'Видалення дублікатів у процесі' або 'Дедуплікація в процесі' залежно від того, що найбільш природно в цільовій мові."
   },
   "interfaceScale": "Масштаб інтерфейсу",
-  "interfaceScaleSubtitle": "Змінює розмір тексту й вмісту програми.",
+  "interfaceScaleSubtitle": "Змінює розмір тексту й вмісту в Rune.",
   "interfaceScaleSaveError": "Не вдалося зберегти масштаб інтерфейсу",
   "linuxCustomWindowControls": "Власні елементи керування вікном",
   "@linuxCustomWindowControls": {
@@ -1586,11 +1586,11 @@
   "@automaticTrayIconMode": {
     "description": "An option for tray icon color mode that automatically switches between light and dark based on the system theme."
   },
-  "mixWithOthers": "Відтворювати з іншими програмами",
+  "mixWithOthers": "Відтворювати разом з іншим аудіо",
   "@mixWithOthers": {
     "description": "Settings title of an entry in the playback settings page"
   },
-  "mixWithOthersSubtitle": "Інші програми продовжують відтворення, поки працює Rune.",
+  "mixWithOthersSubtitle": "Інше аудіо продовжує відтворюватися, поки грає Rune.",
   "@mixWithOthersSubtitle": {
     "description": "Settings description of an entry in the playback settings page"
   },

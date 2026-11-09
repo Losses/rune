@@ -1334,7 +1334,7 @@
     "description": "Etichetta che indica che il processo di rimozione duplicati è attualmente attivo. Mostrato agli utenti mentre i brani duplicati vengono rimossi dalla loro libreria musicale o playlist. Formulazioni alternative potrebbero includere 'Rimozione duplicati in corso' o 'Deduplicazione in corso' a seconda di cosa è più naturale nella lingua di destinazione."
   },
   "interfaceScale": "Scala dell’interfaccia",
-  "interfaceScaleSubtitle": "Regola la dimensione del testo e dei contenuti dell'app.",
+  "interfaceScaleSubtitle": "Regola la dimensione del testo e dei contenuti di Rune.",
   "interfaceScaleSaveError": "Impossibile salvare la scala dell’interfaccia",
   "linuxCustomWindowControls": "Controlli finestra personalizzati",
   "@linuxCustomWindowControls": {
@@ -1450,7 +1450,7 @@
       }
     }
   },
-  "playOnOffline": "Offline",
+  "playOnOffline": "Non in linea",
   "playOnNotApproved": "Questo dispositivo non ti ha ancora approvato",
   "playOnNoControl": "Impossibile controllare questo dispositivo",
   "playOnCantPlay": "Impossibile riprodurre {library}",
@@ -1588,11 +1588,11 @@
   "@automaticTrayIconMode": {
     "description": "An option for tray icon color mode that automatically switches between light and dark based on the system theme."
   },
-  "mixWithOthers": "Riproduci con altre app",
+  "mixWithOthers": "Riproduci insieme ad altro audio",
   "@mixWithOthers": {
     "description": "Settings title of an entry in the playback settings page"
   },
-  "mixWithOthersSubtitle": "Le altre app continuano a riprodurre mentre Rune è attivo.",
+  "mixWithOthersSubtitle": "L’altro audio continua durante la riproduzione di Rune.",
   "@mixWithOthersSubtitle": {
     "description": "Settings description of an entry in the playback settings page"
   },

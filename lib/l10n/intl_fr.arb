@@ -1334,7 +1334,7 @@
     "description": "Étiquette indiquant que le processus de déduplication est actuellement actif. Affiché aux utilisateurs pendant que les pistes dupliquées sont supprimées de leur bibliothèque musicale ou playlist. Les phrasés alternatifs pourraient inclure 'Suppression des doublons en cours' ou 'Déduplication en cours' selon ce qui est le plus naturel dans la langue cible."
   },
   "interfaceScale": "Échelle de l’interface",
-  "interfaceScaleSubtitle": "Ajuste la taille du texte et du contenu de l’application.",
+  "interfaceScaleSubtitle": "Ajuste la taille du texte et du contenu de Rune.",
   "interfaceScaleSaveError": "Impossible d’enregistrer l’échelle de l’interface",
   "linuxCustomWindowControls": "Contrôles de fenêtre personnalisés",
   "@linuxCustomWindowControls": {
@@ -1588,11 +1588,11 @@
   "@automaticTrayIconMode": {
     "description": "An option for tray icon color mode that automatically switches between light and dark based on the system theme."
   },
-  "mixWithOthers": "Lire avec d'autres apps",
+  "mixWithOthers": "Lire avec d’autres sources audio",
   "@mixWithOthers": {
     "description": "Settings title of an entry in the playback settings page"
   },
-  "mixWithOthersSubtitle": "Les autres apps continuent de lire pendant Rune.",
+  "mixWithOthersSubtitle": "Les autres sources audio continuent pendant que Rune lit la musique.",
   "@mixWithOthersSubtitle": {
     "description": "Settings description of an entry in the playback settings page"
   },

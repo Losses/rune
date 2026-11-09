@@ -178,7 +178,7 @@
   "@playbackMode": {
     "description": "ユーザーがシャッフルやシーケンシャルプレイなどの希望する再生モードを選択するのを支援する設定インターフェースのタイトル。"
   },
-  "playbackModeSubtitle": "ミュージックがプレイされるメソッドのプリファードなプレイバックモード",
+  "playbackModeSubtitle": "ミュージックガプレイサレルメソッドノプリファードナプレイバックモード",
   "@playbackModeSubtitle": {},
   "colorMode": "カラーモード",
   "@colorMode": {
@@ -499,49 +499,49 @@
   "@previous": {
     "description": "再生を制御するためのボタンのプロンプトテキストで、前のトラックにスキップするために使用されます。"
   },
-  "previousSubtitle": "プリビアストラックにゴー",
+  "previousSubtitle": "プリビアストラックニゴー",
   "@previousSubtitle": {},
   "playPause": "プレイ/ポーズ",
   "@playPause": {
     "description": "再生を制御するためのボタンのプロンプトテキストで、再生とポーズ状態をトグルするために使用されます。"
   },
-  "playPauseSubtitle": "プレイとポーズをトグル",
+  "playPauseSubtitle": "プレイトポーズヲトグル",
   "@playPauseSubtitle": {},
   "next": "ネクスト",
   "@next": {
     "description": "再生を制御するためのボタンのプロンプトテキストで、次のトラックにスキップするために使用されます。"
   },
-  "nextSubtitle": "ネクストトラックにゴー",
+  "nextSubtitle": "ネクストトラックニゴー",
   "@nextSubtitle": {},
   "volume": "ボリューム",
   "@volume": {
     "description": "再生を制御するためのボタンのプロンプトテキストで、ボリュームをアジャストするために使用されます。"
   },
-  "volumeSubtitle": "ボリュームをアジャスト",
+  "volumeSubtitle": "ボリュームヲアジャスト",
   "@volumeSubtitle": {},
   "playlist": "プレイリスト",
   "@playlist": {
     "description": "再生を制御するためのボタンのプロンプトテキストで、プレイリストを表示するために使用されます。"
   },
-  "playlistSubtitle": "プレイキューをビュー",
+  "playlistSubtitle": "プレイキューヲビュー",
   "@playlistSubtitle": {},
   "hidden": "ヒドゥン",
   "@hidden": {
     "description": "隠されたボタンを示すボタンのプロンプトテキスト。このテキストは通常使用されません。"
   },
-  "hiddenSubtitle": "これよりのコンテンツはアザーズのリストにヒドゥンされます",
+  "hiddenSubtitle": "コレヨリノコンテンツハアザーズノリストニヒドゥンサレマス",
   "@hiddenSubtitle": {},
   "coverWall": "カバーウォール",
   "@coverWall": {
     "description": "再生を制御するためのボタンのプロンプトテキストで、アルバムカバーで構成された装飾的なページであるカバーウォールページに切り替えるために使用されます。"
   },
-  "coverWallSubtitle": "ユニークなアンビエンスのためにカバーアートをディスプレイ",
+  "coverWallSubtitle": "ユニークナアンビエンスノタメニカバーアートヲディスプレイ",
   "@coverWallSubtitle": {},
   "fullscreen": "フルスクリーン",
   "@fullscreen": {
     "description": "再生を制御するためのボタンのプロンプトテキストで、フルスクリーンモードをトグルするために使用されます。"
   },
-  "fullscreenSubtitle": "フルスクリーンモードにエンターまたはエグジット",
+  "fullscreenSubtitle": "フルスクリーンモードニエンターマタハエグジット",
   "@fullscreenSubtitle": {},
   "pause": "ポーズ",
   "@pause": {
@@ -773,27 +773,27 @@
   "@personalize": {
     "description": "ライブラリホームページのコンテキストメニューのエントリ。"
   },
-  "artistsLibraryHomeSubtitle": "きにいりのアーティストのワールドをディスカバーしてエクスプロア",
+  "artistsLibraryHomeSubtitle": "キニイリノアーティストノワールドヲディスカバーシテエクスプロア",
   "@artistsLibraryHomeSubtitle": {
     "description": "ライブラリホームのアーティストセクションのサブタイトル。"
   },
-  "albumsLibraryHomeSubtitle": "タレントのあるアーティストがクラフトしたアルバムにイマージ",
+  "albumsLibraryHomeSubtitle": "タレントノアルアーティストガクラフトシタアルバムニイマージ",
   "@albumsLibraryHomeSubtitle": {
     "description": "ライブラリホームのアルバムセクションのサブタイトル。"
   },
-  "playlistsLibraryHomeSubtitle": "あなたのパーソナライズされたリスニングジャーニーをキュレート",
+  "playlistsLibraryHomeSubtitle": "アナタノパーソナライズサレタリスニングジャーニーヲキュレート",
   "@playlistsLibraryHomeSubtitle": {
     "description": "ライブラリホームのプレイリストセクションのサブタイトル。"
   },
-  "tracksLibraryHomeSubtitle": "ノウアンドラブしているトラックにデルブ",
+  "tracksLibraryHomeSubtitle": "ノウアンドラブシテイルトラックニデルブ",
   "@tracksLibraryHomeSubtitle": {
     "description": "ライブラリホームのトラックセクションのサブタイトル。"
   },
-  "likedLibraryHomeSubtitle": "もっともいとおしむトラックをリリブ",
+  "likedLibraryHomeSubtitle": "モットモイトオシムトラックヲリリブ",
   "@likedLibraryHomeSubtitle": {
     "description": "ライブラリホームのライクドセクションのサブタイトル。"
   },
-  "mostLibraryHomeSubtitle": "なんともキャプティベートされるメロディーをリビジット",
+  "mostLibraryHomeSubtitle": "ナントモキャプティベートサレルメロディーヲリビジット",
   "@mostLibraryHomeSubtitle": {
     "description": "ライブラリホームのモーストプレイセクションのサブタイトル。"
   },
@@ -981,7 +981,7 @@
   "@lyrics": {
     "description": "Button prompt text for controlling playback, used to switch to the lyrics page."
   },
-  "lyricsSubtitle": "リリクスのフルをリビルする",
+  "lyricsSubtitle": "リリクスノフルヲリビルスル",
   "@lyricsSubtitle": {},
   "onlineServices": "オンラインサービス",
   "@onlineServices": {
@@ -1331,13 +1331,13 @@
   "@deduplicating": {
     "description": "Label indicating that the deduplication process is currently active. Shown to users while duplicate tracks are being removed from their music library or playlist. Alternative phrasings could include 'Removing duplicates in progress' or 'Deduplication in progress' depending on what's most natural in the target language."
   },
-  "interfaceScale": "インターフェースの拡大率",
-  "interfaceScaleSubtitle": "もじやアプリないようのおおきさをかえます。",
-  "interfaceScaleSaveError": "拡大率を保存できませんでした",
+  "interfaceScale": "インターフェースノ スケール",
+  "interfaceScaleSubtitle": "ルーン ノ モジト コンテンツノ オオキサヲ チョウセツシマス。",
+  "interfaceScaleSaveError": "カクダイリツヲホゾンデキマセンデシタ",
   "remoteOpenUntrusted": "コノデバイスハマダサーバーヲシンライシテイマセン。サキニペアリングシテクダサイ。",
   "remoteOpenNotAuthorized": "アイテノデバイスガコノデバイスヲキョカシテイナイカ、ブロックシテイマス。",
   "remoteOpenUnreachable": "デバイスニセツゾクデキマセン。デンゲントオナジネットワークヲカクニンシテクダサイ。",
-  "remoteOpenProtocol": "デバイストツウシンデキマセン。リョウホウニオナジバージョンノRuneガヒツヨウデス。",
+  "remoteOpenProtocol": "デバイストツウシンデキマセン。リョウホウニオナジバージョンノルーンガヒツヨウデス。",
   "remoteLossRevoked": "コノデバイスノアクセスケンガサクジョサレマシタ。",
   "remoteLossDetached": "レンダラーハコノコントローラーヲセツダンシマシタ。",
   "@remoteLossDetached": {
@@ -1359,15 +1359,15 @@
       }
     }
   },
-  "requestItemMissing": "このアイテムはもうありません",
-  "requestInvalid": "リクエストがインバリッドです",
-  "requestCertificateMismatch": "このデバイスの証明書が一致しません",
-  "requestUnavailable": "いまはアベイラブルではありません",
-  "requestStorageBusy": "ストレージが使用中です。もういちどおためしください。",
-  "mixNoLongerExists": "このミックスはもうありません",
+  "requestItemMissing": "コノアイテムハモウアリマセン",
+  "requestInvalid": "リクエストガインバリッドデス",
+  "requestCertificateMismatch": "コノデバイスノショウメイショガイッチシマセン",
+  "requestUnavailable": "イマハアベイラブルデハアリマセン",
+  "requestStorageBusy": "ストレージガシヨウチュウデス。モウイチドオタメシクダサイ。",
+  "mixNoLongerExists": "コノミックスハモウアリマセン",
   "devices": "デバイス",
   "playOn": "サイセイサキ",
-  "playOnSubtitle": "オトヲサイセイスルバショヲエラビマス。",
+  "playOnSubtitle": "オーディオヲ サイセイスル バショヲ エラビマス。",
   "playOnFixedToRemote": "コノリモートデバイスニコテイサレテイマス",
   "playOnPlayingOn": "{alias} デサイセイチュウ",
   "@playOnPlayingOn": {
@@ -1431,14 +1431,14 @@
   "deviceSyncOff": "オフ",
   "deviceSyncPull": "シュトク",
   "deviceSyncPullPush": "シュトク・ソウシン",
-  "requestConflict": "さいせいキューが へんこうされました。もういちど おためしください",
+  "requestConflict": "サイセイキューガ ヘンコウサレマシタ。モウイチド オタメシクダサイ",
   "requestPermissionDenied": "コノ デバイスハ ソノ ソウサヲ キョカ サレテイマセン",
   "readOnly": "ヨミトリセンヨウ",
-  "queueUnavailableAccessRevoked": "アクセスがとりけされました",
-  "queueUnavailableLibraryUnavailable": "ライブラリをりようできません",
-  "queueUnavailableSourceUnreachable": "ソースにせつぞくできません",
-  "queueUnavailableUnreadable": "おんせいをよみとれません",
-  "rendererLinkLost": "{alias} との接続が失われました",
+  "queueUnavailableAccessRevoked": "アクセスガトリケサレマシタ",
+  "queueUnavailableLibraryUnavailable": "ライブラリヲリヨウデキマセン",
+  "queueUnavailableSourceUnreachable": "ソースニセツゾクデキマセン",
+  "queueUnavailableUnreadable": "オンセイヲヨミトレマセン",
+  "rendererLinkLost": "{alias} トノセツゾクガシツワレマシタ",
   "@rendererLinkLost": {
     "placeholders": {
       "alias": {
@@ -1448,7 +1448,7 @@
   },
   "requestPublicKeyMismatch": "デバイスノ カギガ フィンガープリントト イッチ シマセン",
   "requestRegistrationConflict": "コノ フィンガープリントノ デバイスハ スデニ トウロク サレテイマス",
-  "remoteLibraryReconnecting": "{alias} に さいせつぞくしています…",
+  "remoteLibraryReconnecting": "{alias} ニ サイセツゾクシテイマス…",
   "@remoteLibraryReconnecting": {
     "placeholders": {
       "alias": {
@@ -1458,12 +1458,12 @@
   },
   "capabilityNotImplemented": "コノ デバイスハ コノ ソウサニ タイオウ シテイマセン",
   "capabilityOwnerOnly": "コノ ソウサハ ショユウシャノ デバイスデノミ オコナエマス",
-  "requestOtherDeviceName": "もういっぽうのデバイス",
-  "requestPeerNeedsUpdatePeer": "せつぞくするには、{alias}でRuneをこうしんしてください。",
-  "requestPeerNeedsUpdateThisDevice": "{alias}にせつぞくするには、このデバイスでRuneをこうしんしてください。",
-  "remoteLossProtocolIncompatible": "Rune の バージョンが あわなくなりました。さいせつぞくするには りょうほうの デバイスで Rune を こうしんしてください。",
-  "capabilityPeerTooOld": "これを つかうには、もういっぽうの デバイスで Rune を こうしんしてください。",
-  "requestPeerNeedsUpdateFallback": "せつぞくするには りょうほうの デバイスで Rune を こうしんしてください。",
+  "requestOtherDeviceName": "モウイッポウノデバイス",
+  "requestPeerNeedsUpdatePeer": "セツゾクスルニハ、{alias}デルーンヲコウシンシテクダサイ。",
+  "requestPeerNeedsUpdateThisDevice": "{alias}ニセツゾクスルニハ、コノデバイスデルーンヲコウシンシテクダサイ。",
+  "remoteLossProtocolIncompatible": "ルーン ノ バージョンガ アワナクナリマシタ。サイセツゾクスルニハ リョウホウノ デバイスデ ルーン ヲ コウシンシテクダサイ。",
+  "capabilityPeerTooOld": "コレヲ ツカウニハ、モウイッポウノ デバイスデ ルーン ヲ コウシンシテクダサイ。",
+  "requestPeerNeedsUpdateFallback": "セツゾクスルニハ リョウホウノ デバイスデ ルーン ヲ コウシンシテクダサイ。",
   "@requestPeerNeedsUpdatePeer": {
     "placeholders": {
       "alias": {
@@ -1478,26 +1478,26 @@
       }
     }
   },
-  "capabilityAccountRoleMissing": "このさーばーのあかうんとでは、このそうさをおこなうけんげんがありません。",
+  "capabilityAccountRoleMissing": "コノサーバーノアカウントデハ、コノソウサヲオコナウケンゲンガアリマセン。",
   "@capabilityAccountRoleMissing": {
     "description": "Shown when a Subsonic account lacks permission to use a control."
   },
-  "libraryRecordNotFound": "このライブラリーはありません。",
-  "libraryRecordIsOpen": "けすまえにライブラリーをとじてください。",
-  "libraryMediaFolderMissing": "ライブラリーフォルダーが見つかりません。",
-  "libraryUntrusted": "このデバイスは信頼されていません。",
-  "libraryInvalidSource": "このフォルダーはライブラリーとして使用できません。",
-  "libraryStorageFailure": "ライブラリーを保存できませんでした。",
-  "libraryRemoteNotAuthorized": "デバイスが接続を許可しませんでした。",
-  "libraryRemoteUnreachable": "デバイスに接続できません。",
-  "libraryRemoteProtocolFailure": "デバイスから互換性のない応答がありました。",
-  "libraryProtocolIncompatible": "このデバイスのプロトコルバージョンには互換性がありません。",
-  "libraryNotSupportedYet": "このライブラリー形式はまだサポートされていません。",
-  "onMyIPhone": "このアイフォンない",
+  "libraryRecordNotFound": "コノライブラリーハアリマセン。",
+  "libraryRecordIsOpen": "ケスマエニライブラリーヲトジテクダサイ。",
+  "libraryMediaFolderMissing": "ライブラリーフォルダーガケンツカリマセン。",
+  "libraryUntrusted": "コノデバイスハシンライサレテイマセン。",
+  "libraryInvalidSource": "コノフォルダーハライブラリートシテシヨウデキマセン。",
+  "libraryStorageFailure": "ライブラリーヲホゾンデキマセンデシタ。",
+  "libraryRemoteNotAuthorized": "デバイスガセツゾクヲキョカシマセンデシタ。",
+  "libraryRemoteUnreachable": "デバイスニセツゾクデキマセン。",
+  "libraryRemoteProtocolFailure": "デバイスカラゴカンセイノナイオウトウガアリマシタ。",
+  "libraryProtocolIncompatible": "コノデバイスノプロトコルバージョンニハゴカンセイガアリマセン。",
+  "libraryNotSupportedYet": "コノライブラリーケイシキハマダサポートサレテイマセン。",
+  "onMyIPhone": "コノアイフォンナイ",
   "@onMyIPhone": {
     "description": "The Files app location for folders on an iPhone, shown as the start of a library's location."
   },
-  "onMyIPad": "このアイパッドない",
+  "onMyIPad": "コノアイパッドナイ",
   "@onMyIPad": {
     "description": "The Files app location for folders on an iPad, shown as the start of a library's location."
   },
@@ -1515,11 +1515,11 @@
   "@automaticTrayIconMode": {
     "description": "An option for tray icon color mode that automatically switches between light and dark based on the system theme."
   },
-  "mixWithOthers": "他のアプリと同時に再生",
+  "mixWithOthers": "ホカノ オーディオト イッショニ サイセイ",
   "@mixWithOthers": {
     "description": "Settings title of an entry in the playback settings page"
   },
-  "mixWithOthersSubtitle": "Runeの再生中も他のアプリは再生を続けます。",
+  "mixWithOthersSubtitle": "ルーン ガ サイセイチュウモ、ホカノ オーディオハ サイセイヲ ツヅケマス。",
   "@mixWithOthersSubtitle": {
     "description": "Settings description of an entry in the playback settings page"
   },
@@ -1527,11 +1527,11 @@
   "@visualizerScenes": {
     "description": "Title of the setting that lists the visualizer scenes to check, uncheck and reorder."
   },
-  "visualizerScenesSubtitle": "カバーウォールのメニューに表示するシーンを選びます。ドラッグして並べ替えます。",
+  "visualizerScenesSubtitle": "カバーウォールノメニューニヒョウジスルシーンヲセンビマス。ドラッグシテナミベカエエマス。",
   "@visualizerScenesSubtitle": {
     "description": "Subtitle of the visualizer scenes setting."
   },
-  "visualizerSceneImported": "{name}をインポートしました",
+  "visualizerSceneImported": "{name}ヲインポートシマシタ",
   "@visualizerSceneImported": {
     "description": "Notification after a visualizer scene file was imported.",
     "placeholders": {
@@ -1541,7 +1541,7 @@
       }
     }
   },
-  "visualizerSceneImportFailed": "{name}をインポートできませんでした",
+  "visualizerSceneImportFailed": "{name}ヲインポートデキマセンデシタ",
   "@visualizerSceneImportFailed": {
     "description": "Notification when a file is not a visualizer scene; the reason, in English, follows below it.",
     "placeholders": {
@@ -1551,11 +1551,11 @@
       }
     }
   },
-  "visualizerDeleteScene": "シーンを削除",
+  "visualizerDeleteScene": "シーンヲサクジョ",
   "@visualizerDeleteScene": {
     "description": "Button and dialog title that delete an imported visualizer scene."
   },
-  "visualizerDeleteSceneConfirm": "{name}を削除しますか？再インポートすると復元できます。",
+  "visualizerDeleteSceneConfirm": "{name}ヲサクジョシマスカ？サイインポートスルトフクゲンデキマス。",
   "@visualizerDeleteSceneConfirm": {
     "description": "Text of the dialog that confirms deleting an imported visualizer scene.",
     "placeholders": {
@@ -1569,7 +1569,7 @@
   "@visualizer": {
     "description": "Title of the visualizer settings page and the navigation entries that open it, also the name of the cover wall button while the visualizer is available."
   },
-  "coverWallVisualizerSubtitle": "音楽に合わせたビジュアル",
+  "coverWallVisualizerSubtitle": "オンガクニゴウワセタビジュアル",
   "@coverWallVisualizerSubtitle": {
     "description": "Subtitle of the playback controller entry that opens the cover wall while it is set to show the visualizer."
   },
@@ -1577,11 +1577,11 @@
   "@visualizerLab": {
     "description": "Name of the playback controller entry that turns the visualizer lab on the cover wall page on and off."
   },
-  "visualizerLabSubtitle": "ビジュアライザー上にラボを表示します。",
+  "visualizerLabSubtitle": "ビジュアライザーウエニラボヲヒョウジシマス。",
   "@visualizerLabSubtitle": {
     "description": "Subtitle of the playback controller entry that turns the visualizer lab on and off."
   },
-  "interfaceScaleFollowTextSize": "文字サイズに合わせる",
+  "interfaceScaleFollowTextSize": "モジサイズニゴウワセル",
   "@interfaceScaleFollowTextSize": {
     "description": "Option that sizes the interface to match the system text size."
   },
@@ -1589,73 +1589,75 @@
   "@linuxCustomWindowControls": {
     "description": "Title for the Linux custom window controls setting option."
   },
-  "linuxCustomWindowControlsSubtitle": "Windowsモードのような枠のないウィンドウでカスタムコントロールを使用します。",
+  "linuxCustomWindowControlsSubtitle": "ウィンドウズモードノヨウナワクノナイウィンドウデカスタムコントロールヲシヨウシマス。",
   "@linuxCustomWindowControlsSubtitle": {
     "description": "Subtitle explaining what the Linux custom window controls setting does."
   },
-  "offlineAvailability": "オフライン利用",
+  "offlineAvailability": "オフラインリヨウ",
   "@offlineAvailability": {
     "description": "Context menu for the audio retained on this device."
   },
-  "keepAvailableOffline": "オフラインで利用",
+  "keepAvailableOffline": "オフラインデリヨウ",
   "@keepAvailableOffline": {
     "description": "Save a mix-query selection for background audio downloads."
   },
-  "stopKeepingOffline": "オフラインでの保持を停止",
+  "stopKeepingOffline": "オフラインデノホジヲテイシ",
   "@stopKeepingOffline": {
     "description": "Disable future downloads for this selection without deleting existing files."
   },
-  "offlineSelectionSaved": "オフラインの選択を保存しました",
+  "offlineSelectionSaved": "オフラインノセンタクヲホゾンシマシタ",
   "@offlineSelectionSaved": {
     "description": "Acknowledges that a persistent download selection has been saved."
   },
-  "offlineSelectionRemoved": "自動ダウンロードを停止しました",
+  "offlineSelectionRemoved": "ジドウダウンロードヲテイシシマシタ",
   "@offlineSelectionRemoved": {
     "description": "Acknowledges disabling an offline selection."
   },
-  "offlineSelectionFailed": "オフラインの選択を保存できませんでした",
+  "offlineSelectionFailed": "オフラインノセンタクヲホゾンデキマセンデシタ",
   "@offlineSelectionFailed": {
     "description": "Error title when saving a download selection fails."
   },
-  "offlineSelectionQueued": "ペアリング済みデバイスが利用可能になると曲をダウンロードします。",
+  "offlineSelectionQueued": "ペアリングスミミデバイスガリヨウカノウニナルトキョクヲダウンロードシマス。",
   "@offlineSelectionQueued": {
     "description": "Explains the difference between a queued offline selection and online playback."
   },
-  "offlineSelectionRetained": "既存のローカルファイルは保持されます。",
+  "offlineSelectionRetained": "キゾンノローカルファイルハホジサレマス。",
   "@offlineSelectionRetained": {
     "description": "Explains that disabling downloads does not delete audio."
   },
-  "audioRemoteReference": "リモート音声（接続状態不明）",
-  "audioUnavailable": "音声を利用できません",
-  "audioImportPending": "インポート中",
-  "allowPairedSync": "同期を許可",
+  "audioRemoteReference": "リモートオンセイ（セツゾクジョウタイフメイ）",
+  "audioUnavailable": "オンセイヲリヨウデキマセン",
+  "audioImportPending": "インポートナカ",
+  "allowPairedSync": "ドウキヲキョカ",
   "@allowPairedSync": {
     "description": "Label for allowing incoming paired device sync"
   },
-  "allowPairedSyncDescription": "オフにすると、他のデバイスから接続できなくなります。",
+  "allowPairedSyncDescription": "オフニスルト、ホカノデバイスカラセツゾクデキナクナリマス。",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
   },
-  "audioSyncedCopy": "同期されたコピー",
+  "audioSyncedCopy": "ドウキサレタコピー",
   "@audioSyncedCopy": {
     "description": "Label for audio downloaded from a paired device."
   },
-  "offlineCleanupDefault": "不要なダウンロードを削除",
+  "offlineCleanupDefault": "フヨウナダウンロードヲサクジョ",
   "@offlineCleanupDefault": {
     "description": "Default option to clean up unneeded offline downloads."
   },
-  "offlineCleanupDefaultDescription": "オフラインで不要になったダウンロードを削除するか選択します。",
+  "offlineCleanupDefaultDescription": "オフラインデフヨウニナッタダウンロードヲサクジョスルカセンタクシマス。",
   "@offlineCleanupDefaultDescription": {
     "description": "Explanation of the offline cleanup default."
   },
-  "offlineCleanupCheckbox": "不要になったダウンロードファイルも削除",
+  "offlineCleanupCheckbox": "フヨウニナッタダウンロードファイルモサクジョ",
   "@offlineCleanupCheckbox": {
     "description": "Option to delete downloads no enabled offline rule needs."
   },
-  "offlineSelectionCleaned": "オフラインの選択を更新し、クリーンアップを試みました。",
+  "offlineSelectionCleaned": "オフラインノセンタクヲコウシンシ、クリーンアップヲシミマシタ。",
   "@offlineSelectionCleaned": {
     "description": "Confirmation after attempting to clean up offline downloads."
   },
   "turnOnBackgroundSync": "バックグラウンドデドウキヲオンニスル",
-  "turnOffBackgroundSync": "バックグラウンドデドウキヲオフニスル"
+  "turnOffBackgroundSync": "バックグラウンドデドウキヲオフニスル",
+  "allowAccess": "アクセスをアラウ",
+  "allowAccessSubtitle": "このデバイスからのプレイバックコントロールとトラックダウンロードのアクセスをグラントします。"
 }

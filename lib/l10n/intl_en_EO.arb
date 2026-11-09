@@ -1333,9 +1333,9 @@
   "@deduplicating": {
     "description": "Etikedo indikanta ke la maldubliga proceso estas nuntempe aktiva. Montrita al uzantoj dum duobligitaj kantoj estas forigataj el ilia muzikbiblioteko aŭ ludlisto. Alternativaj frazigoj povus inkluzivi 'Forigi duoblaĵojn progresanta' aŭ 'Maldubligado progresanta' depende de tio kio estas plej natura en la cela lingvo."
   },
-  "interfaceScale": "Interface scale",
-  "interfaceScaleSubtitle": "Changes text and app content immediately relative to the system scale. Window size and display resolution do not change. 100% follows the system scale.",
-  "interfaceScaleSaveError": "Could not save interface scale",
+  "interfaceScale": "Interfaca skalo",
+  "interfaceScaleSubtitle": "Agordi la grandecon de teksto kaj enhavo en Rune.",
+  "interfaceScaleSaveError": "Ne eblis konservi la interfacan skalon.",
   "remoteOpenUntrusted": "Ĉi tiu aparato ankoraŭ ne fidas tiun servilon. Unue parigu ilin.",
   "remoteOpenNotAuthorized": "La alia aparato ne permesis ĉi tiun aparaton aŭ blokis ĝin.",
   "remoteOpenUnreachable": "La aparato ne estas atingebla. Kontrolu, ke ĝi estas ŝaltita kaj en la sama reto.",
@@ -1363,7 +1363,7 @@
   },
   "requestItemMissing": "Ĉi tiu ero ne plu ekzistas",
   "requestInvalid": "La peto ne estis valida",
-  "requestCertificateMismatch": "This device's certificate does not match",
+  "requestCertificateMismatch": "La atestilo de ĉi tiu aparato ne kongruas.",
   "requestUnavailable": "Ĉi tio nun ne disponeblas",
   "requestStorageBusy": "La memoro estas okupita. Bonvolu reprovi.",
   "mixNoLongerExists": "Ĉi tiu miksaĵo ne plu ekzistas",
@@ -1423,16 +1423,16 @@
   "customDeviceAccess": "Propra",
   "customizeDevice": "Agordi",
   "controlPlayback": "Regi la ludadon",
-  "controlPlaybackDescription": "Can play, pause, queue, and cast to this device",
+  "controlPlaybackDescription": "Povas ludi, paŭzi, vicigi kaj ĵeti al ĉi tiu aparato.",
   "deviceAccessLibraries": "Bibliotekoj",
-  "deviceConnection": "Connection",
-  "deviceSync": "Sync",
-  "deviceConnectionOff": "Off",
-  "deviceConnectionView": "View",
-  "deviceConnectionViewEdit": "View & edit",
-  "deviceSyncOff": "Off",
-  "deviceSyncPull": "Pull",
-  "deviceSyncPullPush": "Pull & push",
+  "deviceConnection": "Konekto",
+  "deviceSync": "Sinkronigo",
+  "deviceConnectionOff": "Malŝaltita",
+  "deviceConnectionView": "Vidi",
+  "deviceConnectionViewEdit": "Vidi kaj redakti",
+  "deviceSyncOff": "Malŝaltita",
+  "deviceSyncPull": "Ricevi",
+  "deviceSyncPullPush": "Ricevi kaj sendi",
   "requestConflict": "La vico ŝanĝiĝis; reprovu",
   "requestPermissionDenied": "Ĉi tiu aparato ne rajtas fari tion",
   "readOnly": "Nurlegebla",
@@ -1461,7 +1461,7 @@
   "capabilityNotImplemented": "Ĉi tiu aparato ne subtenas ĉi tiun regilon",
   "capabilityOwnerOnly": "Nur la posedanta aparato povas fari tion",
   "requestOtherDeviceName": "la alia aparato",
-  "requestPeerNeedsUpdatePeer": "{alias} uzas pli malnovan version de Rune. Ĝisdatigu Rune ĉe {alias} por konektiĝi.",
+  "requestPeerNeedsUpdatePeer": "{alias} bezonas ĝisdatigon de Rune por konektiĝi.",
   "requestPeerNeedsUpdateThisDevice": "{alias} uzas pli novan version de Rune. Ĝisdatigu Rune ĉe ĉi tiu aparato por konektiĝi.",
   "remoteLossProtocolIncompatible": "La versioj de Rune ne plu kongruas. Ĝisdatigu Rune ĉe ambaŭ aparatoj por rekonektiĝi.",
   "capabilityPeerTooOld": "Ĝisdatigu Rune ĉe la alia aparato por uzi ĉi tion.",
@@ -1517,11 +1517,11 @@
   "@automaticTrayIconMode": {
     "description": "An option for tray icon color mode that automatically switches between light and dark based on the system theme."
   },
-  "mixWithOthers": "Ludi kun aliaj aplikaĵoj",
+  "mixWithOthers": "Ludi kune kun alia aŭdio",
   "@mixWithOthers": {
     "description": "Settings title of an entry in the playback settings page"
   },
-  "mixWithOthersSubtitle": "Aliaj aplikaĵoj plu ludas dum Rune ludas.",
+  "mixWithOthersSubtitle": "Alia aŭdio plu ludas dum Rune ludas.",
   "@mixWithOthersSubtitle": {
     "description": "Settings description of an entry in the playback settings page"
   },
@@ -1591,70 +1591,70 @@
   "@linuxCustomWindowControls": {
     "description": "Title for the Linux custom window controls setting option."
   },
-  "linuxCustomWindowControlsSubtitle": "Enable custom window controls for a frameless window experience similar to Windows mode.",
+  "linuxCustomWindowControlsSubtitle": "Ebligi proprajn fenestrajn regilojn por senkadra fenestro simila al la Vindoza reĝimo.",
   "@linuxCustomWindowControlsSubtitle": {
     "description": "Subtitle explaining what the Linux custom window controls setting does."
   },
-  "offlineAvailability": "Offline Availability",
+  "offlineAvailability": "Senreta havebleco",
   "@offlineAvailability": {
     "description": "Context menu for the audio retained on this device."
   },
-  "keepAvailableOffline": "Keep Offline",
+  "keepAvailableOffline": "Konservi senrete",
   "@keepAvailableOffline": {
     "description": "Save a mix-query selection for background audio downloads."
   },
-  "stopKeepingOffline": "Stop Keeping Offline",
+  "stopKeepingOffline": "Ĉesi konservi senrete",
   "@stopKeepingOffline": {
     "description": "Disable future downloads for this selection without deleting existing files."
   },
-  "offlineSelectionSaved": "Offline Selection Saved",
+  "offlineSelectionSaved": "Senreta elekto konservita",
   "@offlineSelectionSaved": {
     "description": "Acknowledges that a persistent download selection has been saved."
   },
-  "offlineSelectionRemoved": "Automatic Downloads Stopped",
+  "offlineSelectionRemoved": "Aŭtomataj elŝutoj ĉesigitaj",
   "@offlineSelectionRemoved": {
     "description": "Acknowledges disabling an offline selection."
   },
-  "offlineSelectionFailed": "Could Not Save Offline Selection",
+  "offlineSelectionFailed": "Ne eblis konservi la senretan elekton.",
   "@offlineSelectionFailed": {
     "description": "Error title when saving a download selection fails."
   },
-  "offlineSelectionQueued": "Tracks will download when a paired device is available.",
+  "offlineSelectionQueued": "Trakoj elŝutiĝos kiam parigita aparato disponeblos.",
   "@offlineSelectionQueued": {
     "description": "Explains the difference between a queued offline selection and online playback."
   },
-  "offlineSelectionRetained": "Existing files are kept.",
+  "offlineSelectionRetained": "Ekzistantaj dosieroj estas konservataj.",
   "@offlineSelectionRetained": {
     "description": "Explains that disabling downloads does not delete audio."
   },
-  "audioRemoteReference": "Remote Audio",
-  "audioUnavailable": "Audio Unavailable",
-  "audioImportPending": "Importing",
-  "allowPairedSync": "Allow Paired Sync",
+  "audioRemoteReference": "Fora aŭdio",
+  "audioUnavailable": "Aŭdio ne disponeblas",
+  "audioImportPending": "Importado",
+  "allowPairedSync": "Permesi sinkronigon kun parigitaj aparatoj",
   "@allowPairedSync": {
     "description": "Label for allowing incoming paired device sync"
   },
-  "allowPairedSyncDescription": "Turn off to stop other devices from connecting to this device.",
+  "allowPairedSyncDescription": "Malŝaltu por malhelpi aliajn aparatojn konektiĝi al ĉi tiu aparato.",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
   },
-  "audioSyncedCopy": "Synced Copy",
+  "audioSyncedCopy": "Sinkronigita kopio",
   "@audioSyncedCopy": {
     "description": "Label for audio downloaded from a paired device."
   },
-  "offlineCleanupDefault": "Delete Unneeded Downloads",
+  "offlineCleanupDefault": "Forigi nebezonatajn elŝutojn",
   "@offlineCleanupDefault": {
     "description": "Default option to clean up unneeded offline downloads."
   },
-  "offlineCleanupDefaultDescription": "Choose whether to delete downloads when they are no longer kept offline.",
+  "offlineCleanupDefaultDescription": "Elektu ĉu forigi elŝutojn kiam ili ne plu estas konservataj senrete.",
   "@offlineCleanupDefaultDescription": {
     "description": "Explanation of the offline cleanup default."
   },
-  "offlineCleanupCheckbox": "Delete Unneeded Downloads",
+  "offlineCleanupCheckbox": "Forigi nebezonatajn elŝutojn",
   "@offlineCleanupCheckbox": {
     "description": "Option to delete downloads no enabled offline rule needs."
   },
-  "offlineSelectionCleaned": "Offline selection updated.",
+  "offlineSelectionCleaned": "Senreta elekto ĝisdatigita.",
   "@offlineSelectionCleaned": {
     "description": "Confirmation after attempting to clean up offline downloads."
   },

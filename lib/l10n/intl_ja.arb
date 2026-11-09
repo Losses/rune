@@ -1332,7 +1332,7 @@
     "description": "Label indicating that the deduplication process is currently active. Shown to users while duplicate tracks are being removed from their music library or playlist. Alternative phrasings could include 'Removing duplicates in progress' or 'Deduplication in progress' depending on what's most natural in the target language."
   },
   "interfaceScale": "インターフェースの拡大率",
-  "interfaceScaleSubtitle": "文字やアプリ内容のサイズを調整します。",
+  "interfaceScaleSubtitle": "Runeの文字やコンテンツのサイズを調整します。",
   "interfaceScaleSaveError": "拡大率を保存できませんでした",
   "linuxCustomWindowControls": "カスタムウィンドウコントロール",
   "@linuxCustomWindowControls": {
@@ -1586,11 +1586,11 @@
   "@automaticTrayIconMode": {
     "description": "An option for tray icon color mode that automatically switches between light and dark based on the system theme."
   },
-  "mixWithOthers": "他のアプリと同時に再生",
+  "mixWithOthers": "他の音声と同時に再生",
   "@mixWithOthers": {
     "description": "Settings title of an entry in the playback settings page"
   },
-  "mixWithOthersSubtitle": "Runeの再生中も他のアプリは再生を続けます。",
+  "mixWithOthersSubtitle": "Runeの再生中も他の音声は再生を続けます。",
   "@mixWithOthersSubtitle": {
     "description": "Settings description of an entry in the playback settings page"
   },
