@@ -1685,7 +1685,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
     let capability_slot_fields: Vec<_> = slot_fields.iter().collect();
     let capability_snapshot_fields = types.iter().zip(&slot_fields).map(|(entry, field)| {
         let request = format_ident!("{}", entry.request);
-        quote! { #field: RpcTarget::select_capability_type::<#request>(node)?.capability::<#request>(), }
+        quote! { #field: node.request_slot::<#request>()?.into(), }
     });
     let scoped_slots = types
         .iter()
@@ -1914,6 +1914,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         }
 
         /// Catalogue-generated slots shared by every RPC target.
+        #[derive(Clone, Copy)]
         pub struct RequestSlots {
             #(pub(crate) #slot_fields: Slot,)*
         }
@@ -1961,8 +1962,9 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
                 Self { record_id: None, generation: 0, #(#capability_slot_fields: RequestCapability::Available,)* }
             }
 
-            pub(crate) fn from_target(target: &RpcTarget) -> Self {
-                Self { record_id: None, generation: 0, #(#capability_slot_fields: target.capability::<#capability_request_idents>(),)* }
+            pub(crate) fn from_implementation(implementation: &Implementation) -> Self {
+                let slots = implementation.slots();
+                Self { record_id: None, generation: 0, #(#capability_slot_fields: RequestCapability::from(<#capability_request_idents as TargetRequest>::slot(&slots)),)* }
             }
         }
 

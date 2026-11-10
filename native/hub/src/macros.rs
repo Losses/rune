@@ -47,9 +47,9 @@ use uuid::Uuid;
 use crate::backends::local::gui_request::{GuiRequest, listen_gui};
 use crate::node::{NodeContext, NodeSlot};
 use crate::request_error::{ExpectedRequestError, classify, request_failure_cause};
-use crate::rpc::{
-    RequestTranslationFuture, RpcTarget, Slot, TargetRequest, UnsupportedReason, narrow_slot,
-};
+#[cfg(test)]
+use crate::request_owner::Implementation;
+use crate::rpc::{RequestTranslationFuture, Slot, TargetRequest, UnsupportedReason, narrow_slot};
 use crate::server::server_request::serve_remote;
 use crate::utils::{GlobalParams, RinfRustSignal};
 use crate::{CallIdentified, Session, TypedRequest};

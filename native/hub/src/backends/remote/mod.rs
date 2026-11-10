@@ -1,5 +1,6 @@
-use crate::node::{CatalogTarget, NodeContext};
+use crate::node::NodeContext;
 use crate::request_error::ExpectedRequestError;
+use crate::request_owner::OpenLibrary;
 use std::{
     collections::HashMap,
     sync::{
@@ -510,7 +511,7 @@ async fn register_session_handlers(handlers: &HandlerMap, node: &Arc<NodeContext
                     .flatten()
                     .is_some_and(|link| link.id() == id)
                     || (scope == RemoteEventScope::Library
-                        && !matches!(node.catalog_target(), Ok(CatalogTarget::RemotePeer)))
+                        && !matches!(node.current_library(), Ok(OpenLibrary::RunePeer { .. })))
                 {
                     return;
                 }

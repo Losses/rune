@@ -41,6 +41,8 @@ use crate::macros::{
     request_scope,
 };
 use crate::request_error::ExpectedRequestError;
+use crate::request_owner::{CurrentPlayer, Implementation, OpenLibrary};
+use crate::rpc::{Slot, TargetRequest};
 use crate::server::sync_worker::SyncTokenStore;
 use crate::subsonic_binding::SubsonicBinding;
 use crate::{Session, session::PlayerSession};
@@ -103,29 +105,16 @@ enum UiLibrary {
 struct OpenLibraryState {
     record_id: Option<LibraryRecordId>,
     generation: u64,
-    catalog: CatalogBinding,
+    catalog: LibraryBinding,
 }
 
-enum CatalogBinding {
+enum LibraryBinding {
     Local,
     Subsonic(Arc<SubsonicBinding>),
     RemotePeer {
         fingerprint: String,
         reconnect: Option<ReconnectTask>,
     },
-}
-
-pub(crate) enum SessionBinding {
-    Local,
-    Attached(Arc<RendererLink>),
-    RemotePeer(Arc<RendererLink>),
-}
-
-pub(crate) enum CatalogTarget {
-    Closed,
-    Local,
-    Subsonic(Arc<SubsonicBinding>),
-    RemotePeer,
 }
 
 /// Process services shared by every local library and remote controller.
@@ -145,6 +134,7 @@ pub struct NodeContext {
     pub gui_broadcaster: Arc<dyn Broadcaster>,
     pub renderer_link: Arc<StdMutex<Option<Arc<RendererLink>>>>,
     ui_library: Arc<StdMutex<UiLibrary>>,
+    current_player: Arc<StdMutex<CurrentPlayer>>,
     open_generation: AtomicU64,
     reconnect_config: ReconnectConfig,
     #[cfg(test)]
@@ -174,25 +164,18 @@ impl Debug for NodeContext {
 }
 
 struct NodeBroadcaster {
-    ui_library: Arc<StdMutex<UiLibrary>>,
+    current_player: Arc<StdMutex<CurrentPlayer>>,
     local: Arc<dyn Broadcaster>,
     remote: Arc<WebSocketService>,
-    renderer_link: Arc<StdMutex<Option<Arc<RendererLink>>>>,
 }
 impl Broadcaster for NodeBroadcaster {
     fn broadcast(&self, message: &dyn RinfRustSignal) {
         let remote_event = message.remote_event();
-        let suppress_local_status =
-            (self.ui_library.lock().is_ok_and(|ui| {
-                matches!(
-                    &*ui,
-                    UiLibrary::Open(OpenLibraryState {
-                        catalog: CatalogBinding::RemotePeer { .. },
-                        ..
-                    })
-                )
-            }) || self.renderer_link.lock().is_ok_and(|link| link.is_some()))
-                && remote_event == Some(RemoteEventScope::Session);
+        let suppress_local_status = self
+            .current_player
+            .lock()
+            .is_ok_and(|player| player.suppresses_local_session_events())
+            && remote_event == Some(RemoteEventScope::Session);
         if !suppress_local_status {
             self.local.broadcast(message);
         }
@@ -281,6 +264,7 @@ impl NodeContext {
         let websocket_service = Arc::new(WebSocketService::new());
         let renderer_link = Arc::new(StdMutex::new(None));
         let ui_library = Arc::new(StdMutex::new(UiLibrary::Closed));
+        let current_player = Arc::new(StdMutex::new(CurrentPlayer::Local));
         let sync_tokens = SyncTokenStore::default();
         let credentials = Arc::new(CredentialStore::open(Path::new(config_path)));
         let permission_manager = PermissionManager::new(config_path)?;
@@ -305,15 +289,15 @@ impl NodeContext {
             device_scanner: Arc::new(DiscoveryService::without_store()),
             sync_settings: Arc::new(RwLock::new(SyncSettings::load(Path::new(config_path)))),
             broadcaster: Arc::new(NodeBroadcaster {
-                ui_library: ui_library.clone(),
+                current_player: current_player.clone(),
                 local: broadcaster.clone(),
                 remote: websocket_service.clone(),
-                renderer_link: renderer_link.clone(),
             }),
             gui_broadcaster: broadcaster,
             websocket_service,
             renderer_link,
             ui_library,
+            current_player,
             open_generation: AtomicU64::new(0),
             reconnect_config,
             #[cfg(test)]
@@ -569,6 +553,17 @@ impl NodeContext {
         if let Some(old) = old {
             old.close();
         }
+        if let Ok(mut player) = self.current_player.lock() {
+            let attached = matches!(
+                &*player,
+                CurrentPlayer::Local | CurrentPlayer::RunePeer { attached: true, .. }
+            );
+            *player = CurrentPlayer::RunePeer {
+                link: self.renderer_link()?.clone(),
+                attached,
+                reconnecting: None,
+            };
+        }
         self.gui_broadcaster.broadcast(&RendererAttachmentChanged {
             renderer: Some(AttachedRenderer { fingerprint, alias }),
         });
@@ -613,6 +608,7 @@ impl NodeContext {
             }
         };
         if detached {
+            self.refresh_current_player()?;
             self.gui_broadcaster
                 .broadcast(&RendererAttachmentChanged { renderer: None });
             self.publish_capabilities()?;
@@ -644,10 +640,10 @@ impl NodeContext {
             return;
         };
         link.close();
-        if let Ok(mut ui) = self.ui_library.lock()
+        let reconnecting = if let Ok(mut ui) = self.ui_library.lock()
             && let UiLibrary::Open(OpenLibraryState {
                 catalog:
-                    CatalogBinding::RemotePeer {
+                    LibraryBinding::RemotePeer {
                         fingerprint,
                         reconnect,
                     },
@@ -663,12 +659,19 @@ impl NodeContext {
                 self.reconnect_config.clone(),
                 (kind, detail),
             ));
+            true
+        } else {
+            false
+        };
+        if reconnecting {
+            self.refresh_current_player().ok();
             self.gui_broadcaster.broadcast(&RemoteLibraryReconnecting {
-                fingerprint: fingerprint.clone(),
+                fingerprint: link.fingerprint().to_owned(),
                 alias: link.alias().to_owned(),
             });
             return;
         }
+        self.refresh_current_player().ok();
         self.gui_broadcaster.broadcast(&RendererLinkLost {
             fingerprint: link.fingerprint().to_owned(),
             alias: link.alias().to_owned(),
@@ -702,26 +705,79 @@ impl NodeContext {
         }
     }
 
-    pub(crate) fn catalog_target(&self) -> Result<CatalogTarget> {
+    pub(crate) fn current_library(&self) -> Result<OpenLibrary> {
         let ui = self
             .ui_library
             .lock()
             .map_err(|_| anyhow::anyhow!("UI library lock poisoned"))?;
         Ok(match &*ui {
             UiLibrary::Open(OpenLibraryState {
-                catalog: CatalogBinding::Local,
+                catalog: LibraryBinding::Local,
                 ..
-            }) => CatalogTarget::Local,
+            }) => OpenLibrary::Local,
             UiLibrary::Open(OpenLibraryState {
-                catalog: CatalogBinding::RemotePeer { .. },
+                catalog: LibraryBinding::RemotePeer { reconnect, .. },
                 ..
-            }) => CatalogTarget::RemotePeer,
+            }) => OpenLibrary::RunePeer {
+                reconnecting: reconnect.as_ref().map(|task| task.alias.clone()),
+                link: self.renderer_link()?,
+            },
             UiLibrary::Open(OpenLibraryState {
-                catalog: CatalogBinding::Subsonic(binding),
+                catalog: LibraryBinding::Subsonic(binding),
                 ..
-            }) => CatalogTarget::Subsonic(Arc::clone(binding)),
-            UiLibrary::Closed => CatalogTarget::Closed,
+            }) => OpenLibrary::Subsonic(Arc::clone(binding)),
+            UiLibrary::Closed => OpenLibrary::Closed,
         })
+    }
+
+    pub(crate) fn current_player(&self) -> Result<CurrentPlayer> {
+        let ui = self
+            .ui_library
+            .lock()
+            .map_err(|_| anyhow::anyhow!("UI library lock poisoned"))?;
+        Ok(match &*ui {
+            UiLibrary::Open(OpenLibraryState {
+                catalog: LibraryBinding::RemotePeer { reconnect, .. },
+                ..
+            }) => CurrentPlayer::RunePeer {
+                link: self.renderer_link()?,
+                attached: false,
+                reconnecting: reconnect.as_ref().map(|task| task.alias.clone()),
+            },
+            UiLibrary::Open(OpenLibraryState {
+                catalog: LibraryBinding::Subsonic(binding),
+                ..
+            }) => CurrentPlayer::SubsonicJukebox(Arc::clone(binding)),
+            _ => match self.renderer_link()? {
+                Some(link) => CurrentPlayer::RunePeer {
+                    link: Some(link),
+                    attached: true,
+                    reconnecting: None,
+                },
+                None => CurrentPlayer::Local,
+            },
+        })
+    }
+
+    pub(crate) fn request_slot<R: TargetRequest>(&self) -> Result<Slot> {
+        Ok(R::slot(&self.implementation_for_scope::<R>()?.slots()))
+    }
+
+    pub(crate) fn implementation_for_scope<R: TargetRequest>(&self) -> Result<Implementation> {
+        match R::SCOPE {
+            RequestScope::Node => Ok(Implementation::Local),
+            RequestScope::Library => Ok(self.current_library()?.implementation()),
+            RequestScope::Session => Ok(self.current_player()?.implementation()),
+        }
+    }
+
+    fn refresh_current_player(&self) -> Result<()> {
+        let player = self.current_player()?;
+        *self
+            .current_player
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Current player lock poisoned"))? = player;
+        Ok(())
     }
 
     pub(crate) async fn attach_remote_ui(
@@ -733,7 +789,7 @@ impl NodeContext {
         self.attach_ui(params).await;
         self.set_open_catalog(
             record_id,
-            CatalogBinding::RemotePeer {
+            LibraryBinding::RemotePeer {
                 fingerprint,
                 reconnect: None,
             },
@@ -741,7 +797,7 @@ impl NodeContext {
     }
 
     pub(crate) fn set_open_local_catalog(&self, record_id: Option<LibraryRecordId>) -> Result<u64> {
-        self.set_open_catalog(record_id, CatalogBinding::Local)
+        self.set_open_catalog(record_id, LibraryBinding::Local)
     }
 
     pub(crate) fn set_open_subsonic_catalog(
@@ -749,13 +805,13 @@ impl NodeContext {
         record_id: Option<LibraryRecordId>,
         binding: Arc<SubsonicBinding>,
     ) -> Result<u64> {
-        self.set_open_catalog(record_id, CatalogBinding::Subsonic(binding))
+        self.set_open_catalog(record_id, LibraryBinding::Subsonic(binding))
     }
 
     fn set_open_catalog(
         &self,
         record_id: Option<LibraryRecordId>,
-        catalog: CatalogBinding,
+        catalog: LibraryBinding,
     ) -> Result<u64> {
         let mut ui = self
             .ui_library
@@ -768,6 +824,7 @@ impl NodeContext {
             catalog,
         });
         drop(ui);
+        self.refresh_current_player()?;
         self.publish_capabilities()?;
         Ok(generation)
     }
@@ -783,45 +840,6 @@ impl NodeContext {
                 open.record_id.map(|record_id| record_id.0.to_string()),
                 open.generation,
             ),
-        })
-    }
-
-    pub(crate) fn session_binding(&self) -> Result<SessionBinding> {
-        let remote = {
-            let ui = self
-                .ui_library
-                .lock()
-                .map_err(|_| anyhow::anyhow!("UI library lock poisoned"))?;
-            match &*ui {
-                UiLibrary::Open(OpenLibraryState {
-                    catalog: CatalogBinding::RemotePeer { reconnect, .. },
-                    ..
-                }) => {
-                    if let Some(task) = reconnect {
-                        return Err(ExpectedRequestError::Reconnecting {
-                            alias: task.alias.clone(),
-                        }
-                        .into());
-                    }
-                    true
-                }
-                _ => false,
-            }
-        };
-        if remote {
-            return self
-                .renderer_link()?
-                .map(SessionBinding::RemotePeer)
-                .ok_or_else(|| {
-                    ExpectedRequestError::Unavailable {
-                        what: "remote UI library",
-                    }
-                    .into()
-                });
-        }
-        Ok(match self.renderer_link()? {
-            Some(renderer) => SessionBinding::Attached(renderer),
-            None => SessionBinding::Local,
         })
     }
 
@@ -994,14 +1012,14 @@ impl NodeContext {
             let remote = matches!(
                 &*ui,
                 UiLibrary::Open(OpenLibraryState {
-                    catalog: CatalogBinding::RemotePeer { .. },
+                    catalog: LibraryBinding::RemotePeer { .. },
                     ..
                 })
             );
             if matches!(
                 &*ui,
                 UiLibrary::Open(OpenLibraryState {
-                    catalog: CatalogBinding::RemotePeer {
+                    catalog: LibraryBinding::RemotePeer {
                         reconnect: Some(_),
                         ..
                     },
@@ -1014,6 +1032,7 @@ impl NodeContext {
             *ui = UiLibrary::Closed;
             remote
         });
+        self.refresh_current_player().ok();
         if let Err(error) = self.publish_capabilities() {
             log::warn!("Could not publish request capabilities after remote UI close: {error:#}");
         }
@@ -1248,9 +1267,10 @@ mod tests {
         time::{Duration, timeout},
     };
 
-    use super::{NodeBroadcaster, NodeContext, UiLibrary};
+    use super::{NodeBroadcaster, NodeContext};
     use crate::{
         messages::{LibraryContentChanged, TrustListUpdated},
+        request_owner::CurrentPlayer,
         server::WebSocketService,
         utils::{Broadcaster, RinfRustSignal},
     };
@@ -1312,10 +1332,9 @@ mod tests {
         let remote = Arc::new(WebSocketService::new());
         let mut received = remote.broadcast_tx.subscribe();
         let broadcaster = NodeBroadcaster {
-            ui_library: Arc::new(StdMutex::new(UiLibrary::Closed)),
+            current_player: Arc::new(StdMutex::new(CurrentPlayer::Local)),
             local: Arc::new(Quiet(None)),
             remote,
-            renderer_link: Arc::new(StdMutex::new(None)),
         };
         broadcaster.broadcast(&TrustListUpdated {
             certificates: Vec::new(),

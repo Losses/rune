@@ -12,7 +12,7 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-use super::{CatalogBinding, NodeContext, UiLibrary};
+use super::{CurrentPlayer, LibraryBinding, NodeContext, UiLibrary};
 use crate::{
     backends::remote::{RemoteConnectError, RendererLink, RendererLinkUse},
     messages::{
@@ -110,7 +110,7 @@ impl Drop for ReconnectTask {
 impl NodeContext {
     fn begin_reconnect_attempt(&self, fingerprint: &str, cancel: &CancellationToken) -> bool {
         self.ui_library.lock().is_ok_and(|ui| {
-            let active = !cancel.is_cancelled() && matches!(&*ui, UiLibrary::Open(open) if matches!(&open.catalog, CatalogBinding::RemotePeer { fingerprint: current, reconnect: Some(_) } if current == fingerprint));
+            let active = !cancel.is_cancelled() && matches!(&*ui, UiLibrary::Open(open) if matches!(&open.catalog, LibraryBinding::RemotePeer { fingerprint: current, reconnect: Some(_) } if current == fingerprint));
             #[cfg(test)]
             if active {
                 self.reconnect_attempts.fetch_add(1, Ordering::SeqCst);
@@ -132,7 +132,7 @@ impl NodeContext {
         let UiLibrary::Open(open) = &mut *ui else {
             return None;
         };
-        let CatalogBinding::RemotePeer {
+        let LibraryBinding::RemotePeer {
             fingerprint: current,
             reconnect,
         } = &mut open.catalog
@@ -155,6 +155,13 @@ impl NodeContext {
                 });
                 return self.renderer_link().ok().flatten();
             }
+        }
+        if let Ok(mut player) = self.current_player.lock() {
+            *player = CurrentPlayer::RunePeer {
+                link: self.renderer_link().ok().flatten(),
+                attached: false,
+                reconnecting: None,
+            };
         }
         self.gui_broadcaster.broadcast(&RemoteConnectionLost {
             kind: loss.0,

@@ -13,6 +13,7 @@ pub mod library_pool;
 pub mod messages;
 pub mod node;
 pub mod request_error;
+mod request_owner;
 pub mod rpc;
 pub mod session;
 mod subsonic_binding;
