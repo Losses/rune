@@ -99,8 +99,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "SetDeviceGrantsRequest".to_string(),
@@ -109,8 +109,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "ListControllersRequest".to_string(),
@@ -119,8 +119,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "DetachControllerRequest".to_string(),
@@ -139,8 +139,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "ListLibraryRecordsRequest".to_string(),
@@ -169,8 +169,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "RegisterLocalLibraryRequest".to_string(),
@@ -249,8 +249,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "AddRemoteLibraryRequest".to_string(),
@@ -259,8 +259,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         // Library
         RequestResponse {
@@ -270,8 +270,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "SetSyncSettingsRequest".to_string(),
@@ -280,8 +280,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "SetDownloadRuleRequest".to_string(),
@@ -310,8 +310,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "CloseLibraryRequest".to_string(),
@@ -502,8 +502,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         // Visualizer (the GPU and the frame buffer live in this process)
         RequestResponse {
@@ -543,8 +543,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "SetVisualizerAccentRequest".to_string(),
@@ -633,8 +633,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "SetVisualizerLogRequest".to_string(),
@@ -693,8 +693,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "VisualizerStatusRequest".to_string(),
@@ -713,8 +713,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "ListVisualizerCreditsRequest".to_string(),
@@ -1257,8 +1257,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         // License
         RequestResponse {
@@ -1268,8 +1268,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "ValidateLicenseRequest".to_string(),
@@ -1278,8 +1278,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         // Neighbors
         RequestResponse {
@@ -1289,8 +1289,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "StopBroadcastRequest".to_string(),
@@ -1299,8 +1299,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "StartListeningRequest".to_string(),
@@ -1309,8 +1309,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "StopListeningRequest".to_string(),
@@ -1319,8 +1319,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "GetDiscoveredDeviceRequest".to_string(),
@@ -1329,8 +1329,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "StartServerRequest".to_string(),
@@ -1339,8 +1339,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "StopServerRequest".to_string(),
@@ -1349,8 +1349,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "ListClientsRequest".to_string(),
@@ -1359,8 +1359,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "GetSslCertificateFingerprintRequest".to_string(),
@@ -1369,8 +1369,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "AddTrustedServerRequest".to_string(),
@@ -1379,8 +1379,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "RemoveTrustedClientRequest".to_string(),
@@ -1389,8 +1389,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "UpdateClientStatusRequest".to_string(),
@@ -1399,8 +1399,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "EditHostsRequest".to_string(),
@@ -1419,8 +1419,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "ServerAvailabilityTestRequest".to_string(),
@@ -1429,8 +1429,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "RegisterDeviceOnServerRequest".to_string(),
@@ -1439,8 +1439,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "CheckDeviceOnServerRequest".to_string(),
@@ -1449,8 +1449,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "ConnectRequest".to_string(),
@@ -1459,8 +1459,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "FetchServerCertificateRequest".to_string(),
@@ -1469,8 +1469,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "FetchRemoteFileRequest".to_string(),
@@ -1738,7 +1738,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         .map(|entry| {
             (
                 syn::parse_str::<syn::Ident>(&entry.request).unwrap(),
-                syn::parse_str::<syn::Ident>(entry.response.as_deref().unwrap()).unwrap(),
+                syn::parse_str::<syn::Type>(entry.response.as_deref().unwrap_or("()")).unwrap(),
                 format_ident!("handle_{}", snake_case(&entry.request)),
                 format_ident!("{}_receiver", snake_case(&entry.request)),
             )
@@ -1781,15 +1781,19 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         .iter()
         .map(|(_, _, _, receiver)| receiver)
         .collect();
-    let node_receiver_branches = node_loop_requests
+    let node_receiver_tasks = node_loop_requests
         .iter()
         .map(|(request, _, method, receiver)| {
             quote! {
-                Some(signal) = #receiver.recv() => {
-                    let request = signal.message;
-                    let result = handlers.#method(node, &request).await;
-                    answer_node_request::<#request>(&request, result, &emit);
-                }
+                let receiver = #receiver;
+                request_tasks.push(Box::pin(async move {
+                    let mut receiver = receiver;
+                    while let Some(signal) = receiver.recv().await {
+                        let request = signal.message;
+                        let result = handlers.#method(node, &request).await;
+                        answer_node_request::<#request>(&request, result, emit);
+                    }
+                }));
             }
         });
     let bootstrap_starts = bootstrap_requests.iter().map(|request| {
@@ -1848,15 +1852,19 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         )
         where
             H: NodeRequestHandlers,
-            E: Fn(&dyn RinfRustSignal),
+            E: Fn(&dyn RinfRustSignal) + Sync,
         {
             let NodeRequestReceivers {
                 #(#node_loop_receiver_args,)*
             } = receivers;
+            let handlers = &handlers;
+            let emit = &emit;
+            let mut request_tasks: FuturesUnordered<BoxFuture<'_, ()>> =
+                FuturesUnordered::new();
+            #(#node_receiver_tasks)*
             loop {
-                tokio::select! {
-                    #(#node_receiver_branches,)*
-                    else => sleep(Duration::from_secs(1)).await,
+                if request_tasks.next().await.is_none() {
+                    sleep(Duration::from_secs(1)).await;
                 }
             }
         }

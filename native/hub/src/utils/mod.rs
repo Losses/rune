@@ -281,6 +281,475 @@ impl ProductionNodeRequestHandlers {
 // Explicit `Send` futures let the generated receiver loop run in a Tokio task.
 #[allow(clippy::manual_async_fn)]
 impl NodeRequestHandlers for ProductionNodeRequestHandlers {
+    fn handle_list_controllers_request(
+        &self,
+        node: &NodeSlot,
+        request: &ListControllersRequest,
+    ) -> impl Future<Output = Result<Option<ListControllersResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request.handle(node, None, request).await
+        }
+    }
+
+    fn handle_list_local_libraries_request(
+        &self,
+        node: &NodeSlot,
+        request: &ListLocalLibrariesRequest,
+    ) -> impl Future<Output = Result<Option<ListLocalLibrariesResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request
+                .handle(node.config_path.clone(), None, request)
+                .await
+        }
+    }
+
+    fn handle_get_device_grants_request(
+        &self,
+        node: &NodeSlot,
+        request: &GetDeviceGrantsRequest,
+    ) -> impl Future<Output = Result<Option<GetDeviceGrantsResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request.handle(node, None, request).await
+        }
+    }
+
+    fn handle_set_device_grants_request(
+        &self,
+        node: &NodeSlot,
+        request: &SetDeviceGrantsRequest,
+    ) -> impl Future<Output = Result<Option<SetDeviceGrantsResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request.handle(node, None, request).await
+        }
+    }
+
+    fn handle_set_library_background_sync_request(
+        &self,
+        node: &NodeSlot,
+        request: &SetLibraryBackgroundSyncRequest,
+    ) -> impl Future<Output = Result<Option<SetLibraryBackgroundSyncResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request.handle(node, None, request).await
+        }
+    }
+
+    fn handle_list_peer_libraries_request(
+        &self,
+        node: &NodeSlot,
+        request: &ListPeerLibrariesRequest,
+    ) -> impl Future<Output = Result<Option<ListPeerLibrariesResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request
+                .handle(node.server_manager.get().cloned(), None, request)
+                .await
+        }
+    }
+
+    fn handle_add_remote_library_request(
+        &self,
+        node: &NodeSlot,
+        request: &AddRemoteLibraryRequest,
+    ) -> impl Future<Output = Result<Option<AddRemoteLibraryResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request
+                .handle(node.config_path.clone(), None, request)
+                .await
+        }
+    }
+
+    fn handle_register_license_request(
+        &self,
+        node: &NodeSlot,
+        request: &RegisterLicenseRequest,
+    ) -> impl Future<Output = Result<Option<RegisterLicenseResponse>>> + Send {
+        async move {
+            node.current().await?;
+            request.handle((), None, request).await
+        }
+    }
+
+    fn handle_validate_license_request(
+        &self,
+        node: &NodeSlot,
+        request: &ValidateLicenseRequest,
+    ) -> impl Future<Output = Result<Option<ValidateLicenseResponse>>> + Send {
+        async move {
+            node.current().await?;
+            request.handle((), None, request).await
+        }
+    }
+
+    fn handle_get_discovered_device_request(
+        &self,
+        node: &NodeSlot,
+        request: &GetDiscoveredDeviceRequest,
+    ) -> impl Future<Output = Result<Option<GetDiscoveredDeviceResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request
+                .handle(Arc::clone(&node.device_scanner), None, request)
+                .await
+        }
+    }
+
+    fn handle_list_clients_request(
+        &self,
+        node: &NodeSlot,
+        request: &ListClientsRequest,
+    ) -> impl Future<Output = Result<Option<ListClientsResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request
+                .handle(Arc::clone(&node.permission_manager), None, request)
+                .await
+        }
+    }
+
+    fn handle_start_server_request(
+        &self,
+        node: &NodeSlot,
+        request: &StartServerRequest,
+    ) -> impl Future<Output = Result<Option<StartServerResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            let manager = node
+                .server_manager
+                .get()
+                .cloned()
+                .context("Server manager is not initialized")?;
+            request
+                .handle((node.config_path.clone(), manager), None, request)
+                .await
+        }
+    }
+
+    fn handle_stop_server_request(
+        &self,
+        node: &NodeSlot,
+        request: &StopServerRequest,
+    ) -> impl Future<Output = Result<Option<StopServerResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            let manager = node
+                .server_manager
+                .get()
+                .cloned()
+                .context("Server manager is not initialized")?;
+            request.handle(manager, None, request).await
+        }
+    }
+
+    fn handle_start_broadcast_request(
+        &self,
+        node: &NodeSlot,
+        request: &StartBroadcastRequest,
+    ) -> impl Future<Output = Result<Option<()>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request
+                .handle(
+                    (Arc::clone(&node.device_scanner), node.config_path.clone()),
+                    None,
+                    request,
+                )
+                .await
+        }
+    }
+
+    fn handle_stop_broadcast_request(
+        &self,
+        node: &NodeSlot,
+        request: &StopBroadcastRequest,
+    ) -> impl Future<Output = Result<Option<()>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request
+                .handle((Arc::clone(&node.device_scanner),), None, request)
+                .await
+        }
+    }
+
+    fn handle_start_listening_request(
+        &self,
+        node: &NodeSlot,
+        request: &StartListeningRequest,
+    ) -> impl Future<Output = Result<Option<()>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request
+                .handle(
+                    (Arc::clone(&node.device_scanner), node.config_path.clone()),
+                    None,
+                    request,
+                )
+                .await
+        }
+    }
+
+    fn handle_stop_listening_request(
+        &self,
+        node: &NodeSlot,
+        request: &StopListeningRequest,
+    ) -> impl Future<Output = Result<Option<()>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request
+                .handle((Arc::clone(&node.device_scanner),), None, request)
+                .await
+        }
+    }
+
+    fn handle_set_visualizer_preset_dirs_request(
+        &self,
+        node: &NodeSlot,
+        request: &SetVisualizerPresetDirsRequest,
+    ) -> impl Future<Output = Result<Option<()>>> + Send {
+        async move {
+            node.current().await?;
+            request.handle((), None, request).await
+        }
+    }
+
+    fn handle_set_visualizer_scenes_request(
+        &self,
+        node: &NodeSlot,
+        request: &SetVisualizerScenesRequest,
+    ) -> impl Future<Output = Result<Option<()>>> + Send {
+        async move {
+            node.current().await?;
+            request.handle((), None, request).await
+        }
+    }
+
+    fn handle_get_ssl_certificate_fingerprint_request(
+        &self,
+        node: &NodeSlot,
+        request: &GetSslCertificateFingerprintRequest,
+    ) -> impl Future<Output = Result<Option<GetSslCertificateFingerprintResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request
+                .handle(node.config_path.clone(), None, request)
+                .await
+        }
+    }
+
+    fn handle_visualizer_support_request(
+        &self,
+        node: &NodeSlot,
+        request: &VisualizerSupportRequest,
+    ) -> impl Future<Output = Result<Option<VisualizerSupportResponse>>> + Send {
+        async move {
+            node.current().await?;
+            request.handle((), None, request).await
+        }
+    }
+
+    fn handle_list_visualizer_presets_request(
+        &self,
+        node: &NodeSlot,
+        request: &ListVisualizerPresetsRequest,
+    ) -> impl Future<Output = Result<Option<ListVisualizerPresetsResponse>>> + Send {
+        async move {
+            node.current().await?;
+            request.handle((), None, request).await
+        }
+    }
+
+    fn handle_test_library_initialized_request(
+        &self,
+        node: &NodeSlot,
+        request: &TestLibraryInitializedRequest,
+    ) -> impl Future<Output = Result<Option<TestLibraryInitializedResponse>>> + Send {
+        async move {
+            node.current().await?;
+            request.handle((), None, request).await
+        }
+    }
+
+    fn handle_set_mix_with_others_request(
+        &self,
+        node: &NodeSlot,
+        request: &SetMixWithOthersRequest,
+    ) -> impl Future<Output = Result<Option<()>>> + Send {
+        async move {
+            let node = node.current().await?;
+            let session = node.session()?;
+            request
+                .handle((Arc::clone(&session.player),), None, request)
+                .await
+        }
+    }
+
+    fn handle_get_sync_settings_request(
+        &self,
+        node: &NodeSlot,
+        request: &GetSyncSettingsRequest,
+    ) -> impl Future<Output = Result<Option<GetSyncSettingsResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request
+                .handle(Arc::clone(&node.sync_settings), None, request)
+                .await
+        }
+    }
+
+    fn handle_set_sync_settings_request(
+        &self,
+        node: &NodeSlot,
+        request: &SetSyncSettingsRequest,
+    ) -> impl Future<Output = Result<Option<SetSyncSettingsResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request
+                .handle(
+                    (
+                        Arc::clone(&node.sync_settings),
+                        node.config_path.clone(),
+                        node.server_manager.get().cloned(),
+                    ),
+                    None,
+                    request,
+                )
+                .await
+        }
+    }
+
+    fn handle_system_info_request(
+        &self,
+        node: &NodeSlot,
+        request: &SystemInfoRequest,
+    ) -> impl Future<Output = Result<Option<SystemInfoResponse>>> + Send {
+        async move {
+            node.current().await?;
+            request.handle((), None, request).await
+        }
+    }
+
+    fn handle_add_trusted_server_request(
+        &self,
+        node: &NodeSlot,
+        request: &AddTrustedServerRequest,
+    ) -> impl Future<Output = Result<Option<AddTrustedServerResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request
+                .handle(Arc::clone(&node.cert_validator), None, request)
+                .await
+        }
+    }
+
+    fn handle_remove_trusted_client_request(
+        &self,
+        node: &NodeSlot,
+        request: &RemoveTrustedClientRequest,
+    ) -> impl Future<Output = Result<Option<RemoveTrustedClientResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request.handle(node, None, request).await
+        }
+    }
+
+    fn handle_update_client_status_request(
+        &self,
+        node: &NodeSlot,
+        request: &UpdateClientStatusRequest,
+    ) -> impl Future<Output = Result<Option<UpdateClientStatusResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request.handle(node, None, request).await
+        }
+    }
+
+    fn handle_remove_trusted_server_request(
+        &self,
+        node: &NodeSlot,
+        request: &RemoveTrustedServerRequest,
+    ) -> impl Future<Output = Result<Option<RemoveTrustedServerResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request.handle(node, None, request).await
+        }
+    }
+
+    fn handle_server_availability_test_request(
+        &self,
+        node: &NodeSlot,
+        request: &ServerAvailabilityTestRequest,
+    ) -> impl Future<Output = Result<Option<ServerAvailabilityTestResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request
+                .handle(Arc::clone(&node.cert_validator), None, request)
+                .await
+        }
+    }
+
+    fn handle_register_device_on_server_request(
+        &self,
+        node: &NodeSlot,
+        request: &RegisterDeviceOnServerRequest,
+    ) -> impl Future<Output = Result<Option<RegisterDeviceOnServerResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request
+                .handle(
+                    (node.config_path.clone(), Arc::clone(&node.cert_validator)),
+                    None,
+                    request,
+                )
+                .await
+        }
+    }
+
+    fn handle_check_device_on_server_request(
+        &self,
+        node: &NodeSlot,
+        request: &CheckDeviceOnServerRequest,
+    ) -> impl Future<Output = Result<Option<CheckDeviceOnServerResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request
+                .handle(
+                    (Arc::clone(&node.cert_validator), node.config_path.clone()),
+                    None,
+                    request,
+                )
+                .await
+        }
+    }
+
+    fn handle_connect_request(
+        &self,
+        node: &NodeSlot,
+        request: &ConnectRequest,
+    ) -> impl Future<Output = Result<Option<ConnectResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request
+                .handle(Arc::clone(&node.cert_validator), None, request)
+                .await
+        }
+    }
+
+    fn handle_fetch_server_certificate_request(
+        &self,
+        node: &NodeSlot,
+        request: &FetchServerCertificateRequest,
+    ) -> impl Future<Output = Result<Option<FetchServerCertificateResponse>>> + Send {
+        async move {
+            node.current().await?;
+            request.handle((), None, request).await
+        }
+    }
+
     fn handle_list_library_records_request(
         &self,
         node: &NodeSlot,
@@ -1643,6 +2112,98 @@ pub fn init_logging() {
     tracing_subscriber::fmt()
         .with_env_filter(stdout_filter)
         .init();
+}
+
+#[cfg(test)]
+mod moved_node_request_tests {
+    use std::{sync::Arc, time::Duration};
+
+    use anyhow::Result;
+    use database::library_registry::{
+        CatalogPlacement, FsAdapter, LibraryRecord, LibraryRecordId, LibraryRegistry,
+        ProtocolAdapter,
+    };
+    use scrobbling::manager::ScrobblingManager;
+    use tokio::sync::Mutex;
+    use uuid::Uuid;
+
+    use super::{Broadcaster, ProductionNodeRequestHandlers, RinfRustSignal};
+    use crate::{
+        macros::NodeRequestHandlers,
+        messages::{GetSyncSettingsRequest, MissingHostFilePolicy},
+        node::NodeSlot,
+    };
+
+    struct Quiet;
+
+    impl Broadcaster for Quiet {
+        fn broadcast(&self, _: &dyn RinfRustSignal) {}
+    }
+
+    #[tokio::test]
+    async fn get_sync_settings_succeeds_with_and_without_an_open_library() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().to_string_lossy().into_owned();
+        let node_slot = NodeSlot::new();
+        let node = node_slot.initialize(&path, &path, Arc::new(Quiet)).await?;
+        let handlers = ProductionNodeRequestHandlers::new(Arc::new(Mutex::new(
+            ScrobblingManager::new(10, Duration::from_secs(5)),
+        )));
+        let request = GetSyncSettingsRequest {
+            request_id: "sync-settings-test".into(),
+        };
+
+        let closed_response = handlers
+            .handle_get_sync_settings_request(&node_slot, &request)
+            .await?
+            .expect("sync settings response with no UI library");
+
+        let library_id = Uuid::new_v4();
+        LibraryRegistry::update(directory.path(), |registry| {
+            registry.libraries.push(LibraryRecord {
+                record_id: LibraryRecordId(Uuid::new_v4()),
+                alias: "Test library".into(),
+                library_id: Some(library_id),
+                protocol: ProtocolAdapter::Native,
+                fs: vec![FsAdapter::Local { path: path.clone() }],
+                catalog: CatalogPlacement::InMediaRoot,
+                background_sync: true,
+            });
+            Ok(())
+        })
+        .await?;
+        let library = node.library_pool.acquire_ui(library_id).await?;
+        let params = Arc::new(node.params_for_ui()?.for_library(library.clone()));
+        *params.ui_library.lock().await = Some(library);
+        node.attach_ui(&params).await;
+        node.set_open_local_catalog(None)?;
+
+        let open_response = handlers
+            .handle_get_sync_settings_request(&node_slot, &request)
+            .await?
+            .expect("sync settings response with a UI library");
+        assert_eq!(open_response.request_id, closed_response.request_id);
+        assert_eq!(open_response.listen, closed_response.listen);
+        assert!(matches!(
+            (
+                open_response.missing_host_file,
+                closed_response.missing_host_file
+            ),
+            (
+                MissingHostFilePolicy::RemoveEverywhere,
+                MissingHostFilePolicy::RemoveEverywhere
+            ) | (
+                MissingHostFilePolicy::KeepAsRemote,
+                MissingHostFilePolicy::KeepAsRemote
+            )
+        ));
+        assert_eq!(open_response.error, closed_response.error);
+        assert!(open_response.error.is_none());
+
+        node.close_ui(&params.main_token).await;
+        node.shutdown().await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

@@ -115,6 +115,17 @@ async fn subsonic_hub_mock(
     (format!("http://{address}"), calls, task)
 }
 
+async fn unreachable_http_endpoint() -> Result<(String, JoinHandle<()>)> {
+    let listener = TokioTcpListener::bind("127.0.0.1:0").await?;
+    let address = listener.local_addr()?;
+    let task = tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            drop(stream);
+        }
+    });
+    Ok((format!("http://{address}"), task))
+}
+
 async fn subsonic_hub_response(
     AxumPath(action): AxumPath<String>,
     State(state): State<SubsonicHubMock>,
@@ -625,9 +636,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     );
     assert_eq!(*bad_calls.lock().unwrap(), ["ping", "getUser"]);
 
-    let reserved = TokioTcpListener::bind("127.0.0.1:0").await?;
-    let closed_endpoint = format!("http://{}", reserved.local_addr()?);
-    drop(reserved);
+    let (closed_endpoint, unreachable_server) = unreachable_http_endpoint().await?;
     let closed_credential = node
         .credentials
         .put(Credential {
@@ -666,6 +675,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
         matches!(unreachable.result, OpenLibraryResult::Failed(failure) if failure.kind == OpenLibraryFailureKind::RemoteUnreachable)
     );
 
+    unreachable_server.abort();
     server.abort();
     bad_server.abort();
     node.close_ui(&fixture.global_params.main_token).await;
@@ -6416,9 +6426,7 @@ async fn opendal_registration_reports_unreachable_endpoint() -> Result<()> {
     use crate::messages::{RegisterLibraryFailureKind, RegisterLibraryOutcome};
     use database::library_registry::FsAdapter;
 
-    let reserved = TokioTcpListener::bind("127.0.0.1:0").await?;
-    let endpoint = format!("http://{}", reserved.local_addr()?);
-    drop(reserved);
+    let (endpoint, unreachable_server) = unreachable_http_endpoint().await?;
     let dir = tempfile::tempdir()?;
     let fixture = super::fixture(dir.path()).await?;
     let node = fixture.global_params.node.clone();
@@ -6435,6 +6443,7 @@ async fn opendal_registration_reports_unreachable_endpoint() -> Result<()> {
     let registry = LibraryRegistry::load(PathBuf::from(&*node.config_path).as_path())?;
     assert!(registry.libraries.iter().all(|record| !record.fs.iter().any(|adapter| matches!(adapter, FsAdapter::WebDav { .. } | FsAdapter::S3 { .. }))));
     assert!(!PathBuf::from(&*node.config_path).join("credentials.enc").exists());
+    unreachable_server.abort();
     node.shutdown().await?;
     Ok(())
 }
@@ -6793,9 +6802,7 @@ async fn subsonic_registration_wrong_password_does_not_store_secret() -> Result<
 async fn subsonic_registration_unreachable_is_bounded() -> Result<()> {
     use crate::messages::{RegisterLibraryFailureKind, RegisterLibraryOutcome};
 
-    let reserved = TokioTcpListener::bind("127.0.0.1:0").await?;
-    let endpoint = format!("http://{}", reserved.local_addr()?);
-    drop(reserved);
+    let (endpoint, unreachable_server) = unreachable_http_endpoint().await?;
     let dir = tempfile::tempdir()?;
     let fixture = super::fixture(dir.path()).await?;
     let node = fixture.global_params.node.clone();
@@ -6814,6 +6821,7 @@ async fn subsonic_registration_unreachable_is_bounded() -> Result<()> {
         response.outcome,
         RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::SubsonicUnreachable)
     );
+    unreachable_server.abort();
     node.shutdown().await?;
     Ok(())
 }
