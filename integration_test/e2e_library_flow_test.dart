@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:rune/main.dart' as app;
 import 'package:rune/providers/library_manager.dart';
 import 'package:rune/providers/library_open_state.dart';
+import 'package:rune/providers/local_folder_picker.dart';
 import 'package:rune/providers/library_registry.dart';
 import 'package:rune/providers/router_path.dart';
 import 'package:rune/bindings/bindings.dart';
@@ -99,6 +100,19 @@ Future<void> addLibrary(
   final registry = context.read<LibraryRegistryProvider>();
   final manager = context.read<LibraryManagerProvider>();
   final openState = context.read<LibraryOpenStateProvider>();
+  context.read<LocalFolderPickerProvider>().pickDirectory = () async => null;
+
+  final addLibraryLabel = localized(tester).addLibrary;
+  await expectVisible(tester, find.text(addLibraryLabel));
+  await tester.tap(find.text(addLibraryLabel).last);
+  await tester.pumpAndSettle();
+  await expectVisible(tester, find.text(localized(tester).localFolder));
+  await tester.tap(find.text(localized(tester).localFolder));
+  await tester.pumpAndSettle();
+  await expectVisible(tester, find.text(localized(tester).confirm));
+  await tester.tap(find.text(localized(tester).confirm));
+  await tester.pumpAndSettle();
+
   final name = path.split(Platform.pathSeparator).last;
   final add = registerAndOpenLocalFolder(context, registry, path, name);
   final modeLabel = S.of(context).portableMode;

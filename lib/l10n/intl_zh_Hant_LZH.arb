@@ -136,6 +136,10 @@
   "@removeLibrary": {
     "description": "Button prompt text for removing a media library. Pressing this button will delete the library entry from the history."
   },
+  "localFolder": "本地資料夾",
+  "localFolderSubtitle": "擇此裝置中之資料夾。",
+  "runeDevice": "Rune 裝置",
+  "runeDeviceSubtitle": "連接另一 Rune 裝置。",
   "addLibrary": "增庫",
   "@addLibrary": {
     "description": "Button prompt text in the settings interface for creating a new media library. Pressing this button guides the user to select a directory and create a library."

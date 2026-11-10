@@ -1,64 +1,16 @@
-import 'dart:io';
-
-import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
+import 'package:provider/provider.dart';
 
 import '../../../utils/l10n.dart';
-import '../../../utils/rune_log.dart';
 import '../../../utils/ax_shadow.dart';
-import '../../../utils/get_dir_path.dart';
-import '../../../utils/dialogs/failed_to_initialize_library.dart';
+import '../../../utils/dialogs/add_library/add_library_guide.dart';
 import '../../../widgets/band_screen_fallback_button.dart';
-import '../../../providers/library_manager.dart';
-import '../../../providers/library_registry.dart';
-import '../../../utils/library_registry_messages.dart';
 import '../../../providers/responsive_providers.dart';
 
 class WelcomePage extends StatelessWidget {
   const WelcomePage({super.key});
-
-  selectDirectory(BuildContext context) async {
-    final registry = Provider.of<LibraryRegistryProvider>(
-      context,
-      listen: false,
-    );
-    final libraryManager = Provider.of<LibraryManagerProvider>(
-      context,
-      listen: false,
-    );
-    // on Android, check for permission
-    if (!await requestAndroidPermission()) return;
-
-    final path = await getDirPath();
-
-    info$("Path selected $path");
-
-    if (path == null) return;
-    if (!context.mounted) return;
-
-    final alias = path.split('/').where((part) => part.isNotEmpty).last;
-    try {
-      final record = await registerAndOpenLocalFolder(
-        context,
-        registry,
-        path,
-        alias,
-      );
-      if (record == null) return;
-      libraryManager.scanLibrary(record.recordId, isInitializeTask: true);
-    } catch (error) {
-      if (!context.mounted) return;
-      await showFailedToInitializeLibrary(
-        context,
-        error is LibraryRegistryFailure
-            ? libraryRegistryFailureMessage(S.of(context), error.kind)
-            : S.of(context).unknownError,
-      );
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -70,7 +22,7 @@ class WelcomePage extends StatelessWidget {
       return Center(
         child: BandScreenFallbackButton(
           icon: Icon(Symbols.folder_open),
-          onPressed: () => selectDirectory(context),
+          onPressed: () => showAddLibraryGuide(context),
         ),
       );
     }
@@ -126,8 +78,8 @@ class WelcomePage extends StatelessWidget {
                               ? const SizedBox(height: 12)
                               : const SizedBox(height: 56),
                           FilledButton(
-                            child: Text(S.of(context).selectDirectory),
-                            onPressed: () => selectDirectory(context),
+                            child: Text(S.of(context).addLibrary),
+                            onPressed: () => showAddLibraryGuide(context),
                           ),
                         ],
                       ),
@@ -148,15 +100,5 @@ class WelcomePage extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  static Future<bool> requestAndroidPermission() async {
-    if (Platform.isAndroid) {
-      PermissionStatus status = await Permission.manageExternalStorage.status;
-      if (status.isDenied) {
-        return await Permission.manageExternalStorage.request().isGranted;
-      }
-    }
-    return true;
   }
 }

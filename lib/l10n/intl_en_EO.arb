@@ -136,6 +136,10 @@
   "@removeLibrary": {
     "description": "Button prompt text for removing a media library. Pressing this button will delete the library entry from the history."
   },
+  "localFolder": "Loka Dosierujo",
+  "localFolderSubtitle": "Elektu dosierujon en ĉi tiu aparato.",
+  "runeDevice": "Rune-Aparato",
+  "runeDeviceSubtitle": "Konektiĝu al alia Rune-aparato.",
   "addLibrary": "Aldoni Bibliotekon",
   "@addLibrary": {
     "description": "Button prompt text in the settings interface for creating a new media library. Pressing this button guides the user to select a directory and create a library."

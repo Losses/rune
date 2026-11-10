@@ -136,6 +136,10 @@
   "@removeLibrary": {
     "description": "Testo del pulsante per rimuovere una libreria multimediale. Premendo questo pulsante si eliminerà la voce della libreria dalla cronologia."
   },
+  "localFolder": "Cartella locale",
+  "localFolderSubtitle": "Scegli una cartella su questo dispositivo.",
+  "runeDevice": "Dispositivo Rune",
+  "runeDeviceSubtitle": "Connettiti a un altro dispositivo Rune.",
   "addLibrary": "Aggiungi libreria",
   "@addLibrary": {
     "description": "Testo del pulsante nell'interfaccia delle impostazioni per creare una nuova libreria multimediale. Premendo questo pulsante si guiderà l'utente a selezionare una directory e creare una libreria."

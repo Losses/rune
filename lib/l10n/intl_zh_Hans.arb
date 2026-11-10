@@ -148,6 +148,10 @@
   "@removeLibrary": {
     "description": "移除媒体库的按钮提示文字。按下此按钮将从历史记录中删除媒体库条目。"
   },
+  "localFolder": "本地文件夹",
+  "localFolderSubtitle": "选择此设备上的文件夹。",
+  "runeDevice": "Rune 设备",
+  "runeDeviceSubtitle": "连接到另一台 Rune 设备。",
   "addLibrary": "添加媒体库",
   "@addLibrary": {
     "description": "设置界面中创建新媒体库的按钮提示文字。按下此按钮将引导用户选择一个目录并创建媒体库。"

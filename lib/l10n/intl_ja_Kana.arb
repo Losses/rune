@@ -136,6 +136,10 @@
   "@removeLibrary": {
     "description": "メディアライブラリをリムーブするボタンのプロンプトテキスト。このボタンを押すと、ライブラリのエントリが履歴から削除されます。"
   },
+  "localFolder": "ローカルフォルダー",
+  "localFolderSubtitle": "このデバイスのフォルダーをセレクト。",
+  "runeDevice": "Rune デバイス",
+  "runeDeviceSubtitle": "別の Rune デバイスにコネクト。",
   "addLibrary": "ライブラリをアド",
   "@addLibrary": {
     "description": "設定インターフェースで新しいメディアライブラリを作成するボタンのプロンプトテキスト。このボタンを押すと、ディレクトリを選択してライブラリを作成するようユーザーを案内します。"

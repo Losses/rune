@@ -79,6 +79,7 @@ import 'providers/library_open_state.dart';
 import 'providers/library_registry.dart';
 import 'providers/library_home.dart';
 import 'providers/library_manager.dart';
+import 'providers/local_folder_picker.dart';
 import 'providers/linux_custom_window_controls.dart';
 import 'providers/playback_controller.dart';
 import 'providers/controllers.dart';
@@ -394,6 +395,7 @@ void mainLoop(
           create: (_) => PlaybackStatusProvider(),
         ),
         ChangeNotifierProvider.value(value: libraryRegistry),
+        Provider(create: (_) => LocalFolderPickerProvider()),
         ChangeNotifierProvider(
           lazy: false,
           create: (context) => LibraryOpenStateProvider(

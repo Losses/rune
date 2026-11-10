@@ -136,6 +136,10 @@
   "@removeLibrary": {
     "description": "Texte d'invite de bouton pour supprimer une bibliothèque multimédia. En appuyant sur ce bouton, l'entrée de la bibliothèque sera supprimée de l'historique."
   },
+  "localFolder": "Dossier local",
+  "localFolderSubtitle": "Choisissez un dossier sur cet appareil.",
+  "runeDevice": "Appareil Rune",
+  "runeDeviceSubtitle": "Connectez-vous à un autre appareil Rune.",
   "addLibrary": "Ajouter une bibliothèque",
   "@addLibrary": {
     "description": "Texte d'invite de bouton dans l'interface des paramètres pour créer une nouvelle bibliothèque multimédia. En appuyant sur ce bouton, l'utilisateur est guidé pour sélectionner un répertoire et créer une bibliothèque."

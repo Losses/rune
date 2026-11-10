@@ -148,6 +148,10 @@
   "@removeLibrary": {
     "description": "Button prompt text for removing a media library. Pressing this button will delete the library entry from the history."
   },
+  "localFolder": "Local Folder",
+  "localFolderSubtitle": "Choose a folder on this device.",
+  "runeDevice": "Rune Device",
+  "runeDeviceSubtitle": "Connect to another Rune device.",
   "addLibrary": "Add Library",
   "@addLibrary": {
     "description": "Button prompt text in the settings interface for creating a new media library. Pressing this button guides the user to select a directory and create a library."

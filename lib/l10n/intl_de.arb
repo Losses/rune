@@ -136,6 +136,10 @@
   "@removeLibrary": {
     "description": "Button-Aufforderungstext zum Entfernen einer Mediathek. Durch Drücken dieser Taste wird der Bibliothekseintrag aus der Historie gelöscht."
   },
+  "localFolder": "Lokaler Ordner",
+  "localFolderSubtitle": "Wähle einen Ordner auf diesem Gerät.",
+  "runeDevice": "Rune-Gerät",
+  "runeDeviceSubtitle": "Verbinde dich mit einem anderen Rune-Gerät.",
   "addLibrary": "Bibliothek hinzufügen",
   "@addLibrary": {
     "description": "Button-Aufforderungstext in der Einstellungsoberfläche zum Erstellen einer neuen Mediathek. Durch Drücken dieser Taste wird der Benutzer dazu geführt, ein Verzeichnis auszuwählen und eine Bibliothek zu erstellen."

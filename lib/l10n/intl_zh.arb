@@ -148,6 +148,10 @@
   "@removeLibrary": {
     "description": "移除媒體庫的按鈕提示文字。按下此按鈕將從歷史記錄中刪除媒體庫條目。"
   },
+  "localFolder": "本機資料夾",
+  "localFolderSubtitle": "選擇此裝置上的資料夾。",
+  "runeDevice": "Rune 裝置",
+  "runeDeviceSubtitle": "連線到另一個 Rune 裝置。",
   "addLibrary": "添加媒體庫",
   "@addLibrary": {
     "description": "設置界面中創建新媒體庫的按鈕提示文字。按下此按鈕將引導用戶選擇一個目錄並創建媒體庫。"

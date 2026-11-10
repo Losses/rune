@@ -40,6 +40,11 @@ cleanup() {
     kill "$xvfb_pid"
     wait "$xvfb_pid" 2>/dev/null || true
   fi
+  # The private session bus can start xdg-document-portal, which mounts a FUSE
+  # filesystem under the runtime dir; detach it so the temp tree can be removed.
+  if [[ -d "$runtime/doc" ]]; then
+    fusermount3 -uz "$runtime/doc" 2>/dev/null || fusermount -uz "$runtime/doc" 2>/dev/null || true
+  fi
   rm -rf "$run_root"
 }
 trap cleanup EXIT
@@ -62,7 +67,7 @@ if [[ ! -s "$run_root/xvfb-display" ]]; then
 fi
 export DISPLAY=":$(cat "$run_root/xvfb-display")"
 unset WAYLAND_DISPLAY
-export GTK_USE_PORTAL=0 GDK_DEBUG=no-portals
+export GTK_USE_PORTAL=0 GDK_DEBUG=no-portals GIO_USE_VFS=local
 "$openbox/bin/openbox" >"$run_root/openbox.log" 2>&1 &
 wm_pid=$!
 
@@ -83,7 +88,7 @@ for phase in 1 2 3 4; do
   timeout --signal=TERM --kill-after=10s 3600s "${command[@]}"
 
   if [[ "$phase" == 1 ]]; then
-    registry=$(find "$run_root" -type f -name libraries.json -print -quit)
+    registry=$(find "$run_root" -path "$runtime" -prune -o -type f -name libraries.json -print -quit)
     if [[ -z "$registry" ]]; then
       printf 'Isolation check failed: no libraries.json appeared under %s\n' "$run_root" >&2
       exit 1
