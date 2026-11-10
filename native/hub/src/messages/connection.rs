@@ -80,7 +80,6 @@ pub struct RegisterSubsonicLibraryRequest {
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
-#[serde(tag = "type", rename_all = "snake_case")]
 pub enum OpenDalLibraryService {
     WebDav {
         endpoint: String,
@@ -461,4 +460,40 @@ pub struct RemoteRequestFailed {
     pub detail: String,
     #[serde(default)]
     pub cause: Option<RequestFailureCause>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{OpenDalLibraryService, RegisterOpenDalLibraryRequest};
+
+    fn round_trip(service: OpenDalLibraryService) {
+        let request = RegisterOpenDalLibraryRequest {
+            service: service.clone(),
+            alias: "music".into(),
+        };
+        let bytes = rinf::serialize(&request).unwrap();
+        let decoded: RegisterOpenDalLibraryRequest = rinf::deserialize(&bytes).unwrap();
+        assert_eq!(decoded.service, service);
+        assert_eq!(decoded.alias, "music");
+    }
+
+    // Dart sends this request in rinf's binary format, which cannot decode
+    // internally tagged enums.
+    #[test]
+    fn opendal_register_request_survives_the_dart_wire_format() {
+        round_trip(OpenDalLibraryService::WebDav {
+            endpoint: "http://127.0.0.1:1".into(),
+            root: "/music".into(),
+            username: "u".into(),
+            password: "p".into(),
+        });
+        round_trip(OpenDalLibraryService::S3 {
+            endpoint: "http://127.0.0.1:1".into(),
+            bucket: "b".into(),
+            region: "r".into(),
+            root: "/".into(),
+            access_key_id: "k".into(),
+            secret_access_key: "s".into(),
+        });
+    }
 }

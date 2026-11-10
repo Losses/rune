@@ -685,6 +685,7 @@ void main() {
                     );
                   },
                   openRecord: (recordId) async => opened.add(recordId),
+                  scanLibrary: (recordId) async => opened.add('scan:$recordId'),
                 ),
               ),
               child: const Text('Open guide'),
@@ -740,7 +741,7 @@ void main() {
       fail = false;
       await tester.tap(find.widgetWithText(Button, 'Confirm'));
       await tester.pumpAndSettle();
-      expect(opened, ['record-1']);
+      expect(opened, ['record-1', 'scan:record-1']);
       expect(find.text('WebDAV'), findsNothing);
     },
   );
@@ -773,6 +774,7 @@ void main() {
                   );
                 },
                 openRecord: (recordId) async => opened.add(recordId),
+                scanLibrary: (recordId) async => opened.add('scan:$recordId'),
               ),
             ),
             child: const Text('Open guide'),
@@ -807,6 +809,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(registeredService, isA<OpenDalLibraryServiceS3>());
     expect(registeredAlias, 'music-bucket');
-    expect(opened, ['record-1']);
+    expect(opened, ['record-1', 'scan:record-1']);
   });
 }

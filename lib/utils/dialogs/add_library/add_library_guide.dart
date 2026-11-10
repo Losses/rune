@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../../bindings/bindings.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../providers/broadcast.dart';
+import '../../../providers/library_manager.dart';
 import '../../../providers/library_registry.dart';
 import '../../../utils/api/device_grants.dart';
 import '../../../utils/api/library_registry.dart';
@@ -16,6 +17,7 @@ import '../../../utils/library_registry_messages.dart';
 import '../../../utils/library_ui/library_ui_state.dart';
 import '../../../utils/router/navigation.dart';
 import '../../../widgets/no_shortcuts.dart';
+import '../../../widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 import '../../../widgets/settings/settings_tile_title.dart';
 import '../../../screens/settings_neighbors/utils/show_add_remote_device_dialog.dart';
 import '../../../screens/settings_server/widgets/peer_libraries_dialog.dart';
@@ -34,6 +36,7 @@ class AddLibraryGuideDependencies {
     this.registerControl,
     this.registerOpenDal,
     this.openRecord,
+    this.scanLibrary,
   });
 
   final Future<void> Function(BuildContext)? searchNeighbors;
@@ -47,6 +50,7 @@ class AddLibraryGuideDependencies {
   final Future<RegisterLibraryResponse> Function(OpenDalLibraryService, String)?
   registerOpenDal;
   final Future<void> Function(String)? openRecord;
+  final Future<void> Function(String)? scanLibrary;
 }
 
 Future<void> showAddLibraryGuide(
@@ -232,6 +236,10 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
   );
 
   Future<void> _registerOpenDal() async {
+    // Resolved before any await: opening the record closes the guide.
+    final libraryManager = widget.dependencies.scanLibrary == null
+        ? Provider.of<LibraryManagerProvider>(context, listen: false)
+        : null;
     final folder = _openDalForm.folder.trim();
     final bucket = _openDalForm.bucket.trim();
     final aliasSource = _selected == AddLibrarySource.webDav ? folder : bucket;
@@ -269,7 +277,15 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
       }
       final record = response.record;
       if (record == null) throw StateError('Registration returned no record');
-      await _openRecord(record.recordId);
+      // Like a new local folder, a new WebDAV or S3 library starts empty and
+      // is filled by its first scan.
+      final scan =
+          widget.dependencies.scanLibrary ??
+          (recordId) =>
+              libraryManager!.scanLibrary(recordId, isInitializeTask: true);
+      if (await _openRecord(record.recordId)) {
+        await scan(record.recordId);
+      }
     } catch (error) {
       if (!mounted) return;
       await showErrorDialog(
@@ -511,7 +527,9 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
     }
   }
 
-  Future<void> _openRecord(String recordId) async {
+  /// Open the new record and leave the guide; false when opening failed and
+  /// the failure was shown.
+  Future<bool> _openRecord(String recordId) async {
     final registry = Provider.of<LibraryRegistryProvider>(
       context,
       listen: false,
@@ -519,17 +537,22 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
     try {
       await (widget.dependencies.openRecord ?? registry.open)(recordId);
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted) return false;
       await showFailedToInitializeLibrary(
         context,
         error is LibraryRegistryFailure
             ? libraryRegistryFailureMessage(S.of(context), error.kind)
             : S.of(context).unknownError,
       );
-      return;
+      return false;
     }
     widget.$close(null);
-    $push('/library');
+    // The welcome page has no library navigator; opening a library replaces it.
+    if (runeWithNavigationBarAndPlaybackControllorNavigatorKey.currentState !=
+        null) {
+      $push('/library');
+    }
+    return true;
   }
 
   Widget _sourceRow(
