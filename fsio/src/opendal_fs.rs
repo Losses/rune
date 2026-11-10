@@ -7,7 +7,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
 use opendal::blocking::{Operator, Reader};
 use opendal::services;
-use opendal::{ErrorKind, Operator as AsyncOperator};
+use opendal::{ErrorKind, HttpTransporter, OperationContext, Operator as AsyncOperator};
+use opendal_http_transport_reqwest::ReqwestTransport;
+use rustls::{ClientConfig, RootCertStore};
 use tokio::runtime::Handle;
 
 use crate::{FileIo, FileIoError, FileStream, FsNode};
@@ -76,7 +78,22 @@ pub(crate) struct OpenDalFsIo {
 
 impl OpenDalFsIo {
     pub(crate) fn new(config: OpenDalConfig, handle: Handle) -> Result<Self, FileIoError> {
-        opendal::install_default();
+        let http_client = {
+            let _guard = handle.enter();
+            // Same trust roots as the rest of the workspace (reqwest `rustls-tls` uses
+            // webpki-roots); a platform verifier would need JNI setup on Android.
+            let roots = RootCertStore {
+                roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+            };
+            let tls_config = ClientConfig::builder()
+                .with_root_certificates(roots)
+                .with_no_client_auth();
+            reqwest::Client::builder()
+                .tls_backend_preconfigured(tls_config)
+                .build()
+                .map_err(|_| remote_error("configure"))?
+        };
+        let http_transport = HttpTransporter::new(ReqwestTransport::new(http_client));
         let op = match config {
             OpenDalConfig::WebDav {
                 endpoint,
@@ -90,7 +107,9 @@ impl OpenDalFsIo {
                     .username(&username)
                     .password(&password);
                 let _guard = handle.enter();
-                AsyncOperator::new(builder).map_err(|_| remote_error("configure"))?
+                AsyncOperator::new(builder)
+                    .map_err(|_| remote_error("configure"))?
+                    .with_context(OperationContext::new().with_http_transport(http_transport))
             }
             OpenDalConfig::S3 {
                 endpoint,
@@ -109,7 +128,9 @@ impl OpenDalFsIo {
                     .secret_access_key(&secret_access_key)
                     .disable_config_load();
                 let _guard = handle.enter();
-                AsyncOperator::new(builder).map_err(|_| remote_error("configure"))?
+                AsyncOperator::new(builder)
+                    .map_err(|_| remote_error("configure"))?
+                    .with_context(OperationContext::new().with_http_transport(http_transport))
             }
         };
         let _guard = handle.enter();
