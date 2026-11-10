@@ -194,11 +194,112 @@ impl SubsonicClient {
         })
     }
 
-    async fn call<T: for<'de> Deserialize<'de>>(
+    /// List ID3 artists.
+    pub async fn artists(&self) -> Result<Vec<SubsonicArtist>, SubsonicError> {
+        let response: ArtistsResponse = self.call("getArtists", &[]).await?;
+        Ok(response
+            .artists
+            .and_then(|artists| artists.index)
+            .map(OneOrMany::into_vec)
+            .unwrap_or_default()
+            .into_iter()
+            .flat_map(|index| index.artist.map(OneOrMany::into_vec).unwrap_or_default())
+            .collect())
+    }
+
+    /// Read an artist and its albums.
+    pub async fn artist(&self, id: &str) -> Result<SubsonicArtistDetail, SubsonicError> {
+        let response: ArtistResponse = self.call("getArtist", &[("id", id)]).await?;
+        response
+            .artist
+            .ok_or_else(|| SubsonicError::Malformed("getArtist omitted artist".into()))
+    }
+
+    /// Read an album and its songs.
+    pub async fn album(&self, id: &str) -> Result<SubsonicAlbumDetail, SubsonicError> {
+        let response: AlbumResponse = self.call("getAlbum", &[("id", id)]).await?;
+        response
+            .album
+            .ok_or_else(|| SubsonicError::Malformed("getAlbum omitted album".into()))
+    }
+
+    /// Read a song.
+    pub async fn song(&self, id: &str) -> Result<SubsonicSong, SubsonicError> {
+        let response: SongResponse = self.call("getSong", &[("id", id)]).await?;
+        response
+            .song
+            .ok_or_else(|| SubsonicError::Malformed("getSong omitted song".into()))
+    }
+
+    /// Search the ID3 library.
+    pub async fn search(
         &self,
-        endpoint: &str,
-        params: &[(&str, &str)],
-    ) -> Result<T, SubsonicError> {
+        query: &str,
+        limits: SearchLimits,
+    ) -> Result<SubsonicSearchResult, SubsonicError> {
+        let artist_count = limits.artists.to_string();
+        let album_count = limits.albums.to_string();
+        let song_count = limits.songs.to_string();
+        let response: SearchResponse = self
+            .call(
+                "search3",
+                &[
+                    ("query", query),
+                    ("artistCount", &artist_count),
+                    ("albumCount", &album_count),
+                    ("songCount", &song_count),
+                ],
+            )
+            .await?;
+        Ok(response.search_result.unwrap_or_default())
+    }
+
+    /// List playlists visible to the authenticated user.
+    pub async fn playlists(&self) -> Result<Vec<SubsonicPlaylist>, SubsonicError> {
+        let response: PlaylistsResponse = self.call("getPlaylists", &[]).await?;
+        Ok(response
+            .playlists
+            .and_then(|value| value.playlist)
+            .map(OneOrMany::into_vec)
+            .unwrap_or_default())
+    }
+
+    /// Read a playlist and its entries.
+    pub async fn playlist(&self, id: &str) -> Result<SubsonicPlaylistDetail, SubsonicError> {
+        let response: PlaylistResponse = self.call("getPlaylist", &[("id", id)]).await?;
+        response
+            .playlist
+            .ok_or_else(|| SubsonicError::Malformed("getPlaylist omitted playlist".into()))
+    }
+
+    /// Build a stream URL with the same authentication parameters used by requests.
+    pub fn stream_url(&self, song_id: &str, options: StreamOptions) -> Url {
+        let mut url = self.endpoint_url("stream");
+        let mut query = self.auth_query();
+        query.push(("id", song_id.to_owned()));
+        if let Some(format) = options.format {
+            query.push(("format", format));
+        }
+        if let Some(bit_rate) = options.max_bit_rate {
+            query.push(("maxBitRate", bit_rate.to_string()));
+        }
+        url.query_pairs_mut().extend_pairs(query);
+        url
+    }
+
+    /// Build a cover-art URL with the same authentication parameters used by requests.
+    pub fn cover_art_url(&self, id: &str, size: Option<u32>) -> Url {
+        let mut url = self.endpoint_url("getCoverArt");
+        let mut query = self.auth_query();
+        query.push(("id", id.to_owned()));
+        if let Some(size) = size {
+            query.push(("size", size.to_string()));
+        }
+        url.query_pairs_mut().extend_pairs(query);
+        url
+    }
+
+    fn endpoint_url(&self, endpoint: &str) -> Url {
         let mut url = self.base_url.clone();
         let path = format!(
             "{}/rest/{}.view",
@@ -206,6 +307,10 @@ impl SubsonicClient {
             endpoint
         );
         url.set_path(&path);
+        url
+    }
+
+    fn auth_query(&self) -> Vec<(&'static str, String)> {
         let mut query = vec![
             ("c", "rune".to_owned()),
             ("v", CLIENT_VERSION.to_owned()),
@@ -221,6 +326,16 @@ impl SubsonicClient {
             }
             SubsonicCredentials::ApiKey { key } => query.push(("apiKey", key.clone())),
         }
+        query
+    }
+
+    async fn call<T: for<'de> Deserialize<'de>>(
+        &self,
+        endpoint: &str,
+        params: &[(&str, &str)],
+    ) -> Result<T, SubsonicError> {
+        let url = self.endpoint_url(endpoint);
+        let mut query = self.auth_query();
         query.extend(
             params
                 .iter()
@@ -248,9 +363,18 @@ impl SubsonicClient {
                 .response
                 .error
                 .ok_or_else(|| SubsonicError::Malformed("failed response omitted error".into()))?;
+            let mut message = error.message;
+            if let SubsonicCredentials::Password { password, .. } = &self.credentials {
+                message = message.replace(password, "[REDACTED]");
+            }
+            for (key, secret) in &query {
+                if matches!(*key, "t" | "s" | "apiKey") {
+                    message = message.replace(secret, "[REDACTED]");
+                }
+            }
             return Err(SubsonicError::Server {
                 kind: error.code.into(),
-                message: error.message,
+                message,
             });
         }
         if envelope.response.status != "ok" {
@@ -265,6 +389,300 @@ fn random_salt() -> String {
     let mut bytes = [0_u8; 16];
     rand::thread_rng().fill_bytes(&mut bytes);
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubsonicArtist {
+    pub id: String,
+    pub name: String,
+    pub album_count: Option<u32>,
+    pub cover_art: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SubsonicArtistDetail {
+    pub id: String,
+    pub name: String,
+    pub album_count: Option<u32>,
+    pub cover_art: Option<String>,
+    pub albums: Vec<SubsonicAlbum>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubsonicAlbum {
+    pub id: String,
+    pub name: String,
+    pub artist: Option<String>,
+    pub artist_id: Option<String>,
+    pub song_count: Option<u32>,
+    pub duration: Option<u32>,
+    pub year: Option<u32>,
+    pub genre: Option<String>,
+    pub cover_art: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SubsonicAlbumDetail {
+    pub id: String,
+    pub name: String,
+    pub artist: Option<String>,
+    pub artist_id: Option<String>,
+    pub song_count: Option<u32>,
+    pub duration: Option<u32>,
+    pub year: Option<u32>,
+    pub genre: Option<String>,
+    pub cover_art: Option<String>,
+    pub songs: Vec<SubsonicSong>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubsonicSong {
+    pub id: String,
+    pub title: String,
+    pub album: Option<String>,
+    pub artist: Option<String>,
+    pub album_id: Option<String>,
+    pub artist_id: Option<String>,
+    pub track: Option<u32>,
+    #[serde(rename = "discNumber")]
+    pub disc: Option<u32>,
+    pub year: Option<u32>,
+    pub genre: Option<String>,
+    pub duration: Option<u32>,
+    pub size: Option<u64>,
+    pub suffix: Option<String>,
+    pub content_type: Option<String>,
+    pub cover_art: Option<String>,
+    pub bit_rate: Option<u32>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SearchLimits {
+    pub artists: u32,
+    pub albums: u32,
+    pub songs: u32,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SubsonicSearchResult {
+    pub artists: Vec<SubsonicArtist>,
+    pub albums: Vec<SubsonicAlbum>,
+    pub songs: Vec<SubsonicSong>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubsonicPlaylist {
+    pub id: String,
+    pub name: String,
+    pub song_count: Option<u32>,
+    pub duration: Option<u32>,
+    pub owner: Option<String>,
+    pub public: Option<bool>,
+    pub cover_art: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SubsonicPlaylistDetail {
+    pub id: String,
+    pub name: String,
+    pub song_count: Option<u32>,
+    pub duration: Option<u32>,
+    pub owner: Option<String>,
+    pub public: Option<bool>,
+    pub cover_art: Option<String>,
+    pub songs: Vec<SubsonicSong>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StreamOptions {
+    pub format: Option<String>,
+    pub max_bit_rate: Option<u32>,
+}
+
+#[derive(Deserialize)]
+struct ArtistsResponse {
+    #[serde(default)]
+    artists: Option<ArtistsContainer>,
+}
+#[derive(Deserialize)]
+struct ArtistsContainer {
+    #[serde(default)]
+    index: Option<OneOrMany<ArtistIndex>>,
+}
+#[derive(Deserialize)]
+struct ArtistIndex {
+    #[serde(default)]
+    artist: Option<OneOrMany<SubsonicArtist>>,
+}
+#[derive(Deserialize)]
+struct ArtistResponse {
+    #[serde(default)]
+    artist: Option<SubsonicArtistDetail>,
+}
+#[derive(Deserialize)]
+struct AlbumResponse {
+    #[serde(default)]
+    album: Option<SubsonicAlbumDetail>,
+}
+#[derive(Deserialize)]
+struct SongResponse {
+    #[serde(default)]
+    song: Option<SubsonicSong>,
+}
+#[derive(Deserialize)]
+struct SearchResponse {
+    #[serde(default, rename = "searchResult3")]
+    search_result: Option<SubsonicSearchResult>,
+}
+#[derive(Deserialize)]
+struct PlaylistsResponse {
+    #[serde(default)]
+    playlists: Option<PlaylistList>,
+}
+#[derive(Deserialize)]
+struct PlaylistList {
+    #[serde(default)]
+    playlist: Option<OneOrMany<SubsonicPlaylist>>,
+}
+#[derive(Deserialize)]
+struct PlaylistResponse {
+    #[serde(default)]
+    playlist: Option<SubsonicPlaylistDetail>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum OneOrMany<T> {
+    Many(Vec<T>),
+    One(T),
+}
+
+impl<T> OneOrMany<T> {
+    fn into_vec(self) -> Vec<T> {
+        match self {
+            Self::Many(values) => values,
+            Self::One(value) => vec![value],
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for SubsonicArtistDetail {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct RawArtist {
+            id: String,
+            name: String,
+            album_count: Option<u32>,
+            cover_art: Option<String>,
+            #[serde(rename = "album")]
+            albums: Option<OneOrMany<SubsonicAlbum>>,
+        }
+        let raw = RawArtist::deserialize(deserializer)?;
+        Ok(Self {
+            id: raw.id,
+            name: raw.name,
+            album_count: raw.album_count,
+            cover_art: raw.cover_art,
+            albums: raw.albums.map(OneOrMany::into_vec).unwrap_or_default(),
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for SubsonicAlbumDetail {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct RawAlbum {
+            id: String,
+            name: String,
+            artist: Option<String>,
+            artist_id: Option<String>,
+            song_count: Option<u32>,
+            duration: Option<u32>,
+            year: Option<u32>,
+            genre: Option<String>,
+            cover_art: Option<String>,
+            song: Option<OneOrMany<SubsonicSong>>,
+        }
+        let raw = RawAlbum::deserialize(deserializer)?;
+        Ok(Self {
+            id: raw.id,
+            name: raw.name,
+            artist: raw.artist,
+            artist_id: raw.artist_id,
+            song_count: raw.song_count,
+            duration: raw.duration,
+            year: raw.year,
+            genre: raw.genre,
+            cover_art: raw.cover_art,
+            songs: raw.song.map(OneOrMany::into_vec).unwrap_or_default(),
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for SubsonicPlaylistDetail {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct RawPlaylist {
+            id: String,
+            name: String,
+            song_count: Option<u32>,
+            duration: Option<u32>,
+            owner: Option<String>,
+            public: Option<bool>,
+            cover_art: Option<String>,
+            entry: Option<OneOrMany<SubsonicSong>>,
+        }
+        let raw = RawPlaylist::deserialize(deserializer)?;
+        Ok(Self {
+            id: raw.id,
+            name: raw.name,
+            song_count: raw.song_count,
+            duration: raw.duration,
+            owner: raw.owner,
+            public: raw.public,
+            cover_art: raw.cover_art,
+            songs: raw.entry.map(OneOrMany::into_vec).unwrap_or_default(),
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for SubsonicSearchResult {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct RawSearchResult {
+            #[serde(default)]
+            artist: Option<OneOrMany<SubsonicArtist>>,
+            #[serde(default)]
+            album: Option<OneOrMany<SubsonicAlbum>>,
+            #[serde(default)]
+            song: Option<OneOrMany<SubsonicSong>>,
+        }
+        let raw = RawSearchResult::deserialize(deserializer)?;
+        Ok(Self {
+            artists: raw.artist.map(OneOrMany::into_vec).unwrap_or_default(),
+            albums: raw.album.map(OneOrMany::into_vec).unwrap_or_default(),
+            songs: raw.song.map(OneOrMany::into_vec).unwrap_or_default(),
+        })
+    }
 }
 
 #[derive(Deserialize)]
