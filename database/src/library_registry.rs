@@ -1223,6 +1223,8 @@ pub async fn create_replica(
 mod tests {
     use super::*;
     use std::fs;
+    use std::sync::mpsc;
+    use std::thread;
     use std::time::Duration;
     use tempfile::TempDir;
 
@@ -1448,8 +1450,8 @@ mod tests {
         // thread that waited for it would never let the holder run again.
         let _writer = registry_write_guard().await;
         let path = dir.path().to_path_buf();
-        let (sender, receiver) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
+        let (sender, receiver) = mpsc::channel();
+        thread::spawn(move || {
             let _ = sender.send(LibraryRegistry::load(&path).map(|r| r.libraries.len()));
         });
         let loaded = receiver
