@@ -1638,7 +1638,16 @@ pub(crate) async fn open_library_by_record_on_node(
             endpoint,
             credential,
             ..
-        } => open_subsonic_record(&node, record.record_id, endpoint, *credential).await,
+        } => {
+            open_subsonic_record(
+                &node,
+                record.record_id,
+                record.catalog_library_id().unwrap_or(record.record_id.0),
+                endpoint,
+                *credential,
+            )
+            .await
+        }
     };
     match result {
         Ok(generation) => {
@@ -1664,6 +1673,7 @@ pub(crate) async fn open_library_by_record_on_node(
 async fn open_subsonic_record(
     node: &Arc<NodeContext>,
     record_id: LibraryRecordId,
+    library_id: Uuid,
     endpoint: &str,
     credential_ref: CredentialRef,
 ) -> StdResult<u64, (OpenLibraryFailureKind, anyhow::Error)> {
@@ -1723,7 +1733,13 @@ async fn open_subsonic_record(
             return Err((kind, anyhow::anyhow!(detail)));
         }
     };
-    let binding = Arc::new(SubsonicBinding::new(client, probe));
+    let binding = Arc::new(SubsonicBinding::new(
+        client,
+        probe,
+        Path::new(&*node.config_path).to_path_buf(),
+        library_id,
+        Arc::clone(&node.gui_broadcaster),
+    ));
     node.set_open_subsonic_catalog(Some(record_id), binding)
         .map_err(|error| (OpenLibraryFailureKind::Storage, error))
 }

@@ -1,7 +1,10 @@
 use anyhow::{Result, anyhow};
 use database::actions::utils::generate_group_name;
 use database::actions::{collection::CollectionQueryType, search::convert_to_collection_types};
-use std::collections::BTreeMap;
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 use subsonic::{
     SearchLimits, SubsonicAlbum, SubsonicArtist, SubsonicError, SubsonicServerError, SubsonicSong,
 };
@@ -23,6 +26,23 @@ use crate::request_error::ExpectedRequestError;
 use crate::rpc::{RequestTranslationFuture, Slot, UnsupportedReason};
 use crate::subsonic_binding::{SubsonicBinding, SubsonicIdKind};
 use database::actions::mixes::{QueryOperator, parse_query};
+
+fn subsonic_cover_map(
+    binding: &SubsonicBinding,
+    covers: Vec<(i32, String)>,
+) -> std::collections::HashMap<i32, String> {
+    let mut map = HashMap::new();
+    for (object_id, cover_id) in covers {
+        if let Some(path) = binding.covers.cached_path(&cover_id) {
+            map.insert(object_id, path);
+        } else {
+            binding
+                .covers
+                .schedule(Arc::clone(&binding.client), cover_id);
+        }
+    }
+    map
+}
 
 pub(crate) async fn search_for_request(
     binding: &SubsonicBinding,
@@ -102,6 +122,7 @@ pub(crate) async fn fetch_media_file_by_ids_request(
     request: &FetchMediaFileByIdsRequest,
 ) -> Result<Option<FetchMediaFileByIdsResponse>> {
     let mut media_files = Vec::with_capacity(request.ids.len());
+    let mut covers = Vec::with_capacity(request.ids.len());
     for id in &request.ids {
         let (remote_id, cached_song) = {
             let catalog = binding
@@ -130,6 +151,20 @@ pub(crate) async fn fetch_media_file_by_ids_request(
                 song
             }
         };
+        let cover_art_id = {
+            let mut catalog = binding
+                .catalog
+                .lock()
+                .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+            song.cover_art
+                .as_deref()
+                .map(|cover| catalog.ids.intern(SubsonicIdKind::CoverArt, cover))
+                .transpose()?
+                .unwrap_or_default()
+        };
+        if let Some(cover) = song.cover_art.clone() {
+            covers.push((*id, cover));
+        }
         media_files.push(MediaFile {
             id: *id,
             path: String::new(),
@@ -137,7 +172,7 @@ pub(crate) async fn fetch_media_file_by_ids_request(
             album: song.album.unwrap_or_default(),
             title: song.title,
             duration: f64::from(song.duration.unwrap_or_default()),
-            cover_art_id: 0,
+            cover_art_id,
             track_number: song
                 .track
                 .and_then(|number| i32::try_from(number).ok())
@@ -149,7 +184,7 @@ pub(crate) async fn fetch_media_file_by_ids_request(
     Ok(Some(FetchMediaFileByIdsResponse {
         call_id: None,
         media_files,
-        cover_art_map: Default::default(),
+        cover_art_map: subsonic_cover_map(binding, covers),
     }))
 }
 
@@ -179,7 +214,7 @@ pub(crate) async fn fetch_collection_by_ids_request(
             let cached_name = match kind {
                 SubsonicIdKind::Artist => catalog.artists.get(id).map(|artist| artist.name.clone()),
                 SubsonicIdKind::Album => catalog.albums.get(id).map(|album| album.name.clone()),
-                SubsonicIdKind::Track => None,
+                SubsonicIdKind::Track | SubsonicIdKind::CoverArt => None,
             };
             (remote_id, cached_name)
         };
@@ -235,17 +270,42 @@ pub(crate) async fn fetch_collection_by_ids_request(
                     );
                     name
                 }
-                SubsonicIdKind::Track => {
+                SubsonicIdKind::Track | SubsonicIdKind::CoverArt => {
                     return Err(anyhow!("Unexpected Subsonic track collection"));
                 }
             },
         };
+        let cover_id = {
+            let mut catalog = binding
+                .catalog
+                .lock()
+                .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+            let cover = match kind {
+                SubsonicIdKind::Artist => catalog
+                    .artists
+                    .get(id)
+                    .and_then(|item| item.cover_art.clone()),
+                SubsonicIdKind::Album => catalog
+                    .albums
+                    .get(id)
+                    .and_then(|item| item.cover_art.clone()),
+                SubsonicIdKind::Track | SubsonicIdKind::CoverArt => None,
+            };
+            if let Some(cover_id) = cover.as_deref() {
+                catalog.ids.intern(SubsonicIdKind::CoverArt, cover_id)?;
+            }
+            cover
+        };
+        let cover_art_map = subsonic_cover_map(
+            binding,
+            cover_id.map(|cover| vec![(*id, cover)]).unwrap_or_default(),
+        );
         result.push(Collection {
             id: *id,
             name,
             queries: Vec::new(),
             collection_type: request.collection_type,
-            cover_art_map: Default::default(),
+            cover_art_map,
             readonly: true,
         });
     }
@@ -327,16 +387,30 @@ fn collection_groups(
         .catalog
         .lock()
         .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
-    let entries: Vec<(i32, String, String)> = match collection_type {
+    let entries: Vec<(i32, String, String, Option<String>)> = match collection_type {
         CollectionType::Artist => catalog
             .artists
             .iter()
-            .map(|(id, artist)| (*id, artist.name.clone(), generate_group_name(&artist.name)))
+            .map(|(id, artist)| {
+                (
+                    *id,
+                    artist.name.clone(),
+                    generate_group_name(&artist.name),
+                    artist.cover_art.clone(),
+                )
+            })
             .collect(),
         CollectionType::Album => catalog
             .albums
             .iter()
-            .map(|(id, album)| (*id, album.name.clone(), generate_group_name(&album.name)))
+            .map(|(id, album)| {
+                (
+                    *id,
+                    album.name.clone(),
+                    generate_group_name(&album.name),
+                    album.cover_art.clone(),
+                )
+            })
             .collect(),
         _ => {
             return Err(ExpectedRequestError::Unsupported {
@@ -351,8 +425,8 @@ fn collection_groups(
         .map(|title| {
             let mut collections: Vec<_> = entries
                 .iter()
-                .filter(|(_, _, group)| group == title)
-                .map(|(id, name, _)| Collection {
+                .filter(|(_, _, group, _)| group == title)
+                .map(|(id, name, _, _)| Collection {
                     id: *id,
                     name: name.clone(),
                     queries: Vec::new(),
@@ -362,6 +436,18 @@ fn collection_groups(
                 })
                 .collect();
             collections.sort_by(|left, right| left.name.cmp(&right.name));
+            for collection in &mut collections {
+                let cover = entries
+                    .iter()
+                    .find(|(id, _, _, _)| *id == collection.id)
+                    .and_then(|(_, _, _, cover)| cover.clone());
+                collection.cover_art_map = subsonic_cover_map(
+                    binding,
+                    cover
+                        .map(|cover| vec![(collection.id, cover)])
+                        .unwrap_or_default(),
+                );
+            }
             CollectionGroup {
                 group_title: title.clone(),
                 collections,
@@ -537,34 +623,47 @@ pub(crate) async fn mix_query_request(
         .catalog
         .lock()
         .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
-    let files = songs
+    let translated = songs
         .into_iter()
         .skip(usize::try_from(request.cursor.max(0)).unwrap_or(usize::MAX))
         .take(usize::try_from(request.page_size.max(0)).unwrap_or(usize::MAX))
         .map(|song| {
             let id = catalog.ids.intern(SubsonicIdKind::Track, &song.id)?;
             catalog.songs.insert(id, song.clone());
-            Ok(MediaFile {
+            let cover_art_id = song
+                .cover_art
+                .as_deref()
+                .map(|cover| catalog.ids.intern(SubsonicIdKind::CoverArt, cover))
+                .transpose()?
+                .unwrap_or_default();
+            let media_file = MediaFile {
                 id,
                 path: String::new(),
                 artist: song.artist.unwrap_or_default(),
                 album: song.album.unwrap_or_default(),
                 title: song.title,
                 duration: f64::from(song.duration.unwrap_or_default()),
-                cover_art_id: 0,
+                cover_art_id,
                 track_number: song
                     .track
                     .and_then(|value| i32::try_from(value).ok())
                     .unwrap_or_default(),
                 audio_availability: AudioAvailability::Unavailable,
                 audio_origin: AudioOrigin::Remote,
-            })
+            };
+            Ok((media_file, song.cover_art))
         })
         .collect::<Result<Vec<_>>>()?;
+    drop(catalog);
+    let covers = translated
+        .iter()
+        .filter_map(|(file, cover)| cover.clone().map(|cover| (file.id, cover)))
+        .collect();
+    let files = translated.into_iter().map(|(file, _)| file).collect();
     Ok(Some(MixQueryResponse {
         call_id: None,
         files,
-        cover_art_map: Default::default(),
+        cover_art_map: subsonic_cover_map(binding, covers),
     }))
 }
 
@@ -680,14 +779,311 @@ subsonic_requests! {
 
 #[cfg(test)]
 mod tests {
-    use subsonic::{SubsonicError, SubsonicServerError};
+    use std::{
+        collections::HashMap,
+        net::SocketAddr,
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicUsize, Ordering},
+        },
+        time::Duration,
+    };
 
-    use super::subsonic_request_error;
+    use axum::{
+        Router,
+        body::Body,
+        extract::{Path, Query, State},
+        http::{Response, StatusCode},
+        routing::get,
+    };
+    use subsonic::{
+        SubsonicClient, SubsonicCredentials, SubsonicError, SubsonicProbe, SubsonicRoles,
+    };
+    use tempfile::TempDir;
+    use tokio::net::TcpListener;
+    use tokio::task::JoinHandle;
+    use uuid::Uuid;
+
+    use super::{
+        fetch_collection_group_summary_request, fetch_collection_groups_request,
+        fetch_media_file_by_ids_request, search_for_request, subsonic_request_error,
+    };
+    use crate::{
+        messages::{
+            CollectionType, FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
+            FetchMediaFileByIdsRequest, SearchForRequest,
+        },
+        request_error::{ExpectedRequestError, classify},
+        subsonic_binding::SubsonicBinding,
+        utils::{Broadcaster, RinfRustSignal},
+    };
+
     use crate::messages::RequestErrorKind;
-    use crate::request_error::{ExpectedRequestError, classify};
+
+    #[derive(Clone)]
+    struct MockState {
+        cover_calls: Arc<AtomicUsize>,
+        requests: Arc<Mutex<Vec<String>>>,
+    }
+
+    struct MockServer {
+        url: String,
+        state: MockState,
+        _task: JoinHandle<()>,
+    }
+
+    struct QuietBroadcaster;
+
+    impl Broadcaster for QuietBroadcaster {
+        fn broadcast(&self, _: &dyn RinfRustSignal) {}
+    }
+
+    async fn mock_subsonic(root: &TempDir) -> (SubsonicBinding, MockServer) {
+        let state = MockState {
+            cover_calls: Arc::new(AtomicUsize::new(0)),
+            requests: Arc::new(Mutex::new(Vec::new())),
+        };
+        let app = Router::new()
+            .route("/rest/{*endpoint}", get(mock_endpoint))
+            .with_state(state.clone());
+        let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
+            .await
+            .unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let url = format!("http://{address}");
+        let client = SubsonicClient::new(
+            url::Url::parse(&url).unwrap(),
+            SubsonicCredentials::Password {
+                user: "alice".into(),
+                password: "cover-secret-password".into(),
+            },
+            reqwest::Client::new(),
+        );
+        let binding = SubsonicBinding::new(
+            client,
+            SubsonicProbe {
+                api_version: "1.16.1".into(),
+                open_subsonic: false,
+                server_type: None,
+                server_version: None,
+                extensions: Vec::new(),
+                roles: SubsonicRoles::default(),
+                roles_known: true,
+            },
+            root.path().to_path_buf(),
+            Uuid::new_v4(),
+            Arc::new(QuietBroadcaster),
+        );
+        (
+            binding,
+            MockServer {
+                url,
+                state,
+                _task: task,
+            },
+        )
+    }
+
+    async fn mock_endpoint(
+        State(state): State<MockState>,
+        Path(endpoint): Path<String>,
+        Query(query): Query<HashMap<String, String>>,
+    ) -> Response<Body> {
+        let endpoint = endpoint.trim_end_matches(".view").to_owned();
+        let cover_id = query.get("id").cloned().unwrap_or_default();
+        state.requests.lock().unwrap().push(endpoint.clone());
+        if endpoint == "getCoverArt" {
+            state.cover_calls.fetch_add(1, Ordering::SeqCst);
+            if cover_id == "error-cover" {
+                return Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .body(Body::from("cover-secret-password"))
+                    .unwrap();
+            }
+            return Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "image/jpeg")
+                .body(Body::from(format!("image-{cover_id}")))
+                .unwrap();
+        }
+        let inner = match endpoint.as_str() {
+            "search3" => serde_json::json!({"searchResult3": {
+                "song": [
+                    {"id":"song-1","title":"One","coverArt":"cover-1"},
+                    {"id":"song-2","title":"Two","coverArt":"cover-2"}
+                ]
+            }}),
+            "getArtists" => serde_json::json!({"artists":{"index":{
+                "name":"A","artist":[
+                    {"id":"artist-1","name":"Artist One","coverArt":"cover-1"},
+                    {"id":"artist-2","name":"Artist Two","coverArt":"cover-2"}
+                ]
+            }}}),
+            _ => serde_json::json!({}),
+        };
+        let mut envelope = serde_json::json!({"subsonic-response":{
+            "status":"ok","version":"1.16.1"
+        }});
+        envelope["subsonic-response"]
+            .as_object_mut()
+            .unwrap()
+            .extend(inner.as_object().unwrap().clone());
+        Response::builder()
+            .status(StatusCode::OK)
+            .header("content-type", "application/json")
+            .body(Body::from(envelope.to_string()))
+            .unwrap()
+    }
+
+    async fn wait_for_covers(binding: &SubsonicBinding, cover_ids: &[&str]) {
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if cover_ids
+                    .iter()
+                    .all(|cover| binding.covers.path_for(cover).is_file())
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn searched_and_browsed_covers_are_cached_locally_and_reused() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root).await;
+        let search = search_for_request(
+            &binding,
+            &SearchForRequest {
+                call_id: Some(1),
+                query_str: "song".into(),
+                fields: vec!["track".into()],
+                n: 10,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let fetch = |ids| FetchMediaFileByIdsRequest {
+            call_id: None,
+            ids,
+            bake_cover_arts: true,
+        };
+        let first = fetch_media_file_by_ids_request(&binding, &fetch(search.tracks.clone()))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(first.cover_art_map.is_empty());
+        assert!(first.media_files.iter().all(|file| file.cover_art_id > 0));
+        wait_for_covers(&binding, &["cover-1", "cover-2"]).await;
+        let second = fetch_media_file_by_ids_request(&binding, &fetch(search.tracks))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(second.cover_art_map.len(), 2);
+        assert!(second.cover_art_map.values().all(|path| {
+            path.starts_with(root.path().to_str().unwrap()) && !path.starts_with("http")
+        }));
+        assert_secret_free(&serde_json::to_string(&second).unwrap());
+        let summary = FetchCollectionGroupSummaryRequest {
+            call_id: None,
+            collection_type: CollectionType::Artist,
+        };
+        fetch_collection_group_summary_request(&binding, &summary)
+            .await
+            .unwrap();
+        let groups = fetch_collection_groups_request(
+            &binding,
+            &FetchCollectionGroupsRequest {
+                call_id: None,
+                collection_type: CollectionType::Artist,
+                bake_cover_arts: true,
+                group_titles: vec!["A".into()],
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let group = groups.groups.first().unwrap();
+        assert_eq!(group.collections.len(), 2);
+        assert!(
+            group
+                .collections
+                .iter()
+                .all(|collection| collection.cover_art_map.len() == 1)
+        );
+        assert_eq!(server.state.cover_calls.load(Ordering::SeqCst), 2);
+        let error = binding
+            .client
+            .cover_art("error-cover", None)
+            .await
+            .unwrap_err();
+        let error = format!("{error:?}");
+        for secret in ["t=", "s=", "p=", "cover-secret-password"] {
+            assert!(!error.contains(secret));
+        }
+        assert!(!server.url.contains("cover-secret-password"));
+    }
+
+    fn assert_secret_free(value: &str) {
+        for secret in ["t=", "s=", "p=", "cover-secret-password"] {
+            assert!(!value.contains(secret));
+        }
+    }
+
+    #[tokio::test]
+    async fn browsed_collection_returns_cached_local_path_after_background_fetch() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root).await;
+        fetch_collection_group_summary_request(
+            &binding,
+            &FetchCollectionGroupSummaryRequest {
+                call_id: None,
+                collection_type: CollectionType::Artist,
+            },
+        )
+        .await
+        .unwrap();
+        let request = FetchCollectionGroupsRequest {
+            call_id: None,
+            collection_type: CollectionType::Artist,
+            bake_cover_arts: true,
+            group_titles: vec!["A".into()],
+        };
+        let immediate = fetch_collection_groups_request(&binding, &request)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            immediate.groups[0]
+                .collections
+                .iter()
+                .all(|collection| collection.cover_art_map.is_empty())
+        );
+        wait_for_covers(&binding, &["cover-1", "cover-2"]).await;
+        let refreshed = fetch_collection_groups_request(&binding, &request)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(refreshed.groups[0].collections.iter().all(|collection| {
+            collection.cover_art_map.len() == 1
+                && collection
+                    .cover_art_map
+                    .values()
+                    .all(|path| path.starts_with(root.path().to_str().unwrap()))
+        }));
+        assert_eq!(server.state.cover_calls.load(Ordering::SeqCst), 2);
+    }
 
     #[test]
     fn rejected_request_credentials_are_typed_as_not_authorized() {
+        use subsonic::SubsonicServerError;
         let failures = [
             SubsonicServerError::WrongCredentials,
             SubsonicServerError::NotAuthorized,

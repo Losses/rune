@@ -33,6 +33,7 @@ use database::library_registry::{LibraryRegistry, ProtocolAdapter, SubsonicOpenM
 use serde_json::json;
 use std::{
     collections::HashMap,
+    fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex as StdMutex},
 };
@@ -7360,6 +7361,24 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
             .outcome,
         RemoveLibraryRecordOutcome::Removed
     );
+    let subsonic_cache = PathBuf::from(&*node.config_path)
+        .join("subsonic-covers")
+        .join(subsonic.record_id.0.to_string());
+    fs::create_dir_all(&subsonic_cache)?;
+    fs::write(subsonic_cache.join("cover.img"), b"cover")?;
+    let remove_subsonic = RemoveLibraryRecordRequest {
+        call_id: None,
+        record_id: subsonic.record_id.0.to_string(),
+    };
+    assert_eq!(
+        remove_subsonic
+            .handle(node.clone(), None, &remove_subsonic)
+            .await?
+            .context("Subsonic record removal")?
+            .outcome,
+        RemoveLibraryRecordOutcome::Removed
+    );
+    assert!(!subsonic_cache.exists());
     let remove_invalid = RemoveLibraryRecordRequest {
             call_id: None,
         record_id: invalid_id.0.to_string(),

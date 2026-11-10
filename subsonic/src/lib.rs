@@ -436,6 +436,38 @@ impl SubsonicClient {
         url
     }
 
+    /// Fetch cover art bytes without exposing the authenticated URL to callers.
+    pub async fn cover_art(&self, id: &str, size: Option<u32>) -> Result<Vec<u8>, SubsonicError> {
+        let response = self
+            .http
+            .get(self.cover_art_url(id, size))
+            .send()
+            .await
+            .map_err(|error| SubsonicError::Transport(error.without_url().to_string()))?;
+        let mut response = response
+            .error_for_status()
+            .map_err(|error| SubsonicError::Transport(error.without_url().to_string()))?;
+        const MAX_COVER_BYTES: usize = 8 * 1024 * 1024;
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_COVER_BYTES as u64)
+        {
+            return Err(SubsonicError::Malformed("cover art is too large".into()));
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|error| SubsonicError::Transport(error.without_url().to_string()))?
+        {
+            if bytes.len().saturating_add(chunk.len()) > MAX_COVER_BYTES {
+                return Err(SubsonicError::Malformed("cover art is too large".into()));
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        Ok(bytes)
+    }
+
     fn endpoint_url(&self, endpoint: &str) -> Url {
         let mut url = self.base_url.clone();
         let path = format!(

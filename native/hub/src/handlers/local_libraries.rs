@@ -19,6 +19,7 @@ use crate::{
         SetLibraryBackgroundSyncResponse,
     },
     node::NodeContext,
+    subsonic_binding::delete_subsonic_cover_cache,
     utils::{GlobalParams, ParamsExtractor},
 };
 
@@ -217,6 +218,10 @@ impl Signal for RemoveLibraryRecordRequest {
             }));
         }
         let library_id = record.and_then(|record| record.catalog_library_id());
+        let subsonic_library_id = record.and_then(|record| {
+            matches!(&record.protocol, ProtocolAdapter::SubsonicTranslate { .. })
+                .then(|| record.catalog_library_id().unwrap_or(record.record_id.0))
+        });
         if !LibraryRegistry::remove_record(config, LibraryRecordId(id), &node.credentials).await? {
             return Ok(Some(RemoveLibraryRecordResponse {
                 call_id: None,
@@ -228,6 +233,9 @@ impl Signal for RemoveLibraryRecordRequest {
         if let Some(library_id) = library_id {
             node.stop_library_sync(library_id).await;
             node.library_pool.release_background(library_id).await;
+        }
+        if let Some(library_id) = subsonic_library_id {
+            delete_subsonic_cover_cache(config, library_id).await?;
         }
         publish_library_records_changed(&node).await?;
         Ok(Some(RemoveLibraryRecordResponse {
