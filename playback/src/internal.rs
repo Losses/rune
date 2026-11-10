@@ -13,7 +13,7 @@ use std::{
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::{Context, Result, anyhow, bail};
-use fsio::{FileStream, FsIo};
+use fsio::{FileIoError, FileStream, FsIo};
 use log::{debug, error, info, warn};
 use rodio::{PlayError, Sink, Source, source::SeekError};
 use tokio::{
@@ -67,8 +67,121 @@ where
     .context("decoder probe task failed")?
 }
 
+async fn open_local_source(fsio: Arc<FsIo>, path: PathBuf, remote: bool) -> Result<AnySource> {
+    let open_path = path.clone();
+    let stream = tokio::task::spawn_blocking(move || fsio.open(&open_path, "r"))
+        .await
+        .context("audio file open task failed")?
+        .map_err(|error| {
+            if remote {
+                return match error {
+                    FileIoError::PermissionDenied(_) => anyhow!(RemoteAudioError::AccessRevoked),
+                    error @ (FileIoError::Remote(_) | FileIoError::PathNotFound(_)) => {
+                        anyhow!(RemoteAudioError::unreachable(error))
+                    }
+                    other => anyhow::Error::new(other),
+                };
+            }
+            anyhow::Error::new(error)
+        })?;
+    let (stream, failure) = if remote {
+        let failure = Arc::new(Mutex::new(None));
+        (
+            Box::new(FailureTrackingFile {
+                inner: stream,
+                failure: failure.clone(),
+            }) as Box<dyn FileStream>,
+            Some(failure),
+        )
+    } else {
+        (stream, None)
+    };
+    let extension = path.extension().and_then(|value| value.to_str());
+    let decoder = match probe_decoder(BufReader::new(stream), extension.map(str::to_owned), None)
+        .await
+    {
+        Ok(decoder) => decoder,
+        Err(error) => {
+            if let Some(reason) = failure
+                .as_ref()
+                .and_then(|failure| failure.lock().ok().and_then(|value| *value))
+            {
+                return Err(match reason {
+                    UnavailableReason::AccessRevoked => anyhow!(RemoteAudioError::AccessRevoked),
+                    UnavailableReason::SourceUnreachable => {
+                        anyhow!(RemoteAudioError::unreachable(error))
+                    }
+                    UnavailableReason::LibraryUnavailable => {
+                        anyhow!(RemoteAudioError::LibraryUnavailable)
+                    }
+                    UnavailableReason::Unreadable => error,
+                });
+            }
+            return Err(error);
+        }
+    };
+    Ok(AnySource::Local(rune_buffered(decoder), failure))
+}
+
+struct FailureTrackingFile {
+    inner: Box<dyn FileStream>,
+    failure: Arc<Mutex<Option<UnavailableReason>>>,
+}
+
+impl FailureTrackingFile {
+    fn record(&self, error: &std::io::Error) {
+        let reason = match error.kind() {
+            ErrorKind::PermissionDenied => UnavailableReason::AccessRevoked,
+            ErrorKind::NotFound => UnavailableReason::SourceUnreachable,
+            _ => UnavailableReason::SourceUnreachable,
+        };
+        if let Ok(mut failure) = self.failure.lock() {
+            *failure = Some(reason);
+        }
+    }
+}
+
+impl std::io::Read for FailureTrackingFile {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let result = self.inner.read(buf);
+        if let Err(error) = &result {
+            self.record(error);
+        }
+        result
+    }
+}
+
+impl std::io::Seek for FailureTrackingFile {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        let result = self.inner.seek(pos);
+        if let Err(error) = &result {
+            self.record(error);
+        }
+        result
+    }
+}
+
+impl std::io::Write for FailureTrackingFile {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.inner.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+impl FileStream for FailureTrackingFile {
+    fn sync_all(&mut self) -> Result<(), FileIoError> {
+        self.inner.sync_all()
+    }
+}
+
 pub enum AnySource {
-    Local(RuneBuffered<RuneDecoder<BufReader<Box<dyn FileStream>>>>),
+    Local(
+        RuneBuffered<RuneDecoder<BufReader<Box<dyn FileStream>>>>,
+        Option<Arc<Mutex<Option<UnavailableReason>>>>,
+    ),
     Online(
         RuneBuffered<RuneDecoder<ManagedStream>>,
         Arc<Mutex<Option<UnavailableReason>>>,
@@ -101,7 +214,7 @@ async fn open_library_stream(
 impl Debug for AnySource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AnySource::Local(_) => f.debug_struct("AnySource::Local").finish(),
+            AnySource::Local(_, _) => f.debug_struct("AnySource::Local").finish(),
             AnySource::Online(_, _) => f.debug_struct("AnySource::Online").finish(),
         }
     }
@@ -110,7 +223,7 @@ impl Debug for AnySource {
 impl AnySource {
     fn current_samples(&self) -> Option<Vec<i16>> {
         match self {
-            AnySource::Local(s) => s.current_samples(),
+            AnySource::Local(s, _) => s.current_samples(),
             AnySource::Online(s, _) => s.current_samples(),
         }
     }
@@ -121,7 +234,7 @@ impl Iterator for AnySource {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            AnySource::Local(s) => s.next(),
+            AnySource::Local(s, _) => s.next(),
             AnySource::Online(s, _) => s.next(),
         }
     }
@@ -130,35 +243,35 @@ impl Iterator for AnySource {
 impl Source for AnySource {
     fn current_frame_len(&self) -> Option<usize> {
         match self {
-            AnySource::Local(s) => s.current_frame_len(),
+            AnySource::Local(s, _) => s.current_frame_len(),
             AnySource::Online(s, _) => s.current_frame_len(),
         }
     }
 
     fn channels(&self) -> u16 {
         match self {
-            AnySource::Local(s) => s.channels(),
+            AnySource::Local(s, _) => s.channels(),
             AnySource::Online(s, _) => s.channels(),
         }
     }
 
     fn sample_rate(&self) -> u32 {
         match self {
-            AnySource::Local(s) => s.sample_rate(),
+            AnySource::Local(s, _) => s.sample_rate(),
             AnySource::Online(s, _) => s.sample_rate(),
         }
     }
 
     fn total_duration(&self) -> Option<Duration> {
         match self {
-            AnySource::Local(s) => s.total_duration(),
+            AnySource::Local(s, _) => s.total_duration(),
             AnySource::Online(s, _) => s.total_duration(),
         }
     }
 
     fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
         match self {
-            AnySource::Local(s) => s.try_seek(pos),
+            AnySource::Local(s, _) => s.try_seek(pos),
             AnySource::Online(s, _) => s.try_seek(pos),
         }
     }
@@ -167,7 +280,7 @@ impl Source for AnySource {
 impl AnySource {
     fn stream_failure(&self) -> Option<Arc<Mutex<Option<UnavailableReason>>>> {
         match self {
-            AnySource::Local(_) => None,
+            AnySource::Local(_, failed) => failed.clone(),
             AnySource::Online(_, failed) => Some(failed.clone()),
         }
     }
@@ -763,11 +876,13 @@ impl PlayerInternal {
                 let source_future = async {
                     let mut fsio = fsio;
                     let mut resolver = resolver;
+                    let mut remote_storage = false;
                     if let (PlayingItem::InLibrary(identity), Some(root)) =
                         (&item.item, resolver.as_ref())
                         && let Some(library) =
                             root.for_library(identity.library_id.to_string()).await?
                     {
+                        remote_storage = library.fsio.name() == "OpenDAL";
                         fsio = library.fsio;
                         resolver = Some(library.resolver);
                     }
@@ -813,18 +928,10 @@ impl PlayerInternal {
                                     }
                                 }
                             };
-                            let stream = fsio
-                                .open(&path, "r")
+                            let source = open_local_source(fsio, path.clone(), remote_storage)
+                                .await
                                 .with_context(|| format!("Failed to open file: {path:?}"))?;
-                            let ext = path.extension().and_then(|e| e.to_str());
-                            let decoder =
-                                probe_decoder(BufReader::new(stream), ext.map(str::to_owned), None)
-                                    .await?;
-                            Ok((
-                                AnySource::Local(rune_buffered(decoder)),
-                                path,
-                                resolved_item.clone(),
-                            ))
+                            Ok((source, path, resolved_item.clone()))
                         }
                         PlayingItem::Online(url, _) => {
                             info!("Downloading from url: {url}");
@@ -1928,6 +2035,110 @@ mod stream_open_tests {
     use std::io::{Read, Seek, SeekFrom};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc::{Receiver, channel};
+    use tokio::runtime::Handle;
+
+    fn opendal_fsio(config: fsio::OpenDalConfig) -> Result<Arc<FsIo>> {
+        Ok(Arc::new(FsIo::new_opendal(config, Handle::current())?))
+    }
+
+    async fn decode_opendal_asset(fsio: Arc<FsIo>) -> Result<()> {
+        let source = open_local_source(fsio, PathBuf::from("startup_0.ogg"), true).await?;
+        let duration = source
+            .total_duration()
+            .context("decoded duration missing")?;
+        anyhow::ensure!(duration > Duration::from_secs(1));
+        let samples = tokio::task::spawn_blocking(move || -> Result<usize> {
+            let mut source = source;
+            source
+                .try_seek(duration.saturating_sub(Duration::from_millis(500)))
+                .map_err(|error| anyhow!("seek failed: {error}"))?;
+            let mut samples = 0usize;
+            while source.next().is_some() {
+                samples += 1;
+            }
+            Ok(samples)
+        })
+        .await??;
+        anyhow::ensure!(samples > 0, "seek near the end produced no samples");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn opendal_track_decodes_seeks_and_finishes_on_current_thread() -> Result<()> {
+        use fsio::{OpenDalConfig, test_fixtures::WebDavFixture};
+
+        tokio::time::timeout(Duration::from_secs(30), async {
+            let asset = include_bytes!("../../assets/startup_0.ogg").to_vec();
+            let fixture = WebDavFixture::start(vec![("startup_0.ogg".into(), asset)]).await?;
+            let fsio = opendal_fsio(OpenDalConfig::WebDav {
+                endpoint: fixture.endpoint.clone(),
+                root: "/dav/library/".into(),
+                username: "user".into(),
+                password: "pass".into(),
+            })?;
+            decode_opendal_asset(fsio).await?;
+            anyhow::ensure!(fixture.write_requests().is_empty());
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .context("current-thread OpenDAL decode timed out")??;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn opendal_s3_track_decodes_seeks_and_finishes_on_current_thread() -> Result<()> {
+        use fsio::{OpenDalConfig, test_fixtures::S3Fixture};
+
+        tokio::time::timeout(Duration::from_secs(30), async {
+            let fixture = S3Fixture::start(vec![(
+                "startup_0.ogg".into(),
+                include_bytes!("../../assets/startup_0.ogg").to_vec(),
+            )])
+            .await?;
+            let fsio = opendal_fsio(OpenDalConfig::S3 {
+                endpoint: fixture.endpoint.clone(),
+                bucket: "bucket".into(),
+                region: "us-east-1".into(),
+                root: "/library/".into(),
+                access_key_id: "access".into(),
+                secret_access_key: "secret".into(),
+            })?;
+            decode_opendal_asset(fsio).await
+        })
+        .await
+        .context("current-thread OpenDAL S3 decode timed out")??;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn rejected_opendal_credentials_are_a_typed_source_failure() -> Result<()> {
+        use fsio::{OpenDalConfig, test_fixtures::WebDavFixture};
+
+        tokio::time::timeout(Duration::from_secs(15), async {
+            let fixture = WebDavFixture::start(vec![(
+                "startup_0.ogg".into(),
+                include_bytes!("../../assets/startup_0.ogg").to_vec(),
+            )])
+            .await?;
+            let fsio = opendal_fsio(OpenDalConfig::WebDav {
+                endpoint: fixture.endpoint.clone(),
+                root: "/dav/library/".into(),
+                username: "user".into(),
+                password: "wrong".into(),
+            })?;
+            let error = open_local_source(fsio, PathBuf::from("startup_0.ogg"), true)
+                .await
+                .expect_err("rejected credentials must fail the source");
+            anyhow::ensure!(
+                UnavailableReason::classify(&error) == UnavailableReason::AccessRevoked,
+                "OpenDAL error was not classified as a typed access failure: {error:#}"
+            );
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .context("current-thread credential failure timed out")??;
+        Ok(())
+    }
     use tokio::sync::Notify;
     use tokio::task::LocalSet;
     use uuid::Uuid;

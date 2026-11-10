@@ -1544,9 +1544,29 @@ pub async fn files_to_playback_request<P: AsRef<Path>>(
     let library_uuid = library_id.parse::<uuid::Uuid>()?;
     let availability = audio_availability(db, fsio, lib_path.as_ref(), &ids).await?;
     let remote_content = remote_content_ids(db, &ids).await?;
+    let fsio_for_paths = fsio.clone();
+    let root = lib_path.as_ref().to_path_buf();
+    let files_for_paths = files.to_vec();
+    let local_paths = tokio::task::spawn_blocking(move || {
+        files_for_paths
+            .iter()
+            .map(|file| match file.file_id {
+                Some(_) => fsio_for_paths
+                    .canonicalize_path(&root.join(&file.directory).join(&file.file_name))
+                    .ok(),
+                None if let PlayingItem::IndependentFile(path) = &file.item => {
+                    fsio_for_paths.canonicalize_path_str(path).ok()
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    })
+    .await
+    .context("playback source path task failed")?;
     Ok(files
         .iter()
-        .filter_map(|file| {
+        .zip(local_paths)
+        .filter_map(|(file, local_path)| {
             let source = match file.file_id {
                 Some(id)
                     if matches!(
@@ -1560,17 +1580,9 @@ pub async fn files_to_playback_request<P: AsRef<Path>>(
                 Some(id) if !matches!(availability.get(&id), Some(AudioAvailability::Local)) => {
                     return None;
                 }
-                Some(_) => match fsio.canonicalize_path(
-                    &lib_path
-                        .as_ref()
-                        .join(&file.directory)
-                        .join(&file.file_name),
-                ) {
-                    Ok(path) => PlaybackSource::Local(path),
-                    Err(_) => return None,
-                },
-                None if let PlayingItem::IndependentFile(path) = &file.item => {
-                    PlaybackSource::Local(fsio.canonicalize_path_str(path).ok()?)
+                Some(_) => PlaybackSource::Local(local_path?),
+                None if matches!(&file.item, PlayingItem::IndependentFile(_)) => {
+                    PlaybackSource::Local(local_path?)
                 }
                 None => return None,
             };

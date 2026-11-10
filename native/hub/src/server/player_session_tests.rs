@@ -18,7 +18,7 @@ use crate::messages::{
 };
 use crate::node::{CatalogTarget, ReconnectConfig, SessionBinding};
 use crate::utils::{
-    open_library_by_record_on_node, register_local_library_on_node,
+    files_to_playback_request, open_library_by_record_on_node, register_local_library_on_node,
     register_remote_control_on_node, register_subsonic_library_on_node, register_opendal_library_on_node,
     register_subsonic_library_with_node,
 };
@@ -67,6 +67,7 @@ use database::actions::{
     mixes::query_mix_media_files,
     playback_queue::{list_legacy_playback_queue, replace_playback_queue},
 };
+use database::playing_item::MediaFileHandle;
 use database::credentials::{Credential, Secret};
 use database::entities::media_file_stats;
 use database::entities::media_files;
@@ -80,7 +81,7 @@ use playback::{
     strategies::AddMode,
 };
 use sea_orm::sea_query::Expr;
-use sea_orm::{EntityTrait, Set};
+use sea_orm::{ActiveModelTrait, EntityTrait, IntoActiveModel, Set};
 use serde::de::DeserializeOwned;
 use tokio::net::TcpListener as TokioTcpListener;
 #[cfg(target_os = "linux")]
@@ -6552,11 +6553,30 @@ async fn assert_opendal_library_scan(s3: bool) -> Result<()> {
         ))).await??;
         anyhow::ensure!(scanned == 2, "expected two scanned tracks, got {scanned}");
         let tracks = media_files::Entity::find().all(&*library.main_db).await?;
+        let mut remote_copy = tracks[1].clone().into_active_model();
+        remote_copy.local_available = Set(false);
+        remote_copy.content_hash = Set(Some("a".repeat(64)));
+        remote_copy.content_size = Set(Some(1024));
+        remote_copy.update(&*library.main_db).await?;
         let mut summaries = get_metadata_summary_by_files(&*library.main_db, tracks.clone()).await?;
         summaries.sort_by(|left, right| left.file_name.cmp(&right.file_name));
         anyhow::ensure!(summaries.len() == 2, "expected two tracks");
         anyhow::ensure!(summaries[0].directory.is_empty() && summaries[0].file_name == "startup_0.ogg" && summaries[0].title == "startup_0.ogg", "first relative track metadata was incorrect");
         anyhow::ensure!(summaries[1].directory.is_empty() && summaries[1].file_name == "startup_1.ogg" && summaries[1].title == "startup_1.ogg", "second relative track metadata was incorrect");
+        let queued = files_to_playback_request(
+            &library.fsio,
+            &library.main_db,
+            &library_id.to_string(),
+            &library.media_root,
+            &[
+                MediaFileHandle::from(tracks[0].clone()),
+                MediaFileHandle::from(tracks[1].clone()),
+            ],
+        )
+        .await?;
+        anyhow::ensure!(queued.len() == 2, "mixed OpenDAL/replica tracks were omitted from the queue");
+        anyhow::ensure!(matches!(queued[0].1, PlaybackSource::Local(_)), "OpenDAL track did not use the device library source");
+        anyhow::ensure!(matches!(queued[1].1, PlaybackSource::LibraryStream), "replica track did not keep its LibraryStream source beside OpenDAL audio");
         if let Some(webdav) = webdav {
             anyhow::ensure!(webdav.write_requests().is_empty(), "read-only WebDAV fixture received a write request");
         }

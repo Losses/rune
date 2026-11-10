@@ -70,10 +70,12 @@ pub async fn materialized_path<C: ConnectionTrait>(
     root: &Path,
     id: i32,
 ) -> Result<Option<PathBuf>> {
-    match media_files::Entity::find_by_id(id).one(db).await? {
-        Some(row) => row_path(fsio, root, &row),
-        None => Ok(None),
-    }
+    let Some(row) = media_files::Entity::find_by_id(id).one(db).await? else {
+        return Ok(None);
+    };
+    let fsio = fsio.clone();
+    let root = root.to_path_buf();
+    tokio::task::spawn_blocking(move || row_path(&fsio, &root, &row)).await?
 }
 
 pub async fn audio_availability<C: ConnectionTrait>(
@@ -94,20 +96,25 @@ pub async fn audio_availability<C: ConnectionTrait>(
         .into_iter()
         .map(|job| job.file_uuid)
         .collect();
-    rows.into_iter()
-        .map(|row| {
-            let state = if row_path(fsio, root, &row)?.is_some() {
-                AudioAvailability::Local
-            } else if pending.contains(&row.hlc_uuid) {
-                AudioAvailability::ImportPending
-            } else if row.content_hash.is_some() && row.content_size.is_some() {
-                AudioAvailability::RemoteOnly
-            } else {
-                AudioAvailability::Unavailable
-            };
-            Ok((row.id, state))
-        })
-        .collect()
+    let fsio = fsio.clone();
+    let root = root.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        rows.into_iter()
+            .map(|row| {
+                let state = if row_path(&fsio, &root, &row)?.is_some() {
+                    AudioAvailability::Local
+                } else if pending.contains(&row.hlc_uuid) {
+                    AudioAvailability::ImportPending
+                } else if row.content_hash.is_some() && row.content_size.is_some() {
+                    AudioAvailability::RemoteOnly
+                } else {
+                    AudioAvailability::Unavailable
+                };
+                Ok((row.id, state))
+            })
+            .collect::<Result<HashMap<_, _>>>()
+    })
+    .await?
 }
 
 pub async fn is_materialized<C: ConnectionTrait>(

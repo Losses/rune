@@ -328,10 +328,15 @@ impl Read for RemoteFile {
             .position
             .saturating_add(buf.len().min(64 * 1024) as u64)
             .min(self.length);
-        let bytes = self
-            .reader
-            .read(self.position..end)
-            .map_err(|_| IoError::other("remote read failed"))?;
+        let bytes = self.reader.read(self.position..end).map_err(|error| {
+            let mapped = map_open_error(&error, "read");
+            let kind = match mapped {
+                FileIoError::PermissionDenied(_) => IoErrorKind::PermissionDenied,
+                FileIoError::PathNotFound(_) => IoErrorKind::NotFound,
+                _ => IoErrorKind::Other,
+            };
+            IoError::new(kind, mapped)
+        })?;
         let bytes = bytes.to_vec();
         let count = bytes.len().min(buf.len());
         buf[..count].copy_from_slice(&bytes[..count]);
