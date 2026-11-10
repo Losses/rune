@@ -92,7 +92,7 @@ pub fn analyze_audio(
     let audio_desc = measure_time!(
         &format!("[{computing_device:?}] Analyzer"),
         analyzer.process(fsio, file_path)
-    );
+    )?;
 
     if audio_desc.is_none() {
         return Ok(None);

@@ -93,7 +93,7 @@ where
                         }
                     };
                 }
-                Err(e) => error!("Failed to analyze track: {e}"),
+                Err(e) => error!("Failed to analyze track: {e:#}"),
             }
         }
     )

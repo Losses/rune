@@ -1,7 +1,10 @@
 //! In-process read-only WebDAV fixture shared by filesystem and hub tests.
 use std::{
     collections::{BTreeSet, HashMap},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
 };
 
 use tokio::{
@@ -14,6 +17,8 @@ use tokio::{
 pub struct WebDavFixture {
     pub endpoint: String,
     writes: Arc<Mutex<Vec<String>>>,
+    #[allow(dead_code)]
+    reject_reads: Arc<AtomicBool>,
     task: Arc<JoinHandle<()>>,
 }
 
@@ -23,8 +28,10 @@ impl WebDavFixture {
         let address = listener.local_addr()?;
         let files = Arc::new(files.into_iter().collect::<HashMap<_, _>>());
         let writes = Arc::new(Mutex::new(Vec::new()));
+        let reject_reads = Arc::new(AtomicBool::new(false));
         let server_files = files.clone();
         let server_writes = writes.clone();
+        let server_reject_reads = reject_reads.clone();
         let task = tokio::spawn(async move {
             loop {
                 let Ok((stream, _)) = listener.accept().await else {
@@ -32,14 +39,16 @@ impl WebDavFixture {
                 };
                 let files = server_files.clone();
                 let writes = server_writes.clone();
+                let reject_reads = server_reject_reads.clone();
                 tokio::spawn(async move {
-                    serve_webdav(stream, files, writes).await;
+                    serve_webdav(stream, files, writes, reject_reads).await;
                 });
             }
         });
         Ok(Self {
             endpoint: format!("http://{address}"),
             writes,
+            reject_reads,
             task: Arc::new(task),
         })
     }
@@ -49,6 +58,11 @@ impl WebDavFixture {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .clone()
+    }
+
+    #[allow(dead_code)]
+    pub fn reject_reads(&self) {
+        self.reject_reads.store(true, Ordering::SeqCst);
     }
 }
 
@@ -144,7 +158,9 @@ async fn serve_s3(stream: TcpStream, files: Arc<HashMap<String, Vec<u8>>>) {
             .into_iter()
             .map(|prefix| format!("<CommonPrefixes><Prefix>{prefix}</Prefix></CommonPrefixes>"))
             .collect::<String>();
-        let xml = format!("<?xml version=\"1.0\"?><ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Name>bucket</Name><Prefix>{prefix}</Prefix><IsTruncated>false</IsTruncated>{common_prefixes}{contents}</ListBucketResult>");
+        let xml = format!(
+            "<?xml version=\"1.0\"?><ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Name>bucket</Name><Prefix>{prefix}</Prefix><IsTruncated>false</IsTruncated>{common_prefixes}{contents}</ListBucketResult>"
+        );
         (200, "application/xml", String::new(), xml.into_bytes())
     } else {
         let name = path.rsplit("/library/").next().unwrap_or_default();
@@ -207,7 +223,9 @@ async fn serve_s3(stream: TcpStream, files: Arc<HashMap<String, Vec<u8>>>) {
     } else {
         body.len()
     };
-    let response = format!("HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {length}\r\n{extra}Connection: close\r\n\r\n");
+    let response = format!(
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {length}\r\n{extra}Connection: close\r\n\r\n"
+    );
     let _ = stream.write_all(response.as_bytes()).await;
     let _ = stream.write_all(&body).await;
     let _ = stream.shutdown().await;
@@ -217,6 +235,7 @@ async fn serve_webdav(
     stream: TcpStream,
     files: Arc<HashMap<String, Vec<u8>>>,
     writes: Arc<Mutex<Vec<String>>>,
+    reject_reads: Arc<AtomicBool>,
 ) {
     let (method, path, headers, mut stream) = {
         let mut reader = BufReader::new(stream);
@@ -260,7 +279,9 @@ async fn serve_webdav(
     }
     let (status, content_type, extra, body) = if !path.starts_with("/dav/library/") {
         (404, "text/plain", String::new(), Vec::new())
-    } else if headers.get("authorization").map(String::as_str) != Some("Basic dXNlcjpwYXNz") {
+    } else if headers.get("authorization").map(String::as_str) != Some("Basic dXNlcjpwYXNz")
+        || (method == "GET" && reject_reads.load(Ordering::SeqCst))
+    {
         (401, "text/plain", String::new(), Vec::new())
     } else if method == "PROPFIND" {
         let directory = path
@@ -364,7 +385,9 @@ async fn serve_webdav(
     } else {
         body.len()
     };
-    let response = format!("HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {length}\r\n{extra}Connection: close\r\n\r\n");
+    let response = format!(
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {length}\r\n{extra}Connection: close\r\n\r\n"
+    );
     let _ = stream.write_all(response.as_bytes()).await;
     let _ = stream.write_all(&body).await;
     let _ = stream.shutdown().await;
@@ -372,5 +395,7 @@ async fn serve_webdav(
 
 fn dav_entry(path: &str, directory: bool, size: usize) -> String {
     let resource = if directory { "<D:collection/>" } else { "" };
-    format!("<D:response><D:href>{path}</D:href><D:propstat><D:prop><D:resourcetype>{resource}</D:resourcetype><D:getcontentlength>{size}</D:getcontentlength><D:getlastmodified>Wed, 01 Jan 2025 00:00:00 GMT</D:getlastmodified></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>")
+    format!(
+        "<D:response><D:href>{path}</D:href><D:propstat><D:prop><D:resourcetype>{resource}</D:resourcetype><D:getcontentlength>{size}</D:getcontentlength><D:getlastmodified>Wed, 01 Jan 2025 00:00:00 GMT</D:getlastmodified></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>"
+    )
 }

@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::fmt;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use opendal::blocking::{Operator, Reader};
@@ -90,6 +90,9 @@ impl OpenDalFsIo {
                 .with_no_client_auth();
             reqwest::Client::builder()
                 .tls_backend_preconfigured(tls_config)
+                // Per-read inactivity, not a total limit: a large listing may take longer.
+                .connect_timeout(Duration::from_secs(10))
+                .read_timeout(Duration::from_secs(30))
                 .build()
                 .map_err(|_| remote_error("configure"))?
         };

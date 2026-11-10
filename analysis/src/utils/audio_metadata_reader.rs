@@ -1,4 +1,7 @@
-use std::path::Path;
+use std::{
+    io::{Read, Seek, SeekFrom},
+    path::Path,
+};
 use symphonia::core::{
     errors::Error,
     formats::{FormatOptions, FormatReader, Track},
@@ -15,9 +18,15 @@ use ::fsio_media_source::FsioMediaSource;
 
 pub fn get_format(fsio: &FsIo, file_path: &str) -> Result<Box<dyn FormatReader>> {
     // Open the media source.
-    let src = fsio
+    let mut src = fsio
         .open(Path::new(file_path), "r")
         .with_context(|| "failed to open media")?;
+
+    let mut header_byte = [0; 1];
+    src.read(&mut header_byte)
+        .with_context(|| "failed to read media header")?;
+    src.seek(SeekFrom::Start(0))
+        .with_context(|| "failed to rewind media after header read")?;
 
     // Create the media source stream.
     let source = FsioMediaSource::new(src);

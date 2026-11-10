@@ -16,6 +16,7 @@ mod tests {
             Analyzer::new(ComputingDevice::Cpu, 1024, 512, None, None)
                 .process(&fsio, path)
                 .unwrap()
+                .unwrap()
         };
         let a = run();
         let b = run();
@@ -38,12 +39,16 @@ mod tests {
         let mut analyzer =
             Analyzer::new(ComputingDevice::Cpu, window_size, overlap_size, None, None);
 
-        let cpu_result = measure_time!("CPU FFT", analyzer.process(&fsio, file_path)).unwrap();
+        let cpu_result = measure_time!("CPU FFT", analyzer.process(&fsio, file_path))
+            .unwrap()
+            .unwrap();
 
         let mut analyzer =
             Analyzer::new(ComputingDevice::Gpu, window_size, overlap_size, None, None);
 
-        let gpu_result = measure_time!("GPU FFT", analyzer.process(&fsio, file_path)).unwrap();
+        let gpu_result = measure_time!("GPU FFT", analyzer.process(&fsio, file_path))
+            .unwrap()
+            .unwrap();
 
         info!("CPU result: {cpu_result:?}");
         info!("GPU result: {gpu_result:?}");
@@ -94,7 +99,7 @@ mod tests {
         }
         let fsio = FsIo::new();
         let mut analyzer = Analyzer::new(ComputingDevice::Cpu, 1024, 512, None, None);
-        let result = analyzer.process(&fsio, file_path);
+        let result = analyzer.process(&fsio, file_path).unwrap();
         assert!(result.is_some(), "Opus analysis should succeed");
         let desc = result.unwrap();
         assert!(desc.total_samples > 0);
@@ -114,7 +119,7 @@ mod tests {
         }
         let fsio = FsIo::new();
         let mut analyzer = Analyzer::new(ComputingDevice::Cpu, 1024, 512, None, None);
-        let result = analyzer.process(&fsio, file_path);
+        let result = analyzer.process(&fsio, file_path).unwrap();
         assert!(result.is_some(), "AAC analysis should succeed");
         let desc = result.unwrap();
         assert!(desc.total_samples > 0);

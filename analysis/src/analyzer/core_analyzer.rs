@@ -1,6 +1,10 @@
 use crate::utils::mixing::append_mixed;
-use std::sync::{Arc, Mutex};
+use std::{
+    io::ErrorKind,
+    sync::{Arc, Mutex},
+};
 
+use anyhow::{Context, Result, anyhow};
 use log::debug;
 
 use fsio_media_source::get_codecs;
@@ -40,7 +44,7 @@ macro_rules! check_cancellation {
     ($self:expr,$func:expr) => {{
         if $self.is_cancelled || ($self.fn_is_cancelled)() {
             $self.is_cancelled = true;
-            return;
+            return Ok(());
         }
         $func;
     }};
@@ -127,36 +131,37 @@ impl Analyzer {
         }
     }
 
-    pub fn process(&mut self, fsio: &FsIo, file_path: &str) -> Option<AudioDescription> {
-        let mut format = get_format(fsio, file_path).expect("no supported audio tracks");
+    pub fn process(&mut self, fsio: &FsIo, file_path: &str) -> Result<Option<AudioDescription>> {
+        let mut format = get_format(fsio, file_path)?;
         let track = format
             .tracks()
             .iter()
             .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-            .expect("No supported audio tracks");
+            .ok_or_else(|| anyhow!("no supported audio tracks"))?;
 
-        let (sample_rate, duration_in_seconds) = get_codec_information(track).unwrap();
+        let (sample_rate, duration_in_seconds) =
+            get_codec_information(track).context("read audio codec information")?;
         self.sample_rate = sample_rate;
         self.duration_in_seconds = duration_in_seconds;
 
         let dec_opts: DecoderOptions = Default::default();
         let mut decoder = get_codecs()
             .make(&track.codec_params, &dec_opts)
-            .expect("unsupported codec");
+            .context("create audio decoder")?;
 
         let track_id = track.id;
 
         if self.is_cancelled || (self.fn_is_cancelled)() {
-            return None;
+            return Ok(None);
         }
 
-        self.process_audio_stream(&mut format, &mut decoder, track_id);
+        self.process_audio_stream(&mut format, &mut decoder, track_id)?;
 
         if self.is_cancelled || self.count == 0 {
-            return None;
+            return Ok(None);
         }
 
-        Some(AudioDescription {
+        Ok(Some(AudioDescription {
             sample_rate: self.sample_rate,
             duration: self.duration_in_seconds,
             total_samples: self.total_samples,
@@ -164,7 +169,7 @@ impl Analyzer {
             rms: self.total_rms / self.count as f32,
             zcr: self.total_zcr / self.count,
             energy: self.total_energy / self.count as f32,
-        })
+        }))
     }
 
     fn process_audio_chunk(&mut self, chunk: &[f32], force: bool) {
@@ -278,23 +283,25 @@ impl Analyzer {
         format: &mut Box<dyn FormatReader>,
         decoder: &mut Box<dyn Decoder>,
         track_id: u32,
-    ) {
+    ) -> Result<()> {
         self.initialize_resampler();
 
         // Decode loop.
         loop {
             // Check for cancellation
-            check_cancellation!(self);
+            if self.is_cancelled || (self.fn_is_cancelled)() {
+                self.is_cancelled = true;
+                return Ok(());
+            }
 
             // Get the next packet from the media format.
             let packet = match format.next_packet() {
                 Ok(packet) => packet,
-                Err(Error::ResetRequired) => unimplemented!(),
-                Err(Error::IoError(_)) => {
+                Err(Error::IoError(error)) if error.kind() == ErrorKind::UnexpectedEof => {
                     debug!("End of stream");
                     break;
                 }
-                Err(err) => panic!("{}", err),
+                Err(err) => return Err(anyhow!(err).context("read audio packet")),
             };
             debug!("Packet received: track_id = {}", packet.track_id());
 
@@ -306,7 +313,7 @@ impl Analyzer {
             // Decode the packet into audio samples.
             let decoded = match decoder.decode(&packet) {
                 Ok(decoded) => decoded,
-                Err(Error::IoError(_)) => {
+                Err(Error::IoError(error)) if error.kind() == ErrorKind::UnexpectedEof => {
                     debug!("IO Error while decoding");
                     continue;
                 }
@@ -314,7 +321,7 @@ impl Analyzer {
                     debug!("Decode Error");
                     continue;
                 }
-                Err(err) => panic!("{}", err),
+                Err(err) => return Err(anyhow!(err).context("decode audio packet")),
             };
             debug!("Packet decoded successfully");
 
@@ -367,7 +374,7 @@ impl Analyzer {
         debug!("Total samples: {}", self.total_samples);
 
         if self.count == 0 {
-            return;
+            return Ok(());
         }
 
         // Calculate the final average spectrum.
@@ -376,6 +383,7 @@ impl Analyzer {
             *value = Complex::new((value.re / self.count as f32).sqrt(), 0.0);
         }
         debug!("Final average spectrum calculated");
+        Ok(())
     }
 }
 
@@ -388,7 +396,7 @@ mod regression_tests {
     fn final_window_does_not_retain_track_sized_buffer() {
         let mut analyzer = Analyzer::new(ComputingDevice::Cpu, 1024, 512, None, None);
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../assets/startup_0.ogg");
-        let result = analyzer.process(&FsIo::new(), path).unwrap();
+        let result = analyzer.process(&FsIo::new(), path).unwrap().unwrap();
         assert!(result.rms.is_finite());
         assert!(analyzer.total_samples > analyzer.actual_data_size);
         assert!(analyzer.sample_buffer.capacity() <= analyzer.actual_data_size * 2);
@@ -404,7 +412,7 @@ mod regression_tests {
             calls.get() > 1
         });
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../assets/startup_0.ogg");
-        assert!(analyzer.process(&FsIo::new(), path).is_none());
+        assert!(analyzer.process(&FsIo::new(), path).unwrap().is_none());
     }
 }
 
