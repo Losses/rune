@@ -87,7 +87,7 @@ use sea_orm::{ActiveModelTrait, EntityTrait, IntoActiveModel, Set};
 use serde::de::DeserializeOwned;
 use tokio::net::TcpListener as TokioTcpListener;
 #[cfg(target_os = "linux")]
-use tokio::runtime::{Builder, Handle};
+use tokio::runtime::Builder;
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep, timeout};
 use tokio_tungstenite::{accept_async, connect_async};
@@ -6605,6 +6605,7 @@ async fn assert_opendal_library_scan(s3: bool) -> Result<()> {
     use fsio::test_fixtures::{S3Fixture, WebDavFixture};
     use sea_orm::EntityTrait;
     use tokio::task::spawn_blocking;
+    use tokio::runtime::Handle;
 
     let _ = env_logger::builder().is_test(true).try_init();
 
