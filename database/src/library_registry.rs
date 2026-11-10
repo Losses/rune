@@ -567,21 +567,20 @@ fn validate_registry_version(data: &[u8]) -> Result<()> {
 }
 impl LibraryRegistry {
     /// Load the registry, converting v2 and moving v1 files aside because their format is ambiguous.
+    /// Read the registry. A version 2 file is converted in memory only; it is
+    /// written back as version 3 by the next write, which holds the writer lock.
+    /// This must not take `REGISTRY_WRITE`: it is sync and runs on runtime threads
+    /// while async writers hold that lock across awaits.
     pub fn load(config_dir: &Path) -> Result<Self> {
-        let _guard = loop {
-            if let Ok(guard) = REGISTRY_WRITE.try_lock() {
-                break guard;
-            }
-            std::thread::yield_now();
-        };
-        Self::load_locked(config_dir)
+        Self::load_inner(config_dir, false)
     }
 
+    /// Load for a writer that already holds `REGISTRY_WRITE`; persists a v2 conversion.
     fn load_locked(config_dir: &Path) -> Result<Self> {
-        Self::load_inner(config_dir)
+        Self::load_inner(config_dir, true)
     }
 
-    fn load_inner(config_dir: &Path) -> Result<Self> {
+    fn load_inner(config_dir: &Path, persist_conversion: bool) -> Result<Self> {
         let path = config_dir.join("libraries.json");
         let loaded = match fs::read(&path) {
             Ok(data) => match validate_registry_version(&data) {
@@ -589,7 +588,9 @@ impl LibraryRegistry {
                     let version: Version = serde_json::from_slice(&data)?;
                     if version.version == 2 {
                         let file = v2::convert(&data).context("Invalid v2 library registry")?;
-                        write_v2_conversion(&path, &data, &file)?;
+                        if persist_conversion {
+                            write_v2_conversion(&path, &data, &file)?;
+                        }
                         (file.libraries, file.last_open_record)
                     } else {
                         let file: RegistryFile =
@@ -890,7 +891,7 @@ impl LibraryRegistry {
     }
 
     fn reload(&mut self) -> Result<()> {
-        *self = Self::load_locked(
+        *self = Self::load(
             self.path
                 .parent()
                 .context("Registry has no parent directory")?,
@@ -1222,6 +1223,7 @@ pub async fn create_replica(
 mod tests {
     use super::*;
     use std::fs;
+    use std::time::Duration;
     use tempfile::TempDir;
 
     struct Fixture {
@@ -1331,8 +1333,8 @@ mod tests {
         data.to_vec()
     }
 
-    #[test]
-    fn v2_registry_converts_all_record_kinds_and_keeps_backup() {
+    #[tokio::test]
+    async fn v2_registry_converts_all_record_kinds_and_keeps_backup() {
         let dir = TempDir::new().unwrap();
         let original = write_v2_registry_fixture(dir.path());
 
@@ -1421,6 +1423,14 @@ mod tests {
         assert!(
             matches!(&registry.libraries[5].protocol, ProtocolAdapter::SubsonicTranslate { credential, .. } if credential == &CredentialRef(Uuid::parse_str("30000000-0000-0000-0000-000000000006").unwrap()))
         );
+        // A plain load only converts in memory; the first write persists version 3.
+        assert_eq!(
+            fs::read(dir.path().join("libraries.json")).unwrap(),
+            original
+        );
+        LibraryRegistry::update(dir.path(), |_| Ok(()))
+            .await
+            .unwrap();
         let written: serde_json::Value =
             serde_json::from_slice(&fs::read(dir.path().join("libraries.json")).unwrap()).unwrap();
         assert_eq!(written["version"], 3);
@@ -1428,6 +1438,24 @@ mod tests {
             fs::read(dir.path().join("libraries.json.v2.bak")).unwrap(),
             original
         );
+    }
+
+    #[tokio::test]
+    async fn load_does_not_wait_for_the_writer_lock() {
+        let dir = TempDir::new().unwrap();
+        write_v2_registry_fixture(dir.path());
+        // Async writers hold the lock across awaits; a sync load on a runtime
+        // thread that waited for it would never let the holder run again.
+        let _writer = registry_write_guard().await;
+        let path = dir.path().to_path_buf();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(LibraryRegistry::load(&path).map(|r| r.libraries.len()));
+        });
+        let loaded = receiver
+            .recv_timeout(Duration::from_secs(5))
+            .expect("load waited for the registry writer lock");
+        assert_eq!(loaded.unwrap(), 6);
     }
 
     #[tokio::test]
