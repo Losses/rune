@@ -1,13 +1,13 @@
 use super::gui_listener_tests::start;
 use crate::Session;
 use crate::macros::{
-    RequestScope, capability_snapshot, request_scope, request_uses_controller_library,
+    RequestScope, capability_snapshot, request_scope,
 };
 use crate::messages::{
     CapabilityReason, CloseLibraryRequest, CloseLibraryResponse, CreatePlaylistRequest,
     FetchAllPlaylistsRequest, FetchAllPlaylistsResponse, GetPlaylistByIdRequest,
     LibraryContentChanged, LibraryInitializeMode, ListLocalLibrariesRequest, MixQuery,
-    OperatePlaybackWithMixQueryRequest, PlaybackStatus, PlaylistOperateMode, RemoteConnectionLost,
+    PlaybackStatus, PlaylistOperateMode, RemoteConnectionLost,
     RemoteLibraryReconnected, RemoteLibraryReconnecting, RemoteLossKind, RequestCapabilities,
     RequestCapability, RequestFailedResponse, RegisterLibraryOutcome, ScanAudioLibraryProgress,
     ScanTaskType,
@@ -46,13 +46,17 @@ use crate::{
     handlers::playback::{
         playing_item_from_request, playing_item_requests, session_snapshot_from_status,
     },
+    library_pool::LibraryHandle,
     messages::{
-        CastLibraryState, CastPreflightRequest, GetMediaFilesCountRequest, InLibraryPlayingItem,
+        CastLibraryState, CastResolvedItemsRequest, CastTarget, LoadResolvedItemsRequest,
+        ResolveMixQueryRequest, CastPreflightRequest, GetMediaFilesCountRequest, InLibraryPlayingItem,
         LibraryItemRequest, ListControllersRequest, ListRenderersRequest, PlayingItemRequest,
         PlaylistUpdate, RendererAvailability, RendererCandidate, RequestErrorKind,
         RequestFailureCause, SwitchRequest, VolumeRequest,
     },
     request_error::{ExpectedRequestError, classify},
+    utils::GlobalParams,
+    Signal,
     rpc::{RpcTarget, Slot, UnsupportedReason, dispatch_gui_request, run_on_target},
     server::api::fetch_device_info_at_port,
     session::store::SessionState,
@@ -171,6 +175,102 @@ async fn subsonic_hub_response(
         }
     };
     axum::Json(body)
+}
+
+
+struct MixPlaybackTestRequest {
+    queries: Vec<MixQuery>,
+    playback_mode: u32,
+    hint_position: i32,
+    initial_playback_item: Option<PlayingItemRequest>,
+    instantly_play: bool,
+    operate_mode: PlaylistOperateMode,
+    fallback_playing_items: Vec<PlayingItemRequest>,
+    expected_revision: Option<u64>,
+    cast_to: Option<CastTarget>,
+}
+
+struct MixPlaybackTestResponse {
+    playing_items: Vec<PlayingItemRequest>,
+}
+
+impl MixPlaybackTestRequest {
+    fn extract_params(
+        &self,
+        params: &GlobalParams,
+    ) -> (Option<LibraryHandle>, Arc<String>, Arc<NodeContext>) {
+        (
+            params.library.clone(),
+            params.node_id.clone(),
+            params.node.clone(),
+        )
+    }
+
+    async fn handle(
+        &self,
+        (library, _node_id, node): (
+            Option<LibraryHandle>,
+            Arc<String>,
+            Arc<NodeContext>,
+        ),
+        session: Option<Session>,
+        _request: &Self,
+    ) -> Result<Option<MixPlaybackTestResponse>> {
+        let resolve_request = ResolveMixQueryRequest {
+            queries: self.queries.clone(),
+            hint_position: self.hint_position,
+            initial_playback_item: self.initial_playback_item.clone(),
+            instantly_play: self.instantly_play,
+            fallback_playing_items: self.fallback_playing_items.clone(),
+            exclude_local_queue: node.renderer_link()?.is_none() && self.cast_to.is_none(),
+        };
+        let resolved = resolve_request
+            .handle((library.clone(), node.clone()), session, &resolve_request)
+            .await?
+            .context("mix query resolution")?;
+        let load = LoadResolvedItemsRequest {
+            items: resolved.playing_items.clone(),
+            start_index: resolved.start_index,
+            mode: self.operate_mode,
+            expected_revision: self.expected_revision,
+            playback_mode: self.instantly_play.then_some(self.playback_mode),
+        };
+        match &self.cast_to {
+            Some(target) if !target.attach => {
+                let cast_request = CastResolvedItemsRequest {
+                    fingerprint: target.fingerprint.clone(),
+                    items: load.items,
+                    start_index: load.start_index,
+                    mode: load.mode,
+                    expected_revision: load.expected_revision,
+                    playback_mode: load.playback_mode,
+                };
+                cast_request
+                    .handle(node.clone(), None, &cast_request)
+                    .await?;
+            }
+            Some(target) => {
+                node.attach_renderer(&target.fingerprint).await?;
+                node.renderer_link()?.context("attached renderer")?.call(&load).await?;
+            }
+            None => match node.renderer_link()? {
+                Some(link) => {
+                    link.call(&load).await?;
+                }
+                None => {
+                    load.handle(
+                        (Some(library.context("library is not open")?), node.clone()),
+                        None,
+                        &load,
+                    )
+                    .await?;
+                }
+            },
+        }
+        Ok(Some(MixPlaybackTestResponse {
+            playing_items: resolved.playing_items,
+        }))
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1461,7 +1561,6 @@ async fn old_renderer_reader_cannot_clear_a_new_link() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn mix_query_forwarding_leaves_it_for_local_resolution() -> Result<()> {
-    use crate::messages::OperatePlaybackWithMixQueryRequest;
 
     let a_dir = tempfile::tempdir()?;
     let b_dir = tempfile::tempdir()?;
@@ -1478,16 +1577,13 @@ async fn mix_query_forwarding_leaves_it_for_local_resolution() -> Result<()> {
     let id = session_audio(&b, "mix-query-renderer.ogg").await?;
     queue_session(&b, &[id]).await?;
     let before = b.global_params.player.lock().await.get_status().playlist;
-    let request = OperatePlaybackWithMixQueryRequest {
+    let request = ResolveMixQueryRequest {
         queries: Vec::new(),
-        playback_mode: 0,
         hint_position: 0,
         initial_playback_item: None,
         instantly_play: false,
-        operate_mode: crate::messages::PlaylistOperateMode::AppendToEnd,
         fallback_playing_items: Vec::new(),
-        expected_revision: None,
-        cast_to: None,
+        exclude_local_queue: true,
     };
     assert!(matches!(
         RpcTarget::select(&a.global_params.node, &request)?.slot(&request),
@@ -1514,11 +1610,9 @@ async fn mix_query_forwarding_leaves_it_for_local_resolution() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn attached_mix_query_casts_and_stale_edits_are_rejected() -> Result<()> {
-    use crate::Signal;
-    use crate::messages::{MixQuery, OperatePlaybackWithMixQueryRequest, PlaylistOperateMode};
+async fn attached_mix_query_resolves_for_controller_library_and_loads_resolved_items() -> Result<()> {
+    use crate::messages::{MixQuery, PlaylistOperateMode};
     use crate::request_error::{ExpectedRequestError, classify};
-    use crate::utils::ParamsExtractor;
 
     let host_dir = tempfile::tempdir()?;
     let renderer_dir = tempfile::tempdir()?;
@@ -1571,7 +1665,7 @@ async fn attached_mix_query_casts_and_stale_edits_are_rejected() -> Result<()> {
             .collect::<Vec<_>>(),
     )
     .await?;
-    let request = OperatePlaybackWithMixQueryRequest {
+    let request = MixPlaybackTestRequest {
         queries: host_items
             .iter()
             .map(|item| MixQuery {
@@ -1594,37 +1688,18 @@ async fn attached_mix_query_casts_and_stale_edits_are_rejected() -> Result<()> {
         .await?
         .context("cast mix query response")?;
     assert_eq!(response.playing_items.len(), 2);
-    let response_ids = response
+    let expected_items = response
         .playing_items
         .iter()
         .map(|item| {
-            item.in_library
+            let identity = item
+                .library_item
                 .as_ref()
-                .map(|item| item.file_id)
-                .context("resolved mix item is not in the controller library")
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let response_uuids = file_uuids_by_id(
-        &controller_replica.global_params.test_library().main_db,
-        &response_ids,
-    )
-    .await?;
-    let expected_items = response_ids
-        .iter()
-        .map(|file_id| {
-            response_uuids
-                .get(file_id)
-                .copied()
-                .map(|file_uuid| {
-                    PlayingItem::InLibrary(LibraryItem {
-                        library_id: controller_replica
-                            .global_params
-                            .library_id
-                            .expect("replica library id"),
-                        file_uuid,
-                    })
-                })
-                .context("resolved mix item uuid")
+                .context("resolved cast item is not a portable library item")?;
+            Ok(PlayingItem::InLibrary(LibraryItem {
+                library_id: Uuid::parse_str(&identity.library_id)?,
+                file_uuid: Uuid::parse_str(&identity.file_uuid)?,
+            }))
         })
         .collect::<Result<Vec<_>>>()?;
     let renderer_status = wait_player(&renderer_replica, |status| {
@@ -1712,12 +1787,7 @@ async fn attached_mix_query_casts_and_stale_edits_are_rejected() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn attached_mix_query_rejects_items_outside_renderer_libraries() -> Result<()> {
-    use crate::Signal;
-    use crate::messages::{
-        IndependentFilePlayingItem, OperatePlaybackWithMixQueryRequest, PlayingItemRequest,
-        PlaylistOperateMode,
-    };
-    use crate::utils::ParamsExtractor;
+    use crate::messages::{IndependentFilePlayingItem, PlayingItemRequest, PlaylistOperateMode};
 
     let controller_dir = tempfile::tempdir()?;
     let renderer_dir = tempfile::tempdir()?;
@@ -1745,7 +1815,7 @@ async fn attached_mix_query_rejects_items_outside_renderer_libraries() -> Result
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg"),
         &independent_path,
     )?;
-    let independent_request = OperatePlaybackWithMixQueryRequest {
+    let independent_request = MixPlaybackTestRequest {
         queries: Vec::new(),
         playback_mode: 0,
         hint_position: -1,
@@ -1787,7 +1857,7 @@ async fn attached_mix_query_rejects_items_outside_renderer_libraries() -> Result
     );
 
     let item = library_item_for_id(&controller, id).await?;
-    let request = OperatePlaybackWithMixQueryRequest {
+    let request = MixPlaybackTestRequest {
         queries: Vec::new(),
         playback_mode: 0,
         hint_position: -1,
@@ -1829,13 +1899,8 @@ async fn attached_mix_query_rejects_items_outside_renderer_libraries() -> Result
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() -> Result<()> {
-    use crate::Signal;
     use crate::backends::remote::RendererLinkUse;
-    use crate::messages::{
-        CastTarget, MixQuery, OperatePlaybackWithMixQueryRequest, PlaylistOperateMode,
-        RendererAttachmentChanged,
-    };
-    use crate::utils::ParamsExtractor;
+    use crate::messages::{CastTarget, MixQuery, PlaylistOperateMode, RendererAttachmentChanged};
 
     let host_dir = tempfile::tempdir()?;
     let controller_dir = tempfile::tempdir()?;
@@ -1916,7 +1981,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
     })
     .await?;
     let make_query =
-        |file_id: i32, cast_to: Option<CastTarget>| OperatePlaybackWithMixQueryRequest {
+        |file_id: i32, cast_to: Option<CastTarget>| MixPlaybackTestRequest {
             queries: vec![MixQuery {
                 operator: "lib::track".into(),
                 parameter: file_id.to_string(),
@@ -2046,7 +2111,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
         Some(PlayingItem::InLibrary(host_items[1]))
     );
 
-    let append = OperatePlaybackWithMixQueryRequest {
+    let append = MixPlaybackTestRequest {
         queries: Vec::new(),
         playback_mode: 0,
         hint_position: -1,
@@ -5695,7 +5760,7 @@ async fn rpc_target_session_and_library_catalogue_matches_registered_peer_handle
                     dispatched.with_context(|| format!("{name} has no peer handler"))?;
                 let error = result.unwrap_err();
                 if request_scope(name) == Some(RequestScope::Session)
-                    && !request_uses_controller_library(name)
+                    && request_scope(name) == Some(RequestScope::Session)
                 {
                     assert_eq!(
                         classify(&error),
@@ -6089,21 +6154,30 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
             .collect::<Vec<_>>(),
         ["only on A"]
     );
-    dispatch_gui_request(
+    let resolved: ResolveMixQueryResponse = dispatch_gui_request(
         &remote,
-        &OperatePlaybackWithMixQueryRequest {
+        &ResolveMixQueryRequest {
             queries: vec![MixQuery {
                 operator: "lib::track".into(),
                 parameter: b_track.to_string(),
             }],
-            playback_mode: 0,
             hint_position: -1,
             initial_playback_item: None,
             instantly_play: true,
-            operate_mode: PlaylistOperateMode::Replace,
             fallback_playing_items: Vec::new(),
+            exclude_local_queue: false,
+        },
+    )
+    .await?
+    .context("resolved playback items")?;
+    dispatch_gui_request(
+        &remote,
+        &LoadResolvedItemsRequest {
+            items: resolved.playing_items,
+            start_index: resolved.start_index,
+            mode: PlaylistOperateMode::Replace,
             expected_revision: None,
-            cast_to: None,
+            playback_mode: Some(0),
         },
     )
     .await?;
@@ -7791,7 +7865,6 @@ async fn node_owned_calls_stay_local_with_remote_library_and_attached_renderer()
     impl TargetRequest for NodeLocalSessionProbe {
         const SCOPE: RequestScope = RequestScope::Session;
         const ACCESS: RequestAccess = RequestAccess::NodeLocal;
-        const USES_CONTROLLER_LIBRARY: bool = false;
         const INTRODUCED_MINOR: u32 = 0;
 
         fn slot(slots: &RequestSlots) -> Slot {

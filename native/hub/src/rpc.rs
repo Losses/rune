@@ -42,7 +42,6 @@ pub enum Slot {
 pub trait TargetRequest: TypedRequest {
     const SCOPE: RequestScope;
     const ACCESS: RequestAccess;
-    const USES_CONTROLLER_LIBRARY: bool;
     const INTRODUCED_MINOR: u32;
 
     fn slot(slots: &RequestSlots) -> Slot;
@@ -211,7 +210,7 @@ pub(crate) fn narrow_slot(slot: Slot, introduced_minor: u32, peer_minor: u32) ->
 /// do; this device's own calls are Node scope and never reach here. Mix queries resolve
 /// against this device's library before casting items.
 pub(crate) fn routes_to_attached_renderer<R: TargetRequest>() -> bool {
-    R::SCOPE == RequestScope::Session && !R::USES_CONTROLLER_LIBRARY
+    R::SCOPE == RequestScope::Session
 }
 
 /// Dispatch a local GUI request inside the RPC layer using its declared scope.
@@ -283,7 +282,7 @@ mod tests {
     };
     use crate::messages::{
         DetachRendererRequest, HandoffRequest, ListControllersRequest, ListRenderersRequest,
-        OperatePlaybackWithMixQueryRequest, PauseRequest, PlayRequest,
+        LoadResolvedItemsRequest, PauseRequest, PlayRequest,
     };
 
     #[test]
@@ -294,9 +293,7 @@ mod tests {
         assert!(!routes_to_attached_renderer::<ListRenderersRequest>());
         assert!(!routes_to_attached_renderer::<DetachRendererRequest>());
         assert!(!routes_to_attached_renderer::<ListControllersRequest>());
-        assert!(!routes_to_attached_renderer::<
-            OperatePlaybackWithMixQueryRequest,
-        >());
+        assert!(routes_to_attached_renderer::<LoadResolvedItemsRequest>());
     }
 
     #[test]

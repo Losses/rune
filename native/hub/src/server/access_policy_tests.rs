@@ -5,7 +5,7 @@ mod access_policy_tests {
     use crate::access_policy::{ConnectionLevel, DeviceGrants, SyncLevel};
     use crate::backends::remote::connect_remote;
     use crate::macros::{
-        RequestAccess, request_access, request_scope, request_uses_controller_library,
+        RequestAccess, request_access, request_scope,
     };
     use crate::messages::RemoveTrustedClientRequest;
     use crate::messages::{CastLibraryState, RendererAvailability};
@@ -1115,7 +1115,9 @@ mod access_policy_tests {
             "GetMixByIdRequest" => RequestAccess::ConnectionView,
             "MixQueryRequest" => RequestAccess::ConnectionView,
             "FetchMixQueriesRequest" => RequestAccess::ConnectionView,
-            "OperatePlaybackWithMixQueryRequest" => RequestAccess::Control,
+            "ResolveMixQueryRequest" => RequestAccess::ConnectionView,
+            "LoadResolvedItemsRequest" => RequestAccess::Control,
+            "CastResolvedItemsRequest" => RequestAccess::NodeLocal,
             "CastPreflightRequest" => RequestAccess::Control,
             "CastLoadRequest" => RequestAccess::Control,
             "SessionSnapshotRequest" | "RefreshSessionRequest" => RequestAccess::Control,
@@ -1173,10 +1175,6 @@ mod access_policy_tests {
         for name in non_local_request_names() {
             assert_ne!(request_access(name), Some(RequestAccess::NodeLocal), "{name}");
         }
-        assert!(request_uses_controller_library(
-            "OperatePlaybackWithMixQueryRequest"
-        ));
-        assert!(!request_uses_controller_library("PlayRequest"));
     }
 
     #[tokio::test]

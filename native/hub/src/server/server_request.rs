@@ -40,9 +40,7 @@ where
         // Unaddressed library requests need the UI library; session-only requests do not.
         let ui_params = match node.current_ui().await {
             Ok(params) => params,
-            Err(_) if R::SCOPE == RequestScope::Session && !R::USES_CONTROLLER_LIBRARY => {
-                Arc::new(node.params_for_ui()?)
-            }
+            Err(_) if R::SCOPE == RequestScope::Session => Arc::new(node.params_for_ui()?),
             Err(error) => return Err(error),
         };
         if let Some(session) = &session {

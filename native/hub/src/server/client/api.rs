@@ -123,26 +123,34 @@ pub async fn operate_playback_with_mix_query_request(
     instant_play: bool,
     operate_mode: OperateMode,
     connection: &WSConnection,
-) -> Result<OperatePlaybackWithMixQueryResponse> {
-    let request = OperatePlaybackWithMixQueryRequest {
-        queries: queries
-            .into_iter()
-            .map(|(operator, parameter)| MixQuery {
-                operator,
-                parameter,
-            })
-            .collect(),
-        playback_mode: playback_mode.into(),
-        hint_position: -1,
-        initial_playback_item: Default::default(),
-        instantly_play: instant_play,
-        operate_mode: operate_mode.into(),
-        fallback_playing_items: vec![],
-        expected_revision: None,
-        cast_to: None,
-    };
-
-    connection.request(&request).await
+) -> Result<ResolveMixQueryResponse> {
+    let queries = queries
+        .into_iter()
+        .map(|(operator, parameter)| MixQuery {
+            operator,
+            parameter,
+        })
+        .collect();
+    let resolved: ResolveMixQueryResponse = connection
+        .request(&ResolveMixQueryRequest {
+            queries,
+            hint_position: -1,
+            initial_playback_item: None,
+            instantly_play: instant_play,
+            fallback_playing_items: vec![],
+            exclude_local_queue: true,
+        })
+        .await?;
+    let _: LoadResolvedItemsResponse = connection
+        .request(&LoadResolvedItemsRequest {
+            items: resolved.playing_items.clone(),
+            start_index: resolved.start_index,
+            mode: operate_mode.into(),
+            expected_revision: None,
+            playback_mode: instant_play.then(|| playback_mode.into()),
+        })
+        .await?;
+    Ok(resolved)
 }
 
 pub async fn send_mix_query_request(

@@ -7,6 +7,9 @@ pub struct AttachRendererRequest {
     pub fingerprint: String,
 }
 
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct AttachRendererResponse {}
+
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct DetachRendererRequest {}
 

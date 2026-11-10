@@ -3,8 +3,6 @@ use playback::player::UnavailableReason;
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
-use super::mix::MixQuery;
-
 #[derive(Clone, Deserialize, Serialize, RustSignal)]
 pub struct PlaybackStatus {
     pub session_id: String,
@@ -247,28 +245,37 @@ pub struct PlayingItemRequest {
     pub library_item: Option<LibraryItemRequest>,
 }
 
-#[derive(Debug, Serialize, Deserialize, DartSignal)]
-pub struct OperatePlaybackWithMixQueryRequest {
-    pub queries: Vec<MixQuery>,
-    pub playback_mode: u32,
-    pub hint_position: i32,
-    pub initial_playback_item: Option<PlayingItemRequest>,
-    pub instantly_play: bool,
-    pub operate_mode: PlaylistOperateMode,
-    pub fallback_playing_items: Vec<PlayingItemRequest>,
+#[derive(Debug, Clone, Serialize, Deserialize, DartSignal)]
+pub struct LoadResolvedItemsRequest {
+    pub items: Vec<PlayingItemRequest>,
+    pub start_index: Option<u32>,
+    pub mode: PlaylistOperateMode,
     #[serde(default)]
     pub expected_revision: Option<u64>,
     #[serde(default)]
-    pub cast_to: Option<CastTarget>,
+    pub playback_mode: Option<u32>,
 }
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct LoadResolvedItemsResponse {}
+
+#[derive(Debug, Serialize, Deserialize, DartSignal)]
+pub struct CastResolvedItemsRequest {
+    pub fingerprint: String,
+    pub items: Vec<PlayingItemRequest>,
+    pub start_index: Option<u32>,
+    pub mode: PlaylistOperateMode,
+    #[serde(default)]
+    pub expected_revision: Option<u64>,
+    #[serde(default)]
+    pub playback_mode: Option<u32>,
+}
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct CastResolvedItemsResponse {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, SignalPiece)]
 pub struct CastTarget {
     pub fingerprint: String,
     pub attach: bool,
-}
-
-#[derive(Deserialize, Serialize, RustSignal)]
-pub struct OperatePlaybackWithMixQueryResponse {
-    pub playing_items: Vec<PlayingItemRequest>,
 }

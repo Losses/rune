@@ -19,25 +19,61 @@ Future<List<PlayingItem>> operatePlaybackWithMixQuery({
   required List<PlayingItem> fallbackPlayingItems,
   CastTarget? castTo,
 }) async {
-  final rustSignal = await awaitResponse(
-    'OperatePlaybackWithMixQueryRequest',
-    OperatePlaybackWithMixQueryResponse.rustSignalStream,
-    send: () => OperatePlaybackWithMixQueryRequest(
+  final resolvedSignal = await awaitResponse(
+    'ResolveMixQueryRequest',
+    ResolveMixQueryResponse.rustSignalStream,
+    send: () => ResolveMixQueryRequest(
       queries: queries.toQueryList(),
-      playbackMode: playbackMode,
       hintPosition: hintPosition,
       initialPlaybackItem: PlayingItem.inLibrary(initialPlaybackId).toRequest(),
       instantlyPlay: instantlyPlay,
-      operateMode: operateMode,
       fallbackPlayingItems: fallbackPlayingItems
-          .map((x) => x.toRequest())
+          .map((item) => item.toRequest())
           .toList(),
-      castTo: castTo,
+      excludeLocalQueue: castTo == null,
     ).sendSignalToRust(),
   );
-  final response = rustSignal.message;
+  final resolved = resolvedSignal.message;
+  final items = resolved.playingItems;
+  final startIndex = resolved.startIndex;
 
-  return response.playingItems.map(PlayingItem.fromRequest).toList();
+  if (castTo != null && castTo.attach) {
+    await awaitResponse(
+      'AttachRendererRequest',
+      AttachRendererResponse.rustSignalStream,
+      send: () => AttachRendererRequest(fingerprint: castTo.fingerprint)
+          .sendSignalToRust(),
+    );
+  }
+
+  if (castTo != null && !castTo.attach) {
+    await awaitResponse(
+      'CastResolvedItemsRequest',
+      CastResolvedItemsResponse.rustSignalStream,
+      send: () => CastResolvedItemsRequest(
+        fingerprint: castTo.fingerprint,
+        items: items,
+        startIndex: startIndex,
+        mode: operateMode,
+        expectedRevision: null,
+        playbackMode: instantlyPlay ? playbackMode : null,
+      ).sendSignalToRust(),
+    );
+  } else {
+    await awaitResponse(
+      'LoadResolvedItemsRequest',
+      LoadResolvedItemsResponse.rustSignalStream,
+      send: () => LoadResolvedItemsRequest(
+        items: items,
+        startIndex: startIndex,
+        mode: operateMode,
+        expectedRevision: null,
+        playbackMode: instantlyPlay ? playbackMode : null,
+      ).sendSignalToRust(),
+    );
+  }
+
+  return items.map(PlayingItem.fromRequest).toList();
 }
 
 Future<List<PlayingItem>> safeOperatePlaybackWithMixQuery({

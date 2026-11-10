@@ -262,16 +262,14 @@ pub async fn playing_item_requests(
 }
 
 struct ResolvedMixQuery {
-    prepared: Vec<(PlayingItem, PlaybackSource)>,
-    response_items: Vec<PlayingItemRequest>,
+    playing_items: Vec<PlayingItemRequest>,
     start_index: Option<usize>,
 }
 
 async fn resolve_mix_query(
-    request: &OperatePlaybackWithMixQueryRequest,
+    request: &ResolveMixQueryRequest,
     library: &LibraryHandle,
     node: &NodeContext,
-    exclude_local_queue: bool,
 ) -> Result<ResolvedMixQuery> {
     let fallback_items =
         playing_items_from_requests(&request.fallback_playing_items, Some(library)).await?;
@@ -281,7 +279,7 @@ async fn resolve_mix_query(
             .get_file_handle(&library.fsio, &library.main_db, &fallback_items)
             .await?
     } else {
-        let queue = if exclude_local_queue {
+        let queue = if request.exclude_local_queue && node.renderer_link()?.is_none() {
             node.session_queue_for_library(library.library_id).await?
         } else {
             Vec::new()
@@ -347,49 +345,12 @@ async fn resolve_mix_query(
             nearest_index
         }
     };
-    let response_items =
-        playing_item_requests(&items, &node.library_pool, Some(library.library_id)).await;
+    let playing_items = playing_item_requests(&items, &node.library_pool, None).await;
 
     Ok(ResolvedMixQuery {
-        prepared,
-        response_items,
+        playing_items,
         start_index,
     })
-}
-
-async fn send_resolved_cast(
-    link: &RendererLink,
-    resolved: &ResolvedMixQuery,
-    request: &OperatePlaybackWithMixQueryRequest,
-) -> Result<()> {
-    let items = resolved
-        .prepared
-        .iter()
-        .map(|(item, _)| match item {
-            PlayingItem::InLibrary(item) => Ok(LibraryItemRequest::from(*item)),
-            _ => Err(anyhow::Error::new(ExpectedRequestError::Unavailable {
-                what: "casting files outside a library",
-            })),
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let start_index = resolved
-        .start_index
-        .map(u32::try_from)
-        .transpose()
-        .map_err(|error| {
-            ExpectedRequestError::invalid_input(format!("Invalid start index: {error}"))
-        })?;
-    link.call(&CastLoadRequest {
-        items,
-        start_index,
-        mode: request.operate_mode,
-        expected_revision: request.expected_revision,
-        playback_mode: request.instantly_play.then_some(request.playback_mode),
-        position_seconds: None,
-        play: None,
-    })
-    .await?;
-    Ok(())
 }
 
 impl ParamsExtractor for LoadRequest {
@@ -778,74 +739,162 @@ impl Signal for SetMixWithOthersRequest {
     }
 }
 
-impl ParamsExtractor for OperatePlaybackWithMixQueryRequest {
-    type Params = (Option<LibraryHandle>, Arc<String>, Arc<NodeContext>);
+impl ParamsExtractor for ResolveMixQueryRequest {
+    type Params = (Option<LibraryHandle>, Arc<NodeContext>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (
-            all_params.library.clone(),
-            Arc::clone(&all_params.node_id),
-            all_params.node.clone(),
-        )
+        (all_params.library.clone(), all_params.node.clone())
     }
 }
 
-impl Signal for OperatePlaybackWithMixQueryRequest {
-    type Params = (Option<LibraryHandle>, Arc<String>, Arc<NodeContext>);
-    type Response = OperatePlaybackWithMixQueryResponse;
+impl Signal for ResolveMixQueryRequest {
+    type Params = (Option<LibraryHandle>, Arc<NodeContext>);
+    type Response = ResolveMixQueryResponse;
 
     async fn handle(
         &self,
-        (library, _node_id, node): Self::Params,
+        (library, node): Self::Params,
         session: Option<Session>,
-        dart_signal: &Self,
+        request: &Self,
     ) -> Result<Option<Self::Response>> {
-        if let Some(item) = &dart_signal.initial_playback_item {
+        if let Some(item) = &request.initial_playback_item {
             reject_remote_independent_item(session.as_ref(), item)?;
         }
-        for item in &dart_signal.fallback_playing_items {
+        for item in &request.fallback_playing_items {
             reject_remote_independent_item(session.as_ref(), item)?;
         }
         let library = require_library(library)?;
-        let attached = node.renderer_link()?;
-        let (cast_link, temporary_link) = match &dart_signal.cast_to {
-            Some(target)
-                if attached
-                    .as_ref()
-                    .is_some_and(|link| link.fingerprint() == target.fingerprint) =>
-            {
-                (attached.clone(), None)
-            }
-            Some(target) if target.attach => {
-                node.attach_renderer(&target.fingerprint).await?;
-                (node.renderer_link()?, None)
-            }
-            Some(target) => (None, Some(target.fingerprint.as_str())),
-            None => (attached.clone(), None),
-        };
-        let is_cast = cast_link.is_some() || temporary_link.is_some();
-        let resolved = resolve_mix_query(dart_signal, &library, &node, !is_cast).await?;
-        if let Some(link) = cast_link {
-            send_resolved_cast(&link, &resolved, dart_signal).await?;
-        } else if let Some(fingerprint) = temporary_link {
-            let (link, _) = node
-                .connect_renderer(fingerprint, RendererLinkUse::Cast)
-                .await?;
-            let result = send_resolved_cast(&link, &resolved, dart_signal).await;
-            link.close();
-            result?;
+        let resolved = resolve_mix_query(request, &library, &node).await?;
+        let start_index = resolved
+            .start_index
+            .map(u32::try_from)
+            .transpose()
+            .map_err(|error| {
+                ExpectedRequestError::invalid_input(format!("Invalid start index: {error}"))
+            })?;
+        Ok(Some(ResolveMixQueryResponse {
+            playing_items: resolved.playing_items,
+            start_index,
+        }))
+    }
+}
+
+impl ParamsExtractor for LoadResolvedItemsRequest {
+    type Params = (Option<LibraryHandle>, Arc<NodeContext>);
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        (all_params.library.clone(), all_params.node.clone())
+    }
+}
+
+impl Signal for LoadResolvedItemsRequest {
+    type Params = (Option<LibraryHandle>, Arc<NodeContext>);
+    type Response = LoadResolvedItemsResponse;
+
+    async fn handle(
+        &self,
+        (library, node): Self::Params,
+        session: Option<Session>,
+        request: &Self,
+    ) -> Result<Option<Self::Response>> {
+        if session.is_some() {
+            let items = request
+                .items
+                .iter()
+                .map(|item| {
+                    let library_item =
+                        item.library_item
+                            .clone()
+                            .ok_or(ExpectedRequestError::Unavailable {
+                                what: "casting files outside a library",
+                            })?;
+                    Ok(library_item)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            apply_cast_load(
+                &node,
+                &CastLoadRequest {
+                    items,
+                    start_index: request.start_index,
+                    mode: request.mode,
+                    expected_revision: request.expected_revision,
+                    playback_mode: request.playback_mode,
+                    position_seconds: None,
+                    play: None,
+                },
+            )
+            .await?;
         } else {
+            let library = require_library(library)?;
+            let items = playing_items_from_requests(&request.items, Some(&library)).await?;
+            let mut items_by_library: HashMap<Uuid, Vec<PlayingItem>> = HashMap::new();
+            let mut local_items = Vec::new();
+            for item in &items {
+                match item {
+                    PlayingItem::InLibrary(identity) => items_by_library
+                        .entry(identity.library_id)
+                        .or_default()
+                        .push(item.clone()),
+                    _ => local_items.push(item.clone()),
+                }
+            }
+            let dispatcher = PlayingItemActionDispatcher::new();
+            let mut prepared_by_item = HashMap::new();
+            for (library_id, library_items) in items_by_library {
+                let item_library = node
+                    .library_pool
+                    .acquire_for_request(library_id)
+                    .await
+                    .map_err(|error| {
+                        anyhow::Error::new(ExpectedRequestError::Unavailable {
+                            what: "resolved library item",
+                        })
+                        .context(error)
+                    })?;
+                let handles = dispatcher
+                    .get_file_handle(&item_library.fsio, &item_library.main_db, &library_items)
+                    .await?;
+                for (item, source) in files_to_playback_request(
+                    &item_library.fsio,
+                    &item_library.main_db,
+                    &item_library.library_id.to_string(),
+                    &item_library.media_root,
+                    &handles,
+                )
+                .await?
+                {
+                    prepared_by_item.insert(item.clone(), (item, source));
+                }
+            }
+            if !local_items.is_empty() {
+                let handles = dispatcher
+                    .get_file_handle(&library.fsio, &library.main_db, &local_items)
+                    .await?;
+                for (item, source) in files_to_playback_request(
+                    &library.fsio,
+                    &library.main_db,
+                    &library.library_id.to_string(),
+                    &library.media_root,
+                    &handles,
+                )
+                .await?
+                {
+                    prepared_by_item.insert(item.clone(), (item, source));
+                }
+            }
+            let prepared = items
+                .iter()
+                .filter_map(|item| prepared_by_item.get(item).cloned())
+                .collect::<Vec<_>>();
             node.session()?
-                .edit_queue(dart_signal.expected_revision, |player| {
+                .edit_queue(request.expected_revision, |player| {
                     edit_playlist(
                         player,
-                        &resolved.prepared,
+                        &prepared,
                         PlaylistEditOptions {
-                            mode: dart_signal.operate_mode,
-                            start_index: resolved.start_index,
-                            playback_mode: dart_signal
-                                .instantly_play
-                                .then_some(dart_signal.playback_mode),
+                            mode: request.mode,
+                            start_index: request.start_index.map(|index| index as usize),
+                            playback_mode: request.playback_mode,
                             position: None,
                             play: None,
                         },
@@ -853,10 +902,56 @@ impl Signal for OperatePlaybackWithMixQueryRequest {
                 })
                 .await?;
         }
+        Ok(Some(LoadResolvedItemsResponse {}))
+    }
+}
 
-        Ok(Some(OperatePlaybackWithMixQueryResponse {
-            playing_items: resolved.response_items,
-        }))
+impl ParamsExtractor for CastResolvedItemsRequest {
+    type Params = Arc<NodeContext>;
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        all_params.node.clone()
+    }
+}
+
+impl Signal for CastResolvedItemsRequest {
+    type Params = Arc<NodeContext>;
+    type Response = CastResolvedItemsResponse;
+
+    async fn handle(
+        &self,
+        node: Self::Params,
+        _session: Option<Session>,
+        request: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let items = request
+            .items
+            .iter()
+            .map(|item| {
+                item.library_item.clone().ok_or_else(|| {
+                    anyhow::Error::new(ExpectedRequestError::Unavailable {
+                        what: "casting files outside a library",
+                    })
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let (link, _) = node
+            .connect_renderer(&request.fingerprint, RendererLinkUse::Cast)
+            .await?;
+        let result = link
+            .call(&CastLoadRequest {
+                items,
+                start_index: request.start_index,
+                mode: request.mode,
+                expected_revision: request.expected_revision,
+                playback_mode: request.playback_mode,
+                position_seconds: None,
+                play: None,
+            })
+            .await;
+        link.close();
+        result?;
+        Ok(Some(CastResolvedItemsResponse {}))
     }
 }
 

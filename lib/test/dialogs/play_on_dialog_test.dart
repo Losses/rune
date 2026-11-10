@@ -198,7 +198,7 @@ void main() {
       castLibraryIds: const ['blocked-library'],
       cast: (_) async {
         throw const RequestFailure(
-          'OperatePlaybackWithMixQueryRequest',
+          'LoadResolvedItemsRequest',
           RequestErrorKind.permissionDenied,
           'denied',
           RequestFailureCauseCastNotPossible(
@@ -226,7 +226,7 @@ void main() {
       castLibraryIds: const ['blocked-library'],
       cast: (_) async {
         throw const RequestFailure(
-          'OperatePlaybackWithMixQueryRequest',
+          'LoadResolvedItemsRequest',
           RequestErrorKind.permissionDenied,
           'denied',
         );
