@@ -19,6 +19,10 @@ String libraryRegistryFailureMessage(
   OpenLibraryFailureKind.remoteNotAuthorized => s.libraryRemoteNotAuthorized,
   RegisterLibraryFailureKind.remoteUnreachable ||
   OpenLibraryFailureKind.remoteUnreachable => s.libraryRemoteUnreachable,
+  RegisterLibraryFailureKind.openDalAuthenticationRejected =>
+    s.libraryOpenDalAuthenticationRejected,
+  RegisterLibraryFailureKind.openDalUnreachable => s.libraryOpenDalUnreachable,
+  RegisterLibraryFailureKind.openDalNotFolder => s.libraryOpenDalNotFolder,
   RegisterLibraryFailureKind.remoteProtocol ||
   OpenLibraryFailureKind.remoteProtocol => s.libraryRemoteProtocolFailure,
   OpenLibraryFailureKind.protocolIncompatible => s.libraryProtocolIncompatible,

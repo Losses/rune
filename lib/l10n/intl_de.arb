@@ -1661,5 +1661,17 @@
     "description": "Option that sizes the interface to match the system text size."
   },
   "turnOnBackgroundSync": "Hintergrundsynchronisierung Einschalten",
-  "turnOffBackgroundSync": "Hintergrundsynchronisierung Ausschalten"
+  "turnOffBackgroundSync": "Hintergrundsynchronisierung Ausschalten",
+  "webDav": "WebDAV",
+  "webDavSubtitle": "Stelle eine Verbindung zu einem Ordner auf einem WebDAV-Server her.",
+  "s3": "S3",
+  "s3Subtitle": "Stelle eine Verbindung zu einem Ordner in einem S3-Bucket her.",
+  "folder": "Ordner",
+  "bucket": "Bucket",
+  "region": "Region",
+  "accessKeyId": "Zugriffsschlüssel-ID",
+  "secretAccessKey": "Geheimer Zugriffsschlüssel",
+  "libraryOpenDalAuthenticationRejected": "Überprüfe Benutzername und Passwort.",
+  "libraryOpenDalUnreachable": "Überprüfe die Serveradresse und die Netzwerkverbindung.",
+  "libraryOpenDalNotFolder": "Überprüfe, ob der ausgewählte Ordner vorhanden und zugänglich ist."
 }

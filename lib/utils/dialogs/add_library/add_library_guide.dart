@@ -21,7 +21,7 @@ import '../../../screens/settings_neighbors/utils/show_add_remote_device_dialog.
 import '../../../screens/settings_server/widgets/peer_libraries_dialog.dart';
 import '../../add_library_flows.dart';
 
-enum AddLibrarySource { localFolder, runeDevice }
+enum AddLibrarySource { localFolder, runeDevice, webDav, s3 }
 
 class AddLibraryGuideDependencies {
   const AddLibraryGuideDependencies({
@@ -32,6 +32,7 @@ class AddLibraryGuideDependencies {
     this.loadGrants,
     this.addLibrary,
     this.registerControl,
+    this.registerOpenDal,
     this.openRecord,
   });
 
@@ -43,6 +44,8 @@ class AddLibraryGuideDependencies {
   final PeerLibraryAdder? addLibrary;
   final Future<RegisterLibraryResponse> Function(String, String)?
   registerControl;
+  final Future<RegisterLibraryResponse> Function(OpenDalLibraryService, String)?
+  registerOpenDal;
   final Future<void> Function(String)? openRecord;
 }
 
@@ -90,7 +93,15 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
   String? _selectedChoice;
   String? _selectedLibraryId;
   bool _loading = false;
+  bool _registeringOpenDal = false;
+  final _openDalForm = _OpenDalFormController();
   final _busy = <String>{};
+
+  @override
+  void dispose() {
+    _openDalForm.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -100,7 +111,12 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
         title: Column(children: [SizedBox(height: 8), Text(s.addLibrary)]),
         content: switch (_step) {
           1 => _sourceContent(s),
-          2 => _deviceContent(s),
+          2 =>
+            _selected == AddLibrarySource.webDav
+                ? _webDavContent(s)
+                : _selected == AddLibrarySource.s3
+                ? _s3Content(s)
+                : _deviceContent(s),
           _ => _libraryContent(s),
         },
         actions: [
@@ -113,6 +129,15 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
               child: Text(s.back),
             ),
           Button(onPressed: () => widget.$close(null), child: Text(s.cancel)),
+          if (_step == 2 &&
+              (_selected == AddLibrarySource.webDav ||
+                  _selected == AddLibrarySource.s3))
+            Button(
+              onPressed: _canSubmitOpenDal && !_registeringOpenDal
+                  ? _registerOpenDal
+                  : null,
+              child: Text(s.confirm),
+            ),
         ],
       ),
     );
@@ -134,8 +159,130 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
         s.runeDevice,
         s.runeDeviceSubtitle,
       ),
+      _sourceRow(
+        AddLibrarySource.webDav,
+        Symbols.cloud_sync,
+        s.webDav,
+        s.webDavSubtitle,
+      ),
+      _sourceRow(AddLibrarySource.s3, Symbols.cloud_sync, s.s3, s.s3Subtitle),
     ],
   );
+
+  bool get _canSubmitOpenDal {
+    final fields = _selected == AddLibrarySource.webDav
+        ? [
+            _openDalForm.server,
+            _openDalForm.folder,
+            _openDalForm.username,
+            _openDalForm.password,
+          ]
+        : [
+            _openDalForm.server,
+            _openDalForm.bucket,
+            _openDalForm.region,
+            _openDalForm.folder,
+            _openDalForm.accessKeyId,
+            _openDalForm.secretAccessKey,
+          ];
+    return fields.every((value) => value.trim().isNotEmpty);
+  }
+
+  Widget _webDavContent(AppLocalizations s) => _openDalFormContent(
+    fields: [
+      (s.server, _openDalForm.serverController),
+      (s.folder, _openDalForm.folderController),
+      (s.username, _openDalForm.usernameController),
+      (s.password, _openDalForm.passwordController),
+    ],
+    passwordFields: {_openDalForm.passwordController},
+  );
+
+  Widget _s3Content(AppLocalizations s) => _openDalFormContent(
+    fields: [
+      (s.server, _openDalForm.serverController),
+      (s.bucket, _openDalForm.bucketController),
+      (s.region, _openDalForm.regionController),
+      (s.folder, _openDalForm.folderController),
+      (s.accessKeyId, _openDalForm.accessKeyIdController),
+      (s.secretAccessKey, _openDalForm.secretAccessKeyController),
+    ],
+    passwordFields: {_openDalForm.secretAccessKeyController},
+  );
+
+  Widget _openDalFormContent({
+    required List<(String, TextEditingController)> fields,
+    required Set<TextEditingController> passwordFields,
+  }) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      for (var index = 0; index < fields.length; index++) ...[
+        if (index > 0) const SizedBox(height: 16),
+        InfoLabel(
+          label: fields[index].$1,
+          child: TextBox(
+            controller: fields[index].$2,
+            obscureText: passwordFields.contains(fields[index].$2),
+            onChanged: (_) => setState(() {}),
+          ),
+        ),
+      ],
+    ],
+  );
+
+  Future<void> _registerOpenDal() async {
+    final folder = _openDalForm.folder.trim();
+    final bucket = _openDalForm.bucket.trim();
+    final aliasSource = _selected == AddLibrarySource.webDav ? folder : bucket;
+    final aliasParts = aliasSource.split('/').where((part) => part.isNotEmpty);
+    final alias = aliasParts.isEmpty
+        ? _openDalForm.server.trim()
+        : aliasParts.last;
+    final service = _selected == AddLibrarySource.webDav
+        ? OpenDalLibraryServiceWebDav(
+            endpoint: _openDalForm.server.trim(),
+            root: folder,
+            username: _openDalForm.username.trim(),
+            password: _openDalForm.password,
+          )
+        : OpenDalLibraryServiceS3(
+            endpoint: _openDalForm.server.trim(),
+            bucket: bucket,
+            region: _openDalForm.region.trim(),
+            root: folder,
+            accessKeyId: _openDalForm.accessKeyId.trim(),
+            secretAccessKey: _openDalForm.secretAccessKey,
+          );
+    setState(() {
+      _registeringOpenDal = true;
+    });
+    try {
+      final response =
+          await (widget.dependencies.registerOpenDal ?? registerOpenDalLibrary)(
+            service,
+            alias,
+          );
+      final outcome = response.outcome;
+      if (outcome case RegisterLibraryOutcomeFailed(:final value)) {
+        throw LibraryRegistryFailure(value, response.detail ?? '');
+      }
+      final record = response.record;
+      if (record == null) throw StateError('Registration returned no record');
+      await _openRecord(record.recordId);
+    } catch (error) {
+      if (!mounted) return;
+      await showErrorDialog(
+        context: context,
+        title: S.of(context).addLibrary,
+        errorMessage: error is LibraryRegistryFailure
+            ? libraryRegistryFailureMessage(S.of(context), error.kind)
+            : S.of(context).unknownError,
+      );
+    } finally {
+      if (mounted) setState(() => _registeringOpenDal = false);
+    }
+  }
 
   Widget _deviceContent(AppLocalizations s) {
     final users =
@@ -404,7 +551,9 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
             if (selected)
               Button(
                 onPressed: () {
-                  if (source == AddLibrarySource.runeDevice) {
+                  if (source == AddLibrarySource.runeDevice ||
+                      source == AddLibrarySource.webDav ||
+                      source == AddLibrarySource.s3) {
                     setState(() => _step = 2);
                   } else {
                     widget.$close(source);
@@ -419,5 +568,36 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
       onSelectionChange: (value) =>
           setState(() => _selected = value ? source : null),
     );
+  }
+}
+
+class _OpenDalFormController {
+  final serverController = TextEditingController();
+  final folderController = TextEditingController();
+  final usernameController = TextEditingController();
+  final passwordController = TextEditingController();
+  final bucketController = TextEditingController();
+  final regionController = TextEditingController();
+  final accessKeyIdController = TextEditingController();
+  final secretAccessKeyController = TextEditingController();
+
+  String get server => serverController.text;
+  String get folder => folderController.text;
+  String get username => usernameController.text;
+  String get password => passwordController.text;
+  String get bucket => bucketController.text;
+  String get region => regionController.text;
+  String get accessKeyId => accessKeyIdController.text;
+  String get secretAccessKey => secretAccessKeyController.text;
+
+  void dispose() {
+    serverController.dispose();
+    folderController.dispose();
+    usernameController.dispose();
+    passwordController.dispose();
+    bucketController.dispose();
+    regionController.dispose();
+    accessKeyIdController.dispose();
+    secretAccessKeyController.dispose();
   }
 }

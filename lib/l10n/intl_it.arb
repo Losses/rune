@@ -1663,5 +1663,17 @@
     "description": "Option that sizes the interface to match the system text size."
   },
   "turnOnBackgroundSync": "Attiva la Sincronizzazione in Background",
-  "turnOffBackgroundSync": "Disattiva la Sincronizzazione in Background"
+  "turnOffBackgroundSync": "Disattiva la Sincronizzazione in Background",
+  "webDav": "WebDAV",
+  "webDavSubtitle": "Connettiti a una cartella su un server WebDAV.",
+  "s3": "S3",
+  "s3Subtitle": "Connettiti a una cartella in un bucket S3.",
+  "folder": "Cartella",
+  "bucket": "Bucket",
+  "region": "Regione",
+  "accessKeyId": "ID chiave di accesso",
+  "secretAccessKey": "Chiave di accesso segreta",
+  "libraryOpenDalAuthenticationRejected": "Controlla nome utente e password.",
+  "libraryOpenDalUnreachable": "Controlla l’indirizzo del server e la connessione di rete.",
+  "libraryOpenDalNotFolder": "Controlla che la cartella scelta esista e sia accessibile."
 }

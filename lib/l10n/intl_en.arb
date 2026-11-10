@@ -1670,5 +1670,17 @@
   "libraryProtocolIncompatible": "This device uses an incompatible protocol version.",
   "libraryNotSupportedYet": "This library type is not supported yet.",
   "turnOnBackgroundSync": "Turn On Background Sync",
-  "turnOffBackgroundSync": "Turn Off Background Sync"
+  "turnOffBackgroundSync": "Turn Off Background Sync",
+  "webDav": "WebDAV",
+  "webDavSubtitle": "Connect to a folder on a WebDAV server.",
+  "s3": "S3",
+  "s3Subtitle": "Connect to a folder in an S3 bucket.",
+  "folder": "Folder",
+  "bucket": "Bucket",
+  "region": "Region",
+  "accessKeyId": "Access Key ID",
+  "secretAccessKey": "Secret Access Key",
+  "libraryOpenDalAuthenticationRejected": "Check the username and password.",
+  "libraryOpenDalUnreachable": "Check the server address and network connection.",
+  "libraryOpenDalNotFolder": "Check that the selected folder exists and is accessible."
 }

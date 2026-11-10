@@ -1663,5 +1663,17 @@
     "description": "Option that sizes the interface to match the system text size."
   },
   "turnOnBackgroundSync": "백그라운드 동기화 켜기",
-  "turnOffBackgroundSync": "백그라운드 동기화 끄기"
+  "turnOffBackgroundSync": "백그라운드 동기화 끄기",
+  "webDav": "WebDAV",
+  "webDavSubtitle": "WebDAV 서버의 폴더에 연결합니다.",
+  "s3": "S3",
+  "s3Subtitle": "S3 버킷의 폴더에 연결합니다.",
+  "folder": "폴더",
+  "bucket": "버킷",
+  "region": "리전",
+  "accessKeyId": "액세스 키 ID",
+  "secretAccessKey": "보안 액세스 키",
+  "libraryOpenDalAuthenticationRejected": "사용자 이름과 비밀번호를 확인하세요.",
+  "libraryOpenDalUnreachable": "서버 주소와 네트워크 연결을 확인하세요.",
+  "libraryOpenDalNotFolder": "선택한 폴더가 있고 접근할 수 있는지 확인하세요."
 }

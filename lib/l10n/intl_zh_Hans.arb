@@ -1661,5 +1661,17 @@
     "description": "Option that sizes the interface to match the system text size."
   },
   "turnOnBackgroundSync": "开启后台同步",
-  "turnOffBackgroundSync": "关闭后台同步"
+  "turnOffBackgroundSync": "关闭后台同步",
+  "webDav": "WebDAV",
+  "webDavSubtitle": "连接到 WebDAV 服务器上的文件夹。",
+  "s3": "S3",
+  "s3Subtitle": "连接到 S3 存储桶中的文件夹。",
+  "folder": "文件夹",
+  "bucket": "存储桶",
+  "region": "区域",
+  "accessKeyId": "访问密钥 ID",
+  "secretAccessKey": "秘密访问密钥",
+  "libraryOpenDalAuthenticationRejected": "请检查用户名和密码。",
+  "libraryOpenDalUnreachable": "请检查服务器地址和网络连接。",
+  "libraryOpenDalNotFolder": "请确认所选文件夹存在且可以访问。"
 }

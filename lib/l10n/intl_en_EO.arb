@@ -1663,5 +1663,17 @@
     "description": "Confirmation after attempting to clean up offline downloads."
   },
   "turnOnBackgroundSync": "Ŝalti Sinkronigon en la Fono",
-  "turnOffBackgroundSync": "Malŝalti Sinkronigon en la Fono"
+  "turnOffBackgroundSync": "Malŝalti Sinkronigon en la Fono",
+  "webDav": "WebDAV",
+  "webDavSubtitle": "Konektu al dosierujo ĉe WebDAV-servilo.",
+  "s3": "S3",
+  "s3Subtitle": "Konektu al dosierujo en S3-bukedo.",
+  "folder": "Dosierujo",
+  "bucket": "Bukedo",
+  "region": "Regiono",
+  "accessKeyId": "Identigilo de alirŝlosilo",
+  "secretAccessKey": "Sekreta alirŝlosilo",
+  "libraryOpenDalAuthenticationRejected": "Kontrolu la uzantnomon kaj pasvorton.",
+  "libraryOpenDalUnreachable": "Kontrolu la servilan adreson kaj retkonekton.",
+  "libraryOpenDalNotFolder": "Kontrolu, ĉu la elektita dosierujo ekzistas kaj estas atingebla."
 }

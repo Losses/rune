@@ -18,6 +18,17 @@ LibraryRecordSummary _record() => const LibraryRecordSummary(
   kind: LibraryRecordKindSummaryLocal(libraryId: 'library-1', path: '/music'),
 );
 
+LibraryRegistryProvider _emptyRegistry() => LibraryRegistryProvider(
+  loadRecords: () async => ListLibraryRecordsResponse(
+    records: const [],
+    invalidRecords: const [],
+    lastOpenRecord: null,
+  ),
+);
+
+LibraryManagerProvider _testManager() =>
+    LibraryManagerProvider(sendScanRequest: (_) {});
+
 OpenLibraryResponse _opened(String recordId, int callId) => OpenLibraryResponse(
   callId: Uint64.fromBigInt(BigInt.from(callId)),
   recordId: recordId,
@@ -118,16 +129,10 @@ void main() {
   });
 
   testWidgets(
-    'guide lists two sources, reveals Next, and Cancel has no effect',
+    'guide lists all sources, reveals Confirm, and Cancel has no effect',
     (tester) async {
-      final registry = LibraryRegistryProvider(
-        loadRecords: () async => ListLibraryRecordsResponse(
-          records: const [],
-          invalidRecords: const [],
-          lastOpenRecord: null,
-        ),
-      );
-      final manager = LibraryManagerProvider(sendScanRequest: (_) {});
+      final registry = _emptyRegistry();
+      final manager = _testManager();
       addTearDown(registry.dispose);
       addTearDown(manager.dispose);
       var localCalled = false;
@@ -150,7 +155,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Local Folder'), findsOneWidget);
       expect(find.text('Rune Device'), findsOneWidget);
-      expect(find.byType(ListTile), findsNWidgets(2));
+      expect(find.text('WebDAV'), findsOneWidget);
+      expect(find.text('S3'), findsOneWidget);
+      expect(find.byType(ListTile), findsNWidgets(4));
       expect(find.text('Confirm'), findsNothing);
 
       await tester.tap(find.text('Local Folder'));
@@ -642,5 +649,164 @@ void main() {
     expect(manualPairing, isNot(contains('registerRemoteControl')));
     expect(manualPairing, isNot(contains('.open(')));
     expect(searchPairing, contains('pairRuneDevice(context)'));
+  });
+
+  testWidgets(
+    'WebDAV form validates fields, reports failures, and opens on success',
+    (tester) async {
+      final registry = _emptyRegistry();
+      final manager = _testManager();
+      final opened = <String>[];
+      final requests = <(OpenDalLibraryService, String)>[];
+      addTearDown(registry.dispose);
+      addTearDown(manager.dispose);
+      var fail = true;
+      await tester.pumpWidget(
+        _app(
+          registry: registry,
+          manager: manager,
+          home: Builder(
+            builder: (context) => Button(
+              onPressed: () => showAddLibraryGuide(
+                context,
+                dependencies: AddLibraryGuideDependencies(
+                  registerOpenDal: (service, alias) async {
+                    requests.add((service, alias));
+                    if (fail) {
+                      return const RegisterLibraryResponse(
+                        outcome: RegisterLibraryOutcomeFailed(
+                          value: RegisterLibraryFailureKind.openDalUnreachable,
+                        ),
+                      );
+                    }
+                    return RegisterLibraryResponse(
+                      record: _record(),
+                      outcome: const RegisterLibraryOutcomeRegistered(),
+                    );
+                  },
+                  openRecord: (recordId) async => opened.add(recordId),
+                ),
+              ),
+              child: const Text('Open guide'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open guide'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('WebDAV'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(Button, 'Confirm'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TextBox), findsNWidgets(4));
+      expect(find.text('Server'), findsOneWidget);
+      expect(find.text('Folder'), findsOneWidget);
+      expect(find.text('Username'), findsOneWidget);
+      expect(find.text('Password'), findsOneWidget);
+      final confirm = tester.widget<Button>(
+        find.widgetWithText(Button, 'Confirm'),
+      );
+      expect(confirm.onPressed, isNull);
+      final webDavValues = [
+        'https://dav.example.test',
+        '/music',
+        'alice',
+        'secret',
+      ];
+      for (var index = 0; index < webDavValues.length; index++) {
+        await tester.enterText(
+          find.byType(TextBox).at(index),
+          webDavValues[index],
+        );
+      }
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<Button>(find.widgetWithText(Button, 'Confirm')).onPressed,
+        isNotNull,
+      );
+      await tester.tap(find.widgetWithText(Button, 'Confirm'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Check the server address and network connection.'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+      expect(find.byType(TextBox), findsNWidgets(4));
+      expect(requests.single.$1, isA<OpenDalLibraryServiceWebDav>());
+      expect(requests.single.$2, 'music');
+
+      fail = false;
+      await tester.tap(find.widgetWithText(Button, 'Confirm'));
+      await tester.pumpAndSettle();
+      expect(opened, ['record-1']);
+      expect(find.text('WebDAV'), findsNothing);
+    },
+  );
+
+  testWidgets('S3 form validates fields and registers then opens its record', (
+    tester,
+  ) async {
+    final registry = _emptyRegistry();
+    final manager = _testManager();
+    final opened = <String>[];
+    OpenDalLibraryService? registeredService;
+    String? registeredAlias;
+    addTearDown(registry.dispose);
+    addTearDown(manager.dispose);
+    await tester.pumpWidget(
+      _app(
+        registry: registry,
+        manager: manager,
+        home: Builder(
+          builder: (context) => Button(
+            onPressed: () => showAddLibraryGuide(
+              context,
+              dependencies: AddLibraryGuideDependencies(
+                registerOpenDal: (service, alias) async {
+                  registeredService = service;
+                  registeredAlias = alias;
+                  return RegisterLibraryResponse(
+                    record: _record(),
+                    outcome: const RegisterLibraryOutcomeRegistered(),
+                  );
+                },
+                openRecord: (recordId) async => opened.add(recordId),
+              ),
+            ),
+            child: const Text('Open guide'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open guide'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('S3'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(Button, 'Confirm'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TextBox), findsNWidgets(6));
+    expect(
+      tester.widget<Button>(find.widgetWithText(Button, 'Confirm')).onPressed,
+      isNull,
+    );
+    for (final entry in <(int, String)>[
+      (0, 'https://s3.example.test'),
+      (1, 'music-bucket'),
+      (2, 'us-east-1'),
+      (3, '/library'),
+      (4, 'access'),
+      (5, 'secret'),
+    ]) {
+      await tester.enterText(find.byType(TextBox).at(entry.$1), entry.$2);
+    }
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(Button, 'Confirm'));
+    await tester.pumpAndSettle();
+    expect(registeredService, isA<OpenDalLibraryServiceS3>());
+    expect(registeredAlias, 'music-bucket');
+    expect(opened, ['record-1']);
   });
 }

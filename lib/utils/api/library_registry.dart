@@ -14,6 +14,22 @@ Future<ListPeerLibrariesResponse> listPeerLibraries(String fingerprint) async {
   return (await response).message;
 }
 
+Future<RegisterLibraryResponse> registerOpenDalLibrary(
+  OpenDalLibraryService service,
+  String alias,
+) async {
+  final response = awaitResponse(
+    'RegisterOpenDalLibraryRequest',
+    RegisterLibraryResponse.rustSignalStream,
+    timeout: _timeout,
+    send: () => RegisterOpenDalLibraryRequest(
+      service: service,
+      alias: alias,
+    ).sendSignalToRust(),
+  );
+  return (await response).message;
+}
+
 Future<AddRemoteLibraryResponse> addRemoteLibrary(
   PeerLibrary library,
   String fingerprint,

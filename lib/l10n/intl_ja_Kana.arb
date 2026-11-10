@@ -1663,5 +1663,17 @@
   "turnOnBackgroundSync": "バックグラウンドデドウキヲオンニスル",
   "turnOffBackgroundSync": "バックグラウンドデドウキヲオフニスル",
   "allowAccess": "アクセスをアラウ",
-  "allowAccessSubtitle": "このデバイスからのプレイバックコントロールとトラックダウンロードのアクセスをグラントします。"
+  "allowAccessSubtitle": "このデバイスからのプレイバックコントロールとトラックダウンロードのアクセスをグラントします。",
+  "webDav": "WebDAV",
+  "webDavSubtitle": "WebDAVサーバーノフォルダーニセツゾクシマス。",
+  "s3": "S3",
+  "s3Subtitle": "S3バケットノフォルダーニセツゾクシマス。",
+  "folder": "フォルダー",
+  "bucket": "バケット",
+  "region": "チイキ",
+  "accessKeyId": "アクセスキーノアイディー",
+  "secretAccessKey": "シークレットアクセスキー",
+  "libraryOpenDalAuthenticationRejected": "ユーザーネームトパスワードヲカクニンシテクダサイ。",
+  "libraryOpenDalUnreachable": "サーバーノアドレストネットワークセツゾクヲカクニンシテクダサイ。",
+  "libraryOpenDalNotFolder": "センタクシタフォルダーガアリ、アクセスデキルコトヲカクニンシテクダサイ。"
 }

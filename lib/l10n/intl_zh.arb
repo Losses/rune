@@ -1661,5 +1661,17 @@
     "description": "Option that sizes the interface to match the system text size."
   },
   "turnOnBackgroundSync": "開啟背景同步",
-  "turnOffBackgroundSync": "關閉背景同步"
+  "turnOffBackgroundSync": "關閉背景同步",
+  "webDav": "WebDAV",
+  "webDavSubtitle": "連線至 WebDAV 伺服器上的資料夾。",
+  "s3": "S3",
+  "s3Subtitle": "連線至 S3 儲存桶中的資料夾。",
+  "folder": "資料夾",
+  "bucket": "儲存桶",
+  "region": "區域",
+  "accessKeyId": "存取金鑰 ID",
+  "secretAccessKey": "秘密存取金鑰",
+  "libraryOpenDalAuthenticationRejected": "請檢查使用者名稱和密碼。",
+  "libraryOpenDalUnreachable": "請檢查伺服器位址和網路連線。",
+  "libraryOpenDalNotFolder": "請確認所選資料夾存在且可供存取。"
 }

@@ -1661,5 +1661,17 @@
     "description": "Option that sizes the interface to match the system text size."
   },
   "turnOnBackgroundSync": "Увімкнути Фонову Синхронізацію",
-  "turnOffBackgroundSync": "Вимкнути Фонову Синхронізацію"
+  "turnOffBackgroundSync": "Вимкнути Фонову Синхронізацію",
+  "webDav": "WebDAV",
+  "webDavSubtitle": "Підключіться до папки на сервері WebDAV.",
+  "s3": "S3",
+  "s3Subtitle": "Підключіться до папки у сховищі S3.",
+  "folder": "Папка",
+  "bucket": "Сховище",
+  "region": "Регіон",
+  "accessKeyId": "Ідентифікатор ключа доступу",
+  "secretAccessKey": "Секретний ключ доступу",
+  "libraryOpenDalAuthenticationRejected": "Перевірте ім’я користувача та пароль.",
+  "libraryOpenDalUnreachable": "Перевірте адресу сервера та мережеве з’єднання.",
+  "libraryOpenDalNotFolder": "Перевірте, чи існує вибрана папка та чи є до неї доступ."
 }

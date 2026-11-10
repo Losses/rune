@@ -1663,5 +1663,17 @@
   "turnOnBackgroundSync": "背景同步起動",
   "turnOffBackgroundSync": "背景同步停止",
   "allowAccess": "接続許可",
-  "allowAccessSubtitle": "此装置再生制御共楽曲保存接続許可。"
+  "allowAccessSubtitle": "此装置再生制御共楽曲保存接続許可。",
+  "webDav": "WebDAV",
+  "webDavSubtitle": "WebDAV通信管理機上の格納場所へ接続します。",
+  "s3": "S3",
+  "s3Subtitle": "S3貯蔵庫内の格納場所へ接続します。",
+  "folder": "格納場所",
+  "bucket": "貯蔵庫",
+  "region": "地域",
+  "accessKeyId": "接続鍵識別子",
+  "secretAccessKey": "秘密接続鍵",
+  "libraryOpenDalAuthenticationRejected": "使用者名と暗証番号を確認してください。",
+  "libraryOpenDalUnreachable": "通信管理機の所在と網絡接続を確認してください。",
+  "libraryOpenDalNotFolder": "選択した格納場所の存在と接続可否を確認してください。"
 }

@@ -1661,5 +1661,17 @@
     "description": "Option that sizes the interface to match the system text size."
   },
   "turnOnBackgroundSync": "バックグラウンド同期をオンにする",
-  "turnOffBackgroundSync": "バックグラウンド同期をオフにする"
+  "turnOffBackgroundSync": "バックグラウンド同期をオフにする",
+  "webDav": "WebDAV",
+  "webDavSubtitle": "WebDAVサーバー上のフォルダーに接続します。",
+  "s3": "S3",
+  "s3Subtitle": "S3バケット内のフォルダーに接続します。",
+  "folder": "フォルダー",
+  "bucket": "バケット",
+  "region": "地域",
+  "accessKeyId": "アクセスキーID",
+  "secretAccessKey": "シークレットアクセスキー",
+  "libraryOpenDalAuthenticationRejected": "ユーザー名と暗証番号を確認してください。",
+  "libraryOpenDalUnreachable": "サーバーの通信管理機とネットワーク接続を確認してください。",
+  "libraryOpenDalNotFolder": "選択したフォルダーが存在し、アクセスできることを確認してください。"
 }

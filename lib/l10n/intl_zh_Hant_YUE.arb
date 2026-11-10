@@ -1661,5 +1661,17 @@
     "description": "Confirmation after attempting to clean up offline downloads."
   },
   "turnOnBackgroundSync": "開啟背景同步",
-  "turnOffBackgroundSync": "關閉背景同步"
+  "turnOffBackgroundSync": "關閉背景同步",
+  "webDav": "WebDAV",
+  "webDavSubtitle": "連線到 WebDAV 伺服器上嘅資料夾。",
+  "s3": "S3",
+  "s3Subtitle": "連線到 S3 儲存桶入面嘅資料夾。",
+  "folder": "資料夾",
+  "bucket": "儲存桶",
+  "region": "區域",
+  "accessKeyId": "存取金鑰 ID",
+  "secretAccessKey": "秘密存取金鑰",
+  "libraryOpenDalAuthenticationRejected": "請檢查用戶名同密碼。",
+  "libraryOpenDalUnreachable": "請檢查伺服器地址同網絡連線。",
+  "libraryOpenDalNotFolder": "請確認揀嘅資料夾存在而且可以存取。"
 }
