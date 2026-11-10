@@ -65,6 +65,8 @@ pub(crate) struct SubsonicCatalog {
     pub(crate) artists: HashMap<i32, SubsonicArtist>,
     pub(crate) albums: HashMap<i32, SubsonicAlbum>,
     pub(crate) songs: HashMap<i32, SubsonicSong>,
+    pub(crate) artists_loaded: bool,
+    pub(crate) albums_loaded: bool,
 }
 
 impl SubsonicBinding {

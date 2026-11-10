@@ -229,6 +229,31 @@ impl SubsonicClient {
             .ok_or_else(|| SubsonicError::Malformed("getAlbum omitted album".into()))
     }
 
+    /// List albums in name order using the Subsonic paging parameters.
+    pub async fn album_list(
+        &self,
+        size: u32,
+        offset: u32,
+    ) -> Result<Vec<SubsonicAlbum>, SubsonicError> {
+        let size = size.to_string();
+        let offset = offset.to_string();
+        let response: AlbumListResponse = self
+            .call(
+                "getAlbumList2",
+                &[
+                    ("type", "alphabeticalByName"),
+                    ("size", &size),
+                    ("offset", &offset),
+                ],
+            )
+            .await?;
+        Ok(response
+            .album_list
+            .and_then(|list| list.album)
+            .map(OneOrMany::into_vec)
+            .unwrap_or_default())
+    }
+
     /// Read a song.
     pub async fn song(&self, id: &str) -> Result<SubsonicSong, SubsonicError> {
         let response: SongResponse = self.call("getSong", &[("id", id)]).await?;
@@ -678,6 +703,16 @@ struct ArtistResponse {
 struct AlbumResponse {
     #[serde(default)]
     album: Option<SubsonicAlbumDetail>,
+}
+#[derive(Deserialize)]
+struct AlbumListResponse {
+    #[serde(default, rename = "albumList2")]
+    album_list: Option<AlbumList>,
+}
+#[derive(Deserialize)]
+struct AlbumList {
+    #[serde(default)]
+    album: Option<OneOrMany<SubsonicAlbum>>,
 }
 #[derive(Deserialize)]
 struct SongResponse {

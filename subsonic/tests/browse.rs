@@ -43,6 +43,7 @@ async fn handle(
 ) -> impl IntoResponse {
     let endpoint = endpoint.trim_end_matches(".view").to_owned();
     let special_id = query.get("id").cloned().unwrap_or_default();
+    let offset = query.get("offset").cloned().unwrap_or_default();
     requests.lock().unwrap().push((endpoint.clone(), query));
     let payload = match endpoint.as_str() {
         "getArtists" => {
@@ -54,6 +55,10 @@ async fn handle(
         "getAlbum" => {
             r#"{"album":{"id":"album-001","name":"Album","artist":"Artist","artistId":"artist-001","songCount":1,"song":{"id":"song-001","title":"Track","album":"Album","artist":"Artist","albumId":"album-001","artistId":"artist-001","track":7,"discNumber":2,"year":2024,"genre":"Jazz","duration":182,"size":987654,"suffix":"flac","contentType":"audio/flac","coverArt":"cover-a","bitRate":900,"unknown":true}}}"#
         }
+        "getAlbumList2" if offset == "0" => {
+            r#"{"albumList2":{"album":{"id":"album-001","name":"Album"}}}"#
+        }
+        "getAlbumList2" => r#"{"albumList2":{"album":{"id":"album-002","name":"Next Album"}}}"#,
         "getSong" if special_id == "song-old" => {
             r#"{"song":{"id":"song-old","title":"Old Track"}}"#
         }
@@ -134,6 +139,23 @@ async fn album_browse() {
         .unwrap();
     assert_eq!(result.songs[0].id, "song-001");
     assert_eq!(result.songs[0].disc, Some(2));
+}
+
+#[tokio::test]
+async fn album_list_is_alphabetical_and_paged() {
+    let server = fixture().await;
+    let client = client(server.url.clone());
+    let first_page = bounded(client.album_list(1, 0)).await.unwrap();
+    let second_page = bounded(client.album_list(1, 1)).await.unwrap();
+    assert_eq!(first_page[0].id, "album-001");
+    assert_eq!(second_page[0].id, "album-002");
+    let requests = server.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].0, "getAlbumList2");
+    assert_eq!(requests[0].1["type"], "alphabeticalByName");
+    assert_eq!(requests[0].1["size"], "1");
+    assert_eq!(requests[0].1["offset"], "0");
+    assert_eq!(requests[1].1["offset"], "1");
 }
 
 #[tokio::test]

@@ -379,7 +379,7 @@ pub async fn remove_mix_query(
 }
 
 #[derive(Debug)]
-enum QueryOperator {
+pub enum QueryOperator {
     LibAll(bool),
     LibArtist(i32),
     LibAlbum(i32),
@@ -478,7 +478,7 @@ pub async fn initialize_mix_queries_before_replication(db: &DatabaseConnection) 
     Ok(())
 }
 
-fn parse_query(query: &(String, String)) -> QueryOperator {
+pub fn parse_query(query: &(String, String)) -> QueryOperator {
     let (operator, parameter) = query;
     match operator.as_str() {
         "lib::all" => parse_parameter::<bool>(parameter, operator)

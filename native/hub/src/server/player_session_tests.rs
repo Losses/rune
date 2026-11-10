@@ -124,14 +124,43 @@ async fn subsonic_hub_response(
         "search3" => {
             json!({ "subsonic-response": { "status": "ok", "searchResult3": { "song": { "id": "song-opaque", "title": "Song title", "artist": "Artist", "album": "Album", "artistId": "artist-opaque", "albumId": "album-opaque", "duration": 90, "track": 4 }, "artist": { "id": "artist-opaque", "name": "Artist" }, "album": { "id": "album-opaque", "name": "Album", "artist": "Artist", "artistId": "artist-opaque" } } } })
         }
+        "getArtists" => {
+            json!({ "subsonic-response": { "status": "ok", "artists": { "index": [ { "name": "A", "artist": { "id": "artist-opaque", "name": "Artist", "albumCount": 1 } }, { "name": "B", "artist": { "id": "artist-beta", "name": "Beta" } } ] } } })
+        }
+        "getAlbumList2" => {
+            let offset = query
+                .get("offset")
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or_default();
+            let albums: Vec<_> = if offset == 0 {
+                (0..500)
+                    .map(|index| {
+                        let id = if index == 0 {
+                            "album-opaque".to_owned()
+                        } else {
+                            format!("album-list-{index}")
+                        };
+                        let name = if index == 0 {
+                            "Album".to_owned()
+                        } else {
+                            format!("Album {index:03}")
+                        };
+                        json!({ "id": id, "name": name, "artist": "Artist", "artistId": "artist-opaque" })
+                    })
+                    .collect()
+            } else {
+                vec![json!({ "id": "album-list-500", "name": "Album 500", "artist": "Artist", "artistId": "artist-opaque" })]
+            };
+            json!({ "subsonic-response": { "status": "ok", "albumList2": { "album": albums } } })
+        }
         "getSong" => {
             json!({ "subsonic-response": { "status": "ok", "song": { "id": "song-opaque", "title": "Song title", "artist": "Artist", "album": "Album", "artistId": "artist-opaque", "albumId": "album-opaque", "duration": 90, "track": 4 } } })
         }
         "getArtist" => {
-            json!({ "subsonic-response": { "status": "ok", "artist": { "id": "artist-opaque", "name": "Artist" } } })
+            json!({ "subsonic-response": { "status": "ok", "artist": { "id": "artist-opaque", "name": "Artist", "albumCount": 1, "album": { "id": "album-opaque", "name": "Album", "artist": "Artist", "artistId": "artist-opaque" } } } })
         }
         "getAlbum" => {
-            json!({ "subsonic-response": { "status": "ok", "album": { "id": "album-opaque", "name": "Album", "artist": "Artist", "artistId": "artist-opaque" } } })
+            json!({ "subsonic-response": { "status": "ok", "album": { "id": "album-opaque", "name": "Album", "artist": "Artist", "artistId": "artist-opaque", "song": [ { "id": "song-later", "title": "Later disc", "artist": "Artist", "album": "Album", "discNumber": 2, "track": 1, "duration": 90 }, { "id": "song-first", "title": "First disc", "artist": "Artist", "album": "Album", "discNumber": 1, "track": 8, "duration": 100 } ] } } })
         }
         _ => {
             json!({ "subsonic-response": { "status": "failed", "error": { "code": 70, "message": "unexpected action" } } })
@@ -144,8 +173,9 @@ async fn subsonic_hub_response(
 async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     use crate::messages::{
         CapabilityReason, CollectionType, FetchAllPlaylistsRequest, FetchCollectionByIdsRequest,
-        FetchMediaFileByIdsRequest, OpenLibraryFailureKind, OpenLibraryRequest, OpenLibraryResult,
-        PlayRequest, SearchForRequest,
+        FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
+        FetchMediaFileByIdsRequest, MixQueryRequest, OpenLibraryFailureKind, OpenLibraryRequest,
+        OpenLibraryResult, PlayRequest, SearchForRequest,
     };
     use database::library_registry::{
         CatalogPlacement, LibraryRecord, LibraryRecordId, LibraryRegistry, ProtocolAdapter,
@@ -207,6 +237,19 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
         RequestCapability::Available
     );
     assert_eq!(
+        capabilities.fetch_collection_group_summary_request,
+        RequestCapability::Available
+    );
+    assert_eq!(
+        capabilities.fetch_collection_groups_request,
+        RequestCapability::Available
+    );
+    assert_eq!(capabilities.mix_query_request, RequestCapability::Available);
+    assert_eq!(
+        capabilities.fetch_all_playlists_request,
+        RequestCapability::Hidden
+    );
+    assert_eq!(
         capabilities.play_request,
         RequestCapability::Disabled {
             reason: CapabilityReason::AccountRoleMissing,
@@ -246,7 +289,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
         &FetchCollectionByIdsRequest {
             collection_type: CollectionType::Artist,
             bake_cover_arts: true,
-            ids: search.artists,
+            ids: search.artists.clone(),
         },
     )
     .await?
@@ -257,15 +300,147 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
         &FetchCollectionByIdsRequest {
             collection_type: CollectionType::Album,
             bake_cover_arts: true,
-            ids: search.albums,
+            ids: search.albums.clone(),
         },
     )
     .await?
     .context("Subsonic album fetch")?;
     assert_eq!(albums.result[0].name, "Album");
-    assert_eq!(*calls.lock().unwrap(), ["ping", "getUser", "search3"]);
+    let artist_groups = dispatch_gui_request(
+        &fixture.global_params,
+        &FetchCollectionGroupSummaryRequest {
+            collection_type: CollectionType::Artist,
+        },
+    )
+    .await?
+    .context("Subsonic artist summary")?;
+    assert_eq!(artist_groups.groups[0].group_title, "A");
+    assert_eq!(artist_groups.groups[0].count, 1);
+    let artist_page = dispatch_gui_request(
+        &fixture.global_params,
+        &FetchCollectionGroupsRequest {
+            collection_type: CollectionType::Artist,
+            bake_cover_arts: true,
+            group_titles: vec!["A".into()],
+        },
+    )
+    .await?
+    .context("Subsonic artist page")?;
+    assert_eq!(artist_page.groups[0].collections[0].name, "Artist");
+    let album_groups = dispatch_gui_request(
+        &fixture.global_params,
+        &FetchCollectionGroupSummaryRequest {
+            collection_type: CollectionType::Album,
+        },
+    )
+    .await?
+    .context("Subsonic album summary")?;
+    assert_eq!(album_groups.groups[0].group_title, "A");
+    assert_eq!(album_groups.groups[0].count, 501);
+    let album_page = dispatch_gui_request(
+        &fixture.global_params,
+        &FetchCollectionGroupsRequest {
+            collection_type: CollectionType::Album,
+            bake_cover_arts: false,
+            group_titles: vec!["A".into()],
+        },
+    )
+    .await?
+    .context("Subsonic album page")?;
+    assert_eq!(album_page.groups[0].collections.len(), 501);
+    assert_eq!(album_page.groups[0].collections[0].name, "Album");
+    assert_eq!(album_page.groups[0].collections[500].name, "Album 500");
+    assert_eq!(
+        calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|action| action.as_str() == "getAlbumList2")
+            .count(),
+        2
+    );
+    let artist_tracks = dispatch_gui_request(
+        &fixture.global_params,
+        &MixQueryRequest {
+            queries: vec![MixQuery {
+                operator: "lib::artist".into(),
+                parameter: search.artists[0].to_string(),
+            }],
+            cursor: 0,
+            page_size: 30,
+            bake_cover_arts: true,
+        },
+    )
+    .await?
+    .context("Subsonic artist tracks")?;
+    assert_eq!(artist_tracks.files.len(), 2);
+    assert_eq!(artist_tracks.files[0].title, "First disc");
+    assert_eq!(artist_tracks.files[1].title, "Later disc");
+    let album_tracks = dispatch_gui_request(
+        &fixture.global_params,
+        &MixQueryRequest {
+            queries: vec![MixQuery {
+                operator: "lib::album".into(),
+                parameter: search.albums[0].to_string(),
+            }],
+            cursor: 0,
+            page_size: 30,
+            bake_cover_arts: true,
+        },
+    )
+    .await?
+    .context("Subsonic album tracks")?;
+    assert_eq!(album_tracks.files[0].title, "First disc");
+    let calls_before_cached = calls.lock().unwrap().len();
+    let _cached = dispatch_gui_request(
+        &fixture.global_params,
+        &FetchCollectionByIdsRequest {
+            collection_type: CollectionType::Artist,
+            bake_cover_arts: false,
+            ids: vec![search.artists[0]],
+        },
+    )
+    .await?
+    .context("cached Subsonic artist")?;
+    assert_eq!(calls.lock().unwrap().len(), calls_before_cached);
+    assert!(calls.lock().unwrap().contains(&"getArtist".to_owned()));
+    assert!(calls.lock().unwrap().contains(&"getAlbum".to_owned()));
 
     let calls_before_unsupported = calls.lock().unwrap().len();
+    let unsupported_query = dispatch_gui_request(
+        &fixture.global_params,
+        &MixQueryRequest {
+            queries: vec![MixQuery {
+                operator: "filter::liked".into(),
+                parameter: "true".into(),
+            }],
+            cursor: 0,
+            page_size: 30,
+            bake_cover_arts: false,
+        },
+    )
+    .await
+    .err()
+    .context("expected unsupported Subsonic mix query")?;
+    assert!(matches!(
+        unsupported_query.downcast_ref::<ExpectedRequestError>(),
+        Some(ExpectedRequestError::Unsupported { .. })
+    ));
+    let unsupported_collection = dispatch_gui_request(
+        &fixture.global_params,
+        &FetchCollectionGroupsRequest {
+            collection_type: CollectionType::Playlist,
+            bake_cover_arts: false,
+            group_titles: vec!["A".into()],
+        },
+    )
+    .await
+    .err()
+    .context("expected unsupported collection type")?;
+    assert!(matches!(
+        unsupported_collection.downcast_ref::<ExpectedRequestError>(),
+        Some(ExpectedRequestError::Unsupported { .. })
+    ));
     let unsupported = dispatch_gui_request(&fixture.global_params, &FetchAllPlaylistsRequest {})
         .await
         .err()
