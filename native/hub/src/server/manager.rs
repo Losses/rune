@@ -921,7 +921,7 @@ mod lifecycle_tests {
     use playback::sfx_player::SfxPlayer;
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
     use std::future::Future;
-    use std::{fs, ops::Deref, sync::OnceLock};
+    use std::{fs, ops::Deref, sync::OnceLock, thread};
     use tokio::net::TcpStream;
     use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
     use tokio_util::sync::CancellationToken;
@@ -1030,13 +1030,15 @@ mod lifecycle_tests {
         limit: Duration,
         future: impl Future<Output = T>,
     ) -> T {
-        eprintln!("test step started: {name}");
+        // The test thread carries the test's name, so interleaved --nocapture output stays attributable.
+        let test = thread::current().name().unwrap_or("?").to_owned();
+        eprintln!("test step started: {test}: {name}");
         match tokio::time::timeout(limit, future).await {
             Ok(result) => {
-                eprintln!("test step finished: {name}");
+                eprintln!("test step finished: {test}: {name}");
                 result
             }
-            Err(_) => panic!("test step did not finish: {name}"),
+            Err(_) => panic!("test step did not finish: {test}: {name}"),
         }
     }
 

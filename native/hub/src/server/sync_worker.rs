@@ -1777,7 +1777,7 @@ mod tests {
         let peer =
             http_request::sync::MetadataPeer::<RuneModel>::new(&base, reqwest::Client::new());
         let error = anyhow::Error::new(peer.identity().await.unwrap_err());
-        assert!(metadata_unauthorized(&error));
+        assert!(metadata_unauthorized(&error), "{error:#}");
         assert!(!metadata_unauthorized(&anyhow::anyhow!("network failure")));
         server.abort();
     }
