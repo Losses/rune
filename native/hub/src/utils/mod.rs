@@ -37,10 +37,11 @@ use ::database::{
         LibraryState, MainDbConnection, RecommendationDbConnection, check_library_state,
         check_storage_mode, connect_main_db, connect_recommendation_db, create_redirect,
     },
+    credentials::{Credential, CredentialStore, Secret},
     entities::media_files,
     library_registry::{
-        InvalidRecord, LibraryRecord, LibraryRecordId, LibraryRegistry, ProtocolAdapter,
-        RuneForwardMode, resolve_library,
+        CatalogPlacement, InvalidRecord, LibraryRecord, LibraryRecordId, LibraryRegistry,
+        ProtocolAdapter, RuneForwardMode, SubsonicOpenMode, resolve_library,
     },
     playing_item::MediaFileHandle,
 };
@@ -61,6 +62,8 @@ use crate::messages::*;
 use crate::request_error::{ExpectedRequestError, classify, request_failure_cause};
 use crate::server::ServerManager;
 use crate::{CallIdentified, Signal, TypedRequest};
+use subsonic::{SubsonicClient, SubsonicCredentials, SubsonicError, SubsonicServerError};
+use url::Url;
 
 #[cfg(target_os = "android")]
 use tracing_logcat::{LogcatMakeWriter, LogcatTag};
@@ -246,6 +249,7 @@ pub async fn receive_library_record_requests(
 ) -> Result<()> {
     let local_receiver = RegisterLocalLibraryRequest::get_dart_signal_receiver();
     let remote_receiver = RegisterRemoteControlRequest::get_dart_signal_receiver();
+    let subsonic_receiver = RegisterSubsonicLibraryRequest::get_dart_signal_receiver();
     let open_receiver = OpenLibraryRequest::get_dart_signal_receiver();
     let list_receiver = ListLibraryRecordsRequest::get_dart_signal_receiver();
     let remove_receiver = RemoveLibraryRecordRequest::get_dart_signal_receiver();
@@ -260,6 +264,10 @@ pub async fn receive_library_record_requests(
             }
             Some(signal) = remote_receiver.recv() => {
                 let result = register_remote_control(&signal.message).await;
+                broadcaster.broadcast(&result);
+            }
+            Some(signal) = subsonic_receiver.recv() => {
+                let result = register_subsonic_library(&signal.message).await;
                 broadcaster.broadcast(&result);
             }
             Some(signal) = open_receiver.recv() => {
@@ -430,6 +438,282 @@ pub(crate) async fn register_remote_control_on_node(
             outcome: RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::Storage),
             detail: Some(format!("{error:#}")),
         },
+    }
+}
+
+async fn register_subsonic_library(
+    request: &RegisterSubsonicLibraryRequest,
+) -> RegisterLibraryResponse {
+    match current_node().await {
+        Ok(node) => register_subsonic_library_with_node(request, &node).await,
+        Err(_) => subsonic_registration_failure(
+            RegisterLibraryFailureKind::Storage,
+            "Could not access library storage",
+        ),
+    }
+}
+
+pub(crate) async fn register_subsonic_library_with_node(
+    request: &RegisterSubsonicLibraryRequest,
+    node: &Arc<NodeContext>,
+) -> RegisterLibraryResponse {
+    register_subsonic_library_on_node(request, node).await
+}
+
+pub(crate) async fn register_subsonic_library_on_node(
+    request: &RegisterSubsonicLibraryRequest,
+    node: &Arc<NodeContext>,
+) -> RegisterLibraryResponse {
+    let endpoint = match validate_subsonic_endpoint(&request.endpoint) {
+        Ok(endpoint) => endpoint,
+        Err(()) => {
+            return subsonic_registration_failure(
+                RegisterLibraryFailureKind::SubsonicNotSubsonic,
+                "The endpoint must be a valid HTTP or HTTPS URL",
+            );
+        }
+    };
+    let http = match reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(5))
+        .build()
+    {
+        Ok(http) => http,
+        Err(_) => {
+            return subsonic_registration_failure(
+                RegisterLibraryFailureKind::Storage,
+                "Could not create the Subsonic client",
+            );
+        }
+    };
+    let client = SubsonicClient::new(
+        endpoint.clone(),
+        SubsonicCredentials::Password {
+            user: request.username.clone(),
+            password: request.password.clone(),
+        },
+        http,
+    );
+    let probe = match tokio::time::timeout(Duration::from_secs(5), client.probe()).await {
+        Err(_) => {
+            return subsonic_registration_failure(
+                RegisterLibraryFailureKind::SubsonicUnreachable,
+                "The Subsonic server did not respond in time",
+            );
+        }
+        Ok(Err(error)) => return subsonic_probe_failure(error),
+        Ok(Ok(probe)) => probe,
+    };
+    let allowed = if probe.roles_known {
+        let mut allowed = Vec::with_capacity(2);
+        if probe.roles.stream_role {
+            allowed.push(SubsonicOpenMode::PlayOnThisDevice);
+        }
+        if probe.roles.jukebox_role {
+            allowed.push(SubsonicOpenMode::RemoteControl);
+        }
+        allowed
+    } else {
+        vec![SubsonicOpenMode::PlayOnThisDevice]
+    };
+    if allowed.is_empty() {
+        return subsonic_registration_failure(
+            RegisterLibraryFailureKind::SubsonicRoleMissing,
+            "The account has no supported Subsonic role",
+        );
+    }
+    let mode = match request.mode.map(SubsonicOpenMode::from) {
+        Some(mode) if allowed.contains(&mode) => mode,
+        Some(_) => {
+            return subsonic_registration_failure(
+                RegisterLibraryFailureKind::SubsonicRoleMissing,
+                "The account does not have the role required by that mode",
+            );
+        }
+        None if allowed.len() == 1 => allowed[0],
+        None => {
+            return RegisterLibraryResponse {
+                record: None,
+                outcome: RegisterLibraryOutcome::NeedsSubsonicMode {
+                    allowed: allowed.into_iter().map(Into::into).collect(),
+                },
+                detail: None,
+            };
+        }
+    };
+
+    let config = Path::new(&*node.config_path);
+    match existing_subsonic_record(
+        config,
+        &node.credentials,
+        endpoint.as_str(),
+        &request.username,
+        mode,
+    )
+    .await
+    {
+        Ok(Some(record)) => {
+            return RegisterLibraryResponse {
+                record: Some((&record).into()),
+                outcome: RegisterLibraryOutcome::Registered,
+                detail: None,
+            };
+        }
+        Ok(None) => {}
+        Err(_) => {
+            return subsonic_registration_failure(
+                RegisterLibraryFailureKind::Storage,
+                "Could not read library storage",
+            );
+        }
+    }
+
+    let credential = match node
+        .credentials
+        .put(Credential {
+            username: request.username.clone(),
+            secret: Secret::new(request.password.as_bytes().to_vec()),
+        })
+        .await
+    {
+        Ok(credential) => credential,
+        Err(_) => {
+            return subsonic_registration_failure(
+                RegisterLibraryFailureKind::Storage,
+                "Could not store credentials",
+            );
+        }
+    };
+    let record = LibraryRecord {
+        record_id: LibraryRecordId(Uuid::new_v4()),
+        alias: request.alias.clone(),
+        library_id: None,
+        protocol: ProtocolAdapter::SubsonicTranslate {
+            endpoint: endpoint.to_string(),
+            credential,
+            mode,
+        },
+        fs: Vec::new(),
+        catalog: CatalogPlacement::None,
+        background_sync: false,
+    };
+    if record.validate().is_err() {
+        let _ = node.credentials.remove(credential).await;
+        return subsonic_registration_failure(
+            RegisterLibraryFailureKind::InvalidRecord,
+            "The library record is invalid",
+        );
+    }
+    let stored = LibraryRegistry::update(config, |registry| {
+        registry.libraries.push(record.clone());
+        Ok(record.clone())
+    })
+    .await;
+    let record = match stored {
+        Ok(value) => value,
+        Err(_) => {
+            let _ = node.credentials.remove(credential).await;
+            return subsonic_registration_failure(
+                RegisterLibraryFailureKind::Storage,
+                "Could not write library storage",
+            );
+        }
+    };
+    if let Err(error) = publish_library_records_changed(node).await {
+        log::warn!("Could not publish library record change: {error:#}");
+    }
+    RegisterLibraryResponse {
+        record: Some((&record).into()),
+        outcome: RegisterLibraryOutcome::Registered,
+        detail: None,
+    }
+}
+
+fn validate_subsonic_endpoint(raw: &str) -> Result<Url, ()> {
+    let endpoint = Url::parse(raw).map_err(|_| ())?;
+    if !matches!(endpoint.scheme(), "http" | "https")
+        || endpoint.host_str().is_none()
+        || !endpoint.username().is_empty()
+        || endpoint.password().is_some()
+        || endpoint.query().is_some()
+        || endpoint.fragment().is_some()
+    {
+        return Err(());
+    }
+    Ok(endpoint)
+}
+
+async fn existing_subsonic_record(
+    config: &Path,
+    credentials: &CredentialStore,
+    endpoint: &str,
+    username: &str,
+    mode: SubsonicOpenMode,
+) -> anyhow::Result<Option<LibraryRecord>> {
+    let registry = LibraryRegistry::load(config)?;
+    for record in &registry.libraries {
+        if let ProtocolAdapter::SubsonicTranslate {
+            endpoint: stored_endpoint,
+            credential,
+            mode: stored_mode,
+        } = &record.protocol
+            && stored_endpoint == endpoint
+            && *stored_mode == mode
+            && credentials
+                .get(*credential)
+                .await
+                .is_ok_and(|stored| stored.username == username)
+        {
+            return Ok(Some(record.clone()));
+        }
+    }
+    Ok(None)
+}
+
+fn subsonic_probe_failure(error: SubsonicError) -> RegisterLibraryResponse {
+    let kind = match error {
+        SubsonicError::Transport(_) | SubsonicError::HttpStatus(_) => {
+            RegisterLibraryFailureKind::SubsonicUnreachable
+        }
+        SubsonicError::Server {
+            kind: SubsonicServerError::WrongCredentials | SubsonicServerError::NotAuthorized,
+            ..
+        } => RegisterLibraryFailureKind::SubsonicWrongCredentials,
+        SubsonicError::Server {
+            kind: SubsonicServerError::ServerTooOld,
+            ..
+        } => RegisterLibraryFailureKind::SubsonicServerTooOld,
+        SubsonicError::Server {
+            kind: SubsonicServerError::ClientTooOld,
+            ..
+        } => RegisterLibraryFailureKind::SubsonicClientTooOld,
+        SubsonicError::Malformed(_)
+        | SubsonicError::Server { .. }
+        | SubsonicError::JukeboxUnsupported
+        | SubsonicError::InvalidJukeboxGain => RegisterLibraryFailureKind::SubsonicNotSubsonic,
+    };
+    let detail = match kind {
+        RegisterLibraryFailureKind::SubsonicUnreachable => "Could not reach the Subsonic server",
+        RegisterLibraryFailureKind::SubsonicWrongCredentials => {
+            "The Subsonic credentials were rejected"
+        }
+        RegisterLibraryFailureKind::SubsonicServerTooOld => "The Subsonic server is too old",
+        RegisterLibraryFailureKind::SubsonicClientTooOld => {
+            "The Subsonic server requires a newer client"
+        }
+        _ => "The endpoint did not return a valid Subsonic response",
+    };
+    subsonic_registration_failure(kind, detail)
+}
+
+fn subsonic_registration_failure(
+    kind: RegisterLibraryFailureKind,
+    detail: &'static str,
+) -> RegisterLibraryResponse {
+    RegisterLibraryResponse {
+        record: None,
+        outcome: RegisterLibraryOutcome::Failed(kind),
+        detail: Some(detail.into()),
     }
 }
 

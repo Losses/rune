@@ -11,14 +11,25 @@ use crate::messages::{
     RemoteLibraryReconnected, RemoteLibraryReconnecting, RemoteLossKind, RequestCapabilities,
     RequestCapability, RequestFailedResponse, ScanAudioLibraryProgress, ScanTaskType,
 };
+use crate::messages::{RegisterSubsonicLibraryRequest, SubsonicOpenModeMessage};
 use crate::node::{CatalogTarget, ReconnectConfig, SessionBinding};
 use crate::utils::{
-    open_library_by_record_on_node, register_local_library_on_node, register_remote_control_on_node,
+    open_library_by_record_on_node, register_local_library_on_node,
+    register_remote_control_on_node, register_subsonic_library_on_node,
+    register_subsonic_library_with_node,
 };
+use axum::Router;
+use axum::extract::{Path as AxumPath, Query, State};
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
+use axum::routing::get;
+use database::library_registry::LibraryRecord;
+use database::library_registry::{LibraryRegistry, ProtocolAdapter, SubsonicOpenMode};
 #[cfg(target_os = "linux")]
 use std::{env, process::Command};
 use std::{path::PathBuf, sync::Mutex as StdMutex};
 use tempfile::TempDir;
+use url::Url;
 
 use crate::{
     access_policy::{ConnectionLevel, SyncLevel},
@@ -5738,6 +5749,328 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     assert!(a.global_params.node.current_ui().await.is_err());
     a.global_params.node.shutdown().await?;
     b.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct FakeSubsonicRoles {
+    stream: bool,
+    jukebox: bool,
+    wrong_password: bool,
+}
+
+struct FakeSubsonicServer {
+    endpoint: String,
+    task: tokio::task::JoinHandle<()>,
+}
+
+async fn fake_subsonic_server(roles: FakeSubsonicRoles) -> Result<FakeSubsonicServer> {
+    let listener = TokioTcpListener::bind("127.0.0.1:0").await?;
+    let address = listener.local_addr()?;
+    let app = Router::new()
+        .route("/rest/{*endpoint}", get(fake_subsonic_response))
+        .with_state(roles);
+    let task = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    Ok(FakeSubsonicServer {
+        endpoint: format!("http://{address}"),
+        task,
+    })
+}
+
+async fn fake_subsonic_response(
+    State(roles): State<FakeSubsonicRoles>,
+    AxumPath(endpoint): AxumPath<String>,
+    Query(_query): Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    let body = match endpoint.trim_end_matches(".view") {
+        "ping" => r#"{"subsonic-response":{"status":"ok","version":"1.16.1","openSubsonic":false}}"#.to_owned(),
+        "getUser" if roles.wrong_password => r#"{"subsonic-response":{"status":"failed","version":"1.16.1","error":{"code":40,"message":"Rejected"}}}"#.to_owned(),
+        "getUser" => format!(
+            r#"{{"subsonic-response":{{"status":"ok","user":{{"username":"alice","streamRole":{},"downloadRole":false,"jukeboxRole":{}}}}}}}"#,
+            roles.stream, roles.jukebox
+        ),
+        _ => r#"{"subsonic-response":{"status":"ok"}}"#.to_owned(),
+    };
+    (StatusCode::OK, body)
+}
+
+fn subsonic_registration_request(
+    endpoint: String,
+    password: &str,
+    mode: Option<SubsonicOpenModeMessage>,
+) -> RegisterSubsonicLibraryRequest {
+    RegisterSubsonicLibraryRequest {
+        endpoint,
+        username: "alice".into(),
+        password: password.into(),
+        alias: "Remote music".into(),
+        mode,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn subsonic_registration_resolves_mode_stores_secret_and_deduplicates() -> Result<()> {
+    use crate::messages::RegisterLibraryOutcome;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let server = fake_subsonic_server(FakeSubsonicRoles {
+        stream: true,
+        jukebox: true,
+        wrong_password: false,
+    })
+    .await?;
+    let base =
+        subsonic_registration_request(server.endpoint.clone(), "sensitive-test-password", None);
+    let needs_mode = register_subsonic_library_on_node(&base, &node).await;
+    assert_eq!(
+        needs_mode.outcome,
+        RegisterLibraryOutcome::NeedsSubsonicMode {
+            allowed: vec![
+                SubsonicOpenModeMessage::PlayOnThisDevice,
+                SubsonicOpenModeMessage::RemoteControl
+            ]
+        }
+    );
+    let registration = register_subsonic_library_on_node(
+        &subsonic_registration_request(
+            server.endpoint.clone(),
+            "sensitive-test-password",
+            Some(SubsonicOpenModeMessage::RemoteControl),
+        ),
+        &node,
+    )
+    .await;
+    assert_eq!(registration.outcome, RegisterLibraryOutcome::Registered);
+    let summary = registration.record.context("registered Subsonic record")?;
+    assert_eq!(summary.alias, "Remote music");
+    let registry = LibraryRegistry::load(PathBuf::from(&*node.config_path).as_path())?;
+    let stored = registry
+        .libraries
+        .iter()
+        .find(|record| record.record_id.0.to_string() == summary.record_id)
+        .context("record persisted")?;
+    let ProtocolAdapter::SubsonicTranslate {
+        endpoint,
+        credential,
+        mode,
+    } = &stored.protocol
+    else {
+        anyhow::bail!("record is not Subsonic")
+    };
+    assert_eq!(endpoint, &Url::parse(&server.endpoint)?.to_string());
+    assert_eq!(*mode, SubsonicOpenMode::RemoteControl);
+    let restored = node.credentials.get(*credential).await?;
+    assert_eq!(restored.username, "alice");
+    assert_eq!(restored.secret.as_bytes(), b"sensitive-test-password");
+    let registry_bytes = std::fs::read(PathBuf::from(&*node.config_path).join("libraries.json"))?;
+    assert!(!String::from_utf8_lossy(&registry_bytes).contains("sensitive-test-password"));
+    let credentials_path = PathBuf::from(&*node.config_path).join("credentials.enc");
+    let before_duplicate = std::fs::read(&credentials_path)?;
+    let duplicate = register_subsonic_library_on_node(
+        &subsonic_registration_request(
+            server.endpoint.clone(),
+            "sensitive-test-password",
+            Some(SubsonicOpenModeMessage::RemoteControl),
+        ),
+        &node,
+    )
+    .await;
+    assert_eq!(duplicate.outcome, RegisterLibraryOutcome::Registered);
+    assert_eq!(
+        duplicate.record.context("duplicate record")?.record_id,
+        summary.record_id
+    );
+    assert_eq!(std::fs::read(credentials_path)?, before_duplicate);
+    assert_eq!(
+        registry
+            .libraries
+            .iter()
+            .filter(|record| matches!(record.protocol, ProtocolAdapter::SubsonicTranslate { .. }))
+            .count(),
+        1
+    );
+    server.task.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn subsonic_registration_uses_single_role_and_rejects_no_roles() -> Result<()> {
+    use crate::messages::{RegisterLibraryFailureKind, RegisterLibraryOutcome};
+
+    assert_single_role_subsonic_registration(
+        true,
+        false,
+        SubsonicOpenModeMessage::PlayOnThisDevice,
+    )
+    .await?;
+    let remote_mode = SubsonicOpenModeMessage::RemoteControl;
+    assert_single_role_subsonic_registration(false, true, remote_mode).await?;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let server = fake_subsonic_server(FakeSubsonicRoles {
+        stream: false,
+        jukebox: false,
+        wrong_password: false,
+    })
+    .await?;
+    let response = register_subsonic_library_on_node(
+        &subsonic_registration_request(server.endpoint.clone(), "password", None),
+        &node,
+    )
+    .await;
+    assert_eq!(
+        response.outcome,
+        RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::SubsonicRoleMissing)
+    );
+    assert!(
+        !PathBuf::from(&*node.config_path)
+            .join("credentials.enc")
+            .exists()
+    );
+    server.task.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+async fn assert_single_role_subsonic_registration(
+    stream: bool,
+    jukebox: bool,
+    expected: SubsonicOpenModeMessage,
+) -> Result<()> {
+    use crate::messages::RegisterLibraryOutcome;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let server = fake_subsonic_server(FakeSubsonicRoles {
+        stream,
+        jukebox,
+        wrong_password: false,
+    })
+    .await?;
+    let response = register_subsonic_library_on_node(
+        &subsonic_registration_request(server.endpoint.clone(), "password", None),
+        &node,
+    )
+    .await;
+    assert_eq!(response.outcome, RegisterLibraryOutcome::Registered);
+    let registry = LibraryRegistry::load(PathBuf::from(&*node.config_path).as_path())?;
+    let stored = registry
+        .libraries
+        .iter()
+        .find(is_subsonic_record)
+        .context("Subsonic record stored")?;
+    assert!(matches!(
+        stored.protocol,
+        ProtocolAdapter::SubsonicTranslate { mode, .. }
+            if SubsonicOpenModeMessage::from(mode) == expected
+    ));
+    server.task.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+fn is_subsonic_record(record: &&LibraryRecord) -> bool {
+    matches!(record.protocol, ProtocolAdapter::SubsonicTranslate { .. })
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn subsonic_registration_wrong_password_does_not_store_secret() -> Result<()> {
+    use crate::messages::{RegisterLibraryFailureKind, RegisterLibraryOutcome};
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let server = fake_subsonic_server(FakeSubsonicRoles {
+        stream: true,
+        jukebox: false,
+        wrong_password: true,
+    })
+    .await?;
+    let password = "wrong-password-must-not-leak";
+    let response = register_subsonic_library_on_node(
+        &subsonic_registration_request(server.endpoint.clone(), password, None),
+        &node,
+    )
+    .await;
+    assert_eq!(
+        response.outcome,
+        RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::SubsonicWrongCredentials)
+    );
+    assert!(!response.detail.unwrap_or_default().contains(password));
+    assert!(
+        !PathBuf::from(&*node.config_path)
+            .join("credentials.enc")
+            .exists()
+    );
+    server.task.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn subsonic_registration_unreachable_is_bounded() -> Result<()> {
+    use crate::messages::{RegisterLibraryFailureKind, RegisterLibraryOutcome};
+
+    let reserved = TokioTcpListener::bind("127.0.0.1:0").await?;
+    let endpoint = format!("http://{}", reserved.local_addr()?);
+    drop(reserved);
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let started = Instant::now();
+    let response = timeout(
+        Duration::from_secs(7),
+        register_subsonic_library_on_node(
+            &subsonic_registration_request(endpoint, "password", None),
+            &node,
+        ),
+    )
+    .await
+    .context("unreachable registration hung")?;
+    assert!(started.elapsed() < Duration::from_secs(7));
+    assert_eq!(
+        response.outcome,
+        RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::SubsonicUnreachable)
+    );
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn subsonic_registration_receiver_dispatches_to_node_handler() -> Result<()> {
+    use crate::messages::RegisterLibraryOutcome;
+    use rinf::{DartSignalPack, signal_channel};
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let server = fake_subsonic_server(FakeSubsonicRoles {
+        stream: true,
+        jukebox: false,
+        wrong_password: false,
+    })
+    .await?;
+    let (sender, receiver) = signal_channel();
+    sender.send(DartSignalPack {
+        message: subsonic_registration_request(server.endpoint.clone(), "password", None),
+        binary: Vec::new(),
+    });
+    let signal = timeout(Duration::from_secs(2), receiver.recv())
+        .await
+        .context("registration receiver did not receive the request")?
+        .context("registration signal channel closed")?;
+    let response = register_subsonic_library_with_node(&signal.message, &node).await;
+    assert_eq!(response.outcome, RegisterLibraryOutcome::Registered);
+    server.task.abort();
+    node.shutdown().await?;
     Ok(())
 }
 

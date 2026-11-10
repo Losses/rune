@@ -1,7 +1,7 @@
 use super::system::{RequestErrorKind, RequestFailureCause};
 use database::library_registry::{
     CatalogPlacement, InvalidRecord, LibraryAccess, LibraryConnectionAccess, LibraryRecord,
-    ProtocolAdapter, RuneForwardMode,
+    ProtocolAdapter, RuneForwardMode, SubsonicOpenMode,
 };
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
@@ -44,6 +44,39 @@ pub struct RegisterLocalLibraryRequest {
 pub struct RegisterRemoteControlRequest {
     pub fingerprint: String,
     pub alias: String,
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubsonicOpenModeMessage {
+    RemoteControl,
+    PlayOnThisDevice,
+}
+
+impl From<SubsonicOpenModeMessage> for SubsonicOpenMode {
+    fn from(value: SubsonicOpenModeMessage) -> Self {
+        match value {
+            SubsonicOpenModeMessage::RemoteControl => Self::RemoteControl,
+            SubsonicOpenModeMessage::PlayOnThisDevice => Self::PlayOnThisDevice,
+        }
+    }
+}
+
+impl From<SubsonicOpenMode> for SubsonicOpenModeMessage {
+    fn from(value: SubsonicOpenMode) -> Self {
+        match value {
+            SubsonicOpenMode::RemoteControl => Self::RemoteControl,
+            SubsonicOpenMode::PlayOnThisDevice => Self::PlayOnThisDevice,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct RegisterSubsonicLibraryRequest {
+    pub endpoint: String,
+    pub username: String,
+    pub password: String,
+    pub alias: String,
+    pub mode: Option<SubsonicOpenModeMessage>,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
@@ -241,12 +274,21 @@ pub enum RegisterLibraryFailureKind {
     RemoteNotAuthorized,
     RemoteUnreachable,
     RemoteProtocol,
+    SubsonicUnreachable,
+    SubsonicWrongCredentials,
+    SubsonicServerTooOld,
+    SubsonicClientTooOld,
+    SubsonicRoleMissing,
+    SubsonicNotSubsonic,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
 pub enum RegisterLibraryOutcome {
     Registered,
     NeedsInitializeMode,
+    NeedsSubsonicMode {
+        allowed: Vec<SubsonicOpenModeMessage>,
+    },
     Failed(RegisterLibraryFailureKind),
 }
 
