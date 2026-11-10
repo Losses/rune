@@ -14,17 +14,17 @@ use std::{
     any::TypeId,
     collections::HashMap,
     fmt::Debug,
+    future::Future,
     path::{Path, PathBuf},
     result::Result as StdResult,
     sync::{Arc, OnceLock},
 };
 
 use crate::handlers::local_libraries::publish_library_records_changed;
-use crate::node::{NodeContext, current_node};
+use crate::node::{NodeContext, NodeSlot};
 use anyhow::{Context, Result};
 use fsio::FsIo;
-use log::{info, warn};
-use rinf::DartSignal;
+use log::info;
 use scrobbling::manager::ScrobblingServiceManager;
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -53,17 +53,17 @@ use ::playback::{
 };
 use ::scrobbling::manager::ScrobblingManager;
 
-use crate::backends::local::gui_request::GuiRequest;
+use crate::Signal;
 use crate::backends::{
     local::local_player_loop,
     remote::{RemoteConnectError, open_remote_library_for_fingerprint},
 };
 use crate::library_pool::{LibraryHandle, LibraryPool};
+use crate::macros::NodeRequestHandlers;
 use crate::messages::*;
-use crate::request_error::{ExpectedRequestError, classify, request_failure_cause};
+use crate::request_error::ExpectedRequestError;
 use crate::server::ServerManager;
 use crate::subsonic_binding::SubsonicBinding;
-use crate::{CallIdentified, Signal, TypedRequest};
 use subsonic::{SubsonicClient, SubsonicCredentials, SubsonicError, SubsonicServerError};
 use url::Url;
 
@@ -245,73 +245,80 @@ impl Broadcaster for LocalGuiBroadcaster {
     }
 }
 
-/// Receive record-oriented registration and open requests independently of an open UI library.
-pub async fn receive_library_record_requests(
+pub(crate) struct ProductionNodeRequestHandlers {
     scrobbler: Arc<Mutex<ScrobblingManager>>,
-) -> Result<()> {
-    let local_receiver = RegisterLocalLibraryRequest::get_dart_signal_receiver();
-    let remote_receiver = RegisterRemoteControlRequest::get_dart_signal_receiver();
-    let subsonic_receiver = RegisterSubsonicLibraryRequest::get_dart_signal_receiver();
-    let open_receiver = OpenLibraryRequest::get_dart_signal_receiver();
-    let list_receiver = ListLibraryRecordsRequest::get_dart_signal_receiver();
-    let remove_receiver = RemoveLibraryRecordRequest::get_dart_signal_receiver();
-    let broadcaster: Arc<dyn Broadcaster> = Arc::new(LocalGuiBroadcaster);
-    loop {
-        tokio::select! {
-            Some(signal) = list_receiver.recv() => answer_node_request(&signal.message).await,
-            Some(signal) = remove_receiver.recv() => answer_node_request(&signal.message).await,
-            Some(signal) = local_receiver.recv() => {
-                let result = register_local_library(&signal.message).await;
-                broadcaster.broadcast(&result);
-            }
-            Some(signal) = remote_receiver.recv() => {
-                let result = register_remote_control(&signal.message).await;
-                broadcaster.broadcast(&result);
-            }
-            Some(signal) = subsonic_receiver.recv() => {
-                let result = register_subsonic_library(&signal.message).await;
-                broadcaster.broadcast(&result);
-            }
-            Some(signal) = open_receiver.recv() => {
-                let result = open_library_by_record(&signal.message, Arc::clone(&scrobbler)).await;
-                broadcaster.broadcast(&result);
-            }
-            else => tokio::time::sleep(Duration::from_secs(1)).await,
-        }
+}
+
+impl ProductionNodeRequestHandlers {
+    pub(crate) fn new(scrobbler: Arc<Mutex<ScrobblingManager>>) -> Self {
+        Self { scrobbler }
     }
 }
 
-/// Answers a node-lifetime request that is handled by a `Signal` impl on the node context.
-/// Such requests are not served by the per-library GUI listeners, so this loop is their only
-/// receiver.
-async fn answer_node_request<R>(request: &R)
-where
-    R: GuiRequest
-        + Signal<Params = Arc<NodeContext>, Response = <R as TypedRequest>::Response>
-        + CallIdentified,
-{
-    let emit = |signal: &dyn RinfRustSignal| signal.send_to_dart();
-    let result = match current_node().await {
-        Ok(node) => request.handle(node, None, request).await,
-        Err(error) => Err(error),
-    };
-    match result {
-        Ok(response) => R::emit_response(response, &emit),
-        Err(error) => {
-            warn!("Request {} failed: {error:#}", R::wire_name());
-            emit(&RequestFailedResponse::for_request(
-                request,
-                R::wire_name(),
-                classify(&error),
-                format!("{error:#}"),
-                request_failure_cause(&error),
-            ));
+// Explicit `Send` futures let the generated receiver loop run in a Tokio task.
+#[allow(clippy::manual_async_fn)]
+impl NodeRequestHandlers for ProductionNodeRequestHandlers {
+    fn handle_list_library_records_request(
+        &self,
+        node: &NodeSlot,
+        request: &ListLibraryRecordsRequest,
+    ) -> impl Future<Output = Result<Option<ListLibraryRecordsResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request.handle(node, None, request).await
         }
+    }
+
+    fn handle_remove_library_record_request(
+        &self,
+        node: &NodeSlot,
+        request: &RemoveLibraryRecordRequest,
+    ) -> impl Future<Output = Result<Option<RemoveLibraryRecordResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request.handle(node, None, request).await
+        }
+    }
+
+    fn handle_register_local_library_request(
+        &self,
+        node: &NodeSlot,
+        request: &RegisterLocalLibraryRequest,
+    ) -> impl Future<Output = Result<Option<RegisterLibraryResponse>>> + Send {
+        async move { Ok(Some(register_local_library(node, request).await)) }
+    }
+
+    fn handle_register_remote_control_request(
+        &self,
+        node: &NodeSlot,
+        request: &RegisterRemoteControlRequest,
+    ) -> impl Future<Output = Result<Option<RegisterLibraryResponse>>> + Send {
+        async move { Ok(Some(register_remote_control(node, request).await)) }
+    }
+
+    fn handle_register_subsonic_library_request(
+        &self,
+        node: &NodeSlot,
+        request: &RegisterSubsonicLibraryRequest,
+    ) -> impl Future<Output = Result<Option<RegisterLibraryResponse>>> + Send {
+        async move { Ok(Some(register_subsonic_library(node, request).await)) }
+    }
+
+    fn handle_open_library_request(
+        &self,
+        node: &NodeSlot,
+        request: &OpenLibraryRequest,
+    ) -> impl Future<Output = Result<Option<OpenLibraryResponse>>> + Send {
+        let scrobbler = Arc::clone(&self.scrobbler);
+        async move { Ok(Some(open_library_by_record(node, request, scrobbler).await)) }
     }
 }
 
-async fn register_local_library(request: &RegisterLocalLibraryRequest) -> RegisterLibraryResponse {
-    let node = match current_node().await {
+async fn register_local_library(
+    node_slot: &NodeSlot,
+    request: &RegisterLocalLibraryRequest,
+) -> RegisterLibraryResponse {
+    let node = match node_slot.current().await {
         Ok(node) => node,
         Err(error) => {
             return RegisterLibraryResponse {
@@ -381,9 +388,10 @@ pub(crate) async fn register_local_library_on_node(
 }
 
 async fn register_remote_control(
+    node_slot: &NodeSlot,
     request: &RegisterRemoteControlRequest,
 ) -> RegisterLibraryResponse {
-    let node = match current_node().await {
+    let node = match node_slot.current().await {
         Ok(node) => node,
         Err(error) => {
             return RegisterLibraryResponse {
@@ -444,9 +452,10 @@ pub(crate) async fn register_remote_control_on_node(
 }
 
 async fn register_subsonic_library(
+    node_slot: &NodeSlot,
     request: &RegisterSubsonicLibraryRequest,
 ) -> RegisterLibraryResponse {
-    match current_node().await {
+    match node_slot.current().await {
         Ok(node) => register_subsonic_library_with_node(request, &node).await,
         Err(_) => subsonic_registration_failure(
             RegisterLibraryFailureKind::Storage,
@@ -720,10 +729,11 @@ fn subsonic_registration_failure(
 }
 
 async fn open_library_by_record(
+    node_slot: &NodeSlot,
     request: &OpenLibraryRequest,
     scrobbler: Arc<Mutex<ScrobblingManager>>,
 ) -> OpenLibraryResponse {
-    let node = match current_node().await {
+    let node = match node_slot.current().await {
         Ok(node) => node,
         Err(error) => {
             return OpenLibraryResponse {

@@ -161,7 +161,10 @@ pub struct RequestCapabilities {
     pub remove_item_from_playlist_request: RequestCapability,
     pub register_local_library_request: RequestCapability,
     pub register_remote_control_request: RequestCapability,
+    pub register_subsonic_library_request: RequestCapability,
     pub open_library_request: RequestCapability,
+    pub initialize_node_request: RequestCapability,
+    pub run_fs_self_test_request: RequestCapability,
 }
 
 impl From<Slot> for RequestCapability {

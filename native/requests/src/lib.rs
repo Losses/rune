@@ -1,4 +1,5 @@
 use proc_macro::TokenStream;
+use proc_macro2::Span;
 use quote::{format_ident, quote};
 
 #[derive(Clone, Copy, PartialEq)]
@@ -17,6 +18,13 @@ enum RequestAccess {
     Administer,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum NodeReceiver {
+    Loop,
+    BootstrapNode,
+    BootstrapSubsystem,
+}
+
 struct RequestResponse {
     request: String,
     response: Option<String>,
@@ -29,6 +37,19 @@ struct RequestResponse {
     // Listened to for the node's whole life rather than only while a UI library is open.
     node_lifetime: bool,
     subsonic: bool,
+    // Selects the generated node loop or one of the independently started bootstrap paths.
+    node_receiver: Option<NodeReceiver>,
+}
+
+fn snake_case(value: &str) -> String {
+    let mut name = String::new();
+    for (index, ch) in value.chars().enumerate() {
+        if ch.is_uppercase() && index != 0 {
+            name.push('_');
+        }
+        name.extend(ch.to_lowercase());
+    }
+    name
 }
 
 #[proc_macro]
@@ -44,6 +65,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "DetachRendererRequest".to_string(),
@@ -55,6 +77,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "ListRenderersRequest".to_string(),
@@ -66,6 +89,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "HandoffRequest".to_string(),
@@ -77,6 +101,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "GetDeviceGrantsRequest".to_string(),
@@ -88,6 +113,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "SetDeviceGrantsRequest".to_string(),
@@ -99,6 +125,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "ListControllersRequest".to_string(),
@@ -110,6 +137,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "DetachControllerRequest".to_string(),
@@ -121,6 +149,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "ListLocalLibrariesRequest".to_string(),
@@ -132,6 +161,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "ListLibraryRecordsRequest".to_string(),
@@ -143,6 +173,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "RemoveLibraryRecordRequest".to_string(),
@@ -154,6 +185,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "SetLibraryBackgroundSyncRequest".to_string(),
@@ -165,6 +197,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "RegisterLocalLibraryRequest".to_string(),
@@ -176,6 +209,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
         },
         RequestResponse {
             request: "RegisterRemoteControlRequest".to_string(),
@@ -187,6 +221,19 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
+        },
+        RequestResponse {
+            request: "RegisterSubsonicLibraryRequest".to_string(),
+            response: Some("RegisterLibraryResponse".to_string()),
+            scope: RequestScope::Node,
+            access: RequestAccess::NodeLocal,
+            call_id: false,
+            uses_controller_library: false,
+            introduced_minor: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
+            subsonic: false,
         },
         RequestResponse {
             request: "OpenLibraryRequest".to_string(),
@@ -198,6 +245,31 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
+        },
+        RequestResponse {
+            request: "InitializeNodeRequest".to_string(),
+            response: Some("InitializeNodeResponse".to_string()),
+            scope: RequestScope::Node,
+            access: RequestAccess::NodeLocal,
+            call_id: false,
+            uses_controller_library: false,
+            introduced_minor: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::BootstrapNode),
+            subsonic: false,
+        },
+        RequestResponse {
+            request: "RunFsSelfTestRequest".to_string(),
+            response: Some("RunFsSelfTestResponse".to_string()),
+            scope: RequestScope::Node,
+            access: RequestAccess::NodeLocal,
+            call_id: false,
+            uses_controller_library: false,
+            introduced_minor: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::BootstrapSubsystem),
+            subsonic: false,
         },
         RequestResponse {
             request: "ListPeerLibrariesRequest".to_string(),
@@ -209,6 +281,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "AddRemoteLibraryRequest".to_string(),
@@ -220,6 +293,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         // Library
         RequestResponse {
@@ -232,6 +306,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "SetSyncSettingsRequest".to_string(),
@@ -243,6 +318,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "SetDownloadRuleRequest".to_string(),
@@ -254,6 +330,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "RemoveDownloadRuleRequest".to_string(),
@@ -265,6 +342,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "TestLibraryInitializedRequest".to_string(),
@@ -276,6 +354,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "CloseLibraryRequest".to_string(),
@@ -287,6 +366,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "CancelTaskRequest".to_string(),
@@ -298,6 +378,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "ScanAudioLibraryRequest".to_string(),
@@ -309,6 +390,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "AnalyzeAudioLibraryRequest".to_string(),
@@ -320,6 +402,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "DeduplicateAudioLibraryRequest".to_string(),
@@ -331,6 +414,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         // Playback
         RequestResponse {
@@ -343,6 +427,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "LoadRequest".to_string(),
@@ -354,6 +439,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "PlayRequest".to_string(),
@@ -365,6 +451,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "PauseRequest".to_string(),
@@ -376,6 +463,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "NextRequest".to_string(),
@@ -387,6 +475,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "PreviousRequest".to_string(),
@@ -398,6 +487,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "SwitchRequest".to_string(),
@@ -409,6 +499,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "SeekRequest".to_string(),
@@ -420,6 +511,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "RemoveRequest".to_string(),
@@ -431,6 +523,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "SetPlaybackModeRequest".to_string(),
@@ -442,6 +535,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "MovePlaylistItemRequest".to_string(),
@@ -453,6 +547,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "SetRealtimeFFTEnabledRequest".to_string(),
@@ -464,6 +559,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "SetAdaptiveSwitchingEnabledRequest".to_string(),
@@ -475,6 +571,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         // This device's own audio session, so never forwarded to a renderer.
         RequestResponse {
@@ -487,6 +584,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         // Visualizer (the GPU and the frame buffer live in this process)
         RequestResponse {
@@ -499,6 +597,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "StopVisualizerRequest".to_string(),
@@ -510,6 +609,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "ResizeVisualizerRequest".to_string(),
@@ -521,6 +621,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "SetVisualizerPresetDirsRequest".to_string(),
@@ -532,6 +633,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "SetVisualizerAccentRequest".to_string(),
@@ -543,6 +645,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "SetVisualizerVisibleRequest".to_string(),
@@ -554,6 +657,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "LoadVisualizerPresetRequest".to_string(),
@@ -565,6 +669,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "NextVisualizerPresetRequest".to_string(),
@@ -576,6 +681,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "PreviousVisualizerPresetRequest".to_string(),
@@ -587,6 +693,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "RandomVisualizerPresetRequest".to_string(),
@@ -598,6 +705,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "ImportVisualizerSceneRequest".to_string(),
@@ -609,6 +717,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "RemoveVisualizerSceneRequest".to_string(),
@@ -620,6 +729,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "SetVisualizerScenesRequest".to_string(),
@@ -631,6 +741,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "SetVisualizerLogRequest".to_string(),
@@ -642,6 +753,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "SetVisualizerLabRequest".to_string(),
@@ -653,6 +765,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "VisualizerLabCommandRequest".to_string(),
@@ -664,6 +777,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "VisualizerLabRequest".to_string(),
@@ -675,6 +789,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "VisualizerPlanRequest".to_string(),
@@ -686,6 +801,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "VisualizerSupportRequest".to_string(),
@@ -697,6 +813,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "VisualizerStatusRequest".to_string(),
@@ -708,6 +825,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "ListVisualizerPresetsRequest".to_string(),
@@ -719,6 +837,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "ListVisualizerCreditsRequest".to_string(),
@@ -730,6 +849,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "VisualizerTextureShownRequest".to_string(),
@@ -741,6 +861,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         // SFX
         RequestResponse {
@@ -753,6 +874,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         // Analyze
         RequestResponse {
@@ -765,6 +887,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "GetAnalyzeCountRequest".to_string(),
@@ -776,6 +899,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         // Media File
         RequestResponse {
@@ -788,6 +912,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "FetchMediaFileByIdsRequest".to_string(),
@@ -799,6 +924,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: true,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "FetchParsedMediaFileRequest".to_string(),
@@ -810,6 +936,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "SearchMediaFileSummaryRequest".to_string(),
@@ -821,6 +948,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         // Lyric
         RequestResponse {
@@ -833,6 +961,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "GetLyricByTrackIdRequest".to_string(),
@@ -844,6 +973,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         // Collection
         RequestResponse {
@@ -856,6 +986,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "FetchCollectionGroupsRequest".to_string(),
@@ -867,6 +998,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "FetchCollectionByIdsRequest".to_string(),
@@ -878,6 +1010,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: true,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "SearchCollectionSummaryRequest".to_string(),
@@ -889,6 +1022,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         // Cover Art
         RequestResponse {
@@ -901,6 +1035,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "GetPrimaryColorByTrackIdRequest".to_string(),
@@ -912,6 +1047,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         // Playlist
         RequestResponse {
@@ -924,6 +1060,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "CreatePlaylistRequest".to_string(),
@@ -935,6 +1072,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "CreateM3u8PlaylistRequest".to_string(),
@@ -946,6 +1084,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "UpdatePlaylistRequest".to_string(),
@@ -957,6 +1096,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "RemovePlaylistRequest".to_string(),
@@ -968,6 +1108,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "AddItemToPlaylistRequest".to_string(),
@@ -979,6 +1120,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "ReorderPlaylistItemPositionRequest".to_string(),
@@ -990,6 +1132,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "FetchPlaylistOccurrencesRequest".to_string(),
@@ -1001,6 +1144,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "GetPlaylistByIdRequest".to_string(),
@@ -1012,6 +1156,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         // Mix
         RequestResponse {
@@ -1024,6 +1169,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "CreateMixRequest".to_string(),
@@ -1035,6 +1181,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "UpdateMixRequest".to_string(),
@@ -1046,6 +1193,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "RemoveMixRequest".to_string(),
@@ -1057,6 +1205,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "AddItemToMixRequest".to_string(),
@@ -1068,6 +1217,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "GetMixByIdRequest".to_string(),
@@ -1079,6 +1229,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "MixQueryRequest".to_string(),
@@ -1090,6 +1241,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "FetchMixQueriesRequest".to_string(),
@@ -1101,6 +1253,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "OperatePlaybackWithMixQueryRequest".to_string(),
@@ -1112,6 +1265,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "CastPreflightRequest".to_string(),
@@ -1123,6 +1277,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "CastLoadRequest".to_string(),
@@ -1134,6 +1289,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "RefreshSessionRequest".to_string(),
@@ -1145,6 +1301,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "SessionSnapshotRequest".to_string(),
@@ -1156,6 +1313,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         // Like
         RequestResponse {
@@ -1168,6 +1326,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "GetLikedRequest".to_string(),
@@ -1179,6 +1338,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         // Query and Search
         RequestResponse {
@@ -1191,6 +1351,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "SearchForRequest".to_string(),
@@ -1202,6 +1363,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: true,
             node_lifetime: false,
+            node_receiver: None,
         },
         // Directory
         RequestResponse {
@@ -1214,6 +1376,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         // Scrobbler
         RequestResponse {
@@ -1226,6 +1389,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "AuthenticateMultipleServiceRequest".to_string(),
@@ -1237,6 +1401,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "LogoutSingleServiceRequest".to_string(),
@@ -1248,6 +1413,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         // Log
         RequestResponse {
@@ -1260,6 +1426,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "ClearLogRequest".to_string(),
@@ -1271,6 +1438,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "RemoveLogRequest".to_string(),
@@ -1282,6 +1450,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         // System
         RequestResponse {
@@ -1294,6 +1463,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         // License
         RequestResponse {
@@ -1306,6 +1476,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "ValidateLicenseRequest".to_string(),
@@ -1317,6 +1488,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         // Neighbors
         RequestResponse {
@@ -1329,6 +1501,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "StopBroadcastRequest".to_string(),
@@ -1340,6 +1513,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "StartListeningRequest".to_string(),
@@ -1351,6 +1525,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "StopListeningRequest".to_string(),
@@ -1362,6 +1537,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "GetDiscoveredDeviceRequest".to_string(),
@@ -1373,6 +1549,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "StartServerRequest".to_string(),
@@ -1384,6 +1561,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "StopServerRequest".to_string(),
@@ -1395,6 +1573,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "ListClientsRequest".to_string(),
@@ -1406,6 +1585,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "GetSslCertificateFingerprintRequest".to_string(),
@@ -1417,6 +1597,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "AddTrustedServerRequest".to_string(),
@@ -1428,6 +1609,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "RemoveTrustedClientRequest".to_string(),
@@ -1439,6 +1621,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "UpdateClientStatusRequest".to_string(),
@@ -1450,6 +1633,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "EditHostsRequest".to_string(),
@@ -1461,6 +1645,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "RemoveTrustedServerRequest".to_string(),
@@ -1472,6 +1657,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "ServerAvailabilityTestRequest".to_string(),
@@ -1483,6 +1669,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "RegisterDeviceOnServerRequest".to_string(),
@@ -1494,6 +1681,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "CheckDeviceOnServerRequest".to_string(),
@@ -1505,6 +1693,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "ConnectRequest".to_string(),
@@ -1516,6 +1705,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "FetchServerCertificateRequest".to_string(),
@@ -1527,6 +1717,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "FetchRemoteFileRequest".to_string(),
@@ -1538,6 +1729,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
         RequestResponse {
             request: "RemoveItemFromPlaylistRequest".to_string(),
@@ -1549,11 +1741,24 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             subsonic: false,
             node_lifetime: false,
+            node_receiver: None,
         },
     ];
 
     let (with_response, without_response): (Vec<_>, Vec<_>) =
         types.iter().partition(|t| t.response.is_some());
+
+    if types
+        .iter()
+        .any(|entry| entry.node_lifetime != entry.node_receiver.is_some())
+    {
+        return syn::Error::new(
+            Span::call_site(),
+            "node-lifetime requests must declare exactly one receiver path",
+        )
+        .to_compile_error()
+        .into();
+    }
 
     let mut all_responses: Vec<_> = with_response
         .iter()
@@ -1692,14 +1897,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
     });
     let subsonic_translate_impls = types.iter().map(|entry| {
         let request = format_ident!("{}", entry.request);
-        let mut snake_name = String::new();
-        for (index, ch) in entry.request.chars().enumerate() {
-            if ch.is_uppercase() && index != 0 {
-                snake_name.push('_');
-            }
-            snake_name.extend(ch.to_lowercase());
-        }
-        let handler = format_ident!("{}", snake_name);
+        let handler = format_ident!("{}", snake_case(&entry.request));
         let translation = if entry.subsonic {
             quote! {
                 Box::pin(crate::subsonic_translate::#handler(binding, self))
@@ -1796,6 +1994,69 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         .filter(|t| t.uses_controller_library)
         .map(|t| syn::parse_str::<syn::Ident>(&t.request).unwrap())
         .collect();
+    let node_loop_requests: Vec<_> = types
+        .iter()
+        .filter(|entry| entry.node_receiver == Some(NodeReceiver::Loop))
+        .map(|entry| {
+            (
+                syn::parse_str::<syn::Ident>(&entry.request).unwrap(),
+                syn::parse_str::<syn::Ident>(entry.response.as_deref().unwrap()).unwrap(),
+                format_ident!("handle_{}", snake_case(&entry.request)),
+                format_ident!("{}_receiver", snake_case(&entry.request)),
+            )
+        })
+        .collect();
+    let bootstrap_requests: Vec<_> = [
+        NodeReceiver::BootstrapSubsystem,
+        NodeReceiver::BootstrapNode,
+    ]
+    .into_iter()
+    .flat_map(|kind| {
+        types
+            .iter()
+            .filter(move |entry| entry.node_receiver == Some(kind))
+            .map(|entry| syn::parse_str::<syn::Ident>(&entry.request).unwrap())
+    })
+    .collect();
+    let node_handler_methods = node_loop_requests
+        .iter()
+        .map(|(request, response, method, _)| {
+            quote! {
+                fn #method(
+                    &self,
+                    node: &NodeSlot,
+                    request: &#request,
+                ) -> impl Future<Output = Result<Option<#response>>> + Send;
+            }
+        });
+    let node_receivers = node_loop_requests.iter().map(|(request, _, _, receiver)| {
+        quote! {
+            let #receiver = #request::get_dart_signal_receiver();
+        }
+    });
+    let node_receiver_params = node_loop_requests.iter().map(|(request, _, _, receiver)| {
+        quote! {
+            #receiver: SignalReceiver<DartSignalPack<#request>>,
+        }
+    });
+    let node_loop_receiver_args: Vec<_> = node_loop_requests
+        .iter()
+        .map(|(_, _, _, receiver)| receiver)
+        .collect();
+    let node_receiver_branches = node_loop_requests
+        .iter()
+        .map(|(request, _, method, receiver)| {
+            quote! {
+                Some(signal) = #receiver.recv() => {
+                    let request = signal.message;
+                    let result = handlers.#method(node, &request).await;
+                    answer_node_request::<#request>(&request, result, &emit);
+                }
+            }
+        });
+    let bootstrap_starts = bootstrap_requests.iter().map(|request| {
+        quote! { <#request as BootstrapRequestReceiver>::start(); }
+    });
 
     let expanded = quote! {
         #(#call_id_impls)*
@@ -1803,6 +2064,85 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         #(#target_request_impls)*
         #(#subsonic_translate_impls)*
         #(#gui_request_impls)*
+
+        pub(crate) trait NodeRequestHandlers: Send + Sync {
+            #(#node_handler_methods)*
+        }
+
+        pub(crate) trait BootstrapRequestReceiver {
+            fn start();
+        }
+
+        struct NodeRequestReceivers {
+            #(#node_receiver_params)*
+        }
+
+        pub(crate) fn start_bootstrap_request_receivers() {
+            #(#bootstrap_starts)*
+        }
+
+        pub(crate) async fn receive_node_requests<H>(
+            node: &NodeSlot,
+            handlers: H,
+        )
+        where
+            H: NodeRequestHandlers,
+        {
+            #(#node_receivers)*
+            let emit = |signal: &dyn RinfRustSignal| signal.send_to_dart();
+            node_request_loop_with_receivers(
+                node,
+                handlers,
+                emit,
+                NodeRequestReceivers {
+                    #(#node_loop_receiver_args,)*
+                },
+            ).await
+        }
+
+        async fn node_request_loop_with_receivers<H, E>(
+            node: &NodeSlot,
+            handlers: H,
+            emit: E,
+            receivers: NodeRequestReceivers,
+        )
+        where
+            H: NodeRequestHandlers,
+            E: Fn(&dyn RinfRustSignal),
+        {
+            let NodeRequestReceivers {
+                #(#node_loop_receiver_args,)*
+            } = receivers;
+            loop {
+                tokio::select! {
+                    #(#node_receiver_branches,)*
+                    else => sleep(Duration::from_secs(1)).await,
+                }
+            }
+        }
+
+        fn answer_node_request<T>(
+            request: &T,
+            result: Result<Option<T::Response>>,
+            emit: &impl Fn(&dyn RinfRustSignal),
+        )
+        where
+            T: GuiRequest + TypedRequest + CallIdentified,
+        {
+            match result {
+                Ok(response) => T::emit_response(response, emit),
+                Err(error) => {
+                    log::warn!("Request {} failed: {error:#}", T::wire_name());
+                    emit(&RequestFailedResponse::for_request(
+                        request,
+                        T::wire_name(),
+                        classify(&error),
+                        format!("{error:#}"),
+                        request_failure_cause(&error),
+                    ));
+                }
+            }
+        }
 
         /// Start one sequential GUI listener per catalogue request type.
         pub(crate) fn listen_local_gui(params: &Arc<GlobalParams>, cancel: &CancellationToken) {
@@ -1906,6 +2246,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         }
         pub fn request_uses_controller_library(name: &str) -> bool {
             matches!(name, #(stringify!(#controller_library_queries))|*)
+        }
+
+        #[cfg(test)]
+        pub(crate) fn bootstrap_request_names() -> &'static [&'static str] {
+            &[#(stringify!(#bootstrap_requests)),*]
         }
 
 

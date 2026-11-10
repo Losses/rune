@@ -37,7 +37,8 @@ use tokio_util::sync::CancellationToken;
 use crate::access_policy::{Action, Denial, RuneAccessPolicy};
 use crate::backends::remote::{RemoteConnectError, RendererLink, RendererLinkUse};
 use crate::macros::{
-    RequestAccess, RequestScope, capability_snapshot, request_access, request_scope,
+    BootstrapRequestReceiver, RequestAccess, RequestScope, capability_snapshot, request_access,
+    request_scope,
 };
 use crate::request_error::ExpectedRequestError;
 use crate::server::sync_worker::SyncTokenStore;
@@ -1205,10 +1206,6 @@ pub async fn initialize_node(
     NODE.initialize(config_path, db_path, broadcaster).await
 }
 
-pub(crate) async fn current_node() -> Result<Arc<NodeContext>> {
-    NODE.current().await
-}
-
 pub async fn receive_initialize_node() {
     let receiver = InitializeNodeRequest::get_dart_signal_receiver();
     while let Some(signal) = receiver.recv().await {
@@ -1216,6 +1213,16 @@ pub async fn receive_initialize_node() {
             .await
             .send_signal_to_dart();
     }
+}
+
+impl BootstrapRequestReceiver for InitializeNodeRequest {
+    fn start() {
+        tokio::spawn(receive_initialize_node());
+    }
+}
+
+pub(crate) fn node_slot() -> &'static NodeSlot {
+    &NODE
 }
 
 pub async fn shutdown_node() -> Result<()> {

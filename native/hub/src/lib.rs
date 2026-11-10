@@ -36,7 +36,8 @@ pub use utils::{RemoteEventDeclaration, RemoteEventScope, RinfRustSignal};
 
 use ::scrobbling::manager::ScrobblingManager;
 
-use utils::{TaskTokens, diagnostics::receive_fs_self_test, receive_library_record_requests};
+use macros::{receive_node_requests, start_bootstrap_request_receivers};
+use utils::TaskTokens;
 
 use crate::utils::init_logging;
 
@@ -105,12 +106,11 @@ async fn main() {
         None
     };
 
-    // The self-test listener must stay alive even when the media library is
-    // not initialized, so it runs as an independent task instead of going
-    // through the handler dispatch.
-    tokio::spawn(receive_fs_self_test());
-    tokio::spawn(node::receive_initialize_node());
-    tokio::spawn(receive_library_record_requests(Arc::clone(&scrobbler)));
+    start_bootstrap_request_receivers();
+    tokio::spawn(receive_node_requests(
+        node::node_slot(),
+        utils::ProductionNodeRequestHandlers::new(Arc::clone(&scrobbler)),
+    ));
 
     // Every receiver runs as a spawned task on this runtime, so main must stay alive until
     // Dart shuts down; returning earlier drops the runtime and every receiver with it.
