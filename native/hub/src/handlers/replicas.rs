@@ -31,16 +31,19 @@ impl Signal for ListPeerLibrariesRequest {
         let Some(manager) = manager else {
             log::warn!("Peer libraries requested without a local server manager");
             return Ok(Some(ListPeerLibrariesResponse {
+                call_id: None,
                 libraries: Vec::new(),
                 error_kind: None,
             }));
         };
         let response = match manager.list_peer_libraries(&request.fingerprint).await {
             Ok(libraries) => ListPeerLibrariesResponse {
+                call_id: None,
                 libraries,
                 error_kind: None,
             },
             Err(error) => ListPeerLibrariesResponse {
+                call_id: None,
                 libraries: Vec::new(),
                 error_kind: Some(error.kind()),
             },
@@ -76,10 +79,12 @@ impl Signal for AddRemoteLibraryRequest {
         .await
         {
             Ok(record_id) => AddRemoteLibraryResponse {
+                call_id: None,
                 record_id,
                 error: None,
             },
             Err(error) => AddRemoteLibraryResponse {
+                call_id: None,
                 record_id: String::new(),
                 error: Some(format!("{error:#}")),
             },

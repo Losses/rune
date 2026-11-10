@@ -9,11 +9,15 @@ use crate::messages::{CrashResponse, RequestErrorKind, RequestFailedResponse};
 use crate::request_error::{classify, request_failure_cause};
 use crate::rpc::{TargetRequest, dispatch_gui_request};
 use crate::utils::{GlobalParams, ParamsExtractor, RinfRustSignal};
-use crate::{CallIdentified, Signal, TypedRequest};
+use crate::{RequestCallId, ResponseCallId, Signal, TypedRequest};
 
 /// Catalogue-generated response emission, including requests with no response.
-pub(crate) trait GuiRequest: TypedRequest {
-    fn emit_response(response: Option<Self::Response>, emit: &impl Fn(&dyn RinfRustSignal));
+pub(crate) trait GuiRequest: TypedRequest<Response: ResponseCallId> + RequestCallId {
+    fn emit_response(
+        request: &Self,
+        response: Option<Self::Response>,
+        emit: &impl Fn(&dyn RinfRustSignal),
+    );
 }
 
 /// Listen sequentially for one request type; other types have their own tasks.
@@ -23,7 +27,6 @@ where
         + TargetRequest
         + Signal<Response = <R as TypedRequest>::Response, Params = <R as ParamsExtractor>::Params>
         + ParamsExtractor
-        + CallIdentified
         + DartSignal
         + Serialize,
     <R as TypedRequest>::Response: DeserializeOwned,
@@ -45,7 +48,6 @@ pub(crate) async fn listen_gui_with_io<R>(
         + TargetRequest
         + Signal<Response = <R as TypedRequest>::Response, Params = <R as ParamsExtractor>::Params>
         + ParamsExtractor
-        + CallIdentified
         + DartSignal
         + Serialize,
     <R as TypedRequest>::Response: DeserializeOwned,
@@ -57,7 +59,7 @@ pub(crate) async fn listen_gui_with_io<R>(
             while let Some(dart_signal) = receiver.recv().await {
                 let event = dart_signal.message;
                 match dispatch_gui_request(&params, &event).await {
-                    Ok(response) => R::emit_response(response, &emit),
+                    Ok(response) => R::emit_response(&event, response, &emit),
                     Err(e) => {
                         let kind = classify(&e);
                         emit(&RequestFailedResponse::for_request(
@@ -92,7 +94,7 @@ mod tests {
     #[test]
     fn search_request_failure_in_local_dispatch_keeps_call_id() {
         let request = SearchForRequest {
-            call_id: 73,
+            call_id: Some(73),
             query_str: "missing".to_owned(),
             fields: Vec::new(),
             n: 30,

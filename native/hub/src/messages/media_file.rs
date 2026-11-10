@@ -13,6 +13,8 @@ pub struct FetchMediaFilesRequest {
     pub cursor: i32,
     pub page_size: i32,
     pub bake_cover_arts: bool,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 /// Local state only: RemoteOnly records a blob reference, not a reachable peer.
@@ -72,6 +74,8 @@ pub struct MediaFile {
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct FetchParsedMediaFileRequest {
     pub id: i32,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
@@ -79,24 +83,32 @@ pub struct FetchParsedMediaFileResponse {
     pub file: MediaFile,
     pub artists: Vec<Artist>,
     pub album: Album,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct FetchMediaFilesResponse {
     pub media_files: Vec<MediaFile>,
     pub cover_art_map: HashMap<i32, String>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct FetchMediaFileByIdsRequest {
     pub ids: Vec<i32>,
     pub bake_cover_arts: bool,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct FetchMediaFileByIdsResponse {
     pub media_files: Vec<MediaFile>,
     pub cover_art_map: HashMap<i32, String>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Clone, Serialize, Deserialize, SignalPiece)]
@@ -110,17 +122,26 @@ pub struct MediaFileSummary {
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct SearchMediaFileSummaryRequest {
     pub n: i32,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct SearchMediaFileSummaryResponse {
     pub result: Vec<MediaFileSummary>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
-pub struct GetMediaFilesCountRequest {}
+pub struct GetMediaFilesCountRequest {
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct GetMediaFilesCountResponse {
     pub count: i32,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }

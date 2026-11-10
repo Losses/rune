@@ -93,6 +93,7 @@ impl Signal for SetDownloadRuleRequest {
             Err(error) => (String::new(), Some(format!("{error:#}"))),
         };
         Ok(Some(Self::Response {
+            call_id: None,
             request_id: request.request_id.clone(),
             rule_id,
             error,
@@ -124,6 +125,7 @@ impl Signal for RemoveDownloadRuleRequest {
         }
         .await;
         Ok(Some(Self::Response {
+            call_id: None,
             request_id: request.request_id.clone(),
             error: result.err().map(|e| format!("{e:#}")),
         }))
@@ -147,6 +149,7 @@ impl Signal for crate::messages::GetSyncSettingsRequest {
     ) -> Result<Option<Self::Response>> {
         let settings = settings.read().await;
         Ok(Some(Self::Response {
+            call_id: None,
             request_id: request.request_id.clone(),
             listen: settings.listen,
             missing_host_file: settings.missing_host_file.into(),
@@ -213,6 +216,7 @@ impl Signal for crate::messages::SetSyncSettingsRequest {
         }
         .await;
         Ok(Some(Self::Response {
+            call_id: None,
             request_id: request.request_id.clone(),
             error: result.err().map(|error| format!("{error:#}")),
         }))

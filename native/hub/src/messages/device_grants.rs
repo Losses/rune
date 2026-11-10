@@ -46,11 +46,15 @@ pub struct DeviceLibraryAccess {
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct GetDeviceGrantsRequest {
     pub fingerprint: String,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct GetDeviceGrantsResponse {
     pub grants: DeviceGrantsInfo,
     pub libraries: Vec<DeviceLibraryAccess>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct SetDeviceGrantsRequest {
@@ -60,9 +64,13 @@ pub struct SetDeviceGrantsRequest {
     pub all_connection: Option<DeviceConnectionLevel>,
     pub all_sync: Option<DeviceSyncLevel>,
     pub library_grants: Vec<DeviceLibraryGrant>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct SetDeviceGrantsResponse {
     pub error_kind: Option<RequestErrorKind>,
     pub error: Option<String>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }

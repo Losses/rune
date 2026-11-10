@@ -49,7 +49,7 @@ use crate::{
     },
     library_pool::LibraryHandle,
     messages::{
-        CastLibraryState, CastResolvedItemsRequest, CastTarget, LoadResolvedItemsRequest,
+        CastLibraryState, CastTarget, LoadResolvedItemsRequest,
         ResolveMixQueryRequest, CastPreflightRequest, GetMediaFilesCountRequest, InLibraryPlayingItem,
         LibraryItemRequest, ListControllersRequest, ListRenderersRequest, PlayingItemRequest,
         PlaylistUpdate, RendererAvailability, RendererCandidate, RequestErrorKind,
@@ -231,6 +231,7 @@ impl MixPlaybackTestRequest {
         _request: &Self,
     ) -> Result<Option<MixPlaybackTestResponse>> {
         let resolve_request = ResolveMixQueryRequest {
+            call_id: None,
             queries: self.queries.clone(),
             hint_position: self.hint_position,
             initial_playback_item: self.initial_playback_item.clone(),
@@ -243,6 +244,14 @@ impl MixPlaybackTestRequest {
             .await?
             .context("mix query resolution")?;
         let load = LoadResolvedItemsRequest {
+            target_fingerprint: self
+                .cast_to
+                .as_ref()
+                .filter(|target| !target.attach)
+                .map(|target| target.fingerprint.clone()),
+            call_id: None,
+            position_seconds: None,
+            play: None,
             items: resolved.playing_items.clone(),
             start_index: resolved.start_index,
             mode: self.operate_mode,
@@ -251,16 +260,7 @@ impl MixPlaybackTestRequest {
         };
         match &self.cast_to {
             Some(target) if !target.attach => {
-                let cast_request = CastResolvedItemsRequest {
-                    fingerprint: target.fingerprint.clone(),
-                    items: load.items,
-                    start_index: load.start_index,
-                    mode: load.mode,
-                    expected_revision: load.expected_revision,
-                    playback_mode: load.playback_mode,
-                };
-                cast_request
-                    .handle(node.clone(), None, &cast_request)
+                load.handle((library.clone(), node.clone()), None, &load)
                     .await?;
             }
             Some(target) => {
@@ -337,7 +337,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     )));
     let opened = open_library_by_record_on_node(
         &OpenLibraryRequest {
-            call_id: 1,
+            call_id: Some(1),
             record_id: record.record_id.0.to_string(),
         },
         node.clone(),
@@ -379,7 +379,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     let search = dispatch_gui_request(
         &fixture.global_params,
         &SearchForRequest {
-            call_id: 7,
+            call_id: Some(7),
             query_str: "Song".into(),
             fields: Vec::new(),
             n: 10,
@@ -393,6 +393,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     let tracks = dispatch_gui_request(
         &fixture.global_params,
         &FetchMediaFileByIdsRequest {
+            call_id: None,
             ids: search.tracks.clone(),
             bake_cover_arts: true,
         },
@@ -405,6 +406,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     let artists = dispatch_gui_request(
         &fixture.global_params,
         &FetchCollectionByIdsRequest {
+            call_id: None,
             collection_type: CollectionType::Artist,
             bake_cover_arts: true,
             ids: search.artists.clone(),
@@ -416,6 +418,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     let albums = dispatch_gui_request(
         &fixture.global_params,
         &FetchCollectionByIdsRequest {
+            call_id: None,
             collection_type: CollectionType::Album,
             bake_cover_arts: true,
             ids: search.albums.clone(),
@@ -427,6 +430,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     let artist_groups = dispatch_gui_request(
         &fixture.global_params,
         &FetchCollectionGroupSummaryRequest {
+            call_id: None,
             collection_type: CollectionType::Artist,
         },
     )
@@ -437,6 +441,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     let artist_page = dispatch_gui_request(
         &fixture.global_params,
         &FetchCollectionGroupsRequest {
+            call_id: None,
             collection_type: CollectionType::Artist,
             bake_cover_arts: true,
             group_titles: vec!["A".into()],
@@ -448,6 +453,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     let album_groups = dispatch_gui_request(
         &fixture.global_params,
         &FetchCollectionGroupSummaryRequest {
+            call_id: None,
             collection_type: CollectionType::Album,
         },
     )
@@ -458,6 +464,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     let album_page = dispatch_gui_request(
         &fixture.global_params,
         &FetchCollectionGroupsRequest {
+            call_id: None,
             collection_type: CollectionType::Album,
             bake_cover_arts: false,
             group_titles: vec!["A".into()],
@@ -480,6 +487,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     let artist_tracks = dispatch_gui_request(
         &fixture.global_params,
         &MixQueryRequest {
+            call_id: None,
             queries: vec![MixQuery {
                 operator: "lib::artist".into(),
                 parameter: search.artists[0].to_string(),
@@ -497,6 +505,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     let album_tracks = dispatch_gui_request(
         &fixture.global_params,
         &MixQueryRequest {
+            call_id: None,
             queries: vec![MixQuery {
                 operator: "lib::album".into(),
                 parameter: search.albums[0].to_string(),
@@ -513,6 +522,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     let _cached = dispatch_gui_request(
         &fixture.global_params,
         &FetchCollectionByIdsRequest {
+            call_id: None,
             collection_type: CollectionType::Artist,
             bake_cover_arts: false,
             ids: vec![search.artists[0]],
@@ -528,6 +538,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     let unsupported_query = dispatch_gui_request(
         &fixture.global_params,
         &MixQueryRequest {
+            call_id: None,
             queries: vec![MixQuery {
                 operator: "filter::liked".into(),
                 parameter: "true".into(),
@@ -547,6 +558,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     let unsupported_collection = dispatch_gui_request(
         &fixture.global_params,
         &FetchCollectionGroupsRequest {
+            call_id: None,
             collection_type: CollectionType::Playlist,
             bake_cover_arts: false,
             group_titles: vec!["A".into()],
@@ -559,7 +571,8 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
         unsupported_collection.downcast_ref::<ExpectedRequestError>(),
         Some(ExpectedRequestError::Unsupported { .. })
     ));
-    let unsupported = dispatch_gui_request(&fixture.global_params, &FetchAllPlaylistsRequest {})
+    let unsupported = dispatch_gui_request(&fixture.global_params, &FetchAllPlaylistsRequest {
+            call_id: None,})
         .await
         .err()
         .context("expected unsupported playlist request")?;
@@ -568,7 +581,8 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
         Some(ExpectedRequestError::Unsupported { .. })
     ));
     let player_before = fixture.global_params.player.lock().await.get_status().state;
-    let session_error = dispatch_gui_request(&fixture.global_params, &PlayRequest {})
+    let session_error = dispatch_gui_request(&fixture.global_params, &PlayRequest {
+            call_id: None,})
         .await
         .err()
         .context("expected unsupported session request")?;
@@ -583,6 +597,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     let unknown = dispatch_gui_request(
         &fixture.global_params,
         &FetchMediaFileByIdsRequest {
+            call_id: None,
             ids: vec![999],
             bake_cover_arts: false,
         },
@@ -624,7 +639,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     .await?;
     let rejected = open_library_by_record_on_node(
         &OpenLibraryRequest {
-            call_id: 2,
+            call_id: Some(2),
             record_id: bad_record.record_id.0.to_string(),
         },
         node.clone(),
@@ -664,7 +679,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     .await?;
     let unreachable = open_library_by_record_on_node(
         &OpenLibraryRequest {
-            call_id: 3,
+            call_id: Some(3),
             record_id: closed_record.record_id.0.to_string(),
         },
         node.clone(),
@@ -988,7 +1003,8 @@ async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -
         .await
         .0
         .volume;
-    let volume = dispatch_gui_request(&a.global_params, &VolumeRequest { volume: 0.63 })
+    let volume = dispatch_gui_request(&a.global_params, &VolumeRequest {
+            call_id: None, volume: 0.63 })
         .await?
         .context("renderer volume response")?;
     assert_eq!(volume.volume, 0.63);
@@ -1004,7 +1020,8 @@ async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -
         local_volume
     );
 
-    dispatch_gui_request(&a.global_params, &PlayRequest {}).await?;
+    dispatch_gui_request(&a.global_params, &PlayRequest {
+            call_id: None,}).await?;
     wait_player(&b, |status| status.state == PlaybackState::Playing).await?;
     assert_eq!(
         a.global_params
@@ -1016,13 +1033,15 @@ async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -
             .state,
         PlaybackState::Paused
     );
-    dispatch_gui_request(&a.global_params, &PauseRequest {}).await?;
+    dispatch_gui_request(&a.global_params, &PauseRequest {
+            call_id: None,}).await?;
     wait_player(&b, |status| status.state == PlaybackState::Paused).await?;
 
     let revision = b.global_params.node.session()?.queue_revision().await;
     dispatch_gui_request(
         &a.global_params,
         &MovePlaylistItemRequest {
+            call_id: None,
             old_index: 0,
             new_index: 1,
             expected_revision: Some(revision),
@@ -1160,7 +1179,8 @@ async fn renderer_link_does_not_forward_its_controller_list() -> Result<()> {
     .await?;
     wait_controller_count(&b.global_params.node, 2).await?;
 
-    let b_list = ListControllersRequest {};
+    let b_list = ListControllersRequest {
+            call_id: None,};
     let b_controllers = b_list
         .handle(b.global_params.node.clone(), None, &b_list)
         .await?
@@ -1599,7 +1619,8 @@ async fn mix_query_forwarding_leaves_it_for_local_resolution() -> Result<()> {
         before
     );
 
-    let read = GetMediaFilesCountRequest {};
+    let read = GetMediaFilesCountRequest {
+            call_id: None,};
     assert!(matches!(
         a.global_params.node.request_slot::<GetMediaFilesCountRequest>()?,
         Slot::Native
@@ -2568,6 +2589,7 @@ async fn registered_open_helper_releases_its_ui_lease() -> Result<()> {
         "register lease test library",
         register_local_library_on_node(
             &RegisterLocalLibraryRequest {
+            call_id: None,
                 path: library_dir
                     .path()
                     .to_str()
@@ -3673,7 +3695,7 @@ async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
 async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() -> Result<()> {
     use crate::backends::remote::{connect_remote, decode_message};
     use crate::messages::{
-        CastLibraryState, CastLoadRequest, CastLoadResponse, CastPreflightResponse,
+        CastLibraryState, LoadResolvedItemsRequest, LoadResolvedItemsResponse, CastPreflightResponse,
         LibraryItemRequest, PlaylistOperateMode, RemoteRequestFailed,
     };
     use futures::StreamExt;
@@ -3716,6 +3738,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
     .await?;
 
     let preflight = CastPreflightRequest {
+            call_id: None,
         library_ids: vec![host_library_id.to_string()],
     };
     let (name, payload, _) = controller_request(
@@ -3732,7 +3755,10 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         .iter()
         .map(|item| (*item).into())
         .collect::<Vec<_>>();
-    let load = CastLoadRequest {
+    let load = LoadResolvedItemsRequest {
+            target_fingerprint: None,
+
+            call_id: None,
         items: cast_items.clone(),
         start_index: Some(0),
         mode: PlaylistOperateMode::Replace,
@@ -3742,9 +3768,9 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         play: None,
     };
     let (name, payload, updates) =
-        controller_request(&mut socket, "CastLoadRequest", rinf::serialize(&load)?).await?;
-    assert_eq!(name, "CastLoadResponse");
-    let _: CastLoadResponse = rinf::deserialize(&payload)?;
+        controller_request(&mut socket, "LoadResolvedItemsRequest", rinf::serialize(&load)?).await?;
+    assert_eq!(name, "LoadResolvedItemsResponse");
+    let _: LoadResolvedItemsResponse = rinf::deserialize(&payload)?;
     wait_player(&renderer, |status| {
         status.item == Some(PlayingItem::InLibrary(host_items[0]))
     })
@@ -3785,7 +3811,10 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         .await;
     let local_cast_id = session_audio(&renderer, "cast-local.ogg").await?;
     let local_cast_item = library_item_for_id(&renderer, local_cast_id).await?;
-    let stale_load = CastLoadRequest {
+    let stale_load = LoadResolvedItemsRequest {
+            target_fingerprint: None,
+
+            call_id: None,
         items: vec![local_cast_item.into()],
         expected_revision: Some(revision.saturating_sub(1)),
         start_index: Some(0),
@@ -3797,7 +3826,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
     let queue_before_stale = renderer.global_params.player.lock().await.get_playlist();
     let (name, payload, _) = controller_request(
         &mut socket,
-        "CastLoadRequest",
+        "LoadResolvedItemsRequest",
         rinf::serialize(&stale_load)?,
     )
     .await?;
@@ -3832,6 +3861,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         &mut socket,
         "CastPreflightRequest",
         rinf::serialize(&CastPreflightRequest {
+            call_id: None,
             library_ids: vec![not_held.library_id.clone()],
         })?,
     )
@@ -3842,9 +3872,12 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
     let queue_before_denial = renderer.global_params.player.lock().await.get_playlist();
     let (name, payload, _) = controller_request(
         &mut socket,
-        "CastLoadRequest",
-        rinf::serialize(&CastLoadRequest {
-            items: vec![not_held.clone()],
+        "LoadResolvedItemsRequest",
+        rinf::serialize(&LoadResolvedItemsRequest {
+            target_fingerprint: None,
+
+            call_id: None,
+            items: vec![not_held.clone().into()],
             start_index: Some(0),
             mode: PlaylistOperateMode::Replace,
             expected_revision: Some(revision),
@@ -3898,8 +3931,11 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
     let queue_before_revoked_load = renderer.global_params.player.lock().await.get_playlist();
     let (name, payload, _) = controller_request(
         &mut socket,
-        "CastLoadRequest",
-        rinf::serialize(&CastLoadRequest {
+        "LoadResolvedItemsRequest",
+        rinf::serialize(&LoadResolvedItemsRequest {
+            target_fingerprint: None,
+
+            call_id: None,
             items: cast_items.clone(),
             start_index: None,
             mode: PlaylistOperateMode::Replace,
@@ -3942,8 +3978,11 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
     );
     let (name, payload, _) = controller_request(
         &mut socket,
-        "CastLoadRequest",
-        rinf::serialize(&CastLoadRequest {
+        "LoadResolvedItemsRequest",
+        rinf::serialize(&LoadResolvedItemsRequest {
+            target_fingerprint: None,
+
+            call_id: None,
             items: cast_items,
             start_index: Some(0),
             mode: PlaylistOperateMode::Replace,
@@ -3977,6 +4016,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         &mut socket,
         "CastPreflightRequest",
         rinf::serialize(&CastPreflightRequest {
+            call_id: None,
             library_ids: vec!["malformed".into()],
         })?,
     )
@@ -3989,12 +4029,15 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
 
     let (name, payload, _) = controller_request(
         &mut socket,
-        "CastLoadRequest",
-        rinf::serialize(&CastLoadRequest {
+        "LoadResolvedItemsRequest",
+        rinf::serialize(&LoadResolvedItemsRequest {
+            target_fingerprint: None,
+
+            call_id: None,
             items: vec![LibraryItemRequest {
                 library_id: host_library_id.to_string(),
                 file_uuid: "malformed".into(),
-            }],
+            }.into()],
             start_index: Some(0),
             mode: PlaylistOperateMode::Replace,
             expected_revision: Some(revision),
@@ -4093,7 +4136,8 @@ async fn list_renderers_reports_access_availability_and_attachment() -> Result<(
         controller: &Fixture,
         library_ids: Vec<String>,
     ) -> Result<Vec<RendererCandidate>> {
-        let request = ListRenderersRequest { library_ids };
+        let request = ListRenderersRequest {
+            call_id: None, library_ids };
         Ok(request
             .handle(
                 request.extract_params(&controller.global_params),
@@ -4163,7 +4207,7 @@ async fn list_renderers_reports_access_availability_and_attachment() -> Result<(
 async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Result<()> {
     use crate::backends::remote::RendererLink;
     use crate::messages::{
-        CastLibraryState, CastLoadRequest, LibraryItemRequest, PlaylistOperateMode,
+        CastLibraryState, LoadResolvedItemsRequest, LibraryItemRequest, PlaylistOperateMode,
         RequestErrorKind,
     };
     use crate::request_error::{ExpectedRequestError, classify};
@@ -4238,7 +4282,10 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
         .session()?
         .queue_revision()
         .await;
-    let append_without_switch = CastLoadRequest {
+    let append_without_switch = LoadResolvedItemsRequest {
+            target_fingerprint: None,
+
+            call_id: None,
         items: vec![items[1].into()],
         start_index: None,
         mode: PlaylistOperateMode::AppendToEnd,
@@ -4275,7 +4322,10 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
             PlaybackState::Playing,
         ),
     ] {
-        let request = CastLoadRequest {
+        let request = LoadResolvedItemsRequest {
+            target_fingerprint: None,
+
+            call_id: None,
             items: vec![item.into()],
             start_index: Some(0),
             mode,
@@ -4312,11 +4362,14 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
         .session()?
         .queue_revision()
         .await;
-    let invalid = CastLoadRequest {
+    let invalid = LoadResolvedItemsRequest {
+            target_fingerprint: None,
+
+            call_id: None,
         items: vec![LibraryItemRequest {
             library_id: library_id.to_string(),
             file_uuid: "malformed".into(),
-        }],
+        }.into()],
         start_index: None,
         mode: PlaylistOperateMode::AppendToEnd,
         expected_revision: None,
@@ -4341,11 +4394,14 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
     );
     assert_eq!(classify(&error), RequestErrorKind::InvalidInput);
 
-    let not_held = CastLoadRequest {
+    let not_held = LoadResolvedItemsRequest {
+            target_fingerprint: None,
+
+            call_id: None,
         items: vec![LibraryItemRequest {
             library_id: Uuid::new_v4().to_string(),
             file_uuid: Uuid::new_v4().to_string(),
-        }],
+        }.into()],
         start_index: None,
         mode: PlaylistOperateMode::AppendToEnd,
         expected_revision: None,
@@ -4412,6 +4468,7 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
 
 fn preflight_request(library_id: Uuid) -> CastPreflightRequest {
     CastPreflightRequest {
+            call_id: None,
         library_ids: vec![library_id.to_string()],
     }
 }
@@ -4566,6 +4623,7 @@ async fn switch_request_rejects_stale_queue_revision_and_accepts_current_revisio
     let before = fixture.global_params.player.lock().await.get_status().item;
 
     let stale = SwitchRequest {
+            call_id: None,
         index: 1,
         expected_revision: Some(0),
     };
@@ -4578,6 +4636,7 @@ async fn switch_request_rejects_stale_queue_revision_and_accepts_current_revisio
     );
 
     let current = SwitchRequest {
+            call_id: None,
         index: 1,
         expected_revision: Some(1),
     };
@@ -4639,6 +4698,7 @@ async fn session_c2a_two_controllers_observe_conflict_and_same_queue() -> Result
         &mut first,
         "MovePlaylistItemRequest",
         rinf::serialize(&MovePlaylistItemRequest {
+            call_id: None,
             old_index: 0,
             new_index: 1,
             expected_revision: Some(0),
@@ -4650,6 +4710,7 @@ async fn session_c2a_two_controllers_observe_conflict_and_same_queue() -> Result
         &mut second,
         "RemoveRequest",
         rinf::serialize(&RemoveRequest {
+            call_id: None,
             index: 0,
             expected_revision: Some(0),
         })?,
@@ -4921,7 +4982,8 @@ async fn attached_handoff_source(
 async fn hand_off(controller: &Fixture, target: Option<String>) -> Result<()> {
     use crate::messages::HandoffRequest;
 
-    let handoff = HandoffRequest { target };
+    let handoff = HandoffRequest {
+            call_id: None, target };
     handoff
         .handle(
             handoff.extract_params(&controller.global_params),
@@ -5090,6 +5152,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     let source_position = source_before.position;
 
     let handoff = HandoffRequest {
+            call_id: None,
         target: Some(b_fingerprint.clone()),
     };
     handoff
@@ -5130,7 +5193,8 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     wait_player(&b, |status| status.state == PlaybackState::Playing).await?;
     let b_before_return = b.global_params.player.lock().await.get_status();
     let b_queue = b_before_return.playlist.clone();
-    let back = HandoffRequest { target: None };
+    let back = HandoffRequest {
+            call_id: None, target: None };
     back.handle(back.extract_params(&controller.global_params), None, &back)
         .await?;
     let a_returned = wait_player(controller, |status| {
@@ -5153,6 +5217,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
         wait_player(controller, |status| status.state == PlaybackState::Playing).await?;
     let c_before = c.global_params.player.lock().await.get_playlist();
     let refused = HandoffRequest {
+            call_id: None,
         target: Some(c_fingerprint),
     };
     let error = refused
@@ -5221,6 +5286,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     .await?;
     let b_before_independent = b.global_params.player.lock().await.get_status();
     let refused_independent = HandoffRequest {
+            call_id: None,
         target: Some(b_fingerprint),
     };
     let error = refused_independent
@@ -5360,7 +5426,8 @@ async fn session_c2b_attached_controllers_list_detach_and_disconnect() -> Result
         connect_two_controllers(&renderer, &first_controller, &second_controller).await?;
     let renderer_node = &renderer.global_params.node;
     wait_controller_count(renderer_node, 2).await?;
-    let list_request = ListControllersRequest {};
+    let list_request = ListControllersRequest {
+            call_id: None,};
     let controllers = list_request
         .handle(renderer_node.clone(), None, &list_request)
         .await?
@@ -5381,6 +5448,7 @@ async fn session_c2b_attached_controllers_list_detach_and_disconnect() -> Result
     );
 
     let unknown_detach = DetachControllerRequest {
+            call_id: None,
         id: Uuid::new_v4().to_string(),
     };
     let error = unknown_detach
@@ -5389,6 +5457,7 @@ async fn session_c2b_attached_controllers_list_detach_and_disconnect() -> Result
         .unwrap_err();
     assert_eq!(classify(&error), RequestErrorKind::NotFound);
     let detach = DetachControllerRequest {
+            call_id: None,
         id: first_entry.id.clone(),
     };
     detach.handle(renderer_node.clone(), None, &detach).await?;
@@ -5409,6 +5478,7 @@ async fn session_c2b_attached_controllers_list_detach_and_disconnect() -> Result
             encode_message(
                 "MovePlaylistItemRequest",
                 &rinf::serialize(&MovePlaylistItemRequest {
+            call_id: None,
                     old_index: 0,
                     new_index: 1,
                     expected_revision: Some(0),
@@ -5516,6 +5586,7 @@ async fn remote_m3u8_and_independent_lyrics_cannot_read_outside_library() -> Res
     let outside_playlist = outside_dir.path().join("secret.m3u8");
     fs::write(&outside_playlist, format!("{secret}\n"))?;
     let outside_request = CreateM3u8PlaylistRequest {
+            call_id: None,
         name: "outside remote".into(),
         group: "security".into(),
         path: outside_playlist.to_string_lossy().into_owned(),
@@ -5534,6 +5605,7 @@ async fn remote_m3u8_and_independent_lyrics_cannot_read_outside_library() -> Res
     assert!(!String::from_utf8_lossy(&response_payload).contains(secret));
 
     let inside_request = CreateM3u8PlaylistRequest {
+            call_id: None,
         name: "inside remote".into(),
         group: "security".into(),
         path: inside_playlist.to_string_lossy().into_owned(),
@@ -5551,6 +5623,7 @@ async fn remote_m3u8_and_independent_lyrics_cannot_read_outside_library() -> Res
     assert_eq!(imported.imported_count, Some(1));
 
     let local_request = CreateM3u8PlaylistRequest {
+            call_id: None,
         name: "outside local".into(),
         group: "security".into(),
         path: outside_playlist.to_string_lossy().into_owned(),
@@ -5621,6 +5694,7 @@ async fn remote_independent_file_lyrics_are_refused() -> Result<()> {
     let outside_audio = outside_dir.path().join("private-audio.ogg");
     fs::write(&outside_audio, secret)?;
     let request = GetLyricByTrackIdRequest {
+            call_id: None,
         item: Some(PlayingItemRequest {
             in_library: None,
             independent_file: Some(IndependentFilePlayingItem {
@@ -5654,7 +5728,7 @@ async fn typed_renderer_call_rejects_wrong_reply_name() -> Result<()> {
     use crate::backends::remote::{
         RemoteStream, RendererLink, RendererLinkUse, decode_message, encode_message,
     };
-    use crate::messages::{CastLoadRequest, PlaylistOperateMode};
+    use crate::messages::{LoadResolvedItemsRequest, PlaylistOperateMode};
     use futures::SinkExt;
     use tokio::net::TcpListener;
     use tokio_tungstenite::{accept_async, connect_async, tungstenite::Message};
@@ -5695,7 +5769,10 @@ async fn typed_renderer_call_rejects_wrong_reply_name() -> Result<()> {
         RendererLinkUse::Cast,
     )
     .await;
-    let request = CastLoadRequest {
+    let request = LoadResolvedItemsRequest {
+            target_fingerprint: None,
+
+            call_id: None,
         items: Vec::new(),
         start_index: None,
         mode: PlaylistOperateMode::Replace,
@@ -5715,7 +5792,7 @@ async fn typed_renderer_call_rejects_wrong_reply_name() -> Result<()> {
         matches!(
             error.downcast_ref::<ExpectedRequestError>(),
             Some(ExpectedRequestError::UnexpectedResponse { expected, actual })
-                if expected == "CastLoadResponse" && actual == "SessionSnapshotResponse"
+                if expected == "LoadResolvedItemsResponse" && actual == "SessionSnapshotResponse"
         ),
         "unexpected typed call error: {error:#}"
     );
@@ -5730,7 +5807,8 @@ async fn typed_renderer_call_rejects_wrong_reply_name() -> Result<()> {
 async fn rpc_target_local_session_changes_local_state() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let local = fixture(dir.path()).await?;
-    let request = VolumeRequest { volume: 0.37 };
+    let request = VolumeRequest {
+            call_id: None, volume: 0.37 };
     assert!(local.global_params.node.renderer_link()?.is_none());
     let response = dispatch_gui_request(&local.global_params, &request)
         .await?
@@ -5828,7 +5906,8 @@ async fn rpc_target_blacklisted_request_returns_typed_failure_without_sending() 
     // This node's own coordinators stay local while a renderer is attached.
     let controllers = super::step(
         "dispatch local controller list",
-        dispatch_gui_request(&controller.global_params, &ListControllersRequest {}),
+        dispatch_gui_request(&controller.global_params, &ListControllersRequest {
+            call_id: None,}),
     )
     .await?
     .context("local controller list")?;
@@ -5851,7 +5930,8 @@ async fn rpc_target_blacklisted_request_returns_typed_failure_without_sending() 
     });
     let error = super::step(
         "reject blacklisted request",
-        target.run(&controller.global_params, &PauseRequest {}),
+        target.run(&controller.global_params, &PauseRequest {
+            call_id: None,}),
     )
     .await
     .err()
@@ -5892,7 +5972,8 @@ async fn rpc_target_blacklisted_request_returns_typed_failure_without_sending() 
     );
     let error = super::step(
         "reject request for older peer",
-        peer_too_old.run(&controller.global_params, &PauseRequest {}),
+        peer_too_old.run(&controller.global_params, &PauseRequest {
+            call_id: None,}),
     )
     .await
     .err()
@@ -5949,6 +6030,7 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
         dispatch_gui_request(
             params,
             &CreatePlaylistRequest {
+            call_id: None,
                 name: name.into(),
                 group: "RR".into(),
             },
@@ -5957,7 +6039,8 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
         Ok(())
     }
     async fn names(params: &GlobalParams) -> Result<Vec<String>> {
-        Ok(dispatch_gui_request(params, &FetchAllPlaylistsRequest {})
+        Ok(dispatch_gui_request(params, &FetchAllPlaylistsRequest {
+            call_id: None,})
             .await?
             .context("playlists")?
             .playlists
@@ -6082,7 +6165,8 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
         Slot::Native
     );
     let mut browse = start::<FetchAllPlaylistsRequest>(&remote);
-    browse.send(FetchAllPlaylistsRequest {});
+    browse.send(FetchAllPlaylistsRequest {
+            call_id: None,});
     let response: FetchAllPlaylistsResponse = browse.receive("FetchAllPlaylistsResponse").await;
     assert_eq!(
         response
@@ -6094,7 +6178,8 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     );
     browse.stop().await;
     let mut missing = start::<GetPlaylistByIdRequest>(&remote);
-    missing.send(GetPlaylistByIdRequest { playlist_id: -1 });
+    missing.send(GetPlaylistByIdRequest {
+            call_id: None, playlist_id: -1 });
     let failure: RequestFailedResponse = missing.receive("RequestFailedResponse").await;
     assert_eq!(failure.kind, RequestErrorKind::NotFound);
     missing.stop().await;
@@ -6107,7 +6192,8 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
         .await
         .0
         .volume;
-    dispatch_gui_request(&remote, &VolumeRequest { volume: 0.61 }).await?;
+    dispatch_gui_request(&remote, &VolumeRequest {
+            call_id: None, volume: 0.61 }).await?;
     wait_player(&b, |status| status.volume == 0.61).await?;
     assert_eq!(
         a.global_params
@@ -6119,7 +6205,8 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
             .volume,
         local_volume
     );
-    let local = dispatch_gui_request(&remote, &ListLocalLibrariesRequest {})
+    let local = dispatch_gui_request(&remote, &ListLocalLibrariesRequest {
+            call_id: None,})
         .await?
         .context("local libraries")?;
     assert!(local.libraries.iter().any(|library| {
@@ -6147,7 +6234,8 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     // An explicitly addressed request still uses A's library, even while its GUI is remote.
     let (_, bytes) = dispatch_remote(
         "FetchAllPlaylistsRequest",
-        &rinf::serialize(&FetchAllPlaylistsRequest {})?,
+        &rinf::serialize(&FetchAllPlaylistsRequest {
+            call_id: None,})?,
         None,
         a.global_params.library_id,
         &a.global_params.node,
@@ -6165,6 +6253,7 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     let resolved: ResolveMixQueryResponse = dispatch_gui_request(
         &remote,
         &ResolveMixQueryRequest {
+            call_id: None,
             queries: vec![MixQuery {
                 operator: "lib::track".into(),
                 parameter: b_track.to_string(),
@@ -6181,6 +6270,11 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     dispatch_gui_request(
         &remote,
         &LoadResolvedItemsRequest {
+            position_seconds: None,
+            play: None,
+
+        target_fingerprint: None,
+            call_id: None,
             items: resolved.playing_items,
             start_index: resolved.start_index,
             mode: PlaylistOperateMode::Replace,
@@ -6234,7 +6328,8 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     .context("RR pushed status/content/scan events missing")?;
 
     let mut close = start::<CloseLibraryRequest>(&remote);
-    close.send(CloseLibraryRequest {});
+    close.send(CloseLibraryRequest {
+            call_id: None,});
     let _: CloseLibraryResponse = close.receive("CloseLibraryResponse").await;
     close.stop().await;
     assert!(a.global_params.node.renderer_link()?.is_none());
@@ -6250,7 +6345,8 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     );
     a.global_params.node.attach_ui(&local).await;
     assert_eq!(names(&local).await?, ["only on A"]);
-    dispatch_gui_request(&local, &VolumeRequest { volume: 0.27 }).await?;
+    dispatch_gui_request(&local, &VolumeRequest {
+            call_id: None, volume: 0.27 }).await?;
     wait_player(&a, |status| status.volume == 0.27).await?;
     assert_eq!(
         b.global_params
@@ -6296,14 +6392,16 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     .await
     .context("RR connection-lost notice missing")?;
     assert!(a.global_params.node.renderer_link()?.is_none());
-    let failure = dispatch_gui_request(&remote, &FetchAllPlaylistsRequest {})
+    let failure = dispatch_gui_request(&remote, &FetchAllPlaylistsRequest {
+            call_id: None,})
         .await
         .err()
         .context("lost link silently used local library")?;
     assert_eq!(classify(&failure), RequestErrorKind::Unavailable);
     // This is the existing Dart loss handler's final step: close and await its response.
     let mut close = start::<CloseLibraryRequest>(&remote);
-    close.send(CloseLibraryRequest {});
+    close.send(CloseLibraryRequest {
+            call_id: None,});
     let _: CloseLibraryResponse = close.receive("CloseLibraryResponse").await;
     close.stop().await;
     assert!(matches!(
@@ -6366,6 +6464,7 @@ fn subsonic_registration_request(
     mode: Option<SubsonicOpenModeMessage>,
 ) -> RegisterSubsonicLibraryRequest {
     RegisterSubsonicLibraryRequest {
+            call_id: None,
         endpoint,
         username: "alice".into(),
         password: password.into(),
@@ -6376,6 +6475,7 @@ fn subsonic_registration_request(
 
 fn opendal_registration_request(endpoint: String) -> RegisterOpenDalLibraryRequest {
     RegisterOpenDalLibraryRequest {
+            call_id: None,
         service: OpenDalLibraryService::WebDav {
             endpoint,
             root: "/dav/library/".into(),
@@ -6462,6 +6562,7 @@ async fn opendal_registration_reports_non_folder_root() -> Result<()> {
         Duration::from_secs(7),
         register_opendal_library_on_node(
             &RegisterOpenDalLibraryRequest {
+            call_id: None,
                 service: OpenDalLibraryService::WebDav {
                     endpoint: fixture_server.endpoint.clone(),
                     root: "/missing/".into(),
@@ -6533,6 +6634,7 @@ async fn assert_opendal_library_scan(s3: bool) -> Result<()> {
             }
         };
         let request = RegisterOpenDalLibraryRequest {
+            call_id: None,
             service,
             alias: "WebDAV test".into(),
         };
@@ -6886,6 +6988,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     let selected = dir.path().join("selected");
     std::fs::create_dir_all(&selected)?;
     let request = RegisterLocalLibraryRequest {
+            call_id: None,
         path: selected.to_string_lossy().into_owned(),
         alias: "Selected".into(),
         mode: None,
@@ -6898,6 +7001,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     );
     let registered = register_local_library_on_node(
         &RegisterLocalLibraryRequest {
+            call_id: None,
             mode: Some(LibraryInitializeMode::Portable),
             ..request
         },
@@ -6921,7 +7025,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     )));
     let opened = open_library_by_record_on_node(
         &OpenLibraryRequest {
-            call_id: 4,
+            call_id: Some(4),
             record_id: record_id.clone(),
         },
         node.clone(),
@@ -6938,12 +7042,14 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     );
     assert_eq!(first_snapshot.generation, first_generation);
     let current = node.current_ui().await?;
-    dispatch_gui_request(&current, &FetchAllPlaylistsRequest {}).await?;
+    dispatch_gui_request(&current, &FetchAllPlaylistsRequest {
+            call_id: None,}).await?;
 
     let second_path = dir.path().join("selected-second");
     std::fs::create_dir_all(&second_path)?;
     let second_registration = register_local_library_on_node(
         &RegisterLocalLibraryRequest {
+            call_id: None,
             path: second_path.to_string_lossy().into_owned(),
             alias: "Selected second".into(),
             mode: Some(LibraryInitializeMode::Portable),
@@ -6961,7 +7067,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
         .record_id;
     let second_opened = open_library_by_record_on_node(
         &OpenLibraryRequest {
-            call_id: 9,
+            call_id: Some(9),
             record_id: second_record_id.clone(),
         },
         node.clone(),
@@ -6993,7 +7099,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     std::fs::write(&registry_path, serde_json::to_vec_pretty(&registry_json)?)?;
     let valid_reopen = open_library_by_record_on_node(
         &OpenLibraryRequest {
-            call_id: 30,
+            call_id: Some(30),
             record_id: record_id.clone(),
         },
         node.clone(),
@@ -7003,7 +7109,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     assert_eq!(valid_reopen.result, OpenLibraryResult::Opened);
     let invalid_open = open_library_by_record_on_node(
         &OpenLibraryRequest {
-            call_id: 31,
+            call_id: Some(31),
             record_id: invalid_id.0.to_string(),
         },
         node.clone(),
@@ -7022,7 +7128,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     );
     let valid_again = open_library_by_record_on_node(
         &OpenLibraryRequest {
-            call_id: 32,
+            call_id: Some(32),
             record_id: second_record_id.clone(),
         },
         node.clone(),
@@ -7034,7 +7140,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
 
     let unknown = open_library_by_record_on_node(
         &OpenLibraryRequest {
-            call_id: 5,
+            call_id: Some(5),
             record_id: Uuid::new_v4().to_string(),
         },
         node.clone(),
@@ -7069,7 +7175,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     .await?;
     let missing = open_library_by_record_on_node(
         &OpenLibraryRequest {
-            call_id: 8,
+            call_id: Some(8),
             record_id: missing_replica.record_id.0.to_string(),
         },
         node.clone(),
@@ -7106,7 +7212,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     .await?;
     let unreachable_subsonic = open_library_by_record_on_node(
         &OpenLibraryRequest {
-            call_id: 6,
+            call_id: Some(6),
             record_id: subsonic.record_id.0.to_string(),
         },
         node.clone(),
@@ -7125,6 +7231,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
         .await?;
     let remote = register_remote_control_on_node(
         &RegisterRemoteControlRequest {
+            call_id: None,
             fingerprint: unreachable.clone(),
             alias: "Away".into(),
         },
@@ -7133,8 +7240,10 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     .await;
     assert_eq!(remote.outcome, RegisterLibraryOutcome::Registered);
     let remote_id = remote.record.context("remote record")?.record_id;
-    let listed = ListLibraryRecordsRequest {}
-        .handle(node.clone(), None, &ListLibraryRecordsRequest {})
+    let listed = ListLibraryRecordsRequest {
+            call_id: None,}
+        .handle(node.clone(), None, &ListLibraryRecordsRequest {
+            call_id: None,})
         .await?
         .context("list library records")?;
     let invalid_summary = listed
@@ -7194,7 +7303,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     );
     let failure = open_library_by_record_on_node(
         &OpenLibraryRequest {
-            call_id: 7,
+            call_id: Some(7),
             record_id: remote_id.clone(),
         },
         node.clone(),
@@ -7204,15 +7313,18 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     assert!(matches!(failure.result, OpenLibraryResult::Failed(_)));
     let after_failure = node.current_ui().await?;
     assert!(Arc::ptr_eq(&current, &after_failure));
-    dispatch_gui_request(&after_failure, &FetchAllPlaylistsRequest {}).await?;
+    dispatch_gui_request(&after_failure, &FetchAllPlaylistsRequest {
+            call_id: None,}).await?;
 
     let open_removal = RemoveLibraryRecordRequest {
+            call_id: None,
         record_id: second_record_id.clone(),
     }
     .handle(
         node.clone(),
         None,
         &RemoveLibraryRecordRequest {
+            call_id: None,
             record_id: second_record_id.clone(),
         },
     )
@@ -7223,6 +7335,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
         RemoveLibraryRecordOutcome::Failed(RemoveLibraryRecordFailureKind::RecordIsOpen)
     );
     let unknown_removal = RemoveLibraryRecordRequest {
+            call_id: None,
         record_id: Uuid::new_v4().to_string(),
     };
     assert_eq!(
@@ -7234,6 +7347,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
         RemoveLibraryRecordOutcome::Failed(RemoveLibraryRecordFailureKind::RecordNotFound)
     );
     let remove_remote = RemoveLibraryRecordRequest {
+            call_id: None,
         record_id: remote_id.clone(),
     };
     signals.clear();
@@ -7246,6 +7360,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
         RemoveLibraryRecordOutcome::Removed
     );
     let remove_invalid = RemoveLibraryRecordRequest {
+            call_id: None,
         record_id: invalid_id.0.to_string(),
     };
     assert_eq!(
@@ -7271,6 +7386,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
         .len();
     let untrusted = register_remote_control_on_node(
         &RegisterRemoteControlRequest {
+            call_id: None,
             fingerprint: "untrusted-fingerprint".into(),
             alias: "No".into(),
         },
@@ -7314,6 +7430,7 @@ async fn registered_remote_control_opens_and_routes_library_and_session_requests
         .await?;
     let registered = register_remote_control_on_node(
         &RegisterRemoteControlRequest {
+            call_id: None,
             fingerprint,
             alias: "B".into(),
         },
@@ -7328,7 +7445,7 @@ async fn registered_remote_control_opens_and_routes_library_and_session_requests
     )));
     let opened = open_library_by_record_on_node(
         &OpenLibraryRequest {
-            call_id: 22,
+            call_id: Some(22),
             record_id,
         },
         a.global_params.node.clone(),
@@ -7337,8 +7454,10 @@ async fn registered_remote_control_opens_and_routes_library_and_session_requests
     .await;
     assert_eq!(opened.result, OpenLibraryResult::Opened);
     let params = a.global_params.node.current_ui().await?;
-    dispatch_gui_request(&params, &FetchAllPlaylistsRequest {}).await?;
-    dispatch_gui_request(&params, &VolumeRequest { volume: 0.37 }).await?;
+    dispatch_gui_request(&params, &FetchAllPlaylistsRequest {
+            call_id: None,}).await?;
+    dispatch_gui_request(&params, &VolumeRequest {
+            call_id: None, volume: 0.37 }).await?;
     wait_player(&b, |status| status.volume == 0.37).await?;
     a.global_params.node.shutdown().await?;
     b.global_params.node.shutdown().await?;
@@ -7459,7 +7578,8 @@ async fn rr_reconnect_restores_real_node_requests() -> Result<()> {
     let f = ReconnectFixture::new(Duration::from_secs(10)).await?;
     f.disconnect().await?;
     let mut browse = start::<FetchAllPlaylistsRequest>(&f.remote);
-    browse.send(FetchAllPlaylistsRequest {});
+    browse.send(FetchAllPlaylistsRequest {
+            call_id: None,});
     let failure: RequestFailedResponse = timeout(
         Duration::from_millis(500),
         browse.receive("RequestFailedResponse"),
@@ -7475,7 +7595,8 @@ async fn rr_reconnect_restores_real_node_requests() -> Result<()> {
     browse.stop().await;
     let failure = timeout(
         Duration::from_millis(500),
-        dispatch_gui_request(&f.remote, &VolumeRequest { volume: 0.7 }),
+        dispatch_gui_request(&f.remote, &VolumeRequest {
+            call_id: None, volume: 0.7 }),
     )
     .await?
     .err()
@@ -7484,7 +7605,8 @@ async fn rr_reconnect_restores_real_node_requests() -> Result<()> {
         failure.downcast_ref::<ExpectedRequestError>(),
         Some(ExpectedRequestError::Reconnecting { .. })
     ));
-    dispatch_gui_request(&f.remote, &ListLocalLibrariesRequest {})
+    dispatch_gui_request(&f.remote, &ListLocalLibrariesRequest {
+            call_id: None,})
         .await?
         .context("node requests stay local")?;
     f.signals.clear();
@@ -7520,10 +7642,12 @@ async fn rr_reconnect_restores_real_node_requests() -> Result<()> {
     assert_eq!(status.session_id, session_id);
     assert_eq!(queue.session_id, session_id);
     assert_eq!(queue.items.len(), 1);
-    dispatch_gui_request(&f.remote, &FetchAllPlaylistsRequest {})
+    dispatch_gui_request(&f.remote, &FetchAllPlaylistsRequest {
+            call_id: None,})
         .await?
         .context("remote request")?;
-    dispatch_gui_request(&f.remote, &VolumeRequest { volume: 0.7 }).await?;
+    dispatch_gui_request(&f.remote, &VolumeRequest {
+            call_id: None, volume: 0.7 }).await?;
     wait_player(&f.b, |status| status.volume == 0.7).await?;
     f.shutdown().await
 }
@@ -7538,7 +7662,8 @@ async fn rr_reconnect_deadline_uses_existing_loss_and_close() -> Result<()> {
     assert!(started.elapsed() >= Duration::from_millis(400));
     assert!(f.a.global_params.node.reconnect_attempt_count() > 0);
     let mut close = start::<CloseLibraryRequest>(&f.remote);
-    close.send(CloseLibraryRequest {});
+    close.send(CloseLibraryRequest {
+            call_id: None,});
     let _: CloseLibraryResponse = close.receive("CloseLibraryResponse").await;
     close.stop().await;
     assert!(matches!(
@@ -7557,12 +7682,16 @@ async fn rr_reconnect_deadline_uses_existing_loss_and_close() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn rr_reconnect_stops_after_incompatible_peer_with_permanent_loss() -> Result<()> {
-    use discovery::protocol_version::ProtocolVersion;
+    use discovery::protocol_version::{PROTOCOL_VERSION, ProtocolVersion};
 
     let f = ReconnectFixture::new(Duration::from_secs(10)).await?;
     f.disconnect().await?;
     let mut device_info = super::info(&f.b).await?;
-    device_info.protocol_version = Some(ProtocolVersion::parse("2.0.0")?);
+    // One major above ours, whatever ours is, so a protocol bump never breaks this test.
+    device_info.protocol_version = Some(ProtocolVersion {
+        major: PROTOCOL_VERSION.major + 1,
+        ..PROTOCOL_VERSION
+    });
     f.b.manager
         .clone()
         .start(f.address, DiscoveryParams { device_info })
@@ -7792,7 +7921,7 @@ async fn request_scopes_resolve_to_the_current_implementations() -> Result<()> {
         let record = registered.record.context("Subsonic record")?;
         let opened = open_library_by_record_on_node(
             &OpenLibraryRequest {
-                call_id: 1,
+                call_id: Some(1),
                 record_id: record.record_id,
             },
             subsonic_node.global_params.node.clone(),
@@ -8143,7 +8272,8 @@ async fn capability_snapshot_agrees_with_unsupported_dispatch_by_scope() -> Resu
         }
     );
 
-    let node_request = ListLocalLibrariesRequest {};
+    let node_request = ListLocalLibrariesRequest {
+            call_id: None,};
     let node_target = Implementation::Local.with_slots(|slots| {
         slots.list_local_libraries_request = unsupported;
     });
@@ -8164,7 +8294,8 @@ async fn capability_snapshot_agrees_with_unsupported_dispatch_by_scope() -> Resu
     ));
     assert!(dispatch_gui_request(params, &node_request).await.is_ok());
 
-    let session_request = PauseRequest {};
+    let session_request = PauseRequest {
+            call_id: None,};
     let session_target = Implementation::Local.with_slots(|slots| {
         slots.pause_request = unsupported;
     });
@@ -8185,7 +8316,8 @@ async fn capability_snapshot_agrees_with_unsupported_dispatch_by_scope() -> Resu
     ));
     assert!(dispatch_gui_request(params, &session_request).await.is_ok());
 
-    let library_request = FetchAllPlaylistsRequest {};
+    let library_request = FetchAllPlaylistsRequest {
+            call_id: None,};
     let library_target = Implementation::Local.with_slots(|slots| {
         slots.fetch_all_playlists_request = unsupported;
     });

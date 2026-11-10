@@ -53,7 +53,7 @@ use crate::request_owner::Implementation;
 use crate::rpc::{RequestTranslationFuture, Slot, TargetRequest, UnsupportedReason, narrow_slot};
 use crate::server::server_request::serve_remote;
 use crate::utils::{GlobalParams, RinfRustSignal};
-use crate::{CallIdentified, Session, TypedRequest};
+use crate::{RequestCallId, ResponseCallId, Session, TypedRequest};
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 
@@ -72,8 +72,8 @@ mod node_request_loop_tests {
     };
 
     use super::{
-        NodeRequestHandlers, NodeRequestReceivers, bootstrap_request_names,
-        node_request_loop_with_receivers,
+        NodeRequestHandlers, NodeRequestReceivers, node_request_loop_with_receivers,
+        standalone_request_names,
     };
     use crate::messages::*;
     use crate::node::NodeSlot;
@@ -257,6 +257,7 @@ mod node_request_loop_tests {
             async {
                 Ok(Some(ListControllersResponse {
                     controllers: Vec::new(),
+                    call_id: None,
                 }))
             }
         }
@@ -269,6 +270,7 @@ mod node_request_loop_tests {
             async {
                 Ok(Some(ListLocalLibrariesResponse {
                     libraries: Vec::new(),
+                    call_id: None,
                 }))
             }
         }
@@ -285,6 +287,7 @@ mod node_request_loop_tests {
                 list_started.notify_one();
                 release.await;
                 Ok(Some(ListLibraryRecordsResponse {
+                    call_id: None,
                     records: Vec::new(),
                     invalid_records: Vec::new(),
                     open: None,
@@ -300,6 +303,7 @@ mod node_request_loop_tests {
         ) -> impl Future<Output = Result<Option<RemoveLibraryRecordResponse>>> + Send {
             async {
                 Ok(Some(RemoveLibraryRecordResponse {
+                    call_id: None,
                     outcome: RemoveLibraryRecordOutcome::Removed,
                 }))
             }
@@ -353,6 +357,7 @@ mod node_request_loop_tests {
 
     fn register_response() -> RegisterLibraryResponse {
         RegisterLibraryResponse {
+            call_id: None,
             record: None,
             outcome: RegisterLibraryOutcome::Registered,
             detail: None,
@@ -485,7 +490,7 @@ mod node_request_loop_tests {
         ));
 
         local_libraries_tx.send(DartSignalPack {
-            message: ListLocalLibrariesRequest {},
+            message: ListLocalLibrariesRequest { call_id: None },
             binary: Vec::new(),
         });
         assert_eq!(
@@ -498,6 +503,7 @@ mod node_request_loop_tests {
         device_grants_tx.send(DartSignalPack {
             message: GetDeviceGrantsRequest {
                 fingerprint: String::new(),
+                call_id: None,
             },
             binary: Vec::new(),
         });
@@ -511,6 +517,7 @@ mod node_request_loop_tests {
             message: StartServerRequest {
                 interface: String::new(),
                 alias: String::new(),
+                call_id: None,
             },
             binary: Vec::new(),
         });
@@ -521,7 +528,7 @@ mod node_request_loop_tests {
             "RequestFailedResponse"
         );
         stop_server_tx.send(DartSignalPack {
-            message: StopServerRequest {},
+            message: StopServerRequest { call_id: None },
             binary: Vec::new(),
         });
         assert_eq!(
@@ -538,6 +545,7 @@ mod node_request_loop_tests {
                 all_connection: None,
                 all_sync: None,
                 library_grants: Vec::new(),
+                call_id: None,
             },
             binary: Vec::new(),
         });
@@ -551,6 +559,7 @@ mod node_request_loop_tests {
             message: SetLibraryBackgroundSyncRequest {
                 library_id: String::new(),
                 enabled: false,
+                call_id: None,
             },
             binary: Vec::new(),
         });
@@ -563,6 +572,7 @@ mod node_request_loop_tests {
         peer_libraries_tx.send(DartSignalPack {
             message: ListPeerLibrariesRequest {
                 fingerprint: String::new(),
+                call_id: None,
             },
             binary: Vec::new(),
         });
@@ -579,6 +589,7 @@ mod node_request_loop_tests {
                 alias: String::new(),
                 connection: DeviceConnectionLevel::None,
                 sync: DeviceSyncLevel::None,
+                call_id: None,
             },
             binary: Vec::new(),
         });
@@ -591,6 +602,7 @@ mod node_request_loop_tests {
         register_license_tx.send(DartSignalPack {
             message: RegisterLicenseRequest {
                 path: String::new(),
+                call_id: None,
             },
             binary: Vec::new(),
         });
@@ -601,7 +613,10 @@ mod node_request_loop_tests {
             "RequestFailedResponse"
         );
         validate_license_tx.send(DartSignalPack {
-            message: ValidateLicenseRequest { license: None },
+            message: ValidateLicenseRequest {
+                license: None,
+                call_id: None,
+            },
             binary: Vec::new(),
         });
         assert_eq!(
@@ -611,7 +626,7 @@ mod node_request_loop_tests {
             "RequestFailedResponse"
         );
         discovered_tx.send(DartSignalPack {
-            message: GetDiscoveredDeviceRequest {},
+            message: GetDiscoveredDeviceRequest { call_id: None },
             binary: Vec::new(),
         });
         assert_eq!(
@@ -621,7 +636,7 @@ mod node_request_loop_tests {
             "RequestFailedResponse"
         );
         clients_tx.send(DartSignalPack {
-            message: ListClientsRequest {},
+            message: ListClientsRequest { call_id: None },
             binary: Vec::new(),
         });
         assert_eq!(
@@ -631,7 +646,7 @@ mod node_request_loop_tests {
             "RequestFailedResponse"
         );
         fingerprint_tx.send(DartSignalPack {
-            message: GetSslCertificateFingerprintRequest {},
+            message: GetSslCertificateFingerprintRequest { call_id: None },
             binary: Vec::new(),
         });
         assert_eq!(
@@ -641,7 +656,7 @@ mod node_request_loop_tests {
             "RequestFailedResponse"
         );
         visualizer_support_tx.send(DartSignalPack {
-            message: VisualizerSupportRequest {},
+            message: VisualizerSupportRequest { call_id: None },
             binary: Vec::new(),
         });
         assert_eq!(
@@ -651,7 +666,7 @@ mod node_request_loop_tests {
             "RequestFailedResponse"
         );
         visualizer_presets_tx.send(DartSignalPack {
-            message: ListVisualizerPresetsRequest {},
+            message: ListVisualizerPresetsRequest { call_id: None },
             binary: Vec::new(),
         });
         assert_eq!(
@@ -665,6 +680,7 @@ mod node_request_loop_tests {
             message: StartBroadcastRequest {
                 duration_seconds: 1,
                 alias: String::new(),
+                call_id: None,
             },
             binary: Vec::new(),
         });
@@ -675,7 +691,7 @@ mod node_request_loop_tests {
             "RequestFailedResponse"
         );
         stop_broadcast_tx.send(DartSignalPack {
-            message: StopBroadcastRequest {},
+            message: StopBroadcastRequest { call_id: None },
             binary: Vec::new(),
         });
         assert_eq!(
@@ -687,6 +703,7 @@ mod node_request_loop_tests {
         listening_tx.send(DartSignalPack {
             message: StartListeningRequest {
                 alias: String::new(),
+                call_id: None,
             },
             binary: Vec::new(),
         });
@@ -697,7 +714,7 @@ mod node_request_loop_tests {
             "RequestFailedResponse"
         );
         stop_listening_tx.send(DartSignalPack {
-            message: StopListeningRequest {},
+            message: StopListeningRequest { call_id: None },
             binary: Vec::new(),
         });
         assert_eq!(
@@ -707,7 +724,10 @@ mod node_request_loop_tests {
             "RequestFailedResponse"
         );
         visualizer_dirs_tx.send(DartSignalPack {
-            message: SetVisualizerPresetDirsRequest { paths: Vec::new() },
+            message: SetVisualizerPresetDirsRequest {
+                paths: Vec::new(),
+                call_id: None,
+            },
             binary: Vec::new(),
         });
         assert_eq!(
@@ -721,6 +741,7 @@ mod node_request_loop_tests {
                 order: Vec::new(),
                 disabled: Vec::new(),
                 last: None,
+                call_id: None,
             },
             binary: Vec::new(),
         });
@@ -733,6 +754,7 @@ mod node_request_loop_tests {
         library_test_tx.send(DartSignalPack {
             message: TestLibraryInitializedRequest {
                 path: String::new(),
+                call_id: None,
             },
             binary: Vec::new(),
         });
@@ -743,7 +765,10 @@ mod node_request_loop_tests {
             "RequestFailedResponse"
         );
         mix_with_others_tx.send(DartSignalPack {
-            message: SetMixWithOthersRequest { enabled: false },
+            message: SetMixWithOthersRequest {
+                enabled: false,
+                call_id: None,
+            },
             binary: Vec::new(),
         });
         assert_eq!(
@@ -755,6 +780,7 @@ mod node_request_loop_tests {
         sync_settings_tx.send(DartSignalPack {
             message: GetSyncSettingsRequest {
                 request_id: String::new(),
+                call_id: None,
             },
             binary: Vec::new(),
         });
@@ -769,6 +795,7 @@ mod node_request_loop_tests {
                 request_id: String::new(),
                 listen: false,
                 missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+                call_id: None,
             },
             binary: Vec::new(),
         });
@@ -779,7 +806,7 @@ mod node_request_loop_tests {
             "RequestFailedResponse"
         );
         system_info_tx.send(DartSignalPack {
-            message: SystemInfoRequest {},
+            message: SystemInfoRequest { call_id: None },
             binary: Vec::new(),
         });
         assert_eq!(
@@ -789,7 +816,10 @@ mod node_request_loop_tests {
             "RequestFailedResponse"
         );
         add_trusted_server_tx.send(DartSignalPack {
-            message: AddTrustedServerRequest { certificate: None },
+            message: AddTrustedServerRequest {
+                certificate: None,
+                call_id: None,
+            },
             binary: Vec::new(),
         });
         assert_eq!(
@@ -801,6 +831,7 @@ mod node_request_loop_tests {
         remove_trusted_client_tx.send(DartSignalPack {
             message: RemoveTrustedClientRequest {
                 fingerprint: String::new(),
+                call_id: None,
             },
             binary: Vec::new(),
         });
@@ -815,6 +846,7 @@ mod node_request_loop_tests {
                 fingerprint: String::new(),
                 status: ClientStatus::Approved,
                 preset: None,
+                call_id: None,
             },
             binary: Vec::new(),
         });
@@ -827,6 +859,7 @@ mod node_request_loop_tests {
         remove_trusted_server_tx.send(DartSignalPack {
             message: RemoveTrustedServerRequest {
                 fingerprint: String::new(),
+                call_id: None,
             },
             binary: Vec::new(),
         });
@@ -837,7 +870,10 @@ mod node_request_loop_tests {
             "RequestFailedResponse"
         );
         availability_tx.send(DartSignalPack {
-            message: ServerAvailabilityTestRequest { url: String::new() },
+            message: ServerAvailabilityTestRequest {
+                url: String::new(),
+                call_id: None,
+            },
             binary: Vec::new(),
         });
         assert_eq!(
@@ -851,6 +887,7 @@ mod node_request_loop_tests {
                 alias: String::new(),
                 hosts: Vec::new(),
                 fingerprint: String::new(),
+                call_id: None,
             },
             binary: Vec::new(),
         });
@@ -865,6 +902,7 @@ mod node_request_loop_tests {
                 alias: String::new(),
                 hosts: Vec::new(),
                 fingerprint: String::new(),
+                call_id: None,
             },
             binary: Vec::new(),
         });
@@ -875,7 +913,10 @@ mod node_request_loop_tests {
             "RequestFailedResponse"
         );
         connect_tx.send(DartSignalPack {
-            message: ConnectRequest { hosts: Vec::new() },
+            message: ConnectRequest {
+                hosts: Vec::new(),
+                call_id: None,
+            },
             binary: Vec::new(),
         });
         assert_eq!(
@@ -885,7 +926,10 @@ mod node_request_loop_tests {
             "RequestFailedResponse"
         );
         fetch_certificate_tx.send(DartSignalPack {
-            message: FetchServerCertificateRequest { url: String::new() },
+            message: FetchServerCertificateRequest {
+                url: String::new(),
+                call_id: None,
+            },
             binary: Vec::new(),
         });
         assert_eq!(
@@ -897,7 +941,7 @@ mod node_request_loop_tests {
 
         let started = list_started.notified();
         list_tx.send(DartSignalPack {
-            message: ListLibraryRecordsRequest {},
+            message: ListLibraryRecordsRequest { call_id: None },
             binary: Vec::new(),
         });
         timeout(Duration::from_secs(1), async {
@@ -909,7 +953,7 @@ mod node_request_loop_tests {
         .await
         .expect("blocked node handler did not start");
         controllers_tx.send(DartSignalPack {
-            message: ListControllersRequest {},
+            message: ListControllersRequest { call_id: None },
             binary: Vec::new(),
         });
         assert_eq!(
@@ -928,6 +972,7 @@ mod node_request_loop_tests {
 
         remove_tx.send(DartSignalPack {
             message: RemoveLibraryRecordRequest {
+                call_id: None,
                 record_id: "invalid".into(),
             },
             binary: Vec::new(),
@@ -941,6 +986,7 @@ mod node_request_loop_tests {
 
         local_tx.send(DartSignalPack {
             message: RegisterLocalLibraryRequest {
+                call_id: None,
                 path: String::new(),
                 alias: String::new(),
                 mode: None,
@@ -956,6 +1002,7 @@ mod node_request_loop_tests {
 
         remote_tx.send(DartSignalPack {
             message: RegisterRemoteControlRequest {
+                call_id: None,
                 fingerprint: String::new(),
                 alias: String::new(),
             },
@@ -970,6 +1017,7 @@ mod node_request_loop_tests {
 
         subsonic_tx.send(DartSignalPack {
             message: RegisterSubsonicLibraryRequest {
+                call_id: None,
                 endpoint: String::new(),
                 username: String::new(),
                 password: String::new(),
@@ -987,6 +1035,7 @@ mod node_request_loop_tests {
 
         opendal_tx.send(DartSignalPack {
             message: RegisterOpenDalLibraryRequest {
+                call_id: None,
                 service: OpenDalLibraryService::WebDav {
                     endpoint: String::new(),
                     root: String::new(),
@@ -1006,7 +1055,7 @@ mod node_request_loop_tests {
 
         open_tx.send(DartSignalPack {
             message: OpenLibraryRequest {
-                call_id: 23,
+                call_id: Some(23),
                 record_id: String::new(),
             },
             binary: Vec::new(),
@@ -1020,10 +1069,10 @@ mod node_request_loop_tests {
     }
 
     #[test]
-    fn bootstrap_receivers_are_catalogued_as_separate_paths() {
+    fn standalone_receivers_are_catalogued() {
         assert_eq!(
-            bootstrap_request_names(),
-            ["RunFsSelfTestRequest", "InitializeNodeRequest"]
+            standalone_request_names(),
+            ["InitializeNodeRequest", "RunFsSelfTestRequest"]
         );
     }
 }

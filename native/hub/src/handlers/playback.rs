@@ -624,7 +624,10 @@ impl Signal for VolumeRequest {
     ) -> Result<Option<Self::Response>> {
         let volume = dart_signal.volume;
         player.lock().await.set_volume(volume);
-        Ok(Some(VolumeResponse { volume }))
+        Ok(Some(VolumeResponse {
+            call_id: None,
+            volume,
+        }))
     }
 }
 
@@ -773,6 +776,7 @@ impl Signal for ResolveMixQueryRequest {
                 ExpectedRequestError::invalid_input(format!("Invalid start index: {error}"))
             })?;
         Ok(Some(ResolveMixQueryResponse {
+            call_id: None,
             playing_items: resolved.playing_items,
             start_index,
         }))
@@ -798,32 +802,16 @@ impl Signal for LoadResolvedItemsRequest {
         request: &Self,
     ) -> Result<Option<Self::Response>> {
         if session.is_some() {
-            let items = request
-                .items
-                .iter()
-                .map(|item| {
-                    let library_item =
-                        item.library_item
-                            .clone()
-                            .ok_or(ExpectedRequestError::Unavailable {
-                                what: "casting files outside a library",
-                            })?;
-                    Ok(library_item)
-                })
-                .collect::<Result<Vec<_>>>()?;
-            apply_cast_load(
-                &node,
-                &CastLoadRequest {
-                    items,
-                    start_index: request.start_index,
-                    mode: request.mode,
-                    expected_revision: request.expected_revision,
-                    playback_mode: request.playback_mode,
-                    position_seconds: None,
-                    play: None,
-                },
-            )
-            .await?;
+            apply_cast_load(&node, request).await?;
+        } else if let Some(fingerprint) = &request.target_fingerprint {
+            let (link, _) = node
+                .connect_renderer(fingerprint, RendererLinkUse::Cast)
+                .await?;
+            let mut forwarded = request.clone();
+            forwarded.target_fingerprint = None;
+            let result = link.call(&forwarded).await;
+            link.close();
+            result?;
         } else {
             let library = require_library(library)?;
             let items = playing_items_from_requests(&request.items, Some(&library)).await?;
@@ -886,6 +874,15 @@ impl Signal for LoadResolvedItemsRequest {
                 .iter()
                 .filter_map(|item| prepared_by_item.get(item).cloned())
                 .collect::<Vec<_>>();
+            let position = request
+                .position_seconds
+                .map(Duration::try_from_secs_f64)
+                .transpose()
+                .map_err(|_| {
+                    ExpectedRequestError::invalid_input(
+                        "Invalid playback position: expected a finite, non-negative number of seconds",
+                    )
+                })?;
             node.session()?
                 .edit_queue(request.expected_revision, |player| {
                     edit_playlist(
@@ -895,63 +892,14 @@ impl Signal for LoadResolvedItemsRequest {
                             mode: request.mode,
                             start_index: request.start_index.map(|index| index as usize),
                             playback_mode: request.playback_mode,
-                            position: None,
-                            play: None,
+                            position,
+                            play: request.play,
                         },
                     )
                 })
                 .await?;
         }
-        Ok(Some(LoadResolvedItemsResponse {}))
-    }
-}
-
-impl ParamsExtractor for CastResolvedItemsRequest {
-    type Params = Arc<NodeContext>;
-
-    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        all_params.node.clone()
-    }
-}
-
-impl Signal for CastResolvedItemsRequest {
-    type Params = Arc<NodeContext>;
-    type Response = CastResolvedItemsResponse;
-
-    async fn handle(
-        &self,
-        node: Self::Params,
-        _session: Option<Session>,
-        request: &Self,
-    ) -> Result<Option<Self::Response>> {
-        let items = request
-            .items
-            .iter()
-            .map(|item| {
-                item.library_item.clone().ok_or_else(|| {
-                    anyhow::Error::new(ExpectedRequestError::Unavailable {
-                        what: "casting files outside a library",
-                    })
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let (link, _) = node
-            .connect_renderer(&request.fingerprint, RendererLinkUse::Cast)
-            .await?;
-        let result = link
-            .call(&CastLoadRequest {
-                items,
-                start_index: request.start_index,
-                mode: request.mode,
-                expected_revision: request.expected_revision,
-                playback_mode: request.playback_mode,
-                position_seconds: None,
-                play: None,
-            })
-            .await;
-        link.close();
-        result?;
-        Ok(Some(CastResolvedItemsResponse {}))
+        Ok(Some(LoadResolvedItemsResponse { call_id: None }))
     }
 }
 
@@ -982,34 +930,14 @@ impl Signal for CastPreflightRequest {
                 state,
             })
             .collect();
-        Ok(Some(CastPreflightResponse { libraries }))
+        Ok(Some(CastPreflightResponse {
+            call_id: None,
+            libraries,
+        }))
     }
 }
 
-impl ParamsExtractor for CastLoadRequest {
-    type Params = (Arc<NodeContext>,);
-
-    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (all_params.node.clone(),)
-    }
-}
-
-impl Signal for CastLoadRequest {
-    type Params = (Arc<NodeContext>,);
-    type Response = CastLoadResponse;
-
-    async fn handle(
-        &self,
-        (node,): Self::Params,
-        _session: Option<Session>,
-        request: &Self,
-    ) -> Result<Option<Self::Response>> {
-        apply_cast_load(&node, request).await?;
-        Ok(Some(CastLoadResponse {}))
-    }
-}
-
-async fn apply_cast_load(node: &NodeContext, request: &CastLoadRequest) -> Result<()> {
+async fn apply_cast_load(node: &NodeContext, request: &LoadResolvedItemsRequest) -> Result<()> {
     let position = request
         .position_seconds
         .map(Duration::try_from_secs_f64)
@@ -1023,6 +951,12 @@ async fn apply_cast_load(node: &NodeContext, request: &CastLoadRequest) -> Resul
         .items
         .iter()
         .map(|item| {
+            let item = item
+                .library_item
+                .as_ref()
+                .ok_or(ExpectedRequestError::Unavailable {
+                    what: "casting files outside a library",
+                })?;
             Ok(LibraryItem {
                 library_id: Uuid::parse_str(&item.library_id).map_err(|error| {
                     anyhow::Error::new(ExpectedRequestError::invalid_input(format!(
@@ -1195,6 +1129,7 @@ pub(crate) fn session_snapshot_from_status(
         })
         .collect::<Result<Vec<_>>>()?;
     Ok(SessionSnapshotResponse {
+        call_id: None,
         items,
         index: status
             .index
@@ -1237,7 +1172,7 @@ impl Signal for HandoffRequest {
             _ => false,
         };
         if already_there {
-            return Ok(Some(HandoffResponse {}));
+            return Ok(Some(HandoffResponse { call_id: None }));
         }
         let load = handoff_load(snapshot_handoff_source(&node, attached.as_deref()).await?);
         match target {
@@ -1246,7 +1181,7 @@ impl Signal for HandoffRequest {
             }
             None => hand_off_to_this_device(&node, attached, &load, generation).await?,
         }
-        Ok(Some(HandoffResponse {}))
+        Ok(Some(HandoffResponse { call_id: None }))
     }
 }
 
@@ -1259,13 +1194,23 @@ async fn snapshot_handoff_source(
         let session = node.session()?;
         return session_snapshot(&session).await;
     };
-    link.call(&SessionSnapshotRequest {}).await
+    link.call(&SessionSnapshotRequest { call_id: None }).await
 }
 
 /// Step 2: the load that recreates the snapshot on the target.
-fn handoff_load(snapshot: SessionSnapshotResponse) -> CastLoadRequest {
-    CastLoadRequest {
-        items: snapshot.items,
+fn handoff_load(snapshot: SessionSnapshotResponse) -> LoadResolvedItemsRequest {
+    LoadResolvedItemsRequest {
+        call_id: None,
+        target_fingerprint: None,
+        items: snapshot
+            .items
+            .into_iter()
+            .map(|library_item| PlayingItemRequest {
+                in_library: None,
+                independent_file: None,
+                library_item: Some(library_item),
+            })
+            .collect(),
         start_index: snapshot.index,
         mode: PlaylistOperateMode::Replace,
         expected_revision: None,
@@ -1287,7 +1232,7 @@ async fn hand_off_to_renderer(
     node: &Arc<NodeContext>,
     attached: Option<Arc<RendererLink>>,
     target: &str,
-    load: CastLoadRequest,
+    load: LoadResolvedItemsRequest,
     generation: u64,
 ) -> Result<()> {
     let (link, alias) = node
@@ -1325,7 +1270,7 @@ async fn hand_off_to_renderer(
 async fn hand_off_to_this_device(
     node: &Arc<NodeContext>,
     attached: Option<Arc<RendererLink>>,
-    load: &CastLoadRequest,
+    load: &LoadResolvedItemsRequest,
     generation: u64,
 ) -> Result<()> {
     apply_cast_load(node, load).await?;

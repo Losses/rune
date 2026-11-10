@@ -9,7 +9,7 @@ use crate::node::NodeContext;
 use crate::request_error::FailedCall;
 use crate::rpc::TargetRequest;
 use crate::utils::ParamsExtractor;
-use crate::{CallIdentified, Session, Signal, TypedRequest};
+use crate::{RequestCallId, ResponseCallId, Session, Signal, TypedRequest};
 
 /// Serve one catalogue request, deferring decoding until after authorization.
 pub(crate) async fn serve_remote<R>(
@@ -22,8 +22,9 @@ where
     R: TargetRequest
         + Signal<Response = <R as TypedRequest>::Response, Params = <R as ParamsExtractor>::Params>
         + ParamsExtractor
-        + CallIdentified,
+        + RequestCallId,
     <R as TypedRequest>::Response: Serialize,
+    <R as TypedRequest>::Response: ResponseCallId,
 {
     let addressed_library = library_id.filter(|_| R::SCOPE == RequestScope::Library);
     let params = if let Some(library_id) = addressed_library {
@@ -58,7 +59,8 @@ where
             None => error,
         })?;
     match response {
-        Some(response) if !R::response_name().is_empty() => {
+        Some(mut response) if !R::response_name().is_empty() => {
+            response.set_call_id(request.call_id());
             Ok((R::response_name().to_owned(), rinf::serialize(&response)?))
         }
         _ => Ok((String::new(), Vec::new())),

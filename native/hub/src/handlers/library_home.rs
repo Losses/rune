@@ -328,6 +328,9 @@ impl Signal for ComplexQueryRequest {
 
         let result = try_join_all(futures).await?;
 
-        Ok(Some(ComplexQueryResponse { result }))
+        Ok(Some(ComplexQueryResponse {
+            call_id: None,
+            result,
+        }))
     }
 }

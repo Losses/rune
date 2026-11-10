@@ -14,6 +14,8 @@ pub struct GetCoverArtIdsByMixQueriesRequestUnit {
 pub struct GetCoverArtIdsByMixQueriesRequest {
     pub requests: Vec<GetCoverArtIdsByMixQueriesRequestUnit>,
     pub n: i32,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Clone, Serialize, Deserialize, SignalPiece)]
@@ -25,15 +27,21 @@ pub struct GetCoverArtIdsByMixQueriesResponseUnit {
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct GetCoverArtIdsByMixQueriesResponse {
     pub result: Vec<GetCoverArtIdsByMixQueriesResponseUnit>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct GetPrimaryColorByTrackIdRequest {
     pub item: Option<PlayingItemRequest>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct GetPrimaryColorByTrackIdResponse {
     pub item: PlayingItemRequest,
     pub primary_color: Option<i32>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }

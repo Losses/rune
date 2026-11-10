@@ -20,10 +20,14 @@ pub struct LyricContentLineSection {
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct GetLyricByTrackIdRequest {
     pub item: Option<PlayingItemRequest>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Clone, Serialize, Deserialize, RustSignal)]
 pub struct GetLyricByTrackIdResponse {
     pub item: PlayingItemRequest,
     pub lines: Vec<LyricContentLine>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }

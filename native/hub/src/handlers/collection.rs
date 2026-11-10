@@ -73,6 +73,7 @@ async fn handle_fetch_group_summary<T: CollectionQuery>(
     collection_groups = special;
 
     Ok(Some(CollectionGroupSummaryResponse {
+        call_id: None,
         collection_type: T::collection_type().into(),
         groups: collection_groups,
     }))
@@ -129,6 +130,7 @@ async fn handle_fetch_groups<T: CollectionQuery + std::clone::Clone>(
     .collect::<Result<Vec<_>, _>>()?;
 
     Ok(Some(FetchCollectionGroupsResponse {
+        call_id: None,
         groups: collection_groups,
     }))
 }
@@ -173,6 +175,7 @@ async fn handle_fetch_by_id<T: CollectionQuery + std::clone::Clone>(
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(Some(FetchCollectionByIdsResponse {
+        call_id: None,
         collection_type: T::collection_type().into(),
         result: collections,
     }))
@@ -199,6 +202,7 @@ async fn handle_search<T: CollectionQuery>(
     let results = results?;
 
     Ok(Some(SearchCollectionSummaryResponse {
+        call_id: None,
         collection_type: T::collection_type().into(),
         result: results,
     }))

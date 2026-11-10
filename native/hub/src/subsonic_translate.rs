@@ -9,8 +9,8 @@ use subsonic::{
 use crate::TypedRequest;
 use crate::macros::{RequestSlots, RequestTranslator};
 use crate::messages::{
-    AudioAvailability, AudioOrigin, CastLoadRequest, CastPreflightRequest, Collection,
-    CollectionGroup, CollectionGroupSummary, CollectionGroupSummaryResponse, CollectionType,
+    AudioAvailability, AudioOrigin, CastPreflightRequest, Collection, CollectionGroup,
+    CollectionGroupSummary, CollectionGroupSummaryResponse, CollectionType,
     FetchCollectionByIdsRequest, FetchCollectionByIdsResponse, FetchCollectionGroupSummaryRequest,
     FetchCollectionGroupsRequest, FetchCollectionGroupsResponse, FetchMediaFileByIdsRequest,
     FetchMediaFileByIdsResponse, LoadRequest, LoadResolvedItemsRequest, MediaFile, MixQueryRequest,
@@ -147,6 +147,7 @@ pub(crate) async fn fetch_media_file_by_ids_request(
         });
     }
     Ok(Some(FetchMediaFileByIdsResponse {
+        call_id: None,
         media_files,
         cover_art_map: Default::default(),
     }))
@@ -249,6 +250,7 @@ pub(crate) async fn fetch_collection_by_ids_request(
         });
     }
     Ok(Some(FetchCollectionByIdsResponse {
+        call_id: None,
         collection_type: request.collection_type,
         result,
     }))
@@ -405,6 +407,7 @@ pub(crate) async fn fetch_collection_group_summary_request(
         *groups.entry(generate_group_name(name)).or_default() += 1;
     }
     Ok(Some(CollectionGroupSummaryResponse {
+        call_id: None,
         collection_type: request.collection_type,
         groups: groups
             .into_iter()
@@ -429,6 +432,7 @@ pub(crate) async fn fetch_collection_groups_request(
         }
     }
     Ok(Some(FetchCollectionGroupsResponse {
+        call_id: None,
         groups: collection_groups(binding, request.collection_type, &request.group_titles)?,
     }))
 }
@@ -558,6 +562,7 @@ pub(crate) async fn mix_query_request(
         })
         .collect::<Result<Vec<_>>>()?;
     Ok(Some(MixQueryResponse {
+        call_id: None,
         files,
         cover_art_map: Default::default(),
     }))
@@ -668,7 +673,6 @@ subsonic_requests! {
         SetAdaptiveSwitchingEnabledRequest,
         LoadResolvedItemsRequest,
         CastPreflightRequest,
-        CastLoadRequest,
         RefreshSessionRequest,
         SessionSnapshotRequest,
     }

@@ -976,6 +976,7 @@ mod lifecycle_tests {
 
         let registered = register_remote_control_on_node(
             &RegisterRemoteControlRequest {
+                call_id: None,
                 fingerprint: fingerprint.to_owned(),
                 alias: "Test remote".into(),
             },
@@ -996,7 +997,7 @@ mod lifecycle_tests {
 
         let opened = open_library_by_record_on_node(
             &OpenLibraryRequest {
-                call_id: 1,
+                call_id: Some(1),
                 record_id: record_id.clone(),
             },
             node.clone(),
@@ -1168,6 +1169,7 @@ mod lifecycle_tests {
         let node = source.global_params.node.clone();
         let response = register_local_library_on_node(
             &RegisterLocalLibraryRequest {
+                call_id: None,
                 path: path.to_str().context("test library path")?.to_owned(),
                 alias: "Test local".into(),
                 mode: Some(LibraryInitializeMode::Portable),
@@ -1258,7 +1260,7 @@ mod lifecycle_tests {
                 .await
                 .is_none()
         );
-        let payload = rinf::serialize(&GetMediaFilesCountRequest {})?;
+        let payload = rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?;
         let (name, response) = service
             .handle_message(
                 "GetMediaFilesCountRequest",
@@ -1281,7 +1283,7 @@ mod lifecycle_tests {
             &params.test_library().main_db
         ));
         assert!(params.ui_library.lock().await.is_some());
-        let close = CloseLibraryRequest {};
+        let close = CloseLibraryRequest { call_id: None };
         assert!(
             close
                 .handle(close.extract_params(params), None, &close)
@@ -1304,7 +1306,7 @@ mod lifecycle_tests {
         let opened = fixture_open_replica(&source, id).await?;
         let params = &opened.global_params;
         assert_eq!(params.library_id, Some(id));
-        let close = CloseLibraryRequest {};
+        let close = CloseLibraryRequest { call_id: None };
         assert!(
             close
                 .handle(close.extract_params(params), None, &close)
@@ -1625,7 +1627,7 @@ mod lifecycle_tests {
 
     async fn close_ui(params: &GlobalParams) -> Result<()> {
         if params.library.is_some() {
-            let request = CloseLibraryRequest {};
+            let request = CloseLibraryRequest { call_id: None };
             request
                 .handle(request.extract_params(params), None, &request)
                 .await?;
@@ -1766,6 +1768,7 @@ mod lifecycle_tests {
         std::fs::create_dir_all(&root)?;
         let registered = register_local_library_on_node(
             &RegisterLocalLibraryRequest {
+                call_id: None,
                 path: root.to_string_lossy().into_owned(),
                 alias: "Removable".into(),
                 mode: Some(LibraryInitializeMode::Portable),
@@ -1800,6 +1803,7 @@ mod lifecycle_tests {
             .sync_library_token(library_id)
             .await;
         let request = RemoveLibraryRecordRequest {
+            call_id: None,
             record_id: record.record_id.0.to_string(),
         };
         let response = request
@@ -1853,6 +1857,7 @@ mod lifecycle_tests {
 
         let registered = register_local_library_on_node(
             &RegisterLocalLibraryRequest {
+                call_id: None,
                 path: root.to_string_lossy().into_owned(),
                 alias: "Removable".into(),
                 mode: Some(LibraryInitializeMode::Portable),
@@ -1891,7 +1896,7 @@ mod lifecycle_tests {
         .await?;
         let id = a.global_params.library_id.context("library")?;
         close_ui(&a.global_params).await?;
-        let payload = rinf::serialize(&GetMediaFilesCountRequest {})?;
+        let payload = rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?;
         let (name, bytes) =
             socket_request(&mut socket, "GetMediaFilesCountRequest", &payload).await?;
         assert_eq!(name, "RemoteRequestFailed");
@@ -1926,6 +1931,7 @@ mod lifecycle_tests {
         .save(first.path())?;
         let slot = NodeSlot::new();
         let request = InitializeNodeRequest {
+            call_id: None,
             config_path: first.path().to_string_lossy().into_owned(),
         };
         let node = slot
@@ -1961,6 +1967,7 @@ mod lifecycle_tests {
         let response = slot
             .handle(
                 &InitializeNodeRequest {
+                    call_id: None,
                     config_path: second.path().to_string_lossy().into_owned(),
                 },
                 Arc::new(Quiet),
@@ -2176,7 +2183,7 @@ mod lifecycle_tests {
                 encode_message(name, &payload, Some(ignored_id)).into(),
             ))
             .await?;
-        let payload = rinf::serialize(&GetMediaFilesCountRequest {})?;
+        let payload = rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?;
         socket
             .send(Message::Binary(
                 encode_message("GetMediaFilesCountRequest", &payload, Some(following_id)).into(),
@@ -2210,7 +2217,10 @@ mod lifecycle_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn websocket_node_local_request_is_ignored() -> Result<()> {
-        let payload = rinf::serialize(&FetchRemoteFileRequest { url: String::new() })?;
+        let payload = rinf::serialize(&FetchRemoteFileRequest {
+            call_id: None,
+            url: String::new(),
+        })?;
         assert_websocket_request_is_ignored("FetchRemoteFileRequest", payload).await
     }
 
@@ -2601,7 +2611,7 @@ mod lifecycle_tests {
             &controller.global_params.node.sync_tokens,
         )
         .await?;
-        let count_request = rinf::serialize(&GetMediaFilesCountRequest {})?;
+        let count_request = rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?;
 
         // With the UI on the renderer's first library, the explicit address serves the other.
         let (name, payload) = socket_request_for_library(
@@ -2656,6 +2666,7 @@ mod lifecycle_tests {
             },
         )?;
         let write = rinf::serialize(&CreatePlaylistRequest {
+            call_id: None,
             name: "denied".into(),
             group: "test".into(),
         })?;
@@ -2727,14 +2738,14 @@ mod lifecycle_tests {
         let (name, _) = socket_request(
             &mut socket,
             "GetMediaFilesCountRequest",
-            &rinf::serialize(&GetMediaFilesCountRequest {})?,
+            &rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?,
         )
         .await?;
         assert_eq!(name, "GetMediaFilesCountResponse");
         let (name, _) = socket_request(
             &mut socket,
             "PauseRequest",
-            &rinf::serialize(&PauseRequest {})?,
+            &rinf::serialize(&PauseRequest { call_id: None })?,
         )
         .await?;
         assert_eq!(name, "");
@@ -2742,6 +2753,7 @@ mod lifecycle_tests {
             (
                 "CreatePlaylistRequest",
                 rinf::serialize(&CreatePlaylistRequest {
+                    call_id: None,
                     name: "forbidden".into(),
                     group: "test".into(),
                 })?,
@@ -2749,6 +2761,7 @@ mod lifecycle_tests {
             (
                 "ScanAudioLibraryRequest",
                 rinf::serialize(&ScanAudioLibraryRequest {
+                    call_id: None,
                     scan_id: "forbidden".into(),
                     force: false,
                 })?,
@@ -2773,7 +2786,10 @@ mod lifecycle_tests {
     async fn missing_playlist_handler_is_not_found() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let manager = fixture(dir.path()).await?;
-        let request = GetPlaylistByIdRequest { playlist_id: -1 };
+        let request = GetPlaylistByIdRequest {
+            call_id: None,
+            playlist_id: -1,
+        };
         let result = request
             .handle(
                 Some(manager.global_params.test_library().clone()),
@@ -2793,7 +2809,10 @@ mod lifecycle_tests {
     async fn missing_mix_handler_is_not_found() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let manager = fixture(dir.path()).await?;
-        let request = GetMixByIdRequest { mix_id: -1 };
+        let request = GetMixByIdRequest {
+            call_id: None,
+            mix_id: -1,
+        };
         let result = request
             .handle(
                 Some(manager.global_params.test_library().clone()),
@@ -2829,11 +2848,14 @@ mod lifecycle_tests {
             ("FetchParsedMediaFileRequest", vec![]),
             (
                 "GetPlaylistByIdRequest",
-                rinf::serialize(&GetPlaylistByIdRequest { playlist_id: -1 })?,
+                rinf::serialize(&GetPlaylistByIdRequest {
+                    call_id: None,
+                    playlist_id: -1,
+                })?,
             ),
             (
                 "GetMediaFilesCountRequest",
-                rinf::serialize(&GetMediaFilesCountRequest {})?,
+                rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?,
             ),
         ] {
             let (response_name, payload) = socket_request(&mut socket, name, &payload).await?;
@@ -2885,7 +2907,7 @@ mod lifecycle_tests {
         )
         .await?;
         async fn count(socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>) -> Result<()> {
-            let payload = rinf::serialize(&GetMediaFilesCountRequest {})?;
+            let payload = rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?;
             let (name, payload) =
                 socket_request(socket, "GetMediaFilesCountRequest", &payload).await?;
             assert_eq!(name, "GetMediaFilesCountResponse");
@@ -2895,6 +2917,7 @@ mod lifecycle_tests {
         }
         count(&mut socket).await?;
         let request = FetchRemoteFileRequest {
+            call_id: None,
             url: "http://example.invalid/file".into(),
         };
         socket
@@ -2936,7 +2959,7 @@ mod lifecycle_tests {
             format!("http://127.0.0.1:{}/files/library/{name}", addr.port()),
             format!("https://untrusted.invalid/files/library/{name}"),
         ] {
-            let request = FetchRemoteFileRequest { url };
+            let request = FetchRemoteFileRequest { call_id: None, url };
             let response = request
                 .handle(request.extract_params(&b.global_params), None, &request)
                 .await?
@@ -3207,6 +3230,7 @@ mod lifecycle_tests {
         // Forced passes and listings share the challenge endpoint's rate limit.
         tokio::time::sleep(Duration::from_secs(1)).await;
         let request = ListPeerLibrariesRequest {
+            call_id: None,
             fingerprint: fingerprint.to_owned(),
         };
         request
@@ -3225,6 +3249,7 @@ mod lifecycle_tests {
         library: &PeerLibrary,
     ) -> Result<String> {
         let request = AddRemoteLibraryRequest {
+            call_id: None,
             fingerprint: fingerprint.to_owned(),
             library_id: library.library_id.clone(),
             alias: library.alias.clone(),
@@ -3516,6 +3541,7 @@ mod lifecycle_tests {
 
     async fn set_library_background(manager: &Fixture, id: Uuid, enabled: bool) -> Result<()> {
         let request = SetLibraryBackgroundSyncRequest {
+            call_id: None,
             library_id: id.to_string(),
             enabled,
         };

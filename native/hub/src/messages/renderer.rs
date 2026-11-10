@@ -5,13 +5,21 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct AttachRendererRequest {
     pub fingerprint: String,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
-pub struct AttachRendererResponse {}
+pub struct AttachRendererResponse {
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
 
 #[derive(Serialize, Deserialize, DartSignal)]
-pub struct DetachRendererRequest {}
+pub struct DetachRendererRequest {
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone)]
 pub struct AttachedRenderer {
@@ -33,6 +41,8 @@ pub struct RendererLinkLost {
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct ListRenderersRequest {
     pub library_ids: Vec<String>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,6 +67,8 @@ pub struct RendererCandidate {
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct ListRenderersResponse {
     pub renderers: Vec<RendererCandidate>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 crate::implement_rinf_rust_signal_trait!(RendererAttachmentChanged);

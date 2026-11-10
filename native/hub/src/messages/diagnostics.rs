@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 pub struct RunFsSelfTestRequest {
     pub path: String,
     pub db_path: String,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
@@ -21,6 +23,8 @@ pub struct RunFsSelfTestResponse {
     pub success: bool,
     pub report_json: String,
     pub wal_probe: WalSelfTestResult,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal, SignalPiece)]

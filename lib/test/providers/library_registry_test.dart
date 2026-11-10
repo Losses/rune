@@ -53,7 +53,7 @@ void main() {
             'OpenLibraryRequest',
             openResponses.stream,
             callId: callId,
-            responseCallId: (signal) => signal.message.callId.toInt(),
+            responseCallId: (signal) => signal.message.callId?.toInt(),
             send: () {
               requests.add(request);
               scheduleMicrotask(

@@ -46,6 +46,7 @@ impl Signal for FetchAllMixesRequest {
             .with_context(|| "Failed to fetch all mixes")?;
 
         Ok(Some(FetchAllMixesResponse {
+            call_id: None,
             mixes: mixes
                 .into_iter()
                 .map(|mix| Mix {
@@ -100,6 +101,7 @@ impl Signal for CreateMixRequest {
         .with_context(|| "Failed to create mix")?;
 
         Ok(Some(CreateMixResponse {
+            call_id: None,
             mix: Mix {
                 id: mix.id,
                 name: mix.name,
@@ -154,6 +156,7 @@ impl Signal for UpdateMixRequest {
         .with_context(|| "Failed to update mix metadata")?;
 
         Ok(Some(UpdateMixResponse {
+            call_id: None,
             mix: Mix {
                 id: mix.id,
                 name: mix.name,
@@ -191,6 +194,7 @@ impl Signal for RemoveMixRequest {
             .with_context(|| format!("Failed to remove mix with id: {}", request.mix_id))?;
 
         Ok(Some(RemoveMixResponse {
+            call_id: None,
             mix_id: request.mix_id,
             success: true,
         }))
@@ -235,7 +239,10 @@ impl Signal for AddItemToMixRequest {
             )
         })?;
 
-        Ok(Some(AddItemToMixResponse { success: true }))
+        Ok(Some(AddItemToMixResponse {
+            call_id: None,
+            success: true,
+        }))
     }
 }
 
@@ -265,6 +272,7 @@ impl Signal for GetMixByIdRequest {
             .with_context(|| format!("Failed to get mix by id: {}", request.mix_id))?;
 
         Ok(Some(GetMixByIdResponse {
+            call_id: None,
             mix: Mix {
                 id: mix.id,
                 name: mix.name,
@@ -359,6 +367,7 @@ impl Signal for MixQueryRequest {
         );
 
         Ok(Some(MixQueryResponse {
+            call_id: None,
             files,
             cover_art_map,
         }))
@@ -391,6 +400,7 @@ impl Signal for FetchMixQueriesRequest {
             .with_context(|| "Unable to get mix queries files")?;
 
         Ok(Some(FetchMixQueriesResponse {
+            call_id: None,
             result: queries
                 .into_iter()
                 .map(|x| crate::messages::StoredMixQuery {

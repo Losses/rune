@@ -134,6 +134,7 @@ mod access_policy_tests {
             level: DeviceSyncLevel,
         ) -> Result<()> {
             let request = SetDeviceGrantsRequest {
+            call_id: None,
                 fingerprint: info(peer).await?.fingerprint,
                 preset: Some(DevicePreset::Guest),
                 control: Some(false),
@@ -354,7 +355,8 @@ mod access_policy_tests {
         let (name, _) = socket_request(
             &mut socket,
             "PauseRequest",
-            &rinf::serialize(&PauseRequest {})?,
+            &rinf::serialize(&PauseRequest {
+            call_id: None,})?,
         )
         .await?;
         assert_eq!(name, "");
@@ -554,6 +556,7 @@ mod access_policy_tests {
         assert!(replica.library_sync.get(&album).await?.is_some());
 
         let request = RemoveTrustedClientRequest {
+            call_id: None,
             fingerprint: fingerprint_b.clone(),
         };
         let response = request
@@ -720,6 +723,7 @@ mod access_policy_tests {
 
         let pair = PolicyPair::new().await?;
         let request = SetDeviceGrantsRequest {
+            call_id: None,
             fingerprint: info(&pair.b).await?.fingerprint,
             preset: Some(DevicePreset::Guest),
             control: Some(true),
@@ -747,7 +751,8 @@ mod access_policy_tests {
         let (name, _) = socket_request(
             &mut socket,
             "GetMediaFilesCountRequest",
-            &rinf::serialize(&GetMediaFilesCountRequest {})?,
+            &rinf::serialize(&GetMediaFilesCountRequest {
+            call_id: None,})?,
         )
         .await?;
         assert_eq!(name, "GetMediaFilesCountResponse");
@@ -755,6 +760,7 @@ mod access_policy_tests {
             &mut socket,
             "CreatePlaylistRequest",
             &rinf::serialize(&CreatePlaylistRequest {
+            call_id: None,
                 name: "guest denied".into(),
                 group: "test".into(),
             })?,
@@ -821,14 +827,16 @@ mod access_policy_tests {
         let (name, _) = socket_request(
             &mut socket,
             "PauseRequest",
-            &rinf::serialize(&PauseRequest {})?,
+            &rinf::serialize(&PauseRequest {
+            call_id: None,})?,
         )
         .await?;
         assert_ne!(name, "RemoteRequestFailed");
         let (name, payload) = socket_request(
             &mut socket,
             "GetMediaFilesCountRequest",
-            &rinf::serialize(&GetMediaFilesCountRequest {})?,
+            &rinf::serialize(&GetMediaFilesCountRequest {
+            call_id: None,})?,
         )
         .await?;
         assert_eq!(name, "RemoteRequestFailed");
@@ -865,6 +873,7 @@ mod access_policy_tests {
             &mut socket,
             "CreatePlaylistRequest",
             &rinf::serialize(&CreatePlaylistRequest {
+            call_id: None,
                 name: "axis edit".into(),
                 group: "test".into(),
             })?,
@@ -918,7 +927,8 @@ mod access_policy_tests {
         let (name, payload) = socket_request(
             &mut socket,
             "GetMediaFilesCountRequest",
-            &rinf::serialize(&GetMediaFilesCountRequest {})?,
+            &rinf::serialize(&GetMediaFilesCountRequest {
+            call_id: None,})?,
         )
         .await?;
         assert_eq!(name, "RemoteRequestFailed");
@@ -999,7 +1009,8 @@ mod access_policy_tests {
         let (name, payload) = socket_request(
             &mut socket,
             "GetMediaFilesCountRequest",
-            &rinf::serialize(&GetMediaFilesCountRequest {})?,
+            &rinf::serialize(&GetMediaFilesCountRequest {
+            call_id: None,})?,
         )
         .await?;
         assert_eq!(name, "RemoteRequestFailed");
@@ -1117,9 +1128,7 @@ mod access_policy_tests {
             "FetchMixQueriesRequest" => RequestAccess::ConnectionView,
             "ResolveMixQueryRequest" => RequestAccess::ConnectionView,
             "LoadResolvedItemsRequest" => RequestAccess::Control,
-            "CastResolvedItemsRequest" => RequestAccess::NodeLocal,
             "CastPreflightRequest" => RequestAccess::Control,
-            "CastLoadRequest" => RequestAccess::Control,
             "SessionSnapshotRequest" | "RefreshSessionRequest" => RequestAccess::Control,
             "SetLikedRequest" => RequestAccess::ConnectionEdit,
             "GetLikedRequest" => RequestAccess::ConnectionView,
@@ -1195,6 +1204,7 @@ mod access_policy_tests {
             .await?;
         drop(permissions);
         let request = UpdateClientStatusRequest {
+            call_id: None,
             fingerprint: fingerprint.clone(),
             status: ClientStatus::Approved,
             preset: Some(DevicePreset::Guest),
@@ -1219,6 +1229,7 @@ mod access_policy_tests {
             SyncLevel::None
         );
         let request = GetDeviceGrantsRequest {
+            call_id: None,
             fingerprint: fingerprint.clone(),
         };
         let response = request

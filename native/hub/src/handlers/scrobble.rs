@@ -48,10 +48,12 @@ impl Signal for AuthenticateSingleServiceRequest {
 
             let response = match result {
                 Ok(_) => AuthenticateSingleServiceResponse {
+                    call_id: None,
                     success: true,
                     error: None,
                 },
                 Err(e) => AuthenticateSingleServiceResponse {
+                    call_id: None,
                     success: false,
                     error: format!("{e:#?}").into(),
                 },

@@ -740,7 +740,7 @@ pub(crate) async fn open_remote_library_for_fingerprint(
         RendererLinkUse::Control,
     )
     .await?;
-    link.call(&RefreshSessionRequest {}).await?;
+    link.call(&RefreshSessionRequest { call_id: None }).await?;
     let params = Arc::new(node.params_for_ui()?);
     let generation = node
         .attach_remote_ui(&params, fingerprint.to_owned(), record_id)

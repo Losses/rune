@@ -46,32 +46,22 @@ Future<List<PlayingItem>> operatePlaybackWithMixQuery({
     );
   }
 
-  if (castTo != null && !castTo.attach) {
-    await awaitResponse(
-      'CastResolvedItemsRequest',
-      CastResolvedItemsResponse.rustSignalStream,
-      send: () => CastResolvedItemsRequest(
-        fingerprint: castTo.fingerprint,
-        items: items,
-        startIndex: startIndex,
-        mode: operateMode,
-        expectedRevision: null,
-        playbackMode: instantlyPlay ? playbackMode : null,
-      ).sendSignalToRust(),
-    );
-  } else {
-    await awaitResponse(
-      'LoadResolvedItemsRequest',
-      LoadResolvedItemsResponse.rustSignalStream,
-      send: () => LoadResolvedItemsRequest(
-        items: items,
-        startIndex: startIndex,
-        mode: operateMode,
-        expectedRevision: null,
-        playbackMode: instantlyPlay ? playbackMode : null,
-      ).sendSignalToRust(),
-    );
-  }
+  await awaitResponse(
+    'LoadResolvedItemsRequest',
+    LoadResolvedItemsResponse.rustSignalStream,
+    send: () => LoadResolvedItemsRequest(
+      targetFingerprint: castTo != null && !castTo.attach
+          ? castTo.fingerprint
+          : null,
+      items: items,
+      startIndex: startIndex,
+      mode: operateMode,
+      expectedRevision: null,
+      playbackMode: instantlyPlay ? playbackMode : null,
+      positionSeconds: null,
+      play: null,
+    ).sendSignalToRust(),
+  );
 
   return items.map(PlayingItem.fromRequest).toList();
 }

@@ -54,7 +54,7 @@ impl Signal for SearchForRequest {
 }
 
 fn search_response(
-    call_id: u64,
+    call_id: Option<u64>,
     results: HashMap<CollectionQueryType, Vec<i64>>,
 ) -> SearchForResponse {
     let mut artists = Vec::new();
@@ -92,7 +92,7 @@ mod tests {
 
     #[test]
     fn search_handler_response_echoes_call_id() {
-        let response = search_response(42, HashMap::new());
-        assert_eq!(response.call_id, 42);
+        let response = search_response(Some(42), HashMap::new());
+        assert_eq!(response.call_id, Some(42));
     }
 }

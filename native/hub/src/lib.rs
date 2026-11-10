@@ -37,7 +37,7 @@ pub use utils::{RemoteEventDeclaration, RemoteEventScope, RinfRustSignal};
 
 use ::scrobbling::manager::ScrobblingManager;
 
-use macros::{receive_node_requests, start_bootstrap_request_receivers};
+use macros::{receive_node_requests, start_standalone_request_receivers};
 use utils::TaskTokens;
 
 use crate::utils::init_logging;
@@ -59,10 +59,16 @@ pub trait Signal: Sized {
     ) -> impl Future<Output = Result<Option<Self::Response>>> + Send;
 }
 
-pub trait CallIdentified {
-    fn call_id(&self) -> Option<u64> {
-        None
-    }
+pub trait RequestCallId {
+    fn call_id(&self) -> Option<u64>;
+}
+
+pub trait ResponseCallId {
+    fn set_call_id(&mut self, call_id: Option<u64>);
+}
+
+impl ResponseCallId for () {
+    fn set_call_id(&mut self, _call_id: Option<u64>) {}
 }
 
 /// A request whose wire name and response type are declared in the request catalogue.
@@ -107,7 +113,7 @@ async fn main() {
         None
     };
 
-    start_bootstrap_request_receivers();
+    start_standalone_request_receivers();
     tokio::spawn(receive_node_requests(
         node::node_slot(),
         utils::ProductionNodeRequestHandlers::new(Arc::clone(&scrobbler)),

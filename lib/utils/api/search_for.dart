@@ -51,7 +51,7 @@ Future<SearchForResponse> _searchFor(
     timeout: const Duration(seconds: 10),
     failures: failures,
     callId: callId,
-    responseCallId: (signal) => signal.message.callId.toInt(),
+    responseCallId: (signal) => signal.message.callId?.toInt(),
     send: () => sendRequest(
       SearchForRequest(
         callId: Uint64.fromBigInt(BigInt.from(callId)),

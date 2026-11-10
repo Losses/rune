@@ -322,6 +322,7 @@ impl Signal for VisualizerStatusRequest {
     ) -> Result<Option<Self::Response>> {
         let status = VISUALIZER.status();
         Ok(Some(VisualizerStatusResponse {
+            call_id: None,
             running: status.running,
             width: status.width,
             height: status.height,
@@ -389,7 +390,10 @@ impl Signal for ListVisualizerCreditsRequest {
                 assets: credit.assets,
             })
             .collect();
-        Ok(Some(ListVisualizerCreditsResponse { credits }))
+        Ok(Some(ListVisualizerCreditsResponse {
+            call_id: None,
+            credits,
+        }))
     }
 }
 
@@ -458,6 +462,7 @@ impl Signal for ImportVisualizerSceneRequest {
             }
         };
         Ok(Some(ImportVisualizerSceneResponse {
+            call_id: None,
             file: dart_signal.file.clone(),
             path,
             error,
@@ -503,6 +508,7 @@ impl Signal for RemoveVisualizerSceneRequest {
             }
         };
         Ok(Some(RemoveVisualizerSceneResponse {
+            call_id: None,
             path: dart_signal.path.clone(),
             error,
         }))
@@ -586,11 +592,13 @@ impl Signal for VisualizerSupportRequest {
             .await;
         Ok(Some(match gpu {
             Ok(adapter) => VisualizerSupportResponse {
+                call_id: None,
                 supported: true,
                 adapter: adapter.clone(),
                 problem: None,
             },
             Err(problem) => VisualizerSupportResponse {
+                call_id: None,
                 supported: false,
                 adapter: String::new(),
                 problem: Some(problem.clone()),
@@ -625,7 +633,10 @@ impl Signal for ListVisualizerPresetsRequest {
                 builtin: matches!(info.location, Location::Builtin(_)),
             })
             .collect();
-        Ok(Some(ListVisualizerPresetsResponse { presets }))
+        Ok(Some(ListVisualizerPresetsResponse {
+            call_id: None,
+            presets,
+        }))
     }
 }
 
@@ -828,6 +839,7 @@ impl Signal for VisualizerLabRequest {
                     .collect(),
             });
         Ok(Some(VisualizerLabResponse {
+            call_id: None,
             inspecting: VISUALIZER.is_inspecting(),
             song_time: inspect
                 .as_ref()
@@ -919,6 +931,10 @@ impl Signal for VisualizerPlanRequest {
                 values: series.values.clone(),
             }),
         });
-        Ok(Some(VisualizerPlanResponse { version, plan }))
+        Ok(Some(VisualizerPlanResponse {
+            call_id: None,
+            version,
+            plan,
+        }))
     }
 }

@@ -50,6 +50,7 @@ impl Signal for ListLogRequest {
         })?;
 
         Ok(Some(ListLogResponse {
+            call_id: None,
             result: result
                 .into_iter()
                 .map(|x| LogDetail {
@@ -86,7 +87,10 @@ impl Signal for ClearLogRequest {
             .await
             .with_context(|| "Failed to clear logs")?;
 
-        Ok(Some(ClearLogResponse { success: true }))
+        Ok(Some(ClearLogResponse {
+            call_id: None,
+            success: true,
+        }))
     }
 }
 
@@ -115,6 +119,7 @@ impl Signal for RemoveLogRequest {
             .with_context(|| format!("Failed to delete log with id={}", request.id))?;
 
         Ok(Some(RemoveLogResponse {
+            call_id: None,
             id: request.id,
             success: true,
         }))

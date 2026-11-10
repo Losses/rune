@@ -17,6 +17,8 @@ pub struct ComplexQuery {
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct ComplexQueryRequest {
     pub queries: Vec<ComplexQuery>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Clone, Serialize, Deserialize, SignalPiece)]
@@ -39,4 +41,6 @@ pub struct ComplexQueryGroup {
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct ComplexQueryResponse {
     pub result: Vec<ComplexQueryGroup>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }

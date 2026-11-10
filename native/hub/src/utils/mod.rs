@@ -969,6 +969,7 @@ pub(crate) async fn register_opendal_library_on_node(
     };
     if let Some(record) = existing {
         return RegisterLibraryResponse {
+            call_id: None,
             record: Some((&record).into()),
             outcome: RegisterLibraryOutcome::Registered,
             detail: None,
@@ -1056,6 +1057,7 @@ pub(crate) async fn register_opendal_library_on_node(
         log::warn!("Could not publish library record change: {error:#}");
     }
     RegisterLibraryResponse {
+        call_id: None,
         record: Some((&record).into()),
         outcome: RegisterLibraryOutcome::Registered,
         detail: None,
@@ -1067,6 +1069,7 @@ fn opendal_registration_failure(
     detail: &str,
 ) -> RegisterLibraryResponse {
     RegisterLibraryResponse {
+        call_id: None,
         record: None,
         outcome: RegisterLibraryOutcome::Failed(kind),
         detail: Some(detail.into()),
@@ -1081,6 +1084,7 @@ async fn register_local_library(
         Ok(node) => node,
         Err(error) => {
             return RegisterLibraryResponse {
+                call_id: None,
                 record: None,
                 outcome: RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::Storage),
                 detail: Some(format!("{error:#}")),
@@ -1095,6 +1099,7 @@ pub(crate) async fn register_local_library_on_node(
     node: &Arc<NodeContext>,
 ) -> RegisterLibraryResponse {
     let fail = |kind, error: anyhow::Error| RegisterLibraryResponse {
+        call_id: None,
         record: None,
         outcome: RegisterLibraryOutcome::Failed(kind),
         detail: Some(format!("{error:#}")),
@@ -1114,6 +1119,7 @@ pub(crate) async fn register_local_library_on_node(
     };
     if matches!(state, LibraryState::Uninitialized) && request.mode.is_none() {
         return RegisterLibraryResponse {
+            call_id: None,
             record: None,
             outcome: RegisterLibraryOutcome::NeedsInitializeMode,
             detail: None,
@@ -1134,6 +1140,7 @@ pub(crate) async fn register_local_library_on_node(
                 log::warn!("Could not publish library record change: {error:#}");
             }
             RegisterLibraryResponse {
+                call_id: None,
                 record: Some((&record).into()),
                 outcome: RegisterLibraryOutcome::Registered,
                 detail: None,
@@ -1154,6 +1161,7 @@ async fn register_remote_control(
         Ok(node) => node,
         Err(error) => {
             return RegisterLibraryResponse {
+                call_id: None,
                 record: None,
                 outcome: RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::Storage),
                 detail: Some(format!("{error:#}")),
@@ -1175,6 +1183,7 @@ pub(crate) async fn register_remote_control_on_node(
         .await;
     if hosts.is_empty() {
         return RegisterLibraryResponse {
+            call_id: None,
             record: None,
             outcome: RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::Untrusted),
             detail: Some("Fingerprint is not trusted".into()),
@@ -1192,17 +1201,20 @@ pub(crate) async fn register_remote_control_on_node(
                 log::warn!("Could not publish library record change: {error:#}");
             }
             RegisterLibraryResponse {
+                call_id: None,
                 record: Some((&record).into()),
                 outcome: RegisterLibraryOutcome::Registered,
                 detail: None,
             }
         }
         Err(error) if error.downcast_ref::<InvalidRecord>().is_some() => RegisterLibraryResponse {
+            call_id: None,
             record: None,
             outcome: RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::InvalidRecord),
             detail: Some(format!("{error:#}")),
         },
         Err(error) => RegisterLibraryResponse {
+            call_id: None,
             record: None,
             outcome: RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::Storage),
             detail: Some(format!("{error:#}")),
@@ -1303,6 +1315,7 @@ pub(crate) async fn register_subsonic_library_on_node(
         None if allowed.len() == 1 => allowed[0],
         None => {
             return RegisterLibraryResponse {
+                call_id: None,
                 record: None,
                 outcome: RegisterLibraryOutcome::NeedsSubsonicMode {
                     allowed: allowed.into_iter().map(Into::into).collect(),
@@ -1324,6 +1337,7 @@ pub(crate) async fn register_subsonic_library_on_node(
     {
         Ok(Some(record)) => {
             return RegisterLibraryResponse {
+                call_id: None,
                 record: Some((&record).into()),
                 outcome: RegisterLibraryOutcome::Registered,
                 detail: None,
@@ -1393,6 +1407,7 @@ pub(crate) async fn register_subsonic_library_on_node(
         log::warn!("Could not publish library record change: {error:#}");
     }
     RegisterLibraryResponse {
+        call_id: None,
         record: Some((&record).into()),
         outcome: RegisterLibraryOutcome::Registered,
         detail: None,
@@ -1481,6 +1496,7 @@ fn subsonic_registration_failure(
     detail: &'static str,
 ) -> RegisterLibraryResponse {
     RegisterLibraryResponse {
+        call_id: None,
         record: None,
         outcome: RegisterLibraryOutcome::Failed(kind),
         detail: Some(detail.into()),
@@ -2151,6 +2167,7 @@ mod moved_node_request_tests {
         )));
         let request = GetSyncSettingsRequest {
             request_id: "sync-settings-test".into(),
+            call_id: None,
         };
 
         let closed_response = handlers

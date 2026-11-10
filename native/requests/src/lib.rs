@@ -1,5 +1,4 @@
 use proc_macro::TokenStream;
-use proc_macro2::Span;
 use quote::{format_ident, quote};
 
 #[derive(Clone, Copy, PartialEq)]
@@ -19,10 +18,10 @@ enum RequestAccess {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum NodeReceiver {
-    Loop,
-    BootstrapNode,
-    BootstrapSubsystem,
+enum RequestReceiver {
+    Library,
+    NodeLoop,
+    Standalone,
 }
 
 struct RequestResponse {
@@ -30,12 +29,8 @@ struct RequestResponse {
     response: Option<String>,
     scope: RequestScope,
     access: RequestAccess,
-    call_id: bool,
     introduced_minor: Option<u32>,
-    // Listened to for the node's whole life rather than only while a UI library is open.
-    node_lifetime: bool,
-    // Selects the generated node loop or one of the independently started bootstrap paths.
-    node_receiver: Option<NodeReceiver>,
+    receiver: RequestReceiver,
 }
 
 fn snake_case(value: &str) -> String {
@@ -57,210 +52,168 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("AttachRendererResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "DetachRendererRequest".to_string(),
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "ListRenderersRequest".to_string(),
             response: Some("ListRenderersResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "HandoffRequest".to_string(),
             response: Some("HandoffResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "GetDeviceGrantsRequest".to_string(),
             response: Some("GetDeviceGrantsResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "SetDeviceGrantsRequest".to_string(),
             response: Some("SetDeviceGrantsResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "ListControllersRequest".to_string(),
             response: Some("ListControllersResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "DetachControllerRequest".to_string(),
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "ListLocalLibrariesRequest".to_string(),
             response: Some("ListLocalLibrariesResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "ListLibraryRecordsRequest".to_string(),
             response: Some("ListLibraryRecordsResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "RemoveLibraryRecordRequest".to_string(),
             response: Some("RemoveLibraryRecordResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "SetLibraryBackgroundSyncRequest".to_string(),
             response: Some("SetLibraryBackgroundSyncResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "RegisterLocalLibraryRequest".to_string(),
             response: Some("RegisterLibraryResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "RegisterRemoteControlRequest".to_string(),
             response: Some("RegisterLibraryResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "RegisterSubsonicLibraryRequest".to_string(),
             response: Some("RegisterLibraryResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "RegisterOpenDalLibraryRequest".to_string(),
             response: Some("RegisterLibraryResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "OpenLibraryRequest".to_string(),
             response: Some("OpenLibraryResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: true,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "InitializeNodeRequest".to_string(),
             response: Some("InitializeNodeResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::BootstrapNode),
+            receiver: RequestReceiver::Standalone,
         },
         RequestResponse {
             request: "RunFsSelfTestRequest".to_string(),
             response: Some("RunFsSelfTestResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::BootstrapSubsystem),
+            receiver: RequestReceiver::Standalone,
         },
         RequestResponse {
             request: "ListPeerLibrariesRequest".to_string(),
             response: Some("ListPeerLibrariesResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "AddRemoteLibraryRequest".to_string(),
             response: Some("AddRemoteLibraryResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         // Library
         RequestResponse {
@@ -268,100 +221,80 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("GetSyncSettingsResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "SetSyncSettingsRequest".to_string(),
             response: Some("SetSyncSettingsResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "SetDownloadRuleRequest".to_string(),
             response: Some("SetDownloadRuleResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "RemoveDownloadRuleRequest".to_string(),
             response: Some("RemoveDownloadRuleResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "TestLibraryInitializedRequest".to_string(),
             response: Some("TestLibraryInitializedResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "CloseLibraryRequest".to_string(),
             response: Some("CloseLibraryResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "CancelTaskRequest".to_string(),
             response: Some("CancelTaskResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::Administer,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "ScanAudioLibraryRequest".to_string(),
             response: None,
             scope: RequestScope::Library,
             access: RequestAccess::Administer,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "AnalyzeAudioLibraryRequest".to_string(),
             response: None,
             scope: RequestScope::Library,
             access: RequestAccess::Administer,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "DeduplicateAudioLibraryRequest".to_string(),
             response: None,
             scope: RequestScope::Library,
             access: RequestAccess::Administer,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         // Playback
         RequestResponse {
@@ -369,130 +302,104 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("VolumeResponse".to_string()),
             scope: RequestScope::Session,
             access: RequestAccess::Control,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "LoadRequest".to_string(),
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "PlayRequest".to_string(),
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "PauseRequest".to_string(),
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "NextRequest".to_string(),
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "PreviousRequest".to_string(),
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "SwitchRequest".to_string(),
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "SeekRequest".to_string(),
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "RemoveRequest".to_string(),
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "SetPlaybackModeRequest".to_string(),
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "MovePlaylistItemRequest".to_string(),
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "SetRealtimeFFTEnabledRequest".to_string(),
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "SetAdaptiveSwitchingEnabledRequest".to_string(),
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         // This device's own audio session, so never forwarded to a renderer.
         RequestResponse {
@@ -500,10 +407,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         // Visualizer (the GPU and the frame buffer live in this process)
         RequestResponse {
@@ -511,230 +416,184 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "StopVisualizerRequest".to_string(),
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "ResizeVisualizerRequest".to_string(),
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "SetVisualizerPresetDirsRequest".to_string(),
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "SetVisualizerAccentRequest".to_string(),
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "SetVisualizerVisibleRequest".to_string(),
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "LoadVisualizerPresetRequest".to_string(),
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "NextVisualizerPresetRequest".to_string(),
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "PreviousVisualizerPresetRequest".to_string(),
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "RandomVisualizerPresetRequest".to_string(),
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "ImportVisualizerSceneRequest".to_string(),
             response: Some("ImportVisualizerSceneResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "RemoveVisualizerSceneRequest".to_string(),
             response: Some("RemoveVisualizerSceneResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "SetVisualizerScenesRequest".to_string(),
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "SetVisualizerLogRequest".to_string(),
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "SetVisualizerLabRequest".to_string(),
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "VisualizerLabCommandRequest".to_string(),
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "VisualizerLabRequest".to_string(),
             response: Some("VisualizerLabResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "VisualizerPlanRequest".to_string(),
             response: Some("VisualizerPlanResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "VisualizerSupportRequest".to_string(),
             response: Some("VisualizerSupportResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "VisualizerStatusRequest".to_string(),
             response: Some("VisualizerStatusResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "ListVisualizerPresetsRequest".to_string(),
             response: Some("ListVisualizerPresetsResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "ListVisualizerCreditsRequest".to_string(),
             response: Some("ListVisualizerCreditsResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "VisualizerTextureShownRequest".to_string(),
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         // SFX
         RequestResponse {
@@ -742,10 +601,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         // Analyze
         RequestResponse {
@@ -753,20 +610,16 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("IfAnalyzeExistsResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "GetAnalyzeCountRequest".to_string(),
             response: Some("GetAnalyzeCountResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         // Media File
         RequestResponse {
@@ -774,40 +627,32 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("FetchMediaFilesResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "FetchMediaFileByIdsRequest".to_string(),
             response: Some("FetchMediaFileByIdsResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "FetchParsedMediaFileRequest".to_string(),
             response: Some("FetchParsedMediaFileResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "SearchMediaFileSummaryRequest".to_string(),
             response: Some("SearchMediaFileSummaryResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         // Lyric
         RequestResponse {
@@ -815,20 +660,16 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("GetMediaFilesCountResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "GetLyricByTrackIdRequest".to_string(),
             response: Some("GetLyricByTrackIdResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         // Collection
         RequestResponse {
@@ -836,40 +677,32 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("CollectionGroupSummaryResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "FetchCollectionGroupsRequest".to_string(),
             response: Some("FetchCollectionGroupsResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "FetchCollectionByIdsRequest".to_string(),
             response: Some("FetchCollectionByIdsResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "SearchCollectionSummaryRequest".to_string(),
             response: Some("SearchCollectionSummaryResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         // Cover Art
         RequestResponse {
@@ -877,20 +710,16 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("GetCoverArtIdsByMixQueriesResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "GetPrimaryColorByTrackIdRequest".to_string(),
             response: Some("GetPrimaryColorByTrackIdResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         // Playlist
         RequestResponse {
@@ -898,90 +727,72 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("FetchAllPlaylistsResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "CreatePlaylistRequest".to_string(),
             response: Some("CreatePlaylistResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "CreateM3u8PlaylistRequest".to_string(),
             response: Some("CreateM3u8PlaylistResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "UpdatePlaylistRequest".to_string(),
             response: Some("UpdatePlaylistResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "RemovePlaylistRequest".to_string(),
             response: Some("RemovePlaylistResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "AddItemToPlaylistRequest".to_string(),
             response: Some("AddItemToPlaylistResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "ReorderPlaylistItemPositionRequest".to_string(),
             response: Some("ReorderPlaylistItemPositionResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "FetchPlaylistOccurrencesRequest".to_string(),
             response: Some("FetchPlaylistOccurrencesResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "GetPlaylistByIdRequest".to_string(),
             response: Some("GetPlaylistByIdResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         // Mix
         RequestResponse {
@@ -989,150 +800,104 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("FetchAllMixesResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "CreateMixRequest".to_string(),
             response: Some("CreateMixResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "UpdateMixRequest".to_string(),
             response: Some("UpdateMixResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "RemoveMixRequest".to_string(),
             response: Some("RemoveMixResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "AddItemToMixRequest".to_string(),
             response: Some("AddItemToMixResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "GetMixByIdRequest".to_string(),
             response: Some("GetMixByIdResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "MixQueryRequest".to_string(),
             response: Some("MixQueryResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "FetchMixQueriesRequest".to_string(),
             response: Some("FetchMixQueriesResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "ResolveMixQueryRequest".to_string(),
             response: Some("ResolveMixQueryResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "LoadResolvedItemsRequest".to_string(),
             response: Some("LoadResolvedItemsResponse".to_string()),
             scope: RequestScope::Session,
             access: RequestAccess::Control,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
-        },
-        RequestResponse {
-            request: "CastResolvedItemsRequest".to_string(),
-            response: Some("CastResolvedItemsResponse".to_string()),
-            scope: RequestScope::Node,
-            access: RequestAccess::NodeLocal,
-            call_id: false,
-            introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "CastPreflightRequest".to_string(),
             response: Some("CastPreflightResponse".to_string()),
             scope: RequestScope::Session,
             access: RequestAccess::Control,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
-        },
-        RequestResponse {
-            request: "CastLoadRequest".to_string(),
-            response: Some("CastLoadResponse".to_string()),
-            scope: RequestScope::Session,
-            access: RequestAccess::Control,
-            call_id: false,
-            introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "RefreshSessionRequest".to_string(),
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "SessionSnapshotRequest".to_string(),
             response: Some("SessionSnapshotResponse".to_string()),
             scope: RequestScope::Session,
             access: RequestAccess::Control,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         // Like
         RequestResponse {
@@ -1140,20 +905,16 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("SetLikedResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "GetLikedRequest".to_string(),
             response: Some("GetLikedResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         // Query and Search
         RequestResponse {
@@ -1161,20 +922,16 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("ComplexQueryResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "SearchForRequest".to_string(),
             response: Some("SearchForResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: true,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         // Directory
         RequestResponse {
@@ -1182,10 +939,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("FetchDirectoryTreeResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         // Scrobbler
         RequestResponse {
@@ -1193,30 +948,24 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("AuthenticateSingleServiceResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "AuthenticateMultipleServiceRequest".to_string(),
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "LogoutSingleServiceRequest".to_string(),
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         // Log
         RequestResponse {
@@ -1224,30 +973,24 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("ListLogResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "ClearLogRequest".to_string(),
             response: Some("ClearLogResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "RemoveLogRequest".to_string(),
             response: Some("RemoveLogResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         // System
         RequestResponse {
@@ -1255,10 +998,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("SystemInfoResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         // License
         RequestResponse {
@@ -1266,20 +1007,16 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("RegisterLicenseResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "ValidateLicenseRequest".to_string(),
             response: Some("ValidateLicenseResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         // Neighbors
         RequestResponse {
@@ -1287,227 +1024,173 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "StopBroadcastRequest".to_string(),
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "StartListeningRequest".to_string(),
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "StopListeningRequest".to_string(),
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "GetDiscoveredDeviceRequest".to_string(),
             response: Some("GetDiscoveredDeviceResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "StartServerRequest".to_string(),
             response: Some("StartServerResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "StopServerRequest".to_string(),
             response: Some("StopServerResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "ListClientsRequest".to_string(),
             response: Some("ListClientsResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "GetSslCertificateFingerprintRequest".to_string(),
             response: Some("GetSslCertificateFingerprintResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "AddTrustedServerRequest".to_string(),
             response: Some("AddTrustedServerResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "RemoveTrustedClientRequest".to_string(),
             response: Some("RemoveTrustedClientResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "UpdateClientStatusRequest".to_string(),
             response: Some("UpdateClientStatusResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "EditHostsRequest".to_string(),
             response: Some("EditHostsResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "RemoveTrustedServerRequest".to_string(),
             response: Some("RemoveTrustedServerResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "ServerAvailabilityTestRequest".to_string(),
             response: Some("ServerAvailabilityTestResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "RegisterDeviceOnServerRequest".to_string(),
             response: Some("RegisterDeviceOnServerResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "CheckDeviceOnServerRequest".to_string(),
             response: Some("CheckDeviceOnServerResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "ConnectRequest".to_string(),
             response: Some("ConnectResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "FetchServerCertificateRequest".to_string(),
             response: Some("FetchServerCertificateResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: true,
-            node_receiver: Some(NodeReceiver::Loop),
+            receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "FetchRemoteFileRequest".to_string(),
             response: Some("FetchRemoteFileResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
         RequestResponse {
             request: "RemoveItemFromPlaylistRequest".to_string(),
             response: Some("RemoveItemFromPlaylistResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
-            call_id: false,
             introduced_minor: None,
-            node_lifetime: false,
-            node_receiver: None,
+            receiver: RequestReceiver::Library,
         },
     ];
 
     let (with_response, without_response): (Vec<_>, Vec<_>) =
         types.iter().partition(|t| t.response.is_some());
-
-    if types
-        .iter()
-        .any(|entry| entry.node_lifetime != entry.node_receiver.is_some())
-    {
-        return syn::Error::new(
-            Span::call_site(),
-            "node-lifetime requests must declare exactly one receiver path",
-        )
-        .to_compile_error()
-        .into();
-    }
 
     let mut all_responses: Vec<_> = with_response
         .iter()
@@ -1527,26 +1210,28 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
     let local_gui_requests: Vec<_> = all_requests
         .iter()
         .filter(|request| {
-            types
-                .iter()
-                .any(|entry| *request == entry.request.as_str() && !entry.node_lifetime)
+            types.iter().any(|entry| {
+                *request == entry.request.as_str() && entry.receiver == RequestReceiver::Library
+            })
         })
         .collect();
 
-    let call_id_impls: Vec<_> = all_requests
+    let request_call_id_impls: Vec<_> = all_requests
         .iter()
         .map(|request| {
-            let call_id = types
-                .iter()
-                .any(|entry| *request == entry.request && entry.call_id);
-            let method = if call_id {
-                quote! { fn call_id(&self) -> Option<u64> { Some(self.call_id) } }
-            } else {
-                quote! {}
-            };
             quote! {
-                impl crate::CallIdentified for crate::messages::#request {
-                    #method
+                impl crate::RequestCallId for crate::messages::#request {
+                    fn call_id(&self) -> Option<u64> { self.call_id }
+                }
+            }
+        })
+        .collect();
+    let response_call_id_impls: Vec<_> = all_responses
+        .iter()
+        .map(|response| {
+            quote! {
+                impl crate::ResponseCallId for crate::messages::#response {
+                    fn set_call_id(&mut self, call_id: Option<u64>) { self.call_id = call_id; }
                 }
             }
         })
@@ -1585,18 +1270,24 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
 
     let gui_request_impls = types.iter().map(|entry| {
         let request = format_ident!("{}", entry.request);
-        let emit = if entry.response.is_some() {
-            quote! { if let Some(response) = _response { _emit(&response); } }
+        let emit_response = if entry.response.is_some() {
+            quote! {
+                if let Some(mut response) = response {
+                    response.set_call_id(request.call_id());
+                    emit(&response);
+                }
+            }
         } else {
-            quote! {}
+            quote! { let _ = (request, response, emit); }
         };
         quote! {
             impl GuiRequest for #request {
                 fn emit_response(
-                    _response: Option<Self::Response>,
-                    _emit: &impl Fn(&dyn RinfRustSignal),
+                    request: &Self,
+                    response: Option<Self::Response>,
+                    emit: &impl Fn(&dyn RinfRustSignal),
                 ) {
-                    #emit
+                    #emit_response
                 }
             }
         }
@@ -1734,7 +1425,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         .collect();
     let node_loop_requests: Vec<_> = types
         .iter()
-        .filter(|entry| entry.node_receiver == Some(NodeReceiver::Loop))
+        .filter(|entry| entry.receiver == RequestReceiver::NodeLoop)
         .map(|entry| {
             (
                 syn::parse_str::<syn::Ident>(&entry.request).unwrap(),
@@ -1744,18 +1435,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             )
         })
         .collect();
-    let bootstrap_requests: Vec<_> = [
-        NodeReceiver::BootstrapSubsystem,
-        NodeReceiver::BootstrapNode,
-    ]
-    .into_iter()
-    .flat_map(|kind| {
-        types
-            .iter()
-            .filter(move |entry| entry.node_receiver == Some(kind))
-            .map(|entry| syn::parse_str::<syn::Ident>(&entry.request).unwrap())
-    })
-    .collect();
+    let bootstrap_requests: Vec<_> = types
+        .iter()
+        .filter(|entry| entry.receiver == RequestReceiver::Standalone)
+        .map(|entry| syn::parse_str::<syn::Ident>(&entry.request).unwrap())
+        .collect();
     let node_handler_methods = node_loop_requests
         .iter()
         .map(|(request, response, method, _)| {
@@ -1797,11 +1481,12 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             }
         });
     let bootstrap_starts = bootstrap_requests.iter().map(|request| {
-        quote! { <#request as BootstrapRequestReceiver>::start(); }
+        quote! { <#request as StandaloneRequestReceiver>::start(); }
     });
 
     let expanded = quote! {
-        #(#call_id_impls)*
+        #(#request_call_id_impls)*
+        #(#response_call_id_impls)*
         #(#typed_request_impls)*
         #(#target_request_impls)*
         pub trait RequestTranslator: Send + Sync {
@@ -1813,7 +1498,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             #(#node_handler_methods)*
         }
 
-        pub(crate) trait BootstrapRequestReceiver {
+        pub(crate) trait StandaloneRequestReceiver {
             fn start();
         }
 
@@ -1821,7 +1506,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             #(#node_receiver_params)*
         }
 
-        pub(crate) fn start_bootstrap_request_receivers() {
+        pub(crate) fn start_standalone_request_receivers() {
             #(#bootstrap_starts)*
         }
 
@@ -1875,10 +1560,10 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             emit: &impl Fn(&dyn RinfRustSignal),
         )
         where
-            T: GuiRequest + TypedRequest + CallIdentified,
+            T: GuiRequest + TypedRequest + crate::RequestCallId,
         {
             match result {
-                Ok(response) => T::emit_response(response, emit),
+                Ok(response) => T::emit_response(request, response, emit),
                 Err(error) => {
                     log::warn!("Request {} failed: {error:#}", T::wire_name());
                     emit(&RequestFailedResponse::for_request(
@@ -1988,7 +1673,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         }
 
         #[cfg(test)]
-        pub(crate) fn bootstrap_request_names() -> &'static [&'static str] {
+        pub(crate) fn standalone_request_names() -> &'static [&'static str] {
             &[#(stringify!(#bootstrap_requests)),*]
         }
 

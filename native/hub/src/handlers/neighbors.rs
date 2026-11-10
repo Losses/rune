@@ -238,6 +238,7 @@ impl Signal for GetDiscoveredDeviceRequest {
             .collect();
 
         Ok(Some(GetDiscoveredDeviceResponse {
+            call_id: None,
             devices: devices_message,
         }))
     }
@@ -301,10 +302,12 @@ impl Signal for StartServerRequest {
 
             match server_manager.start(addr, discovery_params).await {
                 Ok(_) => Ok(Some(StartServerResponse {
+                    call_id: None,
                     success: true,
                     error: String::new(),
                 })),
                 Err(e) => Ok(Some(StartServerResponse {
+                    call_id: None,
                     success: false,
                     error: format!("{e:#?}"),
                 })),
@@ -355,10 +358,12 @@ impl Signal for StopServerRequest {
         .await;
         match result {
             Ok(_) => Ok(Some(StopServerResponse {
+                call_id: None,
                 success: true,
                 error: "".into(),
             })),
             Err(e) => Ok(Some(StopServerResponse {
+                call_id: None,
                 success: false,
                 error: format!("{e:#?}"),
             })),
@@ -401,6 +406,7 @@ impl Signal for ListClientsRequest {
             .collect();
 
         Ok(Some(ListClientsResponse {
+            call_id: None,
             success: true,
             users: converted_users,
             error: String::new(),
@@ -434,7 +440,10 @@ impl Signal for GetSslCertificateFingerprintRequest {
                 .await
                 .context("Failed to initialize certificates")?;
 
-        Ok(Some(GetSslCertificateFingerprintResponse { fingerprint }))
+        Ok(Some(GetSslCertificateFingerprintResponse {
+            call_id: None,
+            fingerprint,
+        }))
     }
 }
 
@@ -467,10 +476,12 @@ impl Signal for RemoveTrustedClientRequest {
         }
         match result {
             Ok(_) => Ok(Some(RemoveTrustedClientResponse {
+                call_id: None,
                 success: true,
                 error: String::new(),
             })),
             Err(e) => Ok(Some(RemoveTrustedClientResponse {
+                call_id: None,
                 success: false,
                 error: format!("{e:#?}"),
             })),
@@ -502,6 +513,7 @@ impl Signal for ServerAvailabilityTestRequest {
             Ok(x) => x,
             Err(e) => {
                 return Ok(Some(ServerAvailabilityTestResponse {
+                    call_id: None,
                     success: false,
                     error: format!("{e:#?}"),
                 }));
@@ -513,10 +525,12 @@ impl Signal for ServerAvailabilityTestRequest {
 
         Ok(Some(match host {
             Ok(_) => ServerAvailabilityTestResponse {
+                call_id: None,
                 success: true,
                 error: String::new(),
             },
             Err(e) => ServerAvailabilityTestResponse {
+                call_id: None,
                 success: false,
                 error: format!("{e:#?}"),
             },
@@ -571,10 +585,12 @@ impl Signal for UpdateClientStatusRequest {
         .await;
         match result {
             Ok(_) => Ok(Some(UpdateClientStatusResponse {
+                call_id: None,
                 success: true,
                 error: String::new(),
             })),
             Err(e) => Ok(Some(UpdateClientStatusResponse {
+                call_id: None,
                 success: false,
                 error: format!("{e:#?}"),
             })),
@@ -607,6 +623,7 @@ impl Signal for EditHostsRequest {
         )
         .await?;
         Ok(Some(EditHostsResponse {
+            call_id: None,
             success: true,
             error: String::new(),
         }))
@@ -641,6 +658,7 @@ impl Signal for AddTrustedServerRequest {
         }
 
         Ok(Some(AddTrustedServerResponse {
+            call_id: None,
             success: true,
             error: String::new(),
         }))
@@ -676,10 +694,12 @@ impl Signal for RemoveTrustedServerRequest {
         }
         match result {
             Ok(_) => Ok(Some(RemoveTrustedServerResponse {
+                call_id: None,
                 success: true,
                 error: String::new(),
             })),
             Err(e) => Ok(Some(RemoveTrustedServerResponse {
+                call_id: None,
                 success: false,
                 error: format!("{e:#?}"),
             })),
@@ -730,6 +750,7 @@ impl Signal for RegisterDeviceOnServerRequest {
         )
         .await?;
         Ok(Some(RegisterDeviceOnServerResponse {
+            call_id: None,
             success: true,
             error: String::new(),
         }))
@@ -775,6 +796,7 @@ impl Signal for CheckDeviceOnServerRequest {
                 };
 
                 Ok(Some(CheckDeviceOnServerResponse {
+                    call_id: None,
                     success: true,
                     error: String::new(),
                     status: Some(status),
@@ -820,6 +842,7 @@ impl Signal for ConnectRequest {
             match task.await {
                 Ok(Ok(host)) => {
                     return Ok(Some(ConnectResponse {
+                        call_id: None,
                         success: true,
                         connected_host: host,
                         error: String::new(),
@@ -831,6 +854,7 @@ impl Signal for ConnectRequest {
         }
 
         Ok(Some(ConnectResponse {
+            call_id: None,
             success: false,
             connected_host: String::new(),
             error: last_err.map(|e| e.to_string()).unwrap_or_default(),
@@ -856,11 +880,13 @@ impl Signal for FetchServerCertificateRequest {
     ) -> Result<Option<Self::Response>> {
         match fetch_server_certificate(&req.url).await {
             Ok(cert) => Ok(Some(FetchServerCertificateResponse {
+                call_id: None,
                 success: true,
                 fingerprint: cert.fingerprint,
                 error: String::new(),
             })),
             Err(e) => Ok(Some(FetchServerCertificateResponse {
+                call_id: None,
                 success: false,
                 fingerprint: String::new(),
                 error: format!("{e:#?}"),
@@ -979,6 +1005,7 @@ impl Signal for FetchRemoteFileRequest {
             Ok(url) => url,
             Err(e) => {
                 return Ok(Some(FetchRemoteFileResponse {
+                    call_id: None,
                     success: false,
                     local_path: String::new(),
                     error: format!("Invalid URL: {e}"),
@@ -991,6 +1018,7 @@ impl Signal for FetchRemoteFileRequest {
             Some(host) => host.to_string(),
             None => {
                 return Ok(Some(FetchRemoteFileResponse {
+                    call_id: None,
                     success: false,
                     local_path: String::new(),
                     error: "Missing host in URL".to_string(),
@@ -1001,6 +1029,7 @@ impl Signal for FetchRemoteFileRequest {
         let port = url.port().unwrap_or(7863);
         if url.scheme() != "https" || url.set_port(Some(port)).is_err() {
             return Ok(Some(FetchRemoteFileResponse {
+                call_id: None,
                 success: false,
                 local_path: String::new(),
                 error: "Remote file URL must be an HTTPS URL with a valid port".to_string(),
@@ -1013,6 +1042,7 @@ impl Signal for FetchRemoteFileRequest {
             .and_then(|(_, value)| Uuid::parse_str(&value).ok());
         let Some(library_id) = library_id else {
             return Ok(Some(FetchRemoteFileResponse {
+                call_id: None,
                 success: false,
                 local_path: String::new(),
                 error: "Remote file URL must include a valid library_id".to_string(),
@@ -1029,6 +1059,7 @@ impl Signal for FetchRemoteFileRequest {
 
         if file_name.is_empty() {
             return Ok(Some(FetchRemoteFileResponse {
+                call_id: None,
                 success: false,
                 local_path: String::new(),
                 error: "Invalid file path in URL".to_string(),
@@ -1037,6 +1068,7 @@ impl Signal for FetchRemoteFileRequest {
 
         if file_name.len() != 64 || !file_name.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Ok(Some(FetchRemoteFileResponse {
+                call_id: None,
                 success: false,
                 local_path: String::new(),
                 error: "Remote cover file name must be a BLAKE3 digest".to_string(),
@@ -1048,6 +1080,7 @@ impl Signal for FetchRemoteFileRequest {
             Ok(fingerprint) => fingerprint,
             Err(error) => {
                 return Ok(Some(FetchRemoteFileResponse {
+                    call_id: None,
                     success: false,
                     local_path: String::new(),
                     error: format!("Failed to authorize remote host: {error:#}"),
@@ -1062,6 +1095,7 @@ impl Signal for FetchRemoteFileRequest {
             .context("remote file cache path has no parent")?;
         if let Err(e) = fs::create_dir_all(cache_dir) {
             return Ok(Some(FetchRemoteFileResponse {
+                call_id: None,
                 success: false,
                 local_path: String::new(),
                 error: format!("Failed to create temp directory: {e}"),
@@ -1072,6 +1106,7 @@ impl Signal for FetchRemoteFileRequest {
         // within that peer and library, so a cached copy needs no new download.
         if local_path.exists() {
             return Ok(Some(FetchRemoteFileResponse {
+                call_id: None,
                 success: true,
                 local_path: local_path.to_string_lossy().into_owned(),
                 error: String::new(),
@@ -1091,6 +1126,7 @@ impl Signal for FetchRemoteFileRequest {
             Ok(res) => res,
             Err(e) => {
                 return Ok(Some(FetchRemoteFileResponse {
+                    call_id: None,
                     success: false,
                     local_path: String::new(),
                     error: format!("Failed to fetch remote file: {e:#}"),
@@ -1100,6 +1136,7 @@ impl Signal for FetchRemoteFileRequest {
 
         if !res.status().is_success() {
             return Ok(Some(FetchRemoteFileResponse {
+                call_id: None,
                 success: false,
                 local_path: String::new(),
                 error: format!("HTTP request failed with status: {}", res.status()),
@@ -1111,6 +1148,7 @@ impl Signal for FetchRemoteFileRequest {
             Ok(body) => body,
             Err(e) => {
                 return Ok(Some(FetchRemoteFileResponse {
+                    call_id: None,
                     success: false,
                     local_path: String::new(),
                     error: format!("Failed to read response body: {e}"),
@@ -1122,6 +1160,7 @@ impl Signal for FetchRemoteFileRequest {
             Ok(path) => path,
             Err(error) => {
                 return Ok(Some(FetchRemoteFileResponse {
+                    call_id: None,
                     success: false,
                     local_path: String::new(),
                     error: format!("Failed to verify or publish remote file: {error:#}"),
@@ -1131,6 +1170,7 @@ impl Signal for FetchRemoteFileRequest {
 
         // Return the successful response with the local file path
         Ok(Some(FetchRemoteFileResponse {
+            call_id: None,
             success: true,
             local_path: published_path.to_string_lossy().into_owned(),
             error: String::new(),

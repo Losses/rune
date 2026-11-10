@@ -19,6 +19,8 @@ pub enum CollectionType {
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct FetchCollectionGroupSummaryRequest {
     pub collection_type: CollectionType,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Clone, Serialize, Deserialize, SignalPiece)]
@@ -31,6 +33,8 @@ pub struct CollectionGroupSummary {
 pub struct CollectionGroupSummaryResponse {
     pub collection_type: CollectionType,
     pub groups: Vec<CollectionGroupSummary>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
@@ -38,6 +42,8 @@ pub struct FetchCollectionGroupsRequest {
     pub collection_type: CollectionType,
     pub bake_cover_arts: bool,
     pub group_titles: Vec<String>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Clone, Serialize, Deserialize, SignalPiece)]
@@ -59,6 +65,8 @@ pub struct CollectionGroup {
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct FetchCollectionGroupsResponse {
     pub groups: Vec<CollectionGroup>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
@@ -66,12 +74,16 @@ pub struct FetchCollectionByIdsRequest {
     pub collection_type: CollectionType,
     pub bake_cover_arts: bool,
     pub ids: Vec<i32>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct FetchCollectionByIdsResponse {
     pub collection_type: CollectionType,
     pub result: Vec<Collection>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
@@ -79,10 +91,14 @@ pub struct SearchCollectionSummaryRequest {
     pub collection_type: Option<CollectionType>,
     pub bake_cover_arts: Option<bool>,
     pub n: i32,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct SearchCollectionSummaryResponse {
     pub collection_type: CollectionType,
     pub result: Vec<Collection>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }

@@ -29,11 +29,32 @@ void main() {
       sendRequest: requests.add,
     );
 
-    responses.add(_response(requests[1].callId.toInt(), tracks: const [2]));
-    responses.add(_response(requests[0].callId.toInt(), tracks: const [1]));
+    responses.add(_response(requests[1].callId!.toInt(), tracks: const [2]));
+    responses.add(_response(requests[0].callId!.toInt(), tracks: const [1]));
 
     expect((await searchA).tracks, [1]);
     expect((await searchB).tracks, [2]);
+    await responses.close();
+    await failures.close();
+  });
+
+  test('a reply from an older search is ignored by the newer search', () async {
+    final responses =
+        StreamController<RustSignalPack<SearchForResponse>>.broadcast();
+    final failures = StreamController<RequestFailedResponse>.broadcast();
+    final requests = <SearchForRequest>[];
+    final search = searchForWithStreams(
+      'new query',
+      fields: const ['tracks'],
+      responses: responses.stream,
+      failures: failures.stream,
+      sendRequest: requests.add,
+    );
+
+    responses.add(_response(requests.single.callId!.toInt() - 1, tracks: const [1]));
+    responses.add(_response(requests.single.callId!.toInt(), tracks: const [2]));
+
+    expect((await search).tracks, [2]);
     await responses.close();
     await failures.close();
   });
@@ -65,12 +86,12 @@ void main() {
       sendRequest: requests.add,
     );
 
-    failures.add(_failure(requests[1].callId.toInt()));
+    failures.add(_failure(requests[1].callId!.toInt()));
     await expectLater(searchB, throwsA(isA<RequestFailure>()));
     await Future<void>.delayed(Duration.zero);
     expect(searchACompleted, isFalse);
 
-    failures.add(_failure(requests[0].callId.toInt()));
+    failures.add(_failure(requests[0].callId!.toInt()));
     await expectLater(searchA, throwsA(isA<RequestFailure>()));
     await responses.close();
     await failures.close();

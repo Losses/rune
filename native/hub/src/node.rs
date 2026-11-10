@@ -37,7 +37,7 @@ use tokio_util::sync::CancellationToken;
 use crate::access_policy::{Action, Denial, RuneAccessPolicy};
 use crate::backends::remote::{RemoteConnectError, RendererLink, RendererLinkUse};
 use crate::macros::{
-    BootstrapRequestReceiver, RequestAccess, RequestScope, capability_snapshot, request_access,
+    RequestAccess, RequestScope, StandaloneRequestReceiver, capability_snapshot, request_access,
     request_scope,
 };
 use crate::request_error::ExpectedRequestError;
@@ -489,14 +489,14 @@ impl NodeContext {
             anyhow::bail!("test pause failure");
         }
 
-        match source.call(&PauseRequest {}).await {
+        match source.call(&PauseRequest { call_id: None }).await {
             Ok(()) => Ok(true),
             Err(first_error) => {
                 let (retry_link, _) = self
                     .connect_renderer(fingerprint, RendererLinkUse::Cast)
                     .await
                     .with_context(|| format!("Pause source renderer {fingerprint}"))?;
-                let result = retry_link.call(&PauseRequest {}).await;
+                let result = retry_link.call(&PauseRequest { call_id: None }).await;
                 retry_link.close();
                 result
                     .context("Pause source renderer after reconnect")
@@ -1195,6 +1195,7 @@ impl NodeSlot {
             Err(error) => (Some(classify(&error)), Some(format!("{error:#}"))),
         };
         InitializeNodeResponse {
+            call_id: None,
             success: error.is_none(),
             error_kind,
             error,
@@ -1239,7 +1240,7 @@ pub async fn receive_initialize_node() {
     }
 }
 
-impl BootstrapRequestReceiver for InitializeNodeRequest {
+impl StandaloneRequestReceiver for InitializeNodeRequest {
     fn start() {
         tokio::spawn(receive_initialize_node());
     }

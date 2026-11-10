@@ -42,12 +42,14 @@ impl Signal for TestLibraryInitializedRequest {
         let result = match test_result {
             Ok(state) => match &state {
                 LibraryState::Uninitialized => TestLibraryInitializedResponse {
+                    call_id: None,
                     path: media_library_path.clone(),
                     success: true,
                     error: None,
                     not_ready: true,
                 },
                 LibraryState::Initialized(_) => TestLibraryInitializedResponse {
+                    call_id: None,
                     path: media_library_path.clone(),
                     success: true,
                     error: None,
@@ -55,6 +57,7 @@ impl Signal for TestLibraryInitializedRequest {
                 },
             },
             Err(e) => TestLibraryInitializedResponse {
+                call_id: None,
                 path: media_library_path.clone(),
                 success: false,
                 error: Some(format!("{e:#?}")),

@@ -15,6 +15,8 @@ pub enum LibraryInitializeMode {
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct TestLibraryInitializedRequest {
     pub path: String,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
@@ -23,6 +25,8 @@ pub struct TestLibraryInitializedResponse {
     pub success: bool,
     pub error: Option<String>,
     pub not_ready: bool,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,12 +42,16 @@ pub struct RegisterLocalLibraryRequest {
     pub path: String,
     pub alias: String,
     pub mode: Option<LibraryInitializeMode>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct RegisterRemoteControlRequest {
     pub fingerprint: String,
     pub alias: String,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,6 +85,8 @@ pub struct RegisterSubsonicLibraryRequest {
     pub password: String,
     pub alias: String,
     pub mode: Option<SubsonicOpenModeMessage>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
@@ -101,6 +111,8 @@ pub enum OpenDalLibraryService {
 pub struct RegisterOpenDalLibraryRequest {
     pub service: OpenDalLibraryService,
     pub alias: String,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
@@ -267,7 +279,10 @@ impl From<LibraryConnectionAccess> for LibraryConnectionAccessSummary {
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
-pub struct ListLibraryRecordsRequest {}
+pub struct ListLibraryRecordsRequest {
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct ListLibraryRecordsResponse {
@@ -275,6 +290,8 @@ pub struct ListLibraryRecordsResponse {
     pub invalid_records: Vec<InvalidLibraryRecordSummary>,
     pub open: Option<OpenRecord>,
     pub last_open_record: Option<String>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
@@ -293,6 +310,8 @@ pub struct LibraryRecordsChanged {
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct RemoveLibraryRecordRequest {
     pub record_id: String,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
@@ -310,6 +329,8 @@ pub enum RemoveLibraryRecordOutcome {
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct RemoveLibraryRecordResponse {
     pub outcome: RemoveLibraryRecordOutcome,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
@@ -348,11 +369,14 @@ pub struct RegisterLibraryResponse {
     pub record: Option<LibraryRecordSummary>,
     pub outcome: RegisterLibraryOutcome,
     pub detail: Option<String>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct OpenLibraryRequest {
-    pub call_id: u64,
+    #[serde(default)]
+    pub call_id: Option<u64>,
     pub record_id: String,
 }
 
@@ -384,7 +408,8 @@ pub struct OpenLibraryFailure {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct OpenLibraryResponse {
-    pub call_id: u64,
+    #[serde(default)]
+    pub call_id: Option<u64>,
     pub record_id: String,
     pub generation: u64,
     pub result: OpenLibraryResult,
@@ -433,11 +458,16 @@ pub struct AttachedControllerInfo {
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
-pub struct ListControllersRequest {}
+pub struct ListControllersRequest {
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
 
 #[derive(Serialize, Deserialize, SignalPiece, RustSignal)]
 pub struct ListControllersResponse {
     pub controllers: Vec<AttachedControllerInfo>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, RustSignal)]
@@ -448,6 +478,8 @@ pub struct ControllersUpdated {
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct DetachControllerRequest {
     pub id: String,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
@@ -468,6 +500,7 @@ mod tests {
 
     fn round_trip(service: OpenDalLibraryService) {
         let request = RegisterOpenDalLibraryRequest {
+            call_id: None,
             service: service.clone(),
             alias: "music".into(),
         };

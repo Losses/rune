@@ -48,6 +48,7 @@ impl Signal for SystemInfoRequest {
         );
 
         Ok(Some(SystemInfoResponse {
+            call_id: None,
             build_date: option_env!("VERGEN_BUILD_DATE")
                 .unwrap_or_default()
                 .to_owned(),

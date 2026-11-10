@@ -61,7 +61,7 @@ impl Signal for CloseLibraryRequest {
         let CloseLibraryParams { main_token, node } = params;
         info!("Closing open library");
         node.close_ui(&main_token).await;
-        Ok(Some(CloseLibraryResponse {}))
+        Ok(Some(CloseLibraryResponse { call_id: None }))
     }
 }
 
@@ -579,6 +579,7 @@ impl Signal for CancelTaskRequest {
                 if tokens.analyze_record_id.as_deref() == Some(&request.record_id) {
                     let Some(token) = tokens.analyze_token.take() else {
                         return Ok(Some(CancelTaskResponse {
+                            call_id: None,
                             record_id: request.record_id.clone(),
                             r#type: request.r#type,
                             success: false,
@@ -610,6 +611,7 @@ impl Signal for CancelTaskRequest {
                 if tokens.deduplicate_record_id.as_deref() == Some(&request.record_id) {
                     let Some(token) = tokens.deduplicate_token.take() else {
                         return Ok(Some(CancelTaskResponse {
+                            call_id: None,
                             record_id: request.record_id.clone(),
                             r#type: request.r#type,
                             success: false,
@@ -626,6 +628,7 @@ impl Signal for CancelTaskRequest {
         };
 
         Ok(Some(CancelTaskResponse {
+            call_id: None,
             record_id: request.record_id.clone(),
             r#type: request.r#type,
             success,
@@ -761,6 +764,7 @@ mod scan_supervisor_tests {
             ..Default::default()
         }));
         let request = CancelTaskRequest {
+            call_id: None,
             record_id: "library".into(),
             scan_id: Some("old".into()),
             r#type: CancelTaskType::ScanAudioLibrary,
@@ -779,6 +783,7 @@ mod scan_supervisor_tests {
         let capture = Arc::new(Capture::default());
         let tokens = Arc::new(Mutex::new(TaskTokens::default()));
         let request = ScanAudioLibraryRequest {
+            call_id: None,
             scan_id: "handler".into(),
             force: false,
         };
@@ -830,6 +835,7 @@ mod scan_supervisor_tests {
         };
 
         let request = ScanAudioLibraryRequest {
+            call_id: None,
             scan_id: "replica".into(),
             force: false,
         };

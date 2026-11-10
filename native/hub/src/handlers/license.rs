@@ -106,6 +106,7 @@ impl Signal for RegisterLicenseRequest {
             Ok(content) => content,
             Err(e) => {
                 return Ok(Some(RegisterLicenseResponse {
+                    call_id: None,
                     valid: false,
                     license: None,
                     success: false,
@@ -129,6 +130,7 @@ impl Signal for RegisterLicenseRequest {
         let valid = LICENSES.contains(&validation_hash.as_str());
 
         Ok(Some(RegisterLicenseResponse {
+            call_id: None,
             valid,
             license: Some(license_hash),
             success: true,
@@ -189,15 +191,18 @@ impl Signal for ValidateLicenseRequest {
         let response = match store_license {
             Ok(license) => match license {
                 Some((_, _, is_trial)) => ValidateLicenseResponse {
+                    call_id: None,
                     is_pro: is_pro || !is_trial,
                     is_store_mode: true,
                 },
                 _ => ValidateLicenseResponse {
+                    call_id: None,
                     is_pro,
                     is_store_mode,
                 },
             },
             Err(_) => ValidateLicenseResponse {
+                call_id: None,
                 is_pro,
                 is_store_mode,
             },

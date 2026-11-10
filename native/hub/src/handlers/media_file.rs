@@ -92,6 +92,7 @@ impl Signal for FetchMediaFilesRequest {
         )
         .await?;
         Ok(Some(FetchMediaFilesResponse {
+            call_id: None,
             media_files,
             cover_art_map,
         }))
@@ -158,6 +159,7 @@ impl Signal for FetchMediaFileByIdsRequest {
         );
 
         Ok(Some(FetchMediaFileByIdsResponse {
+            call_id: None,
             media_files: items,
             cover_art_map,
         }))
@@ -212,6 +214,7 @@ impl Signal for FetchParsedMediaFileRequest {
             .with_context(|| "Failed to query album")?;
 
         Ok(Some(FetchParsedMediaFileResponse {
+            call_id: None,
             file: media_file.clone(),
             artists: artists
                 .into_iter()
@@ -277,6 +280,7 @@ impl Signal for SearchMediaFileSummaryRequest {
         )
         .await?;
         Ok(Some(SearchMediaFileSummaryResponse {
+            call_id: None,
             result: media_summaries
                 .into_iter()
                 .map(|x| MediaFileSummary {
@@ -323,6 +327,7 @@ impl Signal for GetMediaFilesCountRequest {
             .with_context(|| "Failed to get media files count")?;
 
         Ok(Some(GetMediaFilesCountResponse {
+            call_id: None,
             count: count.try_into()?,
         }))
     }

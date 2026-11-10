@@ -136,7 +136,10 @@ async fn pending_rows_are_returned_and_reported_without_becoming_playable() -> R
     assert_eq!(states[2].1, AudioAvailability::Unavailable);
     assert!(states[1].2.is_empty());
     assert!(states[2].2.is_empty());
-    let request = SearchMediaFileSummaryRequest { n: 50 };
+    let request = SearchMediaFileSummaryRequest {
+        call_id: None,
+        n: 50,
+    };
     let library = request_library(
         db.clone(),
         Arc::new(fsio.clone()),
@@ -266,7 +269,10 @@ async fn queued_downloads_with_content_remain_streamable() -> Result<()> {
             AudioAvailability::RemoteOnly,
             "the client must retain its remote playback action while download is pending"
         );
-        let request = SearchMediaFileSummaryRequest { n: 10 };
+        let request = SearchMediaFileSummaryRequest {
+            call_id: None,
+            n: 10,
+        };
         let response = request
             .handle((Some(library.clone()),), None, &request)
             .await?

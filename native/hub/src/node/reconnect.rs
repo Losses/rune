@@ -85,7 +85,7 @@ impl ReconnectTask {
                 node.finish_reconnect(&fingerprint, connected, loss, &task_cancel)
             });
             if let Some(link) = restored
-                && let Err(error) = link.call(&RefreshSessionRequest {}).await
+                && let Err(error) = link.call(&RefreshSessionRequest { call_id: None }).await
             {
                 log::warn!("Could not refresh reconnected session: {error:#}");
             }

@@ -147,6 +147,7 @@ impl Signal for ListLibraryRecordsRequest {
     ) -> Result<Option<Self::Response>> {
         let (records, invalid_records, open) = record_summaries(&node).await?;
         Ok(Some(ListLibraryRecordsResponse {
+            call_id: None,
             records,
             invalid_records,
             open,
@@ -177,6 +178,7 @@ impl Signal for RemoveLibraryRecordRequest {
     ) -> Result<Option<Self::Response>> {
         let Ok(id) = Uuid::parse_str(&request.record_id) else {
             return Ok(Some(RemoveLibraryRecordResponse {
+                call_id: None,
                 outcome: RemoveLibraryRecordOutcome::Failed(
                     RemoveLibraryRecordFailureKind::RecordNotFound,
                 ),
@@ -189,6 +191,7 @@ impl Signal for RemoveLibraryRecordRequest {
             == Some(id)
         {
             return Ok(Some(RemoveLibraryRecordResponse {
+                call_id: None,
                 outcome: RemoveLibraryRecordOutcome::Failed(
                     RemoveLibraryRecordFailureKind::RecordIsOpen,
                 ),
@@ -207,6 +210,7 @@ impl Signal for RemoveLibraryRecordRequest {
                 .any(|(record_id, _)| record_id.0 == id)
         {
             return Ok(Some(RemoveLibraryRecordResponse {
+                call_id: None,
                 outcome: RemoveLibraryRecordOutcome::Failed(
                     RemoveLibraryRecordFailureKind::RecordNotFound,
                 ),
@@ -215,6 +219,7 @@ impl Signal for RemoveLibraryRecordRequest {
         let library_id = record.and_then(|record| record.catalog_library_id());
         if !LibraryRegistry::remove_record(config, LibraryRecordId(id), &node.credentials).await? {
             return Ok(Some(RemoveLibraryRecordResponse {
+                call_id: None,
                 outcome: RemoveLibraryRecordOutcome::Failed(
                     RemoveLibraryRecordFailureKind::RecordNotFound,
                 ),
@@ -226,6 +231,7 @@ impl Signal for RemoveLibraryRecordRequest {
         }
         publish_library_records_changed(&node).await?;
         Ok(Some(RemoveLibraryRecordResponse {
+            call_id: None,
             outcome: RemoveLibraryRecordOutcome::Removed,
         }))
     }
@@ -265,7 +271,10 @@ impl Signal for ListLocalLibrariesRequest {
                 })
             })
             .collect();
-        Ok(Some(ListLocalLibrariesResponse { libraries }))
+        Ok(Some(ListLocalLibrariesResponse {
+            call_id: None,
+            libraries,
+        }))
     }
 }
 
@@ -303,6 +312,7 @@ impl Signal for SetLibraryBackgroundSyncRequest {
             publish_library_records_changed(&node).await?;
         }
         Ok(Some(SetLibraryBackgroundSyncResponse {
+            call_id: None,
             error: result.err().map(|error| format!("{error:#}")),
         }))
     }
@@ -319,7 +329,7 @@ mod tests {
     use fsio::FsIo;
 
     async fn list(config: &Arc<String>) -> Result<Vec<LocalLibrary>> {
-        let request = ListLocalLibrariesRequest {};
+        let request = ListLocalLibrariesRequest { call_id: None };
         Ok(request
             .handle(config.clone(), None, &request)
             .await?
@@ -333,6 +343,7 @@ mod tests {
         enabled: bool,
     ) -> Result<Option<String>> {
         let request = SetLibraryBackgroundSyncRequest {
+            call_id: None,
             library_id,
             enabled,
         };

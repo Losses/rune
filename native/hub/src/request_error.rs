@@ -240,7 +240,7 @@ mod tests {
             detail: "invalid cast item".into(),
             cause: None,
         })
-        .context("CastLoadRequest");
+        .context("LoadResolvedItemsRequest");
         assert_eq!(classify(&error), RequestErrorKind::InvalidInput);
     }
 

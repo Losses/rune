@@ -13,17 +13,23 @@ pub struct LoginRequestItem {
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct AuthenticateSingleServiceRequest {
     pub request: Option<LoginRequestItem>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct AuthenticateSingleServiceResponse {
     pub success: bool,
     pub error: Option<String>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct AuthenticateMultipleServiceRequest {
     pub requests: Vec<LoginRequestItem>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Clone, Serialize, Deserialize, SignalPiece)]
@@ -41,4 +47,6 @@ pub struct ScrobbleServiceStatusUpdated {
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct LogoutSingleServiceRequest {
     pub service_id: String,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }

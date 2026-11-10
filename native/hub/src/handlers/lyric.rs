@@ -57,6 +57,7 @@ impl Signal for GetLyricByTrackIdRequest {
         };
 
         Ok(Some(GetLyricByTrackIdResponse {
+            call_id: None,
             item: item.clone(),
             lines,
         }))

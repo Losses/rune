@@ -47,6 +47,7 @@ impl Signal for SetLikedRequest {
                         .copied();
                     let Some(file_id) = file_id else {
                         return Ok(Some(SetLikedResponse {
+                            call_id: None,
                             item: item.clone(),
                             liked: false,
                             success: false,
@@ -67,22 +68,26 @@ impl Signal for SetLikedRequest {
                     })?;
 
                     SetLikedResponse {
+                        call_id: None,
                         item: item.clone(),
                         liked: request.liked,
                         success: true,
                     }
                 }
                 PlayingItem::IndependentFile(_) => SetLikedResponse {
+                    call_id: None,
                     item: item.clone(),
                     liked: false,
                     success: false,
                 },
                 PlayingItem::InLibrary(_) | PlayingItem::Online(_, _) => SetLikedResponse {
+                    call_id: None,
                     item: item.clone(),
                     liked: false,
                     success: false,
                 },
                 PlayingItem::Unknown => SetLikedResponse {
+                    call_id: None,
                     item: item.clone(),
                     liked: false,
                     success: false,
@@ -129,6 +134,7 @@ impl Signal for GetLikedRequest {
                         .copied()
                     else {
                         return Ok(Some(GetLikedResponse {
+                            call_id: None,
                             item: item.clone(),
                             liked: false,
                         }));
@@ -138,19 +144,23 @@ impl Signal for GetLikedRequest {
                         .with_context(|| format!("Failed to get liked: file_id={file_id}"))?;
 
                     GetLikedResponse {
+                        call_id: None,
                         item: item.clone(),
                         liked,
                     }
                 }
                 PlayingItem::IndependentFile(_) => GetLikedResponse {
+                    call_id: None,
                     item: item.clone(),
                     liked: false,
                 },
                 PlayingItem::InLibrary(_) | PlayingItem::Online(_, _) => GetLikedResponse {
+                    call_id: None,
                     item: item.clone(),
                     liked: false,
                 },
                 PlayingItem::Unknown => GetLikedResponse {
+                    call_id: None,
                     item: item.clone(),
                     liked: false,
                 },

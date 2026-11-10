@@ -18,12 +18,16 @@ pub struct ResolveMixQueryRequest {
     pub instantly_play: bool,
     pub fallback_playing_items: Vec<PlayingItemRequest>,
     pub exclude_local_queue: bool,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct ResolveMixQueryResponse {
     pub playing_items: Vec<PlayingItemRequest>,
     pub start_index: Option<u32>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
@@ -32,12 +36,16 @@ pub struct MixQueryRequest {
     pub cursor: i32,
     pub page_size: i32,
     pub bake_cover_arts: bool,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct MixQueryResponse {
     pub files: Vec<MediaFile>,
     pub cover_art_map: HashMap<i32, String>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Clone, Serialize, Deserialize, SignalPiece)]
@@ -50,11 +58,16 @@ pub struct Mix {
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
-pub struct FetchAllMixesRequest {}
+pub struct FetchAllMixesRequest {
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct FetchAllMixesResponse {
     pub mixes: Vec<Mix>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
@@ -64,11 +77,15 @@ pub struct CreateMixRequest {
     pub scriptlet_mode: bool,
     pub mode: i32,
     pub queries: Vec<MixQuery>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct CreateMixResponse {
     pub mix: Mix,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
@@ -79,22 +96,30 @@ pub struct UpdateMixRequest {
     pub scriptlet_mode: bool,
     pub mode: i32,
     pub queries: Vec<MixQuery>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct UpdateMixResponse {
     pub mix: Mix,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct RemoveMixRequest {
     pub mix_id: i32,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct RemoveMixResponse {
     pub mix_id: i32,
     pub success: bool,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
@@ -102,26 +127,36 @@ pub struct AddItemToMixRequest {
     pub mix_id: i32,
     pub operator: String,
     pub parameter: String,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct AddItemToMixResponse {
     pub success: bool,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct GetMixByIdRequest {
     pub mix_id: i32,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct GetMixByIdResponse {
     pub mix: Mix,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct FetchMixQueriesRequest {
     pub mix_id: i32,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Serialize, SignalPiece)]
@@ -136,4 +171,6 @@ pub struct StoredMixQuery {
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct FetchMixQueriesResponse {
     pub result: Vec<StoredMixQuery>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }

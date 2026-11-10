@@ -89,6 +89,7 @@ impl Signal for GetCoverArtIdsByMixQueriesRequest {
         });
 
         Ok(Some(GetCoverArtIdsByMixQueriesResponse {
+            call_id: None,
             result: join_all(files_futures).await,
         }))
     }
@@ -133,10 +134,12 @@ impl Signal for GetPrimaryColorByTrackIdRequest {
 
                     match primary_color {
                         Some(x) => GetPrimaryColorByTrackIdResponse {
+                            call_id: None,
                             item,
                             primary_color: Some(x),
                         },
                         None => GetPrimaryColorByTrackIdResponse {
+                            call_id: None,
                             item,
                             primary_color: None,
                         },

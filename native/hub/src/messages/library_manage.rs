@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct InitializeNodeRequest {
     pub config_path: String,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
@@ -11,18 +13,28 @@ pub struct InitializeNodeResponse {
     pub success: bool,
     pub error_kind: Option<super::RequestErrorKind>,
     pub error: Option<String>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
-pub struct CloseLibraryRequest {}
+pub struct CloseLibraryRequest {
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
 
 #[derive(Deserialize, Serialize, RustSignal)]
-pub struct CloseLibraryResponse {}
+pub struct CloseLibraryResponse {
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct ScanAudioLibraryRequest {
     pub scan_id: String,
     pub force: bool,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,6 +71,8 @@ pub enum ComputingDeviceRequest {
 pub struct AnalyzeAudioLibraryRequest {
     pub computing_device: ComputingDeviceRequest,
     pub workload_factor: f32,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
@@ -78,6 +92,8 @@ pub struct AnalyzeAudioLibraryResponse {
 pub struct DeduplicateAudioLibraryRequest {
     pub similarity_threshold: f32,
     pub workload_factor: f32,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
@@ -104,6 +120,8 @@ pub struct CancelTaskRequest {
     pub scan_id: Option<String>,
     pub record_id: String,
     pub r#type: CancelTaskType,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, RustSignal)]
@@ -111,6 +129,8 @@ pub struct CancelTaskResponse {
     pub record_id: String,
     pub r#type: CancelTaskType,
     pub success: bool,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 /// Library records changed after a sync transaction or audio import.

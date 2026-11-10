@@ -31,7 +31,11 @@ impl Signal for IfAnalyzeExistsRequest {
         let exists = if_analyze_exists(&library.main_db, file_id)
             .await
             .with_context(|| format!("Failed to test if analysis exists: {file_id}"))?;
-        Ok(Some(IfAnalyzeExistsResponse { file_id, exists }))
+        Ok(Some(IfAnalyzeExistsResponse {
+            call_id: None,
+            file_id,
+            exists,
+        }))
     }
 }
 
@@ -54,6 +58,9 @@ impl Signal for GetAnalyzeCountRequest {
     ) -> Result<Option<Self::Response>> {
         let library = require_library(library)?;
         let count = get_analyze_count(&library.main_db).await?;
-        Ok(Some(GetAnalyzeCountResponse { count }))
+        Ok(Some(GetAnalyzeCountResponse {
+            call_id: None,
+            count,
+        }))
     }
 }

@@ -51,6 +51,7 @@ impl Signal for FetchAllPlaylistsRequest {
             .with_context(|| "Failed to fetch all playlists")?;
 
         Ok(Some(FetchAllPlaylistsResponse {
+            call_id: None,
             playlists: playlists
                 .into_iter()
                 .map(|playlist| Playlist {
@@ -99,6 +100,7 @@ impl Signal for CreatePlaylistRequest {
             path: library.display_name.clone(),
         });
         Ok(Some(CreatePlaylistResponse {
+            call_id: None,
             playlist: Playlist {
                 id: playlist.id,
                 name: playlist.name,
@@ -150,6 +152,7 @@ impl Signal for UpdatePlaylistRequest {
             path: library.display_name.clone(),
         });
         Ok(Some(UpdatePlaylistResponse {
+            call_id: None,
             playlist: Playlist {
                 id: playlist.id,
                 name: playlist.name,
@@ -191,6 +194,7 @@ impl Signal for RemovePlaylistRequest {
             path: library.display_name.clone(),
         });
         Ok(Some(RemovePlaylistResponse {
+            call_id: None,
             playlist_id: request.playlist_id,
             success: true,
         }))
@@ -236,6 +240,7 @@ impl Signal for AddItemToPlaylistRequest {
             path: library.display_name.clone(),
         });
         Ok(Some(AddItemToPlaylistResponse {
+            call_id: None,
             success: true,
             occurrence_id: entry.hlc_uuid,
         }))
@@ -278,7 +283,10 @@ impl Signal for ReorderPlaylistItemPositionRequest {
         broadcaster.broadcast(&LibraryContentChanged {
             path: library.display_name.clone(),
         });
-        Ok(Some(ReorderPlaylistItemPositionResponse { success: true }))
+        Ok(Some(ReorderPlaylistItemPositionResponse {
+            call_id: None,
+            success: true,
+        }))
     }
 }
 
@@ -309,6 +317,7 @@ impl Signal for GetPlaylistByIdRequest {
             .with_context(|| format!("Playlist not found with id: {}", request.playlist_id))?;
 
         Ok(Some(GetPlaylistByIdResponse {
+            call_id: None,
             playlist: Playlist {
                 id: playlist.id,
                 name: playlist.name,
@@ -370,6 +379,7 @@ impl Signal for CreateM3u8PlaylistRequest {
                     path: library.display_name.clone(),
                 });
                 Ok(Some(CreateM3u8PlaylistResponse {
+                    call_id: None,
                     playlist: Some(Playlist {
                         id: playlist.id,
                         name: playlist.name,
@@ -382,6 +392,7 @@ impl Signal for CreateM3u8PlaylistRequest {
                 }))
             }
             Err(e) => Ok(Some(CreateM3u8PlaylistResponse {
+                call_id: None,
                 playlist: None,
                 imported_count: Some(0),
                 not_found_paths: vec![],
@@ -426,11 +437,13 @@ impl Signal for RemoveItemFromPlaylistRequest {
                     path: library.display_name.clone(),
                 });
                 Ok(Some(RemoveItemFromPlaylistResponse {
+                    call_id: None,
                     success: true,
                     error: String::new(),
                 }))
             }
             Err(e) => Ok(Some(RemoveItemFromPlaylistResponse {
+                call_id: None,
                 success: false,
                 error: e.to_string(),
             })),
@@ -500,6 +513,7 @@ impl Signal for FetchPlaylistOccurrencesRequest {
             &remote_host,
         );
         Ok(Some(FetchPlaylistOccurrencesResponse {
+            call_id: None,
             request_id: request.request_id.clone(),
             entries: page
                 .entries

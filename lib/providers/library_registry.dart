@@ -160,7 +160,7 @@ class LibraryRegistryProvider extends ChangeNotifier {
             'OpenLibraryRequest',
             OpenLibraryResponse.rustSignalStream,
             callId: callId.toInt(),
-            responseCallId: (response) => response.message.callId.toInt(),
+            responseCallId: (response) => response.message.callId?.toInt(),
             send: () => OpenLibraryRequest(
               callId: callId,
               recordId: recordId,

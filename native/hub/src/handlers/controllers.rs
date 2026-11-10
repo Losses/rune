@@ -29,6 +29,7 @@ impl Signal for ListControllersRequest {
         _: &Self,
     ) -> Result<Option<Self::Response>> {
         Ok(Some(ListControllersResponse {
+            call_id: None,
             controllers: node.session()?.attached_controllers(),
         }))
     }

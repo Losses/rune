@@ -126,6 +126,7 @@ impl Signal for GetDeviceGrantsRequest {
             })
             .collect();
         Ok(Some(GetDeviceGrantsResponse {
+            call_id: None,
             libraries,
             grants: DeviceGrantsInfo {
                 control: grants.control,
@@ -217,10 +218,12 @@ impl Signal for SetDeviceGrantsRequest {
         .await;
         Ok(Some(match result {
             Ok(()) => SetDeviceGrantsResponse {
+                call_id: None,
                 error_kind: None,
                 error: None,
             },
             Err(error) => SetDeviceGrantsResponse {
+                call_id: None,
                 error_kind: Some(classify(&error)),
                 error: Some(format!("{error:#}")),
             },
