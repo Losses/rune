@@ -31,7 +31,7 @@ void main() {
       ),
       'My Device',
     );
-    expect(deviceAccessSummary(grants(), s), 'Guest · Can control playback');
+    expect(deviceAccessSummary(grants(), s), 'Guest');
     expect(
       deviceAccessSummary(
         grants(
@@ -45,7 +45,7 @@ void main() {
         ),
         s,
       ),
-      'Guest · Can control playback',
+      'Guest',
     );
     expect(
       deviceAccessSummary(
@@ -92,7 +92,7 @@ void main() {
         isControlling: true,
         strings: s,
       ),
-      'Guest · Can control playback · Controlling Now',
+      'Controlling Now',
     );
     expect(
       deviceRowSubtitle(
@@ -101,7 +101,7 @@ void main() {
         isControlling: false,
         strings: s,
       ),
-      'Guest · Can control playback',
+      'Guest',
     );
     expect(
       deviceRowSubtitle(

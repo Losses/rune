@@ -144,7 +144,7 @@ class _LargeScreenTrackListItemState extends State<LargeScreenTrackListItem> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            widget.item.artistWithAvailability(context),
+                            widget.item.artist,
                             style: typography.caption?.apply(
                               color: typography.caption?.color?.withAlpha(117),
                             ),

@@ -1380,9 +1380,7 @@
   "@offlineSelectionRetained": {
     "description": "Explains that disabling downloads does not delete audio."
   },
-  "audioRemoteReference": "Audio remoto (connessione sconosciuta)",
   "audioUnavailable": "Audio non disponibile",
-  "audioImportPending": "Importazione in corso",
   "allowPairedSync": "Consenti la sincronizzazione",
   "@allowPairedSync": {
     "description": "Label for allowing incoming paired device sync"
@@ -1390,10 +1388,6 @@
   "allowPairedSyncDescription": "Disattiva per impedire agli altri dispositivi di connettersi a questo dispositivo.",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
-  },
-  "audioSyncedCopy": "Copia sincronizzata",
-  "@audioSyncedCopy": {
-    "description": "Label for audio downloaded from a paired device."
   },
   "offlineCleanupDefault": "Elimina i download non necessari",
   "@offlineCleanupDefault": {
@@ -1422,6 +1416,9 @@
   },
   "remoteLossServerStopped": "L’altro dispositivo ha interrotto la condivisione.",
   "remoteLossNetworkLost": "La connessione è stata persa.",
+  "syncToThisDevice": "Sincronizza Su Questo Dispositivo",
+  "libraryNotShared": "Non condivisa",
+  "controlPermissionRequired": "Nessun controllo della riproduzione",
   "deviceLibraries": "Librerie",
   "addSharedLibrary": "Aggiungi",
   "sharedLibraryAdded": "Aggiunta",
@@ -1494,7 +1491,6 @@
   "guest": "Ospite",
   "myDeviceAccessDescription": "Può riprodurre, esplorare e sincronizzare le tue librerie",
   "guestAccessDescription": "Può controllare la riproduzione ed esplorare durante il controllo",
-  "guestControlSummary": "Ospite · Può controllare la riproduzione",
   "customDeviceAccess": "Personalizzato",
   "customizeDevice": "Personalizza",
   "controlPlayback": "Controlla riproduzione",

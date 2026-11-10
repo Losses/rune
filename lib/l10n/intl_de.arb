@@ -1378,9 +1378,7 @@
   "@offlineSelectionRetained": {
     "description": "Explains that disabling downloads does not delete audio."
   },
-  "audioRemoteReference": "Audio auf entferntem Gerät (Verbindung unbekannt)",
   "audioUnavailable": "Audio nicht verfügbar",
-  "audioImportPending": "Import läuft",
   "allowPairedSync": "Gerätesynchronisierung erlauben",
   "@allowPairedSync": {
     "description": "Label for allowing incoming paired device sync"
@@ -1388,10 +1386,6 @@
   "allowPairedSyncDescription": "Ausschalten, damit sich keine anderen Geräte mehr mit diesem Gerät verbinden können.",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
-  },
-  "audioSyncedCopy": "Synchronisierte Kopie",
-  "@audioSyncedCopy": {
-    "description": "Label for audio downloaded from a paired device."
   },
   "offlineCleanupDefault": "Nicht mehr benötigte Downloads löschen",
   "@offlineCleanupDefault": {
@@ -1420,6 +1414,9 @@
   },
   "remoteLossServerStopped": "Das andere Gerät hat die Freigabe beendet.",
   "remoteLossNetworkLost": "Die Verbindung wurde unterbrochen.",
+  "syncToThisDevice": "Auf Dieses Gerät Synchronisieren",
+  "libraryNotShared": "Nicht freigegeben",
+  "controlPermissionRequired": "Keine Wiedergabesteuerung",
   "deviceLibraries": "Bibliotheken",
   "addSharedLibrary": "Hinzufügen",
   "sharedLibraryAdded": "Hinzugefügt",
@@ -1492,7 +1489,6 @@
   "guest": "Gast",
   "myDeviceAccessDescription": "Kann deine Mediatheken abspielen, durchsuchen und synchronisieren",
   "guestAccessDescription": "Kann die Wiedergabe steuern und dabei browsen",
-  "guestControlSummary": "Gast · Kann die Wiedergabe steuern",
   "customDeviceAccess": "Benutzerdefiniert",
   "customizeDevice": "Anpassen",
   "controlPlayback": "Wiedergabe steuern",

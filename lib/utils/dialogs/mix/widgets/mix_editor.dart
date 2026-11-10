@@ -178,13 +178,7 @@ class _MixEditorState extends State<MixEditor> {
                     _searchItems(query, 'tracks', (x) async {
                       final files = await fetchMediaFileByIds(x, false);
                       if (!context.mounted) return <(int, String)>[];
-                      return files.map((x) {
-                        final label = x.availabilityLabel(context);
-                        return (
-                          x.id,
-                          label == null ? x.title : '${x.title} • $label',
-                        );
-                      }).toList();
+                      return files.map((x) => (x.id, x.title)).toList();
                     }),
               ),
               NumberSection(

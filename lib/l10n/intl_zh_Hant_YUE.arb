@@ -1349,6 +1349,9 @@
   },
   "remoteLossServerStopped": "另一部裝置已停止分享。",
   "remoteLossNetworkLost": "連線已中斷。",
+  "syncToThisDevice": "同步到此裝置",
+  "libraryNotShared": "冇共享",
+  "controlPermissionRequired": "控制唔到播放",
   "deviceLibraries": "音樂庫",
   "addSharedLibrary": "加入",
   "sharedLibraryAdded": "已加入",
@@ -1421,7 +1424,6 @@
   "guest": "訪客",
   "myDeviceAccessDescription": "可以播放、瀏覽和同步你嘅音樂庫",
   "guestAccessDescription": "可以控制播放並在控制時瀏覽",
-  "guestControlSummary": "訪客 · 可以控制播放",
   "customDeviceAccess": "自訂",
   "customizeDevice": "自訂",
   "controlPlayback": "控制播放",
@@ -1633,9 +1635,7 @@
   "@offlineSelectionRetained": {
     "description": "Explains that disabling downloads does not delete audio."
   },
-  "audioRemoteReference": "遠端音訊",
   "audioUnavailable": "音訊用唔到",
-  "audioImportPending": "匯入中",
   "allowPairedSync": "允許同步",
   "@allowPairedSync": {
     "description": "Label for allowing incoming paired device sync"
@@ -1643,10 +1643,6 @@
   "allowPairedSyncDescription": "關閉後，其他裝置將連唔到至呢部裝置。",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
-  },
-  "audioSyncedCopy": "已同步的副本",
-  "@audioSyncedCopy": {
-    "description": "Label for audio downloaded from a paired device."
   },
   "offlineCleanupDefault": "刪除不需要的下載",
   "@offlineCleanupDefault": {

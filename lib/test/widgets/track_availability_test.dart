@@ -38,71 +38,19 @@ void main() {
               return Column(
                 children: [
                   for (final row in rows)
-                    Text(
-                      '${row.audioAvailability.name}: ${row.canPlay}: ${row.availabilityLabel(context) ?? "local"}',
-                    ),
+                    Text('${row.audioAvailability.name}: ${row.canPlay}'),
                 ],
               );
             },
           ),
         ),
       );
-      expect(find.text('local: true: local'), findsOneWidget);
-      expect(
-        find.text('remoteOnly: true: Remote Audio'),
-        findsOneWidget,
-      );
-      expect(
-        find.text('unavailable: false: Audio Unavailable'),
-        findsOneWidget,
-      );
-      expect(
-        find.text('importPending: false: Importing'),
-        findsOneWidget,
-      );
+      expect(find.text('local: true'), findsOneWidget);
+      expect(find.text('remoteOnly: true'), findsOneWidget);
+      expect(find.text('unavailable: false'), findsOneWidget);
+      expect(find.text('importPending: false'), findsOneWidget);
     },
   );
-  testWidgets('synced copies show their origin next to the artist', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      FluentApp(
-        locale: const Locale('en'),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: Builder(
-          builder: (context) => Column(
-            children: [
-              Text(
-                item(
-                  AudioAvailability.local,
-                  AudioOrigin.syncedCopy,
-                ).artistWithAvailability(context),
-              ),
-              Text(
-                item(
-                  AudioAvailability.local,
-                  AudioOrigin.host,
-                ).artistWithAvailability(context),
-              ),
-              Text(
-                item(
-                  AudioAvailability.remoteOnly,
-                  AudioOrigin.remote,
-                ).artistWithAvailability(context),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    expect(find.text('Artist • Synced Copy'), findsOneWidget);
-    expect(find.text('Artist'), findsOneWidget);
-    expect(
-      find.text('Artist • Remote Audio'),
-      findsOneWidget,
-    );
-  });
   testWidgets('pending rows stay visible but cannot start playback', (
     tester,
   ) async {
@@ -133,16 +81,10 @@ void main() {
     }
 
     await render(AudioAvailability.importPending);
-    expect(find.textContaining('Importing'), findsOneWidget);
     expect(tester.widget<Button>(find.byType(Button).first).onPressed, isNull);
     await render(AudioAvailability.unavailable);
-    expect(find.textContaining('Audio Unavailable'), findsOneWidget);
     expect(tester.widget<Button>(find.byType(Button).first).onPressed, isNull);
     await render(AudioAvailability.remoteOnly);
-    expect(
-      find.textContaining('Remote Audio'),
-      findsOneWidget,
-    );
     expect(
       tester.widget<Button>(find.byType(Button).first).onPressed,
       isNotNull,

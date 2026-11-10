@@ -15,7 +15,6 @@ import 'dialogs/failed_to_initialize_library.dart';
 import 'dialogs/information/error.dart';
 import 'dialogs/information/information.dart';
 import '../screens/settings_neighbors/utils/show_search_remote_device_dialog.dart';
-import '../screens/settings_neighbors/utils/show_server_status_dialog.dart';
 import 'l10n.dart';
 import 'library_registry_messages.dart';
 import 'router/navigation.dart';
@@ -65,14 +64,12 @@ Future<void> addLocalFolderLibrary(
   }
 }
 
-Future<void> addRuneDeviceLibrary(
+Future<void> pairRuneDevice(
   BuildContext context, {
   Future<(DiscoveredDeviceMessage, bool?)?> Function(BuildContext)? showSearch,
+  Future<void> Function(String, List<String>)? trustDevice,
+  Future<void> Function(List<String>, String)? registerDevice,
 }) async {
-  final libraryRegistry = Provider.of<LibraryRegistryProvider>(
-    context,
-    listen: false,
-  );
   final s = S.of(context);
   final response = await (showSearch ?? showSearchRemoteDeviceDialog)(context);
   if (response == null) return;
@@ -90,7 +87,7 @@ Future<void> addRuneDeviceLibrary(
   }
 
   try {
-    await addTrustedServer(device.fingerprint, device.ips);
+    await (trustDevice ?? addTrustedServer)(device.fingerprint, device.ips);
   } catch (error) {
     if (!context.mounted) return;
     showErrorDialog(
@@ -102,52 +99,18 @@ Future<void> addRuneDeviceLibrary(
   }
 
   try {
-    await registerDeviceOnServer(device.ips, device.fingerprint);
-  } catch (error) {
-    if (!context.mounted) return;
-    showErrorDialog(
-      context: context,
-      title: s.unknownError,
-      errorMessage: requestErrorText(S.of(context), error),
-    );
-    return;
-  }
-
-  if (!context.mounted) return;
-  final serverStatus = await showServerStatusDialog(
-    context,
-    device.ips,
-    device.fingerprint,
-  );
-  if (serverStatus == null) return;
-  if (!context.mounted) return;
-  if (serverStatus.status == ClientStatus.blocked) {
-    await showErrorDialog(
-      context: context,
-      title: s.clientBlockedTitle,
-      errorMessage: s.clientBlockedMessage,
-    );
-    return;
-  }
-
-  if (!context.mounted) return;
-  try {
-    final registered = await libraryRegistry.registerRemoteControl(
+    await (registerDevice ?? registerDeviceOnServer)(
+      device.ips,
       device.fingerprint,
-      device.alias,
     );
-    if (registered.record != null) {
-      await libraryRegistry.open(registered.record!.recordId);
-    }
   } catch (error) {
     if (!context.mounted) return;
-    await showErrorDialog(
+    showErrorDialog(
       context: context,
       title: s.unknownError,
-      errorMessage: error is LibraryRegistryFailure
-          ? libraryRegistryFailureMessage(s, error.kind)
-          : requestErrorText(s, error),
+      errorMessage: requestErrorText(S.of(context), error),
     );
+    return;
   }
 }
 

@@ -1349,6 +1349,9 @@
   },
   "remoteLossServerStopped": "アイテノデバイスガキョウユウヲテイシシマシタ。",
   "remoteLossNetworkLost": "セツゾクガキレマシタ。",
+  "syncToThisDevice": "コノデバイスニシンク",
+  "libraryNotShared": "キョウユウ サレテイマセン",
+  "controlPermissionRequired": "サイセイヲ ソウサ デキマセン",
   "deviceLibraries": "ライブラリ",
   "addSharedLibrary": "ツイカ",
   "sharedLibraryAdded": "ツイカズミ",
@@ -1421,7 +1424,6 @@
   "guest": "ゲスト",
   "myDeviceAccessDescription": "ライブラリヲ サイセイ、エツラン、ドウキ デキマス",
   "guestAccessDescription": "サイセイヲ ソウサシナガラ エツラン デキマス",
-  "guestControlSummary": "ゲスト · サイセイヲ ソウサ デキマス",
   "customDeviceAccess": "カスタム",
   "customizeDevice": "カスタマイズ",
   "controlPlayback": "サイセイヲ ソウサ",
@@ -1633,9 +1635,7 @@
   "@offlineSelectionRetained": {
     "description": "Explains that disabling downloads does not delete audio."
   },
-  "audioRemoteReference": "リモートオンセイ（セツゾクジョウタイフメイ）",
   "audioUnavailable": "オンセイヲリヨウデキマセン",
-  "audioImportPending": "インポートナカ",
   "allowPairedSync": "ドウキヲキョカ",
   "@allowPairedSync": {
     "description": "Label for allowing incoming paired device sync"
@@ -1643,10 +1643,6 @@
   "allowPairedSyncDescription": "オフニスルト、ホカノデバイスカラセツゾクデキナクナリマス。",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
-  },
-  "audioSyncedCopy": "ドウキサレタコピー",
-  "@audioSyncedCopy": {
-    "description": "Label for audio downloaded from a paired device."
   },
   "offlineCleanupDefault": "フヨウナダウンロードヲサクジョ",
   "@offlineCleanupDefault": {

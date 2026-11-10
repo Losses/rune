@@ -1,42 +1,81 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:provider/provider.dart';
 
+import '../../../bindings/bindings.dart';
+import '../../../l10n/app_localizations.dart';
+import '../../../providers/broadcast.dart';
+import '../../../providers/library_registry.dart';
+import '../../../utils/api/device_grants.dart';
+import '../../../utils/api/library_registry.dart';
+import '../../../utils/api/request_failure.dart';
+import '../../../utils/dialogs/failed_to_initialize_library.dart';
+import '../../../utils/dialogs/information/error.dart';
 import '../../../utils/l10n.dart';
+import '../../../utils/library_registry_messages.dart';
+import '../../../utils/library_ui/library_ui_state.dart';
 import '../../../utils/router/navigation.dart';
 import '../../../widgets/no_shortcuts.dart';
 import '../../../widgets/settings/settings_tile_title.dart';
+import '../../../screens/settings_neighbors/utils/show_add_remote_device_dialog.dart';
+import '../../../screens/settings_server/widgets/peer_libraries_dialog.dart';
 import '../../add_library_flows.dart';
 
 enum AddLibrarySource { localFolder, runeDevice }
+
+class AddLibraryGuideDependencies {
+  const AddLibraryGuideDependencies({
+    this.searchNeighbors,
+    this.addNeighborManually,
+    this.pairedDevices,
+    this.loadLibraries,
+    this.loadGrants,
+    this.addLibrary,
+    this.registerControl,
+    this.openRecord,
+  });
+
+  final Future<void> Function(BuildContext)? searchNeighbors;
+  final Future<bool?> Function(BuildContext)? addNeighborManually;
+  final List<ClientSummary>? pairedDevices;
+  final PeerLibrariesLoader? loadLibraries;
+  final Future<GetDeviceGrantsResponse> Function(String)? loadGrants;
+  final PeerLibraryAdder? addLibrary;
+  final Future<RegisterLibraryResponse> Function(String, String)?
+  registerControl;
+  final Future<void> Function(String)? openRecord;
+}
 
 Future<void> showAddLibraryGuide(
   BuildContext context, {
   bool navigateIfFailed = false,
   Future<void> Function(BuildContext)? addLocalFolder,
-  Future<void> Function(BuildContext)? addRuneDevice,
+  AddLibraryGuideDependencies dependencies =
+      const AddLibraryGuideDependencies(),
 }) async {
   final source = await $showModal<AddLibrarySource>(
     context,
-    (context, $close) => _AddLibraryGuideDialog($close: $close),
+    (context, $close) =>
+        _AddLibraryGuideDialog($close: $close, dependencies: dependencies),
   );
   if (!context.mounted || source == null) return;
 
-  switch (source) {
-    case AddLibrarySource.localFolder:
-      await (addLocalFolder ??
-          (context) => addLocalFolderLibrary(
-            context,
-            navigateIfFailed: navigateIfFailed,
-          ))(context);
-    case AddLibrarySource.runeDevice:
-      await (addRuneDevice ?? addRuneDeviceLibrary)(context);
-  }
+  if (source != AddLibrarySource.localFolder) return;
+  await (addLocalFolder ??
+      (context) => addLocalFolderLibrary(
+        context,
+        navigateIfFailed: navigateIfFailed,
+      ))(context);
 }
 
 class _AddLibraryGuideDialog extends StatefulWidget {
-  const _AddLibraryGuideDialog({required this.$close});
+  const _AddLibraryGuideDialog({
+    required this.$close,
+    required this.dependencies,
+  });
 
   final void Function(AddLibrarySource?) $close;
+  final AddLibraryGuideDependencies dependencies;
 
   @override
   State<_AddLibraryGuideDialog> createState() => _AddLibraryGuideDialogState();
@@ -44,6 +83,14 @@ class _AddLibraryGuideDialog extends StatefulWidget {
 
 class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
   AddLibrarySource? _selected;
+  ClientSummary? _device;
+  int _step = 1;
+  ListPeerLibrariesResponse? _libraries;
+  bool? _canControl;
+  String? _selectedChoice;
+  String? _selectedLibraryId;
+  bool _loading = false;
+  final _busy = <String>{};
 
   @override
   Widget build(BuildContext context) {
@@ -51,29 +98,291 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
     return NoShortcuts(
       ContentDialog(
         title: Column(children: [SizedBox(height: 8), Text(s.addLibrary)]),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _sourceRow(
-              AddLibrarySource.localFolder,
-              Symbols.folder,
-              s.localFolder,
-              s.localFolderSubtitle,
-            ),
-            _sourceRow(
-              AddLibrarySource.runeDevice,
-              Symbols.devices,
-              s.runeDevice,
-              s.runeDeviceSubtitle,
-            ),
-          ],
-        ),
+        content: switch (_step) {
+          1 => _sourceContent(s),
+          2 => _deviceContent(s),
+          _ => _libraryContent(s),
+        },
         actions: [
+          if (_step > 1)
+            Button(
+              onPressed: () => setState(() {
+                _step = _step - 1;
+                _selectedLibraryId = null;
+              }),
+              child: Text(s.back),
+            ),
           Button(onPressed: () => widget.$close(null), child: Text(s.cancel)),
         ],
       ),
     );
+  }
+
+  Widget _sourceContent(AppLocalizations s) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      _sourceRow(
+        AddLibrarySource.localFolder,
+        Symbols.folder,
+        s.localFolder,
+        s.localFolderSubtitle,
+      ),
+      _sourceRow(
+        AddLibrarySource.runeDevice,
+        Symbols.devices,
+        s.runeDevice,
+        s.runeDeviceSubtitle,
+      ),
+    ],
+  );
+
+  Widget _deviceContent(AppLocalizations s) {
+    final users =
+        widget.dependencies.pairedDevices ??
+        Provider.of<BroadcastProvider>(context).users;
+    final devices = users
+        .where((client) => client.status == ClientStatus.approved)
+        .toList();
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 420, maxHeight: 420),
+      child: ListView(
+        shrinkWrap: true,
+        children: [
+          for (final device in devices)
+            _choiceRow(
+              'device:${device.fingerprint}',
+              Symbols.devices,
+              device.alias,
+              device.deviceModel,
+              () => _loadDevice(device),
+            ),
+          _choiceRow(
+            'search',
+            Symbols.search,
+            s.searchNeighbors,
+            s.searchNeighborsSubtitle,
+            () async {
+              await (widget.dependencies.searchNeighbors ??
+                  (context) => pairRuneDevice(context))(context);
+              if (mounted) {
+                Provider.of<BroadcastProvider>(
+                  context,
+                  listen: false,
+                ).fetchUsers();
+              }
+            },
+          ),
+          _choiceRow(
+            'manual',
+            Symbols.add,
+            s.addNeighborManually,
+            s.addNeighborManuallySubtitle,
+            () async {
+              final paired =
+                  await (widget.dependencies.addNeighborManually ??
+                      (context) =>
+                          showAddRemoteDeviceDialog(true, context))(context);
+              if (paired == true && mounted) {
+                Provider.of<BroadcastProvider>(
+                  context,
+                  listen: false,
+                ).fetchUsers();
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// A device-step row in the same selectable shape as the source rows.
+  Widget _choiceRow(
+    String key,
+    IconData icon,
+    String title,
+    String subtitle,
+    VoidCallback onConfirm,
+  ) {
+    final selected = _selectedChoice == key;
+    return ListTile.selectable(
+      title: SettingsTileTitle(
+        icon: icon,
+        title: title,
+        subtitle: subtitle,
+        showActions: selected,
+        actionsBuilder: (context) => Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            if (selected)
+              Button(onPressed: onConfirm, child: Text(S.of(context).confirm)),
+          ],
+        ),
+      ),
+      selected: selected,
+      onSelectionChange: (value) =>
+          setState(() => _selectedChoice = value ? key : null),
+    );
+  }
+
+  Widget _libraryContent(AppLocalizations s) {
+    if (_loading) {
+      return const Center(child: ProgressRing());
+    }
+    final response = _libraries;
+    final state = response == null ? null : peerLibrariesState(s, response);
+    if (state == null || state.status == PeerLibrariesStatus.error) {
+      return Text(state?.error ?? s.unknownError);
+    }
+    if (state.status == PeerLibrariesStatus.empty) {
+      return Text(s.noSharedLibraries);
+    }
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 420, maxHeight: 420),
+      child: ListView.builder(
+        shrinkWrap: true,
+        itemCount: response!.libraries.length,
+        itemBuilder: (context, index) {
+          final library = response.libraries[index];
+          final selected = _selectedLibraryId == library.libraryId;
+          final canSync = library.sync != DeviceSyncLevel.none;
+          final canControl = _canControl == true;
+          // One reason only: the one that disables an action, else read-only.
+          final subtitle = !canSync
+              ? s.libraryNotShared
+              : !canControl
+              ? s.controlPermissionRequired
+              : library.sync == DeviceSyncLevel.pull
+              ? s.readOnly
+              : '';
+          return PeerLibraryRow(
+            library: library,
+            selected: selected,
+            subtitle: subtitle,
+            onSelectionChange: (_) =>
+                setState(() => _selectedLibraryId = library.libraryId),
+            actionsBuilder: (_) => Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Button(
+                  onPressed: !canSync || _busy.contains(library.libraryId)
+                      ? null
+                      : () => _sync(library),
+                  child: Text(s.syncToThisDevice),
+                ),
+                const SizedBox(height: 8),
+                Button(
+                  onPressed: !canControl || _busy.contains(library.libraryId)
+                      ? null
+                      : () => _control(),
+                  child: Text(s.controlPlayback),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _loadDevice(ClientSummary device) async {
+    setState(() {
+      _device = device;
+      _step = 3;
+      _loading = true;
+      _libraries = null;
+      _canControl = false;
+    });
+    try {
+      final results = await Future.wait([
+        (widget.dependencies.loadLibraries ?? listPeerLibraries)(
+          device.fingerprint,
+        ),
+        (widget.dependencies.loadGrants ?? getDeviceGrants)(device.fingerprint),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _libraries = results[0] as ListPeerLibrariesResponse;
+        _canControl = (results[1] as GetDeviceGrantsResponse).grants.control;
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _sync(PeerLibrary library) async {
+    final device = _device!;
+    setState(() => _busy.add(library.libraryId));
+    try {
+      final result = await (widget.dependencies.addLibrary ?? addRemoteLibrary)(
+        library,
+        device.fingerprint,
+      );
+      if (result.error != null) {
+        throw RequestFailure(
+          'AddRemoteLibraryRequest',
+          RequestErrorKind.internal,
+          result.error!,
+        );
+      }
+      await _openRecord(result.recordId);
+    } catch (error) {
+      if (mounted) {
+        await showErrorDialog(
+          context: context,
+          title: S.of(context).addLibrary,
+          errorMessage: requestErrorText(S.of(context), error),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy.remove(library.libraryId));
+    }
+  }
+
+  Future<void> _control() async {
+    final device = _device!;
+    try {
+      final registry = Provider.of<LibraryRegistryProvider>(
+        context,
+        listen: false,
+      );
+      final result =
+          await (widget.dependencies.registerControl ??
+              registry.registerRemoteControl)(device.fingerprint, device.alias);
+      if (result.record != null) await _openRecord(result.record!.recordId);
+    } catch (error) {
+      if (mounted) {
+        await showErrorDialog(
+          context: context,
+          title: S.of(context).addLibrary,
+          errorMessage: error is LibraryRegistryFailure
+              ? libraryRegistryFailureMessage(S.of(context), error.kind)
+              : requestErrorText(S.of(context), error),
+        );
+      }
+    }
+  }
+
+  Future<void> _openRecord(String recordId) async {
+    final registry = Provider.of<LibraryRegistryProvider>(
+      context,
+      listen: false,
+    );
+    try {
+      await (widget.dependencies.openRecord ?? registry.open)(recordId);
+    } catch (error) {
+      if (!mounted) return;
+      await showFailedToInitializeLibrary(
+        context,
+        error is LibraryRegistryFailure
+            ? libraryRegistryFailureMessage(S.of(context), error.kind)
+            : S.of(context).unknownError,
+      );
+      return;
+    }
+    widget.$close(null);
+    $push('/library');
   }
 
   Widget _sourceRow(
@@ -94,16 +403,21 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
           children: [
             if (selected)
               Button(
-                onPressed: () => widget.$close(source),
+                onPressed: () {
+                  if (source == AddLibrarySource.runeDevice) {
+                    setState(() => _step = 2);
+                  } else {
+                    widget.$close(source);
+                  }
+                },
                 child: Text(S.of(context).confirm),
               ),
           ],
         ),
       ),
       selected: selected,
-      onSelectionChange: (value) => setState(() {
-        _selected = value ? source : null;
-      }),
+      onSelectionChange: (value) =>
+          setState(() => _selected = value ? source : null),
     );
   }
 }

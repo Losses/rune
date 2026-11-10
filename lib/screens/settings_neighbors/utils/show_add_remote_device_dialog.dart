@@ -4,8 +4,11 @@ import '../../../utils/router/navigation.dart';
 
 import '../widgets/add_remote_device_dialog.dart';
 
-void showAddRemoteDeviceDialog(bool navigateIfFailed, BuildContext context) {
-  $showModal<void>(
+Future<bool?> showAddRemoteDeviceDialog(
+  bool navigateIfFailed,
+  BuildContext context,
+) {
+  return $showModal<bool>(
     context,
     (context, $close) => AddRemoteDeviceDialog(
       navigateIfFailed: navigateIfFailed,

@@ -61,10 +61,7 @@ LibraryRowState libraryRowState(
         library,
         owner == null || owner.isEmpty
             ? (describePath?.call(path) ?? path)
-            : fromDevice(deviceAliases[owner] ?? library.alias) +
-                  (library.syncAccess == DeviceSyncLevel.pull
-                      ? ' · $readOnly'
-                      : ''),
+            : fromDevice(deviceAliases[owner] ?? library.alias),
       );
     }
   }

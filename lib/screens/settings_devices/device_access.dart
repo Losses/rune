@@ -21,7 +21,7 @@ String deviceAccessSummary(DeviceGrantsInfo? grants, AppLocalizations s) {
               entry.connection == DeviceConnectionLevel.view &&
               entry.sync == DeviceSyncLevel.none,
         )) {
-      return s.guestControlSummary;
+      return s.guest;
     }
   }
   return s.customDeviceAccess;
@@ -37,5 +37,5 @@ String deviceRowSubtitle({
     return deviceStatusPresentation(status, strings).subtitle;
   }
   final access = deviceAccessSummary(grants, strings);
-  return isControlling ? '$access · ${strings.controllingNow}' : access;
+  return isControlling ? strings.controllingNow : access;
 }

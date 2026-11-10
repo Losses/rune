@@ -1378,9 +1378,7 @@
   "@offlineSelectionRetained": {
     "description": "Explains that disabling downloads does not delete audio."
   },
-  "audioRemoteReference": "Віддалене аудіо (стан з’єднання невідомий)",
   "audioUnavailable": "Аудіо недоступне",
-  "audioImportPending": "Імпортування триває",
   "allowPairedSync": "Дозволити синхронізацію",
   "@allowPairedSync": {
     "description": "Label for allowing incoming paired device sync"
@@ -1388,10 +1386,6 @@
   "allowPairedSyncDescription": "Вимкніть, щоб заборонити іншим пристроям підключатися до цього.",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
-  },
-  "audioSyncedCopy": "Синхронізована копія",
-  "@audioSyncedCopy": {
-    "description": "Label for audio downloaded from a paired device."
   },
   "offlineCleanupDefault": "Видаляти непотрібні завантаження",
   "@offlineCleanupDefault": {
@@ -1420,6 +1414,9 @@
   },
   "remoteLossServerStopped": "Інший пристрій припинив спільний доступ.",
   "remoteLossNetworkLost": "З’єднання втрачено.",
+  "syncToThisDevice": "Синхронізувати На Цей Пристрій",
+  "libraryNotShared": "Не спільна",
+  "controlPermissionRequired": "Немає керування відтворенням",
   "deviceLibraries": "Медіатеки",
   "addSharedLibrary": "Додати",
   "sharedLibraryAdded": "Додано",
@@ -1492,7 +1489,6 @@
   "guest": "Гість",
   "myDeviceAccessDescription": "Може відтворювати, переглядати й синхронізувати ваші бібліотеки",
   "guestAccessDescription": "Може керувати відтворенням і переглядати під час керування",
-  "guestControlSummary": "Гість · Може керувати відтворенням",
   "customDeviceAccess": "Власні налаштування",
   "customizeDevice": "Налаштувати",
   "controlPlayback": "Керувати відтворенням",

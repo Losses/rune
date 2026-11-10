@@ -17,9 +17,7 @@ import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../bindings/bindings.dart';
 import '../../providers/broadcast.dart';
 import '../../providers/controllers.dart';
-import '../../providers/library_open_state.dart';
 import '../../utils/router/navigation.dart';
-import '../settings_server/widgets/peer_libraries_dialog.dart';
 import '../settings_neighbors/widgets/edit_device_information_setting_button.dart';
 import '../settings_neighbors/widgets/search_remote_device_setting_button.dart';
 import '../settings_neighbors/widgets/add_neighbor_manually_setting_button.dart';
@@ -245,7 +243,7 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
                   : null,
               badgeColor: _getStatusColor(client.status),
               title: client.alias,
-              subtitle: '${client.deviceModel} • $status',
+              subtitle: status,
               showActions: selectedUserId == client.fingerprint,
               actionsBuilder: (context) => Row(
                 children: [
@@ -270,22 +268,6 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
                     child: Text(S.of(context).review),
                   ),
                   const SizedBox(width: 12),
-                  if (client.status == ClientStatus.approved &&
-                      !(Provider.of<LibraryOpenStateProvider>(
-                        context,
-                      ).isRemoteControl)) ...[
-                    Button(
-                      onPressed: () => $showModal<void>(
-                        context,
-                        (context, close) => PeerLibrariesDialog(
-                          client: client,
-                          close: () => close(null),
-                        ),
-                      ),
-                      child: Text(S.of(context).deviceLibraries),
-                    ),
-                    const SizedBox(width: 12),
-                  ],
                   Button(
                     onPressed: () async {
                       await showConfirmRemoveDeviceDialog(context, client);

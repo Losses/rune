@@ -1351,6 +1351,9 @@
   },
   "remoteLossServerStopped": "La alia aparato ĉesis kundividi.",
   "remoteLossNetworkLost": "La konekto perdiĝis.",
+  "syncToThisDevice": "Sinkronigi al Ĉi Tiu Aparato",
+  "libraryNotShared": "Ne kunhavigita",
+  "controlPermissionRequired": "Neniu ludregado",
   "deviceLibraries": "Bibliotekoj",
   "addSharedLibrary": "Aldoni",
   "sharedLibraryAdded": "Aldonita",
@@ -1423,7 +1426,6 @@
   "guest": "Gasto",
   "myDeviceAccessDescription": "Povas ludi, foliumi kaj sinkronigi viajn bibliotekojn",
   "guestAccessDescription": "Povas regi la ludadon kaj foliumi dum tio",
-  "guestControlSummary": "Gasto · Povas regi la ludadon",
   "customDeviceAccess": "Propra",
   "customizeDevice": "Agordi",
   "controlPlayback": "Regi la ludadon",
@@ -1635,9 +1637,7 @@
   "@offlineSelectionRetained": {
     "description": "Explains that disabling downloads does not delete audio."
   },
-  "audioRemoteReference": "Fora aŭdio",
   "audioUnavailable": "Aŭdio ne disponeblas",
-  "audioImportPending": "Importado",
   "allowPairedSync": "Permesi sinkronigon kun parigitaj aparatoj",
   "@allowPairedSync": {
     "description": "Label for allowing incoming paired device sync"
@@ -1645,10 +1645,6 @@
   "allowPairedSyncDescription": "Malŝaltu por malhelpi aliajn aparatojn konektiĝi al ĉi tiu aparato.",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
-  },
-  "audioSyncedCopy": "Sinkronigita kopio",
-  "@audioSyncedCopy": {
-    "description": "Label for audio downloaded from a paired device."
   },
   "offlineCleanupDefault": "Forigi nebezonatajn elŝutojn",
   "@offlineCleanupDefault": {

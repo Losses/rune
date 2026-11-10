@@ -23,6 +23,36 @@ typedef PeerLibraryAdder =
       String fingerprint,
     );
 
+class PeerLibraryRow extends StatelessWidget {
+  const PeerLibraryRow({
+    super.key,
+    required this.library,
+    required this.selected,
+    required this.subtitle,
+    required this.actionsBuilder,
+    required this.onSelectionChange,
+  });
+
+  final PeerLibrary library;
+  final bool selected;
+  final String subtitle;
+  final Widget Function(BuildContext) actionsBuilder;
+  final ValueChanged<bool> onSelectionChange;
+
+  @override
+  Widget build(BuildContext context) => ListTile.selectable(
+    title: SettingsTileTitle(
+      icon: Symbols.library_music,
+      title: library.alias,
+      subtitle: subtitle,
+      showActions: selected,
+      actionsBuilder: actionsBuilder,
+    ),
+    selected: selected,
+    onSelectionChange: onSelectionChange,
+  );
+}
+
 class PeerLibrariesDialog extends StatefulWidget {
   final ClientSummary client;
   final void Function() close;
@@ -203,32 +233,28 @@ class _PeerLibrariesDialogState extends State<PeerLibrariesDialog> {
                           : library.added
                           ? s.sharedLibraryAdded
                           : '';
-                      return ListTile.selectable(
-                        title: SettingsTileTitle(
-                          icon: Symbols.library_music,
-                          title: library.alias,
-                          subtitle: subtitle,
-                          showActions: selected,
-                          actionsBuilder: (context) => Row(
-                            children: [
-                              if (library.added && path != null)
-                                Button(
-                                  onPressed: () => _open(path),
-                                  child: Text(s.openSharedLibrary),
-                                )
-                              else
-                                Button(
-                                  onPressed: busy.contains(library.libraryId)
-                                      ? null
-                                      : () => _add(library),
-                                  child: Text(s.addSharedLibrary),
-                                ),
-                            ],
-                          ),
-                        ),
+                      return PeerLibraryRow(
+                        library: library,
                         selected: selected,
+                        subtitle: subtitle,
                         onSelectionChange: (_) => setState(
                           () => selectedLibraryId = library.libraryId,
+                        ),
+                        actionsBuilder: (context) => Row(
+                          children: [
+                            if (library.added && path != null)
+                              Button(
+                                onPressed: () => _open(path),
+                                child: Text(s.openSharedLibrary),
+                              )
+                            else
+                              Button(
+                                onPressed: busy.contains(library.libraryId)
+                                    ? null
+                                    : () => _add(library),
+                                child: Text(s.addSharedLibrary),
+                              ),
+                          ],
                         ),
                       );
                     },

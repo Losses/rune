@@ -1,13 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:provider/provider.dart';
 
-import '../../../providers/library_registry.dart';
 import '../../../utils/api/add_trusted_server.dart';
 import '../../../utils/api/register_device_on_server.dart';
 import '../../../utils/dialogs/information/error.dart';
 import '../../../utils/api/request_failure.dart';
 import '../utils/show_fingerprint_quiz_dialog.dart';
-import '../../../utils/library_registry_messages.dart';
 import '../../../utils/l10n.dart';
 import '../../../utils/router/navigation.dart';
 import '../../../widgets/no_shortcuts.dart';
@@ -18,7 +15,7 @@ import 'add_remote_device_form.dart';
 
 class AddRemoteDeviceDialog extends StatefulWidget {
   final bool navigateIfFailed;
-  final void Function(void) $close;
+  final void Function(bool?) $close;
 
   const AddRemoteDeviceDialog({
     super.key,
@@ -46,7 +43,6 @@ class AddRemoteDeviceDialogState extends State<AddRemoteDeviceDialog> {
   }
 
   _addConnection() async {
-    final registry = context.read<LibraryRegistryProvider>();
     final url = Uri.parse(controller.toWebSocketUrl());
     final host = '${url.host}:${url.port}';
     final answer = await showFingerprintQuizDialog(context, host);
@@ -54,22 +50,13 @@ class AddRemoteDeviceDialogState extends State<AddRemoteDeviceDialog> {
     try {
       await addTrustedServer(answer.fingerprint, [host]);
       await registerDeviceOnServer([host], answer.fingerprint);
-      final response = await registry.registerRemoteControl(
-        answer.fingerprint,
-        url.host,
-      );
-      if (response.record != null) {
-        await registry.open(response.record!.recordId);
-      }
-      widget.$close(null);
+      widget.$close(true);
     } catch (error) {
       if (!mounted) return;
       await showErrorDialog(
         context: context,
         title: S.of(context).unknownError,
-        errorMessage: error is LibraryRegistryFailure
-            ? libraryRegistryFailureMessage(S.of(context), error.kind)
-            : requestErrorText(S.of(context), error),
+        errorMessage: requestErrorText(S.of(context), error),
       );
       if (widget.navigateIfFailed) $$replace('/');
     }

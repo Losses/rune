@@ -23,7 +23,7 @@ class SearchRemoteDeviceSettingButton extends StatelessWidget {
       icon: Symbols.search,
       title: s.searchNeighbors,
       subtitle: s.searchNeighborsSubtitle,
-      onPressed: () => addRuneDeviceLibrary(context),
+      onPressed: () => pairRuneDevice(context),
     );
   }
 }

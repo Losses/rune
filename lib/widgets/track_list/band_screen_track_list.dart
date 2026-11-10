@@ -203,7 +203,7 @@ class _BandViewTrackItemState extends State<BandViewTrackItem> {
                       path: widget.item.coverArtPath,
                       hint: (
                         widget.item.album,
-                        widget.item.artistWithAvailability(context),
+                        widget.item.artist,
                         'Total Time ${formatTime(widget.item.duration)}',
                       ),
                     ),

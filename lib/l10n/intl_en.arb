@@ -1479,9 +1479,7 @@
   "@offlineSelectionRetained": {
     "description": "Explains that disabling downloads does not delete audio."
   },
-  "audioRemoteReference": "Remote Audio",
   "audioUnavailable": "Audio Unavailable",
-  "audioImportPending": "Importing",
   "allowPairedSync": "Allow Paired Sync",
   "@allowPairedSync": {
     "description": "Label for allowing incoming paired device sync"
@@ -1489,10 +1487,6 @@
   "allowPairedSyncDescription": "Turn off to stop other devices from connecting to this device.",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
-  },
-  "audioSyncedCopy": "Synced Copy",
-  "@audioSyncedCopy": {
-    "description": "Label for audio downloaded from a paired device."
   },
   "offlineCleanupDefault": "Delete Unneeded Downloads",
   "@offlineCleanupDefault": {
@@ -1521,6 +1515,9 @@
   },
   "remoteLossServerStopped": "The other device stopped sharing.",
   "remoteLossNetworkLost": "The connection was lost.",
+  "syncToThisDevice": "Sync to This Device",
+  "libraryNotShared": "Not Shared",
+  "controlPermissionRequired": "No Playback Control",
   "deviceLibraries": "Libraries",
   "addSharedLibrary": "Add",
   "sharedLibraryAdded": "Added",
@@ -1593,7 +1590,6 @@
   "guest": "Guest",
   "myDeviceAccessDescription": "Can play, browse, and sync your libraries.",
   "guestAccessDescription": "Can control playback and browse libraries.",
-  "guestControlSummary": "Guest · Can control playback",
   "customDeviceAccess": "Custom",
   "customizeDevice": "Customize",
   "controlPlayback": "Control Playback",

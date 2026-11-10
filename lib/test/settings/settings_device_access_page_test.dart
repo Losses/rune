@@ -145,7 +145,7 @@ void main() {
                 ),
                 strings,
               ),
-              'Guest · Can control playback',
+              'Guest',
             );
             expect(
               deviceAccessSummary(

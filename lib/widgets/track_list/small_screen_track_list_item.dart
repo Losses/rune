@@ -215,7 +215,7 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
                                 ),
                                 const SizedBox(height: 1),
                                 Text(
-                                  widget.item.artistWithAvailability(context),
+                                  widget.item.artist,
                                   style: typography.caption?.apply(
                                     color: contentColor.withAlpha(
                                       subtitleAlpha,

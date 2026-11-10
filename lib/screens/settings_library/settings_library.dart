@@ -288,11 +288,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                               : x;
                         }
 
-                        final subtitle = switch (row.library) {
-                          final library? when library.backgroundSync =>
-                            '${row.subtitle} • ${S.of(context).backgroundLibrarySync}',
-                          _ => row.subtitle,
-                        };
+                        final subtitle = row.subtitle;
 
                         return ListTile.selectable(
                           title: SettingsTileTitle(
