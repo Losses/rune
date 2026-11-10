@@ -1774,6 +1774,8 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let ready = reqwest::get(format!("{base}/sync/metadata")).await.unwrap();
+        assert_eq!(ready.status(), StatusCode::METHOD_NOT_ALLOWED);
         let peer =
             http_request::sync::MetadataPeer::<RuneModel>::new(&base, reqwest::Client::new());
         let error = anyhow::Error::new(peer.identity().await.unwrap_err());
