@@ -158,6 +158,10 @@ RequestCapabilities snapshot({
     registerLocalLibraryRequest: capability,
     registerRemoteControlRequest: capability,
     openLibraryRequest: capability,
+    registerSubsonicLibraryRequest: capability,
+    registerOpenDalLibraryRequest: capability,
+    initializeNodeRequest: capability,
+    runFsSelfTestRequest: capability,
   ).copyWith(
     playRequest: play,
     pauseRequest: pause,

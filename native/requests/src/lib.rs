@@ -236,6 +236,18 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             subsonic: false,
         },
         RequestResponse {
+            request: "RegisterOpenDalLibraryRequest".to_string(),
+            response: Some("RegisterLibraryResponse".to_string()),
+            scope: RequestScope::Node,
+            access: RequestAccess::NodeLocal,
+            call_id: false,
+            uses_controller_library: false,
+            introduced_minor: None,
+            node_lifetime: true,
+            node_receiver: Some(NodeReceiver::Loop),
+            subsonic: false,
+        },
+        RequestResponse {
             request: "OpenLibraryRequest".to_string(),
             response: Some("OpenLibraryResponse".to_string()),
             scope: RequestScope::Node,

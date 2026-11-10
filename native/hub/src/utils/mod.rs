@@ -1,5 +1,8 @@
 use database::sync::LibrarySyncStore;
-use tokio::time::{Duration, timeout};
+use tokio::{
+    runtime::Handle,
+    time::{Duration, timeout},
+};
 use uuid::Uuid;
 pub mod broadcastable;
 pub mod diagnostics;
@@ -15,6 +18,7 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     future::Future,
+    panic::{AssertUnwindSafe, catch_unwind},
     path::{Path, PathBuf},
     result::Result as StdResult,
     sync::{Arc, OnceLock},
@@ -23,7 +27,7 @@ use std::{
 use crate::handlers::local_libraries::publish_library_records_changed;
 use crate::node::{NodeContext, NodeSlot};
 use anyhow::{Context, Result};
-use fsio::FsIo;
+use fsio::{FileIoError, FsIo, OpenDalConfig};
 use log::info;
 use scrobbling::manager::ScrobblingServiceManager;
 use tokio::sync::{Mutex, RwLock};
@@ -36,13 +40,14 @@ use ::database::{
     },
     connection::{
         LibraryState, MainDbConnection, RecommendationDbConnection, check_library_state,
-        check_storage_mode, connect_main_db, connect_recommendation_db, create_redirect,
+        check_storage_mode, connect_main_db, connect_main_db_redirected, connect_recommendation_db,
+        connect_recommendation_db_redirected, create_redirect,
     },
     credentials::{Credential, CredentialRef, CredentialStore, Secret},
     entities::media_files,
     library_registry::{
-        CatalogPlacement, InvalidRecord, LibraryRecord, LibraryRecordId, LibraryRegistry,
-        ProtocolAdapter, RuneForwardMode, SubsonicOpenMode, resolve_library,
+        CatalogPlacement, FsAdapter, InvalidRecord, LibraryRecord, LibraryRecordId,
+        LibraryRegistry, ProtocolAdapter, RuneForwardMode, SubsonicOpenMode, resolve_library,
     },
     playing_item::MediaFileHandle,
 };
@@ -95,6 +100,24 @@ pub async fn initialize_databases(
         .await
         .with_context(|| "Failed to connect to recommendation DB")?;
 
+    Ok(DatabaseConnections {
+        main_db: Arc::new(main_db),
+        recommend_db: Arc::new(recommend_db),
+    })
+}
+
+pub async fn initialize_opendal_databases(
+    db_dir: &Path,
+    storage_key: Uuid,
+    node_id: &str,
+) -> Result<DatabaseConnections> {
+    let db_dir = db_dir.join(storage_key.to_string());
+    let main_db = connect_main_db_redirected(&db_dir, storage_key, node_id)
+        .await
+        .context("Failed to connect to main DB")?;
+    let recommend_db = connect_recommendation_db_redirected(&db_dir, &main_db)
+        .await
+        .context("Failed to connect to recommendation DB")?;
     Ok(DatabaseConnections {
         main_db: Arc::new(main_db),
         recommend_db: Arc::new(recommend_db),
@@ -304,6 +327,14 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
         async move { Ok(Some(register_subsonic_library(node, request).await)) }
     }
 
+    fn handle_register_open_dal_library_request(
+        &self,
+        node: &NodeSlot,
+        request: &RegisterOpenDalLibraryRequest,
+    ) -> impl Future<Output = Result<Option<RegisterLibraryResponse>>> + Send {
+        async move { Ok(Some(register_opendal_library(node, request).await)) }
+    }
+
     fn handle_open_library_request(
         &self,
         node: &NodeSlot,
@@ -311,6 +342,265 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
     ) -> impl Future<Output = Result<Option<OpenLibraryResponse>>> + Send {
         let scrobbler = Arc::clone(&self.scrobbler);
         async move { Ok(Some(open_library_by_record(node, request, scrobbler).await)) }
+    }
+}
+
+async fn register_opendal_library(
+    node_slot: &NodeSlot,
+    request: &RegisterOpenDalLibraryRequest,
+) -> RegisterLibraryResponse {
+    match node_slot.current().await {
+        Ok(node) => register_opendal_library_on_node(request, &node).await,
+        Err(_) => opendal_registration_failure(
+            RegisterLibraryFailureKind::Storage,
+            "Could not access library storage",
+        ),
+    }
+}
+
+pub(crate) async fn register_opendal_library_on_node(
+    request: &RegisterOpenDalLibraryRequest,
+    node: &Arc<NodeContext>,
+) -> RegisterLibraryResponse {
+    let (config, username) = match &request.service {
+        OpenDalLibraryService::WebDav {
+            endpoint,
+            root,
+            username,
+            password,
+        } => (
+            OpenDalConfig::WebDav {
+                endpoint: endpoint.clone(),
+                root: root.clone(),
+                username: username.clone(),
+                password: password.clone(),
+            },
+            username.clone(),
+        ),
+        OpenDalLibraryService::S3 {
+            endpoint,
+            bucket,
+            region,
+            root,
+            access_key_id,
+            secret_access_key,
+        } => (
+            OpenDalConfig::S3 {
+                endpoint: endpoint.clone(),
+                bucket: bucket.clone(),
+                region: region.clone(),
+                root: root.clone(),
+                access_key_id: access_key_id.clone(),
+                secret_access_key: secret_access_key.clone(),
+            },
+            access_key_id.clone(),
+        ),
+    };
+    let is_webdav = matches!(&request.service, OpenDalLibraryService::WebDav { .. });
+    let handle = Handle::current();
+    let probe = tokio::task::spawn_blocking(move || {
+        catch_unwind(AssertUnwindSafe(|| -> Result<usize, FileIoError> {
+            let fsio = FsIo::new_opendal(config, handle)?;
+            let nodes = fsio.walk_dir(Path::new(""), false)?;
+            match fsio.canonicalize(Path::new("")) {
+                Ok(root) if root.is_dir => {}
+                Ok(_) => {
+                    return Err(FileIoError::NotSupported(
+                        "remote root is not a folder".into(),
+                    ));
+                }
+                Err(FileIoError::PathNotFound(_)) if !is_webdav => {}
+                Err(error) => return Err(error),
+            }
+            Ok(nodes.len())
+        }))
+        .unwrap_or_else(|_| {
+            Err(FileIoError::NotSupported(
+                "remote root is not a folder".into(),
+            ))
+        })
+    })
+    .await;
+    let count = match probe {
+        Err(_) => {
+            return opendal_registration_failure(
+                RegisterLibraryFailureKind::OpenDalUnreachable,
+                "Could not reach the remote library",
+            );
+        }
+        Ok(Err(FileIoError::PermissionDenied(_))) => {
+            return opendal_registration_failure(
+                RegisterLibraryFailureKind::OpenDalAuthenticationRejected,
+                "The remote credentials were rejected",
+            );
+        }
+        Ok(Err(FileIoError::Remote(_))) => {
+            return opendal_registration_failure(
+                RegisterLibraryFailureKind::OpenDalUnreachable,
+                "Could not reach the remote library",
+            );
+        }
+        Ok(Err(_)) => {
+            return opendal_registration_failure(
+                RegisterLibraryFailureKind::OpenDalNotFolder,
+                "The selected remote root is not a folder",
+            );
+        }
+        Ok(Ok(count)) => count,
+    };
+    if is_webdav && count == 0 {
+        return opendal_registration_failure(
+            RegisterLibraryFailureKind::OpenDalNotFolder,
+            "The selected remote root is not a folder",
+        );
+    }
+    let config_dir = Path::new(&*node.config_path);
+    let existing = match LibraryRegistry::load(config_dir) {
+        Ok(registry) => registry.libraries.into_iter().find(|record| {
+            match (&request.service, record.fs.first()) {
+                (
+                    OpenDalLibraryService::WebDav {
+                        endpoint,
+                        root,
+                        username,
+                        ..
+                    },
+                    Some(FsAdapter::WebDav {
+                        endpoint: e,
+                        root: r,
+                        username: u,
+                        ..
+                    }),
+                ) => endpoint == e && root == r && username == u,
+                (
+                    OpenDalLibraryService::S3 {
+                        endpoint,
+                        bucket,
+                        root,
+                        access_key_id,
+                        ..
+                    },
+                    Some(FsAdapter::S3 {
+                        endpoint: e,
+                        bucket: b,
+                        root: r,
+                        access_key_id: k,
+                        ..
+                    }),
+                ) => endpoint == e && bucket == b && root == r && access_key_id == k,
+                _ => false,
+            }
+        }),
+        Err(_) => {
+            return opendal_registration_failure(
+                RegisterLibraryFailureKind::Storage,
+                "Could not read library storage",
+            );
+        }
+    };
+    if let Some(record) = existing {
+        return RegisterLibraryResponse {
+            record: Some((&record).into()),
+            outcome: RegisterLibraryOutcome::Registered,
+            detail: None,
+        };
+    }
+    let secret = match &request.service {
+        OpenDalLibraryService::WebDav { password, .. } => password.as_bytes(),
+        OpenDalLibraryService::S3 {
+            secret_access_key, ..
+        } => secret_access_key.as_bytes(),
+    };
+    let credential = match node
+        .credentials
+        .put(Credential {
+            username,
+            secret: Secret::new(secret.to_vec()),
+        })
+        .await
+    {
+        Ok(reference) => reference,
+        Err(_) => {
+            return opendal_registration_failure(
+                RegisterLibraryFailureKind::Storage,
+                "Could not store credentials",
+            );
+        }
+    };
+    let storage_key = Uuid::new_v4();
+    let record = LibraryRecord {
+        record_id: LibraryRecordId(Uuid::new_v4()),
+        alias: request.alias.clone(),
+        library_id: Some(Uuid::new_v4()),
+        protocol: ProtocolAdapter::Native,
+        fs: vec![match &request.service {
+            OpenDalLibraryService::WebDav {
+                endpoint,
+                root,
+                username,
+                ..
+            } => FsAdapter::WebDav {
+                endpoint: endpoint.clone(),
+                root: root.clone(),
+                username: username.clone(),
+                credential,
+            },
+            OpenDalLibraryService::S3 {
+                endpoint,
+                bucket,
+                region,
+                root,
+                access_key_id,
+                ..
+            } => FsAdapter::S3 {
+                endpoint: endpoint.clone(),
+                bucket: bucket.clone(),
+                region: region.clone(),
+                root: root.clone(),
+                access_key_id: access_key_id.clone(),
+                credential,
+            },
+        }],
+        catalog: CatalogPlacement::Redirected(storage_key),
+        background_sync: true,
+    };
+    let stored = if record.validate().is_err() {
+        Err(anyhow::anyhow!("invalid record"))
+    } else {
+        LibraryRegistry::update(config_dir, |registry| {
+            registry.libraries.push(record.clone());
+            Ok(record.clone())
+        })
+        .await
+    };
+    let record = match stored {
+        Ok(record) => record,
+        Err(_) => {
+            let _ = node.credentials.remove(credential).await;
+            return opendal_registration_failure(
+                RegisterLibraryFailureKind::Storage,
+                "Could not write library storage",
+            );
+        }
+    };
+    if let Err(error) = publish_library_records_changed(node).await {
+        log::warn!("Could not publish library record change: {error:#}");
+    }
+    RegisterLibraryResponse {
+        record: Some((&record).into()),
+        outcome: RegisterLibraryOutcome::Registered,
+        detail: None,
+    }
+}
+
+fn opendal_registration_failure(
+    kind: RegisterLibraryFailureKind,
+    detail: &str,
+) -> RegisterLibraryResponse {
+    RegisterLibraryResponse {
+        record: None,
+        outcome: RegisterLibraryOutcome::Failed(kind),
+        detail: Some(detail.into()),
     }
 }
 

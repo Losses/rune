@@ -306,9 +306,34 @@ async fn connect_main_db_with_probe(
     fail_wal_probe: bool,
 ) -> Result<MainDbConnection> {
     let storage_info = get_storage_info(fsio, lib_path, db_path)?;
+    connect_main_db_from_storage_info(fsio, storage_info, node_id, fail_wal_probe, false).await
+}
+
+/// Open a redirected catalog whose media root is remote and has no Rune marker.
+/// Its SQLite files still follow the regular `<config>/<storage_key>/.0.db` layout.
+pub async fn connect_main_db_redirected(
+    db_dir: &Path,
+    storage_key: Uuid,
+    node_id: &str,
+) -> Result<MainDbConnection> {
+    let storage_info = StorageInfo {
+        state: LibraryState::Initialized(StorageMode::Redirected(storage_key)),
+        rune_dir: PathBuf::new(),
+        db_dir: db_dir.to_path_buf(),
+    };
+    connect_main_db_from_storage_info(&FsIo::new(), storage_info, node_id, false, true).await
+}
+
+async fn connect_main_db_from_storage_info(
+    fsio: &FsIo,
+    storage_info: StorageInfo,
+    node_id: &str,
+    fail_wal_probe: bool,
+    local_db: bool,
+) -> Result<MainDbConnection> {
     let db_file = storage_info.get_main_db_path();
 
-    let db_path = if db_uses_local_fs(&storage_info.db_dir) {
+    let db_path = if local_db || db_uses_local_fs(&storage_info.db_dir) {
         tokio::fs::create_dir_all(&storage_info.db_dir).await?;
         if !tokio::fs::try_exists(&db_file).await? {
             tokio::fs::write(&db_file, b"").await?;
@@ -537,6 +562,28 @@ pub async fn connect_recommendation_db(
         warn!("Failed to load the recommendation vectors, recommendations are empty: {e:#}");
     }
 
+    Ok(recommend_db)
+}
+
+/// Open recommendation state for a redirected catalog with a remote media root.
+/// Legacy files, if present, are removed from the same local storage directory.
+pub async fn connect_recommendation_db_redirected(
+    db_dir: &Path,
+    main_db: &MainDbConnection,
+) -> Result<RecommendationDbConnection> {
+    for legacy_path in [db_dir.join(".analysis"), db_dir.join(".analysis.db")] {
+        match tokio::fs::symlink_metadata(&legacy_path).await {
+            Ok(metadata) if metadata.is_dir() => tokio::fs::remove_dir_all(&legacy_path).await?,
+            Ok(_) => tokio::fs::remove_file(&legacy_path).await?,
+            Err(error) if error.kind() == ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+    info!("Loading recommendation vectors");
+    let recommend_db = RecommendationDbConnection::new();
+    if let Err(error) = load_recommendation_vectors(main_db, &recommend_db).await {
+        warn!("Failed to load the recommendation vectors, recommendations are empty: {error:#}");
+    }
     Ok(recommend_db)
 }
 

@@ -10,18 +10,19 @@ use std::{
 use anyhow::{Context, Result, ensure};
 use database::{
     connection::{MainDbConnection, RecommendationDbConnection, StorageMode, check_storage_mode},
+    credentials::{CredentialRef, CredentialStore},
     error::ExpectedError,
-    library_registry::{DbPlacement, LibraryAccess, LibraryRecord, LibraryRegistry},
+    library_registry::{DbPlacement, FsAdapter, LibraryAccess, LibraryRecord, LibraryRegistry},
     sync::LibrarySyncStore,
 };
-use fsio::FsIo;
+use fsio::{FsIo, OpenDalConfig};
 use sea_orm::{ConnectionTrait, DbBackend, Statement};
-use tokio::{sync::Mutex, time::Instant};
+use tokio::{runtime::Handle, sync::Mutex, time::Instant};
 use uuid::Uuid;
 
 use crate::{
     request_error::ExpectedRequestError,
-    utils::{initialize_databases, initialize_library_replica},
+    utils::{initialize_databases, initialize_library_replica, initialize_opendal_databases},
 };
 
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
@@ -86,14 +87,49 @@ pub struct LibraryPool {
     config_dir: PathBuf,
     db_path: PathBuf,
     node_id: String,
+    credentials: Option<Arc<CredentialStore>>,
     idle_timeout: Duration,
     entries: Mutex<HashMap<Uuid, Entry>>,
 }
 
 impl LibraryPool {
+    async fn opendal_secret(
+        &self,
+        credential: CredentialRef,
+        expected_username: &str,
+    ) -> Result<String> {
+        let unavailable = || ExpectedRequestError::Unavailable {
+            what: "OpenDAL credentials",
+        };
+        let credentials = self.credentials.as_ref().ok_or_else(unavailable)?;
+        let credential = credentials
+            .get(credential)
+            .await
+            .map_err(|_| unavailable())?;
+        if credential.username != expected_username {
+            return Err(unavailable().into());
+        }
+        String::from_utf8(credential.secret.as_bytes().to_vec()).map_err(|_| unavailable().into())
+    }
+
     /// Get this node's process-wide pool, with a five-minute idle timeout.
     pub fn new(config_dir: &Path, db_path: &Path, node_id: &str) -> Result<Arc<Self>> {
         Self::with_idle_timeout(config_dir, db_path, node_id, DEFAULT_IDLE_TIMEOUT)
+    }
+
+    pub fn new_with_credentials(
+        config_dir: &Path,
+        db_path: &Path,
+        node_id: &str,
+        credentials: Arc<CredentialStore>,
+    ) -> Result<Arc<Self>> {
+        Self::with_idle_timeout_inner(
+            config_dir,
+            db_path,
+            node_id,
+            DEFAULT_IDLE_TIMEOUT,
+            Some(credentials),
+        )
     }
 
     /// Configure the idle timeout when first creating a node's pool.
@@ -102,6 +138,32 @@ impl LibraryPool {
         db_path: &Path,
         node_id: &str,
         idle_timeout: Duration,
+    ) -> Result<Arc<Self>> {
+        Self::with_idle_timeout_inner(config_dir, db_path, node_id, idle_timeout, None)
+    }
+
+    pub fn with_idle_timeout_and_credentials(
+        config_dir: &Path,
+        db_path: &Path,
+        node_id: &str,
+        idle_timeout: Duration,
+        credentials: Arc<CredentialStore>,
+    ) -> Result<Arc<Self>> {
+        Self::with_idle_timeout_inner(
+            config_dir,
+            db_path,
+            node_id,
+            idle_timeout,
+            Some(credentials),
+        )
+    }
+
+    fn with_idle_timeout_inner(
+        config_dir: &Path,
+        db_path: &Path,
+        node_id: &str,
+        idle_timeout: Duration,
+        credentials: Option<Arc<CredentialStore>>,
     ) -> Result<Arc<Self>> {
         fs::create_dir_all(config_dir).context("Failed to create node configuration directory")?;
         let config_dir = dunce::canonicalize(config_dir)?;
@@ -122,6 +184,7 @@ impl LibraryPool {
             config_dir: config_dir.clone(),
             db_path,
             node_id: node_id.to_owned(),
+            credentials,
             idle_timeout,
             entries: Mutex::new(HashMap::new()),
         });
@@ -219,10 +282,56 @@ impl LibraryPool {
             .to_str()
             .context("Library path is not UTF-8")?
             .to_owned();
-        #[cfg(not(target_os = "android"))]
-        let fsio = Arc::new(FsIo::new());
-        #[cfg(target_os = "android")]
-        let fsio = Arc::new(FsIo::new(Path::new(".rune/.android-fs.db"), path)?);
+        let fsio = Arc::new(match descriptor.fs.first() {
+            Some(FsAdapter::WebDav {
+                endpoint,
+                root,
+                username,
+                credential,
+            }) => {
+                let password = self.opendal_secret(*credential, username).await?;
+                FsIo::new_opendal(
+                    OpenDalConfig::WebDav {
+                        endpoint: endpoint.clone(),
+                        root: root.clone(),
+                        username: username.clone(),
+                        password,
+                    },
+                    Handle::current(),
+                )?
+            }
+            Some(FsAdapter::S3 {
+                endpoint,
+                bucket,
+                region,
+                root,
+                access_key_id,
+                credential,
+            }) => {
+                let secret_access_key = self.opendal_secret(*credential, access_key_id).await?;
+                FsIo::new_opendal(
+                    OpenDalConfig::S3 {
+                        endpoint: endpoint.clone(),
+                        bucket: bucket.clone(),
+                        region: region.clone(),
+                        root: root.clone(),
+                        access_key_id: access_key_id.clone(),
+                        secret_access_key,
+                    },
+                    Handle::current(),
+                )?
+            }
+            _ => {
+                #[cfg(not(target_os = "android"))]
+                {
+                    FsIo::new()
+                }
+                #[cfg(target_os = "android")]
+                {
+                    FsIo::new(Path::new(".rune/.android-fs.db"), path)?
+                }
+            }
+        });
         let mode = match descriptor
             .db_placement()
             .context("Catalog has no database placement")?
@@ -230,15 +339,33 @@ impl LibraryPool {
             DbPlacement::Portable => StorageMode::Portable,
             DbPlacement::Redirected { storage_key } => StorageMode::Redirected(storage_key),
         };
-        ensure!(
-            check_storage_mode(&fsio, path)? == mode,
-            "Library database placement disagrees with its descriptor"
-        );
-        let db_path = self
-            .db_path
-            .to_str()
-            .context("Database path is not UTF-8")?;
-        let databases = initialize_databases(&fsio, path, Some(db_path), &self.node_id).await?;
+        if !matches!(
+            descriptor.fs.first(),
+            Some(FsAdapter::WebDav { .. } | FsAdapter::S3 { .. })
+        ) {
+            ensure!(
+                check_storage_mode(&fsio, path)? == mode,
+                "Library database placement disagrees with its descriptor"
+            );
+        }
+        let databases = if matches!(
+            descriptor.fs.first(),
+            Some(FsAdapter::WebDav { .. } | FsAdapter::S3 { .. })
+        ) {
+            let DbPlacement::Redirected { storage_key } = descriptor
+                .db_placement()
+                .context("Catalog has no database placement")?
+            else {
+                anyhow::bail!("OpenDAL library has no redirected storage key");
+            };
+            initialize_opendal_databases(&self.db_path, storage_key, &self.node_id).await?
+        } else {
+            let db_path = self
+                .db_path
+                .to_str()
+                .context("Database path is not UTF-8")?;
+            initialize_databases(&fsio, path, Some(db_path), &self.node_id).await?
+        };
         let library_sync =
             initialize_library_replica(&databases.main_db, &self.node_id, library_id).await?;
         let entry = Entry {

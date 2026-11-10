@@ -9,20 +9,24 @@ use crate::messages::{
     LibraryContentChanged, LibraryInitializeMode, ListLocalLibrariesRequest, MixQuery,
     OperatePlaybackWithMixQueryRequest, PlaybackStatus, PlaylistOperateMode, RemoteConnectionLost,
     RemoteLibraryReconnected, RemoteLibraryReconnecting, RemoteLossKind, RequestCapabilities,
-    RequestCapability, RequestFailedResponse, ScanAudioLibraryProgress, ScanTaskType,
+    RequestCapability, RequestFailedResponse, RegisterLibraryOutcome, ScanAudioLibraryProgress,
+    ScanTaskType,
 };
-use crate::messages::{RegisterSubsonicLibraryRequest, SubsonicOpenModeMessage};
+use crate::messages::{
+    RegisterOpenDalLibraryRequest, RegisterSubsonicLibraryRequest, OpenDalLibraryService,
+    SubsonicOpenModeMessage,
+};
 use crate::node::{CatalogTarget, ReconnectConfig, SessionBinding};
 use crate::utils::{
     open_library_by_record_on_node, register_local_library_on_node,
-    register_remote_control_on_node, register_subsonic_library_on_node,
+    register_remote_control_on_node, register_subsonic_library_on_node, register_opendal_library_on_node,
     register_subsonic_library_with_node,
 };
 use axum::Router;
 use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::routing::get;
+use axum::routing::{any, get};
 use database::library_registry::LibraryRecord;
 use database::library_registry::{LibraryRegistry, ProtocolAdapter, SubsonicOpenMode};
 use serde_json::json;
@@ -76,7 +80,7 @@ use sea_orm::{EntityTrait, Set};
 use serde::de::DeserializeOwned;
 use tokio::net::TcpListener as TokioTcpListener;
 #[cfg(target_os = "linux")]
-use tokio::runtime::Builder;
+use tokio::runtime::{Builder, Handle};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep, timeout};
 use tokio_tungstenite::{accept_async, connect_async};
@@ -6299,6 +6303,207 @@ fn subsonic_registration_request(
         alias: "Remote music".into(),
         mode,
     }
+}
+
+fn opendal_registration_request(endpoint: String) -> RegisterOpenDalLibraryRequest {
+    RegisterOpenDalLibraryRequest {
+        service: OpenDalLibraryService::WebDav {
+            endpoint,
+            root: "/dav/library/".into(),
+            username: "alice".into(),
+            password: "wrong-password".into(),
+        },
+        alias: "Remote music".into(),
+    }
+}
+
+#[tokio::test]
+async fn opendal_registration_reports_auth_rejection_without_storing_anything() -> Result<()> {
+    use crate::messages::{RegisterLibraryFailureKind, RegisterLibraryOutcome};
+    use database::library_registry::FsAdapter;
+
+    let listener = TokioTcpListener::bind("127.0.0.1:0").await?;
+    let address = listener.local_addr()?;
+    let server = tokio::spawn(async move {
+        let app = Router::new().route("/{*path}", any(|| async { StatusCode::UNAUTHORIZED }));
+        let _ = axum::serve(listener, app).await;
+    });
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let response = timeout(
+        Duration::from_secs(7),
+        register_opendal_library_on_node(
+            &opendal_registration_request(format!("http://{address}")),
+            &node,
+        ),
+    )
+    .await
+    .context("WebDAV authentication probe hung")?;
+    assert_eq!(
+        response.outcome,
+        RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::OpenDalAuthenticationRejected)
+    );
+    let registry = LibraryRegistry::load(PathBuf::from(&*node.config_path).as_path())?;
+    assert!(registry.libraries.iter().all(|record| !record.fs.iter().any(|adapter| matches!(adapter, FsAdapter::WebDav { .. } | FsAdapter::S3 { .. }))));
+    assert!(!PathBuf::from(&*node.config_path).join("credentials.enc").exists());
+    server.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn opendal_registration_reports_unreachable_endpoint() -> Result<()> {
+    use crate::messages::{RegisterLibraryFailureKind, RegisterLibraryOutcome};
+    use database::library_registry::FsAdapter;
+
+    let reserved = TokioTcpListener::bind("127.0.0.1:0").await?;
+    let endpoint = format!("http://{}", reserved.local_addr()?);
+    drop(reserved);
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let response = timeout(
+        Duration::from_secs(7),
+        register_opendal_library_on_node(&opendal_registration_request(endpoint), &node),
+    )
+    .await
+    .context("unreachable WebDAV probe hung")?;
+    assert_eq!(
+        response.outcome,
+        RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::OpenDalUnreachable)
+    );
+    let registry = LibraryRegistry::load(PathBuf::from(&*node.config_path).as_path())?;
+    assert!(registry.libraries.iter().all(|record| !record.fs.iter().any(|adapter| matches!(adapter, FsAdapter::WebDav { .. } | FsAdapter::S3 { .. }))));
+    assert!(!PathBuf::from(&*node.config_path).join("credentials.enc").exists());
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn opendal_registration_reports_non_folder_root() -> Result<()> {
+    use crate::messages::{RegisterLibraryFailureKind, RegisterLibraryOutcome};
+    use database::library_registry::FsAdapter;
+    use fsio::test_fixtures::WebDavFixture;
+
+    let fixture_server = WebDavFixture::start(Vec::new()).await?;
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let response = timeout(
+        Duration::from_secs(7),
+        register_opendal_library_on_node(
+            &RegisterOpenDalLibraryRequest {
+                service: OpenDalLibraryService::WebDav {
+                    endpoint: fixture_server.endpoint.clone(),
+                    root: "/missing/".into(),
+                    username: "user".into(),
+                    password: "pass".into(),
+                },
+                alias: "Missing folder".into(),
+            },
+            &node,
+        ),
+    )
+    .await
+    .context("non-folder WebDAV probe hung")?;
+    assert_eq!(
+        response.outcome,
+        RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::OpenDalNotFolder)
+    );
+    let registry = LibraryRegistry::load(PathBuf::from(&*node.config_path).as_path())?;
+    assert!(registry.libraries.iter().all(|record| !record.fs.iter().any(|adapter| matches!(adapter, FsAdapter::WebDav { .. } | FsAdapter::S3 { .. }))));
+    assert!(!PathBuf::from(&*node.config_path).join("credentials.enc").exists());
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn opendal_webdav_registration_open_and_scan_are_read_only_on_current_thread() -> Result<()> {
+    assert_opendal_library_scan(false).await
+}
+
+#[tokio::test]
+async fn opendal_s3_registration_open_and_scan_are_read_only_on_current_thread() -> Result<()> {
+    assert_opendal_library_scan(true).await
+}
+
+async fn assert_opendal_library_scan(s3: bool) -> Result<()> {
+    use database::{
+        actions::metadata::{get_metadata_summary_by_files, scan_audio_library, MissingHostFilePolicy, ScanOptions},
+        entities::media_files,
+    };
+    use fsio::test_fixtures::{S3Fixture, WebDavFixture};
+    use sea_orm::EntityTrait;
+    use tokio::task::spawn_blocking;
+
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    timeout(Duration::from_secs(60), async {
+        let files = vec![
+            ("startup_0.ogg".into(), include_bytes!("../../../../assets/startup_0.ogg").to_vec()),
+            ("startup_1.ogg".into(), include_bytes!("../../../../assets/startup_1.ogg").to_vec()),
+        ];
+        let (endpoint, webdav, _s3_fixture) = if s3 {
+            let fixture = S3Fixture::start(files).await?;
+            (fixture.endpoint.clone(), None, Some(fixture))
+        } else {
+            let fixture = WebDavFixture::start(files).await?;
+            (fixture.endpoint.clone(), Some(fixture), None)
+        };
+        let dir = tempfile::tempdir()?;
+        let fixture = super::fixture(dir.path()).await?;
+        let node = fixture.global_params.node.clone();
+        let service = if s3 {
+            OpenDalLibraryService::S3 {
+                endpoint, bucket: "bucket".into(), region: "us-east-1".into(), root: "/library/".into(),
+                access_key_id: "access".into(), secret_access_key: "secret".into(),
+            }
+        } else {
+            OpenDalLibraryService::WebDav {
+                endpoint, root: "/dav/library/".into(), username: "user".into(), password: "pass".into(),
+            }
+        };
+        let request = RegisterOpenDalLibraryRequest {
+            service,
+            alias: "WebDAV test".into(),
+        };
+        let response = register_opendal_library_on_node(&request, &node).await;
+        anyhow::ensure!(response.outcome == RegisterLibraryOutcome::Registered, "OpenDAL registration failed: {:?}", response.outcome);
+        let record_id = response.record.context("WebDAV record")?.record_id;
+        let duplicate = register_opendal_library_on_node(&request, &node).await;
+        anyhow::ensure!(duplicate.outcome == RegisterLibraryOutcome::Registered, "duplicate OpenDAL registration failed: {:?}", duplicate.outcome);
+        anyhow::ensure!(duplicate.record.context("duplicate WebDAV record")?.record_id == record_id, "duplicate OpenDAL registration created a second record");
+        let registry = LibraryRegistry::load(PathBuf::from(&*node.config_path).as_path())?;
+        let record = registry.libraries.iter().find(|record| record.record_id.0.to_string() == record_id).context("stored record")?;
+        let library_id = record.library_id.context("catalog library id")?;
+        let library = node.library_pool.acquire_ui(library_id).await?;
+        let root = PathBuf::from(&library.media_root);
+        let fsio = library.fsio.clone();
+        let main_db = library.main_db.clone();
+        let node_id = node.node_id.to_string();
+        let store = library.library_sync.record_store();
+        let handle = Handle::current();
+        let scanned = spawn_blocking(move || handle.block_on(scan_audio_library(
+            &fsio, &main_db, &node_id, &root,
+            ScanOptions { cleanup: true, force: true, missing_host_file: MissingHostFilePolicy::RemoveEverywhere, cancel_token: None },
+            |_| {}, &store,
+        ))).await??;
+        anyhow::ensure!(scanned == 2, "expected two scanned tracks, got {scanned}");
+        let tracks = media_files::Entity::find().all(&*library.main_db).await?;
+        let mut summaries = get_metadata_summary_by_files(&*library.main_db, tracks.clone()).await?;
+        summaries.sort_by(|left, right| left.file_name.cmp(&right.file_name));
+        anyhow::ensure!(summaries.len() == 2, "expected two tracks");
+        anyhow::ensure!(summaries[0].directory.is_empty() && summaries[0].file_name == "startup_0.ogg" && summaries[0].title == "startup_0.ogg", "first relative track metadata was incorrect");
+        anyhow::ensure!(summaries[1].directory.is_empty() && summaries[1].file_name == "startup_1.ogg" && summaries[1].title == "startup_1.ogg", "second relative track metadata was incorrect");
+        if let Some(webdav) = webdav {
+            anyhow::ensure!(webdav.write_requests().is_empty(), "read-only WebDAV fixture received a write request");
+        }
+        node.library_pool.unregister_ui(library_id).await;
+        node.shutdown().await?;
+        Ok::<_, anyhow::Error>(())
+    }).await.context("OpenDAL WebDAV registration/open/scan timed out")??;
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

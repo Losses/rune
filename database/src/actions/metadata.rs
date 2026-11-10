@@ -669,15 +669,21 @@ async fn clean_up_database(
         .iter()
         .filter(|file| !is_managed_directory(&file.directory))
         .count();
-    let missing: Vec<_> = files
-        .into_iter()
-        .filter(|file| {
-            matches!(
-                fsio.exists(&root_path.join(&file.directory).join(&file.file_name)),
-                Ok(false)
-            )
-        })
-        .collect();
+    let fsio_for_missing = fsio.clone();
+    let root_for_missing = root_path.to_path_buf();
+    let missing: Vec<_> = tokio::task::spawn_blocking(move || {
+        files
+            .into_iter()
+            .filter(|file| {
+                matches!(
+                    fsio_for_missing
+                        .exists(&root_for_missing.join(&file.directory).join(&file.file_name)),
+                    Ok(false)
+                )
+            })
+            .collect()
+    })
+    .await?;
     let host_missing = missing
         .iter()
         .filter(|file| !is_managed_directory(&file.directory))
@@ -736,8 +742,15 @@ pub async fn scan_audio_file(
     path: &Path,
     store: &crate::sync::SeaOrmSyncStore,
 ) -> Result<i32> {
-    let node = fsio.canonicalize(path)?;
-    let description = describe_file(fsio, &node, &Some(lib_path.to_path_buf()))?;
+    let fsio_for_describe = fsio.clone();
+    let path_for_describe = path.to_path_buf();
+    let root_for_describe = lib_path.to_path_buf();
+    let description = tokio::task::spawn_blocking(move || {
+        let node = fsio_for_describe.canonicalize(&path_for_describe)?;
+        let description = describe_file(&fsio_for_describe, &node, &Some(root_for_describe))?;
+        Ok::<_, anyhow::Error>(description)
+    })
+    .await??;
     let mut descriptions = vec![Some(description)];
     sync_file_descriptions(fsio, main_db, node_id, &mut descriptions, false, store).await?;
     let ids = get_file_ids_by_descriptions(main_db, &descriptions).await?;
@@ -771,8 +784,13 @@ where
         missing_host_file: policy,
         cancel_token,
     } = options;
-    let root_path_str = lib_path.to_str().expect("Invalid UTF-8 sequence in path");
-    let mut scanner = match AudioScanner::new(fsio, &root_path_str) {
+    let fsio_for_scan = fsio.clone();
+    let root_for_scan = lib_path.to_path_buf();
+    let mut scanner = match tokio::task::spawn_blocking(move || {
+        AudioScanner::new(&fsio_for_scan, &root_for_scan)
+    })
+    .await?
+    {
         Ok(scanner) => scanner,
         Err(error) => {
             if cleanup
@@ -811,18 +829,22 @@ where
             continue;
         }
 
-        let mut descriptions: Vec<Option<FileDescription>> = files
-            .clone()
-            .into_iter()
-            .map(|file| describe_file(fsio, &file, &Some(lib_path.to_path_buf())))
-            .map(|result| match result {
-                Ok(value) => Some(value),
+        let mut descriptions: Vec<Option<FileDescription>> = Vec::with_capacity(files.len());
+        for file in files.clone() {
+            let fsio_for_describe = fsio.clone();
+            let root_for_describe = lib_path.to_path_buf();
+            let description = tokio::task::spawn_blocking(move || {
+                describe_file(&fsio_for_describe, &file, &Some(root_for_describe))
+            })
+            .await?;
+            match description {
+                Ok(value) => descriptions.push(Some(value)),
                 Err(error) => {
                     error!("Failed to describe audio file: {error:#}");
-                    None
+                    descriptions.push(None);
                 }
-            })
-            .collect();
+            }
+        }
 
         // Pre-filtering: Skip files that haven't been modified
         if !force {

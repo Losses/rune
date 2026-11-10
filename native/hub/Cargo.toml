@@ -121,6 +121,7 @@ tracing-logcat = "0.1.0"
 swift-rs = { version = "1.0.7", features = ["build"] }
 
 [dev-dependencies]
+fsio = { path = "../../fsio", features = ["test-fixtures"] }
 playback = { path = "../../playback", features = ["test-output"] }
 tokio = { version = "1.44.2", features = ["test-util"] }
 hyper = "1.6.0"

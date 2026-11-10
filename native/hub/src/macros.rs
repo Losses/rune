@@ -78,10 +78,11 @@ mod node_request_loop_tests {
         node_request_loop_with_receivers,
     };
     use crate::messages::{
-        ListLibraryRecordsRequest, ListLibraryRecordsResponse, OpenLibraryRequest,
-        OpenLibraryResponse, OpenLibraryResult, RegisterLibraryOutcome, RegisterLibraryResponse,
-        RegisterLocalLibraryRequest, RegisterRemoteControlRequest, RegisterSubsonicLibraryRequest,
-        RemoveLibraryRecordOutcome, RemoveLibraryRecordRequest, RemoveLibraryRecordResponse,
+        ListLibraryRecordsRequest, ListLibraryRecordsResponse, OpenDalLibraryService,
+        OpenLibraryRequest, OpenLibraryResponse, OpenLibraryResult, RegisterLibraryOutcome,
+        RegisterLibraryResponse, RegisterLocalLibraryRequest, RegisterOpenDalLibraryRequest,
+        RegisterRemoteControlRequest, RegisterSubsonicLibraryRequest, RemoveLibraryRecordOutcome,
+        RemoveLibraryRecordRequest, RemoveLibraryRecordResponse,
     };
     use crate::node::NodeSlot;
     use crate::utils::RinfRustSignal;
@@ -140,6 +141,13 @@ mod node_request_loop_tests {
         ) -> impl Future<Output = Result<Option<RegisterLibraryResponse>>> + Send {
             async { Ok(Some(register_response())) }
         }
+        fn handle_register_open_dal_library_request(
+            &self,
+            _: &NodeSlot,
+            _: &RegisterOpenDalLibraryRequest,
+        ) -> impl Future<Output = Result<Option<RegisterLibraryResponse>>> + Send {
+            async { Ok(Some(register_response())) }
+        }
 
         fn handle_open_library_request(
             &self,
@@ -188,6 +196,7 @@ mod node_request_loop_tests {
         let (local_tx, local_rx) = signal_channel();
         let (remote_tx, remote_rx) = signal_channel();
         let (subsonic_tx, subsonic_rx) = signal_channel();
+        let (opendal_tx, opendal_rx) = signal_channel();
         let (open_tx, open_rx) = signal_channel();
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
         let emit = move |signal: &dyn RinfRustSignal| {
@@ -206,6 +215,7 @@ mod node_request_loop_tests {
                 register_local_library_request_receiver: local_rx,
                 register_remote_control_request_receiver: remote_rx,
                 register_subsonic_library_request_receiver: subsonic_rx,
+                register_open_dal_library_request_receiver: opendal_rx,
                 open_library_request_receiver: open_rx,
             },
         ));
@@ -270,6 +280,25 @@ mod node_request_loop_tests {
                 password: String::new(),
                 alias: String::new(),
                 mode: None,
+            },
+            binary: Vec::new(),
+        });
+        assert_eq!(
+            response_or_loop_exit(&mut loop_future, &mut output_rx)
+                .await
+                .0,
+            "RegisterLibraryResponse"
+        );
+
+        opendal_tx.send(DartSignalPack {
+            message: RegisterOpenDalLibraryRequest {
+                service: OpenDalLibraryService::WebDav {
+                    endpoint: String::new(),
+                    root: String::new(),
+                    username: String::new(),
+                    password: String::new(),
+                },
+                alias: String::new(),
             },
             binary: Vec::new(),
         });

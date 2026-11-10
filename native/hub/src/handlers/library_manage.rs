@@ -2,7 +2,7 @@ use crate::utils::sync_settings::SyncSettings;
 use database::actions::metadata::ScanOptions;
 use std::time::Instant;
 use std::{path::Path, sync::Arc};
-use tokio::runtime::Runtime;
+use tokio::runtime::{Handle, Runtime};
 
 use anyhow::{Context, Result};
 use log::{debug, info, warn};
@@ -139,10 +139,10 @@ impl Signal for ScanAudioLibraryRequest {
         let supervisor_record_id = record_id.clone();
         let supervisor_broadcaster = broadcaster.clone();
         let supervisor_tokens = task_tokens.clone();
+        let scan_runtime = Handle::current();
         let worker = task::spawn_blocking(move || {
             let _library = library;
-            let runtime = Runtime::new().unwrap();
-            runtime.block_on(async move {
+            scan_runtime.block_on(async move {
                 let result: Result<usize> = async {
                     let refresh_start = Instant::now();
                     if let Err(e) = _library.fsio.refresh_cache() {

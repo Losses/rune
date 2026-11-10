@@ -1,7 +1,7 @@
 use super::system::{RequestErrorKind, RequestFailureCause};
 use database::library_registry::{
-    CatalogPlacement, InvalidRecord, LibraryAccess, LibraryConnectionAccess, LibraryRecord,
-    ProtocolAdapter, RuneForwardMode, SubsonicOpenMode,
+    CatalogPlacement, FsAdapter, InvalidRecord, LibraryAccess, LibraryConnectionAccess,
+    LibraryRecord, ProtocolAdapter, RuneForwardMode, SubsonicOpenMode,
 };
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
@@ -80,6 +80,31 @@ pub struct RegisterSubsonicLibraryRequest {
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum OpenDalLibraryService {
+    WebDav {
+        endpoint: String,
+        root: String,
+        username: String,
+        password: String,
+    },
+    S3 {
+        endpoint: String,
+        bucket: String,
+        region: String,
+        root: String,
+        access_key_id: String,
+        secret_access_key: String,
+    },
+}
+
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct RegisterOpenDalLibraryRequest {
+    pub service: OpenDalLibraryService,
+    pub alias: String,
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
 pub enum LibraryRecordKindSummary {
     Local {
         library_id: String,
@@ -98,6 +123,12 @@ pub enum LibraryRecordKindSummary {
     Subsonic {
         endpoint: String,
         account: String,
+    },
+    OpenDal {
+        library_id: String,
+        service: String,
+        endpoint: String,
+        root: String,
     },
 }
 
@@ -127,6 +158,7 @@ pub enum InvalidRecordReasonSummary {
     SubsonicInvalid,
     BackgroundSyncWithoutCatalog,
     DuplicateLibraryId,
+    OpenDalInvalid,
 }
 
 impl From<InvalidRecord> for InvalidRecordReasonSummary {
@@ -138,6 +170,7 @@ impl From<InvalidRecord> for InvalidRecordReasonSummary {
             InvalidRecord::SubsonicInvalid => Self::SubsonicInvalid,
             InvalidRecord::BackgroundSyncWithoutCatalog => Self::BackgroundSyncWithoutCatalog,
             InvalidRecord::DuplicateLibraryId => Self::DuplicateLibraryId,
+            InvalidRecord::OpenDalInvalid => Self::OpenDalInvalid,
         }
     }
 }
@@ -159,9 +192,25 @@ pub enum LibraryConnectionAccessSummary {
 impl From<&LibraryRecord> for LibraryRecordSummary {
     fn from(record: &LibraryRecord) -> Self {
         let kind = match &record.protocol {
-            ProtocolAdapter::Native => LibraryRecordKindSummary::Local {
-                library_id: record.library_id.unwrap_or_default().to_string(),
-                path: record.local_folder_path().unwrap_or_default().to_owned(),
+            ProtocolAdapter::Native => match record.fs.first() {
+                Some(FsAdapter::WebDav { endpoint, root, .. }) => {
+                    LibraryRecordKindSummary::OpenDal {
+                        library_id: record.library_id.unwrap_or_default().to_string(),
+                        service: "webdav".into(),
+                        endpoint: endpoint.clone(),
+                        root: root.clone(),
+                    }
+                }
+                Some(FsAdapter::S3 { endpoint, root, .. }) => LibraryRecordKindSummary::OpenDal {
+                    library_id: record.library_id.unwrap_or_default().to_string(),
+                    service: "s3".into(),
+                    endpoint: endpoint.clone(),
+                    root: root.clone(),
+                },
+                _ => LibraryRecordKindSummary::Local {
+                    library_id: record.library_id.unwrap_or_default().to_string(),
+                    path: record.local_folder_path().unwrap_or_default().to_owned(),
+                },
             },
             ProtocolAdapter::RuneForward {
                 owner_fingerprint,
@@ -280,6 +329,9 @@ pub enum RegisterLibraryFailureKind {
     SubsonicClientTooOld,
     SubsonicRoleMissing,
     SubsonicNotSubsonic,
+    OpenDalAuthenticationRejected,
+    OpenDalUnreachable,
+    OpenDalNotFolder,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]

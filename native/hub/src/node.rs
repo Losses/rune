@@ -291,7 +291,12 @@ impl NodeContext {
         let node = Arc::new(Self {
             protocol_version: StdMutex::new(PROTOCOL_VERSION),
             config_path: Arc::new(config_path.to_owned()),
-            library_pool: LibraryPool::new(Path::new(config_path), Path::new(db_path), &node_id)?,
+            library_pool: LibraryPool::new_with_credentials(
+                Path::new(config_path),
+                Path::new(db_path),
+                &node_id,
+                credentials.clone(),
+            )?,
             credentials,
             node_id,
             permission_manager: Arc::new(RwLock::new(permission_manager)),

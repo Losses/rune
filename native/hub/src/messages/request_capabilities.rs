@@ -162,6 +162,7 @@ pub struct RequestCapabilities {
     pub register_local_library_request: RequestCapability,
     pub register_remote_control_request: RequestCapability,
     pub register_subsonic_library_request: RequestCapability,
+    pub register_open_dal_library_request: RequestCapability,
     pub open_library_request: RequestCapability,
     pub initialize_node_request: RequestCapability,
     pub run_fs_self_test_request: RequestCapability,

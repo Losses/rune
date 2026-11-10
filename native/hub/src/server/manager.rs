@@ -1113,9 +1113,18 @@ mod lifecycle_tests {
         broadcaster: Arc<dyn Broadcaster>,
         reconnect_config: ReconnectConfig,
     ) -> Result<Fixture> {
+        use database::credentials::CredentialStore;
+
         fs::create_dir_all(dir.join(".rune"))?;
         let node = get_or_create_node_id(dir.to_str().context("config path")?).await?;
-        let pool = LibraryPool::with_idle_timeout(dir, dir, &node.to_string(), idle_timeout)?;
+        let credentials = Arc::new(CredentialStore::open(dir));
+        let pool = LibraryPool::with_idle_timeout_and_credentials(
+            dir,
+            dir,
+            &node.to_string(),
+            idle_timeout,
+            credentials,
+        )?;
         let _ = migration::initialize_node_id(node.to_string());
         LibraryRegistry::update(dir, |registry| {
             registry.libraries.push(LibraryRecord {

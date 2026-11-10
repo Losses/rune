@@ -63,8 +63,26 @@ pub enum RuneForwardMode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum FsAdapter {
-    Local { path: String },
-    RunePeer { fingerprint: String },
+    Local {
+        path: String,
+    },
+    RunePeer {
+        fingerprint: String,
+    },
+    WebDav {
+        endpoint: String,
+        root: String,
+        username: String,
+        credential: CredentialRef,
+    },
+    S3 {
+        endpoint: String,
+        bucket: String,
+        region: String,
+        root: String,
+        access_key_id: String,
+        credential: CredentialRef,
+    },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,6 +120,18 @@ fn replica_root(config_dir: &Path, library_id: Uuid) -> PathBuf {
     config_dir.join("replicas").join(library_id.to_string())
 }
 
+fn record_credential(record: &LibraryRecord) -> Option<CredentialRef> {
+    match &record.protocol {
+        ProtocolAdapter::SubsonicTranslate { credential, .. } => Some(*credential),
+        _ => record.fs.iter().find_map(|adapter| match adapter {
+            FsAdapter::WebDav { credential, .. } | FsAdapter::S3 { credential, .. } => {
+                Some(*credential)
+            }
+            _ => None,
+        }),
+    }
+}
+
 impl LibraryRecord {
     pub fn catalog_library_id(&self) -> Option<Uuid> {
         self.library_id
@@ -124,6 +154,13 @@ impl LibraryRecord {
             (CatalogPlacement::ConfigReplica, _) => {
                 self.library_id.map(|id| replica_root(config_dir, id))
             }
+            (CatalogPlacement::Redirected(_), None)
+                if self.fs.iter().any(|adapter| {
+                    matches!(adapter, FsAdapter::WebDav { .. } | FsAdapter::S3 { .. })
+                }) =>
+            {
+                Some(PathBuf::new())
+            }
             _ => None,
         }
     }
@@ -131,7 +168,14 @@ impl LibraryRecord {
     /// A display value for logs and task notifications; replicas use their alias.
     pub fn display_name(&self) -> Option<String> {
         match &self.protocol {
-            ProtocolAdapter::Native => self.local_folder_path().map(str::to_owned),
+            ProtocolAdapter::Native => self.local_folder_path().map(str::to_owned).or_else(|| {
+                self.fs
+                    .iter()
+                    .any(|adapter| {
+                        matches!(adapter, FsAdapter::WebDav { .. } | FsAdapter::S3 { .. })
+                    })
+                    .then(|| self.alias.clone())
+            }),
             ProtocolAdapter::RuneForward {
                 mode: RuneForwardMode::Replica { .. },
                 ..
@@ -199,6 +243,20 @@ impl LibraryRecord {
     pub fn validate(&self) -> Result<(), InvalidRecord> {
         match &self.protocol {
             ProtocolAdapter::Native => {
+                let open_dal_count = self
+                    .fs
+                    .iter()
+                    .filter(|adapter| {
+                        matches!(adapter, FsAdapter::WebDav { .. } | FsAdapter::S3 { .. })
+                    })
+                    .count();
+                if open_dal_count > 0
+                    && (open_dal_count != 1
+                        || self.fs.len() != 1
+                        || !matches!(self.catalog, CatalogPlacement::Redirected(_)))
+                {
+                    return Err(InvalidRecord::OpenDalInvalid);
+                }
                 if self.library_id.is_none()
                     || self.fs.is_empty()
                     || self
@@ -217,6 +275,11 @@ impl LibraryRecord {
                 owner_fingerprint,
                 mode: RuneForwardMode::Replica { .. },
             } => {
+                if self.fs.iter().any(|adapter| {
+                    matches!(adapter, FsAdapter::WebDav { .. } | FsAdapter::S3 { .. })
+                }) {
+                    return Err(InvalidRecord::OpenDalInvalid);
+                }
                 if self.library_id.is_none() {
                     return Err(InvalidRecord::ReplicaInvalid);
                 }
@@ -271,6 +334,8 @@ pub enum InvalidRecord {
     SubsonicInvalid,
     #[error("Background sync requires a catalog")]
     BackgroundSyncWithoutCatalog,
+    #[error("OpenDAL libraries require a redirected catalog and a single filesystem adapter")]
+    OpenDalInvalid,
     #[error("Two records share a catalog library id")]
     DuplicateLibraryId,
 }
@@ -797,17 +862,11 @@ impl LibraryRegistry {
                 };
                 let record = registry.invalid_records.remove(index);
                 registry.invalid.retain(|(id, _)| *id != record_id);
-                let credential = match record.protocol {
-                    ProtocolAdapter::SubsonicTranslate { credential, .. } => Some(credential),
-                    _ => None,
-                };
+                let credential = record_credential(&record);
                 return Ok((true, credential));
             };
             let record = registry.libraries.remove(index);
-            let credential = match record.protocol {
-                ProtocolAdapter::SubsonicTranslate { credential, .. } => Some(credential),
-                _ => None,
-            };
+            let credential = record_credential(&record);
             if registry.last_open_record == Some(record_id) {
                 registry.last_open_record = None;
             }
@@ -1914,6 +1973,43 @@ mod tests {
             Err(InvalidRecord::SubsonicInvalid)
         );
 
+        let opendal = LibraryRecord {
+            record_id: LibraryRecordId(Uuid::new_v4()),
+            alias: "OpenDAL".into(),
+            library_id: Some(Uuid::new_v4()),
+            protocol: ProtocolAdapter::Native,
+            fs: vec![FsAdapter::WebDav {
+                endpoint: "http://127.0.0.1:1".into(),
+                root: "/music/".into(),
+                username: "user".into(),
+                credential: CredentialRef(Uuid::new_v4()),
+            }],
+            catalog: CatalogPlacement::Redirected(Uuid::new_v4()),
+            background_sync: true,
+        };
+        assert_eq!(opendal.validate(), Ok(()));
+        assert_eq!(opendal.root(Path::new("/config")), Some(PathBuf::new()));
+        let mut opendal_in_media_root = opendal.clone();
+        opendal_in_media_root.catalog = CatalogPlacement::InMediaRoot;
+        assert_eq!(
+            opendal_in_media_root.validate(),
+            Err(InvalidRecord::OpenDalInvalid)
+        );
+        let mut opendal_with_local = opendal.clone();
+        opendal_with_local.fs.push(FsAdapter::Local {
+            path: "/music".into(),
+        });
+        assert_eq!(
+            opendal_with_local.validate(),
+            Err(InvalidRecord::OpenDalInvalid)
+        );
+        let mut replica_with_opendal = replica.clone();
+        replica_with_opendal.fs.push(opendal.fs[0].clone());
+        assert_eq!(
+            replica_with_opendal.validate(),
+            Err(InvalidRecord::OpenDalInvalid)
+        );
+
         let mut invalid_background = subsonic;
         invalid_background.background_sync = true;
         assert_eq!(
@@ -1951,6 +2047,51 @@ mod tests {
             Some(&InvalidRecord::NativeInvalid)
         );
         assert_eq!(fs::read(dir.path().join("libraries.json")).unwrap(), before);
+    }
+
+    #[tokio::test]
+    async fn removing_opendal_record_removes_its_credential() {
+        use crate::credentials::{Credential, Secret};
+
+        let dir = TempDir::new().unwrap();
+        let credentials = CredentialStore::open(dir.path());
+        let credential = credentials
+            .put(Credential {
+                username: "user".into(),
+                secret: Secret::new(b"secret".to_vec()),
+            })
+            .await
+            .unwrap();
+        let record = LibraryRecord {
+            record_id: LibraryRecordId(Uuid::new_v4()),
+            alias: "WebDAV".into(),
+            library_id: Some(Uuid::new_v4()),
+            protocol: ProtocolAdapter::Native,
+            fs: vec![FsAdapter::WebDav {
+                endpoint: "http://example.test".into(),
+                root: "/music/".into(),
+                username: "user".into(),
+                credential,
+            }],
+            catalog: CatalogPlacement::Redirected(Uuid::new_v4()),
+            background_sync: true,
+        };
+        LibraryRegistry::update(dir.path(), |registry| {
+            registry.libraries.push(record.clone());
+            Ok(())
+        })
+        .await
+        .unwrap();
+        assert!(credentials.get(credential).await.is_ok());
+        assert!(
+            LibraryRegistry::remove_record(dir.path(), record.record_id, &credentials)
+                .await
+                .unwrap()
+        );
+        assert!(matches!(
+            credentials.get(credential).await,
+            Err(CredentialStoreError::CredentialMissing(_))
+        ));
     }
 
     #[tokio::test]

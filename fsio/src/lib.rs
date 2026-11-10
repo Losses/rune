@@ -166,6 +166,8 @@ use std_fs::StdFsIo;
 
 mod opendal_fs;
 pub use opendal_fs::OpenDalConfig;
+#[cfg(feature = "test-fixtures")]
+pub mod test_fixtures;
 use opendal_fs::OpenDalFsIo;
 
 #[cfg(target_os = "android")]

@@ -1,5 +1,8 @@
 use fsio::{FsIo, FsNode};
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    vec::IntoIter,
+};
 
 fn is_audio_file(entry: &FsNode) -> bool {
     if let Some(ext) = entry.path.extension() {
@@ -21,21 +24,18 @@ fn scan_audio_files<P: AsRef<Path>>(
     Ok(files.into_iter().filter(is_audio_file))
 }
 
-pub struct AudioScanner<'a> {
+pub struct AudioScanner {
     root_path: PathBuf,
-    iterator: Box<dyn Iterator<Item = FsNode> + Send + 'a>,
+    iterator: IntoIter<FsNode>,
     ended: bool,
 }
 
-impl<'a> AudioScanner<'a> {
-    pub fn new<P: AsRef<Path> + Send + 'a>(
-        fsio: &'a FsIo,
-        path: &'a P,
-    ) -> Result<Self, fsio::FileIoError> {
+impl AudioScanner {
+    pub fn new<P: AsRef<Path>>(fsio: &FsIo, path: &P) -> Result<Self, fsio::FileIoError> {
         let iterator = scan_audio_files(fsio, path)?;
         Ok(AudioScanner {
             root_path: path.as_ref().to_path_buf(),
-            iterator: Box::new(iterator),
+            iterator: iterator.collect::<Vec<_>>().into_iter(),
             ended: false,
         })
     }

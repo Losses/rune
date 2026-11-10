@@ -288,19 +288,28 @@ fn remote_error(operation: &str) -> FileIoError {
     FileIoError::Remote(format!("{operation} failed"))
 }
 
-fn map_error(kind: ErrorKind, operation: &str) -> FileIoError {
-    match kind {
-        ErrorKind::NotFound => FileIoError::PathNotFound(operation.to_string()),
-        ErrorKind::PermissionDenied => FileIoError::PermissionDenied(operation.to_string()),
-        _ => remote_error(operation),
+pub fn classify_open_error(error: &opendal::Error) -> OpenDalErrorKind {
+    if error.kind() == ErrorKind::PermissionDenied || error.to_string().contains("401") {
+        OpenDalErrorKind::Authentication
+    } else if matches!(error.kind(), ErrorKind::NotFound) {
+        OpenDalErrorKind::NotFound
+    } else {
+        OpenDalErrorKind::Unreachable
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OpenDalErrorKind {
+    Authentication,
+    NotFound,
+    Unreachable,
+}
+
 fn map_open_error(error: &opendal::Error, operation: &str) -> FileIoError {
-    if error.kind() == ErrorKind::PermissionDenied || error.to_string().contains("401") {
-        FileIoError::PermissionDenied(operation.to_string())
-    } else {
-        map_error(error.kind(), operation)
+    match classify_open_error(error) {
+        OpenDalErrorKind::Authentication => FileIoError::PermissionDenied(operation.to_string()),
+        OpenDalErrorKind::NotFound => FileIoError::PathNotFound(operation.to_string()),
+        OpenDalErrorKind::Unreachable => remote_error(operation),
     }
 }
 
