@@ -41,6 +41,7 @@ use crate::macros::{
 };
 use crate::request_error::ExpectedRequestError;
 use crate::server::sync_worker::SyncTokenStore;
+use crate::subsonic_binding::SubsonicBinding;
 use crate::{Session, session::PlayerSession};
 use crate::{
     library_pool::{LibraryHandle, LibraryPool},
@@ -106,6 +107,7 @@ struct OpenLibraryState {
 
 enum CatalogBinding {
     Local,
+    Subsonic(Arc<SubsonicBinding>),
     RemotePeer {
         fingerprint: String,
         reconnect: Option<ReconnectTask>,
@@ -121,6 +123,7 @@ pub(crate) enum SessionBinding {
 pub(crate) enum CatalogTarget {
     Closed,
     Local,
+    Subsonic(Arc<SubsonicBinding>),
     RemotePeer,
 }
 
@@ -707,6 +710,10 @@ impl NodeContext {
                 catalog: CatalogBinding::RemotePeer { .. },
                 ..
             }) => CatalogTarget::RemotePeer,
+            UiLibrary::Open(OpenLibraryState {
+                catalog: CatalogBinding::Subsonic(binding),
+                ..
+            }) => CatalogTarget::Subsonic(Arc::clone(binding)),
             UiLibrary::Closed => CatalogTarget::Closed,
         })
     }
@@ -729,6 +736,14 @@ impl NodeContext {
 
     pub(crate) fn set_open_local_catalog(&self, record_id: Option<LibraryRecordId>) -> Result<u64> {
         self.set_open_catalog(record_id, CatalogBinding::Local)
+    }
+
+    pub(crate) fn set_open_subsonic_catalog(
+        &self,
+        record_id: Option<LibraryRecordId>,
+        binding: Arc<SubsonicBinding>,
+    ) -> Result<u64> {
+        self.set_open_catalog(record_id, CatalogBinding::Subsonic(binding))
     }
 
     fn set_open_catalog(

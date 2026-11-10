@@ -25,9 +25,14 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use database::library_registry::LibraryRecord;
 use database::library_registry::{LibraryRegistry, ProtocolAdapter, SubsonicOpenMode};
+use serde_json::json;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex as StdMutex},
+};
 #[cfg(target_os = "linux")]
 use std::{env, process::Command};
-use std::{path::PathBuf, sync::Mutex as StdMutex};
 use tempfile::TempDir;
 use url::Url;
 
@@ -72,8 +77,319 @@ use serde::de::DeserializeOwned;
 use tokio::net::TcpListener as TokioTcpListener;
 #[cfg(target_os = "linux")]
 use tokio::runtime::Builder;
+use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep, timeout};
 use tokio_tungstenite::{accept_async, connect_async};
+
+#[derive(Clone)]
+struct SubsonicHubMock {
+    calls: Arc<StdMutex<Vec<String>>>,
+    reject_credentials: bool,
+}
+
+async fn subsonic_hub_mock(
+    reject_credentials: bool,
+) -> (String, Arc<StdMutex<Vec<String>>>, JoinHandle<()>) {
+    let calls = Arc::new(StdMutex::new(Vec::new()));
+    let state = SubsonicHubMock {
+        calls: calls.clone(),
+        reject_credentials,
+    };
+    let app = Router::new()
+        .route("/rest/{*action}", get(subsonic_hub_response))
+        .with_state(state);
+    let listener = TokioTcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{address}"), calls, task)
+}
+
+async fn subsonic_hub_response(
+    AxumPath(action): AxumPath<String>,
+    State(state): State<SubsonicHubMock>,
+    Query(query): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let action = action.strip_suffix(".view").unwrap_or(&action).to_owned();
+    state.calls.lock().unwrap().push(action.clone());
+    let body = match action.as_str() {
+        "ping" => {
+            json!({ "subsonic-response": { "status": "ok", "version": "1.16.1", "openSubsonic": false } })
+        }
+        "getUser" if state.reject_credentials => {
+            json!({ "subsonic-response": { "status": "failed", "error": { "code": 40, "message": format!("rejected t={} s={} p=test-secret", query.get("t").map(String::as_str).unwrap_or_default(), query.get("s").map(String::as_str).unwrap_or_default()) } } })
+        }
+        "getUser" => {
+            json!({ "subsonic-response": { "status": "ok", "user": { "streamRole": true, "downloadRole": true } } })
+        }
+        "search3" => {
+            json!({ "subsonic-response": { "status": "ok", "searchResult3": { "song": { "id": "song-opaque", "title": "Song title", "artist": "Artist", "album": "Album", "artistId": "artist-opaque", "albumId": "album-opaque", "duration": 90, "track": 4 }, "artist": { "id": "artist-opaque", "name": "Artist" }, "album": { "id": "album-opaque", "name": "Album", "artist": "Artist", "artistId": "artist-opaque" } } } })
+        }
+        "getSong" => {
+            json!({ "subsonic-response": { "status": "ok", "song": { "id": "song-opaque", "title": "Song title", "artist": "Artist", "album": "Album", "artistId": "artist-opaque", "albumId": "album-opaque", "duration": 90, "track": 4 } } })
+        }
+        "getArtist" => {
+            json!({ "subsonic-response": { "status": "ok", "artist": { "id": "artist-opaque", "name": "Artist" } } })
+        }
+        "getAlbum" => {
+            json!({ "subsonic-response": { "status": "ok", "album": { "id": "album-opaque", "name": "Album", "artist": "Artist", "artistId": "artist-opaque" } } })
+        }
+        _ => {
+            json!({ "subsonic-response": { "status": "failed", "error": { "code": 70, "message": "unexpected action" } } })
+        }
+    };
+    axum::Json(body)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
+    use crate::messages::{
+        CapabilityReason, CollectionType, FetchAllPlaylistsRequest, FetchCollectionByIdsRequest,
+        FetchMediaFileByIdsRequest, OpenLibraryFailureKind, OpenLibraryRequest, OpenLibraryResult,
+        PlayRequest, SearchForRequest,
+    };
+    use database::library_registry::{
+        CatalogPlacement, LibraryRecord, LibraryRecordId, LibraryRegistry, ProtocolAdapter,
+        SubsonicOpenMode,
+    };
+    use scrobbling::manager::ScrobblingManager;
+    use tokio::sync::Mutex;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, calls, server) = subsonic_hub_mock(false).await;
+    let credential = node
+        .credentials
+        .put(Credential {
+            username: "account".into(),
+            secret: Secret::new(b"test-secret".to_vec()),
+        })
+        .await?;
+    let record = LibraryRecord {
+        record_id: LibraryRecordId(Uuid::new_v4()),
+        alias: "Subsonic search".into(),
+        library_id: None,
+        protocol: ProtocolAdapter::SubsonicTranslate {
+            endpoint: endpoint.clone(),
+            credential,
+            mode: SubsonicOpenMode::PlayOnThisDevice,
+        },
+        fs: Vec::new(),
+        catalog: CatalogPlacement::None,
+        background_sync: false,
+    };
+    LibraryRegistry::update(Path::new(&*node.config_path), |registry| {
+        registry.libraries.push(record.clone());
+        Ok(())
+    })
+    .await?;
+    let scrobbler = Arc::new(Mutex::new(ScrobblingManager::new(
+        10,
+        Duration::from_secs(5),
+    )));
+    let opened = open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: 1,
+            record_id: record.record_id.0.to_string(),
+        },
+        node.clone(),
+        scrobbler.clone(),
+    )
+    .await;
+    assert_eq!(opened.result, OpenLibraryResult::Opened);
+    assert!(matches!(
+        node.catalog_target(),
+        Ok(CatalogTarget::Subsonic(_))
+    ));
+    let capabilities = capability_snapshot(&node)?;
+    assert_eq!(
+        capabilities.search_for_request,
+        RequestCapability::Available
+    );
+    assert_eq!(
+        capabilities.play_request,
+        RequestCapability::Disabled {
+            reason: CapabilityReason::AccountRoleMissing,
+        }
+    );
+    let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
+    assert_eq!(registry.last_open_record, Some(record.record_id));
+
+    let search = dispatch_gui_request(
+        &fixture.global_params,
+        &SearchForRequest {
+            call_id: 7,
+            query_str: "Song".into(),
+            fields: Vec::new(),
+            n: 10,
+        },
+    )
+    .await?
+    .context("Subsonic search response")?;
+    assert_eq!(search.tracks, vec![1]);
+    assert_eq!(search.artists, vec![1]);
+    assert_eq!(search.albums, vec![1]);
+    let tracks = dispatch_gui_request(
+        &fixture.global_params,
+        &FetchMediaFileByIdsRequest {
+            ids: search.tracks.clone(),
+            bake_cover_arts: true,
+        },
+    )
+    .await?
+    .context("Subsonic track fetch")?;
+    assert_eq!(tracks.media_files[0].title, "Song title");
+    assert_eq!(tracks.media_files[0].artist, "Artist");
+    assert_eq!(tracks.media_files[0].album, "Album");
+    let artists = dispatch_gui_request(
+        &fixture.global_params,
+        &FetchCollectionByIdsRequest {
+            collection_type: CollectionType::Artist,
+            bake_cover_arts: true,
+            ids: search.artists,
+        },
+    )
+    .await?
+    .context("Subsonic artist fetch")?;
+    assert_eq!(artists.result[0].name, "Artist");
+    let albums = dispatch_gui_request(
+        &fixture.global_params,
+        &FetchCollectionByIdsRequest {
+            collection_type: CollectionType::Album,
+            bake_cover_arts: true,
+            ids: search.albums,
+        },
+    )
+    .await?
+    .context("Subsonic album fetch")?;
+    assert_eq!(albums.result[0].name, "Album");
+    assert_eq!(*calls.lock().unwrap(), ["ping", "getUser", "search3"]);
+
+    let calls_before_unsupported = calls.lock().unwrap().len();
+    let unsupported = dispatch_gui_request(&fixture.global_params, &FetchAllPlaylistsRequest {})
+        .await
+        .err()
+        .context("expected unsupported playlist request")?;
+    assert!(matches!(
+        unsupported.downcast_ref::<ExpectedRequestError>(),
+        Some(ExpectedRequestError::Unsupported { .. })
+    ));
+    let player_before = fixture.global_params.player.lock().await.get_status().state;
+    let session_error = dispatch_gui_request(&fixture.global_params, &PlayRequest {})
+        .await
+        .err()
+        .context("expected unsupported session request")?;
+    assert!(matches!(
+        session_error.downcast_ref::<ExpectedRequestError>(),
+        Some(ExpectedRequestError::Unsupported { .. })
+    ));
+    assert_eq!(
+        fixture.global_params.player.lock().await.get_status().state,
+        player_before
+    );
+    let unknown = dispatch_gui_request(
+        &fixture.global_params,
+        &FetchMediaFileByIdsRequest {
+            ids: vec![999],
+            bake_cover_arts: false,
+        },
+    )
+    .await
+    .err()
+    .context("expected unknown mapped ID failure")?;
+    assert!(matches!(
+        unknown.downcast_ref::<ExpectedRequestError>(),
+        Some(ExpectedRequestError::InvalidInput { .. })
+    ));
+    assert_eq!(calls.lock().unwrap().len(), calls_before_unsupported);
+
+    let (bad_endpoint, bad_calls, bad_server) = subsonic_hub_mock(true).await;
+    let bad_credential = node
+        .credentials
+        .put(Credential {
+            username: "account".into(),
+            secret: Secret::new(b"test-secret".to_vec()),
+        })
+        .await?;
+    let bad_record = LibraryRecord {
+        record_id: LibraryRecordId(Uuid::new_v4()),
+        alias: "Rejected Subsonic".into(),
+        library_id: None,
+        protocol: ProtocolAdapter::SubsonicTranslate {
+            endpoint: bad_endpoint,
+            credential: bad_credential,
+            mode: SubsonicOpenMode::RemoteControl,
+        },
+        fs: Vec::new(),
+        catalog: CatalogPlacement::None,
+        background_sync: false,
+    };
+    LibraryRegistry::update(Path::new(&*node.config_path), |registry| {
+        registry.libraries.push(bad_record.clone());
+        Ok(())
+    })
+    .await?;
+    let rejected = open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: 2,
+            record_id: bad_record.record_id.0.to_string(),
+        },
+        node.clone(),
+        scrobbler.clone(),
+    )
+    .await;
+    assert!(
+        matches!(rejected.result, OpenLibraryResult::Failed(failure) if failure.kind == OpenLibraryFailureKind::RemoteNotAuthorized && !failure.detail.contains("t=") && !failure.detail.contains("p=") && !failure.detail.contains("s="))
+    );
+    assert_eq!(*bad_calls.lock().unwrap(), ["ping", "getUser"]);
+
+    let reserved = TokioTcpListener::bind("127.0.0.1:0").await?;
+    let closed_endpoint = format!("http://{}", reserved.local_addr()?);
+    drop(reserved);
+    let closed_credential = node
+        .credentials
+        .put(Credential {
+            username: "account".into(),
+            secret: Secret::new(b"test-secret".to_vec()),
+        })
+        .await?;
+    let closed_record = LibraryRecord {
+        record_id: LibraryRecordId(Uuid::new_v4()),
+        alias: "Closed Subsonic".into(),
+        library_id: None,
+        protocol: ProtocolAdapter::SubsonicTranslate {
+            endpoint: closed_endpoint,
+            credential: closed_credential,
+            mode: SubsonicOpenMode::PlayOnThisDevice,
+        },
+        fs: Vec::new(),
+        catalog: CatalogPlacement::None,
+        background_sync: false,
+    };
+    LibraryRegistry::update(Path::new(&*node.config_path), |registry| {
+        registry.libraries.push(closed_record.clone());
+        Ok(())
+    })
+    .await?;
+    let unreachable = open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: 3,
+            record_id: closed_record.record_id.0.to_string(),
+        },
+        node.clone(),
+        scrobbler,
+    )
+    .await;
+    assert!(
+        matches!(unreachable.result, OpenLibraryResult::Failed(failure) if failure.kind == OpenLibraryFailureKind::RemoteUnreachable)
+    );
+
+    server.abort();
+    bad_server.abort();
+    node.close_ui(&fixture.global_params.main_token).await;
+    node.shutdown().await?;
+    Ok(())
+}
 
 #[cfg(target_os = "linux")]
 #[test]
@@ -6322,7 +6638,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
         Ok(())
     })
     .await?;
-    let unsupported = open_library_by_record_on_node(
+    let unreachable_subsonic = open_library_by_record_on_node(
         &OpenLibraryRequest {
             call_id: 6,
             record_id: subsonic.record_id.0.to_string(),
@@ -6332,8 +6648,8 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     )
     .await;
     assert!(
-        matches!(unsupported.result, OpenLibraryResult::Failed(failure)
-        if failure.kind == OpenLibraryFailureKind::NotSupportedYet)
+        matches!(unreachable_subsonic.result, OpenLibraryResult::Failed(failure)
+        if failure.kind == OpenLibraryFailureKind::RemoteUnreachable)
     );
 
     node.cert_validator

@@ -12,13 +12,16 @@ use tokio_util::sync::CancellationToken;
 
 use super::fixture;
 use crate::backends::local::gui_request::{GuiRequest, listen_gui_with_io};
-use crate::macros::{RequestScope, RequestSlots};
+use crate::macros::{RequestAccess, RequestScope, RequestSlots};
 use crate::messages::{
     CrashResponse, RequestErrorKind, RequestFailedResponse, RequestFailureCause, SearchForRequest,
     VolumeRequest, VolumeResponse,
 };
 use crate::request_error::ExpectedRequestError;
-use crate::rpc::{Slot, TargetRequest};
+use crate::rpc::{
+    Slot, SubsonicTranslate, SubsonicTranslationFuture, TargetRequest, UnsupportedReason,
+};
+use crate::subsonic_binding::SubsonicBinding;
 use crate::utils::{GlobalParams, ParamsExtractor, RinfRustSignal};
 use crate::{CallIdentified, Session, Signal, TypedRequest};
 
@@ -64,6 +67,7 @@ where
         + CallIdentified
         + DartSignal
         + Serialize
+        + SubsonicTranslate
         + Send
         + Sync
         + 'static,
@@ -108,10 +112,25 @@ impl TypedRequest for DelayedRequest {
 }
 impl TargetRequest for DelayedRequest {
     const SCOPE: RequestScope = RequestScope::Node;
+    const ACCESS: RequestAccess = RequestAccess::NodeLocal;
     const USES_CONTROLLER_LIBRARY: bool = false;
     const INTRODUCED_MINOR: u32 = 0;
     fn slot(_: &RequestSlots) -> Slot {
         Slot::Native
+    }
+}
+impl SubsonicTranslate for DelayedRequest {
+    fn translate_subsonic<'a>(
+        &'a self,
+        _: &'a SubsonicBinding,
+    ) -> SubsonicTranslationFuture<'a, Self::Response> {
+        Box::pin(async {
+            Err(ExpectedRequestError::Unsupported {
+                request: "DelayedRequest",
+                reason: UnsupportedReason::NotImplemented,
+            }
+            .into())
+        })
     }
 }
 impl CallIdentified for DelayedRequest {

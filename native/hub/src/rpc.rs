@@ -1,3 +1,5 @@
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -6,10 +8,11 @@ use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error;
 
 use crate::backends::remote::RendererLink;
-use crate::macros::{RequestAccess, RequestScope, RequestSlots, request_access};
+use crate::macros::{RequestAccess, RequestScope, RequestSlots};
 use crate::messages::RequestCapability;
 use crate::node::{CatalogTarget, NodeContext, SessionBinding};
 use crate::request_error::ExpectedRequestError;
+use crate::subsonic_binding::SubsonicBinding;
 use crate::utils::{GlobalParams, ParamsExtractor};
 use crate::{Signal, TypedRequest};
 
@@ -38,21 +41,35 @@ pub enum Slot {
 /// Scope and typed slot access generated from the request catalogue.
 pub trait TargetRequest: TypedRequest {
     const SCOPE: RequestScope;
+    const ACCESS: RequestAccess;
     const USES_CONTROLLER_LIBRARY: bool;
     const INTRODUCED_MINOR: u32;
 
     fn slot(slots: &RequestSlots) -> Slot;
 }
 
+pub(crate) type SubsonicTranslationFuture<'a, T> =
+    Pin<Box<dyn Future<Output = Result<Option<T>>> + Send + 'a>>;
+
+/// Type-directed translation for requests supported by Subsonic.
+pub(crate) trait SubsonicTranslate: TargetRequest {
+    fn translate_subsonic<'a>(
+        &'a self,
+        binding: &'a SubsonicBinding,
+    ) -> SubsonicTranslationFuture<'a, Self::Response>;
+}
+
 /// An RPC execution target and its complete set of request slots.
 pub struct RpcTarget {
     slots: RequestSlots,
     renderer: Option<Arc<RendererLink>>,
+    subsonic: Option<Arc<SubsonicBinding>>,
 }
 
 /// Where a request type goes, before the renderer link is resolved.
 enum TargetChoice {
     Local,
+    Subsonic(Arc<SubsonicBinding>),
     /// The @RR mode: the device the UI library lives on.
     RemotePeer(Option<Arc<RendererLink>>),
     Attached(Arc<RendererLink>),
@@ -63,6 +80,7 @@ impl RpcTarget {
         Self {
             slots: RequestSlots::local(),
             renderer: None,
+            subsonic: None,
         }
     }
 
@@ -72,14 +90,16 @@ impl RpcTarget {
         Self {
             slots,
             renderer: Some(renderer),
+            subsonic: None,
         }
     }
 
     /// Construct a Subsonic target from the connection-time capability probe.
-    pub fn subsonic(probe: &subsonic::SubsonicProbe) -> Self {
+    pub(crate) fn subsonic(binding: Arc<SubsonicBinding>) -> Self {
         Self {
-            slots: RequestSlots::subsonic(probe),
+            slots: RequestSlots::subsonic(&binding.probe),
             renderer: None,
+            subsonic: Some(binding),
         }
     }
 
@@ -111,6 +131,7 @@ impl RpcTarget {
     pub(crate) fn select_type<R: TargetRequest>(node: &NodeContext) -> Result<Self> {
         Ok(match target_choice::<R>(node)? {
             TargetChoice::Local => Self::local(),
+            TargetChoice::Subsonic(binding) => Self::subsonic(binding),
             TargetChoice::RemotePeer(Some(renderer)) => Self::rune(renderer),
             TargetChoice::RemotePeer(None) => match node.session_binding()? {
                 SessionBinding::RemotePeer(renderer) => Self::rune(renderer),
@@ -125,11 +146,13 @@ impl RpcTarget {
     pub(crate) fn select_capability_type<R: TargetRequest>(node: &NodeContext) -> Result<Self> {
         Ok(match target_choice::<R>(node)? {
             TargetChoice::Local => Self::local(),
+            TargetChoice::Subsonic(binding) => Self::subsonic(binding),
             TargetChoice::Attached(renderer) => Self::rune(renderer),
             TargetChoice::RemotePeer(Some(renderer)) => Self::rune(renderer),
             TargetChoice::RemotePeer(None) => Self {
                 slots: Self::rune_slots(),
                 renderer: None,
+                subsonic: None,
             },
         })
     }
@@ -154,38 +177,20 @@ impl RpcTarget {
     }
 }
 
-impl RequestSlots {
-    /// Build the Subsonic whitelist. jukeboxControl covers transport commands,
-    /// queue status, and queue add/remove operations; other catalogue entries stay hidden.
-    pub fn subsonic(probe: &subsonic::SubsonicProbe) -> Self {
-        let mut slots = Self::unimplemented();
-        let slot = if probe.roles_known && probe.roles.jukebox_role {
-            Slot::Translate
-        } else {
-            Slot::Unsupported {
-                reason: UnsupportedReason::AccountRoleMissing,
-            }
-        };
-        slots.play_request = slot;
-        slots.pause_request = slot;
-        slots.next_request = slot;
-        slots.previous_request = slot;
-        slots.seek_request = slot;
-        slots.volume_request = slot;
-        slots.switch_request = slot;
-        slots.load_request = slot;
-        slots.remove_request = slot;
-        slots.session_snapshot_request = slot;
-        slots.refresh_session_request = slot;
-        slots
-    }
-}
-
 fn target_choice<R: TargetRequest>(node: &NodeContext) -> Result<TargetChoice> {
-    if request_access(R::wire_name()) == Some(RequestAccess::NodeLocal) {
+    if R::SCOPE == RequestScope::Node || R::ACCESS == RequestAccess::NodeLocal {
         return Ok(TargetChoice::Local);
     }
-    let remote_peer = matches!(node.catalog_target()?, CatalogTarget::RemotePeer);
+    let catalog = node.catalog_target()?;
+    if let CatalogTarget::Subsonic(binding) = &catalog {
+        return Ok(match R::SCOPE {
+            RequestScope::Node => TargetChoice::Local,
+            RequestScope::Library | RequestScope::Session => {
+                TargetChoice::Subsonic(Arc::clone(binding))
+            }
+        });
+    }
+    let remote_peer = matches!(catalog, CatalogTarget::RemotePeer);
     match R::SCOPE {
         RequestScope::Node => Ok(TargetChoice::Local),
         // Library requests follow the open record's catalog; a remote peer's link may be
@@ -226,14 +231,11 @@ pub(crate) fn narrow_slot(slot: Slot, introduced_minor: u32, peer_minor: u32) ->
 pub(crate) fn routes_to_attached_renderer<R: TargetRequest>() -> bool {
     R::SCOPE == RequestScope::Session
         && !R::USES_CONTROLLER_LIBRARY
-        && !matches!(
-            request_access(R::wire_name()),
-            None | Some(RequestAccess::NodeLocal)
-        )
+        && R::ACCESS != RequestAccess::NodeLocal
 }
 
 /// Dispatch a local GUI request inside the RPC layer using its declared scope.
-pub async fn dispatch_gui_request<R>(
+pub(crate) async fn dispatch_gui_request<R>(
     params: &GlobalParams,
     request: &R,
 ) -> Result<Option<<R as TypedRequest>::Response>>
@@ -242,7 +244,8 @@ where
         + Signal<Response = <R as TypedRequest>::Response, Params = <R as ParamsExtractor>::Params>
         + ParamsExtractor
         + DartSignal
-        + Serialize,
+        + Serialize
+        + SubsonicTranslate,
     <R as TypedRequest>::Response: DeserializeOwned,
 {
     let target = RpcTarget::select_type::<R>(&params.node)?;
@@ -260,7 +263,8 @@ where
         + Signal<Response = <R as TypedRequest>::Response, Params = <R as ParamsExtractor>::Params>
         + ParamsExtractor
         + DartSignal
-        + Serialize,
+        + Serialize
+        + SubsonicTranslate,
     <R as TypedRequest>::Response: DeserializeOwned,
 {
     match target.slot(request) {
@@ -281,18 +285,21 @@ where
             reason,
         }
         .into()),
-        Slot::Translate => Err(ExpectedRequestError::Unsupported {
-            request: R::wire_name(),
-            reason: UnsupportedReason::NotImplemented,
+        Slot::Translate => {
+            let binding = target
+                .subsonic
+                .as_ref()
+                .context("Translate slot has no Subsonic binding")?;
+            request.translate_subsonic(binding).await
         }
-        .into()),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        RequestCapability, RpcTarget, Slot, UnsupportedReason, routes_to_attached_renderer,
+        RequestCapability, RequestSlots, RpcTarget, Slot, UnsupportedReason,
+        routes_to_attached_renderer,
     };
     use crate::messages::{
         DetachRendererRequest, HandoffRequest, ListControllersRequest, ListRenderersRequest,
@@ -313,79 +320,115 @@ mod tests {
     }
 
     #[test]
-    fn subsonic_slots_reflect_jukebox_role_and_hide_unmapped_requests() {
-        use crate::messages::CapabilityReason;
+    fn subsonic_slots_whitelist_search_and_result_fetches() {
         use crate::messages::RequestCapabilities;
         use crate::messages::{
-            FetchAllPlaylistsRequest, LoadRequest, NextRequest, PauseRequest, PreviousRequest,
-            RefreshSessionRequest, RemoveRequest, SeekRequest, SessionSnapshotRequest,
-            SwitchRequest, VolumeRequest,
+            CollectionType, FetchAllPlaylistsRequest, FetchCollectionByIdsRequest,
+            FetchMediaFileByIdsRequest, PlayRequest, SearchForRequest,
         };
-
-        let mut probe = subsonic::SubsonicProbe {
+        use subsonic::{SubsonicProbe, SubsonicRoles};
+        let slots = RequestSlots::subsonic(&SubsonicProbe {
             api_version: "1.16.1".into(),
             open_subsonic: false,
             server_type: None,
             server_version: None,
             extensions: Vec::new(),
-            roles: subsonic::SubsonicRoles::default(),
+            roles: SubsonicRoles::default(),
             roles_known: true,
+        });
+        let enabled = RpcTarget {
+            slots,
+            renderer: None,
+            subsonic: None,
         };
-        probe.roles.jukebox_role = true;
-        let enabled = RpcTarget::subsonic(&probe);
-        assert_eq!(enabled.slot(&PauseRequest {}), Slot::Translate);
-        assert_eq!(enabled.slot(&NextRequest {}), Slot::Translate);
-        assert_eq!(enabled.slot(&PreviousRequest {}), Slot::Translate);
         assert_eq!(
-            enabled.slot(&SeekRequest {
-                position_seconds: 12.0
+            enabled.slot(&SearchForRequest {
+                call_id: 1,
+                query_str: String::new(),
+                fields: Vec::new(),
+                n: 10
             }),
             Slot::Translate
         );
         assert_eq!(
-            enabled.slot(&VolumeRequest { volume: 0.5 }),
-            Slot::Translate
-        );
-        assert_eq!(
-            enabled.slot(&SwitchRequest {
-                index: 1,
-                expected_revision: None
+            enabled.slot(&FetchMediaFileByIdsRequest {
+                ids: Vec::new(),
+                bake_cover_arts: false
             }),
             Slot::Translate
         );
-        assert_eq!(enabled.slot(&LoadRequest { index: 0 }), Slot::Translate);
         assert_eq!(
-            enabled.slot(&RemoveRequest {
-                index: 0,
-                expected_revision: None
+            enabled.slot(&FetchCollectionByIdsRequest {
+                collection_type: CollectionType::Artist,
+                bake_cover_arts: false,
+                ids: Vec::new()
             }),
             Slot::Translate
         );
-        assert_eq!(enabled.slot(&SessionSnapshotRequest {}), Slot::Translate);
-        assert_eq!(enabled.slot(&RefreshSessionRequest {}), Slot::Translate);
-        probe.roles.jukebox_role = false;
-        let disabled = RpcTarget::subsonic(&probe);
         assert_eq!(
-            disabled.slot(&PauseRequest {}),
+            enabled.slot(&PlayRequest {}),
             Slot::Unsupported {
                 reason: UnsupportedReason::AccountRoleMissing
             }
         );
         assert_eq!(
-            RequestCapabilities::from_target(&disabled).pause_request,
-            RequestCapability::Disabled {
-                reason: CapabilityReason::AccountRoleMissing
-            }
+            RequestCapabilities::from_target(&enabled).search_for_request,
+            RequestCapability::Available
         );
         assert_eq!(
-            disabled.slot(&FetchAllPlaylistsRequest {}),
+            enabled.slot(&FetchAllPlaylistsRequest {}),
             Slot::Unsupported {
                 reason: UnsupportedReason::NotImplemented
             }
         );
         assert_eq!(
-            RequestCapabilities::from_target(&disabled).fetch_all_playlists_request,
+            RequestCapabilities::from_target(&enabled).fetch_all_playlists_request,
             RequestCapability::Hidden
+        );
+
+        let role_present = RpcTarget {
+            slots: RequestSlots::subsonic(&SubsonicProbe {
+                api_version: "1.16.1".into(),
+                open_subsonic: false,
+                server_type: None,
+                server_version: None,
+                extensions: Vec::new(),
+                roles: SubsonicRoles {
+                    jukebox_role: true,
+                    ..Default::default()
+                },
+                roles_known: true,
+            }),
+            renderer: None,
+            subsonic: None,
+        };
+        assert_eq!(
+            role_present.slot(&PlayRequest {}),
+            Slot::Unsupported {
+                reason: UnsupportedReason::NotImplemented
+            }
+        );
+        let roles_unknown = RpcTarget {
+            slots: RequestSlots::subsonic(&SubsonicProbe {
+                api_version: "1.16.1".into(),
+                open_subsonic: false,
+                server_type: None,
+                server_version: None,
+                extensions: Vec::new(),
+                roles: SubsonicRoles {
+                    jukebox_role: true,
+                    ..Default::default()
+                },
+                roles_known: false,
+            }),
+            renderer: None,
+            subsonic: None,
+        };
+        assert_eq!(
+            roles_unknown.slot(&PlayRequest {}),
+            Slot::Unsupported {
+                reason: UnsupportedReason::AccountRoleMissing
+            }
         );
     }
 }

@@ -28,6 +28,7 @@ struct RequestResponse {
     introduced_minor: Option<u32>,
     // Listened to for the node's whole life rather than only while a UI library is open.
     node_lifetime: bool,
+    subsonic: bool,
 }
 
 #[proc_macro]
@@ -41,6 +42,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -51,6 +53,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -61,6 +64,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -71,6 +75,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -81,6 +86,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -91,6 +97,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -101,6 +108,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -111,6 +119,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -121,6 +130,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -131,6 +141,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: true,
         },
         RequestResponse {
@@ -141,6 +152,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: true,
         },
         RequestResponse {
@@ -151,6 +163,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -161,6 +174,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: true,
         },
         RequestResponse {
@@ -171,6 +185,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: true,
         },
         RequestResponse {
@@ -181,6 +196,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: true,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: true,
         },
         RequestResponse {
@@ -191,6 +207,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -201,6 +218,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         // Library
@@ -212,6 +230,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -222,6 +241,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -232,6 +252,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -242,6 +263,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -252,6 +274,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -262,6 +285,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -272,6 +296,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -282,6 +307,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -292,6 +318,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -302,6 +329,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         // Playback
@@ -313,6 +341,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -323,6 +352,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -333,6 +363,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -343,6 +374,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -353,6 +385,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -363,6 +396,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -373,6 +407,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -383,6 +418,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -393,6 +429,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -403,6 +440,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -413,6 +451,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -423,6 +462,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -433,6 +473,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         // This device's own audio session, so never forwarded to a renderer.
@@ -444,6 +485,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         // Visualizer (the GPU and the frame buffer live in this process)
@@ -455,6 +497,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -465,6 +508,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -475,6 +519,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -485,6 +530,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -495,6 +541,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -505,6 +552,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -515,6 +563,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -525,6 +574,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -535,6 +585,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -545,6 +596,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -555,6 +607,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -565,6 +618,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -575,6 +629,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -585,6 +640,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -595,6 +651,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -605,6 +662,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -615,6 +673,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -625,6 +684,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -635,6 +695,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -645,6 +706,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -655,6 +717,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -665,6 +728,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -675,6 +739,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         // SFX
@@ -686,6 +751,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         // Analyze
@@ -697,6 +763,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -707,6 +774,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         // Media File
@@ -718,6 +786,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -728,6 +797,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: true,
             node_lifetime: false,
         },
         RequestResponse {
@@ -738,6 +808,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -748,6 +819,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         // Lyric
@@ -759,6 +831,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -769,6 +842,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         // Collection
@@ -780,6 +854,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -790,6 +865,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -800,6 +876,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: true,
             node_lifetime: false,
         },
         RequestResponse {
@@ -810,6 +887,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         // Cover Art
@@ -821,6 +899,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -831,6 +910,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         // Playlist
@@ -842,6 +922,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -852,6 +933,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -862,6 +944,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -872,6 +955,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -882,6 +966,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -892,6 +977,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -902,6 +988,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -912,6 +999,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -922,6 +1010,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         // Mix
@@ -933,6 +1022,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -943,6 +1033,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -953,6 +1044,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -963,6 +1055,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -973,6 +1066,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -983,6 +1077,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -993,6 +1088,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1003,6 +1099,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1013,6 +1110,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: true,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1023,6 +1121,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1033,6 +1132,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1043,6 +1143,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1053,6 +1154,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         // Like
@@ -1064,6 +1166,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1074,6 +1177,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         // Query and Search
@@ -1085,6 +1189,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1095,6 +1200,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: true,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: true,
             node_lifetime: false,
         },
         // Directory
@@ -1106,6 +1212,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         // Scrobbler
@@ -1117,6 +1224,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1127,6 +1235,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1137,6 +1246,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         // Log
@@ -1148,6 +1258,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1158,6 +1269,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1168,6 +1280,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         // System
@@ -1179,6 +1292,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         // License
@@ -1190,6 +1304,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1200,6 +1315,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         // Neighbors
@@ -1211,6 +1327,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1221,6 +1338,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1231,6 +1349,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1241,6 +1360,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1251,6 +1371,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1261,6 +1382,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1271,6 +1393,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1281,6 +1404,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1291,6 +1415,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1301,6 +1426,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1311,6 +1437,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1321,6 +1448,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1331,6 +1459,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1341,6 +1470,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1351,6 +1481,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1361,6 +1492,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1371,6 +1503,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1381,6 +1514,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1391,6 +1525,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1401,6 +1536,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
         RequestResponse {
@@ -1411,6 +1547,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             call_id: false,
             uses_controller_library: false,
             introduced_minor: None,
+            subsonic: false,
             node_lifetime: false,
         },
     ];
@@ -1533,9 +1670,17 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         };
         let controller_library = entry.uses_controller_library;
         let introduced_minor = entry.introduced_minor.unwrap_or(0);
+        let access = match entry.access {
+            RequestAccess::NodeLocal => quote! { RequestAccess::NodeLocal },
+            RequestAccess::Control => quote! { RequestAccess::Control },
+            RequestAccess::ConnectionView => quote! { RequestAccess::ConnectionView },
+            RequestAccess::ConnectionEdit => quote! { RequestAccess::ConnectionEdit },
+            RequestAccess::Administer => quote! { RequestAccess::Administer },
+        };
         quote! {
             impl TargetRequest for #request {
                 const SCOPE: RequestScope = #scope;
+                const ACCESS: RequestAccess = #access;
                 const USES_CONTROLLER_LIBRARY: bool = #controller_library;
                 const INTRODUCED_MINOR: u32 = #introduced_minor;
 
@@ -1545,6 +1690,53 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             }
         }
     });
+    let subsonic_translate_impls = types.iter().map(|entry| {
+        let request = format_ident!("{}", entry.request);
+        let mut snake_name = String::new();
+        for (index, ch) in entry.request.chars().enumerate() {
+            if ch.is_uppercase() && index != 0 {
+                snake_name.push('_');
+            }
+            snake_name.extend(ch.to_lowercase());
+        }
+        let handler = format_ident!("{}", snake_name);
+        let translation = if entry.subsonic {
+            quote! {
+                Box::pin(crate::subsonic_translate::#handler(binding, self))
+            }
+        } else {
+            quote! {
+                Box::pin(async move {
+                    Err(ExpectedRequestError::Unsupported {
+                        request: Self::wire_name(),
+                        reason: UnsupportedReason::NotImplemented,
+                    }.into())
+                })
+            }
+        };
+        quote! {
+            impl SubsonicTranslate for #request {
+                fn translate_subsonic<'a>(
+                    &'a self,
+                    binding: &'a SubsonicBinding,
+                ) -> SubsonicTranslationFuture<'a, Self::Response> {
+                    #translation
+                }
+            }
+        }
+    });
+    let subsonic_slots = types
+        .iter()
+        .zip(&slot_fields)
+        .filter(|(entry, _)| entry.subsonic)
+        .map(|(_, field)| quote! { slots.#field = Slot::Translate; });
+    let session_slot_fields = types
+        .iter()
+        .zip(&slot_fields)
+        .filter(|(entry, _)| {
+            entry.scope == RequestScope::Session && entry.access != RequestAccess::NodeLocal
+        })
+        .map(|(_, field)| quote! { slots.#field = Slot::Unsupported { reason }; });
     let capability_request_idents: Vec<_> = types
         .iter()
         .map(|entry| format_ident!("{}", entry.request))
@@ -1609,6 +1801,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         #(#call_id_impls)*
         #(#typed_request_impls)*
         #(#target_request_impls)*
+        #(#subsonic_translate_impls)*
         #(#gui_request_impls)*
 
         /// Start one sequential GUI listener per catalogue request type.
@@ -1659,6 +1852,18 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             pub fn rune() -> Self {
                 let mut slots = Self::unimplemented();
                 #(slots.#slot_fields = Slot::Forward;)*
+                slots
+            }
+
+            pub fn subsonic(probe: &SubsonicProbe) -> Self {
+                let mut slots = Self::unimplemented();
+                let reason = if probe.roles_known && probe.roles.jukebox_role {
+                    UnsupportedReason::NotImplemented
+                } else {
+                    UnsupportedReason::AccountRoleMissing
+                };
+                #(#session_slot_fields)*
+                #(#subsonic_slots)*
                 slots
             }
 

@@ -15,6 +15,8 @@ pub mod node;
 pub mod request_error;
 pub mod rpc;
 pub mod session;
+mod subsonic_binding;
+mod subsonic_translate;
 #[macro_use]
 pub mod server;
 pub mod utils;

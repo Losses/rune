@@ -42,17 +42,21 @@ use std::sync::Arc;
 use anyhow::{Error, Result};
 use requests::define_request_types;
 use rinf::RustSignal;
+use subsonic::SubsonicProbe;
 use uuid::Uuid;
 
-use crate::Session;
 use crate::backends::local::gui_request::{GuiRequest, listen_gui};
 use crate::node::NodeContext;
-use crate::rpc::RpcTarget;
+use crate::request_error::ExpectedRequestError;
+use crate::rpc::{
+    RpcTarget, Slot, SubsonicTranslate, SubsonicTranslationFuture, TargetRequest,
+    UnsupportedReason, narrow_slot,
+};
 use crate::server::server_request::serve_remote;
+use crate::subsonic_binding::SubsonicBinding;
 use crate::utils::{GlobalParams, RinfRustSignal};
+use crate::{Session, TypedRequest};
 use tokio_util::sync::CancellationToken;
 
 use crate::messages::*;
-use crate::rpc::{Slot, TargetRequest, UnsupportedReason, narrow_slot};
-
 define_request_types!();

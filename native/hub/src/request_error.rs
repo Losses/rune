@@ -18,6 +18,8 @@ pub enum ExpectedRequestError {
     Reconnecting { alias: String },
     #[error("{what} unavailable")]
     Unavailable { what: &'static str },
+    #[error("Subsonic account is not authorized for this request")]
+    SubsonicNotAuthorized,
     #[error("{request} is unsupported by this target: {reason}")]
     Unsupported {
         request: &'static str,
@@ -98,6 +100,7 @@ pub fn classify(error: &Error) -> RequestErrorKind {
                 ExpectedRequestError::Unavailable { .. }
                 | ExpectedRequestError::Reconnecting { .. }
                 | ExpectedRequestError::Unsupported { .. } => RequestErrorKind::Unavailable,
+                ExpectedRequestError::SubsonicNotAuthorized => RequestErrorKind::PermissionDenied,
                 ExpectedRequestError::CertificateMismatch => RequestErrorKind::InvalidInput,
                 ExpectedRequestError::PublicKeyMismatch => RequestErrorKind::InvalidInput,
                 ExpectedRequestError::RegistrationConflict => RequestErrorKind::Conflict,
@@ -160,6 +163,7 @@ pub fn request_failure_cause(error: &Error) -> Option<RequestFailureCause> {
                         peer_version: peer_version.map(|version| version.to_string()),
                     });
                 }
+                ExpectedRequestError::SubsonicNotAuthorized => return None,
                 _ => {}
             }
         }

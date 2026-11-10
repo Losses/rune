@@ -1,5 +1,5 @@
 use database::sync::LibrarySyncStore;
-use tokio::time::Duration;
+use tokio::time::{Duration, timeout};
 use uuid::Uuid;
 pub mod broadcastable;
 pub mod diagnostics;
@@ -15,6 +15,7 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     path::{Path, PathBuf},
+    result::Result as StdResult,
     sync::{Arc, OnceLock},
 };
 
@@ -37,7 +38,7 @@ use ::database::{
         LibraryState, MainDbConnection, RecommendationDbConnection, check_library_state,
         check_storage_mode, connect_main_db, connect_recommendation_db, create_redirect,
     },
-    credentials::{Credential, CredentialStore, Secret},
+    credentials::{Credential, CredentialRef, CredentialStore, Secret},
     entities::media_files,
     library_registry::{
         CatalogPlacement, InvalidRecord, LibraryRecord, LibraryRecordId, LibraryRegistry,
@@ -61,6 +62,7 @@ use crate::library_pool::{LibraryHandle, LibraryPool};
 use crate::messages::*;
 use crate::request_error::{ExpectedRequestError, classify, request_failure_cause};
 use crate::server::ServerManager;
+use crate::subsonic_binding::SubsonicBinding;
 use crate::{CallIdentified, Signal, TypedRequest};
 use subsonic::{SubsonicClient, SubsonicCredentials, SubsonicError, SubsonicServerError};
 use url::Url;
@@ -847,10 +849,11 @@ pub(crate) async fn open_library_by_record_on_node(
                 }
             }
         }
-        ProtocolAdapter::SubsonicTranslate { .. } => Err((
-            OpenLibraryFailureKind::NotSupportedYet,
-            anyhow::anyhow!("Subsonic record opening is not implemented yet"),
-        )),
+        ProtocolAdapter::SubsonicTranslate {
+            endpoint,
+            credential,
+            ..
+        } => open_subsonic_record(&node, record.record_id, endpoint, *credential).await,
     };
     match result {
         Ok(generation) => {
@@ -871,6 +874,73 @@ pub(crate) async fn open_library_by_record_on_node(
         }
         Err((kind, error)) => failed(kind, error),
     }
+}
+
+async fn open_subsonic_record(
+    node: &Arc<NodeContext>,
+    record_id: LibraryRecordId,
+    endpoint: &str,
+    credential_ref: CredentialRef,
+) -> StdResult<u64, (OpenLibraryFailureKind, anyhow::Error)> {
+    let credential = node
+        .credentials
+        .get(credential_ref)
+        .await
+        .map_err(|error| (OpenLibraryFailureKind::Storage, anyhow::Error::new(error)))?;
+    let password = String::from_utf8(credential.secret.as_bytes().to_vec())
+        .map_err(|error| (OpenLibraryFailureKind::Storage, error.into()))?;
+    let endpoint = Url::parse(endpoint)
+        .map_err(|error| (OpenLibraryFailureKind::RemoteProtocol, error.into()))?;
+    let client = SubsonicClient::new(
+        endpoint,
+        SubsonicCredentials::Password {
+            user: credential.username,
+            password,
+        },
+        reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(10))
+            .build()
+            .map_err(|_| {
+                (
+                    OpenLibraryFailureKind::Storage,
+                    anyhow::anyhow!("Could not create Subsonic client"),
+                )
+            })?,
+    );
+    let probe = match timeout(Duration::from_secs(10), client.probe()).await {
+        Err(_) => {
+            return Err((
+                OpenLibraryFailureKind::RemoteUnreachable,
+                anyhow::anyhow!("Subsonic server timed out"),
+            ));
+        }
+        Ok(Ok(probe)) => probe,
+        Ok(Err(error)) => {
+            let kind = match error {
+                SubsonicError::Transport(_) => OpenLibraryFailureKind::RemoteUnreachable,
+                SubsonicError::Server {
+                    kind:
+                        SubsonicServerError::WrongCredentials
+                        | SubsonicServerError::NotAuthorized
+                        | SubsonicServerError::InvalidApiKey,
+                    ..
+                } => OpenLibraryFailureKind::RemoteNotAuthorized,
+                _ => OpenLibraryFailureKind::RemoteProtocol,
+            };
+            let detail = match kind {
+                OpenLibraryFailureKind::RemoteUnreachable => "Could not reach the Subsonic server",
+                OpenLibraryFailureKind::RemoteNotAuthorized => {
+                    "The Subsonic credentials were rejected"
+                }
+                _ => "The Subsonic server returned an invalid response",
+            };
+            return Err((kind, anyhow::anyhow!(detail)));
+        }
+    };
+    let binding = Arc::new(SubsonicBinding::new(client, probe));
+    node.set_open_subsonic_catalog(Some(record_id), binding)
+        .map_err(|error| (OpenLibraryFailureKind::Storage, error))
 }
 
 async fn open_catalog_record(
