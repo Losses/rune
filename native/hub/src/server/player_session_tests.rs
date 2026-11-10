@@ -5796,20 +5796,7 @@ async fn rpc_target_blacklisted_request_returns_typed_failure_without_sending() 
             .is_err(),
         "blacklisted request sent a frame"
     );
-    // A target built from a live link keeps the owner-only blacklist.
-    assert_eq!(
-        RpcTarget::rune(
-            controller
-                .global_params
-                .node
-                .renderer_link()?
-                .context("attached renderer")?,
-        )
-        .slot_type::<crate::messages::HandoffRequest>(),
-        Slot::Unsupported {
-            reason: UnsupportedReason::OwnerOnly,
-        }
-    );
+    // Node-scope requests are selected locally before a renderer target is built.
     let peer_too_old = RpcTarget::rune(
         controller
             .global_params
@@ -7772,6 +7759,139 @@ async fn rr_capability_snapshot_uses_rune_library_and_local_close_slots() -> Res
         .await;
     local.global_params.node.shutdown().await?;
     remote.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn node_owned_calls_stay_local_with_remote_library_and_attached_renderer() -> Result<()> {
+    use crate::messages::{
+        AttachRendererRequest, CloseLibraryRequest, DetachControllerRequest,
+        DetachRendererRequest, GetSyncSettingsRequest, HandoffRequest, ListControllersRequest,
+        ListRenderersRequest, RemoveDownloadRuleRequest, SetDownloadRuleRequest,
+        SetSyncSettingsRequest, TestLibraryInitializedRequest,
+    };
+    use crate::macros::{RequestAccess, RequestSlots};
+    use crate::rpc::TargetRequest;
+    use crate::TypedRequest;
+
+    struct NodeLocalSessionProbe;
+
+    impl TypedRequest for NodeLocalSessionProbe {
+        type Response = ();
+
+        fn wire_name() -> &'static str {
+            "NodeLocalSessionProbe"
+        }
+
+        fn response_name() -> &'static str {
+            "NodeLocalSessionProbeResponse"
+        }
+    }
+
+    impl TargetRequest for NodeLocalSessionProbe {
+        const SCOPE: RequestScope = RequestScope::Session;
+        const ACCESS: RequestAccess = RequestAccess::NodeLocal;
+        const USES_CONTROLLER_LIBRARY: bool = false;
+        const INTRODUCED_MINOR: u32 = 0;
+
+        fn slot(slots: &RequestSlots) -> Slot {
+            slots.pause_request
+        }
+    }
+
+    macro_rules! assert_node_target {
+        ($node:expr, $request:ty) => {
+            assert_eq!(
+                RpcTarget::select_type::<$request>($node)?.slot_type::<$request>(),
+                Slot::Native,
+                stringify!($request)
+            );
+        };
+    }
+
+    let local_dir = tempfile::tempdir()?;
+    let remote_dir = tempfile::tempdir()?;
+    let local = fixture(local_dir.path()).await?;
+    let remote = super::fixture(remote_dir.path()).await?;
+    let address = super::paired_full(&remote, &local).await?;
+    let remote_info = super::info(&remote).await?;
+    local
+        .global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(
+            &remote_info.fingerprint,
+            vec![format!("127.0.0.1:{}", address.port())],
+        )
+        .await?;
+    let remote_params = super::open_remote_control_record(
+        local.global_params.node.clone(),
+        &remote_info.fingerprint,
+    )
+    .await?;
+    let remote_node = &local.global_params.node;
+    assert_node_target!(remote_node, AttachRendererRequest);
+    assert_node_target!(remote_node, DetachRendererRequest);
+    assert_node_target!(remote_node, ListRenderersRequest);
+    assert_node_target!(remote_node, HandoffRequest);
+    assert_node_target!(remote_node, ListControllersRequest);
+    assert_node_target!(remote_node, DetachControllerRequest);
+    assert_node_target!(remote_node, GetSyncSettingsRequest);
+    assert_node_target!(remote_node, SetSyncSettingsRequest);
+    assert_node_target!(remote_node, SetDownloadRuleRequest);
+    assert_node_target!(remote_node, RemoveDownloadRuleRequest);
+    assert_node_target!(remote_node, TestLibraryInitializedRequest);
+    assert_node_target!(remote_node, CloseLibraryRequest);
+    local
+        .global_params
+        .node
+        .close_ui(&remote_params.main_token)
+        .await;
+    local.global_params.node.shutdown().await?;
+    remote.global_params.node.shutdown().await?;
+
+    let controller_dir = tempfile::tempdir()?;
+    let renderer_dir = tempfile::tempdir()?;
+    let controller = fixture(controller_dir.path()).await?;
+    let renderer = super::fixture(renderer_dir.path()).await?;
+    let renderer_address = super::paired_full(&renderer, &controller).await?;
+    let renderer_info = super::info(&renderer).await?;
+    controller
+        .global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(
+            &renderer_info.fingerprint,
+            vec![format!("127.0.0.1:{}", renderer_address.port())],
+        )
+        .await?;
+    controller
+        .global_params
+        .node
+        .attach_renderer(&renderer_info.fingerprint)
+        .await?;
+    let attached_node = &controller.global_params.node;
+    assert_eq!(
+        RpcTarget::select_type::<NodeLocalSessionProbe>(attached_node)?.slot_type::<NodeLocalSessionProbe>(),
+        Slot::Forward,
+        "scope selects the attached player even when authorization is NodeLocal"
+    );
+    assert_node_target!(attached_node, AttachRendererRequest);
+    assert_node_target!(attached_node, DetachRendererRequest);
+    assert_node_target!(attached_node, ListRenderersRequest);
+    assert_node_target!(attached_node, HandoffRequest);
+    assert_node_target!(attached_node, ListControllersRequest);
+    assert_node_target!(attached_node, DetachControllerRequest);
+    assert_node_target!(attached_node, GetSyncSettingsRequest);
+    assert_node_target!(attached_node, SetSyncSettingsRequest);
+    assert_node_target!(attached_node, SetDownloadRuleRequest);
+    assert_node_target!(attached_node, RemoveDownloadRuleRequest);
+    assert_node_target!(attached_node, TestLibraryInitializedRequest);
+    assert_node_target!(attached_node, CloseLibraryRequest);
+    controller.global_params.node.shutdown().await?;
+    renderer.global_params.node.shutdown().await?;
     Ok(())
 }
 

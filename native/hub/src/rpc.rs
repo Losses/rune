@@ -104,24 +104,7 @@ impl RpcTarget {
     }
 
     pub(crate) fn rune_slots() -> RequestSlots {
-        let mut slots = RequestSlots::rune();
-        // These owner operations have no registered remote handler.
-        let owner_only = Slot::Unsupported {
-            reason: UnsupportedReason::OwnerOnly,
-        };
-        slots.attach_renderer_request = owner_only;
-        slots.detach_renderer_request = owner_only;
-        slots.list_renderers_request = owner_only;
-        slots.handoff_request = owner_only;
-        slots.list_controllers_request = owner_only;
-        slots.detach_controller_request = owner_only;
-        slots.get_sync_settings_request = owner_only;
-        slots.set_sync_settings_request = owner_only;
-        slots.set_download_rule_request = owner_only;
-        slots.remove_download_rule_request = owner_only;
-        slots.test_library_initialized_request = owner_only;
-        slots.close_library_request = owner_only;
-        slots
+        RequestSlots::rune()
     }
 
     pub fn select<R: TargetRequest>(node: &NodeContext, _request: &R) -> Result<Self> {
@@ -178,7 +161,7 @@ impl RpcTarget {
 }
 
 fn target_choice<R: TargetRequest>(node: &NodeContext) -> Result<TargetChoice> {
-    if R::SCOPE == RequestScope::Node || R::ACCESS == RequestAccess::NodeLocal {
+    if R::SCOPE == RequestScope::Node {
         return Ok(TargetChoice::Local);
     }
     let catalog = node.catalog_target()?;
@@ -224,14 +207,11 @@ pub(crate) fn narrow_slot(slot: Slot, introduced_minor: u32, peer_minor: u32) ->
     }
 }
 
-/// Whether a request goes to the attached renderer rather than this node. Session
-/// requests a peer may run do; this node's own coordinators (attach, detach, handoff,
-/// renderer and controller lists) are node-local and stay here even while attached, and
-/// mix queries resolve against this device's library before casting items.
+/// Whether a request goes to the attached renderer rather than this node: player calls
+/// do; this device's own calls are Node scope and never reach here. Mix queries resolve
+/// against this device's library before casting items.
 pub(crate) fn routes_to_attached_renderer<R: TargetRequest>() -> bool {
-    R::SCOPE == RequestScope::Session
-        && !R::USES_CONTROLLER_LIBRARY
-        && R::ACCESS != RequestAccess::NodeLocal
+    R::SCOPE == RequestScope::Session && !R::USES_CONTROLLER_LIBRARY
 }
 
 /// Dispatch a local GUI request inside the RPC layer using its declared scope.

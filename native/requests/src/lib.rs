@@ -58,7 +58,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         RequestResponse {
             request: "AttachRendererRequest".to_string(),
             response: None,
-            scope: RequestScope::Session,
+            scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
@@ -70,7 +70,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         RequestResponse {
             request: "DetachRendererRequest".to_string(),
             response: None,
-            scope: RequestScope::Session,
+            scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
@@ -82,7 +82,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         RequestResponse {
             request: "ListRenderersRequest".to_string(),
             response: Some("ListRenderersResponse".to_string()),
-            scope: RequestScope::Session,
+            scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
@@ -94,7 +94,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         RequestResponse {
             request: "HandoffRequest".to_string(),
             response: Some("HandoffResponse".to_string()),
-            scope: RequestScope::Session,
+            scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
@@ -130,7 +130,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         RequestResponse {
             request: "ListControllersRequest".to_string(),
             response: Some("ListControllersResponse".to_string()),
-            scope: RequestScope::Session,
+            scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
@@ -142,7 +142,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         RequestResponse {
             request: "DetachControllerRequest".to_string(),
             response: None,
-            scope: RequestScope::Session,
+            scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
@@ -311,7 +311,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         RequestResponse {
             request: "GetSyncSettingsRequest".to_string(),
             response: Some("GetSyncSettingsResponse".to_string()),
-            scope: RequestScope::Library,
+            scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
@@ -323,7 +323,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         RequestResponse {
             request: "SetSyncSettingsRequest".to_string(),
             response: Some("SetSyncSettingsResponse".to_string()),
-            scope: RequestScope::Library,
+            scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
@@ -335,7 +335,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         RequestResponse {
             request: "SetDownloadRuleRequest".to_string(),
             response: Some("SetDownloadRuleResponse".to_string()),
-            scope: RequestScope::Library,
+            scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
@@ -347,7 +347,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         RequestResponse {
             request: "RemoveDownloadRuleRequest".to_string(),
             response: Some("RemoveDownloadRuleResponse".to_string()),
-            scope: RequestScope::Library,
+            scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
@@ -359,7 +359,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         RequestResponse {
             request: "TestLibraryInitializedRequest".to_string(),
             response: Some("TestLibraryInitializedResponse".to_string()),
-            scope: RequestScope::Library,
+            scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
@@ -371,7 +371,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         RequestResponse {
             request: "CloseLibraryRequest".to_string(),
             response: Some("CloseLibraryResponse".to_string()),
-            scope: RequestScope::Library,
+            scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
             call_id: false,
             uses_controller_library: false,
@@ -1943,9 +1943,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
     let session_slot_fields = types
         .iter()
         .zip(&slot_fields)
-        .filter(|(entry, _)| {
-            entry.scope == RequestScope::Session && entry.access != RequestAccess::NodeLocal
-        })
+        .filter(|(entry, _)| entry.scope == RequestScope::Session)
         .map(|(_, field)| quote! { slots.#field = Slot::Unsupported { reason }; });
     let capability_request_idents: Vec<_> = types
         .iter()
