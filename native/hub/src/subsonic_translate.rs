@@ -7,15 +7,20 @@ use subsonic::{
 };
 
 use crate::TypedRequest;
+use crate::macros::{RequestSlots, RequestTranslator};
 use crate::messages::{
-    AudioAvailability, AudioOrigin, Collection, CollectionGroup, CollectionGroupSummary,
-    CollectionGroupSummaryResponse, CollectionType, FetchCollectionByIdsRequest,
-    FetchCollectionByIdsResponse, FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
-    FetchCollectionGroupsResponse, FetchMediaFileByIdsRequest, FetchMediaFileByIdsResponse,
-    MediaFile, MixQueryRequest, MixQueryResponse, SearchForRequest, SearchForResponse,
+    AudioAvailability, AudioOrigin, CastLoadRequest, CastPreflightRequest, Collection,
+    CollectionGroup, CollectionGroupSummary, CollectionGroupSummaryResponse, CollectionType,
+    FetchCollectionByIdsRequest, FetchCollectionByIdsResponse, FetchCollectionGroupSummaryRequest,
+    FetchCollectionGroupsRequest, FetchCollectionGroupsResponse, FetchMediaFileByIdsRequest,
+    FetchMediaFileByIdsResponse, LoadRequest, LoadResolvedItemsRequest, MediaFile, MixQueryRequest,
+    MixQueryResponse, MovePlaylistItemRequest, NextRequest, PauseRequest, PlayRequest,
+    PreviousRequest, RefreshSessionRequest, RemoveRequest, SearchForRequest, SearchForResponse,
+    SeekRequest, SessionSnapshotRequest, SetAdaptiveSwitchingEnabledRequest,
+    SetPlaybackModeRequest, SetRealtimeFFTEnabledRequest, SwitchRequest, VolumeRequest,
 };
 use crate::request_error::ExpectedRequestError;
-use crate::rpc::UnsupportedReason;
+use crate::rpc::{RequestTranslationFuture, Slot, UnsupportedReason};
 use crate::subsonic_binding::{SubsonicBinding, SubsonicIdKind};
 use database::actions::mixes::{QueryOperator, parse_query};
 
@@ -603,6 +608,69 @@ fn subsonic_request_error(error: SubsonicError) -> anyhow::Error {
         SubsonicError::InvalidJukeboxGain => {
             ExpectedRequestError::invalid_input("invalid Subsonic jukebox gain").into()
         }
+    }
+}
+
+macro_rules! subsonic_requests {
+    (
+        supported { $($request:ty => $handler:ident as $method:ident),* $(,)? }
+        player { $($player_request:ty),* $(,)? }
+    ) => {
+        impl RequestTranslator for SubsonicBinding {
+            $(
+                fn $method<'a>(
+                    &'a self,
+                    request: &'a $request,
+                ) -> RequestTranslationFuture<'a, <$request as crate::TypedRequest>::Response> {
+                    Box::pin($handler(self, request))
+                }
+            )*
+        }
+
+        impl RequestSlots {
+            pub(crate) fn subsonic(probe: &subsonic::SubsonicProbe) -> Self {
+                let mut slots = Self::unimplemented();
+                let player_reason = if probe.roles_known && probe.roles.jukebox_role {
+                    UnsupportedReason::NotImplemented
+                } else {
+                    UnsupportedReason::AccountRoleMissing
+                };
+                $(slots.set::<$player_request>(Slot::Unsupported { reason: player_reason });)*
+                $(slots.set::<$request>(Slot::Translate);)*
+                slots
+            }
+        }
+    };
+}
+
+subsonic_requests! {
+    supported {
+        FetchMediaFileByIdsRequest => fetch_media_file_by_ids_request as translate_fetch_media_file_by_ids_request,
+        FetchCollectionGroupSummaryRequest => fetch_collection_group_summary_request as translate_fetch_collection_group_summary_request,
+        FetchCollectionGroupsRequest => fetch_collection_groups_request as translate_fetch_collection_groups_request,
+        FetchCollectionByIdsRequest => fetch_collection_by_ids_request as translate_fetch_collection_by_ids_request,
+        MixQueryRequest => mix_query_request as translate_mix_query_request,
+        SearchForRequest => search_for_request as translate_search_for_request,
+    }
+    player {
+        VolumeRequest,
+        LoadRequest,
+        PlayRequest,
+        PauseRequest,
+        NextRequest,
+        PreviousRequest,
+        SwitchRequest,
+        SeekRequest,
+        RemoveRequest,
+        SetPlaybackModeRequest,
+        MovePlaylistItemRequest,
+        SetRealtimeFFTEnabledRequest,
+        SetAdaptiveSwitchingEnabledRequest,
+        LoadResolvedItemsRequest,
+        CastPreflightRequest,
+        CastLoadRequest,
+        RefreshSessionRequest,
+        SessionSnapshotRequest,
     }
 }
 

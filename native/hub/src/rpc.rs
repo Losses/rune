@@ -8,7 +8,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error;
 
 use crate::backends::remote::RendererLink;
-use crate::macros::{RequestAccess, RequestScope, RequestSlots};
+use crate::macros::{RequestAccess, RequestScope, RequestSlots, RequestTranslator};
 use crate::messages::RequestCapability;
 use crate::node::{CatalogTarget, NodeContext, SessionBinding};
 use crate::request_error::ExpectedRequestError;
@@ -45,18 +45,25 @@ pub trait TargetRequest: TypedRequest {
     const INTRODUCED_MINOR: u32;
 
     fn slot(slots: &RequestSlots) -> Slot;
-}
 
-pub(crate) type SubsonicTranslationFuture<'a, T> =
-    Pin<Box<dyn Future<Output = Result<Option<T>>> + Send + 'a>>;
+    fn set_slot(_slots: &mut RequestSlots, _slot: Slot) {}
 
-/// Type-directed translation for requests supported by Subsonic.
-pub(crate) trait SubsonicTranslate: TargetRequest {
-    fn translate_subsonic<'a>(
+    fn translate<'a>(
         &'a self,
-        binding: &'a SubsonicBinding,
-    ) -> SubsonicTranslationFuture<'a, Self::Response>;
+        _translator: &'a dyn RequestTranslator,
+    ) -> RequestTranslationFuture<'a, Self::Response> {
+        Box::pin(async {
+            Err(ExpectedRequestError::Unsupported {
+                request: Self::wire_name(),
+                reason: UnsupportedReason::NotImplemented,
+            }
+            .into())
+        })
+    }
 }
+
+pub(crate) type RequestTranslationFuture<'a, T> =
+    Pin<Box<dyn Future<Output = Result<Option<T>>> + Send + 'a>>;
 
 /// An RPC execution target and its complete set of request slots.
 pub struct RpcTarget {
@@ -223,8 +230,7 @@ where
         + Signal<Response = <R as TypedRequest>::Response, Params = <R as ParamsExtractor>::Params>
         + ParamsExtractor
         + DartSignal
-        + Serialize
-        + SubsonicTranslate,
+        + Serialize,
     <R as TypedRequest>::Response: DeserializeOwned,
 {
     let target = RpcTarget::select_type::<R>(&params.node)?;
@@ -242,8 +248,7 @@ where
         + Signal<Response = <R as TypedRequest>::Response, Params = <R as ParamsExtractor>::Params>
         + ParamsExtractor
         + DartSignal
-        + Serialize
-        + SubsonicTranslate,
+        + Serialize,
     <R as TypedRequest>::Response: DeserializeOwned,
 {
     match target.slot(request) {
@@ -269,7 +274,7 @@ where
                 .subsonic
                 .as_ref()
                 .context("Translate slot has no Subsonic binding")?;
-            request.translate_subsonic(binding).await
+            request.translate(binding.as_ref()).await
         }
     }
 }

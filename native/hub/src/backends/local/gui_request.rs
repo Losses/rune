@@ -7,7 +7,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::messages::{CrashResponse, RequestErrorKind, RequestFailedResponse};
 use crate::request_error::{classify, request_failure_cause};
-use crate::rpc::{SubsonicTranslate, TargetRequest, dispatch_gui_request};
+use crate::rpc::{TargetRequest, dispatch_gui_request};
 use crate::utils::{GlobalParams, ParamsExtractor, RinfRustSignal};
 use crate::{CallIdentified, Signal, TypedRequest};
 
@@ -25,8 +25,7 @@ where
         + ParamsExtractor
         + CallIdentified
         + DartSignal
-        + Serialize
-        + SubsonicTranslate,
+        + Serialize,
     <R as TypedRequest>::Response: DeserializeOwned,
 {
     listen_gui_with_io::<R>(params, cancel, R::get_dart_signal_receiver(), |signal| {
@@ -48,8 +47,7 @@ pub(crate) async fn listen_gui_with_io<R>(
         + ParamsExtractor
         + CallIdentified
         + DartSignal
-        + Serialize
-        + SubsonicTranslate,
+        + Serialize,
     <R as TypedRequest>::Response: DeserializeOwned,
 {
     tokio::select! {

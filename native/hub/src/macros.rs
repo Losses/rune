@@ -42,18 +42,15 @@ use std::{future::Future, sync::Arc, time::Duration};
 use anyhow::{Error, Result};
 use requests::define_request_types;
 use rinf::{DartSignal, DartSignalPack, RustSignal, SignalReceiver};
-use subsonic::SubsonicProbe;
 use uuid::Uuid;
 
 use crate::backends::local::gui_request::{GuiRequest, listen_gui};
 use crate::node::{NodeContext, NodeSlot};
 use crate::request_error::{ExpectedRequestError, classify, request_failure_cause};
 use crate::rpc::{
-    RpcTarget, Slot, SubsonicTranslate, SubsonicTranslationFuture, TargetRequest,
-    UnsupportedReason, narrow_slot,
+    RequestTranslationFuture, RpcTarget, Slot, TargetRequest, UnsupportedReason, narrow_slot,
 };
 use crate::server::server_request::serve_remote;
-use crate::subsonic_binding::SubsonicBinding;
 use crate::utils::{GlobalParams, RinfRustSignal};
 use crate::{CallIdentified, Session, TypedRequest};
 use tokio::time::sleep;

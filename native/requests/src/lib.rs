@@ -34,7 +34,6 @@ struct RequestResponse {
     introduced_minor: Option<u32>,
     // Listened to for the node's whole life rather than only while a UI library is open.
     node_lifetime: bool,
-    subsonic: bool,
     // Selects the generated node loop or one of the independently started bootstrap paths.
     node_receiver: Option<NodeReceiver>,
 }
@@ -60,7 +59,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -71,7 +69,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -82,7 +79,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -93,7 +89,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -104,7 +99,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -115,7 +109,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -126,7 +119,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -137,7 +129,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -148,7 +139,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -159,7 +149,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: true,
             node_receiver: Some(NodeReceiver::Loop),
         },
@@ -170,7 +159,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: true,
             node_receiver: Some(NodeReceiver::Loop),
         },
@@ -181,7 +169,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -192,7 +179,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: true,
             node_receiver: Some(NodeReceiver::Loop),
         },
@@ -203,7 +189,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: true,
             node_receiver: Some(NodeReceiver::Loop),
         },
@@ -216,7 +201,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             node_lifetime: true,
             node_receiver: Some(NodeReceiver::Loop),
-            subsonic: false,
         },
         RequestResponse {
             request: "RegisterOpenDalLibraryRequest".to_string(),
@@ -227,7 +211,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             node_lifetime: true,
             node_receiver: Some(NodeReceiver::Loop),
-            subsonic: false,
         },
         RequestResponse {
             request: "OpenLibraryRequest".to_string(),
@@ -236,7 +219,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: true,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: true,
             node_receiver: Some(NodeReceiver::Loop),
         },
@@ -249,7 +231,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             node_lifetime: true,
             node_receiver: Some(NodeReceiver::BootstrapNode),
-            subsonic: false,
         },
         RequestResponse {
             request: "RunFsSelfTestRequest".to_string(),
@@ -260,7 +241,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             introduced_minor: None,
             node_lifetime: true,
             node_receiver: Some(NodeReceiver::BootstrapSubsystem),
-            subsonic: false,
         },
         RequestResponse {
             request: "ListPeerLibrariesRequest".to_string(),
@@ -269,7 +249,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -280,7 +259,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -292,7 +270,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -303,7 +280,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -314,7 +290,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -325,7 +300,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -336,7 +310,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -347,7 +320,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -358,7 +330,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Administer,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -369,7 +340,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Administer,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -380,7 +350,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Administer,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -391,7 +360,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Administer,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -403,7 +371,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -414,7 +381,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -425,7 +391,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -436,7 +401,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -447,7 +411,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -458,7 +421,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -469,7 +431,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -480,7 +441,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -491,7 +451,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -502,7 +461,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -513,7 +471,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -524,7 +481,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -535,7 +491,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -547,7 +502,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -559,7 +513,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -570,7 +523,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -581,7 +533,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -592,7 +543,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -603,7 +553,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -614,7 +563,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -625,7 +573,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -636,7 +583,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -647,7 +593,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -658,7 +603,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -669,7 +613,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -680,7 +623,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -691,7 +633,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -702,7 +643,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -713,7 +653,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -724,7 +663,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -735,7 +673,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -746,7 +683,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -757,7 +693,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -768,7 +703,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -779,7 +713,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -790,7 +723,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -801,7 +733,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -813,7 +744,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -825,7 +755,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -836,7 +765,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -848,7 +776,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -859,7 +786,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: true,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -870,7 +796,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -881,7 +806,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -893,7 +817,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -904,7 +827,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -916,7 +838,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: true,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -927,7 +848,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: true,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -938,7 +858,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: true,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -949,7 +868,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -961,7 +879,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -972,7 +889,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -984,7 +900,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -995,7 +910,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1006,7 +920,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1017,7 +930,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1028,7 +940,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1039,7 +950,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1050,7 +960,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1061,7 +970,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1072,7 +980,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1084,7 +991,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1095,7 +1001,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1106,7 +1011,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1117,7 +1021,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1128,7 +1031,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1139,7 +1041,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1150,7 +1051,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: true,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1161,7 +1061,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1172,7 +1071,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1183,7 +1081,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1194,7 +1091,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1205,7 +1101,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1216,7 +1111,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1227,7 +1121,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1238,7 +1131,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::Control,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1250,7 +1142,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1261,7 +1152,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1273,7 +1163,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1284,7 +1173,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: true,
             introduced_minor: None,
-            subsonic: true,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1296,7 +1184,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionView,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1308,7 +1195,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1319,7 +1205,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1330,7 +1215,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1342,7 +1226,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1353,7 +1236,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1364,7 +1246,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1376,7 +1257,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1388,7 +1268,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1399,7 +1278,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1411,7 +1289,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1422,7 +1299,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1433,7 +1309,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1444,7 +1319,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1455,7 +1329,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1466,7 +1339,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1477,7 +1349,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1488,7 +1359,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1499,7 +1369,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1510,7 +1379,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1521,7 +1389,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1532,7 +1399,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1543,7 +1409,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1554,7 +1419,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1565,7 +1429,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1576,7 +1439,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1587,7 +1449,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1598,7 +1459,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1609,7 +1469,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1620,7 +1479,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::NodeLocal,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1631,7 +1489,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             access: RequestAccess::ConnectionEdit,
             call_id: false,
             introduced_minor: None,
-            subsonic: false,
             node_lifetime: false,
             node_receiver: None,
         },
@@ -1760,6 +1617,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         .collect();
     let target_request_impls = types.iter().zip(&slot_fields).map(|(entry, field)| {
         let request = format_ident!("{}", entry.request);
+        let translate_method = format_ident!("translate_{}", snake_case(&entry.request));
         let scope = match entry.scope {
             RequestScope::Node => quote! { RequestScope::Node },
             RequestScope::Session => quote! { RequestScope::Session },
@@ -1782,47 +1640,44 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
                 fn slot(slots: &RequestSlots) -> Slot {
                     slots.#field
                 }
-            }
-        }
-    });
-    let subsonic_translate_impls = types.iter().map(|entry| {
-        let request = format_ident!("{}", entry.request);
-        let handler = format_ident!("{}", snake_case(&entry.request));
-        let translation = if entry.subsonic {
-            quote! {
-                Box::pin(crate::subsonic_translate::#handler(binding, self))
-            }
-        } else {
-            quote! {
-                Box::pin(async move {
-                    Err(ExpectedRequestError::Unsupported {
-                        request: Self::wire_name(),
-                        reason: UnsupportedReason::NotImplemented,
-                    }.into())
-                })
-            }
-        };
-        quote! {
-            impl SubsonicTranslate for #request {
-                fn translate_subsonic<'a>(
+
+                fn set_slot(slots: &mut RequestSlots, slot: Slot) {
+                    slots.#field = slot;
+                }
+
+                fn translate<'a>(
                     &'a self,
-                    binding: &'a SubsonicBinding,
-                ) -> SubsonicTranslationFuture<'a, Self::Response> {
-                    #translation
+                    translator: &'a dyn RequestTranslator,
+                ) -> RequestTranslationFuture<'a, Self::Response> {
+                    translator.#translate_method(self)
                 }
             }
         }
     });
-    let subsonic_slots = types
-        .iter()
-        .zip(&slot_fields)
-        .filter(|(entry, _)| entry.subsonic)
-        .map(|(_, field)| quote! { slots.#field = Slot::Translate; });
-    let session_slot_fields = types
-        .iter()
-        .zip(&slot_fields)
-        .filter(|(entry, _)| entry.scope == RequestScope::Session)
-        .map(|(_, field)| quote! { slots.#field = Slot::Unsupported { reason }; });
+    let translator_trait_methods = types.iter().map(|entry| {
+        let request = format_ident!("{}", entry.request);
+        let method = format_ident!("translate_{}", snake_case(&entry.request));
+        let response = entry.response.as_deref().map_or_else(
+            || quote! { () },
+            |name| {
+                let response = format_ident!("{}", name);
+                quote! { #response }
+            },
+        );
+        quote! {
+            fn #method<'a>(
+                &'a self,
+                    _request: &'a #request,
+            ) -> RequestTranslationFuture<'a, #response> {
+                Box::pin(async {
+                    Err(ExpectedRequestError::Unsupported {
+                            request: <#request as TypedRequest>::wire_name(),
+                        reason: UnsupportedReason::NotImplemented,
+                    }.into())
+                })
+            }
+        }
+    });
     let capability_request_idents: Vec<_> = types
         .iter()
         .map(|entry| format_ident!("{}", entry.request))
@@ -1945,7 +1800,9 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         #(#call_id_impls)*
         #(#typed_request_impls)*
         #(#target_request_impls)*
-        #(#subsonic_translate_impls)*
+        pub trait RequestTranslator: Send + Sync {
+            #(#translator_trait_methods)*
+        }
         #(#gui_request_impls)*
 
         pub(crate) trait NodeRequestHandlers: Send + Sync {
@@ -2078,16 +1935,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
                 slots
             }
 
-            pub fn subsonic(probe: &SubsonicProbe) -> Self {
-                let mut slots = Self::unimplemented();
-                let reason = if probe.roles_known && probe.roles.jukebox_role {
-                    UnsupportedReason::NotImplemented
-                } else {
-                    UnsupportedReason::AccountRoleMissing
-                };
-                #(#session_slot_fields)*
-                #(#subsonic_slots)*
-                slots
+            pub(crate) fn set<R: TargetRequest>(&mut self, slot: Slot) {
+                R::set_slot(self, slot);
             }
 
             /// Mark every request newer than the peer's protocol minor unsupported.

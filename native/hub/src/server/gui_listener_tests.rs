@@ -19,9 +19,8 @@ use crate::messages::{
 };
 use crate::request_error::ExpectedRequestError;
 use crate::rpc::{
-    Slot, SubsonicTranslate, SubsonicTranslationFuture, TargetRequest, UnsupportedReason,
+    Slot, TargetRequest,
 };
-use crate::subsonic_binding::SubsonicBinding;
 use crate::utils::{GlobalParams, ParamsExtractor, RinfRustSignal};
 use crate::{CallIdentified, Session, Signal, TypedRequest};
 
@@ -67,7 +66,6 @@ where
         + CallIdentified
         + DartSignal
         + Serialize
-        + SubsonicTranslate
         + Send
         + Sync
         + 'static,
@@ -116,20 +114,6 @@ impl TargetRequest for DelayedRequest {
     const INTRODUCED_MINOR: u32 = 0;
     fn slot(_: &RequestSlots) -> Slot {
         Slot::Native
-    }
-}
-impl SubsonicTranslate for DelayedRequest {
-    fn translate_subsonic<'a>(
-        &'a self,
-        _: &'a SubsonicBinding,
-    ) -> SubsonicTranslationFuture<'a, Self::Response> {
-        Box::pin(async {
-            Err(ExpectedRequestError::Unsupported {
-                request: "DelayedRequest",
-                reason: UnsupportedReason::NotImplemented,
-            }
-            .into())
-        })
     }
 }
 impl CallIdentified for DelayedRequest {
