@@ -27,6 +27,8 @@ pub enum FileIoError {
     NotSupported(String),
     #[error("unknown error")]
     Unknown,
+    #[error("remote storage error: {0}")]
+    Remote(String),
 }
 
 #[derive(Debug, Clone)]
@@ -124,6 +126,16 @@ impl FsIo {
             inner: Arc::new(NoOpFsIo::new()),
         }
     }
+
+    /// Create a read-only WebDAV or S3 filesystem using the supplied runtime.
+    pub fn new_opendal(
+        config: OpenDalConfig,
+        handle: tokio::runtime::Handle,
+    ) -> Result<Self, FileIoError> {
+        Ok(Self {
+            inner: Arc::new(OpenDalFsIo::new(config, handle)?),
+        })
+    }
 }
 
 #[cfg(not(target_os = "android"))]
@@ -151,6 +163,10 @@ impl std::ops::Deref for FsIo {
 
 mod std_fs;
 use std_fs::StdFsIo;
+
+mod opendal_fs;
+pub use opendal_fs::OpenDalConfig;
+use opendal_fs::OpenDalFsIo;
 
 #[cfg(target_os = "android")]
 mod android_fs;
