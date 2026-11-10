@@ -7,8 +7,9 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::get;
 use subsonic::{SubsonicClient, SubsonicCredentials, SubsonicError, SubsonicServerError};
-use tokio::net::TcpListener;
 use url::Url;
+
+mod support;
 
 type RequestRecord = (String, HashMap<String, String>);
 type RequestLog = Arc<Mutex<Vec<RequestRecord>>>;
@@ -31,13 +32,7 @@ struct FixtureState {
 struct Fixture {
     url: Url,
     requests: RequestLog,
-    task: tokio::task::JoinHandle<()>,
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        self.task.abort();
-    }
+    _server: support::TestServer,
 }
 
 async fn fixture(config: FixtureConfig) -> Fixture {
@@ -49,15 +44,11 @@ async fn fixture(config: FixtureConfig) -> Fixture {
     let app = Router::new()
         .route("/rest/{*endpoint}", get(handle))
         .with_state(state);
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
-    let task = tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
-    });
+    let server = support::serve(app).await;
     Fixture {
-        url: Url::parse(&format!("http://{address}")).unwrap(),
+        url: server.url.clone(),
         requests,
-        task,
+        _server: server,
     }
 }
 

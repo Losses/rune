@@ -11,21 +11,16 @@ use subsonic::{
     SearchLimits, StreamOptions, SubsonicClient, SubsonicCredentials, SubsonicError,
     SubsonicServerError,
 };
-use tokio::net::TcpListener;
 use url::Url;
+
+mod support;
 
 type Requests = Arc<Mutex<Vec<(String, HashMap<String, String>)>>>;
 
 struct Fixture {
     url: Url,
     requests: Requests,
-    task: tokio::task::JoinHandle<()>,
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        self.task.abort();
-    }
+    _server: support::TestServer,
 }
 
 async fn fixture() -> Fixture {
@@ -33,13 +28,11 @@ async fn fixture() -> Fixture {
     let app = Router::new()
         .route("/rest/{*endpoint}", get(handle))
         .with_state(requests.clone());
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
-    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let server = support::serve(app).await;
     Fixture {
-        url: Url::parse(&format!("http://{address}")).unwrap(),
+        url: server.url.clone(),
         requests,
-        task,
+        _server: server,
     }
 }
 

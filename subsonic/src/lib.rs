@@ -57,6 +57,12 @@ pub enum SubsonicError {
     },
     #[error("malformed Subsonic response: {0}")]
     Malformed(String),
+    /// Returned for jukebox control HTTP 404/501, or Subsonic error code 0/70
+    /// whose message contains "jukebox" (case-insensitive).
+    #[error("Subsonic server does not support jukebox control")]
+    JukeboxUnsupported,
+    #[error("jukebox gain must be between 0 and 1 inclusive")]
+    InvalidJukeboxGain,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -272,6 +278,112 @@ impl SubsonicClient {
             .ok_or_else(|| SubsonicError::Malformed("getPlaylist omitted playlist".into()))
     }
 
+    /// Read the jukebox playlist and its current playback status.
+    pub async fn jukebox_get(&self) -> Result<SubsonicJukebox, SubsonicError> {
+        let response: JukeboxPlaylistResponse = self.jukebox_call("get", &[]).await?;
+        let playlist = response
+            .jukebox_playlist
+            .ok_or_else(|| SubsonicError::Malformed("jukebox get omitted playlist".into()))?;
+        let status = SubsonicJukeboxStatus {
+            current_index: playlist.current_index,
+            playing: playlist.playing,
+            gain: playlist.gain,
+            position_secs: playlist.position_secs,
+        };
+        Ok(SubsonicJukebox {
+            playlist: SubsonicJukeboxPlaylist {
+                songs: playlist.entry.map(OneOrMany::into_vec).unwrap_or_default(),
+            },
+            status,
+        })
+    }
+
+    /// Read the current jukebox playback status.
+    pub async fn jukebox_status(&self) -> Result<SubsonicJukeboxStatus, SubsonicError> {
+        let response: JukeboxStatusResponse = self.jukebox_call("status", &[]).await?;
+        response
+            .jukebox_status
+            .ok_or_else(|| SubsonicError::Malformed("jukebox status omitted status".into()))
+    }
+
+    /// Replace the jukebox playlist with the supplied opaque song IDs.
+    pub async fn jukebox_set(&self, ids: &[&str]) -> Result<(), SubsonicError> {
+        self.jukebox_ids_action("set", ids).await
+    }
+
+    /// Add songs with the supplied opaque IDs to the jukebox playlist.
+    pub async fn jukebox_add(&self, ids: &[&str]) -> Result<(), SubsonicError> {
+        self.jukebox_ids_action("add", ids).await
+    }
+
+    /// Remove the jukebox playlist entry at `index`.
+    pub async fn jukebox_remove(&self, index: u32) -> Result<(), SubsonicError> {
+        let index = index.to_string();
+        self.jukebox_action("remove", &[("index", &index)]).await
+    }
+
+    /// Clear the jukebox playlist.
+    pub async fn jukebox_clear(&self) -> Result<(), SubsonicError> {
+        self.jukebox_action("clear", &[]).await
+    }
+
+    /// Skip to `index`, applying an offset in seconds.
+    pub async fn jukebox_skip(&self, index: u32, offset_secs: u32) -> Result<(), SubsonicError> {
+        let index = index.to_string();
+        let offset_secs = offset_secs.to_string();
+        self.jukebox_action("skip", &[("index", &index), ("offset", &offset_secs)])
+            .await
+    }
+
+    /// Start jukebox playback.
+    pub async fn jukebox_start(&self) -> Result<(), SubsonicError> {
+        self.jukebox_action("start", &[]).await
+    }
+
+    /// Stop jukebox playback.
+    pub async fn jukebox_stop(&self) -> Result<(), SubsonicError> {
+        self.jukebox_action("stop", &[]).await
+    }
+
+    /// Shuffle the jukebox playlist.
+    pub async fn jukebox_shuffle(&self) -> Result<(), SubsonicError> {
+        self.jukebox_action("shuffle", &[]).await
+    }
+
+    /// Set jukebox gain to a normalized value from 0 through 1.
+    pub async fn jukebox_set_gain(&self, gain: f32) -> Result<(), SubsonicError> {
+        if !gain.is_finite() || !(0.0..=1.0).contains(&gain) {
+            return Err(SubsonicError::InvalidJukeboxGain);
+        }
+        let gain = gain.to_string();
+        self.jukebox_action("setGain", &[("gain", &gain)]).await
+    }
+
+    async fn jukebox_ids_action(&self, action: &str, ids: &[&str]) -> Result<(), SubsonicError> {
+        let params = ids.iter().map(|id| ("id", *id)).collect::<Vec<_>>();
+        self.jukebox_action(action, &params).await
+    }
+
+    async fn jukebox_action(
+        &self,
+        action: &str,
+        params: &[(&str, &str)],
+    ) -> Result<(), SubsonicError> {
+        let _: EmptyResponse = self.jukebox_call(action, params).await?;
+        Ok(())
+    }
+
+    async fn jukebox_call<T: for<'de> Deserialize<'de>>(
+        &self,
+        action: &str,
+        params: &[(&str, &str)],
+    ) -> Result<T, SubsonicError> {
+        let mut jukebox_params = Vec::with_capacity(params.len() + 1);
+        jukebox_params.push(("action", action));
+        jukebox_params.extend_from_slice(params);
+        self.call("jukeboxControl", &jukebox_params).await
+    }
+
     /// Build a stream URL with the same authentication parameters used by requests.
     pub fn stream_url(&self, song_id: &str, options: StreamOptions) -> Url {
         let mut url = self.endpoint_url("stream");
@@ -350,6 +462,11 @@ impl SubsonicClient {
             .map_err(|error| SubsonicError::Transport(error.without_url().to_string()))?;
         let status = response.status();
         if !status.is_success() {
+            if endpoint == "jukeboxControl"
+                && matches!(status, StatusCode::NOT_FOUND | StatusCode::NOT_IMPLEMENTED)
+            {
+                return Err(SubsonicError::JukeboxUnsupported);
+            }
             return Err(SubsonicError::HttpStatus(status));
         }
         let bytes = response
@@ -371,6 +488,12 @@ impl SubsonicClient {
                 if matches!(*key, "t" | "s" | "apiKey") {
                     message = message.replace(secret, "[REDACTED]");
                 }
+            }
+            if endpoint == "jukeboxControl"
+                && matches!(error.code, 0 | 70)
+                && message.to_ascii_lowercase().contains("jukebox")
+            {
+                return Err(SubsonicError::JukeboxUnsupported);
             }
             return Err(SubsonicError::Server {
                 kind: error.code.into(),
@@ -497,6 +620,34 @@ pub struct SubsonicPlaylistDetail {
     pub songs: Vec<SubsonicSong>,
 }
 
+/// The playlist and playback state returned by a jukebox `get` action.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SubsonicJukebox {
+    pub playlist: SubsonicJukeboxPlaylist,
+    pub status: SubsonicJukeboxStatus,
+}
+
+/// Entries currently queued in the jukebox.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SubsonicJukeboxPlaylist {
+    pub songs: Vec<SubsonicSong>,
+}
+
+/// Current jukebox playback state. `position_secs` is omitted when the server
+/// does not provide a position.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubsonicJukeboxStatus {
+    pub current_index: Option<u32>,
+    #[serde(default)]
+    pub playing: bool,
+    #[serde(default)]
+    pub gain: f32,
+    #[serde(default)]
+    #[serde(rename = "position")]
+    pub position_secs: Option<u32>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct StreamOptions {
     pub format: Option<String>,
@@ -552,6 +703,32 @@ struct PlaylistList {
 struct PlaylistResponse {
     #[serde(default)]
     playlist: Option<SubsonicPlaylistDetail>,
+}
+#[derive(Deserialize)]
+struct EmptyResponse {}
+#[derive(Deserialize)]
+struct JukeboxPlaylistResponse {
+    #[serde(default, rename = "jukeboxPlaylist")]
+    jukebox_playlist: Option<RawJukeboxPlaylist>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawJukeboxPlaylist {
+    #[serde(default)]
+    current_index: Option<u32>,
+    #[serde(default)]
+    playing: bool,
+    #[serde(default)]
+    gain: f32,
+    #[serde(default, rename = "position")]
+    position_secs: Option<u32>,
+    #[serde(default)]
+    entry: Option<OneOrMany<SubsonicSong>>,
+}
+#[derive(Deserialize)]
+struct JukeboxStatusResponse {
+    #[serde(default, rename = "jukeboxStatus")]
+    jukebox_status: Option<SubsonicJukeboxStatus>,
 }
 
 #[derive(Deserialize)]
