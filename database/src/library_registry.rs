@@ -1,7 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     fs,
-    io::ErrorKind,
+    io::{ErrorKind, Write},
     path::{Path, PathBuf},
 };
 
@@ -289,6 +289,233 @@ struct RegistryFile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     last_open_record: Option<LibraryRecordId>,
 }
+
+mod v2 {
+    use super::{
+        CatalogPlacement, CredentialRef, DbPlacement, FsAdapter, LibraryAccess,
+        LibraryConnectionAccess, LibraryRecordId, ProtocolAdapter, RuneForwardMode,
+        SubsonicOpenMode, Uuid,
+    };
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    struct Registry {
+        version: u32,
+        libraries: Vec<Record>,
+        #[serde(default)]
+        last_open_record: Option<LibraryRecordId>,
+    }
+
+    #[derive(Deserialize)]
+    struct Record {
+        record_id: LibraryRecordId,
+        alias: String,
+        kind: Kind,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(tag = "type", rename_all = "snake_case")]
+    enum Kind {
+        Owned {
+            library_id: Uuid,
+            storage: OwnedStorage,
+            #[serde(default = "background_sync_default")]
+            background_sync: bool,
+        },
+        RuneReplica {
+            library_id: Uuid,
+            owner_fingerprint: String,
+            #[serde(default)]
+            access_level: Option<LibraryAccess>,
+            #[serde(default)]
+            connection_access: Option<LibraryConnectionAccess>,
+            #[serde(default = "background_sync_default")]
+            background_sync: bool,
+            storage: ReplicaStorage,
+        },
+        RuneRemoteControl {
+            fingerprint: String,
+        },
+        Subsonic {
+            endpoint: String,
+            credential: CredentialRef,
+            mode: SubsonicOpenMode,
+        },
+    }
+
+    #[derive(Deserialize)]
+    #[serde(tag = "type", rename_all = "snake_case")]
+    enum OwnedStorage {
+        Local {
+            path: String,
+            placement: DbPlacement,
+        },
+    }
+
+    #[derive(Deserialize)]
+    #[serde(tag = "type", rename_all = "snake_case")]
+    enum ReplicaStorage {
+        Local {
+            path: String,
+            placement: DbPlacement,
+        },
+        Replica,
+    }
+
+    fn background_sync_default() -> bool {
+        true
+    }
+
+    pub(super) struct ConvertedRegistry {
+        pub libraries: Vec<super::LibraryRecord>,
+        pub last_open_record: Option<LibraryRecordId>,
+    }
+
+    fn catalog(placement: DbPlacement) -> CatalogPlacement {
+        match placement {
+            DbPlacement::Portable => CatalogPlacement::InMediaRoot,
+            DbPlacement::Redirected { storage_key } => CatalogPlacement::Redirected(storage_key),
+        }
+    }
+
+    pub(super) fn convert(data: &[u8]) -> anyhow::Result<ConvertedRegistry> {
+        use super::LibraryRecord;
+
+        let registry: Registry = serde_json::from_slice(data)?;
+        anyhow::ensure!(registry.version == 2, "Expected v2 library registry");
+        let libraries = registry
+            .libraries
+            .into_iter()
+            .map(|record| {
+                let (library_id, protocol, fs, catalog, background_sync) = match record.kind {
+                    Kind::Owned {
+                        library_id,
+                        storage: OwnedStorage::Local { path, placement },
+                        background_sync,
+                    } => (
+                        Some(library_id),
+                        ProtocolAdapter::Native,
+                        vec![FsAdapter::Local { path }],
+                        catalog(placement),
+                        background_sync,
+                    ),
+                    Kind::RuneReplica {
+                        library_id,
+                        owner_fingerprint,
+                        access_level,
+                        connection_access,
+                        background_sync,
+                        storage,
+                    } => {
+                        let (fs, catalog) = match storage {
+                            ReplicaStorage::Replica => (
+                                vec![FsAdapter::RunePeer {
+                                    fingerprint: owner_fingerprint.clone(),
+                                }],
+                                CatalogPlacement::ConfigReplica,
+                            ),
+                            ReplicaStorage::Local { path, placement } => (
+                                vec![
+                                    FsAdapter::Local { path },
+                                    FsAdapter::RunePeer {
+                                        fingerprint: owner_fingerprint.clone(),
+                                    },
+                                ],
+                                catalog(placement),
+                            ),
+                        };
+                        (
+                            Some(library_id),
+                            ProtocolAdapter::RuneForward {
+                                owner_fingerprint,
+                                mode: RuneForwardMode::Replica {
+                                    access_level,
+                                    connection_access,
+                                },
+                            },
+                            fs,
+                            catalog,
+                            background_sync,
+                        )
+                    }
+                    Kind::RuneRemoteControl { fingerprint } => (
+                        None,
+                        ProtocolAdapter::RuneForward {
+                            owner_fingerprint: fingerprint,
+                            mode: RuneForwardMode::RemoteControl,
+                        },
+                        Vec::new(),
+                        CatalogPlacement::None,
+                        false,
+                    ),
+                    Kind::Subsonic {
+                        endpoint,
+                        credential,
+                        mode,
+                    } => (
+                        None,
+                        ProtocolAdapter::SubsonicTranslate {
+                            endpoint,
+                            credential,
+                            mode,
+                        },
+                        Vec::new(),
+                        CatalogPlacement::None,
+                        false,
+                    ),
+                };
+                LibraryRecord {
+                    record_id: record.record_id,
+                    alias: record.alias,
+                    library_id,
+                    protocol,
+                    fs,
+                    catalog,
+                    background_sync,
+                }
+            })
+            .collect();
+        Ok(ConvertedRegistry {
+            libraries,
+            last_open_record: registry.last_open_record,
+        })
+    }
+}
+
+fn write_v2_conversion(path: &Path, original: &[u8], file: &v2::ConvertedRegistry) -> Result<()> {
+    let dir = path.parent().context("Registry has no parent directory")?;
+    let backup = dir.join("libraries.json.v2.bak");
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&backup)
+    {
+        Ok(mut backup_file) => {
+            if let Err(error) = backup_file.write_all(original) {
+                drop(backup_file);
+                let _ = fs::remove_file(&backup);
+                return Err(error).context("Failed to write v2 registry backup");
+            }
+        }
+        Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error).context("Failed to create v2 registry backup"),
+    }
+    let temp = dir.join(format!(".libraries-{}.tmp", Uuid::new_v4()));
+    let data = serde_json::to_vec_pretty(&RegistryFile {
+        version: 3,
+        libraries: file.libraries.clone(),
+        last_open_record: file.last_open_record,
+    })?;
+    let result = (|| -> Result<()> {
+        fs::write(&temp, data).context("Failed to write converted registry")?;
+        fs::rename(&temp, path).context("Failed to replace converted registry")?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(temp);
+    }
+    result
+}
 #[derive(Serialize, Deserialize)]
 struct PortableFile {
     version: u32,
@@ -334,20 +561,41 @@ fn validate_registry_version(data: &[u8]) -> Result<()> {
     let version: Version = serde_json::from_slice(data).context("Invalid library file version")?;
     match version.version {
         1 => Err(LibraryRegistryResetRequired.into()),
-        3 => Ok(()),
+        2 | 3 => Ok(()),
         other => bail!("Unsupported library registry version {other}"),
     }
 }
 impl LibraryRegistry {
-    /// Load the registry, moving v1 files aside because their format is ambiguous.
+    /// Load the registry, converting v2 and moving v1 files aside because their format is ambiguous.
     pub fn load(config_dir: &Path) -> Result<Self> {
+        let _guard = loop {
+            if let Ok(guard) = REGISTRY_WRITE.try_lock() {
+                break guard;
+            }
+            std::thread::yield_now();
+        };
+        Self::load_locked(config_dir)
+    }
+
+    fn load_locked(config_dir: &Path) -> Result<Self> {
+        Self::load_inner(config_dir)
+    }
+
+    fn load_inner(config_dir: &Path) -> Result<Self> {
         let path = config_dir.join("libraries.json");
         let loaded = match fs::read(&path) {
             Ok(data) => match validate_registry_version(&data) {
                 Ok(()) => {
-                    let file: RegistryFile =
-                        serde_json::from_slice(&data).context("Invalid library registry")?;
-                    (file.libraries, file.last_open_record)
+                    let version: Version = serde_json::from_slice(&data)?;
+                    if version.version == 2 {
+                        let file = v2::convert(&data).context("Invalid v2 library registry")?;
+                        write_v2_conversion(&path, &data, &file)?;
+                        (file.libraries, file.last_open_record)
+                    } else {
+                        let file: RegistryFile =
+                            serde_json::from_slice(&data).context("Invalid library registry")?;
+                        (file.libraries, file.last_open_record)
+                    }
                 }
                 Err(error)
                     if error
@@ -484,7 +732,7 @@ impl LibraryRegistry {
         change: impl FnOnce(&mut Self) -> Result<T>,
     ) -> Result<T> {
         let _guard = REGISTRY_WRITE.lock().await;
-        let mut registry = Self::load(config_dir)?;
+        let mut registry = Self::load_locked(config_dir)?;
         let before = registry.libraries.clone();
         let before_invalid_records = registry.invalid_records.clone();
         let before_last_open_record = registry.last_open_record;
@@ -642,7 +890,7 @@ impl LibraryRegistry {
     }
 
     fn reload(&mut self) -> Result<()> {
-        *self = Self::load(
+        *self = Self::load_locked(
             self.path
                 .parent()
                 .context("Registry has no parent directory")?,
@@ -1064,6 +1312,172 @@ mod tests {
             catalog: CatalogPlacement::None,
             background_sync: false,
         }
+    }
+
+    fn write_v2_registry_fixture(dir: &Path) -> Vec<u8> {
+        let data = br#"{
+  "version": 2,
+  "libraries": [
+    {"record_id":"00000000-0000-0000-0000-000000000001","alias":"Owned portable","kind":{"type":"owned","library_id":"10000000-0000-0000-0000-000000000001","storage":{"type":"local","path":"/music/portable","placement":{"type":"portable"}},"background_sync":true}},
+    {"record_id":"00000000-0000-0000-0000-000000000002","alias":"Owned redirected","kind":{"type":"owned","library_id":"10000000-0000-0000-0000-000000000002","storage":{"type":"local","path":"/music/redirected","placement":{"type":"redirected","storage_key":"20000000-0000-0000-0000-000000000002"}},"background_sync":false}},
+    {"record_id":"00000000-0000-0000-0000-000000000003","alias":"Replica config","kind":{"type":"rune_replica","library_id":"10000000-0000-0000-0000-000000000003","owner_fingerprint":"owner-config","access_level":"ReadWrite","connection_access":"ViewEdit","background_sync":true,"storage":{"type":"replica"}}},
+    {"record_id":"00000000-0000-0000-0000-000000000004","alias":"Replica local","kind":{"type":"rune_replica","library_id":"10000000-0000-0000-0000-000000000004","owner_fingerprint":"owner-local","access_level":"Read","connection_access":"View","background_sync":false,"storage":{"type":"local","path":"/music/legacy","placement":{"type":"redirected","storage_key":"20000000-0000-0000-0000-000000000004"}}}},
+    {"record_id":"00000000-0000-0000-0000-000000000005","alias":"Remote control","kind":{"type":"rune_remote_control","fingerprint":"remote-owner"}},
+    {"record_id":"00000000-0000-0000-0000-000000000006","alias":"Subsonic","kind":{"type":"subsonic","endpoint":"https://music.example","credential":"30000000-0000-0000-0000-000000000006","mode":"play_on_this_device"}}
+  ],
+  "last_open_record":"00000000-0000-0000-0000-000000000004"
+}"#;
+        fs::write(dir.join("libraries.json"), data).unwrap();
+        data.to_vec()
+    }
+
+    #[test]
+    fn v2_registry_converts_all_record_kinds_and_keeps_backup() {
+        let dir = TempDir::new().unwrap();
+        let original = write_v2_registry_fixture(dir.path());
+
+        let registry = LibraryRegistry::load(dir.path()).unwrap();
+        assert_eq!(registry.libraries.len(), 6);
+        assert!(registry.invalid.is_empty());
+        assert_eq!(
+            registry
+                .libraries
+                .iter()
+                .map(|record| record.record_id)
+                .collect::<Vec<_>>(),
+            (1..=6)
+                .map(|id| LibraryRecordId(Uuid::from_u128(id)))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            registry.last_open_record,
+            Some(LibraryRecordId(
+                Uuid::parse_str("00000000-0000-0000-0000-000000000004").unwrap()
+            ))
+        );
+        assert_eq!(registry.libraries[0].protocol, ProtocolAdapter::Native);
+        assert_eq!(
+            registry.libraries[0].fs,
+            vec![FsAdapter::Local {
+                path: "/music/portable".into()
+            }]
+        );
+        assert_eq!(registry.libraries[0].catalog, CatalogPlacement::InMediaRoot);
+        assert!(registry.libraries[0].background_sync);
+        assert_eq!(
+            registry.libraries[1].catalog,
+            CatalogPlacement::Redirected(
+                Uuid::parse_str("20000000-0000-0000-0000-000000000002").unwrap()
+            )
+        );
+        assert!(!registry.libraries[1].background_sync);
+        assert_eq!(
+            registry.libraries[2].fs,
+            vec![FsAdapter::RunePeer {
+                fingerprint: "owner-config".into()
+            }]
+        );
+        assert_eq!(
+            registry.libraries[2].catalog,
+            CatalogPlacement::ConfigReplica
+        );
+        assert_eq!(
+            registry.libraries[2].access_level(),
+            Some(LibraryAccess::ReadWrite)
+        );
+        assert_eq!(
+            registry.libraries[2].connection_access(),
+            Some(LibraryConnectionAccess::ViewEdit)
+        );
+        assert_eq!(
+            registry.libraries[3].fs,
+            vec![
+                FsAdapter::Local {
+                    path: "/music/legacy".into()
+                },
+                FsAdapter::RunePeer {
+                    fingerprint: "owner-local".into()
+                }
+            ]
+        );
+        assert_eq!(
+            registry.libraries[3].catalog,
+            CatalogPlacement::Redirected(
+                Uuid::parse_str("20000000-0000-0000-0000-000000000004").unwrap()
+            )
+        );
+        assert!(matches!(
+            registry.libraries[4].protocol,
+            ProtocolAdapter::RuneForward {
+                mode: RuneForwardMode::RemoteControl,
+                ..
+            }
+        ));
+        assert_eq!(registry.libraries[4].catalog, CatalogPlacement::None);
+        assert!(!registry.libraries[4].background_sync);
+        assert!(
+            matches!(&registry.libraries[5].protocol, ProtocolAdapter::SubsonicTranslate { endpoint, mode: SubsonicOpenMode::PlayOnThisDevice, .. } if endpoint == "https://music.example")
+        );
+        assert!(
+            matches!(&registry.libraries[5].protocol, ProtocolAdapter::SubsonicTranslate { credential, .. } if credential == &CredentialRef(Uuid::parse_str("30000000-0000-0000-0000-000000000006").unwrap()))
+        );
+        let written: serde_json::Value =
+            serde_json::from_slice(&fs::read(dir.path().join("libraries.json")).unwrap()).unwrap();
+        assert_eq!(written["version"], 3);
+        assert_eq!(
+            fs::read(dir.path().join("libraries.json.v2.bak")).unwrap(),
+            original
+        );
+    }
+
+    #[tokio::test]
+    async fn registering_after_loading_v2_succeeds() {
+        let dir = TempDir::new().unwrap();
+        write_v2_registry_fixture(dir.path());
+        let _registry = LibraryRegistry::load(dir.path()).unwrap();
+        let added = LibraryRegistry::register_remote_control(dir.path(), "new-owner", "New peer")
+            .await
+            .unwrap();
+        assert_eq!(added.alias, "New peer");
+        assert_eq!(
+            LibraryRegistry::load(dir.path()).unwrap().libraries.len(),
+            7
+        );
+    }
+
+    #[test]
+    fn invalid_v2_records_are_retained_in_invalid_list_after_conversion() {
+        let dir = TempDir::new().unwrap();
+        write_v2_registry_fixture(dir.path());
+        let existing_backup = b"keep the earlier backup";
+        fs::write(dir.path().join("libraries.json.v2.bak"), existing_backup).unwrap();
+        let path = dir.path().join("libraries.json");
+        let contents = fs::read_to_string(&path).unwrap();
+        let contents = contents.replace(
+            "10000000-0000-0000-0000-000000000002",
+            "10000000-0000-0000-0000-000000000001",
+        );
+        fs::write(path, contents).unwrap();
+
+        let registry = LibraryRegistry::load(dir.path()).unwrap();
+        assert_eq!(
+            registry.invalid,
+            vec![
+                (
+                    LibraryRecordId(Uuid::from_u128(1)),
+                    InvalidRecord::DuplicateLibraryId
+                ),
+                (
+                    LibraryRecordId(Uuid::from_u128(2)),
+                    InvalidRecord::DuplicateLibraryId
+                )
+            ]
+        );
+        assert_eq!(registry.libraries.len(), 4);
+        assert_eq!(
+            fs::read(dir.path().join("libraries.json.v2.bak")).unwrap(),
+            existing_backup
+        );
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn concurrent_registry_writers_keep_all_updates() {
