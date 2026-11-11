@@ -9160,6 +9160,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "ash",
+ "bincode 2.0.1",
  "chart_analyzer",
  "fsio",
  "half",

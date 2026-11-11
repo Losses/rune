@@ -3,6 +3,10 @@ macro_rules! implement_rinf_rust_signal_trait {
     ($($t:ty),*) => {
         $(
             impl $crate::RinfRustSignal for $t {
+                fn as_any(&self) -> &dyn std::any::Any {
+                    self
+                }
+
                 fn name(&self) -> String {
                     stringify!($t).to_string()
                 }

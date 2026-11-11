@@ -22,6 +22,7 @@ use chart_analyzer::chart::{Beat, Curves};
 use chart_analyzer::decode::Cancelled;
 use fsio::FsIo;
 use log::{info, warn};
+use serde::{Deserialize, Serialize};
 
 use crate::rhythm::Rhythm;
 
@@ -42,6 +43,7 @@ const SILENT_LOUDNESS: f64 = 0.05;
 /// count as silent: a short gap or a staccato rest keeps the beat.
 const SILENT_SPAN: f64 = 1.0;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Section {
     start: f64,
     end: f64,
@@ -55,6 +57,7 @@ struct Section {
     rank: f64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Lead {
     start: f64,
     end: f64,
@@ -74,7 +77,7 @@ pub fn section_level(energy: f64, rank: f64) -> f64 {
 
 /// One section of the song as the director learns it ahead of time (`ChartState::song`): where it
 /// lies and how high it is.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct SongSection {
     /// Song seconds.
     pub start: f32,
@@ -104,6 +107,7 @@ pub fn last_chance(
         })
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Chart {
     beats: Vec<Beat>,
     beats_per_bar: f64,
@@ -192,6 +196,19 @@ pub struct ChartState {
 }
 
 impl Chart {
+    /// Encode a completed analysis for the renderer feed.
+    pub fn encode(&self) -> anyhow::Result<Vec<u8>> {
+        bincode::serde::encode_to_vec(self, bincode::config::standard()).map_err(Into::into)
+    }
+
+    /// Decode a chart supplied by the renderer feed.
+    pub fn decode(bytes: &[u8]) -> anyhow::Result<Self> {
+        let (chart, consumed) =
+            bincode::serde::decode_from_slice(bytes, bincode::config::standard())?;
+        anyhow::ensure!(consumed == bytes.len(), "chart has trailing bytes");
+        Ok(chart)
+    }
+
     /// The chart of an analysis, as the scenes look it up.
     pub fn from_analysis(chart: chart_analyzer::Chart) -> Self {
         let streams = chart.streams;
@@ -473,13 +490,69 @@ fn silent(values: &[f64], hop: f64, t: f64) -> bool {
     values[from..=to].iter().all(|&v| v < SILENT_LOUDNESS)
 }
 
+/// The stable identity used to associate a feed chart with a player's item.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ChartItem {
+    LibraryTrack { library_id: String, track: String },
+    IndependentFile { path: String },
+}
+
+/// Where the current chart comes from.
+#[derive(Debug, Clone, Default)]
+pub enum ChartSource {
+    #[default]
+    None,
+    LocalFile {
+        path: PathBuf,
+        fsio: Option<Arc<FsIo>>,
+    },
+    Remote {
+        item: ChartItem,
+        chart: Option<Arc<Chart>>,
+    },
+    RemoteWithoutItem,
+}
+
+impl ChartSource {
+    pub(crate) fn same_item(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::None, Self::None) => true,
+            (
+                Self::LocalFile {
+                    path: current_path,
+                    fsio: current_fsio,
+                },
+                Self::LocalFile {
+                    path: next_path,
+                    fsio: next_fsio,
+                },
+            ) => {
+                current_path == next_path
+                    && match (current_fsio, next_fsio) {
+                        (Some(current), Some(next)) => Arc::ptr_eq(current, next),
+                        (None, None) => true,
+                        _ => false,
+                    }
+            }
+            (Self::Remote { item: current, .. }, Self::Remote { item: next, .. }) => {
+                current == next
+            }
+            (Self::RemoteWithoutItem, Self::RemoteWithoutItem) => true,
+            _ => false,
+        }
+    }
+
+    pub(crate) fn is_remote(&self) -> bool {
+        matches!(self, Self::Remote { .. } | Self::RemoteWithoutItem)
+    }
+}
+
 /// Where the player is, as it last said.
 #[derive(Debug, Clone, Default)]
 pub struct Playback {
-    pub path: Option<PathBuf>,
+    pub source: ChartSource,
     /// How often the file changed, to tell one song from the next.
     pub generation: u64,
-    pub fsio: Option<Arc<FsIo>>,
     pub position: Duration,
     pub playing: bool,
     /// When the position was reported.
@@ -538,8 +611,7 @@ pub type KeptChart = Arc<Mutex<Option<(PathBuf, Arc<Chart>)>>>;
 /// file before, which stops at its next decoded packet; a burst of track changes thus leaves
 /// one analysis running for long. Without a chart the caller falls back on the live tracker.
 pub struct ChartFollower {
-    fsio: Option<Arc<FsIo>>,
-    path: Option<PathBuf>,
+    source: ChartSource,
     chart: Option<Arc<Chart>>,
     /// How many charts have arrived: which one `chart` is, for what is made from it.
     arrivals: u64,
@@ -556,8 +628,7 @@ pub struct ChartFollower {
 impl ChartFollower {
     pub fn new(kept: KeptChart) -> Self {
         Self {
-            fsio: None,
-            path: None,
+            source: ChartSource::None,
             chart: None,
             arrivals: 0,
             loading: None,
@@ -570,14 +641,8 @@ impl ChartFollower {
 
     /// The chart at the song time of `now`, if the playing file has one (and it has loaded).
     pub fn tick(&mut self, playback: &Playback, now: Instant) -> Option<ChartState> {
-        let fsio_changed = match (&self.fsio, &playback.fsio) {
-            (Some(current), Some(next)) => !Arc::ptr_eq(current, next),
-            (None, None) => false,
-            _ => true,
-        };
-        if playback.path != self.path || fsio_changed {
-            self.fsio = playback.fsio.clone();
-            self.path = playback.path.clone();
+        if !self.source.same_item(&playback.source) {
+            self.source = playback.source.clone();
             self.chart = None;
             self.clock.reset();
             self.cancel_analysis();
@@ -586,16 +651,31 @@ impl ChartFollower {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .take()
-                .filter(|(path, _)| self.path.as_ref() == Some(path));
+                .filter(|(path, _)| {
+                    matches!(&self.source, ChartSource::LocalFile { path: current, .. } if current == path)
+                });
             if let Some((path, chart)) = kept {
                 info!("The chart of {} was kept", path.display());
                 self.chart = Some(chart);
                 self.arrivals += 1;
-            } else if let (Some(fsio), Some(path)) = (&self.fsio, &self.path)
+            } else if let ChartSource::LocalFile {
+                fsio: Some(fsio),
+                path,
+            } = &self.source
                 && !path.as_os_str().is_empty()
             {
                 self.loading = Some(self.analyse(Arc::clone(fsio), path.clone()));
             }
+        }
+        if let ChartSource::Remote {
+            item: _,
+            chart: Some(chart),
+        } = &playback.source
+            && self.source.same_item(&playback.source)
+            && self.chart.is_none()
+        {
+            self.chart = Some(Arc::clone(chart));
+            self.arrivals += 1;
         }
         let mut arrived = false;
         if let Some(receiver) = &self.loading {
@@ -612,7 +692,7 @@ impl ChartFollower {
         }
         let t = self.clock.tick(playback, now);
         self.time = t;
-        if arrived && let Some(path) = &self.path {
+        if arrived && let ChartSource::LocalFile { path, .. } = &self.source {
             // Until now the live tracker had the beats.
             info!("The chart of {} took over at {t:.1} s", path.display());
         }
@@ -631,12 +711,18 @@ impl ChartFollower {
     /// where the file is.
     pub fn chart(&self) -> Option<(u64, Arc<Chart>, &Path)> {
         let chart = self.chart.as_ref()?;
-        Some((self.arrivals, Arc::clone(chart), self.path.as_deref()?))
+        let ChartSource::LocalFile { path, .. } = &self.source else {
+            return None;
+        };
+        Some((self.arrivals, Arc::clone(chart), path))
     }
 
     /// The file followed, once there is one (it may be empty: a song that is not a file).
     pub fn path(&self) -> Option<&Path> {
-        self.path.as_deref()
+        match &self.source {
+            ChartSource::LocalFile { path, .. } => Some(path),
+            ChartSource::None | ChartSource::Remote { .. } | ChartSource::RemoteWithoutItem => None,
+        }
     }
 
     /// The song time of the last [`Self::tick`], with or without a chart.
@@ -690,7 +776,7 @@ impl Drop for ChartFollower {
     fn drop(&mut self) {
         info!("The visualizer stopped following the song");
         self.cancel_analysis();
-        if let (Some(path), Some(chart)) = (&self.path, &self.chart) {
+        if let (ChartSource::LocalFile { path, .. }, Some(chart)) = (&self.source, &self.chart) {
             *self.kept.lock().unwrap_or_else(PoisonError::into_inner) =
                 Some((path.clone(), Arc::clone(chart)));
         }
@@ -876,8 +962,6 @@ mod tests {
         let start = Instant::now();
         let mut clock = SongClock::default();
         let mut playback = Playback {
-            path: None,
-            fsio: None,
             position: Duration::from_secs(10),
             playing: true,
             at: Some(start),
@@ -907,8 +991,6 @@ mod tests {
         let start = Instant::now();
         let mut clock = SongClock::default();
         let mut playback = Playback {
-            path: None,
-            fsio: None,
             position: Duration::from_secs(10),
             playing: false,
             at: Some(start),
@@ -968,8 +1050,10 @@ mod tests {
 
     fn playing(path: &Path, position: f64) -> Playback {
         Playback {
-            path: Some(path.to_path_buf()),
-            fsio: Some(Arc::new(FsIo::new())),
+            source: ChartSource::LocalFile {
+                path: path.to_path_buf(),
+                fsio: Some(Arc::new(FsIo::new())),
+            },
             position: Duration::from_secs_f64(position),
             playing: false,
             at: Some(Instant::now()),
@@ -1004,16 +1088,67 @@ mod tests {
     }
 
     #[test]
+    fn the_follower_uses_a_chart_for_the_matching_feed_identity() {
+        let mut follower = ChartFollower::new(KeptChart::default());
+        let expected = chart();
+        let item = ChartItem::LibraryTrack {
+            library_id: "library".into(),
+            track: "track-current".into(),
+        };
+        let playback = Playback {
+            source: ChartSource::Remote {
+                item,
+                chart: Some(Arc::new(expected)),
+            },
+            position: Duration::from_secs(1),
+            at: Some(Instant::now()),
+            ..Playback::default()
+        };
+
+        let state = follower
+            .tick(&playback, Instant::now())
+            .expect("matching feed chart was not used");
+        assert!((state.bpm - 120.0).abs() < 1.0);
+        assert!(follower.loading.is_none());
+    }
+
+    #[test]
+    fn a_remote_item_without_a_chart_does_not_start_local_analysis() {
+        let mut follower = ChartFollower::new(KeptChart::default());
+        let playback = Playback {
+            source: ChartSource::Remote {
+                item: ChartItem::LibraryTrack {
+                    library_id: "library".into(),
+                    track: "track-current".into(),
+                },
+                chart: None,
+            },
+            at: Some(Instant::now()),
+            ..Playback::default()
+        };
+
+        assert!(follower.tick(&playback, Instant::now()).is_none());
+        assert!(follower.chart.is_none());
+        assert!(follower.loading.is_none());
+    }
+
+    #[test]
     fn no_file_system_or_no_path_means_no_analysis() {
         let path = write_clicks("none", 5);
         let mut follower = ChartFollower::new(KeptChart::default());
         let mut without_source = playing(&path, 1.0);
-        without_source.fsio = None;
+        without_source.source = ChartSource::LocalFile {
+            path: path.clone(),
+            fsio: None,
+        };
         assert!(follower.tick(&without_source, Instant::now()).is_none());
         assert!(follower.loading.is_none());
         let mut follower = ChartFollower::new(KeptChart::default());
         let online = Playback {
-            path: Some(PathBuf::new()),
+            source: ChartSource::LocalFile {
+                path: PathBuf::new(),
+                fsio: Some(Arc::new(FsIo::new())),
+            },
             ..playing(&path, 1.0)
         };
         assert!(follower.tick(&online, Instant::now()).is_none());
@@ -1031,7 +1166,10 @@ mod tests {
         let first = follower.cancel.clone().expect("analysing");
         assert!(!first.load(Ordering::Relaxed));
         let mut changed_source = playing(&long, 0.0);
-        changed_source.fsio = Some(Arc::new(FsIo::new()));
+        changed_source.source = ChartSource::LocalFile {
+            path: long.clone(),
+            fsio: Some(Arc::new(FsIo::new())),
+        };
         follower.tick(&changed_source, Instant::now());
         assert!(first.load(Ordering::Relaxed));
         let second = follower.cancel.clone().expect("analysing with new source");

@@ -160,6 +160,21 @@ pub struct RealtimeFFT {
     pub value: Vec<f32>,
 }
 
+/// A completed track analysis from the renderer, keyed by the portable item identity.
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct VisualizerFeedChart {
+    pub item: PlayingItemRef,
+    pub chart: Vec<u8>,
+}
+
+/// The playing item's artwork and the bounded cover wall selection from the renderer.
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct VisualizerFeedCovers {
+    pub item: PlayingItemRef,
+    pub playing: Option<Vec<u8>>,
+    pub random: Vec<Vec<u8>>,
+}
+
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct VolumeRequest {
     pub volume: f32,
@@ -274,7 +289,7 @@ pub struct HandoffResponse {
     pub call_id: Option<u64>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, SignalPiece)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, SignalPiece)]
 #[serde(rename_all = "snake_case")]
 pub enum PlayingItemRef {
     LibraryTrack { library_id: String, track: String },

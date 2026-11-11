@@ -44,7 +44,14 @@ impl<R> Listener<R> {
             .await
             .unwrap()
             .expect("listener closed without a response");
-        assert_eq!(actual, name);
+        assert_eq!(
+            actual,
+            name,
+            "unexpected GUI response: {}",
+            rinf::deserialize::<RequestFailedResponse>(&bytes)
+                .map(|response| format!(" {:?}: {}", response.kind, response.detail))
+                .unwrap_or_default()
+        );
         rinf::deserialize(&bytes).unwrap()
     }
 

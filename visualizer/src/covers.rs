@@ -123,10 +123,21 @@ fn decode(path: &PathBuf) -> Option<RgbaImage> {
     }
 }
 
+fn decode_bytes(bytes: &[u8]) -> Option<RgbaImage> {
+    image::load_from_memory(bytes)
+        .ok()
+        .map(|image| image.to_rgba8())
+}
+
 /// Decode the cover of the track playing into its cell (a file that does not decode, or none, is
 /// a clear cell).
 pub fn build_cell(path: Option<&PathBuf>) -> Cell {
     Cell::new(path.and_then(decode).as_ref())
+}
+
+/// Decode a cover supplied by the renderer feed into the playing cell.
+pub fn build_cell_from_bytes(bytes: Option<&[u8]>) -> Cell {
+    Cell::new(bytes.and_then(decode_bytes).as_ref())
 }
 
 /// Decode the files and build the atlas; files that fail to decode are skipped.
@@ -136,6 +147,17 @@ pub fn build(current: Option<&PathBuf>, random: &[PathBuf]) -> Option<Atlas> {
         .iter()
         .take(MAX_COVERS - 1)
         .filter_map(decode)
+        .collect();
+    pack(current.as_ref(), &random)
+}
+
+/// Decode the bounded covers supplied by the renderer feed into an atlas.
+pub fn build_from_bytes(current: Option<&[u8]>, random: &[Vec<u8>]) -> Option<Atlas> {
+    let current = current.and_then(decode_bytes);
+    let random: Vec<RgbaImage> = random
+        .iter()
+        .take(MAX_COVERS - 1)
+        .filter_map(|bytes| decode_bytes(bytes))
         .collect();
     pack(current.as_ref(), &random)
 }

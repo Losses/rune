@@ -14,7 +14,7 @@ use database::actions::file::{
     AudioAvailability, audio_availability, audio_origin, remote_content_ids,
 };
 use std::{
-    any::TypeId,
+    any::{Any, TypeId},
     collections::HashMap,
     fmt::Debug,
     future::Future,
@@ -254,6 +254,8 @@ pub trait ParamsExtractor {
 }
 
 pub trait RinfRustSignal: 'static {
+    fn as_any(&self) -> &dyn Any;
+
     fn name(&self) -> String;
 
     fn remote_event(&self) -> Option<RemoteEventScope> {

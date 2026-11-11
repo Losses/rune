@@ -42,7 +42,10 @@ use crate::{
             SyncTokenStore, obtain_or_reuse_token, peer_base, tls_config, trusted_fingerprint,
         },
     },
-    utils::{GlobalParams, RemoteEventScope, broadcastable::REMOTE_EVENT_DECLARATIONS},
+    utils::{
+        GlobalParams, RemoteEventScope, RinfRustSignal, broadcastable::REMOTE_EVENT_DECLARATIONS,
+    },
+    visualizer::{ChartItem, VISUALIZER},
 };
 #[cfg(test)]
 use ::discovery::protocol_version::PROTOCOL_VERSION;
@@ -516,12 +519,57 @@ async fn register_session_handlers(handlers: &HandlerMap, node: &Arc<NodeContext
                     return;
                 }
                 match decode(&payload) {
-                    Ok(message) => node.gui_broadcaster.broadcast(message.as_ref()),
+                    Ok(message) => {
+                        update_visualizer_feed(message.as_ref());
+                        node.gui_broadcaster.broadcast(message.as_ref());
+                    }
                     Err(error) => error!("Failed to decode renderer event: {error}"),
                 }
             }),
         );
     }
+}
+
+pub(crate) fn update_visualizer_feed(message: &dyn RinfRustSignal) {
+    if let Some(status) = message.as_any().downcast_ref::<PlaybackStatus>() {
+        let item = status.item_request.as_ref().map(chart_item);
+        VISUALIZER.set_feed_playback(
+            item,
+            Duration::from_secs_f64(f64::from(status.progress_seconds.max(0.0))),
+            status.state == "playing",
+        );
+        return;
+    }
+    if let Some(chart) = message.as_any().downcast_ref::<VisualizerFeedChart>() {
+        if let Err(error) = VISUALIZER.set_feed_chart(chart_item(&chart.item), &chart.chart) {
+            log::warn!("Could not use the renderer's visualizer chart: {error:#}");
+        }
+        return;
+    }
+    if let Some(covers) = message.as_any().downcast_ref::<VisualizerFeedCovers>()
+        && let Err(error) = VISUALIZER.set_feed_covers(
+            &chart_item(&covers.item),
+            covers.playing.clone(),
+            covers.random.clone(),
+        )
+    {
+        log::warn!("Could not use the renderer's visualizer covers: {error:#}");
+    }
+}
+
+impl From<PlayingItemRef> for ChartItem {
+    fn from(item: PlayingItemRef) -> Self {
+        match item {
+            PlayingItemRef::LibraryTrack { library_id, track } => {
+                ChartItem::LibraryTrack { library_id, track }
+            }
+            PlayingItemRef::IndependentFile { path } => ChartItem::IndependentFile { path },
+        }
+    }
+}
+
+fn chart_item(item: &PlayingItemRef) -> ChartItem {
+    item.clone().into()
 }
 
 #[cfg(test)]

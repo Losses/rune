@@ -50,7 +50,8 @@ use crate::{
     messages::{
         AttachedControllerInfo, ControllersUpdated, CrashResponse, PlaybackStatus, PlayingItemRef,
         PlaylistItem, PlaylistUnavailableReason, PlaylistUpdate, RealtimeFFT,
-        ScrobbleServiceStatus, ScrobbleServiceStatusUpdated,
+        ScrobbleServiceStatus, ScrobbleServiceStatusUpdated, VisualizerFeedChart,
+        VisualizerFeedCovers,
     },
     node::NodeContext,
     request_error::ExpectedRequestError,
@@ -64,7 +65,7 @@ use crate::{
         },
         record_library_item_played, report_item_played_through,
     },
-    visualizer::{VISUALIZER, playing_cover_changed},
+    visualizer::{VISUALIZER, feed_cover_bytes, playing_cover_changed},
 };
 use store::SessionState;
 
@@ -675,9 +676,12 @@ struct ItemEventState {
     /// `last_item` as sent to Dart, valid for `request_ui_library`.
     request: Option<PlayingItemRef>,
     request_ui_library: Option<Uuid>,
+    feed_item: Option<PlayingItemRef>,
+    feed_controller_count: usize,
 }
 
 struct ResolvedLibrary {
+    library_id: Uuid,
     fsio: Arc<FsIo>,
     media_root: String,
     implementation: Implementation,
@@ -687,7 +691,7 @@ struct ResolvedLibrary {
 /// re-showing the current state (e.g. after renderer control ends), so services
 /// never see a "now playing" for a track that did not start.
 async fn handle_status_event(
-    node: &NodeContext,
+    node: &Arc<NodeContext>,
     value: PlayerStatus,
     item_state: &mut ItemEventState,
     controls: &Option<Arc<Mutex<MediaControlManager>>>,
@@ -711,6 +715,7 @@ async fn handle_status_event(
                                     let result =
                                         implementation.item_metadata(item, true, &library).await;
                                     item_state.library = Some(ResolvedLibrary {
+                                        library_id: library.library_id,
                                         fsio: library.fsio.clone(),
                                         media_root: library.media_root.clone(),
                                         implementation,
@@ -797,6 +802,105 @@ async fn handle_status_event(
         let _ = update_media_controls_progress(manager.clone(), &report).await;
     }
     broadcaster.broadcast(&report);
+
+    let attached_controllers = node
+        .session()
+        .map_or(0, |session| session.attached_controllers().len());
+    let controller_set_changed = attached_controllers != item_state.feed_controller_count;
+    item_state.feed_controller_count = attached_controllers;
+    if attached_controllers == 0 {
+        item_state.feed_item = None;
+    }
+    let feed_item = value.item.as_ref().and_then(playing_item_ref);
+    let feed_item_changed = feed_item
+        .as_ref()
+        .is_some_and(|item| item_state.feed_item.as_ref() != Some(item));
+    if attached_controllers > 0
+        && (item_changed || controller_set_changed || feed_item_changed)
+        && let Some(item) = feed_item
+        && let Some(path) = value.path.as_deref()
+        && let Some(library) = &item_state.library
+    {
+        item_state.feed_item = Some(item.clone());
+        let chart = VISUALIZER.cached_chart(path).ok().flatten();
+        if let Some(chart) = chart {
+            broadcaster.broadcast(&VisualizerFeedChart { item, chart });
+        } else {
+            let fsio = Arc::clone(&library.fsio);
+            let path = path.to_path_buf();
+            let item = item.clone();
+            let broadcaster = Arc::clone(broadcaster);
+            let weak_node = Arc::downgrade(node);
+            tokio::spawn(async move {
+                let chart = tokio::task::spawn_blocking(move || {
+                    visualizer::analyze_chart_file(&fsio, &path)
+                })
+                .await;
+                let Ok(Ok(chart)) = chart else {
+                    return;
+                };
+                if weak_node
+                    .upgrade()
+                    .and_then(|node| node.session().ok())
+                    .is_some_and(|session| !session.attached_controllers().is_empty())
+                {
+                    broadcaster.broadcast(&VisualizerFeedChart { item, chart });
+                }
+            });
+        }
+
+        let current_path = item_state.cover.as_deref().map(PathBuf::from);
+        let fsio = Arc::clone(&library.fsio);
+        let library_id = library.library_id;
+        let node = Arc::clone(node);
+        let item = value.item.as_ref().and_then(playing_item_ref);
+        let broadcaster = Arc::clone(broadcaster);
+        tokio::spawn(async move {
+            let Some(item) = item else { return };
+            let Ok(library) = node.library_pool.acquire(library_id).await else {
+                return;
+            };
+            match feed_cover_bytes(
+                fsio,
+                Arc::clone(&library.main_db),
+                Arc::clone(&library.recommend_db),
+                Arc::clone(&node),
+                library_id,
+                current_path,
+            )
+            .await
+            {
+                Ok((playing, random))
+                    if !node
+                        .session()
+                        .is_ok_and(|session| session.attached_controllers().is_empty()) =>
+                {
+                    broadcaster.broadcast(&VisualizerFeedCovers {
+                        item,
+                        playing,
+                        random,
+                    });
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    log::warn!("Could not prepare visualizer covers for the feed: {error:#}")
+                }
+            }
+        });
+    }
+}
+
+fn playing_item_ref(item: &PlayingItem) -> Option<PlayingItemRef> {
+    match item {
+        PlayingItem::LibraryTrack { library_id, track } => Some(PlayingItemRef::LibraryTrack {
+            library_id: library_id.to_string(),
+            track: track.clone(),
+        }),
+        PlayingItem::IndependentFile(path) => {
+            Some(PlayingItemRef::IndependentFile { path: path.clone() })
+        }
+        PlayingItem::Online(_, _) | PlayingItem::Unknown => None,
+    }
 }
 
 async fn handle_playlist_event(

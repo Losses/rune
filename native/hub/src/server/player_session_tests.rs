@@ -73,10 +73,12 @@ use database::actions::{
     mixes::query_mix_media_files,
 };
 use database::credentials::{Credential, Secret};
+use database::entities::media_cover_art;
 use database::entities::media_file_stats;
 use database::entities::media_files;
 use database::entities::media_metadata;
 use database::playing_item::MediaFileHandle;
+use migration::catalog_identity::artwork;
 use playback::{
     PlaybackMode,
     player::{
@@ -1233,6 +1235,39 @@ async fn session_audio(f: &Fixture, name: &str) -> Result<i32> {
         .await?
         .context("scanned session audio")?
         .id)
+}
+
+async fn attach_test_cover(f: &Fixture, media_file_id: i32, bytes: &[u8]) -> Result<()> {
+    let library = f.global_params.test_library();
+    let hash = blake3::hash(bytes).to_hex().to_string();
+    let cover_uuid = artwork(&hash).to_string();
+    if media_cover_art::Entity::find()
+        .filter(media_cover_art::Column::HlcUuid.eq(&cover_uuid))
+        .one(&*library.main_db)
+        .await?
+        .is_none()
+    {
+        media_cover_art::Entity::insert(media_cover_art::ActiveModel {
+            id: sea_orm::NotSet,
+            file_hash: Set(String::new()),
+            binary: Set(bytes.to_vec()),
+            primary_color: Set(None),
+            content_hash: Set(Some(hash)),
+            content_size: Set(Some(i64::try_from(bytes.len())?)),
+            local_available: Set(true),
+            hlc_uuid: Set(cover_uuid.clone()),
+        })
+        .exec(&*library.main_db)
+        .await?;
+    }
+    let mut file = media_files::Entity::find_by_id(media_file_id)
+        .one(&*library.main_db)
+        .await?
+        .context("cover fixture track")?
+        .into_active_model();
+    file.cover_art_uuid = Set(Some(cover_uuid));
+    file.update(&*library.main_db).await?;
+    Ok(())
 }
 
 async fn library_track_for_id(f: &Fixture, id: i32) -> Result<LibraryItem> {
@@ -7047,11 +7082,13 @@ async fn rpc_target_blacklisted_request_returns_typed_failure_without_sending() 
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -> Result<()> {
+    use crate::backends::remote::update_visualizer_feed;
     use crate::messages::{
-        AnalyzeAudioLibraryProgress, AnalyzeAudioLibraryResponse, PlaylistItem, RealtimeFFT,
-        ScanAudioLibraryResponse,
+        AnalyzeAudioLibraryProgress, AnalyzeAudioLibraryResponse, PlayingItemRef, PlaylistItem,
+        RealtimeFFT, ScanAudioLibraryResponse, VisualizerFeedChart, VisualizerFeedCovers,
     };
     use crate::utils::broadcastable::REMOTE_EVENT_DECLARATIONS;
+    use crate::visualizer::{ChartItem, VISUALIZER};
 
     let first = tempfile::tempdir()?;
     let second = tempfile::tempdir()?;
@@ -7102,6 +7139,13 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     queue_session(&a, &[a_track]).await?;
     let local_queue = a.global_params.player.lock().await.get_playlist();
     let b_track = session_audio(&b, "rr-remote.ogg").await?;
+    let next_track = session_audio(&b, "rr-remote-next.ogg").await?;
+    let wall_track = session_audio(&b, "rr-wall.ogg").await?;
+    let cover_bytes =
+        fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/demo_cover.webp"))?;
+    attach_test_cover(&b, b_track, &cover_bytes).await?;
+    attach_test_cover(&b, next_track, &cover_bytes).await?;
+    attach_test_cover(&b, wall_track, &cover_bytes).await?;
     let remote_session_id = b.global_params.node.session()?.session_id().await;
     let remote =
         super::open_remote_control_record(a.global_params.node.clone(), &fingerprint).await?;
@@ -7175,11 +7219,16 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
         loop {
             let decoded_all = {
                 let records = signals.0.lock().unwrap();
-                REMOTE_EVENT_DECLARATIONS.iter().all(|declaration| {
-                    records.iter().any(|(name, payload)| {
-                        name == declaration.name && (declaration.decode)(payload).is_ok()
+                REMOTE_EVENT_DECLARATIONS
+                    .iter()
+                    .filter(|declaration| {
+                        !matches!(declaration.name, "VisualizerFeedChart" | "VisualizerFeedCovers")
                     })
-                })
+                    .all(|declaration| {
+                        records.iter().any(|(name, payload)| {
+                            name == declaration.name && (declaration.decode)(payload).is_ok()
+                        })
+                    })
             };
             if decoded_all {
                 break;
@@ -7338,6 +7387,129 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     )
     .await?;
     wait_player(&b, |status| status.state == PlaybackState::Playing).await?;
+    let next_playing_item = PlayingItem::from(library_track_for_id(&b, next_track).await?);
+    b.global_params
+        .player
+        .lock()
+        .await
+        .add_to_playlist_with_sources(
+            vec![(next_playing_item, PlaybackSource::LibraryStream)],
+            AddMode::AppendToEnd,
+        );
+    wait_player(&b, |status| status.playlist.len() == 2).await?;
+    let feed_item: PlayingItemRef = library_track_for_id(&b, b_track).await?.into();
+    let identity: ChartItem = feed_item.clone().into();
+    timeout(Duration::from_secs(30), async {
+        loop {
+            let chart = signals
+                .decoded::<VisualizerFeedChart>("VisualizerFeedChart")
+                .into_iter()
+                .find(|chart| {
+                    chart.item == feed_item && visualizer::Chart::decode(&chart.chart).is_ok()
+                });
+            let covers = signals
+                .decoded::<VisualizerFeedCovers>("VisualizerFeedCovers")
+                .into_iter()
+                .find(|covers| covers.item == feed_item);
+            if let (Some(_), Some(covers)) = (chart, covers)
+                && covers.playing.as_deref() == Some(cover_bytes.as_slice())
+                && !covers.random.is_empty()
+            {
+                break;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .context("renderer chart and cover bytes did not reach the controller")?;
+    let first_chart = signals
+        .decoded::<VisualizerFeedChart>("VisualizerFeedChart")
+        .into_iter()
+        .find(|chart| chart.item == feed_item && visualizer::Chart::decode(&chart.chart).is_ok())
+        .context("first track chart was not forwarded")?;
+    let first_covers = signals
+        .decoded::<VisualizerFeedCovers>("VisualizerFeedCovers")
+        .into_iter()
+        .find(|covers| {
+            covers.item == feed_item && covers.playing.as_deref() == Some(cover_bytes.as_slice())
+        })
+        .context("first track covers were not forwarded")?;
+    let first_status = signals
+        .decoded::<PlaybackStatus>("PlaybackStatus")
+        .into_iter()
+        .rev()
+        .find(|status| status.item_request.as_ref() == Some(&feed_item))
+        .context("renderer playback identity was not forwarded")?;
+    update_visualizer_feed(&first_status);
+    update_visualizer_feed(&first_chart);
+    update_visualizer_feed(&first_covers);
+    assert!(VISUALIZER.has_feed_chart(&identity));
+    assert!(VISUALIZER.feed_covers_match(
+        &identity,
+        first_covers.playing.as_deref(),
+        &first_covers.random,
+    ));
+    b.global_params.player.lock().await.load(1);
+    let next_item: PlayingItemRef = library_track_for_id(&b, next_track).await?.into();
+    let next_identity: ChartItem = next_item.clone().into();
+    timeout(Duration::from_secs(30), async {
+        loop {
+            let chart_arrived = signals
+                .decoded::<VisualizerFeedChart>("VisualizerFeedChart")
+                .iter()
+                .any(|chart| {
+                    chart.item == next_item && visualizer::Chart::decode(&chart.chart).is_ok()
+                });
+            let covers_arrived = signals
+                .decoded::<VisualizerFeedCovers>("VisualizerFeedCovers")
+                .iter()
+                .any(|covers| {
+                    covers.item == next_item
+                        && covers.playing.as_deref() == Some(cover_bytes.as_slice())
+                });
+            if chart_arrived
+                && covers_arrived
+            {
+                break;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .context("track change did not replace the chart and covers")?;
+    let next_status = signals
+        .decoded::<PlaybackStatus>("PlaybackStatus")
+        .into_iter()
+        .rev()
+        .find(|status| status.item_request.as_ref() == Some(&next_item))
+        .context("renderer playback identity was not forwarded after track change")?;
+    let next_chart = signals
+        .decoded::<VisualizerFeedChart>("VisualizerFeedChart")
+        .into_iter()
+        .find(|chart| chart.item == next_item)
+        .context("next track chart was not forwarded")?;
+    let next_covers = signals
+        .decoded::<VisualizerFeedCovers>("VisualizerFeedCovers")
+        .into_iter()
+        .find(|covers| covers.item == next_item)
+        .context("next track covers were not forwarded")?;
+    update_visualizer_feed(&next_status);
+    update_visualizer_feed(&next_chart);
+    update_visualizer_feed(&next_covers);
+    assert!(!VISUALIZER.has_feed_chart(&identity));
+    VISUALIZER.set_feed_chart(identity.clone(), &first_chart.chart)?;
+    assert!(!VISUALIZER.has_feed_chart(&identity));
+    assert!(VISUALIZER.has_feed_chart(&next_identity));
+    assert!(
+        REMOTE_EVENT_DECLARATIONS
+            .iter()
+            .filter(|declaration| {
+                matches!(declaration.name, "VisualizerFeedChart" | "VisualizerFeedCovers")
+            })
+            .all(|declaration| signals.0.lock().unwrap().iter().any(|(name, payload)| {
+                name == declaration.name && (declaration.decode)(payload).is_ok()
+            }))
+    );
     assert_eq!(
         a.global_params.player.lock().await.get_playlist(),
         local_queue
@@ -7380,6 +7552,8 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     })
     .await
     .context("RR pushed status/content/scan events missing")?;
+    a.global_params.node.detach_renderer().await?;
+    assert!(!VISUALIZER.is_feed_playback());
 
     let mut close = start::<CloseLibraryRequest>(&remote);
     close.send(CloseLibraryRequest { call_id: None });

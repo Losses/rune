@@ -14,6 +14,7 @@ use ::database::{
     connection::{MainDbConnection, RecommendationDbConnection},
 };
 use ::fsio::FsIo;
+pub use ::visualizer::ChartItem;
 use anyhow::Result;
 use log::warn;
 use visualizer::Visualizer;
@@ -30,6 +31,8 @@ pub static VISUALIZER: LazyLock<Visualizer> = LazyLock::new(|| {
 
 /// How many random covers a scene that reads covers gets besides the one of the track playing.
 const RANDOM_COVERS: usize = 63;
+const MAX_FEED_COVER_BYTES: usize = 4 * 1024 * 1024;
+const MAX_FEED_BYTES: usize = 16 * 1024 * 1024;
 
 /// What finding the covers for scenes needs.
 struct CoverSource {
@@ -135,4 +138,54 @@ async fn random_covers(source: &CoverSource) -> Result<Vec<PathBuf>> {
         .filter(|path| !path.is_empty())
         .map(PathBuf::from)
         .collect())
+}
+
+/// Read the playing cover and the same bounded random selection as the cover wall for a feed.
+pub async fn feed_cover_bytes(
+    fsio: Arc<FsIo>,
+    main_db: Arc<MainDbConnection>,
+    recommend_db: Arc<RecommendationDbConnection>,
+    node: Arc<NodeContext>,
+    library_id: Uuid,
+    playing_path: Option<PathBuf>,
+) -> Result<(Option<Vec<u8>>, Vec<Vec<u8>>)> {
+    let source = CoverSource {
+        runtime: Handle::current(),
+        fsio,
+        main_db,
+        recommend_db,
+        node,
+        library_id,
+    };
+    let playing = read_cover_bytes(playing_path.as_deref()).await?;
+    let mut used_bytes = playing.as_ref().map_or(0, Vec::len);
+    let mut random = Vec::with_capacity(RANDOM_COVERS);
+    for path in random_covers(&source)
+        .await?
+        .into_iter()
+        .take(RANDOM_COVERS)
+    {
+        if used_bytes >= MAX_FEED_BYTES {
+            break;
+        }
+        if let Some(bytes) = read_cover_bytes(Some(&path)).await?
+            && bytes.len() <= MAX_FEED_COVER_BYTES
+            && used_bytes.saturating_add(bytes.len()) <= MAX_FEED_BYTES
+        {
+            used_bytes += bytes.len();
+            random.push(bytes);
+        }
+    }
+    Ok((playing, random))
+}
+
+async fn read_cover_bytes(path: Option<&std::path::Path>) -> Result<Option<Vec<u8>>> {
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    let metadata = tokio::fs::metadata(path).await?;
+    if usize::try_from(metadata.len()).unwrap_or(usize::MAX) > MAX_FEED_COVER_BYTES {
+        return Ok(None);
+    }
+    Ok(Some(tokio::fs::read(path).await?))
 }

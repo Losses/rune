@@ -63,7 +63,7 @@ pub use bind::{Level, RuntimeBindings, Used};
 /// edits and sends with [`LabCommand::RuntimeBindings`].
 pub const RUNTIME_TOML: &str = bind::RUNTIME_TOML;
 pub use builtin::{Credit, credits as builtin_credits};
-pub use chart::{Chart, ChartState};
+pub use chart::{Chart, ChartItem, ChartSource, ChartState};
 use chart::{ChartFollower, Playback};
 pub use inspect::{
     Inspect, InspectBinding, InspectDirector, InspectEffects, InspectInput, InspectLens,
@@ -90,6 +90,12 @@ use transition::{Durations, Transition};
 pub use window::Window;
 
 pub const DEFAULT_FPS: u32 = 60;
+
+/// Analyse a track once and encode the chart for a renderer feed.
+pub fn analyze_chart_file(fsio: &FsIo, path: &Path) -> anyhow::Result<Vec<u8>> {
+    let cancelled = AtomicBool::new(false);
+    Chart::from_analysis(chart_analyzer::analyze_file(fsio, path, &cancelled)?).encode()
+}
 
 /// Told the id of each new frame (see [`Visualizer::set_frame_listener`]).
 pub type FrameListener = Arc<dyn Fn(u64) + Send + Sync>;
@@ -326,6 +332,8 @@ struct Shared {
     covers_job: AtomicU64,
     /// The latest cell for the cover of the track playing and its version.
     playing_cover: Mutex<PlayingCover>,
+    /// The bounded encoded covers from the current renderer feed.
+    feed_covers: Mutex<Option<FeedCovers>>,
     /// The number of the latest `set_playing_cover` job; an older job drops its result.
     playing_cover_job: AtomicU64,
     /// Asked to provide covers (by calling [`Visualizer::set_covers`]) when a scene that reads
@@ -371,6 +379,13 @@ struct CoverAtlas {
 struct PlayingCover {
     cell: Option<Arc<covers::Cell>>,
     version: u64,
+}
+
+#[derive(Clone)]
+struct FeedCovers {
+    item: ChartItem,
+    current: Option<Vec<u8>>,
+    random: Vec<Vec<u8>>,
 }
 
 impl Shared {
@@ -489,6 +504,7 @@ impl Visualizer {
                 covers: Mutex::new(CoverAtlas::default()),
                 covers_job: AtomicU64::new(0),
                 playing_cover: Mutex::new(PlayingCover::default()),
+                feed_covers: Mutex::new(None),
                 playing_cover_job: AtomicU64::new(0),
                 covers_requester: Mutex::new(None),
                 frame_listener: Mutex::new(None),
@@ -535,10 +551,10 @@ impl Visualizer {
         let plan = lock(&self.shared.plan).plan.clone()?;
         // The plan of a song that no longer plays (it changed while the visualizer was stopped or
         // showed the cover wall, and planned nothing) is not this song's.
-        let playing = lock(&self.shared.playback)
-            .path
-            .as_ref()
-            .map(|path| path.display().to_string());
+        let playing = match &lock(&self.shared.playback).source {
+            ChartSource::LocalFile { path, .. } => Some(path.display().to_string()),
+            ChartSource::None | ChartSource::Remote { .. } | ChartSource::RemoteWithoutItem => None,
+        };
         (playing.as_deref() == Some(plan.path.as_str())).then_some(plan)
     }
 
@@ -604,6 +620,9 @@ impl Visualizer {
     /// thread (a file that does not decode is skipped) and the scene picks it up with the next
     /// frame; a later call replaces an earlier one.
     pub fn set_covers(&self, current: Option<PathBuf>, random: Vec<PathBuf>) {
+        if lock(&self.shared.playback).source.is_remote() {
+            return;
+        }
         let job = self.shared.covers_job.fetch_add(1, Ordering::Relaxed) + 1;
         let shared = Arc::clone(&self.shared);
         let spawned = thread::Builder::new()
@@ -626,6 +645,9 @@ impl Visualizer {
     /// the atlas changes, the random covers stay. The file is decoded on a background thread and
     /// the scene picks it up with the next frame; a later call replaces an earlier one.
     pub fn set_playing_cover(&self, path: Option<PathBuf>) {
+        if lock(&self.shared.playback).source.is_remote() {
+            return;
+        }
         let job = self
             .shared
             .playing_cover_job
@@ -665,14 +687,225 @@ impl Visualizer {
         fsio: Option<Arc<FsIo>>,
     ) {
         let mut playback = lock(&self.shared.playback);
-        if playback.path.as_deref() != path {
-            playback.path = path.map(Path::to_path_buf);
+        let leaving_feed = playback.source.is_remote();
+        let previous_path = match &playback.source {
+            ChartSource::LocalFile { path, .. } => Some(path.as_path()),
+            ChartSource::None | ChartSource::Remote { .. } | ChartSource::RemoteWithoutItem => None,
+        };
+        if previous_path != path {
             playback.generation += 1;
         }
+        playback.source = match path {
+            Some(path) => ChartSource::LocalFile {
+                path: path.to_path_buf(),
+                fsio,
+            },
+            None => ChartSource::None,
+        };
         playback.position = position;
         playback.playing = playing;
-        playback.fsio = fsio;
         playback.at = Some(Instant::now());
+        drop(playback);
+        if leaving_feed {
+            *lock(&self.shared.feed_covers) = None;
+            self.shared.covers_job.fetch_add(1, Ordering::Relaxed);
+            self.shared
+                .playing_cover_job
+                .fetch_add(1, Ordering::Relaxed);
+            {
+                let mut covers = lock(&self.shared.covers);
+                covers.atlas = None;
+                covers.version += 1;
+            }
+            {
+                let mut playing_cover = lock(&self.shared.playing_cover);
+                playing_cover.cell = None;
+                playing_cover.version += 1;
+            }
+        }
+        if leaving_feed
+            && self.wants_covers()
+            && let Some(request) = lock(&self.shared.covers_requester).clone()
+        {
+            request();
+        }
+    }
+
+    /// Follow playback on a remote renderer without inspecting its filesystem path.
+    pub fn set_feed_playback(&self, item: Option<ChartItem>, position: Duration, playing: bool) {
+        let mut playback = lock(&self.shared.playback);
+        let chart = match (&playback.source, &item) {
+            (
+                ChartSource::Remote {
+                    item: current,
+                    chart,
+                },
+                Some(next),
+            ) if current == next => chart.clone(),
+            _ => None,
+        };
+        let source = item.map_or(ChartSource::RemoteWithoutItem, |item| ChartSource::Remote {
+            item,
+            chart,
+        });
+        let track_changed = !playback.source.same_item(&source);
+        playback.source = source;
+        playback.position = position;
+        playback.playing = playing;
+        playback.at = Some(Instant::now());
+        let current_item = match &playback.source {
+            ChartSource::Remote { item, .. } => Some(item.clone()),
+            ChartSource::None | ChartSource::LocalFile { .. } | ChartSource::RemoteWithoutItem => {
+                None
+            }
+        };
+        drop(playback);
+        if track_changed {
+            self.shared.covers_job.fetch_add(1, Ordering::Relaxed);
+            self.shared
+                .playing_cover_job
+                .fetch_add(1, Ordering::Relaxed);
+            {
+                let mut covers = lock(&self.shared.covers);
+                covers.atlas = None;
+                covers.version += 1;
+            }
+            {
+                let mut playing_cover = lock(&self.shared.playing_cover);
+                playing_cover.cell = None;
+                playing_cover.version += 1;
+            }
+        }
+        if lock(&self.shared.feed_covers)
+            .as_ref()
+            .is_some_and(|covers| Some(&covers.item) != current_item.as_ref())
+        {
+            *lock(&self.shared.feed_covers) = None;
+        }
+        self.shared.playing.store(playing, Ordering::Relaxed);
+    }
+
+    /// Give the visualizer a chart from the remote renderer for its current item.
+    pub fn set_feed_chart(&self, item: ChartItem, bytes: &[u8]) -> anyhow::Result<()> {
+        let chart = Arc::new(Chart::decode(bytes)?);
+        let mut playback = lock(&self.shared.playback);
+        if let ChartSource::Remote {
+            item: current,
+            chart: current_chart,
+        } = &mut playback.source
+            && current == &item
+        {
+            *current_chart = Some(chart);
+        }
+        Ok(())
+    }
+
+    /// Return a completed chart retained for `path`, if a previous visualizer run analysed it.
+    pub fn cached_chart(&self, path: &Path) -> anyhow::Result<Option<Vec<u8>>> {
+        let kept = lock(&self.shared.kept_chart);
+        let Some((cached_path, chart)) = kept.as_ref() else {
+            return Ok(None);
+        };
+        if cached_path != path {
+            return Ok(None);
+        }
+        chart.encode().map(Some)
+    }
+
+    /// Whether the current renderer feed has installed the chart for `identity`.
+    pub fn has_feed_chart(&self, item: &ChartItem) -> bool {
+        matches!(
+            &lock(&self.shared.playback).source,
+            ChartSource::Remote { item: current, chart: Some(_) } if current == item
+        )
+    }
+
+    /// Whether playback is currently owned by a remote renderer feed.
+    pub fn is_feed_playback(&self) -> bool {
+        lock(&self.shared.playback).source.is_remote()
+    }
+
+    /// Whether the encoded playing and wall covers for `identity` reached this visualizer.
+    pub fn feed_covers_match(
+        &self,
+        item: &ChartItem,
+        current: Option<&[u8]>,
+        random: &[Vec<u8>],
+    ) -> bool {
+        lock(&self.shared.feed_covers)
+            .as_ref()
+            .is_some_and(|covers| {
+                &covers.item == item
+                    && covers.current.as_deref() == current
+                    && covers.random == random
+            })
+    }
+
+    /// Give the cover atlas for the current remote renderer item to the visualizer.
+    pub fn set_feed_covers(
+        &self,
+        item: &ChartItem,
+        current: Option<Vec<u8>>,
+        random: Vec<Vec<u8>>,
+    ) -> anyhow::Result<()> {
+        const MAX_COVERS: usize = 63;
+        const MAX_BYTES: usize = 16 * 1024 * 1024;
+        let total_bytes = current
+            .iter()
+            .map(Vec::len)
+            .chain(random.iter().map(Vec::len))
+            .sum::<usize>();
+        anyhow::ensure!(random.len() <= MAX_COVERS, "too many feed covers");
+        anyhow::ensure!(total_bytes <= MAX_BYTES, "feed covers exceed byte limit");
+        if !matches!(
+            &lock(&self.shared.playback).source,
+            ChartSource::Remote { item: current, .. } if current == item
+        ) {
+            return Ok(());
+        }
+        *lock(&self.shared.feed_covers) = Some(FeedCovers {
+            item: item.clone(),
+            current: current.clone(),
+            random: random.clone(),
+        });
+
+        let atlas_job = self.shared.covers_job.fetch_add(1, Ordering::Relaxed) + 1;
+        let shared = Arc::clone(&self.shared);
+        let current_atlas = current.clone();
+        let random_atlas = random.clone();
+        thread::Builder::new()
+            .name("visualizer-feed-covers".into())
+            .spawn(move || {
+                let atlas =
+                    covers::build_from_bytes(current_atlas.as_deref(), &random_atlas).map(Arc::new);
+                if shared.covers_job.load(Ordering::Relaxed) != atlas_job {
+                    return;
+                }
+                let mut state = lock(&shared.covers);
+                state.atlas = atlas;
+                state.version += 1;
+            })
+            .map_err(anyhow::Error::from)?;
+
+        let cover_job = self
+            .shared
+            .playing_cover_job
+            .fetch_add(1, Ordering::Relaxed)
+            + 1;
+        let shared = Arc::clone(&self.shared);
+        thread::Builder::new()
+            .name("visualizer-feed-cover".into())
+            .spawn(move || {
+                let cell = Arc::new(covers::build_cell_from_bytes(current.as_deref()));
+                if shared.playing_cover_job.load(Ordering::Relaxed) != cover_job {
+                    return;
+                }
+                let mut state = lock(&shared.playing_cover);
+                state.cell = Some(cell);
+                state.version += 1;
+            })
+            .map_err(anyhow::Error::from)?;
+        Ok(())
     }
 
     /// Follow the app's window: while it is minimised, hidden or covered, the visualizer stands
@@ -1420,7 +1653,11 @@ fn install(
                 status.preset_name = pipeline.preset_name().to_string();
                 status.preset_path = loaded.location.to_string();
             }
-            if pipeline.wants_covers() {
+            let remote_feed = matches!(
+                &lock(&shared.playback).source,
+                ChartSource::Remote { .. } | ChartSource::RemoteWithoutItem
+            );
+            if pipeline.wants_covers() && !remote_feed {
                 shared.wants_covers.store(true, Ordering::Relaxed);
                 let request = lock(&shared.covers_requester).clone();
                 if let Some(request) = request {
