@@ -53,12 +53,19 @@ struct Entry {
     last_released: Arc<StdMutex<Instant>>,
 }
 
+#[derive(Clone, Copy)]
+enum LibraryUse {
+    Request,
+    Background,
+}
+
 /// A lease which prevents idle closure until all its clones have been dropped.
 #[derive(Clone)]
 pub struct LibraryHandle {
     resources: Arc<LibraryResources>,
     pool: Arc<LibraryPool>,
     last_released: Arc<StdMutex<Instant>>,
+    library_use: LibraryUse,
 }
 
 impl LibraryHandle {
@@ -78,7 +85,12 @@ impl Deref for LibraryHandle {
 
 impl Drop for LibraryHandle {
     fn drop(&mut self) {
-        *self.last_released.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
+        match self.library_use {
+            LibraryUse::Request => {
+                *self.last_released.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
+            }
+            LibraryUse::Background => {}
+        }
     }
 }
 
@@ -204,10 +216,15 @@ impl LibraryPool {
     }
 
     fn handle(self: &Arc<Self>, entry: &Entry) -> LibraryHandle {
+        self.handle_with_use(entry, LibraryUse::Request)
+    }
+
+    fn handle_with_use(self: &Arc<Self>, entry: &Entry, library_use: LibraryUse) -> LibraryHandle {
         LibraryHandle {
             resources: entry.resources.clone(),
             pool: self.clone(),
             last_released: entry.last_released.clone(),
+            library_use,
         }
     }
 
@@ -237,13 +254,38 @@ impl LibraryPool {
         self.acquire(library_id).await.map(Some)
     }
 
+    /// Acquire a served library for background work without counting the pass as user activity.
+    pub async fn acquire_served_background(
+        self: &Arc<Self>,
+        library_id: Uuid,
+    ) -> Result<Option<LibraryHandle>> {
+        if !self.served_library_ids().await?.contains(&library_id) {
+            return Ok(None);
+        }
+        self.acquire_background(library_id).await.map(Some)
+    }
+
     /// Acquire an existing connection or open the registered library once.
     pub async fn acquire(self: &Arc<Self>, library_id: Uuid) -> Result<LibraryHandle> {
+        self.acquire_with_use(library_id, LibraryUse::Request).await
+    }
+
+    /// Acquire a library for one background pass without refreshing the UI idle clock.
+    pub async fn acquire_background(self: &Arc<Self>, library_id: Uuid) -> Result<LibraryHandle> {
+        self.acquire_with_use(library_id, LibraryUse::Background)
+            .await
+    }
+
+    async fn acquire_with_use(
+        self: &Arc<Self>,
+        library_id: Uuid,
+        library_use: LibraryUse,
+    ) -> Result<LibraryHandle> {
         // Keep initialization alive if a worker is cancelled while waiting for it. Dropping
         // the future while migrations are in flight would release the serialization lock
         // before SQLite has necessarily stopped executing the migration statements.
         let pool = self.clone();
-        tokio::spawn(async move { pool.acquire_inner(library_id).await })
+        tokio::spawn(async move { pool.acquire_inner(library_id, library_use).await })
             .await
             .context("Library acquisition task failed")?
     }
@@ -263,7 +305,11 @@ impl LibraryPool {
         })
     }
 
-    async fn acquire_inner(self: &Arc<Self>, library_id: Uuid) -> Result<LibraryHandle> {
+    async fn acquire_inner(
+        self: &Arc<Self>,
+        library_id: Uuid,
+        library_use: LibraryUse,
+    ) -> Result<LibraryHandle> {
         let mut entries = self.entries.lock().await;
         let descriptor = LibraryRegistry::load(&self.config_dir)?
             .catalog(library_id)?
@@ -273,7 +319,7 @@ impl LibraryPool {
             "Library access revoked"
         );
         if let Some(entry) = entries.get(&library_id) {
-            return Ok(self.handle(entry));
+            return Ok(self.handle_with_use(entry, library_use));
         }
         let root = descriptor
             .root(&self.config_dir)
@@ -389,7 +435,7 @@ impl LibraryPool {
             ui_users: 0,
             last_released: Arc::new(StdMutex::new(Instant::now())),
         };
-        let handle = self.handle(&entry);
+        let handle = self.handle_with_use(&entry, library_use);
         entries.insert(library_id, entry);
         Ok(handle)
     }
@@ -789,6 +835,91 @@ mod tests {
             reopened.library_sync.record_store().namespace(),
             f.descriptor.catalog_library_id().unwrap()
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn background_only_activity_does_not_refresh_idle_timeout() -> Result<()> {
+        let f = Fixture::new(false).await?;
+        let id = f.descriptor.catalog_library_id().unwrap();
+        LibraryRegistry::set_background_sync(f.dir.path(), id, true).await?;
+
+        let first = f
+            .pool
+            .acquire_served_background(id)
+            .await?
+            .context("served library")?;
+        first
+            .main_db
+            .execute_unprepared("CREATE TABLE idle_release_probe (value INTEGER NOT NULL)")
+            .await?;
+        first
+            .main_db
+            .execute_unprepared("INSERT INTO idle_release_probe (value) VALUES (42)")
+            .await?;
+        drop(first);
+
+        for _ in 0..2 {
+            // Model background passes arriving 10 ms apart; this is cadence, not polling.
+            sleep(Duration::from_millis(10)).await;
+            let pass = f
+                .pool
+                .acquire_served_background(id)
+                .await?
+                .context("served library")?;
+            drop(pass);
+        }
+
+        // This 40 ms window takes the original acquisition past the 50 ms timeout,
+        // while the old behavior would still be within 50 ms of the final pass.
+        sleep(Duration::from_millis(40)).await;
+        f.pool.close_idle().await?;
+        assert!(
+            !f.pool.entries.lock().await.contains_key(&id),
+            "background-only acquisitions kept the library open"
+        );
+
+        let reopened = f.pool.acquire(id).await?;
+        let result = reopened
+            .main_db
+            .query_one_raw(Statement::from_string(
+                DbBackend::Sqlite,
+                "SELECT value FROM idle_release_probe".to_owned(),
+            ))
+            .await?;
+        assert_eq!(
+            result
+                .context("persisted background data")?
+                .try_get::<i64>("", "value")?,
+            42
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn background_pass_holds_library_open_when_idle_timeout_fires() -> Result<()> {
+        let f = Fixture::new(false).await?;
+        let id = f.descriptor.catalog_library_id().unwrap();
+        LibraryRegistry::set_background_sync(f.dir.path(), id, true).await?;
+        let pass = f
+            .pool
+            .acquire_served_background(id)
+            .await?
+            .context("served library")?;
+        {
+            let entries = f.pool.entries.lock().await;
+            let entry = entries.get(&id).context("open library")?;
+            *entry
+                .last_released
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) = Instant::now() - f.pool.idle_timeout;
+        }
+
+        f.pool.close_idle().await?;
+        assert!(f.pool.entries.lock().await.contains_key(&id));
+        drop(pass);
+        f.pool.close_idle().await?;
+        assert!(!f.pool.entries.lock().await.contains_key(&id));
         Ok(())
     }
 

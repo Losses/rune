@@ -310,7 +310,7 @@ async fn maintain_metadata(global: Weak<NodeContext>, cancel: tokio_util::sync::
         for id in ids {
             let library = tokio::select! {
                 _ = cancel.cancelled() => return,
-                library = global.library_pool.acquire_served(id) => library,
+                library = global.library_pool.acquire_served_background(id) => library,
             };
             let library = match library {
                 Ok(Some(library)) => library,
@@ -375,7 +375,7 @@ async fn verify_managed_audio(
         verifiers.retain(|id, _| ids.contains(id));
         for id in ids {
             let result = async {
-                let Some(library) = global.library_pool.acquire_served(id).await? else {
+                let Some(library) = global.library_pool.acquire_served_background(id).await? else {
                     return Ok(());
                 };
                 let step = verifiers
@@ -445,7 +445,7 @@ async fn run_loop(
             let library = tokio::select! {
                 _ = cancel.cancelled() => return (key, Duration::from_secs(30), false),
                 _ = library_cancel.cancelled() => return (key, Duration::from_secs(30), false),
-                library = global.library_pool.acquire_served(id) => library,
+                library = global.library_pool.acquire_served_background(id) => library,
             };
             let library = match library {
                 Ok(Some(library)) => library,
@@ -744,7 +744,7 @@ impl TestPeerSession {
         };
         let library = global
             .library_pool
-            .acquire(params.library_id.unwrap())
+            .acquire_background(params.library_id.unwrap())
             .await?;
         let notify: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
         classify_peer_pass(
