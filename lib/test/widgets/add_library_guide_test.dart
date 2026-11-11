@@ -259,9 +259,8 @@ void main() {
       find.text('We will store your index in the configuration directory.'),
       findsOneWidget,
     );
+    // One tap chooses, as in the Library Setup dialog.
     await tester.tap(find.text('Local hard drive'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(Button, 'Confirm'));
     await tester.pumpAndSettle();
 
     expect(modes, [LibraryInitializeMode.portable]);

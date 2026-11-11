@@ -21,6 +21,7 @@ import '../../../utils/library_ui/library_ui_state.dart';
 import '../../../utils/file_storage/mac_secure_manager.dart';
 import '../../../utils/router/navigation.dart';
 import '../../../widgets/no_shortcuts.dart';
+import '../../../widgets/subtitle_button.dart';
 import '../../../widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 import '../../../widgets/settings/settings_tile_title.dart';
 import '../../../screens/settings_neighbors/utils/show_add_remote_device_dialog.dart';
@@ -257,27 +258,25 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
     passwordFields: {_openDalForm.passwordController},
   );
 
+  /// The Library Setup choice, laid out as in `SelectLibraryModeDialog`.
   Widget _localModeContent(AppLocalizations s) => Column(
     mainAxisSize: MainAxisSize.min,
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       Text(s.libraryMode),
       const SizedBox(height: 8),
-      Text(s.libraryModeSubtitle),
+      Text(s.libraryModeSubtitle, style: const TextStyle(height: 1.4)),
       const SizedBox(height: 12),
-      _choiceRow(
-        'local:portable',
-        Symbols.folder,
-        s.portableMode,
-        s.portableModeSubtitle,
-        () => _registerLocalFolder(LibraryInitializeMode.portable),
+      SubtitleButton(
+        onPressed: () => _registerLocalFolder(LibraryInitializeMode.portable),
+        title: s.portableMode,
+        subtitle: s.portableModeSubtitle,
       ),
-      _choiceRow(
-        'local:redirected',
-        Symbols.cloud,
-        s.localMode,
-        s.localModeSubtitle,
-        () => _registerLocalFolder(LibraryInitializeMode.redirected),
+      const SizedBox(height: 8),
+      SubtitleButton(
+        onPressed: () => _registerLocalFolder(LibraryInitializeMode.redirected),
+        title: s.localMode,
+        subtitle: s.localModeSubtitle,
       ),
     ],
   );
