@@ -4,11 +4,11 @@ This specification describes Rune's business data, application integration and m
 
 ## Source rows and identities
 
-Every replicated business row owns a stable UUID. Reuse its valid source `hlc_uuid` unless a family specifies a deterministic identity correction; extend the source table when that column is missing. Corrections preserve local row IDs and foreign keys and reject ambiguous or already-published incompatible data before mutation. Integer primary keys remain local and are translated through the referenced source row. A content hash identifies bytes; a source UUID identifies a business row. Identical files can have distinct UUIDs, each with independent liked state and device counts.
+Every replicated business row owns a stable UUID. The source tables keep it in a column named `hlc_uuid`; the name is historical, and the value is a plain random UUID, not derived from a clock. Reuse a row's valid source UUID unless a family specifies a deterministic identity correction; extend the source table when that column is missing. Corrections preserve local row IDs and foreign keys and reject ambiguous or already-published incompatible data before mutation. Integer primary keys remain local and are translated through the referenced source row. A content hash identifies bytes; a source UUID identifies a business row. Identical files can have distinct UUIDs, each with independent liked state and device counts.
 
 `media_files` represents both local and remote files:
 
-- `hlc_uuid` identifies the file record across devices.
+- The source UUID (`hlc_uuid`) identifies the file record across devices.
 - `local_available` says whether this device has the current verified bytes.
 - `directory` and `file_name` locate bytes only when `local_available` is true. A remote-only row uses its content identity for remote access.
 - `content_hash` and `content_size` identify the expected BLAKE3 content and byte length. The existing `file_hash` stores a separate CRC.
@@ -16,7 +16,7 @@ Every replicated business row owns a stable UUID. Reuse its valid source `hlc_uu
 
 Receiving a file updates the existing UUID's row in place. Download attachment preserves both that UUID and its local integer ID. The file row directly stores its identity, expected content and local availability.
 
-`media_file_likes` stores the shared liked state. It has a unique `track_uuid`, stable `hlc_uuid`, `liked` and `updated_at`. Its object UUID is the file UUID. Missing state reads as false; an explicit unlike stores false and uses the normal versioned assignment. Playback operations update device statistics; liked state changes through `set_liked`.
+`media_file_likes` stores the shared liked state. It has a unique `track_uuid`, its own stable source UUID (`hlc_uuid`), `liked` and `updated_at`. Its object UUID is the file UUID. Missing state reads as false; an explicit unlike stores false and uses the normal versioned assignment. Playback operations update device statistics; liked state changes through `set_liked`.
 
 `media_file_stats` has one row per `(track_uuid, device_id)`, containing skipped and completed-play counts and update metadata. Its UUID is UUIDv5 using the file UUID as namespace and the device UUID's 16 bytes as name. Liked state belongs to `media_file_likes`. A device increments only its own row. A received assignment replaces its owner's accepted absolute values, making replay idempotent. Queries sum device rows for display and filtering; each stored row remains its owner's contribution.
 
@@ -118,7 +118,7 @@ A local command performs these operations in one transaction:
 
 Receiving performs validation, merge, domain assignment, relay-journal updates and receive-progress advancement in one transaction. A database error or failed assignment rolls all of them back. Received records retain their original revisions, including duplicates and losing candidates.
 
-`sync_checkpoints.completed_at` records successful completion for a received source replica, generation and collection scope. Intermediate pages preserve its previous value. The final page updates it in the same transaction as its records and business assignments. An idle successful exchange verifies initialized continuity and commits completion while preserving the journal head. First contact has an absent checkpoint and reconciles complete state. Completion describes the receiving database's committed direction and scope.
+`sync_checkpoints.completed_at` records successful completion for a received source replica, generation and collection scope. Intermediate pages preserve its previous value. The final page updates it in the same transaction as its records and business assignments. An idle successful exchange verifies initialized continuity and commits completion while preserving the journal head. On first contact with a peer the checkpoint is absent and the receiver reconciles complete state. Share synchronization can instead raise a checkpoint from verified external coverage with the raise-only `adopt_checkpoint_on`: a stream whose whole chain is present in the share, or the streams a reconciled base covers. A checkpoint never moves backwards. Completion describes the receiving database's committed direction and scope.
 
 Receive-page progress records applied pages; completion time records a successfully completed session. Completion may become visible only with the final successfully applied batch and its data. A failed or cancelled session preserves the previous completion time. Unresolved business references must be reported separately from the receipt of their canonical records. Exact causal context records which operations were observed.
 
@@ -142,7 +142,7 @@ Like/statistic policies store the referenced track UUID directly. Queries resolv
 
 Rune's revision validator requires the statistics payload's device UUID to equal the original revision actor. Relays preserve that actor. A statistics assignment always contains its owner; an ownerless removal record is rejected. Removing a file leaves its statistics rows intact with an unresolved track reference.
 
-The original author is distinct from the operation writer incarnation. The current paired namespace trusts authorized replicas to preserve original authorship on relay; owner UUID equality checks structure, while trusted-peer authorization supplies the origin assumption. Causal integration must validate transitions and context-driven removal as well as incoming payloads. Context-driven transitions also validate the owner-bearing assignment rule.
+The original author is distinct from the operation writer incarnation. Each store has one writer incarnation, stored in `sync_meta` with a reserved counter range from which dots are allocated. Opening the store keeps the incarnation unless the stored author differs, its metadata is missing or invalid, a stored dot of that incarnation lies beyond the reservation, or the database file token differs, as it does for a copied database; then a new incarnation starts. The current paired namespace trusts authorized replicas to preserve original authorship on relay; owner UUID equality checks structure, while trusted-peer authorization supplies the origin assumption. Journal rows also record the relay origin (`origin_replica`, `origin_generation`) of an event received from another store; a local write has none. Exporters use it to publish each event once. Causal integration must validate transitions and context-driven removal as well as incoming payloads. Context-driven transitions also validate the owner-bearing assignment rule.
 
 Scanning receives an initialized store through `actions::metadata::scan_audio_library`. File observations and their authored Track records share the file transaction. Album and file-album changes and their authored records share the index transaction. Hashing runs outside writer transactions; changed source observations must be checked before committing. The scanner must distinguish a missing local file from an explicit removal of replicated metadata.
 
@@ -246,11 +246,21 @@ Metadata and audio have independent loops and budgets. Metadata sessions seriali
 
 Each scheduling round offers every due peer a bounded pass under the concurrency cap. Each eligible identity retains its own due time. Metadata has a separate worker and continues during stalled audio transfers. Endpoint selection handles IPv4 and IPv6; the optional API port defaults through the endpoint-selection rules. Trust and current permission are checked independently of announcements.
 
+## Share synchronization
+
+A writable WebDAV or S3 folder can hold a library's data as a sync source that every device opening it syncs with. The live SQLite database stays on each device; the share holds immutable objects in the neutral sync format, and nothing is merged inside the share.
+
+- Layout: `<root>/.rune/sync/library.json` names the library and is created once. Each device writes only `devices/<stream>.<generation>/`: two alternating head slots, change segments, base manifests and content-addressed chunks. `stream` is derived from the local replica, so share checkpoints never collide with LAN checkpoints; a new `generation` starts after a clone or restore.
+- Formats, `SharePeer` (a `SyncPeer` over a device's segments and a `SnapshotSource` over a base) and the planners for publishing, keeper election and garbage collection are in `sync/src/share/`. The base exporter is `sync-orm/src/base_exporter.rs`.
+- `database/src/sync/share.rs` binds them to a library: pull runs the ordinary `Coordinator` against each device's `SharePeer`; push publishes this device's journal after its export cursor, skipping relayed events from share streams; the elected keeper cuts bases; garbage collection deletes only this device's objects. One `ShareWriter` per library serializes every write to the device's prefix.
+- The hub runs these on timers for libraries whose catalog placement is `InShare` (`native/hub/src/server/sync_worker.rs`), over the OpenDAL object store in `fsio/src/opendal_object_store.rs`, whose conditional features are probed by effect.
+- Only the pull direction of the engine is used. `BidirectionalSession` and metadata peers stay LAN-only.
+
 ## Storage definitions
 
 Migration definitions and matching SeaORM entities define the schema.
 
-Generic persistence belongs to `sync-orm`. Its [storage specification](../sync-orm/README.md) defines ten distinct roles: replica positions and quotas, immutable candidate lifetimes, publication journal, directional checkpoints, versioned collection-wide exact context intervals, complete manifests, bounded chunks, manifest dependencies, and durable source/build leases. These relations store generic accepted state, history, progress and retained views. Candidate retirement history and journal bodies are temporary retained evidence; exact causal context remains after their reclamation. Cross-process leases prevent one process from reclaiming another process's advertised immutable view.
+Generic persistence belongs to `sync-orm`. Its [storage specification](../sync-orm/README.md) defines these roles: replica positions and quotas, immutable candidate lifetimes, publication journal, directional checkpoints, versioned collection-wide exact context intervals, complete manifests, bounded chunks, manifest dependencies, durable source/build leases, and export cursors. An export cursor pins the journal for one external exporter, such as a share, until that exporter has published it; when the pin holds more than 64 MiB of journal or is older than 30 days, it is marked as needing a base and stops pinning (`sync-orm/src/causal_export_cursors.rs`). These relations store generic accepted state, history, progress and retained views. Candidate retirement history and journal bodies are temporary retained evidence; exact causal context remains after their reclamation. Cross-process leases prevent one process from reclaiming another process's advertised immutable view.
 
 Business persistence extends `media_files` and `media_file_stats` and creates `media_file_likes`. Existing album, relationship, playlist and mix rows retain their identities. Download rules and jobs belong to database download actions and the caller download worker.
 
@@ -304,7 +314,7 @@ cargo test -p database --test core_conformance_test --test non_music_orm
 
 ### Performance measurements
 
-Measurements on 2026-11-02 at commit `9259efab` used Linux x86_64, Rust 1.98.1 and in-memory SQLite on a shared AMD Ryzen 7 8845HS host (eight cores, sixteen logical CPUs, approximately 92 GiB RAM). Instrumentation adds overhead and elapsed times depend on host load. Summed query time is not CPU attribution.
+These measurements predate share synchronization. Measurements on 2026-11-02 at commit `9259efab` used Linux x86_64, Rust 1.98.1 and in-memory SQLite on a shared AMD Ryzen 7 8845HS host (eight cores, sixteen logical CPUs, approximately 92 GiB RAM). Instrumentation adds overhead and elapsed times depend on host load. Summed query time is not CPU attribution.
 
 The release catalog fixture (`database/tests/sync_catalog_scale.rs`) uses separate databases and in-process endpoints with 1,000 tracks, 20 albums, 40 artists, eight genres, ten playlists, one metadata tag and one relationship per track for each catalog family, and 100 playlist occurrences. It authored 4,178 source assignments. Preparation took 2,868 ms; initial synchronization took 5,020 ms and 1,308 coordinator steps. Across both peers the instrumented initial transfer recorded 78,230 SQL statements: 56,101 SELECTs, 16,283 INSERTs, 5,571 UPDATEs and 275 DELETEs, with 2,731,902 microseconds summed query time and no failed statements. Fixture preparation and verification reads are excluded from these transfer totals. Three idle exchanges each used seven steps, completed below the millisecond timer resolution and left history unchanged.
 
