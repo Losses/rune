@@ -135,7 +135,6 @@ void main() {
       final manager = _testManager();
       addTearDown(registry.dispose);
       addTearDown(manager.dispose);
-      var localCalled = false;
       await tester.pumpWidget(
         _app(
           registry: registry,
@@ -144,7 +143,9 @@ void main() {
             builder: (context) => Button(
               onPressed: () => showAddLibraryGuide(
                 context,
-                addLocalFolder: (_) async => localCalled = true,
+                dependencies: AddLibraryGuideDependencies(
+                  pickLocalFolder: () async => null,
+                ),
               ),
               child: const Text('Open guide'),
             ),
@@ -157,7 +158,8 @@ void main() {
       expect(find.text('Rune Device'), findsOneWidget);
       expect(find.text('WebDAV'), findsOneWidget);
       expect(find.text('S3'), findsOneWidget);
-      expect(find.byType(ListTile), findsNWidgets(4));
+      expect(find.text('Subsonic'), findsOneWidget);
+      expect(find.byType(ListTile), findsNWidgets(5));
       expect(find.text('Confirm'), findsNothing);
 
       await tester.tap(find.text('Local Folder'));
@@ -166,16 +168,15 @@ void main() {
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
       expect(find.text('Local Folder'), findsNothing);
-      expect(localCalled, isFalse);
     },
   );
 
-  testWidgets('selecting Local Folder runs the shared folder flow', (
+  testWidgets('new local folder asks for a mode inside the guide', (
     tester,
   ) async {
     final modes = <LibraryInitializeMode?>[];
     final opened = <String>[];
-    final scans = <ScanAudioLibraryRequest>[];
+    final scans = <String>[];
     final registry = LibraryRegistryProvider(
       loadRecords: () async => ListLibraryRecordsResponse(
         records: const [],
@@ -201,7 +202,7 @@ void main() {
       },
     );
     final manager = LibraryManagerProvider(
-      sendScanRequest: scans.add,
+      sendScanRequest: (_) {},
       navigate: (_) {},
     );
     addTearDown(registry.dispose);
@@ -214,9 +215,20 @@ void main() {
           builder: (context) => Button(
             onPressed: () => showAddLibraryGuide(
               context,
-              addLocalFolder: (context) => addLocalFolderLibrary(
-                context,
-                pickDirectory: () async => '/picked/music',
+              dependencies: AddLibraryGuideDependencies(
+                pickLocalFolder: () async => '/picked/music',
+                testLocalLibrary: (_) async => (true, false, null),
+                registerLocal: (path, alias, mode) async {
+                  expect(path, '/picked/music');
+                  expect(alias, 'music');
+                  modes.add(mode);
+                  return RegisterLibraryResponse(
+                    record: _record(),
+                    outcome: const RegisterLibraryOutcomeRegistered(),
+                  );
+                },
+                openRecord: (recordId) async => opened.add(recordId),
+                scanLibrary: (recordId) async => scans.add(recordId),
               ),
             ),
             child: const Text('Open guide'),
@@ -230,13 +242,70 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Confirm'));
     await tester.pumpAndSettle();
+    expect(find.text('Library Setup'), findsOneWidget);
+    expect(find.text('In the cloud'), findsOneWidget);
+    expect(
+      find.text('We will store your index in the configuration directory.'),
+      findsOneWidget,
+    );
     await tester.tap(find.text('Local hard drive'));
     await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(Button, 'Confirm'));
+    await tester.pumpAndSettle();
 
-    expect(modes, [null, LibraryInitializeMode.portable]);
+    expect(modes, [LibraryInitializeMode.portable]);
     expect(opened, ['record-1']);
     expect(scans, hasLength(1));
-    expect(scans.single.force, isFalse);
+    expect(scans, ['record-1']);
+  });
+
+  testWidgets('initialized local folder skips the mode question', (
+    tester,
+  ) async {
+    final modes = <LibraryInitializeMode?>[];
+    final opened = <String>[];
+    final scans = <String>[];
+    final registry = _emptyRegistry();
+    final manager = _testManager();
+    addTearDown(registry.dispose);
+    addTearDown(manager.dispose);
+    await tester.pumpWidget(
+      _app(
+        registry: registry,
+        manager: manager,
+        home: Builder(
+          builder: (context) => Button(
+            onPressed: () => showAddLibraryGuide(
+              context,
+              dependencies: AddLibraryGuideDependencies(
+                pickLocalFolder: () async => '/picked/music',
+                testLocalLibrary: (_) async => (true, true, null),
+                registerLocal: (_, __, mode) async {
+                  modes.add(mode);
+                  return RegisterLibraryResponse(
+                    record: _record(),
+                    outcome: const RegisterLibraryOutcomeRegistered(),
+                  );
+                },
+                openRecord: (recordId) async => opened.add(recordId),
+                scanLibrary: (recordId) async => scans.add(recordId),
+              ),
+            ),
+            child: const Text('Open guide'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open guide'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Local Folder'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(Button, 'Confirm'));
+    await tester.pumpAndSettle();
+    expect(find.text('Library Setup'), findsNothing);
+    expect(modes, [null]);
+    expect(opened, ['record-1']);
+    expect(scans, isEmpty);
   });
 
   testWidgets('guide pairing rows call the existing pairing flows', (
@@ -262,7 +331,6 @@ void main() {
           builder: (context) => Button(
             onPressed: () => showAddLibraryGuide(
               context,
-              addLocalFolder: (_) async {},
               dependencies: AddLibraryGuideDependencies(
                 searchNeighbors: (_) async => searchOpened = true,
                 addNeighborManually: (_) async {
@@ -376,29 +444,35 @@ void main() {
 
     await tester.tap(find.text('Read Only').first);
     await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(Button, 'Confirm'));
+    await tester.pumpAndSettle();
     expect(find.text('No Playback Control'), findsWidgets);
-    expect(
-      tester
-          .widget<Button>(find.widgetWithText(Button, 'Sync to This Device'))
-          .onPressed,
-      isNotNull,
-    );
-    expect(
-      tester
-          .widget<Button>(find.widgetWithText(Button, 'Control Playback'))
-          .onPressed,
-      isNull,
-    );
-
-    await tester.tap(find.text('Not Shared').first);
+    expect(find.text('How do you want to use it?'), findsOneWidget);
+    await tester.tap(find.text('Sync to This Device'));
     await tester.pumpAndSettle();
     expect(
-      tester
-          .widget<Button>(find.widgetWithText(Button, 'Sync to This Device'))
-          .onPressed,
+      tester.widget<Button>(find.widgetWithText(Button, 'Confirm')).onPressed,
+      isNotNull,
+    );
+    await tester.tap(find.text('Control Playback'));
+    await tester.pumpAndSettle();
+    expect(find.text('No Playback Control'), findsWidgets);
+    expect(
+      tester.widget<Button>(find.widgetWithText(Button, 'Confirm')).onPressed,
       isNull,
     );
-    expect(find.text('Not Shared'), findsNWidgets(2));
+    await tester.tap(find.text('Back'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Not Shared').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(Button, 'Confirm'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sync to This Device'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<Button>(find.widgetWithText(Button, 'Confirm')).onPressed,
+      isNull,
+    );
     await tester.pump(const Duration(seconds: 1));
   });
 
@@ -475,7 +549,11 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Shared Music'));
     await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(Button, 'Confirm'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Sync to This Device'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(Button, 'Confirm'));
     await tester.pumpAndSettle();
 
     expect(calls, ['add:shared:peer', 'open:replica-record']);
@@ -555,20 +633,15 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Shared Music'));
     await tester.pumpAndSettle();
-    expect(
-      tester
-          .widget<Button>(find.widgetWithText(Button, 'Sync to This Device'))
-          .onPressed,
-      isNotNull,
-    );
-    expect(find.text('Read Only'), findsOneWidget);
-    expect(
-      tester
-          .widget<Button>(find.widgetWithText(Button, 'Control Playback'))
-          .onPressed,
-      isNotNull,
-    );
+    await tester.tap(find.widgetWithText(Button, 'Confirm'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Control Playback'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<Button>(find.widgetWithText(Button, 'Confirm')).onPressed,
+      isNotNull,
+    );
+    await tester.tap(find.widgetWithText(Button, 'Confirm'));
     await tester.pumpAndSettle();
 
     expect(calls, ['register:peer:Bedroom', 'open:record-1']);
@@ -810,5 +883,203 @@ void main() {
     expect(registeredService, isA<OpenDalLibraryServiceS3>());
     expect(registeredAlias, 'music-bucket');
     expect(opened, ['record-1', 'scan:record-1']);
+  });
+
+  testWidgets('Subsonic offers both uses and registers the selected player', (
+    tester,
+  ) async {
+    final registry = _emptyRegistry();
+    final manager = _testManager();
+    final requests = <RegisterSubsonicLibraryRequest>[];
+    final opened = <String>[];
+    addTearDown(registry.dispose);
+    addTearDown(manager.dispose);
+    await tester.pumpWidget(
+      _app(
+        registry: registry,
+        manager: manager,
+        home: Builder(
+          builder: (context) => Button(
+            onPressed: () => showAddLibraryGuide(
+              context,
+              dependencies: AddLibraryGuideDependencies(
+                registerSubsonic: (request) async {
+                  requests.add(request);
+                  if (request.mode == null) {
+                    return const RegisterLibraryResponse(
+                      outcome: RegisterLibraryOutcomeNeedsSubsonicMode(
+                        allowed: [
+                          SubsonicOpenModeMessage.playOnThisDevice,
+                          SubsonicOpenModeMessage.remoteControl,
+                        ],
+                      ),
+                    );
+                  }
+                  return RegisterLibraryResponse(
+                    record: _record(),
+                    outcome: const RegisterLibraryOutcomeRegistered(),
+                  );
+                },
+                openRecord: (recordId) async => opened.add(recordId),
+              ),
+            ),
+            child: const Text('Open guide'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open guide'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Subsonic'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(Button, 'Confirm'));
+    await tester.pumpAndSettle();
+    for (final entry in <(int, String)>[
+      (0, 'https://music.example.test'),
+      (1, 'alice'),
+      (2, 'secret'),
+    ]) {
+      await tester.enterText(find.byType(TextBox).at(entry.$1), entry.$2);
+    }
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(Button, 'Confirm'));
+    await tester.pumpAndSettle();
+    expect(find.text('Play on This Device'), findsOneWidget);
+    expect(find.text('How do you want to use it?'), findsOneWidget);
+    expect(find.text("Control the Server's Player"), findsOneWidget);
+    await tester.tap(find.text("Control the Server's Player"));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(Button, 'Confirm'));
+    await tester.pumpAndSettle();
+    expect(requests.map((request) => request.mode), [
+      null,
+      SubsonicOpenModeMessage.remoteControl,
+    ]);
+    expect(requests.first.endpoint, 'https://music.example.test');
+    expect(requests.first.username, 'alice');
+    expect(requests.first.password, 'secret');
+    expect(opened, ['record-1']);
+  });
+
+  testWidgets('Subsonic disables jukebox control without its role', (
+    tester,
+  ) async {
+    final registry = _emptyRegistry();
+    final manager = _testManager();
+    final requests = <RegisterSubsonicLibraryRequest>[];
+    addTearDown(registry.dispose);
+    addTearDown(manager.dispose);
+    await tester.pumpWidget(
+      _app(
+        registry: registry,
+        manager: manager,
+        home: Builder(
+          builder: (context) => Button(
+            onPressed: () => showAddLibraryGuide(
+              context,
+              dependencies: AddLibraryGuideDependencies(
+                registerSubsonic: (request) async {
+                  requests.add(request);
+                  if (request.mode == null) {
+                    return const RegisterLibraryResponse(
+                      outcome: RegisterLibraryOutcomeNeedsSubsonicMode(
+                        allowed: [SubsonicOpenModeMessage.playOnThisDevice],
+                      ),
+                    );
+                  }
+                  return RegisterLibraryResponse(
+                    record: _record(),
+                    outcome: const RegisterLibraryOutcomeRegistered(),
+                  );
+                },
+                openRecord: (_) async {},
+              ),
+            ),
+            child: const Text('Open guide'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open guide'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Subsonic'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(Button, 'Confirm'));
+    await tester.pumpAndSettle();
+    for (final entry in <(int, String)>[
+      (0, 'https://music.example.test'),
+      (1, 'alice'),
+      (2, 'secret'),
+    ]) {
+      await tester.enterText(find.byType(TextBox).at(entry.$1), entry.$2);
+    }
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(Button, 'Confirm'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text("Control the Server's Player"));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Your account is not allowed to do this.'),
+      findsOneWidget,
+    );
+    expect(
+      tester.widget<Button>(find.widgetWithText(Button, 'Confirm')).onPressed,
+      isNull,
+    );
+    await tester.tap(find.text('Play on This Device'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(Button, 'Confirm'));
+    await tester.pumpAndSettle();
+    expect(requests.map((request) => request.mode), [
+      null,
+      SubsonicOpenModeMessage.playOnThisDevice,
+    ]);
+  });
+
+  testWidgets('Subsonic registration errors use library registry messages', (
+    tester,
+  ) async {
+    final registry = _emptyRegistry();
+    final manager = _testManager();
+    addTearDown(registry.dispose);
+    addTearDown(manager.dispose);
+    await tester.pumpWidget(
+      _app(
+        registry: registry,
+        manager: manager,
+        home: Builder(
+          builder: (context) => Button(
+            onPressed: () => showAddLibraryGuide(
+              context,
+              dependencies: AddLibraryGuideDependencies(
+                registerSubsonic: (_) async => const RegisterLibraryResponse(
+                  outcome: RegisterLibraryOutcomeFailed(
+                    value: RegisterLibraryFailureKind.subsonicWrongCredentials,
+                  ),
+                ),
+              ),
+            ),
+            child: const Text('Open guide'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open guide'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Subsonic'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(Button, 'Confirm'));
+    await tester.pumpAndSettle();
+    for (final entry in <(int, String)>[
+      (0, 'https://music.example.test'),
+      (1, 'alice'),
+      (2, 'wrong'),
+    ]) {
+      await tester.enterText(find.byType(TextBox).at(entry.$1), entry.$2);
+    }
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(Button, 'Confirm'));
+    await tester.pumpAndSettle();
+    expect(find.text('Check the username and password.'), findsOneWidget);
   });
 }

@@ -28,7 +28,6 @@ use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{any, get};
-use database::library_registry::LibraryRecord;
 use database::library_registry::{LibraryRegistry, ProtocolAdapter, SubsonicOpenMode};
 use serde_json::json;
 use std::{
@@ -6847,25 +6846,22 @@ async fn assert_single_role_subsonic_registration(
         &node,
     )
     .await;
-    assert_eq!(response.outcome, RegisterLibraryOutcome::Registered);
-    let registry = LibraryRegistry::load(PathBuf::from(&*node.config_path).as_path())?;
-    let stored = registry
+    assert_eq!(
+        response.outcome,
+        RegisterLibraryOutcome::NeedsSubsonicMode {
+            allowed: vec![expected]
+        }
+    );
+    assert!(LibraryRegistry::load(PathBuf::from(&*node.config_path).as_path())?
         .libraries
         .iter()
-        .find(is_subsonic_record)
-        .context("Subsonic record stored")?;
-    assert!(matches!(
-        stored.protocol,
-        ProtocolAdapter::SubsonicTranslate { mode, .. }
-            if SubsonicOpenModeMessage::from(mode) == expected
-    ));
+        .all(|record| !matches!(
+            &record.protocol,
+            ProtocolAdapter::SubsonicTranslate { .. }
+        )));
     server.task.abort();
     node.shutdown().await?;
     Ok(())
-}
-
-fn is_subsonic_record(record: &&LibraryRecord) -> bool {
-    matches!(record.protocol, ProtocolAdapter::SubsonicTranslate { .. })
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -6954,7 +6950,12 @@ async fn subsonic_registration_receiver_dispatches_to_node_handler() -> Result<(
         .context("registration receiver did not receive the request")?
         .context("registration signal channel closed")?;
     let response = register_subsonic_library_with_node(&signal.message, &node).await;
-    assert_eq!(response.outcome, RegisterLibraryOutcome::Registered);
+    assert_eq!(
+        response.outcome,
+        RegisterLibraryOutcome::NeedsSubsonicMode {
+            allowed: vec![SubsonicOpenModeMessage::PlayOnThisDevice]
+        }
+    );
     server.task.abort();
     node.shutdown().await?;
     Ok(())

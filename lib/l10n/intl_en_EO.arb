@@ -1675,5 +1675,11 @@
   "secretAccessKey": "Sekreta alirŝlosilo",
   "libraryOpenDalAuthenticationRejected": "Kontrolu la uzantnomon kaj pasvorton.",
   "libraryOpenDalUnreachable": "Kontrolu la servilan adreson kaj retkonekton.",
-  "libraryOpenDalNotFolder": "Kontrolu, ĉu la elektita dosierujo ekzistas kaj estas atingebla."
+  "libraryOpenDalNotFolder": "Kontrolu, ĉu la elektita dosierujo ekzistas kaj estas atingebla.",
+  "subsonic": "Subsonic",
+  "subsonicSubtitle": "Konektu al Subsona muzikservilo.",
+  "playOnThisDevice": "Ludi en Ĉi tiu Aparato",
+  "controlServerPlayer": "Regi la Servilan Ludilon",
+  "howDoYouWantToUseIt": "Kiel vi volas uzi ĝin?"
+
 }

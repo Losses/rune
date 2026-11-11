@@ -1673,5 +1673,11 @@
   "secretAccessKey": "Geheimer Zugriffsschlüssel",
   "libraryOpenDalAuthenticationRejected": "Überprüfe Benutzername und Passwort.",
   "libraryOpenDalUnreachable": "Überprüfe die Serveradresse und die Netzwerkverbindung.",
-  "libraryOpenDalNotFolder": "Überprüfe, ob der ausgewählte Ordner vorhanden und zugänglich ist."
+  "libraryOpenDalNotFolder": "Überprüfe, ob der ausgewählte Ordner vorhanden und zugänglich ist.",
+  "subsonic": "Subsonic",
+  "subsonicSubtitle": "Mit einem Subsonic-Musikserver verbinden.",
+  "playOnThisDevice": "Auf diesem Gerät abspielen",
+  "controlServerPlayer": "Serverplayer steuern",
+  "howDoYouWantToUseIt": "Wie möchten Sie es verwenden?"
+
 }

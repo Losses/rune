@@ -1404,5 +1404,11 @@
   "secretAccessKey": "秘密存取金鑰",
   "libraryOpenDalAuthenticationRejected": "請檢查使用者名稱和密碼。",
   "libraryOpenDalUnreachable": "請檢查伺服器位址和網路連線。",
-  "libraryOpenDalNotFolder": "請確認所選資料夾存在且可供存取。"
+  "libraryOpenDalNotFolder": "請確認所選資料夾存在且可供存取。",
+  "subsonic": "Subsonic",
+  "subsonicSubtitle": "連線至 Subsonic 音樂伺服器。",
+  "playOnThisDevice": "在此裝置播放",
+  "controlServerPlayer": "控制伺服器播放器",
+  "howDoYouWantToUseIt": "您想如何使用？"
+
 }

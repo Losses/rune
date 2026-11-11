@@ -1675,5 +1675,11 @@
   "secretAccessKey": "Clé d’accès secrète",
   "libraryOpenDalAuthenticationRejected": "Vérifiez le nom d’utilisateur et le mot de passe.",
   "libraryOpenDalUnreachable": "Vérifiez l’adresse du serveur et la connexion réseau.",
-  "libraryOpenDalNotFolder": "Vérifiez que le dossier choisi existe et est accessible."
+  "libraryOpenDalNotFolder": "Vérifiez que le dossier choisi existe et est accessible.",
+  "subsonic": "Subsonic",
+  "subsonicSubtitle": "Connectez-vous à un serveur musical Subsonic.",
+  "playOnThisDevice": "Lire sur cet appareil",
+  "controlServerPlayer": "Contrôler le lecteur du serveur",
+  "howDoYouWantToUseIt": "Comment souhaitez-vous l’utiliser ?"
+
 }

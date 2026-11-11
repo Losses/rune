@@ -1673,5 +1673,11 @@
   "secretAccessKey": "秘取鍵",
   "libraryOpenDalAuthenticationRejected": "核簿名與符節。",
   "libraryOpenDalUnreachable": "核伺址與網絡。",
-  "libraryOpenDalNotFolder": "核所擇資料夾存而可取。"
+  "libraryOpenDalNotFolder": "核所擇資料夾存而可取。",
+  "subsonic": "Subsonic",
+  "subsonicSubtitle": "連接於 Subsonic 樂庫伺服器。",
+  "playOnThisDevice": "於此裝置奏",
+  "controlServerPlayer": "御伺服器之播放器",
+  "howDoYouWantToUseIt": "將何以用之？"
+
 }

@@ -1675,5 +1675,11 @@
   "secretAccessKey": "보안 액세스 키",
   "libraryOpenDalAuthenticationRejected": "사용자 이름과 비밀번호를 확인하세요.",
   "libraryOpenDalUnreachable": "서버 주소와 네트워크 연결을 확인하세요.",
-  "libraryOpenDalNotFolder": "선택한 폴더가 있고 접근할 수 있는지 확인하세요."
+  "libraryOpenDalNotFolder": "선택한 폴더가 있고 접근할 수 있는지 확인하세요.",
+  "subsonic": "Subsonic",
+  "subsonicSubtitle": "Subsonic 음악 서버에 연결합니다.",
+  "playOnThisDevice": "이 기기에서 재생",
+  "controlServerPlayer": "서버 플레이어 제어",
+  "howDoYouWantToUseIt": "어떻게 사용하시겠습니까?"
+
 }

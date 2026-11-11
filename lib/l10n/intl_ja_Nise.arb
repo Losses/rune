@@ -1675,5 +1675,11 @@
   "secretAccessKey": "秘密接続鍵",
   "libraryOpenDalAuthenticationRejected": "使用者名と暗証番号を確認してください。",
   "libraryOpenDalUnreachable": "通信管理機の所在と網絡接続を確認してください。",
-  "libraryOpenDalNotFolder": "選択した格納場所の存在と接続可否を確認してください。"
+  "libraryOpenDalNotFolder": "選択した格納場所の存在と接続可否を確認してください。",
+  "subsonic": "Subsonic",
+  "subsonicSubtitle": "Subsonic 音楽服務器接続。",
+  "playOnThisDevice": "此機器再生",
+  "controlServerPlayer": "服務器播放控制",
+  "howDoYouWantToUseIt": "如何使用？"
+
 }

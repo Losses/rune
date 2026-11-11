@@ -21,6 +21,15 @@ String libraryRegistryFailureMessage(
   OpenLibraryFailureKind.remoteUnreachable => s.libraryRemoteUnreachable,
   RegisterLibraryFailureKind.openDalAuthenticationRejected =>
     s.libraryOpenDalAuthenticationRejected,
+  RegisterLibraryFailureKind.subsonicWrongCredentials =>
+    s.libraryOpenDalAuthenticationRejected,
+  RegisterLibraryFailureKind.subsonicUnreachable => s.libraryOpenDalUnreachable,
+  RegisterLibraryFailureKind.subsonicServerTooOld ||
+  RegisterLibraryFailureKind.subsonicClientTooOld =>
+    s.libraryProtocolIncompatible,
+  RegisterLibraryFailureKind.subsonicRoleMissing =>
+    s.capabilityAccountRoleMissing,
+  RegisterLibraryFailureKind.subsonicNotSubsonic => s.libraryInvalidSource,
   RegisterLibraryFailureKind.openDalUnreachable => s.libraryOpenDalUnreachable,
   RegisterLibraryFailureKind.openDalNotFolder => s.libraryOpenDalNotFolder,
   RegisterLibraryFailureKind.remoteProtocol ||

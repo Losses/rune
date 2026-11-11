@@ -7,23 +7,26 @@ import '../../../l10n/app_localizations.dart';
 import '../../../providers/broadcast.dart';
 import '../../../providers/library_manager.dart';
 import '../../../providers/library_registry.dart';
+import '../../../providers/local_folder_picker.dart';
 import '../../../utils/api/device_grants.dart';
-import '../../../utils/api/library_registry.dart';
 import '../../../utils/api/request_failure.dart';
+import '../../../utils/api/testlibrary_initialized.dart';
+import '../../../utils/api/library_registry.dart';
+import '../../../utils/add_library_flows.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../utils/dialogs/information/error.dart';
 import '../../../utils/l10n.dart';
 import '../../../utils/library_registry_messages.dart';
 import '../../../utils/library_ui/library_ui_state.dart';
+import '../../../utils/file_storage/mac_secure_manager.dart';
 import '../../../utils/router/navigation.dart';
 import '../../../widgets/no_shortcuts.dart';
 import '../../../widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 import '../../../widgets/settings/settings_tile_title.dart';
 import '../../../screens/settings_neighbors/utils/show_add_remote_device_dialog.dart';
 import '../../../screens/settings_server/widgets/peer_libraries_dialog.dart';
-import '../../add_library_flows.dart';
 
-enum AddLibrarySource { localFolder, runeDevice, webDav, s3 }
+enum AddLibrarySource { localFolder, webDav, s3, runeDevice, subsonic }
 
 class AddLibraryGuideDependencies {
   const AddLibraryGuideDependencies({
@@ -37,6 +40,10 @@ class AddLibraryGuideDependencies {
     this.registerOpenDal,
     this.openRecord,
     this.scanLibrary,
+    this.pickLocalFolder,
+    this.testLocalLibrary,
+    this.registerLocal,
+    this.registerSubsonic,
   });
 
   final Future<void> Function(BuildContext)? searchNeighbors;
@@ -51,38 +58,46 @@ class AddLibraryGuideDependencies {
   registerOpenDal;
   final Future<void> Function(String)? openRecord;
   final Future<void> Function(String)? scanLibrary;
+  final Future<String?> Function()? pickLocalFolder;
+  final Future<(bool, bool, String?)> Function(String)? testLocalLibrary;
+  final Future<RegisterLibraryResponse> Function(
+    String,
+    String,
+    LibraryInitializeMode?,
+  )?
+  registerLocal;
+  final Future<RegisterLibraryResponse> Function(
+    RegisterSubsonicLibraryRequest,
+  )?
+  registerSubsonic;
 }
 
 Future<void> showAddLibraryGuide(
   BuildContext context, {
   bool navigateIfFailed = false,
-  Future<void> Function(BuildContext)? addLocalFolder,
   AddLibraryGuideDependencies dependencies =
       const AddLibraryGuideDependencies(),
 }) async {
-  final source = await $showModal<AddLibrarySource>(
+  await $showModal<AddLibrarySource>(
     context,
-    (context, $close) =>
-        _AddLibraryGuideDialog($close: $close, dependencies: dependencies),
+    (context, $close) => _AddLibraryGuideDialog(
+      $close: $close,
+      dependencies: dependencies,
+      navigateIfFailed: navigateIfFailed,
+    ),
   );
-  if (!context.mounted || source == null) return;
-
-  if (source != AddLibrarySource.localFolder) return;
-  await (addLocalFolder ??
-      (context) => addLocalFolderLibrary(
-        context,
-        navigateIfFailed: navigateIfFailed,
-      ))(context);
 }
 
 class _AddLibraryGuideDialog extends StatefulWidget {
   const _AddLibraryGuideDialog({
     required this.$close,
     required this.dependencies,
+    required this.navigateIfFailed,
   });
 
   final void Function(AddLibrarySource?) $close;
   final AddLibraryGuideDependencies dependencies;
+  final bool navigateIfFailed;
 
   @override
   State<_AddLibraryGuideDialog> createState() => _AddLibraryGuideDialogState();
@@ -96,6 +111,8 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
   bool? _canControl;
   String? _selectedChoice;
   String? _selectedLibraryId;
+  String? _localPath;
+  Set<SubsonicOpenModeMessage> _subsonicAllowed = {};
   bool _loading = false;
   bool _registeringOpenDal = false;
   final _openDalForm = _OpenDalFormController();
@@ -116,25 +133,34 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
         content: switch (_step) {
           1 => _sourceContent(s),
           2 =>
-            _selected == AddLibrarySource.webDav
+            _selected == AddLibrarySource.subsonic
+                ? _subsonicContent(s)
+                : _selected == AddLibrarySource.webDav
                 ? _webDavContent(s)
                 : _selected == AddLibrarySource.s3
                 ? _s3Content(s)
                 : _deviceContent(s),
-          _ => _libraryContent(s),
+          3 => _libraryContent(s),
+          4 =>
+            _selected == AddLibrarySource.subsonic
+                ? _subsonicModesContent(s)
+                : _deviceUsageContent(s),
+          5 => _localModeContent(s),
+          _ => const SizedBox.shrink(),
         },
         actions: [
           if (_step > 1)
             Button(
               onPressed: () => setState(() {
                 _step = _step - 1;
-                _selectedLibraryId = null;
+                if (_step == 2) _selectedLibraryId = null;
               }),
               child: Text(s.back),
             ),
           Button(onPressed: () => widget.$close(null), child: Text(s.cancel)),
           if (_step == 2 &&
-              (_selected == AddLibrarySource.webDav ||
+              (_selected == AddLibrarySource.subsonic ||
+                  _selected == AddLibrarySource.webDav ||
                   _selected == AddLibrarySource.s3))
             Button(
               onPressed: _canSubmitOpenDal && !_registeringOpenDal
@@ -158,18 +184,24 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
         s.localFolderSubtitle,
       ),
       _sourceRow(
-        AddLibrarySource.runeDevice,
-        Symbols.devices,
-        s.runeDevice,
-        s.runeDeviceSubtitle,
-      ),
-      _sourceRow(
         AddLibrarySource.webDav,
         Symbols.cloud_sync,
         s.webDav,
         s.webDavSubtitle,
       ),
       _sourceRow(AddLibrarySource.s3, Symbols.cloud_sync, s.s3, s.s3Subtitle),
+      _sourceRow(
+        AddLibrarySource.runeDevice,
+        Symbols.devices,
+        s.runeDevice,
+        s.runeDeviceSubtitle,
+      ),
+      _sourceRow(
+        AddLibrarySource.subsonic,
+        Symbols.music_note,
+        s.subsonic,
+        s.subsonicSubtitle,
+      ),
     ],
   );
 
@@ -181,6 +213,8 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
             _openDalForm.username,
             _openDalForm.password,
           ]
+        : _selected == AddLibrarySource.subsonic
+        ? [_openDalForm.server, _openDalForm.username, _openDalForm.password]
         : [
             _openDalForm.server,
             _openDalForm.bucket,
@@ -214,6 +248,244 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
     passwordFields: {_openDalForm.secretAccessKeyController},
   );
 
+  Widget _subsonicContent(AppLocalizations s) => _openDalFormContent(
+    fields: [
+      (s.server, _openDalForm.serverController),
+      (s.username, _openDalForm.usernameController),
+      (s.password, _openDalForm.passwordController),
+    ],
+    passwordFields: {_openDalForm.passwordController},
+  );
+
+  Widget _localModeContent(AppLocalizations s) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Text(s.libraryMode),
+      const SizedBox(height: 8),
+      Text(s.libraryModeSubtitle),
+      const SizedBox(height: 12),
+      _choiceRow(
+        'local:portable',
+        Symbols.folder,
+        s.portableMode,
+        s.portableModeSubtitle,
+        () => _registerLocalFolder(LibraryInitializeMode.portable),
+      ),
+      _choiceRow(
+        'local:redirected',
+        Symbols.cloud,
+        s.localMode,
+        s.localModeSubtitle,
+        () => _registerLocalFolder(LibraryInitializeMode.redirected),
+      ),
+    ],
+  );
+
+  Widget _deviceUsageContent(AppLocalizations s) {
+    final libraries = _libraries?.libraries ?? const <PeerLibrary>[];
+    PeerLibrary? library;
+    for (final item in libraries) {
+      if (item.libraryId == _selectedLibraryId) library = item;
+    }
+    final selectedLibrary = library;
+    if (selectedLibrary == null) return Text(s.noSharedLibraries);
+    final canSync = selectedLibrary.sync != DeviceSyncLevel.none;
+    final canControl = _canControl == true;
+    final isBusy = _busy.contains(selectedLibrary.libraryId);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(s.howDoYouWantToUseIt),
+        const SizedBox(height: 12),
+        _choiceRow(
+          'device:sync',
+          Symbols.download,
+          s.syncToThisDevice,
+          canSync ? '' : s.libraryNotShared,
+          canSync && !isBusy ? () => _sync(selectedLibrary) : () {},
+          enabled: canSync && !isBusy,
+        ),
+        _choiceRow(
+          'device:control',
+          Symbols.play_arrow,
+          s.controlPlayback,
+          canControl ? '' : s.controlPermissionRequired,
+          canControl && !isBusy ? _control : () {},
+          enabled: canControl && !isBusy,
+        ),
+      ],
+    );
+  }
+
+  Widget _subsonicModesContent(AppLocalizations s) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Text(s.howDoYouWantToUseIt),
+      const SizedBox(height: 12),
+      _choiceRow(
+        'subsonic:play',
+        Symbols.play_arrow,
+        s.playOnThisDevice,
+        _subsonicAllowed.contains(SubsonicOpenModeMessage.playOnThisDevice)
+            ? ''
+            : s.capabilityAccountRoleMissing,
+        () => _registerSubsonic(SubsonicOpenModeMessage.playOnThisDevice),
+        enabled: _subsonicAllowed.contains(
+          SubsonicOpenModeMessage.playOnThisDevice,
+        ),
+      ),
+      _choiceRow(
+        'subsonic:control',
+        Symbols.cast,
+        s.controlServerPlayer,
+        _subsonicAllowed.contains(SubsonicOpenModeMessage.remoteControl)
+            ? ''
+            : s.capabilityAccountRoleMissing,
+        _subsonicAllowed.contains(SubsonicOpenModeMessage.remoteControl)
+            ? () => _registerSubsonic(SubsonicOpenModeMessage.remoteControl)
+            : () {},
+        enabled: _subsonicAllowed.contains(
+          SubsonicOpenModeMessage.remoteControl,
+        ),
+      ),
+    ],
+  );
+
+  Future<void> _chooseLocalFolder() async {
+    if (!await requestAndroidPermission() || !mounted) return;
+    final path =
+        await (widget.dependencies.pickLocalFolder ??
+            Provider.of<LocalFolderPickerProvider>(
+              context,
+              listen: false,
+            ).pickDirectory)();
+    if (!mounted || path == null) return;
+    try {
+      final result =
+          await (widget.dependencies.testLocalLibrary ??
+              testLibraryInitialized)(path);
+      if (!mounted) return;
+      if (!result.$1) {
+        await showFailedToInitializeLibrary(context, result.$3);
+        return;
+      }
+      _localPath = path;
+      if (result.$2) {
+        await _registerLocalFolder(null, scanAfterOpen: false);
+      } else {
+        setState(() {
+          _step = 5;
+          _selectedChoice = null;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        await showFailedToInitializeLibrary(
+          context,
+          S.of(context).unknownError,
+        );
+      }
+    }
+  }
+
+  Future<void> _registerLocalFolder(
+    LibraryInitializeMode? mode, {
+    bool scanAfterOpen = true,
+  }) async {
+    final path = _localPath;
+    if (path == null) return;
+    final registry = Provider.of<LibraryRegistryProvider>(
+      context,
+      listen: false,
+    );
+    final manager = widget.dependencies.scanLibrary == null
+        ? Provider.of<LibraryManagerProvider>(context, listen: false)
+        : null;
+    final alias = path.split('/').where((part) => part.isNotEmpty).last;
+    try {
+      final response =
+          await (widget.dependencies.registerLocal ??
+              registry.registerLocalFolder)(path, alias, mode);
+      if (response.outcome case RegisterLibraryOutcomeFailed(:final value)) {
+        throw LibraryRegistryFailure(value, response.detail ?? '');
+      }
+      final record = response.record;
+      if (record == null) throw StateError('Registration returned no record');
+      await MacSecureManager().saveBookmark(path);
+      await (widget.dependencies.openRecord ?? registry.open)(record.recordId);
+      final scan =
+          widget.dependencies.scanLibrary ??
+          (recordId) => manager!.scanLibrary(recordId, isInitializeTask: true);
+      widget.$close(null);
+      if (runeWithNavigationBarAndPlaybackControllorNavigatorKey.currentState !=
+          null) {
+        $push('/library');
+      }
+      if (scanAfterOpen) await scan(record.recordId);
+    } catch (error) {
+      if (mounted) {
+        await showFailedToInitializeLibrary(
+          context,
+          error is LibraryRegistryFailure
+              ? libraryRegistryFailureMessage(S.of(context), error.kind)
+              : S.of(context).unknownError,
+        );
+        if (widget.navigateIfFailed) $$replace('/');
+      }
+    }
+  }
+
+  Future<void> _registerSubsonic(SubsonicOpenModeMessage? mode) async {
+    final request = RegisterSubsonicLibraryRequest(
+      endpoint: _openDalForm.server.trim(),
+      username: _openDalForm.username.trim(),
+      password: _openDalForm.password,
+      alias:
+          Uri.tryParse(_openDalForm.server.trim())?.host ??
+          _openDalForm.server.trim(),
+      mode: mode,
+    );
+    try {
+      final response =
+          await (widget.dependencies.registerSubsonic ??
+              (request) => registerSubsonicLibrary(
+                request.endpoint,
+                request.username,
+                request.password,
+                request.alias,
+                request.mode,
+              ))(request);
+      if (response.outcome case RegisterLibraryOutcomeNeedsSubsonicMode(
+        :final allowed,
+      )) {
+        setState(() {
+          _subsonicAllowed = allowed.toSet();
+          _selectedChoice = null;
+          _step = 4;
+        });
+        return;
+      }
+      if (response.outcome case RegisterLibraryOutcomeFailed(:final value)) {
+        throw LibraryRegistryFailure(value, response.detail ?? '');
+      }
+      final record = response.record;
+      if (record == null) throw StateError('Registration returned no record');
+      await _openRecord(record.recordId);
+    } catch (error) {
+      if (!mounted) return;
+      await showErrorDialog(
+        context: context,
+        title: S.of(context).addLibrary,
+        errorMessage: error is LibraryRegistryFailure
+            ? libraryRegistryFailureMessage(S.of(context), error.kind)
+            : S.of(context).unknownError,
+      );
+    }
+  }
+
   Widget _openDalFormContent({
     required List<(String, TextEditingController)> fields,
     required Set<TextEditingController> passwordFields,
@@ -236,6 +508,10 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
   );
 
   Future<void> _registerOpenDal() async {
+    if (_selected == AddLibrarySource.subsonic) {
+      await _registerSubsonic(null);
+      return;
+    }
     // Resolved before any await: opening the record closes the guide.
     final libraryManager = widget.dependencies.scanLibrary == null
         ? Provider.of<LibraryManagerProvider>(context, listen: false)
@@ -365,8 +641,9 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
     IconData icon,
     String title,
     String subtitle,
-    VoidCallback onConfirm,
-  ) {
+    VoidCallback onConfirm, {
+    bool enabled = true,
+  }) {
     final selected = _selectedChoice == key;
     return ListTile.selectable(
       title: SettingsTileTitle(
@@ -378,7 +655,10 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
             if (selected)
-              Button(onPressed: onConfirm, child: Text(S.of(context).confirm)),
+              Button(
+                onPressed: enabled ? onConfirm : null,
+                child: Text(S.of(context).confirm),
+              ),
           ],
         ),
       ),
@@ -408,38 +688,23 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
         itemBuilder: (context, index) {
           final library = response.libraries[index];
           final selected = _selectedLibraryId == library.libraryId;
-          final canSync = library.sync != DeviceSyncLevel.none;
-          final canControl = _canControl == true;
-          // One reason only: the one that disables an action, else read-only.
-          final subtitle = !canSync
-              ? s.libraryNotShared
-              : !canControl
-              ? s.controlPermissionRequired
-              : library.sync == DeviceSyncLevel.pull
-              ? s.readOnly
-              : '';
           return PeerLibraryRow(
             library: library,
             selected: selected,
-            subtitle: subtitle,
+            subtitle: '',
             onSelectionChange: (_) =>
                 setState(() => _selectedLibraryId = library.libraryId),
-            actionsBuilder: (_) => Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            actionsBuilder: (_) => Row(
+              mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                Button(
-                  onPressed: !canSync || _busy.contains(library.libraryId)
-                      ? null
-                      : () => _sync(library),
-                  child: Text(s.syncToThisDevice),
-                ),
-                const SizedBox(height: 8),
-                Button(
-                  onPressed: !canControl || _busy.contains(library.libraryId)
-                      ? null
-                      : () => _control(),
-                  child: Text(s.controlPlayback),
-                ),
+                if (selected)
+                  Button(
+                    onPressed: () => setState(() {
+                      _step = 4;
+                      _selectedChoice = null;
+                    }),
+                    child: Text(s.confirm),
+                  ),
               ],
             ),
           );
@@ -505,6 +770,9 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
 
   Future<void> _control() async {
     final device = _device!;
+    final libraryId = _selectedLibraryId;
+    if (libraryId == null) return;
+    setState(() => _busy.add(libraryId));
     try {
       final registry = Provider.of<LibraryRegistryProvider>(
         context,
@@ -524,6 +792,8 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
               : requestErrorText(S.of(context), error),
         );
       }
+    } finally {
+      if (mounted) setState(() => _busy.remove(libraryId));
     }
   }
 
@@ -575,9 +845,12 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
               Button(
                 onPressed: () {
                   if (source == AddLibrarySource.runeDevice ||
+                      source == AddLibrarySource.subsonic ||
                       source == AddLibrarySource.webDav ||
                       source == AddLibrarySource.s3) {
                     setState(() => _step = 2);
+                  } else if (source == AddLibrarySource.localFolder) {
+                    _chooseLocalFolder();
                   } else {
                     widget.$close(source);
                   }

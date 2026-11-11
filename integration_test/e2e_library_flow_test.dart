@@ -97,10 +97,9 @@ Future<void> addLibrary(
       ? find.byType(WelcomePage)
       : find.byType(SettingsLibraryPage);
   final context = tester.element(page);
-  final registry = context.read<LibraryRegistryProvider>();
   final manager = context.read<LibraryManagerProvider>();
   final openState = context.read<LibraryOpenStateProvider>();
-  context.read<LocalFolderPickerProvider>().pickDirectory = () async => null;
+  context.read<LocalFolderPickerProvider>().pickDirectory = () async => path;
 
   final addLibraryLabel = localized(tester).addLibrary;
   await expectVisible(tester, find.text(addLibraryLabel));
@@ -114,47 +113,29 @@ Future<void> addLibrary(
   await tester.pumpAndSettle();
 
   final name = path.split(Platform.pathSeparator).last;
-  final add = registerAndOpenLocalFolder(context, registry, path, name);
   final modeLabel = S.of(context).portableMode;
-  var registrationCompleted = false;
-  Object? registrationError;
-  add.then<void>(
-    (_) => registrationCompleted = true,
-    onError: (Object error) {
-      registrationError = error;
-      registrationCompleted = true;
-    },
-  );
-
   final modeOption = find.text(modeLabel);
   await waitFor(
     tester,
-    () => modeOption.evaluate().isNotEmpty || registrationCompleted,
-    description: 'the library mode dialog or registration response',
+    () => modeOption.evaluate().isNotEmpty,
+    description: 'the Library Setup step in the guide',
   );
-  if (registrationError != null) {
-    fail(
-      'Local library registration failed before the mode dialog: $registrationError',
-    );
-  }
-  if (modeOption.evaluate().isEmpty) {
-    fail('Local library registration skipped the required mode dialog');
-  }
   await tester.tap(modeOption);
   await tester.pump();
-  final record = await add.timeout(const Duration(seconds: 45));
-  expect(record, isNotNull, reason: 'registerAndOpenLocalFolder returned null');
+  await tester.tap(find.widgetWithText(Button, localized(tester).confirm));
+  await tester.pump();
   await waitFor(
     tester,
-    () => openState.openRecord?.recordId == record!.recordId,
+    () => openState.openRecord?.recordId != null,
     description: 'the app state to observe the opened library',
   );
-  await manager.scanLibrary(record!.recordId, isInitializeTask: true);
+  final record = openState.openRecord!;
+  expect(record.alias, name);
   await waitFor(
     tester,
     () =>
-        manager.getScanTaskProgress(record.recordId)?.status !=
-        TaskStatus.working,
+        manager.getScanTaskProgress(record.recordId)?.status ==
+        TaskStatus.finished,
     description: 'the initial scan to finish',
   );
   expect(

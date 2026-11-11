@@ -1675,5 +1675,11 @@
   "secretAccessKey": "Chiave di accesso segreta",
   "libraryOpenDalAuthenticationRejected": "Controlla nome utente e password.",
   "libraryOpenDalUnreachable": "Controlla l’indirizzo del server e la connessione di rete.",
-  "libraryOpenDalNotFolder": "Controlla che la cartella scelta esista e sia accessibile."
+  "libraryOpenDalNotFolder": "Controlla che la cartella scelta esista e sia accessibile.",
+  "subsonic": "Subsonic",
+  "subsonicSubtitle": "Connettiti a un server musicale Subsonic.",
+  "playOnThisDevice": "Riproduci su questo dispositivo",
+  "controlServerPlayer": "Controlla il lettore del server",
+  "howDoYouWantToUseIt": "Come vuoi usarlo?"
+
 }

@@ -1673,5 +1673,11 @@
   "secretAccessKey": "Секретний ключ доступу",
   "libraryOpenDalAuthenticationRejected": "Перевірте ім’я користувача та пароль.",
   "libraryOpenDalUnreachable": "Перевірте адресу сервера та мережеве з’єднання.",
-  "libraryOpenDalNotFolder": "Перевірте, чи існує вибрана папка та чи є до неї доступ."
+  "libraryOpenDalNotFolder": "Перевірте, чи існує вибрана папка та чи є до неї доступ.",
+  "subsonic": "Subsonic",
+  "subsonicSubtitle": "Підключитися до музичного сервера Subsonic.",
+  "playOnThisDevice": "Відтворювати на цьому пристрої",
+  "controlServerPlayer": "Керувати програвачем сервера",
+  "howDoYouWantToUseIt": "Як ви хочете це використовувати?"
+
 }

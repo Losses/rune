@@ -30,6 +30,28 @@ Future<RegisterLibraryResponse> registerOpenDalLibrary(
   return (await response).message;
 }
 
+Future<RegisterLibraryResponse> registerSubsonicLibrary(
+  String endpoint,
+  String username,
+  String password,
+  String alias,
+  SubsonicOpenModeMessage? mode,
+) async {
+  final response = awaitResponse(
+    'RegisterSubsonicLibraryRequest',
+    RegisterLibraryResponse.rustSignalStream,
+    timeout: _timeout,
+    send: () => RegisterSubsonicLibraryRequest(
+      endpoint: endpoint,
+      username: username,
+      password: password,
+      alias: alias,
+      mode: mode,
+    ).sendSignalToRust(),
+  );
+  return (await response).message;
+}
+
 Future<AddRemoteLibraryResponse> addRemoteLibrary(
   PeerLibrary library,
   String fingerprint,

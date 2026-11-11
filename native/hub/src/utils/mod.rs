@@ -1339,7 +1339,6 @@ pub(crate) async fn register_subsonic_library_on_node(
                 "The account does not have the role required by that mode",
             );
         }
-        None if allowed.len() == 1 => allowed[0],
         None => {
             return RegisterLibraryResponse {
                 call_id: None,

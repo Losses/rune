@@ -1675,5 +1675,11 @@
   "secretAccessKey": "シークレットアクセスキー",
   "libraryOpenDalAuthenticationRejected": "ユーザーネームトパスワードヲカクニンシテクダサイ。",
   "libraryOpenDalUnreachable": "サーバーノアドレストネットワークセツゾクヲカクニンシテクダサイ。",
-  "libraryOpenDalNotFolder": "センタクシタフォルダーガアリ、アクセスデキルコトヲカクニンシテクダサイ。"
+  "libraryOpenDalNotFolder": "センタクシタフォルダーガアリ、アクセスデキルコトヲカクニンシテクダサイ。",
+  "subsonic": "Subsonic",
+  "subsonicSubtitle": "Subsonic オンガクサーバーに セツゾクします。",
+  "playOnThisDevice": "このデバイスで サイセイ",
+  "controlServerPlayer": "サーバーのプレーヤーを ソウサ",
+  "howDoYouWantToUseIt": "どのように シヨウしますか？"
+
 }

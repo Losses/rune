@@ -1673,5 +1673,11 @@
   "secretAccessKey": "シークレットアクセスキー",
   "libraryOpenDalAuthenticationRejected": "ユーザー名と暗証番号を確認してください。",
   "libraryOpenDalUnreachable": "サーバーの通信管理機とネットワーク接続を確認してください。",
-  "libraryOpenDalNotFolder": "選択したフォルダーが存在し、アクセスできることを確認してください。"
+  "libraryOpenDalNotFolder": "選択したフォルダーが存在し、アクセスできることを確認してください。",
+  "subsonic": "Subsonic",
+  "subsonicSubtitle": "Subsonic 音楽サーバーに接続します。",
+  "playOnThisDevice": "このデバイスで再生",
+  "controlServerPlayer": "サーバーのプレーヤーを操作",
+  "howDoYouWantToUseIt": "どのように使用しますか？"
+
 }

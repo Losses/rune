@@ -1673,5 +1673,11 @@
   "secretAccessKey": "秘密访问密钥",
   "libraryOpenDalAuthenticationRejected": "请检查用户名和密码。",
   "libraryOpenDalUnreachable": "请检查服务器地址和网络连接。",
-  "libraryOpenDalNotFolder": "请确认所选文件夹存在且可以访问。"
+  "libraryOpenDalNotFolder": "请确认所选文件夹存在且可以访问。",
+  "subsonic": "Subsonic",
+  "subsonicSubtitle": "连接到 Subsonic 音乐服务器。",
+  "playOnThisDevice": "在此设备播放",
+  "controlServerPlayer": "控制服务器播放器",
+  "howDoYouWantToUseIt": "您想如何使用？"
+
 }
