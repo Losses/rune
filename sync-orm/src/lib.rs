@@ -4,6 +4,7 @@ pub use causal_store::CausalReplica as OrmReplica;
 pub mod causal_candidates;
 pub mod causal_capabilities;
 pub mod causal_compaction;
+pub mod causal_export_cursors;
 pub mod causal_gc;
 pub mod causal_leases;
 pub mod causal_manifests;

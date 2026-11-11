@@ -9,7 +9,7 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync::causal;
 use sync::causal::Dot;
 use sync_orm::maintenance::Maintenance;
@@ -1146,6 +1146,12 @@ async fn text(db: &sea_orm::DatabaseConnection) -> Result<Option<String>> {
         .map(|row| row.try_get_by_index(0))
         .transpose()?)
 }
+fn wallclock_ms() -> Result<i64> {
+    Ok(SystemTime::now()
+        .duration_since(UNIX_EPOCH)?
+        .as_millis()
+        .try_into()?)
+}
 fn limits() -> p::ApplyLimits {
     p::ApplyLimits {
         max_projection_items: 16,
@@ -1518,6 +1524,165 @@ async fn floor_respects_pins_and_commits_atomically() -> Result<()> {
     );
     tx.commit().await?;
     assert_eq!(source.head().await?.sequence, 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn export_cursor_pins_floor_until_advanced_or_removed() -> Result<()> {
+    use sync_orm::causal_compaction::{FloorStep, maintenance_step_on};
+    use sync_orm::causal_export_cursors::{advance_on, create_on, remove_on};
+
+    let ns = Uuid::new_v4();
+    let (db, source, _) = setup(ns).await?;
+    let key = p::ObjectKey {
+        collection: 1,
+        id: Uuid::from_u128(1),
+    };
+    source
+        .write_local(key.clone(), Some(Note("one".into())))
+        .await?;
+    let now = wallclock_ms()?;
+    let tx = db.begin().await?;
+    create_on(&tx, ns, b"share", 0, now).await?;
+    tx.commit().await?;
+    source.write_local(key, Some(Note("two".into()))).await?;
+
+    let tx = db.begin().await?;
+    assert_eq!(
+        maintenance_step_on::<Notes>(&tx, ns, 64, 64, 65536).await?,
+        FloorStep::Pinned
+    );
+    tx.commit().await?;
+    let tx = db.begin().await?;
+    advance_on(&tx, ns, b"share", 2, now + 1).await?;
+    tx.commit().await?;
+    let tx = db.begin().await?;
+    assert_eq!(
+        maintenance_step_on::<Notes>(&tx, ns, 64, 64, 65536).await?,
+        FloorStep::Advanced { state_seq: 2 }
+    );
+    tx.commit().await?;
+    let tx = db.begin().await?;
+    remove_on(&tx, ns, b"share").await?;
+    tx.commit().await?;
+    source
+        .write_local(
+            p::ObjectKey {
+                collection: 1,
+                id: Uuid::from_u128(2),
+            },
+            Some(Note("three".into())),
+        )
+        .await?;
+    let tx = db.begin().await?;
+    assert_eq!(
+        maintenance_step_on::<Notes>(&tx, ns, 64, 64, 65536).await?,
+        FloorStep::Advanced { state_seq: 3 }
+    );
+    tx.commit().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn thirty_one_day_export_cursor_requires_base() -> Result<()> {
+    use sync_orm::causal_compaction::{FloorStep, maintenance_step_on};
+    use sync_orm::causal_export_cursors::{create_on, read_on};
+
+    let ns = Uuid::new_v4();
+    let (db, source, _) = setup(ns).await?;
+    source
+        .write_local(
+            p::ObjectKey {
+                collection: 1,
+                id: Uuid::from_u128(1),
+            },
+            Some(Note("old".into())),
+        )
+        .await?;
+    let tx = db.begin().await?;
+    create_on(&tx, ns, b"old", 0, 1).await?;
+    tx.commit().await?;
+    source
+        .write_local(
+            p::ObjectKey {
+                collection: 1,
+                id: Uuid::from_u128(2),
+            },
+            Some(Note("new".into())),
+        )
+        .await?;
+    let tx = db.begin().await?;
+    assert_eq!(
+        maintenance_step_on::<Notes>(&tx, ns, 64, 64, 65536).await?,
+        FloorStep::Advanced { state_seq: 2 }
+    );
+    assert!(read_on(&tx, ns, b"old").await?.unwrap().needs_base());
+    tx.commit().await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn backwards_clock_restarts_export_cursor_timer() -> Result<()> {
+    use sync_orm::causal_compaction::{FloorStep, maintenance_step_on};
+    use sync_orm::causal_export_cursors::{create_on, read_on};
+
+    let ns = Uuid::new_v4();
+    let (db, source, _) = setup(ns).await?;
+    let tx = db.begin().await?;
+    create_on(&tx, ns, b"backwards", 0, i64::MAX).await?;
+    tx.commit().await?;
+    source
+        .write_local(
+            p::ObjectKey {
+                collection: 1,
+                id: Uuid::from_u128(1),
+            },
+            Some(Note("event".into())),
+        )
+        .await?;
+    let tx = db.begin().await?;
+    assert_eq!(
+        maintenance_step_on::<Notes>(&tx, ns, 64, 64, 65536).await?,
+        FloorStep::Pinned
+    );
+    let cursor = read_on(&tx, ns, b"backwards").await?.unwrap();
+    assert!(!cursor.needs_base());
+    assert!(cursor.advanced_at_ms < i64::MAX);
+    tx.commit().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn oversized_export_cursor_requires_base_and_survives_restart() -> Result<()> {
+    use sync_orm::causal_export_cursors::{create_on, read_on};
+    use sync_orm::causal_leases::minimum_pins_on;
+
+    let ns = Uuid::new_v4();
+    let (db, source, _) = setup(ns).await?;
+    source
+        .write_local(
+            p::ObjectKey {
+                collection: 1,
+                id: Uuid::from_u128(1),
+            },
+            Some(Note("event".into())),
+        )
+        .await?;
+    let now = wallclock_ms()?;
+    let tx = db.begin().await?;
+    create_on(&tx, ns, b"large", 0, now).await?;
+    tx.commit().await?;
+    db.execute_unprepared("UPDATE sync_manifests SET encoded_bytes = 67108865 WHERE digest = (SELECT event_manifest FROM sync_journal WHERE namespace = (SELECT namespace FROM sync_meta LIMIT 1) LIMIT 1)").await?;
+    let tx = db.begin().await?;
+    assert_eq!(minimum_pins_on(&tx, ns).await?, None);
+    assert!(read_on(&tx, ns, b"large").await?.unwrap().needs_base());
+    tx.commit().await?;
+    drop(source);
+    let _reopened = CausalReplica::<Notes>::open(db.clone(), ns, Uuid::new_v4()).await?;
+    let tx = db.begin().await?;
+    assert!(read_on(&tx, ns, b"large").await?.unwrap().needs_base());
+    tx.commit().await?;
     Ok(())
 }
 

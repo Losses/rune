@@ -167,6 +167,17 @@ const TABLES: &[Layout] = &[
         ],
         &["namespace", "id"],
     ),
+    (
+        "sync_export_cursors",
+        &[
+            Field("namespace", B, false),
+            Field("export_id", B, false),
+            Field("sequence", I, false),
+            Field("advanced_at_ms", I, false),
+            Field("needs_base", I, false),
+        ],
+        &["namespace", "export_id"],
+    ),
 ];
 
 const INDEXES: &[(&str, &str, &[&str], bool)] = &[
@@ -301,6 +312,47 @@ pub async fn ensure_journal_origin_on<C: ConnectionTrait>(db: &C) -> Result<(), 
             db.execute(&statement).await?;
         }
     }
+    Ok(())
+}
+
+/// Add durable export cursors to replicas created before share export support.
+pub async fn ensure_export_cursors_on<C: ConnectionTrait>(db: &C) -> Result<(), DbErr> {
+    let exists = Query::select()
+        .expr(Expr::val(1))
+        .from(Alias::new("sqlite_master"))
+        .and_where(Expr::col(Alias::new("type")).eq("table"))
+        .and_where(Expr::col(Alias::new("name")).eq("sync_export_cursors"))
+        .limit(1)
+        .to_owned();
+    if db.query_one(&exists).await?.is_some() {
+        return Ok(());
+    }
+    let mut primary_key = Index::create();
+    primary_key
+        .col(Alias::new("namespace"))
+        .col(Alias::new("export_id"));
+    let statement = Table::create()
+        .table(Alias::new("sync_export_cursors"))
+        .col(ColumnDef::new(Alias::new("namespace")).binary().not_null())
+        .col(ColumnDef::new(Alias::new("export_id")).binary().not_null())
+        .col(
+            ColumnDef::new(Alias::new("sequence"))
+                .big_integer()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(Alias::new("advanced_at_ms"))
+                .big_integer()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(Alias::new("needs_base"))
+                .big_integer()
+                .not_null(),
+        )
+        .primary_key(&mut primary_key)
+        .to_owned();
+    db.execute(&statement).await?;
     Ok(())
 }
 

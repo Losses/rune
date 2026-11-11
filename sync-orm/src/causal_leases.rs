@@ -1,11 +1,13 @@
 //! Transaction-bound durable source/build pins for the causal storage layout.
 //! These primitives do not implement snapshot construction or compaction.
+use crate::causal_export_cursors::minimum_pin_on;
 use sea_orm::sea_query::Condition;
 use sea_orm::sea_query::Order;
 use sea_orm::{
     ConnectionTrait, DatabaseTransaction, DbErr, ExprTrait, FromQueryResult,
     sea_query::{Alias, Expr, Func, Query},
 };
+use std::time::{SystemTime, UNIX_EPOCH};
 use sync::protocol::SyncError;
 use uuid::Uuid;
 
@@ -417,7 +419,24 @@ pub async fn minimum_pins_on(
     tx: &DatabaseTransaction,
     ns: Uuid,
 ) -> Result<Option<(i64, i64)>, DbErr> {
-    minimum_pins_except_on(tx, ns, None).await
+    let lease = minimum_pins_except_on(tx, ns, None).await?;
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| err(&format!("system clock before Unix epoch: {error}")))?
+        .as_millis()
+        .try_into()
+        .map_err(|_| err("system clock out of range"))?;
+    let cursor = minimum_pin_on(tx, ns, now_ms)
+        .await
+        .map_err(|error| err(&format!("export cursor pin: {error:#}")))?;
+    Ok(match (lease, cursor) {
+        (None, None) => None,
+        (Some(pin), None) | (None, Some(pin)) => Some(pin),
+        (Some(left), Some(right)) => Some((
+            std::cmp::min(left.0, right.0),
+            std::cmp::min(left.1, right.1),
+        )),
+    })
 }
 pub(crate) async fn minimum_pins_except_on(
     tx: &DatabaseTransaction,
