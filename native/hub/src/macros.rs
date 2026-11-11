@@ -332,6 +332,18 @@ mod node_request_loop_tests {
         ) -> impl Future<Output = Result<Option<RegisterLibraryResponse>>> + Send {
             async { Ok(Some(register_response())) }
         }
+        fn handle_replace_subsonic_credential_request(
+            &self,
+            _: &NodeSlot,
+            request: &ReplaceSubsonicCredentialRequest,
+        ) -> impl Future<Output = Result<Option<ReplaceSubsonicCredentialResponse>>> + Send
+        {
+            let response = ReplaceSubsonicCredentialResponse {
+                result: ReplaceSubsonicCredentialResult::Updated,
+                call_id: request.call_id,
+            };
+            async move { Ok(Some(response)) }
+        }
         fn handle_register_open_dal_library_request(
             &self,
             _: &NodeSlot,
@@ -424,6 +436,7 @@ mod node_request_loop_tests {
         let (local_tx, local_rx) = signal_channel();
         let (remote_tx, remote_rx) = signal_channel();
         let (subsonic_tx, subsonic_rx) = signal_channel();
+        let (_replace_subsonic_tx, replace_subsonic_rx) = signal_channel();
         let (opendal_tx, opendal_rx) = signal_channel();
         let (open_tx, open_rx) = signal_channel();
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
@@ -484,6 +497,7 @@ mod node_request_loop_tests {
                 register_local_library_request_receiver: local_rx,
                 register_remote_control_request_receiver: remote_rx,
                 register_subsonic_library_request_receiver: subsonic_rx,
+                replace_subsonic_credential_request_receiver: replace_subsonic_rx,
                 register_open_dal_library_request_receiver: opendal_rx,
                 open_library_request_receiver: open_rx,
             },

@@ -29,6 +29,7 @@ class LibraryOpenStateProvider with ChangeNotifier {
 
   final LibraryRegistryProvider registry;
   late final Future<bool> initialOpen;
+  LibraryRegistryFailure? initialOpenFailure;
 
   LibraryRecordSummary? get openRecord => registry.openRecord;
   bool get isRemoteControl =>
@@ -75,6 +76,7 @@ class LibraryOpenStateProvider with ChangeNotifier {
         return true;
       }
     } on Object catch (error) {
+      if (error is LibraryRegistryFailure) initialOpenFailure = error;
       error$('Could not restore the last library: $error');
     }
     return false;

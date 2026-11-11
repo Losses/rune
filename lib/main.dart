@@ -77,6 +77,7 @@ import 'providers/full_screen.dart';
 import 'providers/router_path.dart';
 import 'providers/library_open_state.dart';
 import 'providers/library_registry.dart';
+import 'utils/dialogs/subsonic/subsonic_relogin_dialog.dart';
 import 'providers/library_home.dart';
 import 'providers/library_manager.dart';
 import 'providers/local_folder_picker.dart';
@@ -103,6 +104,7 @@ void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
   PlatformDispatcher.instance.onError = (error, stack) {
     if (error is! RequestFailure) return false;
+    if (error.cause is RequestFailureCauseSubsonicNotAuthorized) return true;
     if (error.kind != RequestErrorKind.internal) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final context = rootNavigatorKey.currentState?.overlay?.context;
@@ -586,10 +588,36 @@ class RuneLifecycleState extends State<RuneLifecycle> {
   late final RemoteLibraryReconnectNotice _remoteReconnect;
   LibraryOpenStateProvider? _libraryState;
   String? _noticeOpenRecordId;
+  StreamSubscription<RustSignalPack<RequestFailedResponse>>?
+  _requestFailureSubscription;
+  bool _subsonicReloginOpen = false;
+  bool _startupReloginChecked = false;
 
   @override
   void initState() {
     super.initState();
+
+    final registry = context.read<LibraryRegistryProvider>();
+    _requestFailureSubscription = RequestFailedResponse.rustSignalStream.listen(
+      (signal) {
+        if (signal.message.cause
+                is! RequestFailureCauseSubsonicNotAuthorized ||
+            _subsonicReloginOpen) {
+          return;
+        }
+        final recordId = registry.openRecordId;
+        final dialogContext = rootNavigatorKey.currentState?.overlay?.context;
+        if (recordId == null ||
+            dialogContext == null ||
+            !mounted ||
+            !dialogContext.mounted) {
+          return;
+        }
+        _subsonicReloginOpen = true;
+        showSubsonicReloginDialog(dialogContext, registry, recordId)
+            .whenComplete(() => _subsonicReloginOpen = false);
+      },
+    );
 
     _remoteReconnect = RemoteLibraryReconnectNotice(
       reconnecting: RemoteLibraryReconnecting.rustSignalStream.map(
@@ -662,6 +690,30 @@ class RuneLifecycleState extends State<RuneLifecycle> {
     super.didChangeDependencies();
 
     final libraryPath = context.read<LibraryOpenStateProvider>();
+    if (!_startupReloginChecked) {
+      _startupReloginChecked = true;
+      libraryPath.initialOpen.then((_) {
+        final failure = libraryPath.initialOpenFailure;
+        if (!mounted ||
+            failure?.kind != OpenLibraryFailureKind.remoteNotAuthorized) {
+          return;
+        }
+        final recordId = libraryPath.registry.lastOpenRecordId;
+        if (recordId == null) return;
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          final dialogContext = rootNavigatorKey.currentState?.overlay?.context;
+          if (!mounted || dialogContext == null) return;
+          final updated = await showSubsonicReloginDialog(
+            dialogContext,
+            libraryPath.registry,
+            recordId,
+          );
+          if (updated && mounted) {
+            await libraryPath.registry.open(recordId);
+          }
+        });
+      });
+    }
     if (_libraryState != libraryPath) {
       _libraryState?.removeListener(_libraryChanged);
       _libraryState = libraryPath;
@@ -687,6 +739,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
 
     _remoteLoss.dispose();
     _rendererLinkLoss.dispose();
+    _requestFailureSubscription?.cancel();
     _libraryState?.removeListener(_libraryChanged);
     _remoteReconnect.dispose();
     license.removeListener(_updateLicense);

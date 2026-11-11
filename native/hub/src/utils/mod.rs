@@ -823,6 +823,23 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
         async move { Ok(Some(register_subsonic_library(node, request).await)) }
     }
 
+    fn handle_replace_subsonic_credential_request(
+        &self,
+        node: &NodeSlot,
+        request: &ReplaceSubsonicCredentialRequest,
+    ) -> impl Future<Output = Result<Option<ReplaceSubsonicCredentialResponse>>> + Send {
+        async move {
+            let result = match node.current().await {
+                Ok(node) => replace_subsonic_credential_on_node(request, &node).await,
+                Err(_) => ReplaceSubsonicCredentialResult::Storage,
+            };
+            Ok(Some(ReplaceSubsonicCredentialResponse {
+                result,
+                call_id: request.call_id,
+            }))
+        }
+    }
+
     fn handle_register_open_dal_library_request(
         &self,
         node: &NodeSlot,
@@ -1437,6 +1454,83 @@ pub(crate) async fn register_subsonic_library_on_node(
         record: Some((&record).into()),
         outcome: RegisterLibraryOutcome::Registered,
         detail: None,
+    }
+}
+
+pub(crate) async fn replace_subsonic_credential_on_node(
+    request: &ReplaceSubsonicCredentialRequest,
+    node: &Arc<NodeContext>,
+) -> ReplaceSubsonicCredentialResult {
+    let Ok(record_id) = Uuid::parse_str(&request.record_id).map(LibraryRecordId) else {
+        return ReplaceSubsonicCredentialResult::InvalidRecord;
+    };
+    let record = match LibraryRegistry::load(Path::new(&*node.config_path))
+        .and_then(|registry| registry.record(record_id).cloned())
+    {
+        Ok(record) => record,
+        Err(_) => return ReplaceSubsonicCredentialResult::InvalidRecord,
+    };
+    let ProtocolAdapter::SubsonicTranslate {
+        endpoint,
+        credential,
+        ..
+    } = &record.protocol
+    else {
+        return ReplaceSubsonicCredentialResult::InvalidRecord;
+    };
+    let endpoint = match validate_subsonic_endpoint(endpoint) {
+        Ok(endpoint) => endpoint,
+        Err(()) => return ReplaceSubsonicCredentialResult::InvalidRecord,
+    };
+    let http = match reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(5))
+        .build()
+    {
+        Ok(http) => http,
+        Err(_) => return ReplaceSubsonicCredentialResult::Storage,
+    };
+    let client = SubsonicClient::new(
+        endpoint,
+        SubsonicCredentials::Password {
+            user: request.username.clone(),
+            password: request.password.clone(),
+        },
+        http,
+    );
+    match timeout(Duration::from_secs(5), client.probe()).await {
+        Err(_) => return ReplaceSubsonicCredentialResult::Unreachable,
+        Ok(Err(SubsonicError::Transport(_) | SubsonicError::HttpStatus(_))) => {
+            return ReplaceSubsonicCredentialResult::Unreachable;
+        }
+        Ok(Err(SubsonicError::Server {
+            kind:
+                SubsonicServerError::WrongCredentials
+                | SubsonicServerError::NotAuthorized
+                | SubsonicServerError::InvalidApiKey,
+            ..
+        })) => return ReplaceSubsonicCredentialResult::Rejected,
+        Ok(Err(_)) => return ReplaceSubsonicCredentialResult::Rejected,
+        Ok(Ok(_)) => {}
+    }
+    match node
+        .credentials
+        .replace(
+            *credential,
+            Credential {
+                username: request.username.clone(),
+                secret: Secret::new(request.password.as_bytes().to_vec()),
+            },
+        )
+        .await
+    {
+        Ok(()) => {
+            if let Err(error) = publish_library_records_changed(node).await {
+                log::warn!("Could not publish library record change: {error:#}");
+            }
+            ReplaceSubsonicCredentialResult::Updated
+        }
+        Err(_) => ReplaceSubsonicCredentialResult::Storage,
     }
 }
 

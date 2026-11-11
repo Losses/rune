@@ -3,6 +3,24 @@ import '../../bindings/bindings.dart';
 
 const _timeout = Duration(seconds: 30);
 
+Future<ReplaceSubsonicCredentialResponse> replaceSubsonicCredential(
+  String recordId,
+  String username,
+  String password,
+) async {
+  final response = await awaitResponse(
+    'ReplaceSubsonicCredentialRequest',
+    ReplaceSubsonicCredentialResponse.rustSignalStream,
+    timeout: _timeout,
+    send: () => ReplaceSubsonicCredentialRequest(
+      recordId: recordId,
+      username: username,
+      password: password,
+    ).sendSignalToRust(),
+  );
+  return response.message;
+}
+
 Future<ListPeerLibrariesResponse> listPeerLibraries(String fingerprint) async {
   final response = awaitResponse(
     'ListPeerLibrariesRequest',

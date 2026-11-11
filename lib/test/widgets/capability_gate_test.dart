@@ -159,6 +159,7 @@ RequestCapabilities snapshot({
     registerRemoteControlRequest: capability,
     openLibraryRequest: capability,
     registerSubsonicLibraryRequest: capability,
+    replaceSubsonicCredentialRequest: capability,
     registerOpenDalLibraryRequest: capability,
     initializeNodeRequest: capability,
     runFsSelfTestRequest: capability,

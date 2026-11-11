@@ -60,6 +60,7 @@ pub enum RequestFailureCause {
         local_version: String,
         peer_version: Option<String>,
     },
+    SubsonicNotAuthorized,
 }
 
 #[derive(Deserialize, Serialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]

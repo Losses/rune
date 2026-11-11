@@ -89,6 +89,31 @@ pub struct RegisterSubsonicLibraryRequest {
     pub call_id: Option<u64>,
 }
 
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct ReplaceSubsonicCredentialRequest {
+    pub record_id: String,
+    pub username: String,
+    pub password: String,
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReplaceSubsonicCredentialResult {
+    Updated,
+    Rejected,
+    Unreachable,
+    InvalidRecord,
+    Storage,
+}
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct ReplaceSubsonicCredentialResponse {
+    pub result: ReplaceSubsonicCredentialResult,
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
 pub enum OpenDalLibraryService {
     WebDav {

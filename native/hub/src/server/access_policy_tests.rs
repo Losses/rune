@@ -1041,6 +1041,7 @@ mod access_policy_tests {
             "RegisterLocalLibraryRequest" => RequestAccess::NodeLocal,
             "RegisterRemoteControlRequest" => RequestAccess::NodeLocal,
             "RegisterSubsonicLibraryRequest" => RequestAccess::NodeLocal,
+            "ReplaceSubsonicCredentialRequest" => RequestAccess::NodeLocal,
             "RegisterOpenDalLibraryRequest" => RequestAccess::NodeLocal,
             "OpenLibraryRequest" => RequestAccess::NodeLocal,
             "InitializeNodeRequest" => RequestAccess::NodeLocal,

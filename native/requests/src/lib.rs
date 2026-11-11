@@ -184,6 +184,14 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
+            request: "ReplaceSubsonicCredentialRequest".to_string(),
+            response: Some("ReplaceSubsonicCredentialResponse".to_string()),
+            scope: RequestScope::Node,
+            access: RequestAccess::NodeLocal,
+            introduced_minor: None,
+            receiver: RequestReceiver::NodeLoop,
+        },
+        RequestResponse {
             request: "InitializeNodeRequest".to_string(),
             response: Some("InitializeNodeResponse".to_string()),
             scope: RequestScope::Node,

@@ -9,6 +9,7 @@ import '../../../utils/library_ui/library_ui_state.dart';
 import '../../../bindings/bindings.dart';
 import '../../../utils/library_registry_messages.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
+import '../../../utils/dialogs/subsonic/subsonic_relogin_dialog.dart';
 import '../../../widgets/settings/settings_button.dart';
 import '../../../providers/library_registry.dart';
 import '../../../providers/responsive_providers.dart';
@@ -114,7 +115,11 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
                           ),
                           onPressed: () async {
                             try {
-                              await registry.open(record.recordId);
+                              await openLibraryWithSubsonicRelogin(
+                                context,
+                                registry,
+                                record.recordId,
+                              );
                               $$replace('/library');
                             } catch (error) {
                               if (!context.mounted) return;

@@ -6,6 +6,7 @@ import 'package:rinf/rinf.dart';
 
 import '../bindings/bindings.dart';
 import '../utils/api/request_failure.dart';
+import '../utils/api/library_registry.dart' as library_api;
 import '../utils/rune_log.dart';
 import '../utils/dialogs/select_library_mode/show_select_library_mode_dialog.dart';
 import '../utils/file_storage/mac_secure_manager.dart';
@@ -57,6 +58,11 @@ class LibraryRegistryProvider extends ChangeNotifier {
     Future<ListLibraryRecordsResponse> Function()? loadRecords,
     Future<OpenLibraryResponse> Function(String recordId, int callId)?
     openRecord,
+    Future<ReplaceSubsonicCredentialResponse> Function(
+      String recordId,
+      String username,
+      String password,
+    )? replaceCredential,
     Future<RegisterLibraryResponse> Function(
       String path,
       String alias,
@@ -70,6 +76,7 @@ class LibraryRegistryProvider extends ChangeNotifier {
     Stream<RustSignalPack<LibraryRecordsChanged>>? recordsChanged,
   }) : _loadRecords = loadRecords,
        _openRecord = openRecord,
+       _replaceCredential = replaceCredential,
        _registerLocal = registerLocal,
        _registerRemote = registerRemote,
        _closeRecord = closeRecord,
@@ -96,6 +103,8 @@ class LibraryRegistryProvider extends ChangeNotifier {
   late final Future<void> ready;
   final Future<ListLibraryRecordsResponse> Function()? _loadRecords;
   final Future<OpenLibraryResponse> Function(String, int)? _openRecord;
+  final Future<ReplaceSubsonicCredentialResponse> Function(String, String, String)?
+  _replaceCredential;
   final Future<RegisterLibraryResponse> Function(
     String,
     String,
@@ -178,6 +187,15 @@ class LibraryRegistryProvider extends ChangeNotifier {
     if (!_disposed) notifyListeners();
     return response;
   }
+
+  Future<ReplaceSubsonicCredentialResponse> replaceSubsonicCredential(
+    String recordId,
+    String username,
+    String password,
+  ) =>
+      _replaceCredential == null
+          ? library_api.replaceSubsonicCredential(recordId, username, password)
+          : _replaceCredential(recordId, username, password);
 
   Future<RegisterLibraryResponse> registerLocalFolder(
     String path,

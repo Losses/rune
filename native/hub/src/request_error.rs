@@ -163,7 +163,9 @@ pub fn request_failure_cause(error: &Error) -> Option<RequestFailureCause> {
                         peer_version: peer_version.map(|version| version.to_string()),
                     });
                 }
-                ExpectedRequestError::SubsonicNotAuthorized => return None,
+                ExpectedRequestError::SubsonicNotAuthorized => {
+                    return Some(RequestFailureCause::SubsonicNotAuthorized);
+                }
                 _ => {}
             }
         }

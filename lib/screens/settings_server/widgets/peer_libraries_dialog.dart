@@ -8,6 +8,7 @@ import '../../../utils/library_registry_messages.dart';
 import '../../../utils/api/library_registry.dart';
 import '../../../utils/api/request_failure.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
+import '../../../utils/dialogs/subsonic/subsonic_relogin_dialog.dart';
 import '../../../utils/dialogs/information/error.dart';
 import '../../../utils/l10n.dart';
 import '../../../utils/library_ui/library_ui_state.dart';
@@ -188,7 +189,7 @@ class _PeerLibrariesDialogState extends State<PeerLibrariesDialog> {
       listen: false,
     );
     try {
-      await registry.open(path);
+      await openLibraryWithSubsonicRelogin(context, registry, path);
     } catch (error) {
       if (!mounted) return;
       await showFailedToInitializeLibrary(

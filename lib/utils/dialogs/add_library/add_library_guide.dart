@@ -15,6 +15,7 @@ import '../../../utils/api/library_registry.dart';
 import '../../../utils/add_library_flows.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../utils/dialogs/information/error.dart';
+import '../../../utils/dialogs/subsonic/subsonic_relogin_dialog.dart';
 import '../../../utils/l10n.dart';
 import '../../../utils/library_registry_messages.dart';
 import '../../../utils/library_ui/library_ui_state.dart';
@@ -414,7 +415,16 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
       final record = response.record;
       if (record == null) throw StateError('Registration returned no record');
       await MacSecureManager().saveBookmark(path);
-      await (widget.dependencies.openRecord ?? registry.open)(record.recordId);
+      if (!mounted) return;
+      if (widget.dependencies.openRecord case final openRecord?) {
+        await openRecord(record.recordId);
+      } else {
+        await openLibraryWithSubsonicRelogin(
+          context,
+          registry,
+          record.recordId,
+        );
+      }
       final scan =
           widget.dependencies.scanLibrary ??
           (recordId) => manager!.scanLibrary(recordId, isInitializeTask: true);
@@ -804,7 +814,11 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
       listen: false,
     );
     try {
-      await (widget.dependencies.openRecord ?? registry.open)(recordId);
+      if (widget.dependencies.openRecord case final openRecord?) {
+        await openRecord(recordId);
+      } else {
+        await openLibraryWithSubsonicRelogin(context, registry, recordId);
+      }
     } catch (error) {
       if (!mounted) return false;
       await showFailedToInitializeLibrary(

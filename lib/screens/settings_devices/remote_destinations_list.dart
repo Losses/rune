@@ -5,6 +5,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../utils/l10n.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/dialogs/failed_to_initialize_library.dart';
+import '../../utils/dialogs/subsonic/subsonic_relogin_dialog.dart';
 import '../../providers/library_registry.dart';
 import '../../bindings/bindings.dart';
 import '../../utils/library_registry_messages.dart';
@@ -63,7 +64,11 @@ class _RemoteDestinationsListState extends State<RemoteDestinationsList> {
                   Button(
                     onPressed: () async {
                       try {
-                        await registry.open(item.recordId);
+                        await openLibraryWithSubsonicRelogin(
+                          context,
+                          registry,
+                          item.recordId,
+                        );
                       } catch (error) {
                         if (!context.mounted) return;
                         await showFailedToInitializeLibrary(

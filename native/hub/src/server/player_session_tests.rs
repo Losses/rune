@@ -21,7 +21,7 @@ use crate::request_owner::{CurrentPlayer, OpenLibrary};
 use crate::utils::{
     files_to_playback_request, open_library_by_record_on_node, register_local_library_on_node,
     register_remote_control_on_node, register_subsonic_library_on_node, register_opendal_library_on_node,
-    register_subsonic_library_with_node,
+    register_subsonic_library_with_node, replace_subsonic_credential_on_node,
 };
 use axum::Router;
 use axum::extract::{Path as AxumPath, Query, State};
@@ -34,9 +34,8 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex as StdMutex},
+    sync::{Arc, Mutex as StdMutex, atomic::{AtomicBool, Ordering}},
 };
-use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(target_os = "linux")]
 use std::{env, process::Command};
 use tempfile::TempDir;
@@ -254,6 +253,35 @@ async fn subsonic_hub_response(
         }
     };
     axum::Json(body).into_response()
+}
+
+#[derive(Clone)]
+struct SubsonicReloginMock(Arc<AtomicBool>);
+
+async fn subsonic_relogin_mock() -> (String, Arc<AtomicBool>, JoinHandle<()>) {
+    let reject = Arc::new(AtomicBool::new(true));
+    let app = Router::new()
+        .route("/rest/{*action}", get(subsonic_relogin_response))
+        .with_state(SubsonicReloginMock(Arc::clone(&reject)));
+    let listener = TokioTcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{address}"), reject, task)
+}
+
+async fn subsonic_relogin_response(
+    AxumPath(action): AxumPath<String>,
+    State(state): State<SubsonicReloginMock>,
+) -> impl IntoResponse {
+    let action = action.strip_suffix(".view").unwrap_or(&action);
+    let body = if action == "getUser" && state.0.load(Ordering::SeqCst) {
+        json!({"subsonic-response":{"status":"failed","error":{"code":40,"message":"Rejected"}}})
+    } else if action == "getUser" {
+        json!({"subsonic-response":{"status":"ok","user":{"streamRole":true,"downloadRole":false}}})
+    } else {
+        json!({"subsonic-response":{"status":"ok","version":"1.16.1","openSubsonic":false}})
+    };
+    (StatusCode::OK, axum::Json(body))
 }
 
 
@@ -873,6 +901,88 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     unreachable_server.abort();
     server.abort();
     bad_server.abort();
+    node.close_ui(&fixture.global_params.main_token).await;
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn subsonic_relogin_replaces_only_a_verified_secret() -> Result<()> {
+    use crate::messages::{
+        OpenLibraryRequest, OpenLibraryResult,
+        ReplaceSubsonicCredentialRequest, ReplaceSubsonicCredentialResult,
+    };
+    use database::library_registry::{
+        CatalogPlacement, LibraryRecord, LibraryRecordId, LibraryRegistry, ProtocolAdapter,
+        SubsonicOpenMode,
+    };
+    use scrobbling::manager::ScrobblingManager;
+    use tokio::sync::Mutex;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, rejected, server) = subsonic_relogin_mock().await;
+    let credential = node.credentials.put(Credential {
+        username: "alice".into(),
+        secret: Secret::new(b"old-password".to_vec()),
+    }).await?;
+    let record = LibraryRecord {
+        record_id: LibraryRecordId(Uuid::new_v4()),
+        alias: "Subsonic relogin".into(),
+        library_id: None,
+        protocol: ProtocolAdapter::SubsonicTranslate {
+            endpoint,
+            credential,
+            mode: SubsonicOpenMode::PlayOnThisDevice,
+        },
+        fs: Vec::new(),
+        catalog: CatalogPlacement::None,
+        background_sync: false,
+    };
+    LibraryRegistry::update(Path::new(&*node.config_path), |registry| {
+        registry.libraries.push(record.clone());
+        Ok(())
+    }).await?;
+
+    let replacement = |password: &str| ReplaceSubsonicCredentialRequest {
+        record_id: record.record_id.0.to_string(),
+        username: "alice".into(),
+        password: password.into(),
+        call_id: Some(1),
+    };
+    assert_eq!(
+        replace_subsonic_credential_on_node(&replacement("wrong-password"), &node).await,
+        ReplaceSubsonicCredentialResult::Rejected,
+    );
+    let old = node.credentials.get(credential).await?;
+    assert_eq!(old.secret.as_bytes(), b"old-password");
+
+    rejected.store(false, Ordering::SeqCst);
+    assert_eq!(
+        replace_subsonic_credential_on_node(&replacement("new-password"), &node).await,
+        ReplaceSubsonicCredentialResult::Updated,
+    );
+    let updated = node.credentials.get(credential).await?;
+    assert_eq!(updated.secret.as_bytes(), b"new-password");
+    let stored = LibraryRegistry::load(Path::new(&*node.config_path))?;
+    assert_eq!(stored.record(record.record_id)?.record_id, record.record_id);
+    assert!(matches!(
+        stored.record(record.record_id)?.protocol,
+        ProtocolAdapter::SubsonicTranslate { credential: stored_ref, .. } if stored_ref == credential
+    ));
+
+    let opened = open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: Some(2),
+            record_id: record.record_id.0.to_string(),
+        },
+        node.clone(),
+        Arc::new(Mutex::new(ScrobblingManager::new(10, Duration::from_secs(5)))),
+    ).await;
+    assert_eq!(opened.result, OpenLibraryResult::Opened);
+
+    server.abort();
     node.close_ui(&fixture.global_params.main_token).await;
     node.shutdown().await?;
     Ok(())

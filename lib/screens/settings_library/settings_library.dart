@@ -5,6 +5,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/dialogs/failed_to_initialize_library.dart';
+import '../../utils/dialogs/subsonic/subsonic_relogin_dialog.dart';
 import '../../utils/l10n.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';
@@ -303,7 +304,11 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                 Button(
                                   onPressed: whileWorking(() async {
                                     try {
-                                      await registry.open(record.recordId);
+                                      await openLibraryWithSubsonicRelogin(
+                                        context,
+                                        registry,
+                                        record.recordId,
+                                      );
                                     } catch (error) {
                                       if (!context.mounted) return;
                                       await showFailedToInitializeLibrary(
