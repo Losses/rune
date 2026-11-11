@@ -29,7 +29,7 @@ use axum::http::{
 };
 use axum::response::IntoResponse;
 use axum::routing::{any, get};
-use database::library_registry::{LibraryRegistry, ProtocolAdapter, SubsonicOpenMode};
+use database::library_registry::{CatalogPlacement, LibraryRegistry, ProtocolAdapter, SubsonicOpenMode};
 use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
@@ -7910,11 +7910,11 @@ async fn assert_opendal_library_scan(s3: bool) -> Result<()> {
                 include_bytes!("../../../../assets/startup_1.ogg").to_vec(),
             ),
         ];
-        let (endpoint, webdav, _s3_fixture) = if s3 {
-            let fixture = S3Fixture::start(files).await?;
+        let (endpoint, webdav, s3_fixture) = if s3 {
+            let fixture = S3Fixture::start_read_only(files).await?;
             (fixture.endpoint.clone(), None, Some(fixture))
         } else {
-            let fixture = WebDavFixture::start(files).await?;
+            let fixture = WebDavFixture::start_read_only(files).await?;
             (fixture.endpoint.clone(), Some(fixture), None)
         };
         let dir = tempfile::tempdir()?;
@@ -7971,6 +7971,15 @@ async fn assert_opendal_library_scan(s3: bool) -> Result<()> {
             .context("stored record")?;
         let library_id = record.library_id.context("catalog library id")?;
         let library = node.library_pool.acquire_ui(library_id).await?;
+        let storage_key = match &record.catalog {
+            CatalogPlacement::Redirected(key) => *key,
+            placement => anyhow::bail!("OpenDAL catalog was not redirected: {placement:?}"),
+        };
+        let redirected_db_dir = PathBuf::from(&*node.config_path).join(storage_key.to_string());
+        anyhow::ensure!(
+            redirected_db_dir.join(".0.db").exists(),
+            "redirected catalog database was not created in the config directory"
+        );
         let root = PathBuf::from(&library.media_root);
         let fsio = library.fsio.clone();
         let main_db = library.main_db.clone();
@@ -8040,14 +8049,42 @@ async fn assert_opendal_library_scan(s3: bool) -> Result<()> {
             matches!(queued[1].1, PlaybackSource::LibraryStream),
             "replica track did not keep its LibraryStream source beside OpenDAL audio"
         );
+        let load = LoadResolvedItemsRequest {
+            call_id: None,
+            items: vec![PlayingItemRef::LibraryTrack {
+                library_id: library_id.to_string(),
+                track: tracks[0].hlc_uuid.clone(),
+            }],
+            start_index: Some(0),
+            mode: PlaylistOperateMode::Replace,
+            expected_revision: None,
+            playback_mode: Some(0),
+            position_seconds: Some(0.0),
+            play: Some(true),
+        };
+        dispatch_gui_request(&fixture.global_params, &load).await?;
+        let played = wait_player(&fixture, |status| {
+            status.state == PlaybackState::Playing
+                && matches!(status.item, Some(PlayingItem::LibraryTrack { library_id: id, .. }) if id == library_id)
+        })
+        .await?;
+        anyhow::ensure!(played.item.is_some(), "OpenDAL track did not reach the player");
+        fixture.start_worker().await?;
+        sleep(Duration::from_millis(1_200)).await;
+        node.library_pool.unregister_ui(library_id).await;
+        node.shutdown().await?;
         if let Some(webdav) = webdav {
             anyhow::ensure!(
                 webdav.write_requests().is_empty(),
                 "read-only WebDAV fixture received a write request"
             );
         }
-        node.library_pool.unregister_ui(library_id).await;
-        node.shutdown().await?;
+        if let Some(s3) = s3_fixture {
+            anyhow::ensure!(
+                s3.write_requests().is_empty(),
+                "read-only S3 fixture received a write request"
+            );
+        }
         Ok::<_, anyhow::Error>(())
     })
     .await

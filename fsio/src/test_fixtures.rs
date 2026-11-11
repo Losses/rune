@@ -22,6 +22,8 @@ pub struct WebDavFixture {
     reject_reads: Arc<AtomicBool>,
     #[allow(dead_code)]
     conditional_mode: Arc<AtomicU8>,
+    #[allow(dead_code)]
+    reject_writes: Arc<AtomicBool>,
     task: Arc<JoinHandle<()>>,
 }
 
@@ -33,10 +35,12 @@ impl WebDavFixture {
         let writes = Arc::new(Mutex::new(Vec::new()));
         let reject_reads = Arc::new(AtomicBool::new(false));
         let conditional_mode = Arc::new(AtomicU8::new(0));
+        let reject_writes = Arc::new(AtomicBool::new(false));
         let server_files = files.clone();
         let server_writes = writes.clone();
         let server_reject_reads = reject_reads.clone();
         let server_conditional_mode = conditional_mode.clone();
+        let server_reject_writes = reject_writes.clone();
         let task = tokio::spawn(async move {
             let mut connections = JoinSet::new();
             loop {
@@ -49,8 +53,9 @@ impl WebDavFixture {
                         let writes = server_writes.clone();
                         let reject_reads = server_reject_reads.clone();
                         let conditional_mode = server_conditional_mode.clone();
+                        let reject_writes = server_reject_writes.clone();
                         connections.spawn(async move {
-                            serve_webdav(stream, files, writes, reject_reads, conditional_mode).await;
+                            serve_webdav(stream, files, writes, reject_reads, conditional_mode, reject_writes).await;
                         });
                     }
                     Some(_) = connections.join_next(), if !connections.is_empty() => {}
@@ -62,8 +67,16 @@ impl WebDavFixture {
             writes,
             reject_reads,
             conditional_mode,
+            reject_writes,
             task: Arc::new(task),
         })
+    }
+
+    #[allow(dead_code)]
+    pub async fn start_read_only(files: Vec<(String, Vec<u8>)>) -> std::io::Result<Self> {
+        let fixture = Self::start(files).await?;
+        fixture.reject_writes.store(true, Ordering::SeqCst);
+        Ok(fixture)
     }
 
     pub fn write_requests(&self) -> Vec<String> {
@@ -100,6 +113,10 @@ impl Drop for WebDavFixture {
 #[derive(Clone)]
 pub struct S3Fixture {
     pub endpoint: String,
+    #[allow(dead_code)]
+    writes: Arc<Mutex<Vec<String>>>,
+    #[allow(dead_code)]
+    reject_writes: Arc<AtomicBool>,
     task: Arc<JoinHandle<()>>,
 }
 
@@ -108,6 +125,10 @@ impl S3Fixture {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let address = listener.local_addr()?;
         let files = Arc::new(Mutex::new(files.into_iter().collect::<HashMap<_, _>>()));
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let reject_writes = Arc::new(AtomicBool::new(false));
+        let server_writes = writes.clone();
+        let server_reject_writes = reject_writes.clone();
         let task = tokio::spawn(async move {
             let mut connections = JoinSet::new();
             loop {
@@ -117,8 +138,10 @@ impl S3Fixture {
                             break;
                         };
                         let files = files.clone();
+                        let writes = server_writes.clone();
+                        let reject_writes = server_reject_writes.clone();
                         connections.spawn(async move {
-                            serve_s3(stream, files).await;
+                            serve_s3(stream, files, writes, reject_writes).await;
                         });
                     }
                     Some(_) = connections.join_next(), if !connections.is_empty() => {}
@@ -127,8 +150,25 @@ impl S3Fixture {
         });
         Ok(Self {
             endpoint: format!("http://{address}"),
+            writes,
+            reject_writes,
             task: Arc::new(task),
         })
+    }
+
+    #[allow(dead_code)]
+    pub async fn start_read_only(files: Vec<(String, Vec<u8>)>) -> std::io::Result<Self> {
+        let fixture = Self::start(files).await?;
+        fixture.reject_writes.store(true, Ordering::SeqCst);
+        Ok(fixture)
+    }
+
+    #[allow(dead_code)]
+    pub fn write_requests(&self) -> Vec<String> {
+        self.writes
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
     }
 }
 
@@ -140,7 +180,12 @@ impl Drop for S3Fixture {
     }
 }
 
-async fn serve_s3(stream: TcpStream, files: Arc<Mutex<HashMap<String, Vec<u8>>>>) {
+async fn serve_s3(
+    stream: TcpStream,
+    files: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+    writes: Arc<Mutex<Vec<String>>>,
+    reject_writes: Arc<AtomicBool>,
+) {
     let mut reader = BufReader::new(stream);
     loop {
         let (method, path, headers, request_body) = match read_request(&mut reader).await {
@@ -151,7 +196,26 @@ async fn serve_s3(stream: TcpStream, files: Arc<Mutex<HashMap<String, Vec<u8>>>>
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .clone();
-        let (status, content_type, extra, body) = if method == "PUT" || method == "DELETE" {
+        let is_write = matches!(
+            method.as_str(),
+            "PUT" | "POST" | "DELETE" | "PATCH" | "MKCOL" | "MOVE" | "COPY"
+        );
+        if is_write {
+            writes
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .push(method.clone());
+        }
+        let (status, content_type, extra, body) = if is_write
+            && reject_writes.load(Ordering::SeqCst)
+        {
+            (
+                403,
+                "application/xml",
+                String::new(),
+                b"<Error><Code>AccessDenied</Code></Error>".to_vec(),
+            )
+        } else if method == "PUT" || method == "DELETE" {
             let name = path.rsplit("/library/").next().unwrap_or_default();
             let current = files_snapshot.get(name);
             let condition_failed = headers
@@ -295,6 +359,7 @@ async fn serve_s3(stream: TcpStream, files: Arc<Mutex<HashMap<String, Vec<u8>>>>
             204 => "No Content",
             304 => "Not Modified",
             412 => "Precondition Failed",
+            403 => "Forbidden",
             _ => "Not Found",
         };
         let length = if method == "HEAD" {
@@ -328,6 +393,7 @@ async fn serve_webdav(
     writes: Arc<Mutex<Vec<String>>>,
     reject_reads: Arc<AtomicBool>,
     conditional_mode: Arc<AtomicU8>,
+    reject_writes: Arc<AtomicBool>,
 ) {
     let mut reader = BufReader::new(stream);
     loop {
@@ -341,14 +407,38 @@ async fn serve_webdav(
             .clone();
         if matches!(
             method.as_str(),
-            "PUT" | "MKCOL" | "DELETE" | "MOVE" | "COPY" | "PROPPATCH"
+            "PUT"
+                | "POST"
+                | "PATCH"
+                | "MKCOL"
+                | "DELETE"
+                | "MOVE"
+                | "COPY"
+                | "PROPPATCH"
+                | "LOCK"
+                | "UNLOCK"
         ) {
             writes
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
                 .push(method.clone());
         }
-        let (status, content_type, extra, body) = if !path.starts_with("/dav/library/") {
+        let (status, content_type, extra, body) = if reject_writes.load(Ordering::SeqCst)
+            && matches!(
+                method.as_str(),
+                "PUT"
+                    | "POST"
+                    | "PATCH"
+                    | "MKCOL"
+                    | "DELETE"
+                    | "MOVE"
+                    | "COPY"
+                    | "PROPPATCH"
+                    | "LOCK"
+                    | "UNLOCK"
+            ) {
+            (403, "text/plain", String::new(), Vec::new())
+        } else if !path.starts_with("/dav/library/") {
             (404, "text/plain", String::new(), Vec::new())
         } else if headers.get("authorization").map(String::as_str) != Some("Basic dXNlcjpwYXNz")
             || (method == "GET" && reject_reads.load(Ordering::SeqCst))
@@ -504,6 +594,7 @@ async fn serve_webdav(
             400 => "Bad Request",
             404 => "Not Found",
             412 => "Precondition Failed",
+            403 => "Forbidden",
             _ => "Method Not Allowed",
         };
         let length = if method == "HEAD" {

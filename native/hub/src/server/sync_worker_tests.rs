@@ -1,6 +1,6 @@
 use super::*;
-use database::credentials::{CredentialRef, CredentialStore};
-use database::library_registry::{CatalogPlacement, LibraryRecordId, ProtocolAdapter};
+use database::credentials::{Credential, CredentialRef, CredentialStore, Secret};
+use database::library_registry::{CatalogPlacement, FsAdapter, LibraryRecordId, ProtocolAdapter};
 use database::sync::LibrarySyncStore;
 use database::sync::model::{Collection, ObjectKey, RuneModel};
 use std::sync::Arc;
@@ -133,6 +133,53 @@ async fn read_only_share_reports_typed_failure_without_objects() -> Result<()> {
     let result = sync_pass(&library.library, namespace, &session).await;
     assert_eq!(result, Err(ShareSyncFailure::ReadOnlyShare));
     assert!(store.list_prefix("").await.unwrap().is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn read_only_webdav_in_share_probe_reports_typed_state_without_persisting_writes()
+-> Result<()> {
+    use fsio::test_fixtures::WebDavFixture;
+
+    let server = WebDavFixture::start_read_only(Vec::new()).await?;
+    let directory = tempfile::tempdir()?;
+    let credentials = CredentialStore::open(directory.path());
+    let credential = credentials
+        .put(Credential {
+            username: "user".into(),
+            secret: Secret::new(b"pass".to_vec()),
+        })
+        .await?;
+    let mut record = test_record(Uuid::new_v4());
+    record.catalog = CatalogPlacement::InShare(Uuid::new_v4());
+    record.fs = vec![FsAdapter::WebDav {
+        endpoint: server.endpoint.clone(),
+        root: "/dav/library/".into(),
+        username: "user".into(),
+        credential,
+    }];
+
+    let result = OpenDalShareStoreFactory
+        .open(&record, "devices/fixture", &credentials)
+        .await;
+    assert_eq!(
+        result.as_ref().err().copied(),
+        Some(ShareSyncFailure::ReadOnlyShare),
+        "factory returned {:?}; recorded operations: {:?}",
+        result.as_ref().err(),
+        server.write_requests()
+    );
+    let refused_operations = server.write_requests();
+    assert!(
+        !refused_operations.is_empty(),
+        "share writability probe did not run"
+    );
+    assert!(
+        refused_operations
+            .iter()
+            .all(|operation| matches!(operation.as_str(), "PUT" | "DELETE")),
+        "unexpected write operation in share probe: {refused_operations:?}"
+    );
     Ok(())
 }
 

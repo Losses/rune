@@ -218,6 +218,7 @@ fn map_error(error: opendal::Error) -> StoreError {
     }
     match error.kind() {
         ErrorKind::NotFound => StoreError::NotFound,
+        ErrorKind::PermissionDenied => StoreError::PermissionDenied,
         ErrorKind::ConditionNotMatch => StoreError::PreconditionFailed,
         ErrorKind::Conflict | ErrorKind::RateLimited | ErrorKind::AlreadyExists => {
             StoreError::Transient(error.to_string())
@@ -415,7 +416,15 @@ mod tests {
                 StoreError::Transient(_)
             ));
         }
-        for status in [400, 401, 403, 422] {
+        assert_eq!(
+            map_http_status(401, "unauthorized", false),
+            StoreError::Unauthorized
+        );
+        assert_eq!(
+            map_http_status(403, "permission denied", false),
+            StoreError::PermissionDenied
+        );
+        for status in [400, 422] {
             assert!(matches!(
                 map_http_status(status, "permanent", false),
                 StoreError::Permanent(_)
@@ -436,6 +445,10 @@ mod tests {
         assert_eq!(
             map_error(Error::new(ErrorKind::ConditionNotMatch, "condition")),
             StoreError::PreconditionFailed
+        );
+        assert_eq!(
+            map_error(Error::new(ErrorKind::PermissionDenied, "permission denied")),
+            StoreError::PermissionDenied
         );
         let skew = Error::new(ErrorKind::Unexpected, "RequestTimeTooSkewed");
         assert_eq!(map_error(skew), StoreError::ClockSkew);
