@@ -11,7 +11,9 @@ use anyhow::{Context, Result, ensure};
 use database::actions::file::file_uuids_by_id;
 use playback::{
     PlaybackMode,
-    player::{LibraryItem, OnlineInLibraryFile, PlaybackSource, PlayerStatus, PlayingItem},
+    player::{
+        LibraryItem, OnlineInLibraryFile, PlaybackSource, PlayerStatus, PlayingItem, SubsonicItem,
+    },
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -22,6 +24,10 @@ enum StoredItem {
     InLibrary {
         library_id: Uuid,
         file_uuid: Uuid,
+    },
+    Subsonic {
+        library_id: Uuid,
+        track_id: String,
     },
     IndependentFile {
         path: String,
@@ -38,6 +44,10 @@ impl From<PlayingItem> for StoredItem {
             PlayingItem::InLibrary(item) => Self::InLibrary {
                 library_id: item.library_id,
                 file_uuid: item.file_uuid,
+            },
+            PlayingItem::Subsonic(item) => Self::Subsonic {
+                library_id: item.library_id,
+                track_id: item.track_id,
             },
             PlayingItem::IndependentFile(path) => Self::IndependentFile { path },
             PlayingItem::Online(url, library) => Self::Online {
@@ -57,6 +67,13 @@ impl From<StoredItem> for PlayingItem {
             } => Self::InLibrary(LibraryItem {
                 library_id,
                 file_uuid,
+            }),
+            StoredItem::Subsonic {
+                library_id,
+                track_id,
+            } => Self::Subsonic(SubsonicItem {
+                library_id,
+                track_id,
             }),
             StoredItem::IndependentFile { path } => Self::IndependentFile(path),
             StoredItem::Online { url, library } => Self::Online(
@@ -286,5 +303,28 @@ impl SessionState {
             .sync_all()
             .context("Sync session directory")?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{StoredItem, SubsonicItem, Uuid};
+    use playback::player::PlayingItem;
+
+    #[test]
+    fn subsonic_queue_item_roundtrips_as_secret_free_identity() {
+        let item = PlayingItem::Subsonic(SubsonicItem {
+            library_id: Uuid::new_v4(),
+            track_id: "remote-track-42".to_owned(),
+        });
+        let stored = StoredItem::from(item.clone());
+        let encoded = serde_json::to_string(&stored).unwrap();
+        assert_eq!(
+            PlayingItem::from(serde_json::from_str::<StoredItem>(&encoded).unwrap()),
+            item
+        );
+        for marker in ["t=", "s=", "p=", "password"] {
+            assert!(!encoded.contains(marker));
+        }
     }
 }

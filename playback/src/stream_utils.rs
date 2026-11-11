@@ -150,7 +150,7 @@ impl ManagedStream {
             Ok(bytes_read) => bytes_read,
             Err(error) => {
                 if let Ok(mut reason) = self.failed.lock() {
-                    *reason = Some(UnavailableReason::SourceUnreachable);
+                    reason.get_or_insert(UnavailableReason::SourceUnreachable);
                 }
                 return Err(io::Error::new(
                     error.kind(),

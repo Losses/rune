@@ -10,6 +10,7 @@ use super::utils::device::load_device_info;
 use crate::access_policy::{Action, ConnectionLevel, SyncLevel};
 #[cfg(test)]
 use crate::utils::GlobalParams;
+use crate::utils::subsonic_binding_for_playback;
 use crate::{library_pool::LibraryHandle, node::NodeContext};
 use anyhow::{Context, Result, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -28,6 +29,7 @@ use futures::future::{AbortHandle, Abortable, Aborted};
 use http_request::sync::PageCursor;
 use playback::player::{
     LibraryPlaybackSource, PlaybackSourceResolver, RemoteAudioError, RemoteAudioSource,
+    SubsonicItem,
 };
 use rand::rngs::OsRng;
 use reqwest::header::HeaderMap;
@@ -2058,6 +2060,18 @@ impl PlaybackSourceResolver for PairedAudioResolver {
                 .manager()?
                 .resolve_remote_audio(&library, owner.token.child_token(), id)
                 .await
+        })
+    }
+
+    fn resolve_subsonic(
+        &self,
+        item: SubsonicItem,
+    ) -> BoxFuture<'static, Result<RemoteAudioSource>> {
+        let node = self.0.clone();
+        Box::pin(async move {
+            let owner = node.upgrade().context("Node stopped")?;
+            let binding = subsonic_binding_for_playback(&owner, item.library_id).await?;
+            binding.playback_source(item).await
         })
     }
 }

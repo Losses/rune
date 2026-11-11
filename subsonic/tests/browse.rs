@@ -5,6 +5,7 @@ use std::time::Duration;
 use axum::Router;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use axum::http::{HeaderMap, header::RANGE};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use subsonic::{
@@ -111,6 +112,37 @@ async fn bounded<T>(future: impl std::future::Future<Output = T>) -> T {
     tokio::time::timeout(Duration::from_secs(3), future)
         .await
         .expect("request timed out")
+}
+
+#[tokio::test]
+async fn stream_uses_authenticated_range_request_without_returning_its_url() {
+    let ranges = Arc::new(Mutex::new(Vec::new()));
+    let app = Router::new()
+        .route("/rest/stream.view", get(stream_response))
+        .with_state(ranges.clone());
+    let server = support::serve(app).await;
+    let response = bounded(client(server.url.clone()).stream("song-001", Some((12, Some(23)))))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(ranges.lock().unwrap().as_slice(), ["bytes=12-23"]);
+}
+
+async fn stream_response(
+    State(ranges): State<Arc<Mutex<Vec<String>>>>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let range = headers
+        .get(RANGE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    ranges.lock().unwrap().push(range);
+    (
+        StatusCode::PARTIAL_CONTENT,
+        [("Accept-Ranges", "bytes")],
+        b"audio".to_vec(),
+    )
 }
 
 #[tokio::test]

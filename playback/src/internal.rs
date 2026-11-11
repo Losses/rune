@@ -3,7 +3,7 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     future::Future,
-    io::{BufReader, Error, ErrorKind},
+    io::{BufReader, Cursor, Error, ErrorKind},
     path::PathBuf,
     sync::{Arc, Mutex, RwLock},
     time::Duration,
@@ -27,8 +27,8 @@ use crate::decoder::RuneDecoder;
 use crate::output_stream::{RuneOutputStream, RuneOutputStreamHandle};
 use crate::pcm_tap::PcmTap;
 use crate::player::{
-    PlaybackSource, PlaybackSourceResolver, PlayerStatus, PlayingItem, RemoteAudioError,
-    UnavailableReason,
+    AudioPlaybackNote, AudioSourceMode, PlaybackSource, PlaybackSourceResolver, PlayerStatus,
+    PlayingItem, RemoteAudioError, UnavailableReason,
 };
 use crate::realtime_fft::RealTimeFFT;
 use crate::shared_source::SharedSource;
@@ -36,6 +36,7 @@ use crate::strategies::{
     AddMode, PlaybackStrategy, RepeatAllStrategy, RepeatOneStrategy, SequentialStrategy,
     ShuffleStrategy, UpdateReason,
 };
+use crate::stream_utils::create_stream_with_authorizer;
 
 const SOURCE_START_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -115,6 +116,10 @@ async fn open_local_source(fsio: Arc<FsIo>, path: PathBuf, remote: bool) -> Resu
                         anyhow!(RemoteAudioError::LibraryUnavailable)
                     }
                     UnavailableReason::Unreadable => error,
+                    UnavailableReason::CredentialsRejected => {
+                        anyhow!(RemoteAudioError::CredentialsRejected)
+                    }
+                    UnavailableReason::TrackGone => anyhow!(RemoteAudioError::TrackGone),
                 });
             }
             return Err(error);
@@ -186,6 +191,10 @@ pub enum AnySource {
         RuneBuffered<RuneDecoder<ManagedStream>>,
         Arc<Mutex<Option<UnavailableReason>>>,
     ),
+    Buffered(
+        RuneBuffered<RuneDecoder<Cursor<Vec<u8>>>>,
+        AudioPlaybackNote,
+    ),
 }
 
 async fn open_library_stream(
@@ -211,11 +220,62 @@ async fn open_library_stream(
     ))
 }
 
+async fn open_subsonic_stream(
+    resolver: &Arc<dyn PlaybackSourceResolver>,
+    item: crate::player::SubsonicItem,
+) -> Result<(AnySource, PathBuf)> {
+    let remote = resolver.resolve_subsonic(item).await?;
+    let size = remote.size;
+    let guard = remote.cancellation.clone().drop_guard();
+    let failed = remote.failure_reason;
+    match remote.request.prepare().await? {
+        AudioSourceMode::Buffered { bytes, note } => {
+            let size = u64::try_from(bytes.len()).ok();
+            let decoder = probe_decoder(Cursor::new(bytes), Some(remote.extension), size).await?;
+            guard.disarm();
+            return Ok((
+                AnySource::Buffered(rune_buffered(decoder), note),
+                PathBuf::new(),
+            ));
+        }
+        AudioSourceMode::Ranged => {}
+    }
+    let reader = match create_stream_with_authorizer(remote.request, &remote.url).await {
+        Ok(reader) => reader,
+        Err(error) => {
+            let reason = failed.lock().ok().and_then(|reason| *reason);
+            return Err(match reason {
+                Some(UnavailableReason::AccessRevoked) => {
+                    anyhow!(RemoteAudioError::AccessRevoked)
+                }
+                Some(UnavailableReason::CredentialsRejected) => {
+                    anyhow!(RemoteAudioError::CredentialsRejected)
+                }
+                Some(UnavailableReason::Unreadable | UnavailableReason::TrackGone) => {
+                    anyhow!(RemoteAudioError::TrackGone)
+                }
+                _ => error,
+            });
+        }
+    };
+    let reader = ManagedStream::new_with_failure(reader, remote.cancellation, failed.clone());
+    let decoder =
+        probe_decoder(reader, Some(remote.extension), (size != 0).then_some(size)).await?;
+    guard.disarm();
+    Ok((
+        AnySource::Online(rune_buffered(decoder), failed),
+        PathBuf::new(),
+    ))
+}
+
 impl Debug for AnySource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AnySource::Local(_, _) => f.debug_struct("AnySource::Local").finish(),
             AnySource::Online(_, _) => f.debug_struct("AnySource::Online").finish(),
+            AnySource::Buffered(_, note) => {
+                f.debug_tuple("AnySource::Buffered").field(note).finish()
+            }
         }
     }
 }
@@ -225,6 +285,7 @@ impl AnySource {
         match self {
             AnySource::Local(s, _) => s.current_samples(),
             AnySource::Online(s, _) => s.current_samples(),
+            AnySource::Buffered(s, _) => s.current_samples(),
         }
     }
 }
@@ -236,6 +297,7 @@ impl Iterator for AnySource {
         match self {
             AnySource::Local(s, _) => s.next(),
             AnySource::Online(s, _) => s.next(),
+            AnySource::Buffered(s, _) => s.next(),
         }
     }
 }
@@ -245,6 +307,7 @@ impl Source for AnySource {
         match self {
             AnySource::Local(s, _) => s.current_frame_len(),
             AnySource::Online(s, _) => s.current_frame_len(),
+            AnySource::Buffered(s, _) => s.current_frame_len(),
         }
     }
 
@@ -252,6 +315,7 @@ impl Source for AnySource {
         match self {
             AnySource::Local(s, _) => s.channels(),
             AnySource::Online(s, _) => s.channels(),
+            AnySource::Buffered(s, _) => s.channels(),
         }
     }
 
@@ -259,6 +323,7 @@ impl Source for AnySource {
         match self {
             AnySource::Local(s, _) => s.sample_rate(),
             AnySource::Online(s, _) => s.sample_rate(),
+            AnySource::Buffered(s, _) => s.sample_rate(),
         }
     }
 
@@ -266,6 +331,7 @@ impl Source for AnySource {
         match self {
             AnySource::Local(s, _) => s.total_duration(),
             AnySource::Online(s, _) => s.total_duration(),
+            AnySource::Buffered(s, _) => s.total_duration(),
         }
     }
 
@@ -273,6 +339,7 @@ impl Source for AnySource {
         match self {
             AnySource::Local(s, _) => s.try_seek(pos),
             AnySource::Online(s, _) => s.try_seek(pos),
+            AnySource::Buffered(s, _) => s.try_seek(pos),
         }
     }
 }
@@ -282,6 +349,7 @@ impl AnySource {
         match self {
             AnySource::Local(_, failed) => failed.clone(),
             AnySource::Online(_, failed) => Some(failed.clone()),
+            AnySource::Buffered(_, _) => None,
         }
     }
 }
@@ -931,6 +999,14 @@ impl PlayerInternal {
                             let source = open_local_source(fsio, path.clone(), remote_storage)
                                 .await
                                 .with_context(|| format!("Failed to open file: {path:?}"))?;
+                            Ok((source, path, resolved_item.clone()))
+                        }
+                        PlayingItem::Subsonic(identity) => {
+                            let resolver = resolver
+                                .as_ref()
+                                .context("Subsonic playback resolver unavailable")?;
+                            let (source, path) =
+                                open_subsonic_stream(resolver, identity.clone()).await?;
                             Ok((source, path, resolved_item.clone()))
                         }
                         PlayingItem::Online(url, _) => {

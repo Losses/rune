@@ -80,7 +80,9 @@ impl Signal for SetLikedRequest {
                     liked: false,
                     success: false,
                 },
-                PlayingItem::InLibrary(_) | PlayingItem::Online(_, _) => SetLikedResponse {
+                PlayingItem::InLibrary(_)
+                | PlayingItem::Subsonic(_)
+                | PlayingItem::Online(_, _) => SetLikedResponse {
                     call_id: None,
                     item: item.clone(),
                     liked: false,
@@ -154,7 +156,9 @@ impl Signal for GetLikedRequest {
                     item: item.clone(),
                     liked: false,
                 },
-                PlayingItem::InLibrary(_) | PlayingItem::Online(_, _) => GetLikedResponse {
+                PlayingItem::InLibrary(_)
+                | PlayingItem::Subsonic(_)
+                | PlayingItem::Online(_, _) => GetLikedResponse {
                     call_id: None,
                     item: item.clone(),
                     liked: false,

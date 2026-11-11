@@ -54,7 +54,7 @@ use ::database::{
 };
 use ::discovery::{client::CertValidator, protocol::DiscoveryService, server::PermissionManager};
 use ::playback::{
-    player::{Playable, PlaybackSource, PlayingItem},
+    player::{Playable, PlaybackSource, PlayingItem, RemoteAudioError},
     sfx_player::SfxPlayer,
 };
 use ::scrobbling::manager::ScrobblingManager;
@@ -1663,7 +1663,7 @@ pub(crate) async fn open_library_by_record_on_node(
         ProtocolAdapter::SubsonicTranslate {
             endpoint,
             credential,
-            ..
+            mode,
         } => {
             open_subsonic_record(
                 &node,
@@ -1671,6 +1671,7 @@ pub(crate) async fn open_library_by_record_on_node(
                 record.catalog_library_id().unwrap_or(record.record_id.0),
                 endpoint,
                 *credential,
+                *mode == SubsonicOpenMode::PlayOnThisDevice,
             )
             .await
         }
@@ -1702,6 +1703,7 @@ async fn open_subsonic_record(
     library_id: Uuid,
     endpoint: &str,
     credential_ref: CredentialRef,
+    play_on_this_device: bool,
 ) -> StdResult<u64, (OpenLibraryFailureKind, anyhow::Error)> {
     let credential = node
         .credentials
@@ -1764,10 +1766,77 @@ async fn open_subsonic_record(
         probe,
         Path::new(&*node.config_path).to_path_buf(),
         library_id,
+        play_on_this_device,
         Arc::clone(&node.gui_broadcaster),
     ));
     node.set_open_subsonic_catalog(Some(record_id), binding)
         .map_err(|error| (OpenLibraryFailureKind::Storage, error))
+}
+
+pub(crate) async fn subsonic_binding_for_playback(
+    node: &NodeContext,
+    library_id: Uuid,
+) -> Result<Arc<SubsonicBinding>> {
+    if let Some(binding) = node.subsonic_binding(library_id)? {
+        return Ok(binding);
+    }
+    let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
+    let record = registry
+        .record(LibraryRecordId(library_id))
+        .map_err(|_| anyhow::Error::new(RemoteAudioError::LibraryUnavailable))?;
+    let ProtocolAdapter::SubsonicTranslate {
+        endpoint,
+        credential,
+        mode: SubsonicOpenMode::PlayOnThisDevice,
+    } = &record.protocol
+    else {
+        return Err(anyhow::Error::new(RemoteAudioError::LibraryUnavailable));
+    };
+    let credential = node
+        .credentials
+        .get(*credential)
+        .await
+        .map_err(|_| anyhow::Error::new(RemoteAudioError::CredentialsRejected))?;
+    let password = String::from_utf8(credential.secret.as_bytes().to_vec())
+        .map_err(|_| anyhow::Error::new(RemoteAudioError::CredentialsRejected))?;
+    let endpoint = Url::parse(endpoint)
+        .map_err(|_| anyhow::Error::new(RemoteAudioError::LibraryUnavailable))?;
+    let client = SubsonicClient::new(
+        endpoint,
+        SubsonicCredentials::Password {
+            user: credential.username,
+            password,
+        },
+        reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(10))
+            .build()
+            .map_err(|_| anyhow::Error::new(RemoteAudioError::LibraryUnavailable))?,
+    );
+    let probe = tokio::time::timeout(Duration::from_secs(10), client.probe())
+        .await
+        .map_err(|_| anyhow::Error::new(RemoteAudioError::unreachable("Subsonic server timeout")))?
+        .map_err(|error| match error {
+            SubsonicError::Transport(_) | SubsonicError::HttpStatus(_) => {
+                anyhow::Error::new(RemoteAudioError::unreachable("Subsonic server unreachable"))
+            }
+            SubsonicError::Server {
+                kind:
+                    SubsonicServerError::WrongCredentials
+                    | SubsonicServerError::NotAuthorized
+                    | SubsonicServerError::InvalidApiKey,
+                ..
+            } => anyhow::Error::new(RemoteAudioError::CredentialsRejected),
+            _ => anyhow::Error::new(RemoteAudioError::LibraryUnavailable),
+        })?;
+    Ok(Arc::new(SubsonicBinding::new(
+        client,
+        probe,
+        Path::new(&*node.config_path).to_path_buf(),
+        library_id,
+        true,
+        Arc::clone(&node.gui_broadcaster),
+    )))
 }
 
 async fn open_catalog_record(

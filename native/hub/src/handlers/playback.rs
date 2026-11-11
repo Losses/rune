@@ -20,13 +20,17 @@ use ::database::{
     playing_item::{MediaFileHandle, dispatcher::PlayingItemActionDispatcher},
 };
 use ::playback::{
-    player::{LibraryItem, Playable, PlaybackSource, PlaybackState, PlayerStatus, PlayingItem},
+    player::{
+        LibraryItem, Playable, PlaybackSource, PlaybackState, PlayerStatus, PlayingItem,
+        SubsonicItem,
+    },
     strategies::AddMode,
 };
 
 use crate::backends::remote::{RendererLink, RendererLinkUse};
 use crate::request_error::ExpectedRequestError;
 use crate::server::libraries::{cast_library_state, cast_library_states, parse_library_ids};
+use crate::subsonic_binding::SubsonicBinding;
 use crate::{
     Session, Signal,
     library_pool::{LibraryHandle, LibraryPool},
@@ -88,9 +92,29 @@ pub async fn playing_items_from_requests(
                 .transpose()
         })
         .collect::<Result<Vec<_>>>()?;
+    let subsonic_items = requests
+        .iter()
+        .map(|request| {
+            request
+                .subsonic_item
+                .as_ref()
+                .map(|item| {
+                    Ok(SubsonicItem {
+                        library_id: Uuid::parse_str(&item.library_id).map_err(|error| {
+                            ExpectedRequestError::invalid_input(format!(
+                                "Invalid Subsonic library id: {error}"
+                            ))
+                        })?,
+                        track_id: item.track_id.clone(),
+                    })
+                })
+                .transpose()
+        })
+        .collect::<Result<Vec<_>>>()?;
     let ids = requests
         .iter()
         .filter(|request| request.library_item.is_none())
+        .filter(|request| request.subsonic_item.is_none())
         .filter_map(|request| request.in_library.as_ref())
         .map(|in_library| in_library.file_id)
         .filter(|id| *id != 0)
@@ -106,7 +130,11 @@ pub async fn playing_items_from_requests(
     Ok(requests
         .iter()
         .zip(library_items)
-        .map(|(request, library_item)| {
+        .zip(subsonic_items)
+        .map(|((request, library_item), subsonic_item)| {
+            if let Some(item) = subsonic_item {
+                return PlayingItem::Subsonic(item);
+            }
             if let Some(item) = library_item {
                 return PlayingItem::InLibrary(item);
             }
@@ -132,6 +160,33 @@ pub async fn playing_items_from_requests(
             }
         })
         .collect())
+}
+
+async fn resolve_open_subsonic_items(
+    requests: &[PlayingItemRequest],
+    binding: &SubsonicBinding,
+) -> Result<Vec<PlayingItem>> {
+    let mut resolved = Vec::with_capacity(requests.len());
+    for request in requests {
+        if let Some(item) = &request.subsonic_item {
+            let library_id = Uuid::parse_str(&item.library_id).map_err(|error| {
+                ExpectedRequestError::invalid_input(format!("Invalid Subsonic library id: {error}"))
+            })?;
+            resolved.push(PlayingItem::Subsonic(SubsonicItem {
+                library_id,
+                track_id: item.track_id.clone(),
+            }));
+        } else if let Some(item) = &request.in_library {
+            resolved.push(PlayingItem::Subsonic(SubsonicItem {
+                library_id: binding.library_id,
+                track_id: binding.track_id(item.file_id)?,
+            }));
+        } else {
+            resolved
+                .extend(playing_items_from_requests(std::slice::from_ref(request), None).await?);
+        }
+    }
+    Ok(resolved)
 }
 
 struct PlaylistEditOptions {
@@ -244,6 +299,13 @@ pub async fn playing_item_requests(
                 independent_file: None,
                 library_item: (!ids.contains_key(identity))
                     .then(|| LibraryItemRequest::from(*identity)),
+                subsonic_item: None,
+            },
+            PlayingItem::Subsonic(identity) => PlayingItemRequest {
+                in_library: None,
+                independent_file: None,
+                library_item: None,
+                subsonic_item: Some(identity.clone().into()),
             },
             PlayingItem::IndependentFile(path) => PlayingItemRequest {
                 in_library: None,
@@ -251,11 +313,13 @@ pub async fn playing_item_requests(
                     raw_path: path.clone(),
                 }),
                 library_item: None,
+                subsonic_item: None,
             },
             PlayingItem::Online(_, _) | PlayingItem::Unknown => PlayingItemRequest {
                 in_library: None,
                 independent_file: None,
                 library_item: None,
+                subsonic_item: None,
             },
         })
         .collect()
@@ -813,6 +877,40 @@ impl Signal for LoadResolvedItemsRequest {
             link.close();
             result?;
         } else {
+            if let Some(binding) = node.open_subsonic_binding()?
+                && binding.play_on_this_device
+            {
+                let items = resolve_open_subsonic_items(&request.items, &binding).await?;
+                let prepared = items
+                    .into_iter()
+                    .map(|item| (item, PlaybackSource::LibraryStream))
+                    .collect::<Vec<_>>();
+                let start_index = request
+                    .start_index
+                    .map(usize::try_from)
+                    .transpose()
+                    .map_err(|error| {
+                        ExpectedRequestError::invalid_input(format!("Invalid start index: {error}"))
+                    })?;
+                node.session()?
+                    .edit_queue(request.expected_revision, |player| {
+                        edit_playlist(
+                            player,
+                            &prepared,
+                            PlaylistEditOptions {
+                                mode: request.mode,
+                                start_index,
+                                playback_mode: request.playback_mode,
+                                position: request
+                                    .position_seconds
+                                    .and_then(|seconds| Duration::try_from_secs_f64(seconds).ok()),
+                                play: request.play,
+                            },
+                        )
+                    })
+                    .await?;
+                return Ok(Some(LoadResolvedItemsResponse { call_id: None }));
+            }
             let library = require_library(library)?;
             let items = playing_items_from_requests(&request.items, Some(&library)).await?;
             let mut items_by_library: HashMap<Uuid, Vec<PlayingItem>> = HashMap::new();
@@ -1209,6 +1307,7 @@ fn handoff_load(snapshot: SessionSnapshotResponse) -> LoadResolvedItemsRequest {
                 in_library: None,
                 independent_file: None,
                 library_item: Some(library_item),
+                subsonic_item: None,
             })
             .collect(),
         start_index: snapshot.index,

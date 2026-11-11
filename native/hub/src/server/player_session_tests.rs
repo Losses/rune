@@ -25,7 +25,7 @@ use crate::utils::{
 };
 use axum::Router;
 use axum::extract::{Path as AxumPath, Query, State};
-use axum::http::StatusCode;
+use axum::http::{StatusCode, header::{ACCEPT_RANGES, CONTENT_RANGE, RANGE}};
 use axum::response::IntoResponse;
 use axum::routing::{any, get};
 use database::library_registry::{LibraryRegistry, ProtocolAdapter, SubsonicOpenMode};
@@ -36,6 +36,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex as StdMutex},
 };
+use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(target_os = "linux")]
 use std::{env, process::Command};
 use tempfile::TempDir;
@@ -56,7 +57,7 @@ use crate::{
         RequestFailureCause, SwitchRequest, VolumeRequest,
     },
     request_error::{ExpectedRequestError, classify},
-    utils::GlobalParams,
+    utils::{GlobalParams, subsonic_binding_for_playback},
     Signal,
     request_owner::Implementation,
     rpc::{Slot, UnsupportedReason, dispatch_gui_request},
@@ -77,8 +78,9 @@ use database::entities::media_metadata;
 use playback::{
     PlaybackMode,
     player::{
-        LibraryItem, MockPlayer, Playable, PlaybackSource, PlaybackState, PlayerStatus,
-        PlayingItem, UnavailableReason,
+        AudioPlaybackNote, AudioSourceMode, LibraryItem, MockPlayer, Playable,
+        PlaybackSource, PlaybackState, PlayerStatus, PlayingItem, RemoteAudioError, SubsonicItem,
+        UnavailableReason,
     },
     strategies::AddMode,
 };
@@ -95,15 +97,31 @@ use tokio_tungstenite::{accept_async, connect_async};
 #[derive(Clone)]
 struct SubsonicHubMock {
     calls: Arc<StdMutex<Vec<String>>>,
+    stream_ranges: Arc<StdMutex<Vec<Option<String>>>>,
+    reject_stream: Arc<AtomicBool>,
+    supports_ranges: Arc<AtomicBool>,
     reject_credentials: bool,
 }
 
 async fn subsonic_hub_mock(
     reject_credentials: bool,
-) -> (String, Arc<StdMutex<Vec<String>>>, JoinHandle<()>) {
+) -> (
+    String,
+    Arc<StdMutex<Vec<String>>>,
+    Arc<StdMutex<Vec<Option<String>>>>,
+    Arc<AtomicBool>,
+    Arc<AtomicBool>,
+    JoinHandle<()>,
+) {
     let calls = Arc::new(StdMutex::new(Vec::new()));
+    let stream_ranges = Arc::new(StdMutex::new(Vec::new()));
+    let reject_stream = Arc::new(AtomicBool::new(false));
+    let supports_ranges = Arc::new(AtomicBool::new(true));
     let state = SubsonicHubMock {
         calls: calls.clone(),
+        stream_ranges: stream_ranges.clone(),
+        reject_stream: reject_stream.clone(),
+        supports_ranges: supports_ranges.clone(),
         reject_credentials,
     };
     let app = Router::new()
@@ -112,7 +130,14 @@ async fn subsonic_hub_mock(
     let listener = TokioTcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    (format!("http://{address}"), calls, task)
+    (
+        format!("http://{address}"),
+        calls,
+        stream_ranges,
+        reject_stream,
+        supports_ranges,
+        task,
+    )
 }
 
 async fn unreachable_http_endpoint() -> Result<(String, JoinHandle<()>)> {
@@ -130,9 +155,49 @@ async fn subsonic_hub_response(
     AxumPath(action): AxumPath<String>,
     State(state): State<SubsonicHubMock>,
     Query(query): Query<HashMap<String, String>>,
+    headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
     let action = action.strip_suffix(".view").unwrap_or(&action).to_owned();
     state.calls.lock().unwrap().push(action.clone());
+    if action == "stream" {
+        let range = headers
+            .get(RANGE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
+        state.stream_ranges.lock().unwrap().push(range.clone());
+        if state.reject_stream.load(Ordering::Acquire) {
+            return axum::Json(json!({ "subsonic-response": { "status": "failed", "error": { "code": 40, "message": format!("rejected t={} s={} p=test-secret", query.get("t").map(String::as_str).unwrap_or_default(), query.get("s").map(String::as_str).unwrap_or_default()) } } })).into_response();
+        }
+        let bytes = include_bytes!("../../../../assets/startup_0.ogg");
+        if let Some(range) = range.as_deref().and_then(|value| value.strip_prefix("bytes=")) {
+            let (start, end) = range.split_once('-').unwrap_or(("0", ""));
+            let start = start.parse::<usize>().unwrap_or_default().min(bytes.len());
+            let end = end
+                .parse::<usize>()
+                .unwrap_or(bytes.len().saturating_sub(1))
+                .min(bytes.len().saturating_sub(1));
+            let body = if start <= end { &bytes[start..=end] } else { &bytes[0..0] };
+            return (
+                StatusCode::PARTIAL_CONTENT,
+                [(ACCEPT_RANGES, "bytes"), (
+                    CONTENT_RANGE,
+                    &format!("bytes {start}-{end}/{}", bytes.len()),
+                )],
+                body.to_vec(),
+            )
+                .into_response();
+        }
+        return if state.supports_ranges.load(Ordering::Acquire) {
+            (
+                StatusCode::OK,
+                [(ACCEPT_RANGES, "bytes")],
+                bytes.to_vec(),
+            )
+                .into_response()
+        } else {
+            (StatusCode::OK, bytes.to_vec()).into_response()
+        };
+    }
     let body = match action.as_str() {
         "ping" => {
             json!({ "subsonic-response": { "status": "ok", "version": "1.16.1", "openSubsonic": false } })
@@ -188,7 +253,7 @@ async fn subsonic_hub_response(
             json!({ "subsonic-response": { "status": "failed", "error": { "code": 70, "message": "unexpected action" } } })
         }
     };
-    axum::Json(body)
+    axum::Json(body).into_response()
 }
 
 
@@ -290,10 +355,11 @@ impl MixPlaybackTestRequest {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     use crate::messages::{
-        CapabilityReason, CollectionType, FetchAllPlaylistsRequest, FetchCollectionByIdsRequest,
+        CollectionType, FetchAllPlaylistsRequest, FetchCollectionByIdsRequest,
         FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
-        FetchMediaFileByIdsRequest, MixQueryRequest, OpenLibraryFailureKind, OpenLibraryRequest,
-        OpenLibraryResult, PlayRequest, SearchForRequest,
+        FetchMediaFileByIdsRequest, InLibraryPlayingItem, LoadResolvedItemsRequest,
+        MixQueryRequest, OpenLibraryFailureKind, OpenLibraryRequest, OpenLibraryResult,
+        SearchForRequest,
     };
     use database::library_registry::{
         CatalogPlacement, LibraryRecord, LibraryRecordId, LibraryRegistry, ProtocolAdapter,
@@ -305,7 +371,8 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let fixture = super::fixture(dir.path()).await?;
     let node = fixture.global_params.node.clone();
-    let (endpoint, calls, server) = subsonic_hub_mock(false).await;
+    let (endpoint, calls, stream_ranges, reject_stream, supports_ranges, server) =
+        subsonic_hub_mock(false).await;
     let credential = node
         .credentials
         .put(Credential {
@@ -349,6 +416,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
         node.current_library(),
         Ok(OpenLibrary::Subsonic(_))
     ));
+    assert!(matches!(node.current_player()?, CurrentPlayer::Local));
     let capabilities = capability_snapshot(&node)?;
     assert_eq!(
         capabilities.search_for_request,
@@ -367,12 +435,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
         capabilities.fetch_all_playlists_request,
         RequestCapability::Hidden
     );
-    assert_eq!(
-        capabilities.play_request,
-        RequestCapability::Disabled {
-            reason: CapabilityReason::AccountRoleMissing,
-        }
-    );
+    assert_eq!(capabilities.play_request, RequestCapability::Available);
     let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
     assert_eq!(registry.last_open_record, Some(record.record_id));
 
@@ -580,20 +643,126 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
         unsupported.downcast_ref::<ExpectedRequestError>(),
         Some(ExpectedRequestError::Unsupported { .. })
     ));
-    let player_before = fixture.global_params.player.lock().await.get_status().state;
-    let session_error = dispatch_gui_request(&fixture.global_params, &PlayRequest {
-            call_id: None,})
-        .await
-        .err()
-        .context("expected unsupported session request")?;
+    assert_eq!(calls.lock().unwrap().len(), calls_before_unsupported);
+    let load = LoadResolvedItemsRequest {
+        target_fingerprint: None,
+        items: vec![PlayingItemRequest {
+            in_library: Some(InLibraryPlayingItem {
+                file_id: search.tracks[0],
+            }),
+            independent_file: None,
+            library_item: None,
+            subsonic_item: None,
+        }],
+        start_index: Some(0),
+        mode: PlaylistOperateMode::Replace,
+        expected_revision: None,
+        playback_mode: Some(0),
+        position_seconds: Some(0.0),
+        play: Some(true),
+        call_id: None,
+    };
+    dispatch_gui_request(&fixture.global_params, &load).await?;
+    let playing = wait_player(&fixture, |status| {
+        status.state == PlaybackState::Playing
+            && matches!(status.item, Some(PlayingItem::Subsonic(_)))
+    })
+    .await?;
     assert!(matches!(
-        session_error.downcast_ref::<ExpectedRequestError>(),
-        Some(ExpectedRequestError::Unsupported { .. })
+        playing.item,
+        Some(PlayingItem::Subsonic(ref item))
+            if item.library_id == record.record_id.0 && item.track_id == "song-opaque"
     ));
-    assert_eq!(
-        fixture.global_params.player.lock().await.get_status().state,
-        player_before
-    );
+    fixture.global_params.player.lock().await.seek(1.0);
+    wait_player(&fixture, |status| {
+        status.position.as_secs_f64() >= 0.8
+            && status.item.as_ref().is_some_and(|playing| {
+                matches!(playing, PlayingItem::Subsonic(track) if track.track_id == "song-opaque")
+            })
+    })
+    .await?;
+    peer_step_with_timeout("Subsonic server receives a stream request", Duration::from_secs(10), async {
+        loop {
+            if !stream_ranges.lock().unwrap().is_empty() {
+                return Ok(());
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await?;
+    let session_store = Path::new(&*node.config_path).join("sessions/local.json");
+    peer_step_with_timeout(
+        "player session persists the Subsonic queue identity",
+        Duration::from_secs(10),
+        async {
+            loop {
+                if std::fs::read_to_string(&session_store)
+                    .is_ok_and(|contents| contents.contains("song-opaque"))
+                {
+                    return Ok(());
+                }
+                sleep(Duration::from_millis(20)).await;
+            }
+        },
+    )
+    .await?;
+    let stored = std::fs::read_to_string(session_store)?;
+    assert!(stored.contains("song-opaque"));
+    for secret_marker in ["t=", "s=", "p=", "test-secret"] {
+        assert!(!stored.contains(secret_marker));
+        assert!(!format!("{playing:?}").contains(secret_marker));
+    }
+    let item = PlayingItem::Subsonic(SubsonicItem {
+        library_id: record.record_id.0,
+        track_id: "song-opaque".to_owned(),
+    });
+    let dart_message = serde_json::to_string(
+        &playing_item_requests(std::slice::from_ref(&item), &node.library_pool, None).await,
+    )?;
+    assert!(dart_message.contains("song-opaque"));
+    for secret_marker in ["t=", "s=", "p=", "test-secret"] {
+        assert!(!dart_message.contains(secret_marker));
+    }
+    let restored: SessionState = serde_json::from_str(&stored)?;
+    assert_eq!(restored.tracks()[0].0, item);
+    assert_eq!(restored.tracks()[0].0, PlayingItem::Subsonic(SubsonicItem {
+        library_id: record.record_id.0,
+        track_id: "song-opaque".to_owned(),
+    }));
+    fixture.global_params.player.lock().await.stop();
+    let binding = subsonic_binding_for_playback(&node, record.record_id.0).await?;
+    let source = binding.playback_source(SubsonicItem {
+        library_id: record.record_id.0,
+        track_id: "song-opaque".to_owned(),
+    }).await?;
+    let ranged = source.request.get(Some((12, Some(23)))).await?;
+    assert_eq!(ranged.status(), StatusCode::PARTIAL_CONTENT);
+    assert!(stream_ranges.lock().unwrap().iter().any(Option::is_some));
+    wait_player(&fixture, |status| status.state == PlaybackState::Stopped).await?;
+    supports_ranges.store(false, Ordering::Release);
+    assert!(matches!(
+        source.request.prepare().await?,
+        AudioSourceMode::Buffered {
+            bytes,
+            note: AudioPlaybackNote::RangeUnsupportedBuffered,
+        } if !bytes.is_empty()
+    ));
+    supports_ranges.store(true, Ordering::Release);
+    reject_stream.store(true, Ordering::Release);
+    let rejected = source.request.get(Some((12, Some(23)))).await.unwrap_err();
+    assert!(matches!(
+        rejected.downcast_ref::<RemoteAudioError>(),
+        Some(RemoteAudioError::CredentialsRejected)
+    ));
+    for secret_marker in ["t=", "s=", "p=", "test-secret"] {
+        assert!(!format!("{rejected:#}").contains(secret_marker));
+    }
+    dispatch_gui_request(&fixture.global_params, &load).await?;
+    wait_player(&fixture, |status| {
+        status.unavailable_reasons.get(&item) == Some(&UnavailableReason::CredentialsRejected)
+    })
+    .await?;
+    let calls_before_unknown = calls.lock().unwrap().len();
     let unknown = dispatch_gui_request(
         &fixture.global_params,
         &FetchMediaFileByIdsRequest {
@@ -609,9 +778,9 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
         unknown.downcast_ref::<ExpectedRequestError>(),
         Some(ExpectedRequestError::InvalidInput { .. })
     ));
-    assert_eq!(calls.lock().unwrap().len(), calls_before_unsupported);
+    assert_eq!(calls.lock().unwrap().len(), calls_before_unknown);
 
-    let (bad_endpoint, bad_calls, bad_server) = subsonic_hub_mock(true).await;
+    let (bad_endpoint, bad_calls, _, _, _, bad_server) = subsonic_hub_mock(true).await;
     let bad_credential = node
         .credentials
         .put(Credential {
@@ -689,6 +858,17 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     assert!(
         matches!(unreachable.result, OpenLibraryResult::Failed(failure) if failure.kind == OpenLibraryFailureKind::RemoteUnreachable)
     );
+
+    reject_stream.store(false, Ordering::Release);
+    let fixture = reopen_fixture(&fixture).await?;
+    let node = fixture.global_params.node.clone();
+    wait_player(&fixture, |status| status.playlist.contains(&item)).await?;
+    fixture.global_params.player.lock().await.play();
+    let restored_playing = wait_player(&fixture, |status| {
+        status.state == PlaybackState::Playing && status.item.as_ref() == Some(&item)
+    })
+    .await?;
+    assert!(matches!(restored_playing.item, Some(PlayingItem::Subsonic(_))));
 
     unreachable_server.abort();
     server.abort();
@@ -1854,6 +2034,7 @@ async fn attached_mix_query_rejects_items_outside_renderer_libraries() -> Result
             }),
             in_library: None,
             library_item: None,
+            subsonic_item: None,
         }],
         expected_revision: None,
         cast_to: None,
@@ -2148,6 +2329,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
             library_item: Some(host_items[1].into()),
             in_library: None,
             independent_file: None,
+            subsonic_item: None,
         }],
         expected_revision: None,
         cast_to: Some(CastTarget {
@@ -2718,6 +2900,7 @@ async fn playback_boundary_uses_current_library_and_maps_online_to_unknown_shape
             in_library: Some(InLibraryPlayingItem { file_id: id }),
             independent_file: None,
             library_item: None,
+            subsonic_item: None,
         },
         Some(library),
     )
@@ -2775,6 +2958,7 @@ async fn playback_boundary_uses_current_library_and_maps_online_to_unknown_shape
         in_library: None,
         independent_file: None,
         library_item: Some(other.into()),
+        subsonic_item: None,
     };
     assert_eq!(
         playing_item_from_request(other_request, None).await?,
@@ -2787,6 +2971,7 @@ async fn playback_boundary_uses_current_library_and_maps_online_to_unknown_shape
             library_id: other.library_id.to_string(),
             file_uuid: "bad-file-uuid".into(),
         }),
+        subsonic_item: None,
     };
     let error = playing_item_from_request(malformed, None)
         .await
@@ -5338,6 +5523,39 @@ fn session_snapshot_rejects_independent_files() {
     ));
 }
 
+#[test]
+fn session_snapshot_rejects_subsonic_tracks_without_mutating_the_queue() {
+    let subsonic_item = SubsonicItem {
+        library_id: Uuid::new_v4(),
+        track_id: "remote-track".to_owned(),
+    };
+    let item = PlayingItem::Subsonic(subsonic_item.clone());
+    let mut status = MockPlayer.get_status();
+    status.playlist.push(item.clone());
+    let original = status.playlist.clone();
+    let error = match session_snapshot_from_status(status.clone(), 0) {
+        Ok(_) => panic!("Subsonic track unexpectedly appeared in a handoff snapshot"),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        error.downcast_ref::<ExpectedRequestError>(),
+        Some(ExpectedRequestError::Unavailable {
+            what: "handing off files outside a library"
+        })
+    ));
+    assert_eq!(status.playlist, original);
+    let encoded = serde_json::to_string(&PlayingItemRequest {
+        in_library: None,
+        independent_file: None,
+        library_item: None,
+        subsonic_item: Some(subsonic_item.into()),
+    })
+    .unwrap();
+    for secret_marker in ["t=", "s=", "p=", "password"] {
+        assert!(!encoded.contains(secret_marker));
+    }
+}
+
 #[tokio::test]
 async fn playback_snapshot_waits_for_accepted_queue_changes() -> Result<()> {
     let temp = tempfile::tempdir()?;
@@ -5701,6 +5919,7 @@ async fn remote_independent_file_lyrics_are_refused() -> Result<()> {
                 raw_path: outside_audio.to_string_lossy().into_owned(),
             }),
             library_item: None,
+            subsonic_item: None,
         }),
     };
     let (response_name, response_payload) = socket_request_for_library(
@@ -6733,6 +6952,11 @@ async fn subsonic_registration_resolves_mode_stores_secret_and_deduplicates() ->
     assert_eq!(registration.outcome, RegisterLibraryOutcome::Registered);
     let summary = registration.record.context("registered Subsonic record")?;
     assert_eq!(summary.alias, "Remote music");
+    let _ui = open_registered_library_record(node.clone(), summary.record_id.clone()).await?;
+    assert!(matches!(
+        node.current_player()?,
+        CurrentPlayer::SubsonicJukebox(_)
+    ));
     let registry = LibraryRegistry::load(PathBuf::from(&*node.config_path).as_path())?;
     let stored = registry
         .libraries
@@ -7950,12 +8174,21 @@ async fn request_scopes_resolve_to_the_current_implementations() -> Result<()> {
         )
         .await;
         assert_eq!(opened.result, OpenLibraryResult::Opened);
-        assert_scopes!(
-            subsonic_node.global_params.node,
-            "Subsonic",
-            "Subsonic",
-            if jukebox { "Subsonic jukebox" } else { "Subsonic without jukebox" }
-        );
+        if jukebox {
+            assert_scopes!(
+                subsonic_node.global_params.node,
+                "Subsonic",
+                "Subsonic",
+                "Subsonic jukebox"
+            );
+        } else {
+            assert_scopes!(
+                subsonic_node.global_params.node,
+                "Subsonic",
+                "Local",
+                "Subsonic on-device playback"
+            );
+        }
         server.task.abort();
         subsonic_node.global_params.node.shutdown().await?;
     }

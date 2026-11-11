@@ -29,7 +29,7 @@ use fsio::FsIo;
 use playback::{
     controller::{MediaControlManager, handle_media_control_event},
     player::{
-        Playable, PlaybackState, Player, PlayerStatus, PlayingItem, PlaylistStatus,
+        Playable, PlaybackState, Player, PlayerStatus, PlayingItem, PlaylistStatus, SubsonicItem,
         UnavailableReason,
     },
 };
@@ -62,6 +62,7 @@ use crate::{
             metadata_summary_to_scrobbling_track, update_media_controls_metadata,
             update_media_controls_progress,
         },
+        subsonic_binding_for_playback,
     },
     visualizer::{VISUALIZER, playing_cover_changed},
 };
@@ -657,6 +658,9 @@ async fn handle_status_event(
                         Err(error) => Err(error),
                     }
                 }
+                PlayingItem::Subsonic(identity) => {
+                    subsonic_item_metadata(node, identity, true).await
+                }
                 _ => item_metadata(node, item, true).await,
             };
             if let Ok((metadata, cover)) = result {
@@ -783,6 +787,9 @@ async fn item_metadata(
     item: &PlayingItem,
     with_cover: bool,
 ) -> Result<(PlayingItemMetadataSummary, Option<String>)> {
+    if let PlayingItem::Subsonic(identity) = item {
+        return subsonic_item_metadata(node, identity, with_cover).await;
+    }
     if let PlayingItem::InLibrary(identity) = item {
         let library = node.library_pool.acquire(identity.library_id).await?;
         return item_metadata_from_library(item, with_cover, &library).await;
@@ -811,6 +818,34 @@ async fn item_metadata(
         };
         Ok((metadata, cover))
     }
+}
+
+async fn subsonic_item_metadata(
+    node: &NodeContext,
+    item: &SubsonicItem,
+    with_cover: bool,
+) -> Result<(PlayingItemMetadataSummary, Option<String>)> {
+    let binding = subsonic_binding_for_playback(node, item.library_id).await?;
+    let song = binding.song(&item.track_id).await?;
+    let summary = PlayingItemMetadataSummary {
+        item: PlayingItem::Subsonic(item.clone()),
+        artist: song.artist.unwrap_or_else(|| "Unknown Artist".to_owned()),
+        album: song.album.unwrap_or_else(|| "Unknown Album".to_owned()),
+        title: if song.title.is_empty() {
+            "Unknown Title".to_owned()
+        } else {
+            song.title
+        },
+        track_number: song
+            .track
+            .and_then(|number| i32::try_from(number).ok())
+            .unwrap_or_default(),
+        duration: f64::from(song.duration.unwrap_or_default()),
+    };
+    let cover = with_cover
+        .then(|| binding.cover_path(song.cover_art.as_deref()))
+        .flatten();
+    Ok((summary, cover))
 }
 
 async fn item_metadata_from_library(
@@ -884,6 +919,7 @@ async fn send_playlist(
 ) {
     let mut library_items = HashMap::<Uuid, Vec<PlayingItem>>::new();
     let mut independent_items = Vec::new();
+    let mut subsonic_items = Vec::new();
     for item in &playlist.items {
         match item {
             PlayingItem::InLibrary(identity) => {
@@ -892,6 +928,7 @@ async fn send_playlist(
                     .or_default()
                     .push(item.clone());
             }
+            PlayingItem::Subsonic(_) => subsonic_items.push(item.clone()),
             _ => independent_items.push(item.clone()),
         }
     }
@@ -930,6 +967,14 @@ async fn send_playlist(
                     .into_iter()
                     .map(|summary| (summary.item.clone(), summary)),
             );
+        }
+    }
+
+    for item in subsonic_items {
+        if let PlayingItem::Subsonic(identity) = &item
+            && let Ok((summary, _)) = subsonic_item_metadata(node, identity, false).await
+        {
+            metadata.insert(item, summary);
         }
     }
 

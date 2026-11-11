@@ -65,6 +65,19 @@ pub enum SubsonicError {
     InvalidJukeboxGain,
 }
 
+/// Safe classifications for stream failures; these values never contain a URL or credentials.
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+pub enum StreamError {
+    #[error("Subsonic stream is unreachable")]
+    Unreachable,
+    #[error("Subsonic credentials were rejected")]
+    CredentialsRejected,
+    #[error("Subsonic track is no longer available")]
+    TrackGone,
+    #[error("Subsonic stream was rejected")]
+    Rejected,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SubsonicServerError {
     Generic,
@@ -422,6 +435,66 @@ impl SubsonicClient {
         }
         url.query_pairs_mut().extend_pairs(query);
         url
+    }
+
+    /// Fetch stream bytes without returning or exposing the authenticated URL.
+    pub async fn stream(
+        &self,
+        song_id: &str,
+        range: Option<(u64, Option<u64>)>,
+    ) -> Result<reqwest::Response, StreamError> {
+        let url = self.stream_url(song_id, StreamOptions::default());
+        let mut request = self.http.get(url);
+        if let Some((start, end)) = range {
+            let value = match end {
+                Some(end) => format!("bytes={start}-{end}"),
+                None => format!("bytes={start}-"),
+            };
+            request = request.header(reqwest::header::RANGE, value);
+        }
+        let response = request.send().await.map_err(|_| StreamError::Unreachable)?;
+        let status = response.status();
+        if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+            return Err(StreamError::CredentialsRejected);
+        }
+        if status == StatusCode::NOT_FOUND || status == StatusCode::GONE {
+            return Err(StreamError::TrackGone);
+        }
+        if status.is_server_error() {
+            return Err(StreamError::Unreachable);
+        }
+        if !status.is_success() && status != StatusCode::PARTIAL_CONTENT {
+            return Err(StreamError::Rejected);
+        }
+        if response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.contains("json"))
+        {
+            let bytes = response
+                .bytes()
+                .await
+                .map_err(|_| StreamError::Unreachable)?;
+            if let Ok(envelope) = serde_json::from_slice::<RawEnvelope>(&bytes)
+                && envelope.response.status == "failed"
+            {
+                let error = envelope.response.error;
+                return Err(
+                    match error.map(|error| SubsonicServerError::from(error.code)) {
+                        Some(
+                            SubsonicServerError::WrongCredentials
+                            | SubsonicServerError::NotAuthorized
+                            | SubsonicServerError::InvalidApiKey,
+                        ) => StreamError::CredentialsRejected,
+                        Some(SubsonicServerError::NotFound) => StreamError::TrackGone,
+                        _ => StreamError::Rejected,
+                    },
+                );
+            }
+            return Err(StreamError::Rejected);
+        }
+        Ok(response)
     }
 
     /// Build a cover-art URL with the same authentication parameters used by requests.

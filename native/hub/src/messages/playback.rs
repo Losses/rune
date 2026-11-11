@@ -1,5 +1,5 @@
-use playback::player::LibraryItem;
 use playback::player::UnavailableReason;
+use playback::player::{LibraryItem, SubsonicItem};
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
@@ -119,7 +119,8 @@ impl From<UnavailableReason> for PlaylistUnavailableReason {
             UnavailableReason::AccessRevoked => Self::AccessRevoked,
             UnavailableReason::LibraryUnavailable => Self::LibraryUnavailable,
             UnavailableReason::SourceUnreachable => Self::SourceUnreachable,
-            UnavailableReason::Unreadable => Self::Unreadable,
+            UnavailableReason::Unreadable | UnavailableReason::TrackGone => Self::Unreadable,
+            UnavailableReason::CredentialsRejected => Self::AccessRevoked,
         }
     }
 }
@@ -261,6 +262,21 @@ pub struct LibraryItemRequest {
     pub file_uuid: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, SignalPiece)]
+pub struct SubsonicItemRequest {
+    pub library_id: String,
+    pub track_id: String,
+}
+
+impl From<SubsonicItem> for SubsonicItemRequest {
+    fn from(item: SubsonicItem) -> Self {
+        Self {
+            library_id: item.library_id.to_string(),
+            track_id: item.track_id,
+        }
+    }
+}
+
 impl From<LibraryItem> for LibraryItemRequest {
     fn from(item: LibraryItem) -> Self {
         Self {
@@ -275,6 +291,8 @@ pub struct PlayingItemRequest {
     pub in_library: Option<InLibraryPlayingItem>,
     pub independent_file: Option<IndependentFilePlayingItem>,
     pub library_item: Option<LibraryItemRequest>,
+    #[serde(default)]
+    pub subsonic_item: Option<SubsonicItemRequest>,
 }
 
 impl From<LibraryItemRequest> for PlayingItemRequest {
@@ -283,6 +301,7 @@ impl From<LibraryItemRequest> for PlayingItemRequest {
             in_library: None,
             independent_file: None,
             library_item: Some(library_item),
+            subsonic_item: None,
         }
     }
 }

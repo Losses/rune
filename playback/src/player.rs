@@ -30,6 +30,10 @@ pub enum UnavailableReason {
     SourceUnreachable,
     /// The reachable source could not be probed or decoded as audio.
     Unreadable,
+    /// The remote service rejected the stored credentials during playback.
+    CredentialsRejected,
+    /// The remote catalog no longer has this track.
+    TrackGone,
 }
 
 /// Underlying cause kept on [`RemoteAudioError::Unreachable`] for diagnostics.
@@ -46,6 +50,10 @@ pub enum RemoteAudioError {
     Incomplete,
     #[error("library unavailable")]
     LibraryUnavailable,
+    #[error("remote credentials were rejected")]
+    CredentialsRejected,
+    #[error("remote track is no longer available")]
+    TrackGone,
 }
 
 impl RemoteAudioError {
@@ -65,6 +73,8 @@ impl UnavailableReason {
                         Self::SourceUnreachable
                     }
                     RemoteAudioError::LibraryUnavailable => Self::LibraryUnavailable,
+                    RemoteAudioError::CredentialsRejected => Self::CredentialsRejected,
+                    RemoteAudioError::TrackGone => Self::TrackGone,
                 };
             }
         }
@@ -103,9 +113,17 @@ pub struct LibraryItem {
     pub file_uuid: Uuid,
 }
 
+/// A track in a Subsonic catalog, addressed without carrying authorization data.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SubsonicItem {
+    pub library_id: Uuid,
+    pub track_id: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PlayingItem {
     InLibrary(LibraryItem),
+    Subsonic(SubsonicItem),
     /// This is the raw content, on native platform it
     /// is the path, on Android, it is the Content URI
     IndependentFile(String),
@@ -121,6 +139,11 @@ impl fmt::Display for PlayingItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             PlayingItem::InLibrary(item) => write!(f, "PlayingItem::InLibrary({})", item.file_uuid),
+            PlayingItem::Subsonic(item) => write!(
+                f,
+                "PlayingItem::Subsonic({}, {})",
+                item.library_id, item.track_id
+            ),
             PlayingItem::IndependentFile(path) => {
                 write!(f, "PlayingItem::IndependentFile({path})")
             }
@@ -157,10 +180,27 @@ impl PlaybackSource {
 /// Caller-owned capability for a fixed remote resource. Each request may renew
 /// authorization; byte-range ends are inclusive.
 pub trait AudioRequest: Send + Sync {
+    fn prepare(&self) -> BoxFuture<'static, Result<AudioSourceMode>> {
+        Box::pin(async { Ok(AudioSourceMode::Ranged) })
+    }
+
     fn get(
         &self,
         range: Option<(u64, Option<u64>)>,
     ) -> BoxFuture<'static, Result<reqwest::Response>>;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AudioPlaybackNote {
+    RangeUnsupportedBuffered,
+}
+
+pub enum AudioSourceMode {
+    Ranged,
+    Buffered {
+        bytes: Vec<u8>,
+        note: AudioPlaybackNote,
+    },
 }
 
 pub struct RemoteAudioSource {
@@ -197,6 +237,13 @@ pub trait PlaybackSourceResolver: Send + Sync {
         Box::pin(async { Ok(false) })
     }
     fn resolve(&self, id: i32) -> BoxFuture<'static, Result<RemoteAudioSource>>;
+
+    fn resolve_subsonic(
+        &self,
+        _item: SubsonicItem,
+    ) -> BoxFuture<'static, Result<RemoteAudioSource>> {
+        Box::pin(async { anyhow::bail!("Subsonic playback resolver unavailable") })
+    }
 }
 
 #[derive(Debug, Clone)]

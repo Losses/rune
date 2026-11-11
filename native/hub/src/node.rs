@@ -747,6 +747,10 @@ impl NodeContext {
             UiLibrary::Open(OpenLibraryState {
                 catalog: LibraryBinding::Subsonic(binding),
                 ..
+            }) if binding.play_on_this_device => CurrentPlayer::Local,
+            UiLibrary::Open(OpenLibraryState {
+                catalog: LibraryBinding::Subsonic(binding),
+                ..
             }) => CurrentPlayer::SubsonicJukebox(Arc::clone(binding)),
             _ => match self.renderer_link()? {
                 Some(link) => CurrentPlayer::RunePeer {
@@ -806,6 +810,37 @@ impl NodeContext {
         binding: Arc<SubsonicBinding>,
     ) -> Result<u64> {
         self.set_open_catalog(record_id, LibraryBinding::Subsonic(binding))
+    }
+
+    pub(crate) fn subsonic_binding(
+        &self,
+        library_id: Uuid,
+    ) -> Result<Option<Arc<SubsonicBinding>>> {
+        let ui = self
+            .ui_library
+            .lock()
+            .map_err(|_| anyhow::anyhow!("UI library lock poisoned"))?;
+        Ok(match &*ui {
+            UiLibrary::Open(OpenLibraryState {
+                catalog: LibraryBinding::Subsonic(binding),
+                ..
+            }) if binding.library_id == library_id => Some(Arc::clone(binding)),
+            _ => None,
+        })
+    }
+
+    pub(crate) fn open_subsonic_binding(&self) -> Result<Option<Arc<SubsonicBinding>>> {
+        let ui = self
+            .ui_library
+            .lock()
+            .map_err(|_| anyhow::anyhow!("UI library lock poisoned"))?;
+        Ok(match &*ui {
+            UiLibrary::Open(OpenLibraryState {
+                catalog: LibraryBinding::Subsonic(binding),
+                ..
+            }) => Some(Arc::clone(binding)),
+            _ => None,
+        })
     }
 
     fn set_open_catalog(

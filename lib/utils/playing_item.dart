@@ -4,6 +4,8 @@ class PlayingItem {
   final int? inLibrary;
   final String? libraryId;
   final String? fileUuid;
+  final String? subsonicLibraryId;
+  final String? subsonicTrackId;
   final String? independentFile;
   final bool isUnknown;
 
@@ -11,6 +13,8 @@ class PlayingItem {
     this.inLibrary,
     this.libraryId,
     this.fileUuid,
+    this.subsonicLibraryId,
+    this.subsonicTrackId,
     this.independentFile,
     this.isUnknown = false,
   });
@@ -20,6 +24,10 @@ class PlayingItem {
     required String libraryId,
     required String fileUuid,
   }) : this._(libraryId: libraryId, fileUuid: fileUuid);
+  const PlayingItem.subsonicTrack({
+    required String libraryId,
+    required String trackId,
+  }) : this._(subsonicLibraryId: libraryId, subsonicTrackId: trackId);
   const PlayingItem.independentFile(String path)
       : this._(independentFile: path);
   const PlayingItem.unknown() : this._(isUnknown: true);
@@ -32,8 +40,14 @@ class PlayingItem {
     final inLibrary = request.inLibrary;
     final independentFile = request.independentFile;
     final libraryItem = request.libraryItem;
+    final subsonicItem = request.subsonicItem;
 
-    if (inLibrary != null && inLibrary.fileId != 0) {
+    if (subsonicItem != null) {
+      return PlayingItem.subsonicTrack(
+        libraryId: subsonicItem.libraryId,
+        trackId: subsonicItem.trackId,
+      );
+    } else if (inLibrary != null && inLibrary.fileId != 0) {
       return PlayingItem.inLibrary(inLibrary.fileId);
     } else if (libraryItem != null) {
       return PlayingItem.libraryItem(
@@ -55,12 +69,15 @@ class PlayingItem {
           inLibrary == other.inLibrary &&
           libraryId == other.libraryId &&
           fileUuid == other.fileUuid &&
+          subsonicLibraryId == other.subsonicLibraryId &&
+          subsonicTrackId == other.subsonicTrackId &&
           independentFile == other.independentFile &&
           isUnknown == other.isUnknown;
 
   @override
   int get hashCode =>
-      Object.hash(inLibrary, libraryId, fileUuid, independentFile, isUnknown);
+      Object.hash(inLibrary, libraryId, fileUuid, subsonicLibraryId,
+          subsonicTrackId, independentFile, isUnknown);
 
   static const independentFilePrefix = 'PlayingItem::IndependentFile(';
 
@@ -88,6 +105,8 @@ class PlayingItem {
       return 'PlayingItem::IndependentFile($independentFile)';
     } else if (libraryId != null && fileUuid != null) {
       return 'PlayingItem::LibraryItem($libraryId, $fileUuid)';
+    } else if (subsonicLibraryId != null && subsonicTrackId != null) {
+      return 'PlayingItem::Subsonic($subsonicLibraryId, $subsonicTrackId)';
     } else if (isUnknown) {
       return 'PlayingItem::Unknown()';
     }
@@ -110,6 +129,16 @@ extension PlayingItemExtension on PlayingItem {
         libraryItem: LibraryItemRequest(
           libraryId: libraryId!,
           fileUuid: fileUuid!,
+        ),
+      );
+    } else if (subsonicLibraryId != null && subsonicTrackId != null) {
+      return PlayingItemRequest(
+        inLibrary: null,
+        independentFile: null,
+        libraryItem: null,
+        subsonicItem: SubsonicItemRequest(
+          libraryId: subsonicLibraryId!,
+          trackId: subsonicTrackId!,
         ),
       );
     } else if (independentFile != null) {

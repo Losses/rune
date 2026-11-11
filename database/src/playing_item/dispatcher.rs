@@ -189,7 +189,7 @@ impl PlayingItemActionDispatcher {
                     .get_cover_art_primary_color(fsio, lib_path, main_db, item)
                     .await
             }
-            PlayingItem::Unknown => None,
+            PlayingItem::Subsonic(_) | PlayingItem::Unknown => None,
         }
     }
 }

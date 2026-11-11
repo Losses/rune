@@ -10,6 +10,11 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use anyhow::Result;
+use futures::future::BoxFuture;
+use playback::player::{
+    AudioPlaybackNote, AudioRequest, AudioSourceMode, RemoteAudioError, RemoteAudioSource,
+    SubsonicItem, UnavailableReason,
+};
 use subsonic::{SubsonicAlbum, SubsonicArtist, SubsonicClient, SubsonicSong};
 
 use crate::request_error::ExpectedRequestError;
@@ -63,6 +68,8 @@ impl SubsonicIdMap {
 }
 
 pub(crate) struct SubsonicBinding {
+    pub(crate) library_id: Uuid,
+    pub(crate) play_on_this_device: bool,
     pub(crate) client: Arc<SubsonicClient>,
     pub(crate) probe: subsonic::SubsonicProbe,
     pub(crate) catalog: Mutex<SubsonicCatalog>,
@@ -229,9 +236,12 @@ impl SubsonicBinding {
         probe: subsonic::SubsonicProbe,
         config_dir: PathBuf,
         library_id: Uuid,
+        play_on_this_device: bool,
         broadcaster: Arc<dyn Broadcaster>,
     ) -> Self {
         Self {
+            library_id,
+            play_on_this_device,
             client: Arc::new(client),
             probe,
             catalog: Mutex::new(SubsonicCatalog::default()),
@@ -245,6 +255,160 @@ impl SubsonicBinding {
                 broadcaster,
             }),
         }
+    }
+
+    pub(crate) async fn playback_source(
+        self: &Arc<Self>,
+        item: SubsonicItem,
+    ) -> Result<RemoteAudioSource> {
+        let song = self
+            .client
+            .song(&item.track_id)
+            .await
+            .map_err(subsonic_playback_error)?;
+        let extension = song
+            .suffix
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "audio".to_owned());
+        let cancellation = CancellationToken::new();
+        let failure_reason = Arc::new(Mutex::new(None));
+        Ok(RemoteAudioSource {
+            request: Arc::new(SubsonicAudioRequest {
+                client: Arc::clone(&self.client),
+                track_id: item.track_id,
+                failure_reason: failure_reason.clone(),
+            }),
+            // The request capability owns the authenticated URL. This parse-only URL has no
+            // query, credentials, or server identity and is never requested directly.
+            url: "https://subsonic.invalid/rest/stream".to_owned(),
+            extension,
+            size: song.size.unwrap_or_default(),
+            cancellation,
+            failure_reason,
+        })
+    }
+
+    pub(crate) async fn song(&self, track_id: &str) -> Result<SubsonicSong> {
+        self.client
+            .song(track_id)
+            .await
+            .map_err(subsonic_playback_error)
+    }
+
+    pub(crate) fn cover_path(&self, cover_id: Option<&str>) -> Option<String> {
+        let cover_id = cover_id?;
+        self.covers
+            .schedule(Arc::clone(&self.client), cover_id.to_owned());
+        self.covers.cached_path(cover_id)
+    }
+
+    pub(crate) fn track_id(&self, id: i32) -> Result<String> {
+        self.catalog
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Subsonic catalog lock poisoned"))?
+            .ids
+            .resolve(SubsonicIdKind::Track, id)
+            .map(str::to_owned)
+    }
+}
+
+struct SubsonicAudioRequest {
+    client: Arc<SubsonicClient>,
+    track_id: String,
+    failure_reason: Arc<std::sync::Mutex<Option<UnavailableReason>>>,
+}
+
+impl AudioRequest for SubsonicAudioRequest {
+    fn prepare(&self) -> BoxFuture<'static, Result<AudioSourceMode>> {
+        let client = Arc::clone(&self.client);
+        let track_id = self.track_id.clone();
+        let failure_reason = self.failure_reason.clone();
+        Box::pin(async move {
+            let response = client
+                .stream(&track_id, None)
+                .await
+                .map_err(|error| stream_playback_error(error, &failure_reason))?;
+            let supports_range = response
+                .headers()
+                .get(reqwest::header::ACCEPT_RANGES)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| value.eq_ignore_ascii_case("bytes"));
+            if supports_range {
+                return Ok(AudioSourceMode::Ranged);
+            }
+            let bytes = response.bytes().await.map_err(|_| {
+                if let Ok(mut reason) = failure_reason.lock() {
+                    *reason = Some(UnavailableReason::SourceUnreachable);
+                }
+                anyhow::Error::new(RemoteAudioError::unreachable("Subsonic server unreachable"))
+            })?;
+            Ok(AudioSourceMode::Buffered {
+                bytes: bytes.to_vec(),
+                note: AudioPlaybackNote::RangeUnsupportedBuffered,
+            })
+        })
+    }
+
+    fn get(
+        &self,
+        range: Option<(u64, Option<u64>)>,
+    ) -> BoxFuture<'static, Result<reqwest::Response>> {
+        let client = Arc::clone(&self.client);
+        let track_id = self.track_id.clone();
+        let failure_reason = self.failure_reason.clone();
+        Box::pin(async move {
+            client
+                .stream(&track_id, range)
+                .await
+                .map_err(|error| stream_playback_error(error, &failure_reason))
+        })
+    }
+}
+
+fn stream_playback_error(
+    error: subsonic::StreamError,
+    failure_reason: &std::sync::Mutex<Option<UnavailableReason>>,
+) -> anyhow::Error {
+    let (reason, failure) = match error {
+        subsonic::StreamError::Unreachable => (
+            UnavailableReason::SourceUnreachable,
+            RemoteAudioError::unreachable("Subsonic server unreachable"),
+        ),
+        subsonic::StreamError::CredentialsRejected => (
+            UnavailableReason::CredentialsRejected,
+            RemoteAudioError::CredentialsRejected,
+        ),
+        subsonic::StreamError::TrackGone => {
+            (UnavailableReason::TrackGone, RemoteAudioError::TrackGone)
+        }
+        subsonic::StreamError::Rejected => (
+            UnavailableReason::SourceUnreachable,
+            RemoteAudioError::unreachable("Subsonic stream rejected"),
+        ),
+    };
+    if let Ok(mut stored) = failure_reason.lock() {
+        *stored = Some(reason);
+    }
+    anyhow::Error::new(failure)
+}
+
+fn subsonic_playback_error(error: subsonic::SubsonicError) -> anyhow::Error {
+    match error {
+        subsonic::SubsonicError::Transport(_) | subsonic::SubsonicError::HttpStatus(_) => {
+            anyhow::Error::new(RemoteAudioError::unreachable("Subsonic server unreachable"))
+        }
+        subsonic::SubsonicError::Server {
+            kind:
+                subsonic::SubsonicServerError::WrongCredentials
+                | subsonic::SubsonicServerError::NotAuthorized
+                | subsonic::SubsonicServerError::InvalidApiKey,
+            ..
+        } => anyhow::Error::new(RemoteAudioError::CredentialsRejected),
+        subsonic::SubsonicError::Server {
+            kind: subsonic::SubsonicServerError::NotFound,
+            ..
+        } => anyhow::Error::new(RemoteAudioError::TrackGone),
+        _ => anyhow::Error::new(RemoteAudioError::TrackGone),
     }
 }
 

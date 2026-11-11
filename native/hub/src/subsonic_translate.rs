@@ -875,6 +875,7 @@ mod tests {
             },
             root.path().to_path_buf(),
             Uuid::new_v4(),
+            false,
             Arc::new(QuietBroadcaster),
         );
         (
