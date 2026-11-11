@@ -1,7 +1,7 @@
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
-use super::playback::PlayingItemRequest;
+use super::playback::PlayingItemRef;
 
 #[derive(Clone, Serialize, Deserialize, SignalPiece)]
 pub struct LyricContentLine {
@@ -19,14 +19,14 @@ pub struct LyricContentLineSection {
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct GetLyricByTrackIdRequest {
-    pub item: Option<PlayingItemRequest>,
+    pub item: Option<PlayingItemRef>,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
 
 #[derive(Clone, Serialize, Deserialize, RustSignal)]
 pub struct GetLyricByTrackIdResponse {
-    pub item: PlayingItemRequest,
+    pub item: PlayingItemRef,
     pub lines: Vec<LyricContentLine>,
     #[serde(default)]
     pub call_id: Option<u64>,

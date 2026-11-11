@@ -6,6 +6,7 @@ use std::{
 use anyhow::Result;
 use async_trait::async_trait;
 use sea_orm::DatabaseConnection;
+use uuid::Uuid;
 
 use fsio::FsIo;
 use playback::player::PlayingItem;
@@ -27,7 +28,7 @@ pub async fn extract_in_library_ids(
     let file_uuids = items
         .iter()
         .filter_map(|item| match item {
-            PlayingItem::InLibrary(item) => Some(item.file_uuid),
+            PlayingItem::LibraryTrack { track, .. } => Uuid::parse_str(track).ok(),
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -35,9 +36,9 @@ pub async fn extract_in_library_ids(
     Ok(items
         .iter()
         .filter_map(|item| match item {
-            PlayingItem::InLibrary(identity) => {
-                ids.get(&identity.file_uuid).map(|id| (item.clone(), *id))
-            }
+            PlayingItem::LibraryTrack { track, .. } => Uuid::parse_str(track)
+                .ok()
+                .and_then(|file_uuid| ids.get(&file_uuid).map(|id| (item.clone(), *id))),
             _ => None,
         })
         .collect())
@@ -163,11 +164,14 @@ impl PlayingFileMetadataProvider for LibraryItemProcessor {
         item: &PlayingItem,
     ) -> Option<i32> {
         let track_id = match item {
-            PlayingItem::InLibrary(identity) => file_ids_by_uuid(main_db, &[identity.file_uuid])
-                .await
-                .ok()?
-                .get(&identity.file_uuid)
-                .copied(),
+            PlayingItem::LibraryTrack { track, .. } => {
+                let file_uuid = Uuid::parse_str(track).ok()?;
+                file_ids_by_uuid(main_db, &[file_uuid])
+                    .await
+                    .ok()?
+                    .get(&file_uuid)
+                    .copied()
+            }
             PlayingItem::Online(_, Some(file)) => Some(file.id),
             _ => None,
         }?;

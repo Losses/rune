@@ -1,71 +1,63 @@
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:rune/utils/playing_item.dart';
 import 'package:rune/bindings/bindings.dart';
+import 'package:rune/utils/playing_item.dart';
+import 'package:rune/widgets/track_list/utils/internal_media_file.dart';
 
 void main() {
-  // Responses are matched to requests by comparing the item that comes back
-  test('items survive the round trip through a request', () {
-    for (final item in const [
-      PlayingItem.inLibrary(42),
-      PlayingItem.libraryItem(libraryId: 'library-uuid', fileUuid: 'file-uuid'),
-      PlayingItem.independentFile('/Music/outside/song.flac'),
-      PlayingItem.unknown(),
-    ]) {
-      expect(PlayingItem.fromRequest(item.toRequest()), item);
-    }
-  });
+  test(
+    'local row id is converted to stable library identity before sending',
+    () {
+      final files = [
+        InternalMediaFile(
+          id: 42,
+          libraryId: 'library-uuid',
+          track: '5f891d9e-0a39-4d77-8ea0-3bcfedc4810e',
+          path: '',
+          artist: '',
+          album: '',
+          title: '',
+          duration: 0,
+          coverArtPath: '',
+          trackNumber: null,
+        ),
+      ];
 
-  test('maps a library item request without inventing a local id', () {
-    const request = PlayingItemRequest(
-      libraryItem: LibraryItemRequest(
-        libraryId: 'library-uuid',
-        fileUuid: 'file-uuid',
-      ),
+      expect(
+        localTrackRef(42, files),
+        const PlayingItemRefLibraryTrack(
+          libraryId: 'library-uuid',
+          track: '5f891d9e-0a39-4d77-8ea0-3bcfedc4810e',
+        ),
+      );
+    },
+  );
+
+  test('library and Subsonic tracks share the same wire variant', () {
+    const runeRef = PlayingItemRefLibraryTrack(
+      libraryId: 'rune-library',
+      track: '5f891d9e-0a39-4d77-8ea0-3bcfedc4810e',
+    );
+    const subsonicRef = PlayingItemRefLibraryTrack(
+      libraryId: 'subsonic-library',
+      track: 'opaque-track-id',
     );
 
-    final item = PlayingItem.fromRequest(request);
-    expect(item.libraryId, 'library-uuid');
-    expect(item.fileUuid, 'file-uuid');
-    expect(item.inLibrary, isNull);
-    expect(item.hasLocalFileId, isFalse);
-    expect(item.toRequest(), request);
-  });
-
-  test('maps a local library item request with its integer id', () {
-    const request = PlayingItemRequest(
-      inLibrary: InLibraryPlayingItem(fileId: 42),
-    );
-
-    final item = PlayingItem.fromRequest(request);
-    expect(item.inLibrary, 42);
-    expect(item.hasLocalFileId, isTrue);
-    expect(item.toRequest(), request);
-  });
-
-  test('an empty path is unknown, as in the hub', () {
     expect(
-      PlayingItem.fromRequest(
-        const PlayingItem.independentFile('').toRequest(),
-      ),
-      const PlayingItem.unknown(),
+      PlayingItem.fromRequest(runeRef).fileUuid,
+      '5f891d9e-0a39-4d77-8ea0-3bcfedc4810e',
+    );
+    expect(
+      PlayingItem.fromRequest(subsonicRef).subsonicTrackId,
+      'opaque-track-id',
+    );
+    expect(
+      PlayingItem.libraryItem(libraryId: 'a', fileUuid: 'uuid').toRequest(),
+      const PlayingItemRefLibraryTrack(libraryId: 'a', track: 'uuid'),
     );
   });
 
-  test('items are read back from their status strings', () {
-    for (final item in const [
-      PlayingItem.inLibrary(42),
-      PlayingItem.independentFile('/Music/outside/song (live).flac'),
-      PlayingItem.unknown(),
-    ]) {
-      expect(PlayingItem.fromString(item.toString()), item);
-    }
-    // The Dart side has no online items
-    expect(
-      PlayingItem.fromString(
-        'PlayingItem::Online(https://example.com/a, None)',
-      ),
-      const PlayingItem.unknown(),
-    );
+  test('independent files roundtrip through the wire enum', () {
+    const item = PlayingItem.independentFile('/Music/outside/song.flac');
+    expect(PlayingItem.fromRequest(item.toRequest()), item);
   });
 }

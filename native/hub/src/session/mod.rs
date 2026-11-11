@@ -49,8 +49,8 @@ use crate::{
     handlers::playback::playing_item_requests,
     library_pool::LibraryHandle,
     messages::{
-        AttachedControllerInfo, ControllersUpdated, CrashResponse, PlaybackStatus,
-        PlayingItemRequest, PlaylistItem, PlaylistUnavailableReason, PlaylistUpdate, RealtimeFFT,
+        AttachedControllerInfo, ControllersUpdated, CrashResponse, PlaybackStatus, PlayingItemRef,
+        PlaylistItem, PlaylistUnavailableReason, PlaylistUpdate, RealtimeFFT,
         ScrobbleServiceStatus, ScrobbleServiceStatusUpdated,
     },
     node::NodeContext,
@@ -285,9 +285,10 @@ impl PlayerSession {
             .playlist
             .into_iter()
             .filter_map(|item| match item {
-                PlayingItem::InLibrary(identity) if identity.library_id == library_id => {
-                    Some(identity.file_uuid)
-                }
+                PlayingItem::LibraryTrack {
+                    library_id: item_library,
+                    track,
+                } if item_library == library_id => Uuid::parse_str(&track).ok(),
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -386,12 +387,13 @@ impl PlayerSession {
         let items = ids
             .into_iter()
             .filter_map(|id| {
-                identities.get(&id).copied().map(|file_uuid| {
-                    PlayingItem::InLibrary(playback::player::LibraryItem {
+                identities
+                    .get(&id)
+                    .copied()
+                    .map(|file_uuid| PlayingItem::LibraryTrack {
                         library_id: library.library_id,
-                        file_uuid,
+                        track: file_uuid.to_string(),
                     })
-                })
             })
             .collect::<Vec<_>>();
         let mut status = self.player.lock().await.get_status();
@@ -617,7 +619,7 @@ struct ItemEventState {
     metadata: PlayingItemMetadataSummary,
     cover: Option<String>,
     /// `last_item` as sent to Dart, valid for `request_ui_library`.
-    request: Option<PlayingItemRequest>,
+    request: Option<PlayingItemRef>,
     request_ui_library: Option<Uuid>,
 }
 
@@ -645,21 +647,33 @@ async fn handle_status_event(
         item_state.library = None;
         if let Some(item) = &value.item {
             let result = match item {
-                PlayingItem::InLibrary(identity) => {
-                    match node.library_pool.acquire(identity.library_id).await {
+                PlayingItem::LibraryTrack { library_id, track } => {
+                    match node.library_pool.acquire(*library_id).await {
                         Ok(library) => {
-                            let result = item_metadata_from_library(item, true, &library).await;
-                            item_state.library = Some(ResolvedLibrary {
-                                fsio: library.fsio.clone(),
-                                media_root: library.media_root.clone(),
-                            });
-                            result
+                            if matches!(
+                                &library.descriptor.protocol,
+                                database::library_registry::ProtocolAdapter::SubsonicTranslate { .. }
+                            ) {
+                                subsonic_track_metadata(
+                                    node,
+                                    &SubsonicItem {
+                                        library_id: *library_id,
+                                        track_id: track.clone(),
+                                    },
+                                    true,
+                                )
+                                .await
+                            } else {
+                                let result = item_metadata_from_library(item, true, &library).await;
+                                item_state.library = Some(ResolvedLibrary {
+                                    fsio: library.fsio.clone(),
+                                    media_root: library.media_root.clone(),
+                                });
+                                result
+                            }
                         }
                         Err(error) => Err(error),
                     }
-                }
-                PlayingItem::Subsonic(identity) => {
-                    subsonic_item_metadata(node, identity, true).await
                 }
                 _ => item_metadata(node, item, true).await,
             };
@@ -787,11 +801,22 @@ async fn item_metadata(
     item: &PlayingItem,
     with_cover: bool,
 ) -> Result<(PlayingItemMetadataSummary, Option<String>)> {
-    if let PlayingItem::Subsonic(identity) = item {
-        return subsonic_item_metadata(node, identity, with_cover).await;
-    }
-    if let PlayingItem::InLibrary(identity) = item {
-        let library = node.library_pool.acquire(identity.library_id).await?;
+    if let PlayingItem::LibraryTrack { library_id, track } = item {
+        let library = node.library_pool.acquire(*library_id).await?;
+        if matches!(
+            &library.descriptor.protocol,
+            database::library_registry::ProtocolAdapter::SubsonicTranslate { .. }
+        ) {
+            return subsonic_track_metadata(
+                node,
+                &SubsonicItem {
+                    library_id: *library_id,
+                    track_id: track.clone(),
+                },
+                with_cover,
+            )
+            .await;
+        }
         return item_metadata_from_library(item, with_cover, &library).await;
     }
     let dispatcher = PlayingItemActionDispatcher::new();
@@ -820,7 +845,7 @@ async fn item_metadata(
     }
 }
 
-async fn subsonic_item_metadata(
+async fn subsonic_track_metadata(
     node: &NodeContext,
     item: &SubsonicItem,
     with_cover: bool,
@@ -828,7 +853,10 @@ async fn subsonic_item_metadata(
     let binding = subsonic_binding_for_playback(node, item.library_id).await?;
     let song = binding.song(&item.track_id).await?;
     let summary = PlayingItemMetadataSummary {
-        item: PlayingItem::Subsonic(item.clone()),
+        item: PlayingItem::LibraryTrack {
+            library_id: item.library_id,
+            track: item.track_id.clone(),
+        },
         artist: song.artist.unwrap_or_else(|| "Unknown Artist".to_owned()),
         album: song.album.unwrap_or_else(|| "Unknown Album".to_owned()),
         title: if song.title.is_empty() {
@@ -873,11 +901,18 @@ async fn item_metadata_from_library(
 }
 
 async fn record_played(node: &NodeContext, item: &PlayingItem) -> Result<()> {
-    if let PlayingItem::InLibrary(identity) = item {
-        let library = node.library_pool.acquire(identity.library_id).await?;
-        let ids = file_ids_by_uuid(&library.main_db, &[identity.file_uuid]).await?;
+    if let PlayingItem::LibraryTrack { library_id, track } = item {
+        let library = node.library_pool.acquire(*library_id).await?;
+        if matches!(
+            &library.descriptor.protocol,
+            database::library_registry::ProtocolAdapter::SubsonicTranslate { .. }
+        ) {
+            return Ok(());
+        }
+        let file_uuid = Uuid::parse_str(track).context("Invalid Rune library track UUID")?;
+        let ids = file_ids_by_uuid(&library.main_db, &[file_uuid]).await?;
         let id = ids
-            .get(&identity.file_uuid)
+            .get(&file_uuid)
             .context("Playing track no longer exists in its library")?;
         let store = library.library_sync.record_store();
         increase_played_through(&library.main_db, &store, *id, store.author()).await?;
@@ -891,8 +926,8 @@ async fn item_log(
     domain: String,
     detail: String,
 ) -> Result<()> {
-    if let PlayingItem::InLibrary(identity) = item {
-        library_log(node, identity.library_id, domain, detail).await?;
+    if let PlayingItem::LibraryTrack { library_id, .. } = item {
+        library_log(node, *library_id, domain, detail).await?;
     }
     Ok(())
 }
@@ -917,25 +952,33 @@ async fn send_playlist(
     session_id: &str,
     revision: u64,
 ) {
-    let mut library_items = HashMap::<Uuid, Vec<PlayingItem>>::new();
+    let mut library_tracks = HashMap::<Uuid, Vec<PlayingItem>>::new();
     let mut independent_items = Vec::new();
-    let mut subsonic_items = Vec::new();
+    let mut subsonic_tracks = Vec::new();
     for item in &playlist.items {
         match item {
-            PlayingItem::InLibrary(identity) => {
-                library_items
-                    .entry(identity.library_id)
-                    .or_default()
-                    .push(item.clone());
+            PlayingItem::LibraryTrack { library_id, .. } => {
+                if let Ok(library) = node.library_pool.acquire(*library_id).await {
+                    if matches!(
+                        &library.descriptor.protocol,
+                        database::library_registry::ProtocolAdapter::SubsonicTranslate { .. }
+                    ) {
+                        subsonic_tracks.push(item.clone());
+                    } else {
+                        library_tracks
+                            .entry(*library_id)
+                            .or_default()
+                            .push(item.clone());
+                    }
+                }
             }
-            PlayingItem::Subsonic(_) => subsonic_items.push(item.clone()),
             _ => independent_items.push(item.clone()),
         }
     }
 
     let dispatcher = PlayingItemActionDispatcher::new();
     let mut metadata = HashMap::<PlayingItem, PlayingItemMetadataSummary>::new();
-    for (library_id, batch) in library_items {
+    for (library_id, batch) in library_tracks {
         let Ok(library) = node.library_pool.acquire(library_id).await else {
             continue;
         };
@@ -970,9 +1013,17 @@ async fn send_playlist(
         }
     }
 
-    for item in subsonic_items {
-        if let PlayingItem::Subsonic(identity) = &item
-            && let Ok((summary, _)) = subsonic_item_metadata(node, identity, false).await
+    for item in subsonic_tracks {
+        if let PlayingItem::LibraryTrack { library_id, track } = &item
+            && let Ok((summary, _)) = subsonic_track_metadata(
+                node,
+                &SubsonicItem {
+                    library_id: *library_id,
+                    track_id: track.clone(),
+                },
+                false,
+            )
+            .await
         {
             metadata.insert(item, summary);
         }
@@ -1016,7 +1067,7 @@ fn format_status(
     metadata: &PlayingItemMetadataSummary,
     cover_art_path: Option<String>,
     lib_path: String,
-    item_request: Option<PlayingItemRequest>,
+    item_request: Option<PlayingItemRef>,
     session_id: &str,
 ) -> PlaybackStatus {
     PlaybackStatus {

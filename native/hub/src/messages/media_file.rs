@@ -60,6 +60,8 @@ impl From<FileAudioOrigin> for AudioOrigin {
 #[derive(Clone, Serialize, Deserialize, SignalPiece, Debug)]
 pub struct MediaFile {
     pub id: i32,
+    pub library_id: String,
+    pub track: String,
     pub path: String,
     pub artist: String,
     pub album: String,

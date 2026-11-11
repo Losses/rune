@@ -33,7 +33,7 @@ void main() {
       PlaylistUpdate(
         items: [
           const PlaylistItem(
-            item: PlayingItemRequest(),
+            item: PlayingItemRefIndependentFile(path: ''),
             artist: 'Artist',
             album: 'Album',
             title: 'Queue track',

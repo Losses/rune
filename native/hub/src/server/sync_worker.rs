@@ -17,7 +17,8 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use database::actions::file::{ManagedAudioVerifier, file_ids_by_uuid, materialized_path};
 use database::actions::library::clean_local_orphans;
 use database::library_registry::{
-    LibraryAccess, LibraryConnectionAccess, LibraryRegistry, ProtocolAdapter, RuneForwardMode,
+    LibraryAccess, LibraryConnectionAccess, LibraryRecordId, LibraryRegistry, ProtocolAdapter,
+    RuneForwardMode,
 };
 use database::sync::Maintenance;
 use database::sync::model::RuneModel;
@@ -1998,6 +1999,30 @@ pub(crate) fn tls_config(
 /// Resolves an unmaterialized catalog track at playback time using paired peers.
 pub struct PairedAudioResolver(pub Weak<NodeContext>, pub String);
 impl PlaybackSourceResolver for PairedAudioResolver {
+    fn resolve_track(
+        &self,
+        library_id: String,
+        track: String,
+    ) -> BoxFuture<'static, Result<playback::player::LibraryTrackKey>> {
+        let node = self.0.clone();
+        Box::pin(async move {
+            let owner = node.upgrade().context("Node stopped")?;
+            let library_id = library_id.parse()?;
+            let registry = LibraryRegistry::load(Path::new(&*owner.config_path))?;
+            let record = registry
+                .record(LibraryRecordId(library_id))
+                .or_else(|_| registry.catalog(library_id))
+                .map_err(|_| anyhow::Error::new(RemoteAudioError::LibraryUnavailable))?;
+            if matches!(&record.protocol, ProtocolAdapter::SubsonicTranslate { .. }) {
+                Ok(playback::player::LibraryTrackKey::Subsonic(track))
+            } else {
+                Ok(playback::player::LibraryTrackKey::Rune(
+                    Uuid::parse_str(&track).context("Invalid Rune library track UUID")?,
+                ))
+            }
+        })
+    }
+
     fn for_library(
         &self,
         library_id: String,

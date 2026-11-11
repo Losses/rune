@@ -3,7 +3,9 @@ import '../../bindings/bindings.dart';
 import '../playing_item.dart';
 
 Future<bool> getLiked(PlayingItem item) async {
-  final updateRequest = GetLikedRequest(item: item.toRequest());
+  final updateRequest = GetLikedRequest(
+    item: (await playingItemRefs([item])).single,
+  );
 
   final rustSignal = await awaitResponse(
     'GetLikedRequest',

@@ -1,6 +1,6 @@
 use std::{
-    collections::HashMap,
-    slice,
+    collections::{HashMap, HashSet},
+    path::Path,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -12,18 +12,16 @@ use uuid::Uuid;
 
 use ::database::{
     actions::{
-        file::{file_ids_by_uuid, file_uuids_by_id, files_by_uuid},
+        file::{file_ids_by_uuid, files_by_uuid},
         mixes::query_mix_media_files,
         stats::increase_skipped,
     },
     error::ExpectedError,
+    library_registry::{LibraryRegistry, ProtocolAdapter},
     playing_item::{MediaFileHandle, dispatcher::PlayingItemActionDispatcher},
 };
 use ::playback::{
-    player::{
-        LibraryItem, Playable, PlaybackSource, PlaybackState, PlayerStatus, PlayingItem,
-        SubsonicItem,
-    },
+    player::{LibraryItem, Playable, PlaybackSource, PlaybackState, PlayerStatus, PlayingItem},
     strategies::AddMode,
 };
 
@@ -44,18 +42,28 @@ use crate::{
 };
 
 pub async fn playing_item_from_request(
-    request: PlayingItemRequest,
-    library: Option<&LibraryHandle>,
+    request: PlayingItemRef,
+    _library: Option<&LibraryHandle>,
 ) -> Result<PlayingItem> {
-    let mut items = playing_items_from_requests(slice::from_ref(&request), library).await?;
-    Ok(items.pop().unwrap_or(PlayingItem::Unknown))
+    Ok(match request {
+        PlayingItemRef::LibraryTrack { library_id, track } => PlayingItem::LibraryTrack {
+            library_id: Uuid::parse_str(&library_id).map_err(|error| {
+                ExpectedRequestError::invalid_input(format!("Invalid library id: {error}"))
+            })?,
+            track,
+        },
+        PlayingItemRef::IndependentFile { path } if !path.is_empty() => {
+            PlayingItem::IndependentFile(path)
+        }
+        PlayingItemRef::IndependentFile { .. } => PlayingItem::Unknown,
+    })
 }
 
 pub(crate) fn reject_remote_independent_item(
     session: Option<&Session>,
-    item: &PlayingItemRequest,
+    item: &PlayingItemRef,
 ) -> Result<()> {
-    if session.is_some() && item.independent_file.is_some() {
+    if session.is_some() && matches!(item, PlayingItemRef::IndependentFile { .. }) {
         return Err(ExpectedError::InvalidInput {
             detail: "independent files are only available on this device".into(),
         }
@@ -66,125 +74,26 @@ pub(crate) fn reject_remote_independent_item(
 
 /// Convert many requests against one library with a single id lookup.
 pub async fn playing_items_from_requests(
-    requests: &[PlayingItemRequest],
-    library: Option<&LibraryHandle>,
+    requests: &[PlayingItemRef],
+    _library: Option<&LibraryHandle>,
 ) -> Result<Vec<PlayingItem>> {
-    let library_items = requests
+    requests
         .iter()
-        .map(|request| {
-            request
-                .library_item
-                .as_ref()
-                .map(|item| {
-                    Ok(LibraryItem {
-                        library_id: Uuid::parse_str(&item.library_id).map_err(|error| {
-                            ExpectedRequestError::invalid_input(format!(
-                                "Invalid library id in library item: {error}"
-                            ))
-                        })?,
-                        file_uuid: Uuid::parse_str(&item.file_uuid).map_err(|error| {
-                            ExpectedRequestError::invalid_input(format!(
-                                "Invalid file uuid in library item: {error}"
-                            ))
-                        })?,
-                    })
-                })
-                .transpose()
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let subsonic_items = requests
-        .iter()
-        .map(|request| {
-            request
-                .subsonic_item
-                .as_ref()
-                .map(|item| {
-                    Ok(SubsonicItem {
-                        library_id: Uuid::parse_str(&item.library_id).map_err(|error| {
-                            ExpectedRequestError::invalid_input(format!(
-                                "Invalid Subsonic library id: {error}"
-                            ))
-                        })?,
-                        track_id: item.track_id.clone(),
-                    })
-                })
-                .transpose()
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let ids = requests
-        .iter()
-        .filter(|request| request.library_item.is_none())
-        .filter(|request| request.subsonic_item.is_none())
-        .filter_map(|request| request.in_library.as_ref())
-        .map(|in_library| in_library.file_id)
-        .filter(|id| *id != 0)
-        .collect::<Vec<_>>();
-    let uuids = if ids.is_empty() {
-        HashMap::new()
-    } else {
-        let library = library.ok_or(ExpectedRequestError::Unavailable {
-            what: "UI library for integer item",
-        })?;
-        file_uuids_by_id(&library.main_db, &ids).await?
-    };
-    Ok(requests
-        .iter()
-        .zip(library_items)
-        .zip(subsonic_items)
-        .map(|((request, library_item), subsonic_item)| {
-            if let Some(item) = subsonic_item {
-                return PlayingItem::Subsonic(item);
-            }
-            if let Some(item) = library_item {
-                return PlayingItem::InLibrary(item);
-            }
-            if let Some(in_library) = &request.in_library
-                && in_library.file_id != 0
-            {
-                return uuids
-                    .get(&in_library.file_id)
-                    .zip(library)
-                    .map(|(file_uuid, library)| {
-                        PlayingItem::InLibrary(LibraryItem {
-                            library_id: library.library_id,
-                            file_uuid: *file_uuid,
-                        })
-                    })
-                    .unwrap_or(PlayingItem::Unknown);
-            }
-            match &request.independent_file {
-                Some(file) if !file.raw_path.is_empty() => {
-                    PlayingItem::IndependentFile(file.raw_path.clone())
-                }
-                _ => PlayingItem::Unknown,
-            }
-        })
-        .collect())
+        .cloned()
+        .map(|request| async move { playing_item_from_request(request, None).await })
+        .collect::<futures::future::JoinAll<_>>()
+        .await
+        .into_iter()
+        .collect()
 }
 
-async fn resolve_open_subsonic_items(
-    requests: &[PlayingItemRequest],
-    binding: &SubsonicBinding,
+async fn resolve_open_subsonic_tracks(
+    requests: &[PlayingItemRef],
+    _binding: &SubsonicBinding,
 ) -> Result<Vec<PlayingItem>> {
     let mut resolved = Vec::with_capacity(requests.len());
     for request in requests {
-        if let Some(item) = &request.subsonic_item {
-            let library_id = Uuid::parse_str(&item.library_id).map_err(|error| {
-                ExpectedRequestError::invalid_input(format!("Invalid Subsonic library id: {error}"))
-            })?;
-            resolved.push(PlayingItem::Subsonic(SubsonicItem {
-                library_id,
-                track_id: item.track_id.clone(),
-            }));
-        } else if let Some(item) = &request.in_library {
-            resolved.push(PlayingItem::Subsonic(SubsonicItem {
-                library_id: binding.library_id,
-                track_id: binding.track_id(item.file_id)?,
-            }));
-        } else {
-            resolved
-                .extend(playing_items_from_requests(std::slice::from_ref(request), None).await?);
-        }
+        resolved.extend(playing_items_from_requests(std::slice::from_ref(request), None).await?);
     }
     Ok(resolved)
 }
@@ -259,80 +168,28 @@ fn edit_playlist(
 /// Convert many items to requests, acquiring each library and querying it once.
 pub async fn playing_item_requests(
     items: &[PlayingItem],
-    pool: &Arc<LibraryPool>,
-    ui_library_id: Option<Uuid>,
-) -> Vec<PlayingItemRequest> {
-    let mut by_library: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
-    for item in items {
-        if let PlayingItem::InLibrary(identity) = item
-            && Some(identity.library_id) == ui_library_id
-        {
-            by_library
-                .entry(identity.library_id)
-                .or_default()
-                .push(identity.file_uuid);
-        }
-    }
-    let mut ids: HashMap<LibraryItem, i32> = HashMap::new();
-    for (library_id, file_uuids) in by_library {
-        let resolved = async {
-            let library = pool.acquire(library_id).await?;
-            file_ids_by_uuid(&library.main_db, &file_uuids).await
-        }
-        .await;
-        match resolved {
-            Ok(resolved) => ids.extend(resolved.into_iter().map(|(file_uuid, id)| {
-                (
-                    LibraryItem {
-                        library_id,
-                        file_uuid,
-                    },
-                    id,
-                )
-            })),
-            Err(error) => {
-                warn!("Unable to resolve queued items of library {library_id}: {error:#}")
-            }
-        }
-    }
+    _pool: &Arc<LibraryPool>,
+    _ui_library_id: Option<Uuid>,
+) -> Vec<PlayingItemRef> {
     items
         .iter()
         .map(|item| match item {
-            PlayingItem::InLibrary(identity) => PlayingItemRequest {
-                in_library: ids
-                    .get(identity)
-                    .map(|file_id| InLibraryPlayingItem { file_id: *file_id }),
-                independent_file: None,
-                library_item: (!ids.contains_key(identity))
-                    .then(|| LibraryItemRequest::from(*identity)),
-                subsonic_item: None,
+            PlayingItem::LibraryTrack { library_id, track } => PlayingItemRef::LibraryTrack {
+                library_id: library_id.to_string(),
+                track: track.clone(),
             },
-            PlayingItem::Subsonic(identity) => PlayingItemRequest {
-                in_library: None,
-                independent_file: None,
-                library_item: None,
-                subsonic_item: Some(identity.clone().into()),
-            },
-            PlayingItem::IndependentFile(path) => PlayingItemRequest {
-                in_library: None,
-                independent_file: Some(IndependentFilePlayingItem {
-                    raw_path: path.clone(),
-                }),
-                library_item: None,
-                subsonic_item: None,
-            },
-            PlayingItem::Online(_, _) | PlayingItem::Unknown => PlayingItemRequest {
-                in_library: None,
-                independent_file: None,
-                library_item: None,
-                subsonic_item: None,
+            PlayingItem::IndependentFile(path) => {
+                PlayingItemRef::IndependentFile { path: path.clone() }
+            }
+            PlayingItem::Online(_, _) | PlayingItem::Unknown => PlayingItemRef::IndependentFile {
+                path: String::new(),
             },
         })
         .collect()
 }
 
 struct ResolvedMixQuery {
-    playing_items: Vec<PlayingItemRequest>,
+    playing_items: Vec<PlayingItemRef>,
     start_index: Option<usize>,
 }
 
@@ -499,11 +356,12 @@ async fn record_skip(node: &NodeContext, player: &Arc<Mutex<dyn Playable>>) -> R
 }
 
 async fn record_skip_item(node: &NodeContext, item: Option<PlayingItem>) -> Result<()> {
-    if let Some(PlayingItem::InLibrary(identity)) = item
-        && let Ok(library) = node.library_pool.acquire(identity.library_id).await
+    if let Some(PlayingItem::LibraryTrack { library_id, track }) = item
+        && let Ok(file_uuid) = Uuid::parse_str(&track)
+        && let Ok(library) = node.library_pool.acquire(library_id).await
     {
-        let ids = file_ids_by_uuid(&library.main_db, &[identity.file_uuid]).await?;
-        if let Some(file_id) = ids.get(&identity.file_uuid) {
+        let ids = file_ids_by_uuid(&library.main_db, &[file_uuid]).await?;
+        if let Some(file_id) = ids.get(&file_uuid) {
             let store = library.library_sync.record_store();
             increase_skipped(&library.main_db, &store, *file_id, store.author())
                 .await
@@ -887,7 +745,7 @@ impl Signal for LoadResolvedItemsRequest {
             if let Some(binding) = node.open_subsonic_binding()?
                 && binding.play_on_this_device
             {
-                let items = resolve_open_subsonic_items(&request.items, &binding).await?;
+                let items = resolve_open_subsonic_tracks(&request.items, &binding).await?;
                 let prepared = items
                     .into_iter()
                     .map(|item| (item, PlaybackSource::LibraryStream))
@@ -922,18 +780,40 @@ impl Signal for LoadResolvedItemsRequest {
             let items = playing_items_from_requests(&request.items, Some(&library)).await?;
             let mut items_by_library: HashMap<Uuid, Vec<PlayingItem>> = HashMap::new();
             let mut local_items = Vec::new();
+            let mut prepared_by_item = HashMap::new();
             for item in &items {
                 match item {
-                    PlayingItem::InLibrary(identity) => items_by_library
-                        .entry(identity.library_id)
-                        .or_default()
-                        .push(item.clone()),
+                    PlayingItem::LibraryTrack { library_id, .. } => {
+                        let item_library = node
+                            .library_pool
+                            .acquire_for_request(*library_id)
+                            .await
+                            .map_err(|error| {
+                                anyhow::Error::new(ExpectedRequestError::Unavailable {
+                                    what: "resolved library item",
+                                })
+                                .context(error)
+                            })?;
+                        if matches!(
+                            &item_library.descriptor.protocol,
+                            database::library_registry::ProtocolAdapter::SubsonicTranslate { .. }
+                        ) {
+                            prepared_by_item.insert(
+                                item.clone(),
+                                (item.clone(), PlaybackSource::LibraryStream),
+                            );
+                        } else {
+                            items_by_library
+                                .entry(*library_id)
+                                .or_default()
+                                .push(item.clone());
+                        }
+                    }
                     _ => local_items.push(item.clone()),
                 }
             }
             let dispatcher = PlayingItemActionDispatcher::new();
-            let mut prepared_by_item = HashMap::new();
-            for (library_id, library_items) in items_by_library {
+            for (library_id, library_tracks) in items_by_library {
                 let item_library = node
                     .library_pool
                     .acquire_for_request(library_id)
@@ -945,7 +825,7 @@ impl Signal for LoadResolvedItemsRequest {
                         .context(error)
                     })?;
                 let handles = dispatcher
-                    .get_file_handle(&item_library.fsio, &item_library.main_db, &library_items)
+                    .get_file_handle(&item_library.fsio, &item_library.main_db, &library_tracks)
                     .await?;
                 for (item, source) in files_to_playback_request(
                     &item_library.fsio,
@@ -1094,19 +974,19 @@ async fn apply_cast_load(node: &NodeContext, request: &LoadResolvedItemsRequest)
         .items
         .iter()
         .map(|item| {
-            let item = item
-                .library_item
-                .as_ref()
-                .ok_or(ExpectedRequestError::Unavailable {
+            let PlayingItemRef::LibraryTrack { library_id, track } = item else {
+                return Err(ExpectedRequestError::Unavailable {
                     what: "casting files outside a library",
-                })?;
+                }
+                .into());
+            };
             Ok(LibraryItem {
-                library_id: Uuid::parse_str(&item.library_id).map_err(|error| {
+                library_id: Uuid::parse_str(library_id).map_err(|error| {
                     anyhow::Error::new(ExpectedRequestError::invalid_input(format!(
                         "Invalid cast library id: {error}"
                     )))
                 })?,
-                file_uuid: Uuid::parse_str(&item.file_uuid).map_err(|error| {
+                file_uuid: Uuid::parse_str(track).map_err(|error| {
                     anyhow::Error::new(ExpectedRequestError::invalid_input(format!(
                         "Invalid cast file uuid: {error}"
                     )))
@@ -1155,7 +1035,10 @@ async fn apply_cast_load(node: &NodeContext, request: &LoadResolvedItemsRequest)
                 .get(&item.file_uuid)
                 .ok_or(ExpectedError::NotFound { what: "cast file" })?;
             let mut handle = MediaFileHandle::from(row.clone());
-            handle.item = PlayingItem::InLibrary(*item);
+            handle.item = PlayingItem::LibraryTrack {
+                library_id: item.library_id,
+                track: item.file_uuid.to_string(),
+            };
             handles.push(handle);
         }
         for (item, source) in files_to_playback_request(
@@ -1167,8 +1050,17 @@ async fn apply_cast_load(node: &NodeContext, request: &LoadResolvedItemsRequest)
         )
         .await?
         {
-            if let PlayingItem::InLibrary(identity) = item {
-                prepared_by_item.insert(identity, (PlayingItem::InLibrary(identity), source));
+            if let PlayingItem::LibraryTrack { library_id, track } = item
+                && let Ok(file_uuid) = Uuid::parse_str(&track)
+            {
+                let identity = LibraryItem {
+                    library_id,
+                    file_uuid,
+                };
+                prepared_by_item.insert(
+                    identity,
+                    (PlayingItem::LibraryTrack { library_id, track }, source),
+                );
             }
         }
     }
@@ -1278,7 +1170,7 @@ impl Signal for SessionSnapshotRequest {
         _request: &Self,
     ) -> Result<Option<Self::Response>> {
         let session = node.session()?;
-        Ok(Some(session_snapshot(&session).await?))
+        Ok(Some(session_snapshot(&node, &session).await?))
     }
 }
 
@@ -1300,17 +1192,11 @@ mod cast_index_tests {
         let prepared = HashMap::from([
             (
                 items[0],
-                (
-                    PlayingItem::InLibrary(items[0]),
-                    PlaybackSource::LibraryStream,
-                ),
+                (PlayingItem::from(items[0]), PlaybackSource::LibraryStream),
             ),
             (
                 items[2],
-                (
-                    PlayingItem::InLibrary(items[2]),
-                    PlaybackSource::LibraryStream,
-                ),
+                (PlayingItem::from(items[2]), PlaybackSource::LibraryStream),
             ),
         ]);
 
@@ -1325,10 +1211,7 @@ mod cast_index_tests {
         let items = [identity(), identity()];
         let prepared = HashMap::from([(
             items[0],
-            (
-                PlayingItem::InLibrary(items[0]),
-                PlaybackSource::LibraryStream,
-            ),
+            (PlayingItem::from(items[0]), PlaybackSource::LibraryStream),
         )]);
 
         let error = remap_cast_start_index(&items, &prepared, Some(1)).unwrap_err();
@@ -1409,20 +1292,45 @@ impl Signal for RemotePlaylistRevisionRequest {
     }
 }
 
-async fn session_snapshot(session: &PlayerSession) -> Result<SessionSnapshotResponse> {
+async fn session_snapshot(
+    node: &NodeContext,
+    session: &PlayerSession,
+) -> Result<SessionSnapshotResponse> {
     let (status, revision) = session.playback_snapshot().await;
-    session_snapshot_from_status(status, revision)
+    let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
+    let subsonic_library_ids = registry
+        .libraries
+        .iter()
+        .filter_map(|library| {
+            matches!(library.protocol, ProtocolAdapter::SubsonicTranslate { .. })
+                .then_some(library.record_id.0)
+        })
+        .collect();
+    session_snapshot_from_status(status, revision, &subsonic_library_ids)
 }
 
 pub(crate) fn session_snapshot_from_status(
     status: PlayerStatus,
     revision: u64,
+    subsonic_library_ids: &HashSet<Uuid>,
 ) -> Result<SessionSnapshotResponse> {
     let items = status
         .playlist
         .into_iter()
         .map(|item| match item {
-            PlayingItem::InLibrary(item) => Ok(LibraryItemRequest::from(item)),
+            PlayingItem::LibraryTrack { library_id, track }
+                if !subsonic_library_ids.contains(&library_id) =>
+            {
+                Ok(PlayingItemRef::LibraryTrack {
+                    library_id: library_id.to_string(),
+                    track,
+                })
+            }
+            PlayingItem::LibraryTrack { .. } => {
+                Err(anyhow::Error::new(ExpectedRequestError::Unavailable {
+                    what: "handing off files outside a library",
+                }))
+            }
             _ => Err(anyhow::Error::new(ExpectedRequestError::Unavailable {
                 what: "handing off files outside a library",
             })),
@@ -1492,7 +1400,7 @@ async fn snapshot_handoff_source(
 ) -> Result<SessionSnapshotResponse> {
     let Some(link) = attached else {
         let session = node.session()?;
-        return session_snapshot(&session).await;
+        return session_snapshot(node, &session).await;
     };
     link.call(&SessionSnapshotRequest { call_id: None }).await
 }
@@ -1501,16 +1409,7 @@ async fn snapshot_handoff_source(
 fn handoff_load(snapshot: SessionSnapshotResponse) -> LoadResolvedItemsRequest {
     LoadResolvedItemsRequest {
         call_id: None,
-        items: snapshot
-            .items
-            .into_iter()
-            .map(|library_item| PlayingItemRequest {
-                in_library: None,
-                independent_file: None,
-                library_item: Some(library_item),
-                subsonic_item: None,
-            })
-            .collect(),
+        items: snapshot.items.into_iter().collect(),
         start_index: snapshot.index,
         mode: PlaylistOperateMode::Replace,
         expected_revision: None,

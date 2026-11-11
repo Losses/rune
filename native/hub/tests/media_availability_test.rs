@@ -114,8 +114,15 @@ async fn pending_rows_are_returned_and_reported_without_becoming_playable() -> R
         let page = get_media_files(&db, cursor, 1).await?;
         assert_eq!(page.len(), 1, "pending rows must not shorten a page");
         let summaries = get_metadata_summary_by_files(&db, page.clone()).await?;
-        let parsed =
-            parse_media_files(&fsio, &db, &node.to_string(), summaries, root.clone()).await?;
+        let parsed = parse_media_files(
+            &fsio,
+            &db,
+            &node.to_string(),
+            &node.to_string(),
+            summaries,
+            root.clone(),
+        )
+        .await?;
         assert_eq!(parsed.len(), 1);
         states.push((
             parsed[0].id,
@@ -260,6 +267,7 @@ async fn queued_downloads_with_content_remain_streamable() -> Result<()> {
             &fsio,
             &db,
             &actor.to_string(),
+            &library.library_id.to_string(),
             summaries,
             Arc::new(root.path().to_string_lossy().into_owned()),
         )

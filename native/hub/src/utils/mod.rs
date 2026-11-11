@@ -2141,6 +2141,7 @@ pub async fn parse_media_files(
     fsio: &FsIo,
     db: &MainDbConnection,
     _node_id: &str,
+    library_id: &str,
     media_summaries: Vec<MetadataSummary>,
     lib_path: Arc<String>,
 ) -> Result<Vec<MediaFile>> {
@@ -2191,6 +2192,8 @@ pub async fn parse_media_files(
         );
         let media_file = MediaFile {
             id: file.id,
+            library_id: library_id.to_owned(),
+            track: file.file_uuid.to_string(),
             path: media_path
                 .to_str()
                 .ok_or_else(|| anyhow::anyhow!("Media path is None"))?
@@ -2277,12 +2280,15 @@ pub async fn files_to_playback_request<P: AsRef<Path>>(
                 None => return None,
             };
             let item = match &file.item {
-                PlayingItem::InLibrary(identity) => PlayingItem::InLibrary(*identity),
+                PlayingItem::LibraryTrack { library_id, track } => PlayingItem::LibraryTrack {
+                    library_id: *library_id,
+                    track: track.clone(),
+                },
                 PlayingItem::IndependentFile(path) => PlayingItem::IndependentFile(path.clone()),
-                _ => PlayingItem::InLibrary(playback::player::LibraryItem {
+                _ => PlayingItem::LibraryTrack {
                     library_id: library_uuid,
-                    file_uuid: file.file_uuid?,
-                }),
+                    track: file.file_uuid?.to_string(),
+                },
             };
             Some((item, source))
         })

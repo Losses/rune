@@ -40,10 +40,13 @@ impl Signal for SetLikedRequest {
             let parsed_item = playing_item_from_request(item.clone(), Some(&library)).await?;
 
             let response = match parsed_item {
-                PlayingItem::InLibrary(identity) if identity.library_id == library.library_id => {
-                    let file_id = file_ids_by_uuid(&library.main_db, &[identity.file_uuid])
+                PlayingItem::LibraryTrack { library_id, track }
+                    if library_id == library.library_id
+                        && let Ok(file_uuid) = uuid::Uuid::parse_str(&track) =>
+                {
+                    let file_id = file_ids_by_uuid(&library.main_db, &[file_uuid])
                         .await?
-                        .get(&identity.file_uuid)
+                        .get(&file_uuid)
                         .copied();
                     let Some(file_id) = file_id else {
                         return Ok(Some(SetLikedResponse {
@@ -80,9 +83,7 @@ impl Signal for SetLikedRequest {
                     liked: false,
                     success: false,
                 },
-                PlayingItem::InLibrary(_)
-                | PlayingItem::Subsonic(_)
-                | PlayingItem::Online(_, _) => SetLikedResponse {
+                PlayingItem::LibraryTrack { .. } | PlayingItem::Online(_, _) => SetLikedResponse {
                     call_id: None,
                     item: item.clone(),
                     liked: false,
@@ -129,10 +130,13 @@ impl Signal for GetLikedRequest {
             let parsed_item = playing_item_from_request(item.clone(), Some(&library)).await?;
 
             let response = match parsed_item {
-                PlayingItem::InLibrary(identity) if identity.library_id == library.library_id => {
-                    let Some(file_id) = file_ids_by_uuid(&library.main_db, &[identity.file_uuid])
+                PlayingItem::LibraryTrack { library_id, track }
+                    if library_id == library.library_id
+                        && let Ok(file_uuid) = uuid::Uuid::parse_str(&track) =>
+                {
+                    let Some(file_id) = file_ids_by_uuid(&library.main_db, &[file_uuid])
                         .await?
-                        .get(&identity.file_uuid)
+                        .get(&file_uuid)
                         .copied()
                     else {
                         return Ok(Some(GetLikedResponse {
@@ -156,9 +160,7 @@ impl Signal for GetLikedRequest {
                     item: item.clone(),
                     liked: false,
                 },
-                PlayingItem::InLibrary(_)
-                | PlayingItem::Subsonic(_)
-                | PlayingItem::Online(_, _) => GetLikedResponse {
+                PlayingItem::LibraryTrack { .. } | PlayingItem::Online(_, _) => GetLikedResponse {
                     call_id: None,
                     item: item.clone(),
                     liked: false,

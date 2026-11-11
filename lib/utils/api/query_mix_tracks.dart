@@ -25,6 +25,8 @@ Future<List<InternalMediaFile>> queryMixTracks(
       .map(
         (x) => InternalMediaFile(
           id: x.id,
+          libraryId: x.libraryId,
+          track: x.track,
           path: x.path,
           artist: x.artist,
           album: x.album,

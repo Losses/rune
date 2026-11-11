@@ -2,6 +2,8 @@ import '../../../bindings/bindings.dart';
 
 class InternalMediaFile {
   final int id;
+  final String libraryId;
+  final String track;
   final String path;
   final String artist;
   final String album;
@@ -16,6 +18,8 @@ class InternalMediaFile {
 
   InternalMediaFile({
     required this.id,
+    this.libraryId = '',
+    this.track = '',
     required this.path,
     required this.artist,
     required this.album,

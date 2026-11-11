@@ -19,17 +19,19 @@ Future<List<PlayingItem>> operatePlaybackWithMixQuery({
   required List<PlayingItem> fallbackPlayingItems,
   CastTarget? castTo,
 }) async {
+  final requestItems = await playingItemRefs([
+    PlayingItem.inLibrary(initialPlaybackId),
+    ...fallbackPlayingItems,
+  ]);
   final resolvedSignal = await awaitResponse(
     'ResolveMixQueryRequest',
     ResolveMixQueryResponse.rustSignalStream,
     send: () => ResolveMixQueryRequest(
       queries: queries.toQueryList(),
       hintPosition: hintPosition,
-      initialPlaybackItem: PlayingItem.inLibrary(initialPlaybackId).toRequest(),
+      initialPlaybackItem: requestItems.first,
       instantlyPlay: instantlyPlay,
-      fallbackPlayingItems: fallbackPlayingItems
-          .map((item) => item.toRequest())
-          .toList(),
+      fallbackPlayingItems: requestItems.skip(1).toList(),
       excludeLocalQueue: castTo == null,
     ).sendSignalToRust(),
   );

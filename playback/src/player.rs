@@ -120,10 +120,18 @@ pub struct SubsonicItem {
     pub track_id: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LibraryTrackKey {
+    Rune(Uuid),
+    Subsonic(String),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PlayingItem {
-    InLibrary(LibraryItem),
-    Subsonic(SubsonicItem),
+    LibraryTrack {
+        library_id: Uuid,
+        track: String,
+    },
     /// This is the raw content, on native platform it
     /// is the path, on Android, it is the Content URI
     IndependentFile(String),
@@ -135,15 +143,30 @@ pub enum PlayingItem {
     Unknown,
 }
 
+impl From<LibraryItem> for PlayingItem {
+    fn from(item: LibraryItem) -> Self {
+        Self::LibraryTrack {
+            library_id: item.library_id,
+            track: item.file_uuid.to_string(),
+        }
+    }
+}
+
+impl From<SubsonicItem> for PlayingItem {
+    fn from(item: SubsonicItem) -> Self {
+        Self::LibraryTrack {
+            library_id: item.library_id,
+            track: item.track_id,
+        }
+    }
+}
+
 impl fmt::Display for PlayingItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            PlayingItem::InLibrary(item) => write!(f, "PlayingItem::InLibrary({})", item.file_uuid),
-            PlayingItem::Subsonic(item) => write!(
-                f,
-                "PlayingItem::Subsonic({}, {})",
-                item.library_id, item.track_id
-            ),
+            PlayingItem::LibraryTrack { track, .. } => {
+                write!(f, "PlayingItem::LibraryTrack({track})")
+            }
             PlayingItem::IndependentFile(path) => {
                 write!(f, "PlayingItem::IndependentFile({path})")
             }
@@ -217,6 +240,17 @@ pub struct LibraryPlaybackSource {
 }
 
 pub trait PlaybackSourceResolver: Send + Sync {
+    fn resolve_track(
+        &self,
+        _library_id: String,
+        track: String,
+    ) -> BoxFuture<'static, Result<LibraryTrackKey>> {
+        Box::pin(async move {
+            Uuid::parse_str(&track)
+                .map(LibraryTrackKey::Rune)
+                .map_err(anyhow::Error::from)
+        })
+    }
     fn for_library(
         &self,
         _library_id: String,

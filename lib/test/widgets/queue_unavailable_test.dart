@@ -12,7 +12,7 @@ PlaylistEntry queueEntry(PlaylistUnavailableReason? reason) => PlaylistEntry(
   0,
   PlaylistItem(
     unavailable: reason,
-    item: const PlayingItemRequest(),
+    item: const PlayingItemRefIndependentFile(path: ''),
     artist: 'Artist',
     album: 'Album',
     title: 'Track',
@@ -75,11 +75,9 @@ void main() {
     final entry = PlaylistEntry(
       0,
       PlaylistItem(
-        item: const PlayingItemRequest(
-          libraryItem: LibraryItemRequest(
-            libraryId: 'library-uuid',
-            fileUuid: 'file-uuid',
-          ),
+        item: const PlayingItemRefLibraryTrack(
+          libraryId: 'library-uuid',
+          track: 'file-uuid',
         ),
         artist: 'Other Artist',
         album: 'Other Album',

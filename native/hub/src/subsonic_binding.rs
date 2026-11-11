@@ -1,7 +1,6 @@
 use crate::{
     messages::{
-        LibraryContentChanged, PlaybackStatus, PlayingItemRequest, PlaylistItem, PlaylistUpdate,
-        SubsonicItemRequest,
+        LibraryContentChanged, PlaybackStatus, PlayingItemRef, PlaylistItem, PlaylistUpdate,
     },
     utils::Broadcaster,
 };
@@ -105,14 +104,9 @@ fn broadcast_jukebox(
         .iter()
         .map(|song| PlaylistItem {
             unavailable: None,
-            item: PlayingItemRequest {
-                in_library: None,
-                independent_file: None,
-                library_item: None,
-                subsonic_item: Some(SubsonicItemRequest {
-                    library_id: session_id.clone(),
-                    track_id: song.id.clone(),
-                }),
+            item: PlayingItemRef::LibraryTrack {
+                library_id: session_id.clone(),
+                track: song.id.clone(),
             },
             artist: song.artist.clone().unwrap_or_default(),
             album: song.album.clone().unwrap_or_default(),
@@ -157,14 +151,9 @@ fn broadcast_jukebox(
             .current_index
             .and_then(|index| i32::try_from(index).ok()),
         item: current.map(|song| song.id.clone()),
-        item_request: current.map(|song| PlayingItemRequest {
-            in_library: None,
-            independent_file: None,
-            library_item: None,
-            subsonic_item: Some(SubsonicItemRequest {
-                library_id: library_id.to_string(),
-                track_id: song.id.clone(),
-            }),
+        item_request: current.map(|song| PlayingItemRef::LibraryTrack {
+            library_id: library_id.to_string(),
+            track: song.id.clone(),
         }),
         playback_mode: 0,
         ready: current.is_some(),
@@ -494,15 +483,6 @@ impl SubsonicBinding {
         self.covers
             .schedule(Arc::clone(&self.client), cover_id.to_owned());
         self.covers.cached_path(cover_id)
-    }
-
-    pub(crate) fn track_id(&self, id: i32) -> Result<String> {
-        self.catalog
-            .lock()
-            .map_err(|_| anyhow::anyhow!("Subsonic catalog lock poisoned"))?
-            .ids
-            .resolve(SubsonicIdKind::Track, id)
-            .map(str::to_owned)
     }
 }
 

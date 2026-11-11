@@ -31,7 +31,7 @@ use axum::routing::{any, get};
 use database::library_registry::{LibraryRegistry, ProtocolAdapter, SubsonicOpenMode};
 use serde_json::json;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex as StdMutex, atomic::{AtomicBool, Ordering}},
@@ -50,8 +50,8 @@ use crate::{
     library_pool::LibraryHandle,
     messages::{
         CastLibraryState, CastResolvedItemsRequest, CastTarget, LoadResolvedItemsRequest,
-        ResolveMixQueryRequest, CastPreflightRequest, GetMediaFilesCountRequest, InLibraryPlayingItem,
-        LibraryItemRequest, ListControllersRequest, ListRenderersRequest, PlayingItemRequest,
+        ResolveMixQueryRequest, CastPreflightRequest, GetMediaFilesCountRequest,
+        ListControllersRequest, ListRenderersRequest, PlayingItemRef,
         PlaylistUpdate, RendererAvailability, RendererCandidate, RequestErrorKind,
         RequestFailureCause, SwitchRequest, VolumeRequest,
     },
@@ -289,16 +289,16 @@ struct MixPlaybackTestRequest {
     queries: Vec<MixQuery>,
     playback_mode: u32,
     hint_position: i32,
-    initial_playback_item: Option<PlayingItemRequest>,
+    initial_playback_item: Option<PlayingItemRef>,
     instantly_play: bool,
     operate_mode: PlaylistOperateMode,
-    fallback_playing_items: Vec<PlayingItemRequest>,
+    fallback_playing_items: Vec<PlayingItemRef>,
     expected_revision: Option<u64>,
     cast_to: Option<CastTarget>,
 }
 
 struct MixPlaybackTestResponse {
-    playing_items: Vec<PlayingItemRequest>,
+    playing_items: Vec<PlayingItemRef>,
 }
 
 impl MixPlaybackTestRequest {
@@ -390,7 +390,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     use crate::messages::{
         CollectionType, FetchAllPlaylistsRequest, FetchCollectionByIdsRequest,
         FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
-        FetchMediaFileByIdsRequest, InLibraryPlayingItem, LoadResolvedItemsRequest,
+        FetchMediaFileByIdsRequest, LoadResolvedItemsRequest,
         MixQueryRequest, OpenLibraryFailureKind, OpenLibraryRequest, OpenLibraryResult,
         SearchForRequest,
     };
@@ -403,6 +403,8 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
 
     let dir = tempfile::tempdir()?;
     let fixture = super::fixture(dir.path()).await?;
+    let rune_row_id = session_audio(&fixture, "rune-in-subsonic-queue.ogg").await?;
+    let rune_item = library_track_for_id(&fixture, rune_row_id).await?;
     let node = fixture.global_params.node.clone();
     let (endpoint, calls, stream_ranges, reject_stream, supports_ranges, server) =
         subsonic_hub_mock(false).await;
@@ -677,15 +679,18 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
         Some(ExpectedRequestError::Unsupported { .. })
     ));
     assert_eq!(calls.lock().unwrap().len(), calls_before_unsupported);
+    let item = PlayingItem::LibraryTrack {
+        library_id: record.record_id.0,
+        track: "song-opaque".into(),
+    };
     let load = LoadResolvedItemsRequest {
-        items: vec![PlayingItemRequest {
-            in_library: Some(InLibraryPlayingItem {
-                file_id: search.tracks[0],
-            }),
-            independent_file: None,
-            library_item: None,
-            subsonic_item: None,
-        }],
+        items: vec![
+            PlayingItemRef::LibraryTrack {
+                library_id: record.record_id.0.to_string(),
+                track: "song-opaque".into(),
+            },
+            rune_item.into(),
+        ],
         start_index: Some(0),
         mode: PlaylistOperateMode::Replace,
         expected_revision: None,
@@ -697,19 +702,19 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     dispatch_gui_request(&fixture.global_params, &load).await?;
     let playing = wait_player(&fixture, |status| {
         status.state == PlaybackState::Playing
-            && matches!(status.item, Some(PlayingItem::Subsonic(_)))
+            && matches!(status.item, Some(PlayingItem::LibraryTrack { .. }))
     })
     .await?;
     assert!(matches!(
-        playing.item,
-        Some(PlayingItem::Subsonic(ref item))
-            if item.library_id == record.record_id.0 && item.track_id == "song-opaque"
-    ));
+        playing.item.as_ref(),
+        Some(PlayingItem::LibraryTrack { library_id: item_library, track })
+            if *item_library == record.record_id.0 && track == "song-opaque"
+    ), "unexpected Subsonic library identity: {:?}", playing.item);
     fixture.global_params.player.lock().await.seek(1.0);
     wait_player(&fixture, |status| {
         status.position.as_secs_f64() >= 0.8
             && status.item.as_ref().is_some_and(|playing| {
-                matches!(playing, PlayingItem::Subsonic(track) if track.track_id == "song-opaque")
+                matches!(playing, PlayingItem::LibraryTrack { track, .. } if track == "song-opaque")
             })
     })
     .await?;
@@ -720,6 +725,17 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
             }
             sleep(Duration::from_millis(20)).await;
         }
+    })
+    .await?;
+    fixture.global_params.player.lock().await.switch(1);
+    wait_player(&fixture, |status| {
+        status.item == Some(PlayingItem::from(rune_item))
+            && status.state == PlaybackState::Playing
+    })
+    .await?;
+    fixture.global_params.player.lock().await.switch(0);
+    wait_player(&fixture, |status| {
+        status.item == Some(item.clone()) && status.state == PlaybackState::Playing
     })
     .await?;
     let session_store = Path::new(&*node.config_path).join("sessions/local.json");
@@ -744,10 +760,6 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
         assert!(!stored.contains(secret_marker));
         assert!(!format!("{playing:?}").contains(secret_marker));
     }
-    let item = PlayingItem::Subsonic(SubsonicItem {
-        library_id: record.record_id.0,
-        track_id: "song-opaque".to_owned(),
-    });
     let dart_message = serde_json::to_string(
         &playing_item_requests(std::slice::from_ref(&item), &node.library_pool, None).await,
     )?;
@@ -757,7 +769,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     }
     let restored: SessionState = serde_json::from_str(&stored)?;
     assert_eq!(restored.tracks()[0].0, item);
-    assert_eq!(restored.tracks()[0].0, PlayingItem::Subsonic(SubsonicItem {
+    assert_eq!(restored.tracks()[0].0, PlayingItem::from(SubsonicItem {
         library_id: record.record_id.0,
         track_id: "song-opaque".to_owned(),
     }));
@@ -894,13 +906,14 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     reject_stream.store(false, Ordering::Release);
     let fixture = reopen_fixture(&fixture).await?;
     let node = fixture.global_params.node.clone();
-    wait_player(&fixture, |status| status.playlist.contains(&item)).await?;
+    wait_player(&fixture, |status| status.playlist.contains(&item) && status.playlist.contains(&PlayingItem::from(rune_item))).await?;
     fixture.global_params.player.lock().await.play();
     let restored_playing = wait_player(&fixture, |status| {
-        status.state == PlaybackState::Playing && status.item.as_ref() == Some(&item)
+        status.state == PlaybackState::Playing
+            && matches!(status.item, Some(PlayingItem::LibraryTrack { .. }))
     })
     .await?;
-    assert!(matches!(restored_playing.item, Some(PlayingItem::Subsonic(_))));
+    assert!(matches!(restored_playing.item, Some(PlayingItem::LibraryTrack { .. })));
 
     unreachable_server.abort();
     server.abort();
@@ -1146,7 +1159,7 @@ async fn session_audio(f: &Fixture, name: &str) -> Result<i32> {
         .id)
 }
 
-async fn library_item_for_id(f: &Fixture, id: i32) -> Result<LibraryItem> {
+async fn library_track_for_id(f: &Fixture, id: i32) -> Result<LibraryItem> {
     let library = f.global_params.test_library();
     let file_uuid = file_uuids_by_id(&library.main_db, &[id])
         .await?
@@ -1177,7 +1190,7 @@ async fn wait_player(
 }
 
 async fn queue_session(f: &Fixture, ids: &[i32]) -> Result<()> {
-    let items = futures::future::join_all(ids.iter().map(|id| library_item_for_id(f, *id)))
+    let items = futures::future::join_all(ids.iter().map(|id| library_track_for_id(f, *id)))
         .await
         .into_iter()
         .collect::<Result<Vec<_>>>()?;
@@ -1185,7 +1198,7 @@ async fn queue_session(f: &Fixture, ids: &[i32]) -> Result<()> {
     player.add_to_playlist_with_sources(
         items
             .into_iter()
-            .map(|item| (PlayingItem::InLibrary(item), PlaybackSource::LibraryStream))
+            .map(|item| (PlayingItem::from(item), PlaybackSource::LibraryStream))
             .collect(),
         AddMode::AppendToEnd,
     );
@@ -1231,7 +1244,7 @@ async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -
         session_audio(&b, "remote-renderer-first.ogg").await?,
         session_audio(&b, "remote-renderer-second.ogg").await?,
     ];
-    let b_items = futures::future::join_all(b_tracks.iter().map(|id| library_item_for_id(&b, *id)))
+    let b_items = futures::future::join_all(b_tracks.iter().map(|id| library_track_for_id(&b, *id)))
         .await
         .into_iter()
         .collect::<Result<Vec<_>>>()?;
@@ -1243,7 +1256,7 @@ async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -
             player.add_to_playlist_with_sources(
                 b_items
                     .into_iter()
-                    .map(|item| (PlayingItem::InLibrary(item), PlaybackSource::LibraryStream))
+                    .map(|item| (PlayingItem::from(item), PlaybackSource::LibraryStream))
                     .collect(),
                 AddMode::AppendToEnd,
             );
@@ -1370,7 +1383,7 @@ async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -
     .await?;
     wait_player(&b, |status| {
         status.playlist.first().is_some_and(|item| {
-            matches!(item, PlayingItem::InLibrary(library_item) if library_item.file_uuid == expected_first_uuid)
+            matches!(item, PlayingItem::LibraryTrack { track, .. } if *track == expected_first_uuid.to_string())
         })
     })
     .await?;
@@ -1979,7 +1992,7 @@ async fn attached_mix_query_resolves_for_controller_library_and_loads_resolved_i
         session_audio(&host, "mix-cast-local-queue.ogg").await?,
     ];
     let host_items =
-        futures::future::join_all(ids[..2].iter().map(|id| library_item_for_id(&host, *id)))
+        futures::future::join_all(ids[..2].iter().map(|id| library_track_for_id(&host, *id)))
             .await
             .into_iter()
             .collect::<Result<Vec<_>>>()?;
@@ -2038,14 +2051,17 @@ async fn attached_mix_query_resolves_for_controller_library_and_loads_resolved_i
         .playing_items
         .iter()
         .map(|item| {
-            let identity = item
-                .library_item
-                .as_ref()
-                .context("resolved cast item is not a portable library item")?;
-            Ok(PlayingItem::InLibrary(LibraryItem {
-                library_id: Uuid::parse_str(&identity.library_id)?,
-                file_uuid: Uuid::parse_str(&identity.file_uuid)?,
-            }))
+            match item {
+                PlayingItemRef::LibraryTrack { library_id, track } => {
+                    Ok(PlayingItem::LibraryTrack {
+                        library_id: Uuid::parse_str(library_id)?,
+                        track: track.clone(),
+                    })
+                }
+                PlayingItemRef::IndependentFile { .. } => {
+                    anyhow::bail!("resolved cast item is independent")
+                }
+            }
         })
         .collect::<Result<Vec<_>>>()?;
     let renderer_status = wait_player(&renderer_replica, |status| {
@@ -2133,7 +2149,7 @@ async fn attached_mix_query_resolves_for_controller_library_and_loads_resolved_i
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn attached_mix_query_rejects_items_outside_renderer_libraries() -> Result<()> {
-    use crate::messages::{IndependentFilePlayingItem, PlayingItemRequest, PlaylistOperateMode};
+    use crate::messages::{PlayingItemRef, PlaylistOperateMode};
 
     let controller_dir = tempfile::tempdir()?;
     let renderer_dir = tempfile::tempdir()?;
@@ -2168,13 +2184,8 @@ async fn attached_mix_query_rejects_items_outside_renderer_libraries() -> Result
         initial_playback_item: None,
         instantly_play: false,
         operate_mode: PlaylistOperateMode::Replace,
-        fallback_playing_items: vec![PlayingItemRequest {
-            independent_file: Some(IndependentFilePlayingItem {
-                raw_path: independent_path.to_string_lossy().into_owned(),
-            }),
-            in_library: None,
-            library_item: None,
-            subsonic_item: None,
+        fallback_playing_items: vec![PlayingItemRef::IndependentFile {
+            path: independent_path.to_string_lossy().into_owned(),
         }],
         expected_revision: None,
         cast_to: None,
@@ -2203,7 +2214,7 @@ async fn attached_mix_query_rejects_items_outside_renderer_libraries() -> Result
         before_revision
     );
 
-    let item = library_item_for_id(&controller, id).await?;
+    let item = library_track_for_id(&controller, id).await?;
     let request = MixPlaybackTestRequest {
         queries: Vec::new(),
         playback_mode: 0,
@@ -2212,7 +2223,7 @@ async fn attached_mix_query_rejects_items_outside_renderer_libraries() -> Result
         instantly_play: false,
         operate_mode: PlaylistOperateMode::Replace,
         fallback_playing_items: playing_item_requests(
-            &[PlayingItem::InLibrary(item)],
+            &[PlayingItem::from(item)],
             &controller.global_params.library_pool,
             controller.global_params.library_id,
         )
@@ -2250,7 +2261,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
     use crate::messages::{
         CastResolvedItemsRequest, CastTarget, MixQuery, PlaylistOperateMode,
         RemotePlaylistRevisionRequest,
-        PlayingItemRequest, RendererAttachmentChanged,
+        RendererAttachmentChanged,
     };
     use crate::rpc::dispatch_gui_request;
 
@@ -2275,7 +2286,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
     ];
     let items = track_ids
         .iter()
-        .map(|id| library_item_for_id(&host, *id))
+        .map(|id| library_track_for_id(&host, *id))
         .collect::<Vec<_>>();
     let host_items = futures::future::join_all(items)
         .await
@@ -2444,7 +2455,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
         .await?;
     let attached_cast_status = wait_player(&renderer, |status| {
         status.state == PlaybackState::Playing
-            && status.item == Some(PlayingItem::InLibrary(host_items[1]))
+            && status.item == Some(PlayingItem::from(host_items[1]))
     })
     .await?;
     renderer.global_params.player.lock().await.pause();
@@ -2460,7 +2471,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
     );
     assert_eq!(
         attached_cast_status.item,
-        Some(PlayingItem::InLibrary(host_items[1]))
+        Some(PlayingItem::from(host_items[1]))
     );
 
     let append = MixPlaybackTestRequest {
@@ -2470,12 +2481,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
         initial_playback_item: None,
         instantly_play: false,
         operate_mode: PlaylistOperateMode::PlayNext,
-        fallback_playing_items: vec![PlayingItemRequest {
-            library_item: Some(host_items[1].into()),
-            in_library: None,
-            independent_file: None,
-            subsonic_item: None,
-        }],
+        fallback_playing_items: vec![host_items[1].into()],
         expected_revision: None,
         cast_to: Some(CastTarget {
             fingerprint: renderer_info.fingerprint.clone(),
@@ -2496,7 +2502,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
     assert_eq!(after_next.item, current.item);
     assert_eq!(
         after_next.playlist[1],
-        PlayingItem::InLibrary(host_items[1])
+        PlayingItem::from(host_items[1])
     );
     renderer.global_params.player.lock().await.pause();
     wait_player(&renderer, |status| status.state == PlaybackState::Paused).await?;
@@ -2572,12 +2578,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
     let targeted_load = CastResolvedItemsRequest {
         call_id: None,
         fingerprint: renderer_info.fingerprint.clone(),
-        items: vec![PlayingItemRequest {
-            in_library: None,
-            independent_file: None,
-            library_item: Some(host_items[0].into()),
-            subsonic_item: None,
-        }],
+        items: vec![host_items[0].into()],
         start_index: Some(0),
         mode: PlaylistOperateMode::Replace,
         expected_revision: Some(revision_response.revision),
@@ -2587,7 +2588,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
     };
     dispatch_gui_request(&controller_replica.global_params, &targeted_load).await?;
     wait_player(&renderer, |status| {
-        status.playlist == vec![PlayingItem::InLibrary(host_items[0])]
+        status.playlist == vec![PlayingItem::from(host_items[0])]
     })
     .await?;
     assert_eq!(other_renderer.global_params.player.lock().await.get_playlist(), other_before);
@@ -2598,12 +2599,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
     let play_next_when_idle = CastResolvedItemsRequest {
         call_id: None,
         fingerprint: renderer_info.fingerprint.clone(),
-        items: vec![PlayingItemRequest {
-            in_library: None,
-            independent_file: None,
-            library_item: Some(host_items[1].into()),
-            subsonic_item: None,
-        }],
+        items: vec![host_items[1].into()],
         start_index: None,
         mode: PlaylistOperateMode::PlayNext,
         expected_revision: None,
@@ -2615,7 +2611,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
     wait_player(&renderer, |status| {
         status.state == PlaybackState::Playing
             && status.index == Some(appended_index)
-            && status.item == Some(PlayingItem::InLibrary(host_items[1]))
+            && status.item == Some(PlayingItem::from(host_items[1]))
     })
     .await?;
 
@@ -2764,9 +2760,9 @@ async fn session_f2_batches_playlist_metadata_per_library_in_queue_order() -> Re
     set_session_title(&a, a2, "A2").await?;
 
     let queue = vec![
-        PlayingItem::InLibrary(library_item_for_id(&a, a1).await?),
-        PlayingItem::InLibrary(library_item_for_id(&b, b1).await?),
-        PlayingItem::InLibrary(library_item_for_id(&a, a2).await?),
+        PlayingItem::from(library_track_for_id(&a, a1).await?),
+        PlayingItem::from(library_track_for_id(&b, b1).await?),
+        PlayingItem::from(library_track_for_id(&a, a2).await?),
     ];
     a.global_params
         .player
@@ -3045,16 +3041,16 @@ async fn session_store_v1_migrates_stable_file_uuids_and_cursor() -> Result<()> 
     let first_id = session_audio(&f, "v1-first.ogg").await?;
     let second_id = session_audio(&f, "v1-second.ogg").await?;
     let library_id = f.global_params.library_id.context("library")?;
-    let first_uuid = library_item_for_id(&f, first_id).await?.file_uuid;
-    let second_uuid = library_item_for_id(&f, second_id).await?.file_uuid;
+    let first_uuid = library_track_for_id(&f, first_id).await?.file_uuid;
+    let second_uuid = library_track_for_id(&f, second_id).await?.file_uuid;
     let session_path = dir.path().join("v1-session.json");
     let state = serde_json::json!({
         "version": 1,
         "migrated": true,
         "queue": [
-            {"type":"in_library","id":first_id,"library_id":Uuid::new_v4().to_string()},
-            {"type":"in_library","id":first_id,"library_id":library_id.to_string()},
-            {"type":"in_library","id":second_id,"library_id":library_id.to_string()}
+            {"type":concat!("in_", "library"),"id":first_id,"library_id":Uuid::new_v4().to_string()},
+            {"type":concat!("in_", "library"),"id":first_id,"library_id":library_id.to_string()},
+            {"type":concat!("in_", "library"),"id":second_id,"library_id":library_id.to_string()}
         ],
         "index": 2,
         "position": serde_json::to_value(Duration::from_secs(0))?,
@@ -3067,21 +3063,53 @@ async fn session_store_v1_migrates_stable_file_uuids_and_cursor() -> Result<()> 
     assert_eq!(tracks.len(), 2);
     assert_eq!(
         tracks[0].0,
-        PlayingItem::InLibrary(LibraryItem {
+        PlayingItem::from(LibraryItem {
             library_id,
             file_uuid: first_uuid
         })
     );
     assert_eq!(
         tracks[1].0,
-        PlayingItem::InLibrary(LibraryItem {
+        PlayingItem::from(LibraryItem {
             library_id,
             file_uuid: second_uuid
         })
     );
     let written: serde_json::Value = serde_json::from_slice(&std::fs::read(&session_path)?)?;
-    assert_eq!(written["version"], 3);
-    assert!(written["queue"][0].get("file_uuid").is_some());
+    assert_eq!(written["version"], 4);
+    assert_eq!(written["queue"][0]["type"], "library_track");
+    assert_eq!(written["queue"][0]["track"], first_uuid.to_string());
+
+    let old_queue_path = dir.path().join("v3-session.json");
+    let old_queue = serde_json::json!({
+        "version": 3,
+        "session_id": Uuid::new_v4(),
+        "queue_revision": 8,
+        "migrated": true,
+        "queue": [{
+            "type": concat!("in_", "library"),
+            "library_id": library_id,
+            "file_uuid": first_uuid,
+        }],
+        "index": 0,
+        "position": serde_json::to_value(Duration::from_secs(3))?,
+        "mode": 0,
+    });
+    std::fs::write(&old_queue_path, serde_json::to_vec(&old_queue)?)?;
+    let upgraded = SessionState::read(
+        &old_queue_path,
+        &f.global_params.node.library_pool,
+    )
+    .await?;
+    assert_eq!(
+        upgraded.tracks()[0].0,
+        PlayingItem::from(LibraryItem { library_id, file_uuid: first_uuid })
+    );
+    let upgraded_json: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&old_queue_path)?)?;
+    assert_eq!(upgraded_json["version"], 4);
+    assert_eq!(upgraded_json["queue"][0]["type"], "library_track");
+    assert_eq!(upgraded_json["queue"][0]["track"], first_uuid.to_string());
     let mut current_dropped = state.clone();
     current_dropped["index"] = serde_json::json!(0);
     std::fs::write(&session_path, serde_json::to_vec(&current_dropped)?)?;
@@ -3102,23 +3130,21 @@ async fn session_store_v1_migrates_stable_file_uuids_and_cursor() -> Result<()> 
 }
 
 #[tokio::test]
-async fn playback_boundary_uses_current_library_and_maps_online_to_unknown_shape() -> Result<()> {
+async fn playback_boundary_uses_stable_library_tracks_without_row_ids() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let f = fixture(dir.path()).await?;
     let id = session_audio(&f, "boundary.ogg").await?;
-    let expected = library_item_for_id(&f, id).await?;
+    let expected = library_track_for_id(&f, id).await?;
     let library = f.global_params.test_library();
     let parsed = playing_item_from_request(
-        PlayingItemRequest {
-            in_library: Some(InLibraryPlayingItem { file_id: id }),
-            independent_file: None,
-            library_item: None,
-            subsonic_item: None,
+        PlayingItemRef::LibraryTrack {
+            library_id: library.library_id.to_string(),
+            track: expected.file_uuid.to_string(),
         },
         Some(library),
     )
     .await?;
-    assert_eq!(parsed, PlayingItem::InLibrary(expected));
+    assert_eq!(parsed, PlayingItem::from(expected));
     let current_library_id = library.library_id;
     let other = LibraryItem {
         library_id: Uuid::new_v4(),
@@ -3126,65 +3152,34 @@ async fn playback_boundary_uses_current_library_and_maps_online_to_unknown_shape
     };
     let outgoing = playing_item_requests(
         &[
-            PlayingItem::InLibrary(expected),
-            PlayingItem::InLibrary(other),
+            PlayingItem::from(expected),
+            PlayingItem::from(other),
             PlayingItem::Online("https://example.invalid/audio".into(), None),
         ],
         &f.global_params.node.library_pool,
         Some(current_library_id),
     )
     .await;
-    assert_eq!(
-        outgoing[0].in_library.as_ref().map(|item| item.file_id),
-        Some(id)
-    );
-    assert!(outgoing[0].library_item.is_none());
-    assert!(outgoing[1].in_library.is_none());
-    assert_eq!(
-        outgoing[1]
-            .library_item
-            .as_ref()
-            .map(|item| item.library_id.clone()),
-        Some(other.library_id.to_string())
-    );
-    assert_eq!(
-        outgoing[1]
-            .library_item
-            .as_ref()
-            .map(|item| item.file_uuid.clone()),
-        Some(other.file_uuid.to_string())
-    );
-    assert!(outgoing[2].in_library.is_none());
-    assert!(outgoing[2].independent_file.is_none());
-    assert!(outgoing[2].library_item.is_none());
+    assert_eq!(outgoing[0], PlayingItemRef::from(expected));
+    assert_eq!(outgoing[1], PlayingItemRef::from(other));
+    assert_eq!(outgoing[2], PlayingItemRef::IndependentFile { path: String::new() });
 
     let without_ui = playing_item_requests(
-        &[PlayingItem::InLibrary(expected)],
+        &[PlayingItem::from(expected)],
         &f.global_params.node.library_pool,
         None,
     )
     .await;
-    assert!(without_ui[0].in_library.is_none());
-    assert!(without_ui[0].library_item.is_some());
+    assert_eq!(without_ui[0], PlayingItemRef::from(expected));
 
-    let other_request = PlayingItemRequest {
-        in_library: None,
-        independent_file: None,
-        library_item: Some(other.into()),
-        subsonic_item: None,
-    };
+    let other_request = PlayingItemRef::from(other);
     assert_eq!(
         playing_item_from_request(other_request, None).await?,
-        PlayingItem::InLibrary(other),
+        PlayingItem::from(other),
     );
-    let malformed = PlayingItemRequest {
-        in_library: None,
-        independent_file: None,
-        library_item: Some(LibraryItemRequest {
-            library_id: other.library_id.to_string(),
-            file_uuid: "bad-file-uuid".into(),
-        }),
-        subsonic_item: None,
+    let malformed = PlayingItemRef::LibraryTrack {
+        library_id: "bad-library-id".into(),
+        track: "not-interpreted-at-the-wire-boundary".into(),
     };
     let error = playing_item_from_request(malformed, None)
         .await
@@ -3194,7 +3189,7 @@ async fn playback_boundary_uses_current_library_and_maps_online_to_unknown_shape
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn playlist_update_uses_library_item_after_switching_ui_library() -> Result<()> {
+async fn playlist_update_uses_library_track_after_switching_ui_library() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let bdir = tempfile::tempdir()?;
     let signals = Arc::new(RecordedSignals::default());
@@ -3206,7 +3201,7 @@ async fn playlist_update_uses_library_item_after_switching_ui_library() -> Resul
     )
     .await?;
     let a_id = session_audio(&a, "boundary-switch.ogg").await?;
-    let a_item = library_item_for_id(&a, a_id).await?;
+    let a_item = library_track_for_id(&a, a_id).await?;
     let b = fixture_open_local_library(&a, bdir.path()).await?;
     assert_ne!(a_item.library_id, b.global_params.test_library().library_id);
 
@@ -3216,18 +3211,18 @@ async fn playlist_update_uses_library_item_after_switching_ui_library() -> Resul
         .await
         .add_to_playlist_with_sources(
             vec![(
-                PlayingItem::InLibrary(a_item),
+                PlayingItem::from(a_item),
                 PlaybackSource::LibraryStream,
             )],
             AddMode::AppendToEnd,
         );
     wait_player(&a, |status| {
-        status.playlist == [PlayingItem::InLibrary(a_item)]
+        status.playlist == [PlayingItem::from(a_item)]
     })
     .await?;
     a.global_params.player.lock().await.switch(0);
     wait_player(&a, |status| {
-        status.item == Some(PlayingItem::InLibrary(a_item))
+        status.item == Some(PlayingItem::from(a_item))
     })
     .await?;
     let update = timeout(Duration::from_secs(5), async {
@@ -3245,10 +3240,9 @@ async fn playlist_update_uses_library_item_after_switching_ui_library() -> Resul
                             .flatten()
                             .filter(|update| {
                                 update.items.iter().any(|item| {
-                                    item.item.library_item.as_ref().is_some_and(|identity| {
-                                        identity.library_id == a_item.library_id.to_string()
-                                            && identity.file_uuid == a_item.file_uuid.to_string()
-                                    })
+                                    matches!(&item.item, PlayingItemRef::LibraryTrack { library_id, track }
+                                        if library_id == &a_item.library_id.to_string()
+                                            && track == &a_item.file_uuid.to_string())
                                 })
                             })
                     })
@@ -3261,14 +3255,7 @@ async fn playlist_update_uses_library_item_after_switching_ui_library() -> Resul
     .await
     .context("playlist update with stable library item did not arrive")?;
     assert_eq!(update.items.len(), 1);
-    assert!(update.items[0].item.in_library.is_none());
-    let library_item = update.items[0]
-        .item
-        .library_item
-        .as_ref()
-        .context("other-library queue item was not sent by stable identity")?;
-    assert_eq!(library_item.library_id, a_item.library_id.to_string());
-    assert_eq!(library_item.file_uuid, a_item.file_uuid.to_string());
+    assert_eq!(update.items[0].item, PlayingItemRef::from(a_item));
     let status = timeout(Duration::from_secs(5), async {
         loop {
             if let Some(status) =
@@ -3284,10 +3271,7 @@ async fn playlist_update_uses_library_item_after_switching_ui_library() -> Resul
                             .flatten()
                             .filter(|status| {
                                 status.item_request.as_ref().is_some_and(|request| {
-                                    request.library_item.as_ref().is_some_and(|identity| {
-                                        identity.library_id == a_item.library_id.to_string()
-                                            && identity.file_uuid == a_item.file_uuid.to_string()
-                                    })
+                                    request == &PlayingItemRef::from(a_item)
                                 })
                             })
                     })
@@ -3299,7 +3283,7 @@ async fn playlist_update_uses_library_item_after_switching_ui_library() -> Resul
     })
     .await
     .context("playback status with stable library item did not arrive")?;
-    assert!(status.item_request.unwrap().in_library.is_none());
+    assert_eq!(status.item_request.unwrap(), PlayingItemRef::from(a_item));
     a.global_params.node.shutdown().await
 }
 
@@ -3464,7 +3448,7 @@ async fn session_d6_removed_library_is_unavailable_without_crash() -> Result<()>
     let b = fixture_open_local_library(&a, bdir.path()).await?;
     let bid = session_audio(&b, "available.ogg").await?;
     queue_session(&a, &[aid]).await?;
-    let good = PlayingItem::InLibrary(library_item_for_id(&b, bid).await?);
+    let good = PlayingItem::from(library_track_for_id(&b, bid).await?);
     b.global_params
         .player
         .lock()
@@ -3560,8 +3544,8 @@ async fn session_f1_repeat_all_wraps_after_failed_last_item() -> Result<()> {
     let bad_id = session_audio(&a, "repeat-bad.ogg").await?;
     let b = fixture_open_local_library(&a, bdir.path()).await?;
     let good_id = session_audio(&b, "repeat-good.ogg").await?;
-    let good = PlayingItem::InLibrary(library_item_for_id(&b, good_id).await?);
-    let bad = PlayingItem::InLibrary(library_item_for_id(&a, bad_id).await?);
+    let good = PlayingItem::from(library_track_for_id(&b, good_id).await?);
+    let bad = PlayingItem::from(library_track_for_id(&a, bad_id).await?);
     b.global_params
         .player
         .lock()
@@ -3616,12 +3600,12 @@ async fn session_f1_all_failed_items_stop_without_hanging() -> Result<()> {
         .lock()
         .await
         .add_to_playlist_with_sources(
-            futures::future::join_all(ids.iter().map(|id| library_item_for_id(&a, *id)))
+            futures::future::join_all(ids.iter().map(|id| library_track_for_id(&a, *id)))
                 .await
                 .into_iter()
                 .collect::<Result<Vec<_>>>()?
                 .into_iter()
-                .map(|item| (PlayingItem::InLibrary(item), PlaybackSource::LibraryStream))
+                .map(|item| (PlayingItem::from(item), PlaybackSource::LibraryStream))
                 .collect(),
             AddMode::AppendToEnd,
         );
@@ -3674,7 +3658,7 @@ async fn deleted_queued_uuid_is_unreadable_and_playback_advances() -> Result<()>
         session_audio(&f, "delete-middle.ogg").await?,
         session_audio(&f, "delete-last.ogg").await?,
     ];
-    let queued = futures::future::join_all(ids.iter().map(|id| library_item_for_id(&f, *id)))
+    let queued = futures::future::join_all(ids.iter().map(|id| library_track_for_id(&f, *id)))
         .await
         .into_iter()
         .collect::<Result<Vec<_>>>()?;
@@ -3686,7 +3670,7 @@ async fn deleted_queued_uuid_is_unreadable_and_playback_advances() -> Result<()>
             queued
                 .iter()
                 .copied()
-                .map(|item| (PlayingItem::InLibrary(item), PlaybackSource::LibraryStream))
+                .map(|item| (PlayingItem::from(item), PlaybackSource::LibraryStream))
                 .collect(),
             AddMode::AppendToEnd,
         );
@@ -3696,23 +3680,23 @@ async fn deleted_queued_uuid_is_unreadable_and_playback_advances() -> Result<()>
         .await?;
     f.global_params.player.lock().await.switch(0);
     wait_player(&f, |status| {
-        status.item == Some(PlayingItem::InLibrary(queued[0]))
+        status.item == Some(PlayingItem::from(queued[0]))
             && status.state == PlaybackState::Playing
     })
     .await?;
     f.global_params.player.lock().await.next();
     let advanced = wait_player(&f, |status| {
-        status.item == Some(PlayingItem::InLibrary(queued[2]))
+        status.item == Some(PlayingItem::from(queued[2]))
             && status.state == PlaybackState::Playing
             && status
                 .unavailable
-                .contains(&PlayingItem::InLibrary(queued[1]))
+                .contains(&PlayingItem::from(queued[1]))
     })
     .await?;
     assert_eq!(
         advanced
             .unavailable_reasons
-            .get(&PlayingItem::InLibrary(queued[1])),
+            .get(&PlayingItem::from(queued[1])),
         Some(&UnavailableReason::Unreadable)
     );
     f.global_params.node.shutdown().await
@@ -3857,12 +3841,12 @@ async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
         Ok(())
     })
     .await?;
-    let queue = futures::future::join_all(b_c_ids.iter().map(|id| library_item_for_id(&c, *id)))
+    let queue = futures::future::join_all(b_c_ids.iter().map(|id| library_track_for_id(&c, *id)))
         .await
         .into_iter()
         .collect::<Result<Vec<_>>>()?
         .into_iter()
-        .map(|item| (PlayingItem::InLibrary(item), PlaybackSource::LibraryStream))
+        .map(|item| (PlayingItem::from(item), PlaybackSource::LibraryStream))
         .collect();
     b.global_params
         .player
@@ -3870,13 +3854,13 @@ async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
         .await
         .add_to_playlist_with_sources(queue, AddMode::AppendToEnd);
     b.global_params.player.lock().await.switch(0);
-    let first = PlayingItem::InLibrary(LibraryItem {
+    let first = PlayingItem::from(LibraryItem {
         library_id: c_library_id,
-        file_uuid: library_item_for_id(&c, b_c_ids[0]).await?.file_uuid,
+        file_uuid: library_track_for_id(&c, b_c_ids[0]).await?.file_uuid,
     });
-    let second = PlayingItem::InLibrary(LibraryItem {
+    let second = PlayingItem::from(LibraryItem {
         library_id: c_library_id,
-        file_uuid: library_item_for_id(&c, b_c_ids[1]).await?.file_uuid,
+        file_uuid: library_track_for_id(&c, b_c_ids[1]).await?.file_uuid,
     });
     let playing_result =
         peer_step_with_timeout("B starts remote C track", Duration::from_secs(35), async {
@@ -4038,7 +4022,7 @@ async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
         "expected access revocation must not crash the player"
     );
 
-    let local = PlayingItem::InLibrary(library_item_for_id(&b, b_local_id).await?);
+    let local = PlayingItem::from(library_track_for_id(&b, b_local_id).await?);
     b.global_params
         .player
         .lock()
@@ -4094,7 +4078,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
     use crate::backends::remote::{connect_remote, decode_message};
     use crate::messages::{
         CastLibraryState, LoadResolvedItemsRequest, LoadResolvedItemsResponse, CastPreflightResponse,
-        LibraryItemRequest, PlaylistOperateMode, RemoteRequestFailed,
+        PlaylistOperateMode, RemoteRequestFailed,
     };
     use futures::StreamExt;
 
@@ -4117,7 +4101,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         session_audio(&host, "cast-second.ogg").await?,
     ];
     let host_items =
-        futures::future::join_all(host_ids.iter().map(|id| library_item_for_id(&host, *id)))
+        futures::future::join_all(host_ids.iter().map(|id| library_track_for_id(&host, *id)))
             .await
             .into_iter()
             .collect::<Result<Vec<_>>>()?;
@@ -4169,7 +4153,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
     assert_eq!(name, "LoadResolvedItemsResponse");
     let _: LoadResolvedItemsResponse = rinf::deserialize(&payload)?;
     wait_player(&renderer, |status| {
-        status.item == Some(PlayingItem::InLibrary(host_items[0]))
+        status.item == Some(PlayingItem::from(host_items[0]))
     })
     .await?;
     renderer.global_params.player.lock().await.pause();
@@ -4191,12 +4175,10 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         .into_iter()
         .find(|update| update.items.len() == 2)
         .context("controller did not receive the cast queue")?;
-    assert!(
-        update
-            .items
-            .iter()
-            .all(|item| { item.item.in_library.is_some() || item.item.library_item.is_some() })
-    );
+    assert!(update.items.iter().all(|item| matches!(
+        item.item,
+        PlayingItemRef::LibraryTrack { .. }
+    )));
     assert_eq!(update.revision, 1);
     renderer.stop_worker().await?;
     host.stop_worker().await?;
@@ -4207,7 +4189,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         .queue_revision()
         .await;
     let local_cast_id = session_audio(&renderer, "cast-local.ogg").await?;
-    let local_cast_item = library_item_for_id(&renderer, local_cast_id).await?;
+    let local_cast_item = library_track_for_id(&renderer, local_cast_id).await?;
     let stale_load = LoadResolvedItemsRequest {
 
             call_id: None,
@@ -4245,20 +4227,24 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         queue_before_stale
     );
 
-    let not_held = LibraryItemRequest {
+    let not_held = PlayingItemRef::LibraryTrack {
         library_id: controller
             .global_params
             .library_id
             .context("controller library id")?
             .to_string(),
-        file_uuid: host_items[0].file_uuid.to_string(),
+        track: host_items[0].file_uuid.to_string(),
+    };
+    let not_held_library_id = match &not_held {
+        PlayingItemRef::LibraryTrack { library_id, .. } => library_id.clone(),
+        PlayingItemRef::IndependentFile { .. } => unreachable!(),
     };
     let (name, payload, _) = controller_request(
         &mut socket,
         "CastPreflightRequest",
         rinf::serialize(&CastPreflightRequest {
             call_id: None,
-            library_ids: vec![not_held.library_id.clone()],
+            library_ids: vec![not_held_library_id.clone()],
         })?,
     )
     .await?;
@@ -4272,7 +4258,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         rinf::serialize(&LoadResolvedItemsRequest {
 
             call_id: None,
-            items: vec![not_held.clone().into()],
+            items: vec![not_held.clone()],
             start_index: Some(0),
             mode: PlaylistOperateMode::Replace,
             expected_revision: Some(revision),
@@ -4288,7 +4274,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
     assert_eq!(
         failure.cause,
         Some(RequestFailureCause::CastNotPossible {
-            library_id: not_held.library_id.clone(),
+            library_id: not_held_library_id,
             state: CastLibraryState::NotHeld,
         })
     );
@@ -4426,10 +4412,10 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         rinf::serialize(&LoadResolvedItemsRequest {
 
             call_id: None,
-            items: vec![LibraryItemRequest {
+            items: vec![PlayingItemRef::LibraryTrack {
                 library_id: host_library_id.to_string(),
-                file_uuid: "malformed".into(),
-            }.into()],
+                track: "malformed".into(),
+            }],
             start_index: Some(0),
             mode: PlaylistOperateMode::Replace,
             expected_revision: Some(revision),
@@ -4599,7 +4585,7 @@ async fn list_renderers_reports_access_availability_and_attachment() -> Result<(
 async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Result<()> {
     use crate::backends::remote::RendererLink;
     use crate::messages::{
-        CastLibraryState, LoadResolvedItemsRequest, LibraryItemRequest, PlaylistOperateMode,
+        CastLibraryState, LoadResolvedItemsRequest, PlaylistOperateMode,
         RequestErrorKind,
     };
     use crate::request_error::{ExpectedRequestError, classify};
@@ -4635,7 +4621,7 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
         session_audio(&renderer, "request-append-play.ogg").await?,
         session_audio(&renderer, "request-play-next.ogg").await?,
     ];
-    let items = futures::future::join_all(ids.iter().map(|id| library_item_for_id(&renderer, *id)))
+    let items = futures::future::join_all(ids.iter().map(|id| library_track_for_id(&renderer, *id)))
         .await
         .into_iter()
         .collect::<Result<Vec<_>>>()?;
@@ -4647,7 +4633,7 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
         .edit_queue(None, move |player| {
             player.add_to_playlist_with_sources(
                 vec![(
-                    PlayingItem::InLibrary(anchor),
+                    PlayingItem::from(anchor),
                     PlaybackSource::LibraryStream,
                 )],
                 AddMode::AppendToEnd,
@@ -4658,12 +4644,12 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
     wait_player(&renderer, |status| status.playlist.len() == 1).await?;
     renderer.global_params.player.lock().await.switch(0);
     wait_player(&renderer, |status| {
-        status.item == Some(PlayingItem::InLibrary(items[0]))
+        status.item == Some(PlayingItem::from(items[0]))
     })
     .await?;
     renderer.global_params.player.lock().await.pause();
     wait_player(&renderer, |status| {
-        status.item == Some(PlayingItem::InLibrary(items[0]))
+        status.item == Some(PlayingItem::from(items[0]))
             && status.state == PlaybackState::Paused
     })
     .await?;
@@ -4689,7 +4675,7 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
     wait_player(&renderer, |status| status.playlist.len() == 2).await?;
     assert_eq!(
         renderer.global_params.player.lock().await.get_status().item,
-        Some(PlayingItem::InLibrary(items[0]))
+        Some(PlayingItem::from(items[0]))
     );
     assert_eq!(
         renderer
@@ -4733,7 +4719,7 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
         };
         link.call(&request).await?;
         wait_player(&renderer, |status| {
-            status.item == Some(PlayingItem::InLibrary(item)) && status.state == expected_state
+            status.item == Some(PlayingItem::from(item)) && status.state == expected_state
         })
         .await?;
         // Keep this test from decoding audio for the rest of its run; other tests in the
@@ -4755,10 +4741,10 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
     let invalid = LoadResolvedItemsRequest {
 
             call_id: None,
-        items: vec![LibraryItemRequest {
+        items: vec![PlayingItemRef::LibraryTrack {
             library_id: library_id.to_string(),
-            file_uuid: "malformed".into(),
-        }.into()],
+            track: "malformed".into(),
+        }],
         start_index: None,
         mode: PlaylistOperateMode::AppendToEnd,
         expected_revision: None,
@@ -4786,10 +4772,10 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
     let not_held = LoadResolvedItemsRequest {
 
             call_id: None,
-        items: vec![LibraryItemRequest {
+        items: vec![PlayingItemRef::LibraryTrack {
             library_id: Uuid::new_v4().to_string(),
-            file_uuid: Uuid::new_v4().to_string(),
-        }.into()],
+            track: Uuid::new_v4().to_string(),
+        }],
         start_index: None,
         mode: PlaylistOperateMode::AppendToEnd,
         expected_revision: None,
@@ -4889,7 +4875,7 @@ async fn session_f3_persists_changes_without_rewriting_while_idle() -> Result<()
         .await
         .add_to_playlist_with_sources(
             vec![(
-                PlayingItem::InLibrary(library_item_for_id(&a, second).await?),
+                PlayingItem::from(library_track_for_id(&a, second).await?),
                 PlaybackSource::LibraryStream,
             )],
             AddMode::AppendToEnd,
@@ -4906,7 +4892,7 @@ async fn session_c2a_revision_conflicts_and_identity_persist() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let fixture = fixture(dir.path()).await?;
     let track = session_audio(&fixture, "revision-track.ogg").await?;
-    let item = PlayingItem::InLibrary(library_item_for_id(&fixture, track).await?);
+    let item = PlayingItem::from(library_track_for_id(&fixture, track).await?);
     let session = fixture.global_params.node.session()?;
     let session_id = session.session_id().await;
     session
@@ -4976,7 +4962,7 @@ async fn session_c2a_revision_conflicts_and_identity_persist() -> Result<()> {
     assert_eq!(migrated.queue_revision, 0);
     assert_eq!(
         serde_json::from_slice::<serde_json::Value>(&fs::read(v2_path)?)?["version"],
-        3
+        4
     );
     reopened.shutdown().await?;
     Ok(())
@@ -4989,8 +4975,8 @@ async fn switch_request_rejects_stale_queue_revision_and_accepts_current_revisio
     let first = session_audio(&fixture, "switch-revision-first.ogg").await?;
     let second = session_audio(&fixture, "switch-revision-second.ogg").await?;
     let items = [
-        library_item_for_id(&fixture, first).await?,
-        library_item_for_id(&fixture, second).await?,
+        library_track_for_id(&fixture, first).await?,
+        library_track_for_id(&fixture, second).await?,
     ];
     let session = fixture.global_params.node.session()?;
     session
@@ -4999,7 +4985,7 @@ async fn switch_request_rejects_stale_queue_revision_and_accepts_current_revisio
                 items
                     .iter()
                     .copied()
-                    .map(|item| (PlayingItem::InLibrary(item), PlaybackSource::LibraryStream))
+                    .map(|item| (PlayingItem::from(item), PlaybackSource::LibraryStream))
                     .collect(),
                 AddMode::AppendToEnd,
             );
@@ -5034,7 +5020,7 @@ async fn switch_request_rejects_stale_queue_revision_and_accepts_current_revisio
     wait_player(&fixture, |status| status.index == Some(1)).await?;
     assert_eq!(
         fixture.global_params.player.lock().await.get_status().item,
-        Some(PlayingItem::InLibrary(items[1])),
+        Some(PlayingItem::from(items[1])),
     );
     let invalid = SwitchRequest {
         call_id: None,
@@ -5046,7 +5032,7 @@ async fn switch_request_rejects_stale_queue_revision_and_accepts_current_revisio
     assert_eq!(classify(&error), RequestErrorKind::InvalidInput);
     assert_eq!(
         fixture.global_params.player.lock().await.get_status().item,
-        Some(PlayingItem::InLibrary(items[1])),
+        Some(PlayingItem::from(items[1])),
     );
     Ok(())
 }
@@ -5505,11 +5491,11 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
         )
         .await?;
 
-    let h_items = futures::future::join_all(h_ids.iter().map(|id| library_item_for_id(&h, *id)))
+    let h_items = futures::future::join_all(h_ids.iter().map(|id| library_track_for_id(&h, *id)))
         .await
         .into_iter()
         .collect::<Result<Vec<_>>>()?;
-    let g_item = library_item_for_id(&g, g_id).await?;
+    let g_item = library_track_for_id(&g, g_id).await?;
     let queue = vec![h_items[0], g_item, h_items[1]];
     let g_source = g.global_params.test_library();
     let a_g_library = a_g_replica.global_params.test_library();
@@ -5551,7 +5537,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
             player.add_to_playlist_with_sources(
                 queue
                     .into_iter()
-                    .map(|item| (PlayingItem::InLibrary(item), PlaybackSource::LibraryStream))
+                    .map(|item| (PlayingItem::from(item), PlaybackSource::LibraryStream))
                     .collect(),
                 AddMode::AppendToEnd,
             );
@@ -5777,7 +5763,7 @@ fn session_snapshot_rejects_independent_files() {
     status
         .playlist
         .push(PlayingItem::IndependentFile("outside-library.ogg".into()));
-    let error = match session_snapshot_from_status(status, 0) {
+    let error = match session_snapshot_from_status(status, 0, &HashSet::new()) {
         Ok(_) => panic!("independent file unexpectedly appeared in a handoff snapshot"),
         Err(error) => error,
     };
@@ -5791,15 +5777,19 @@ fn session_snapshot_rejects_independent_files() {
 
 #[test]
 fn session_snapshot_rejects_subsonic_tracks_without_mutating_the_queue() {
-    let subsonic_item = SubsonicItem {
+    let subsonic_track = SubsonicItem {
         library_id: Uuid::new_v4(),
         track_id: "remote-track".to_owned(),
     };
-    let item = PlayingItem::Subsonic(subsonic_item.clone());
+    let item = PlayingItem::from(subsonic_track.clone());
     let mut status = MockPlayer.get_status();
     status.playlist.push(item.clone());
     let original = status.playlist.clone();
-    let error = match session_snapshot_from_status(status.clone(), 0) {
+    let error = match session_snapshot_from_status(
+        status.clone(),
+        0,
+        &HashSet::from([subsonic_track.library_id]),
+    ) {
         Ok(_) => panic!("Subsonic track unexpectedly appeared in a handoff snapshot"),
         Err(error) => error,
     };
@@ -5810,13 +5800,7 @@ fn session_snapshot_rejects_subsonic_tracks_without_mutating_the_queue() {
         })
     ));
     assert_eq!(status.playlist, original);
-    let encoded = serde_json::to_string(&PlayingItemRequest {
-        in_library: None,
-        independent_file: None,
-        library_item: None,
-        subsonic_item: Some(subsonic_item.into()),
-    })
-    .unwrap();
+    let encoded = serde_json::to_string(&PlayingItemRef::from(subsonic_track)).unwrap();
     for secret_marker in ["t=", "s=", "p=", "password"] {
         assert!(!encoded.contains(secret_marker));
     }
@@ -5833,7 +5817,7 @@ async fn playback_snapshot_waits_for_accepted_queue_changes() -> Result<()> {
     .await?;
     let item = super::step(
         "resolve snapshot track",
-        library_item_for_id(&fixture, track),
+        library_track_for_id(&fixture, track),
     )
     .await?;
     let session = fixture.global_params.node.session()?;
@@ -5842,7 +5826,7 @@ async fn playback_snapshot_waits_for_accepted_queue_changes() -> Result<()> {
         "accept queue edit",
         session.edit_queue(None, move |player| {
             player.add_to_playlist_with_sources(
-                vec![(PlayingItem::InLibrary(item), PlaybackSource::LibraryStream)],
+                vec![(PlayingItem::from(item), PlaybackSource::LibraryStream)],
                 AddMode::AppendToEnd,
             );
             true
@@ -5853,7 +5837,7 @@ async fn playback_snapshot_waits_for_accepted_queue_changes() -> Result<()> {
     let (status, revision) = timeout(Duration::from_secs(2), session.playback_snapshot())
         .await
         .context("snapshot barrier did not return")?;
-    assert_eq!(status.playlist, [PlayingItem::InLibrary(item)]);
+    assert_eq!(status.playlist, [PlayingItem::from(item)]);
     assert_eq!(revision, 1);
     super::step(
         "shutdown snapshot fixture",
@@ -6139,7 +6123,7 @@ async fn remote_independent_file_lyrics_are_refused() -> Result<()> {
     use crate::access_policy::{ConnectionLevel, DeviceGrants, LibraryGrants, SyncLevel};
     use crate::backends::remote::connect_remote;
     use crate::messages::{
-        GetLyricByTrackIdRequest, IndependentFilePlayingItem, RemoteRequestFailed,
+        GetLyricByTrackIdRequest, RemoteRequestFailed,
     };
 
     let host_dir = tempfile::tempdir()?;
@@ -6179,13 +6163,8 @@ async fn remote_independent_file_lyrics_are_refused() -> Result<()> {
     fs::write(&outside_audio, secret)?;
     let request = GetLyricByTrackIdRequest {
             call_id: None,
-        item: Some(PlayingItemRequest {
-            in_library: None,
-            independent_file: Some(IndependentFilePlayingItem {
-                raw_path: outside_audio.to_string_lossy().into_owned(),
-            }),
-            library_item: None,
-            subsonic_item: None,
+        item: Some(PlayingItemRef::IndependentFile {
+            path: outside_audio.to_string_lossy().into_owned(),
         }),
     };
     let (response_name, response_payload) = socket_request_for_library(

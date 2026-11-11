@@ -17,7 +17,7 @@ use tokio::task;
 use uuid::Uuid;
 
 use playback::{
-    player::{LibraryItem, Playable, Player, PlayingItem},
+    player::{Playable, Player, PlayingItem},
     strategies::AddMode,
 };
 
@@ -59,18 +59,15 @@ async fn play_files(
         files
             .into_iter()
             .filter_map(|file| {
-                let file_uuid = match Uuid::parse_str(&file.hlc_uuid) {
-                    Ok(file_uuid) => file_uuid,
-                    Err(error) => {
-                        error!("Invalid file UUID {}: {error}", file.hlc_uuid);
-                        return None;
-                    }
-                };
+                if let Err(error) = Uuid::parse_str(&file.hlc_uuid) {
+                    error!("Invalid file UUID {}: {error}", file.hlc_uuid);
+                    return None;
+                }
                 Some((
-                    PlayingItem::InLibrary(LibraryItem {
+                    PlayingItem::LibraryTrack {
                         library_id: library_uuid,
-                        file_uuid,
-                    }),
+                        track: file.hlc_uuid,
+                    },
                     canonicalize(canonicalized_path.join(file.directory).join(file.file_name))
                         .unwrap(),
                 ))

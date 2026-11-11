@@ -4804,7 +4804,7 @@ mod lifecycle_tests {
         )
         .await?;
         assert!(
-            matches!(&queued[..], [(PlayingItem::InLibrary(item), PlaybackSource::LibraryStream)] if item.file_uuid.to_string() == file.hlc_uuid)
+            matches!(&queued[..], [(PlayingItem::LibraryTrack { track, .. }, PlaybackSource::LibraryStream)] if *track == file.hlc_uuid)
         );
         let summaries = get_metadata_summary_by_files(
             params.test_library().main_db.as_ref(),
@@ -4815,6 +4815,7 @@ mod lifecycle_tests {
             &params.test_library().fsio,
             &params.test_library().main_db,
             &params.node_id,
+            &params.test_library().library_id.to_string(),
             summaries,
             Arc::new(params.test_library().media_root.clone()),
         )

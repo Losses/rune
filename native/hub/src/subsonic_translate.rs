@@ -18,10 +18,10 @@ use crate::messages::{
     FetchCollectionGroupsRequest, FetchCollectionGroupsResponse, FetchMediaFileByIdsRequest,
     FetchMediaFileByIdsResponse, LoadRequest, LoadResolvedItemsRequest, LoadResolvedItemsResponse,
     MediaFile, MixQueryRequest, MixQueryResponse, MovePlaylistItemRequest, NextRequest,
-    PauseRequest, PlayRequest, PlaylistOperateMode, PreviousRequest, RefreshSessionRequest,
-    RemoveRequest, SearchForRequest, SearchForResponse, SeekRequest, SessionSnapshotRequest,
-    SetAdaptiveSwitchingEnabledRequest, SetPlaybackModeRequest, SetRealtimeFFTEnabledRequest,
-    SwitchRequest, VolumeRequest, VolumeResponse,
+    PauseRequest, PlayRequest, PlayingItemRef, PlaylistOperateMode, PreviousRequest,
+    RefreshSessionRequest, RemoveRequest, SearchForRequest, SearchForResponse, SeekRequest,
+    SessionSnapshotRequest, SetAdaptiveSwitchingEnabledRequest, SetPlaybackModeRequest,
+    SetRealtimeFFTEnabledRequest, SwitchRequest, VolumeRequest, VolumeResponse,
 };
 use crate::request_error::ExpectedRequestError;
 use crate::rpc::{RequestTranslationFuture, Slot, UnsupportedReason};
@@ -169,6 +169,8 @@ pub(crate) async fn fetch_media_file_by_ids_request(
         }
         media_files.push(MediaFile {
             id: *id,
+            library_id: binding.library_id.to_string(),
+            track: song.id.clone(),
             path: String::new(),
             artist: song.artist.unwrap_or_default(),
             album: song.album.unwrap_or_default(),
@@ -508,12 +510,13 @@ fn subsonic_track_ids(
         .items
         .iter()
         .map(|item| {
-            let subsonic = item.subsonic_item.as_ref().ok_or_else(|| {
-                ExpectedRequestError::invalid_input(
+            let PlayingItemRef::LibraryTrack { library_id, track } = item else {
+                return Err(ExpectedRequestError::invalid_input(
                     "Subsonic jukebox accepts only Subsonic library items",
                 )
-            })?;
-            let library_id = Uuid::parse_str(&subsonic.library_id).map_err(|error| {
+                .into());
+            };
+            let library_id = Uuid::parse_str(library_id).map_err(|error| {
                 ExpectedRequestError::invalid_input(format!("Invalid Subsonic library id: {error}"))
             })?;
             if library_id != binding.library_id {
@@ -522,7 +525,7 @@ fn subsonic_track_ids(
                 )
                 .into());
             }
-            Ok(subsonic.track_id.clone())
+            Ok(track.clone())
         })
         .collect()
 }
@@ -878,6 +881,8 @@ pub(crate) async fn mix_query_request(
                 .unwrap_or_default();
             let media_file = MediaFile {
                 id,
+                library_id: binding.library_id.to_string(),
+                track: song.id.clone(),
                 path: String::new(),
                 artist: song.artist.unwrap_or_default(),
                 album: song.album.unwrap_or_default(),
@@ -1079,12 +1084,12 @@ mod tests {
         macros::{RequestSlots, RequestTranslator},
         messages::{
             CastPreflightRequest, CollectionType, FetchCollectionGroupSummaryRequest,
-            FetchCollectionGroupsRequest, FetchMediaFileByIdsRequest, LibraryItemRequest,
-            LoadRequest, LoadResolvedItemsRequest, MovePlaylistItemRequest, NextRequest,
-            PauseRequest, PlayRequest, PlayingItemRequest, PlaylistOperateMode, PreviousRequest,
+            FetchCollectionGroupsRequest, FetchMediaFileByIdsRequest, LoadRequest,
+            LoadResolvedItemsRequest, MovePlaylistItemRequest, NextRequest, PauseRequest,
+            PlayRequest, PlayingItemRef, PlaylistOperateMode, PreviousRequest,
             RefreshSessionRequest, RemoveRequest, SearchForRequest, SeekRequest,
             SessionSnapshotRequest, SetAdaptiveSwitchingEnabledRequest, SetPlaybackModeRequest,
-            SetRealtimeFFTEnabledRequest, SubsonicItemRequest, SwitchRequest, VolumeRequest,
+            SetRealtimeFFTEnabledRequest, SwitchRequest, VolumeRequest,
         },
         request_error::{ExpectedRequestError, classify},
         rpc::{Slot, TargetRequest, UnsupportedReason},
@@ -1500,14 +1505,9 @@ mod tests {
         mode: PlaylistOperateMode,
     ) -> LoadResolvedItemsRequest {
         LoadResolvedItemsRequest {
-            items: vec![PlayingItemRequest {
-                in_library: None,
-                independent_file: None,
-                library_item: None,
-                subsonic_item: Some(SubsonicItemRequest {
-                    library_id: library_id.to_string(),
-                    track_id: track_id.to_owned(),
-                }),
+            items: vec![PlayingItemRef::LibraryTrack {
+                library_id: library_id.to_string(),
+                track: track_id.to_owned(),
             }],
             start_index: Some(0),
             mode,
@@ -1756,10 +1756,9 @@ mod tests {
         let root = TempDir::new().unwrap();
         let (binding, server) = mock_subsonic(&root, true).await;
         let mut request = subsonic_load(binding.library_id, "unused", PlaylistOperateMode::Replace);
-        request.items[0].subsonic_item = None;
-        request.items[0].library_item = Some(LibraryItemRequest {
-            library_id: Uuid::new_v4().to_string(),
-            file_uuid: Uuid::new_v4().to_string(),
+        request.items[0] = PlayingItemRef::from(playback::player::LibraryItem {
+            library_id: Uuid::new_v4(),
+            file_uuid: Uuid::new_v4(),
         });
         let error = match RequestTranslator::translate_load_resolved_items_request(
             &binding, &request,

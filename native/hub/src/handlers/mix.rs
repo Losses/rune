@@ -349,6 +349,7 @@ impl Signal for MixQueryRequest {
             &library.fsio,
             &library.main_db,
             &node_id,
+            &library.library_id.to_string(),
             media_summaries,
             lib_path,
         )

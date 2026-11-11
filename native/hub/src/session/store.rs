@@ -11,9 +11,7 @@ use anyhow::{Context, Result, ensure};
 use database::actions::file::file_uuids_by_id;
 use playback::{
     PlaybackMode,
-    player::{
-        LibraryItem, OnlineInLibraryFile, PlaybackSource, PlayerStatus, PlayingItem, SubsonicItem,
-    },
+    player::{OnlineInLibraryFile, PlaybackSource, PlayerStatus, PlayingItem},
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -21,6 +19,11 @@ use uuid::Uuid;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum StoredItem {
+    LibraryTrack {
+        library_id: Uuid,
+        track: String,
+    },
+    // Read compatibility for session stores written before the unified identity.
     InLibrary {
         library_id: Uuid,
         file_uuid: Uuid,
@@ -41,14 +44,9 @@ enum StoredItem {
 impl From<PlayingItem> for StoredItem {
     fn from(item: PlayingItem) -> Self {
         match item {
-            PlayingItem::InLibrary(item) => Self::InLibrary {
-                library_id: item.library_id,
-                file_uuid: item.file_uuid,
-            },
-            PlayingItem::Subsonic(item) => Self::Subsonic {
-                library_id: item.library_id,
-                track_id: item.track_id,
-            },
+            PlayingItem::LibraryTrack { library_id, track } => {
+                Self::LibraryTrack { library_id, track }
+            }
             PlayingItem::IndependentFile(path) => Self::IndependentFile { path },
             PlayingItem::Online(url, library) => Self::Online {
                 url,
@@ -61,20 +59,23 @@ impl From<PlayingItem> for StoredItem {
 impl From<StoredItem> for PlayingItem {
     fn from(item: StoredItem) -> Self {
         match item {
+            StoredItem::LibraryTrack { library_id, track } => {
+                Self::LibraryTrack { library_id, track }
+            }
             StoredItem::InLibrary {
                 library_id,
                 file_uuid,
-            } => Self::InLibrary(LibraryItem {
+            } => Self::LibraryTrack {
                 library_id,
-                file_uuid,
-            }),
+                track: file_uuid.to_string(),
+            },
             StoredItem::Subsonic {
                 library_id,
                 track_id,
-            } => Self::Subsonic(SubsonicItem {
+            } => Self::LibraryTrack {
                 library_id,
-                track_id,
-            }),
+                track: track_id,
+            },
             StoredItem::IndependentFile { path } => Self::IndependentFile(path),
             StoredItem::Online { url, library } => Self::Online(
                 url,
@@ -103,7 +104,7 @@ pub(crate) struct SessionState {
 impl Default for SessionState {
     fn default() -> Self {
         Self {
-            version: 3,
+            version: 4,
             session_id: Uuid::new_v4(),
             queue_revision: 0,
             migrated: false,
@@ -124,8 +125,23 @@ impl SessionState {
                     .get("version")
                     .and_then(serde_json::Value::as_u64)
                     .unwrap_or_default();
+                if version == 4 {
+                    return serde_json::from_value(value).context("Read player session v4");
+                }
                 if version == 3 {
-                    return serde_json::from_value(value).context("Read player session v3");
+                    let mut state: Self =
+                        serde_json::from_value(value).context("Read player session v3")?;
+                    state.queue = state
+                        .queue
+                        .into_iter()
+                        .map(|item| {
+                            let current: PlayingItem = item.into();
+                            current.into()
+                        })
+                        .collect();
+                    state.version = 4;
+                    state.write(path)?;
+                    return Ok(state);
                 }
                 if version == 2 {
                     #[derive(Deserialize)]
@@ -138,8 +154,8 @@ impl SessionState {
                     }
                     let previous: V2State =
                         serde_json::from_value(value).context("Read player session v2")?;
-                    let state = Self {
-                        version: 3,
+                    let mut state = Self {
+                        version: 4,
                         session_id: Uuid::new_v4(),
                         queue_revision: 0,
                         migrated: previous.migrated,
@@ -148,6 +164,14 @@ impl SessionState {
                         position: previous.position,
                         mode: previous.mode,
                     };
+                    state.queue = state
+                        .queue
+                        .into_iter()
+                        .map(|item| {
+                            let current: PlayingItem = item.into();
+                            current.into()
+                        })
+                        .collect();
                     state.write(path)?;
                     return Ok(state);
                 }
@@ -233,8 +257,8 @@ impl SessionState {
                     .filter(|_| !current_dropped)
                     .and_then(|index| index.checked_sub(dropped_before_index))
                     .filter(|index| *index < queue.len());
-                let state = Self {
-                    version: 3,
+                let mut state = Self {
+                    version: 4,
                     session_id: Uuid::new_v4(),
                     queue_revision: 0,
                     migrated: legacy.migrated,
@@ -243,6 +267,14 @@ impl SessionState {
                     position: legacy.position,
                     mode: legacy.mode,
                 };
+                state.queue = state
+                    .queue
+                    .into_iter()
+                    .map(|item| {
+                        let current: PlayingItem = item.into();
+                        current.into()
+                    })
+                    .collect();
                 state.write(path)?;
                 Ok(state)
             }
@@ -260,7 +292,7 @@ impl SessionState {
     }
     pub fn update_queue(&mut self, items: &[PlayingItem]) {
         self.queue = items.iter().cloned().map(Into::into).collect();
-        self.version = 3;
+        self.version = 4;
         if !self.queue.is_empty() {
             self.migrated = true;
         }
@@ -308,12 +340,12 @@ impl SessionState {
 
 #[cfg(test)]
 mod tests {
-    use super::{StoredItem, SubsonicItem, Uuid};
-    use playback::player::PlayingItem;
+    use super::{StoredItem, Uuid};
+    use playback::player::{PlayingItem, SubsonicItem};
 
     #[test]
     fn subsonic_queue_item_roundtrips_as_secret_free_identity() {
-        let item = PlayingItem::Subsonic(SubsonicItem {
+        let item = PlayingItem::from(SubsonicItem {
             library_id: Uuid::new_v4(),
             track_id: "remote-track-42".to_owned(),
         });

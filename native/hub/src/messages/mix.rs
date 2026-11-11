@@ -2,7 +2,7 @@ use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::{media_file::MediaFile, playback::PlayingItemRequest};
+use super::{media_file::MediaFile, playback::PlayingItemRef};
 
 #[derive(Debug, Serialize, Deserialize, Clone, SignalPiece)]
 pub struct MixQuery {
@@ -14,9 +14,9 @@ pub struct MixQuery {
 pub struct ResolveMixQueryRequest {
     pub queries: Vec<MixQuery>,
     pub hint_position: i32,
-    pub initial_playback_item: Option<PlayingItemRequest>,
+    pub initial_playback_item: Option<PlayingItemRef>,
     pub instantly_play: bool,
-    pub fallback_playing_items: Vec<PlayingItemRequest>,
+    pub fallback_playing_items: Vec<PlayingItemRef>,
     pub exclude_local_queue: bool,
     #[serde(default)]
     pub call_id: Option<u64>,
@@ -24,7 +24,7 @@ pub struct ResolveMixQueryRequest {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct ResolveMixQueryResponse {
-    pub playing_items: Vec<PlayingItemRequest>,
+    pub playing_items: Vec<PlayingItemRef>,
     pub start_index: Option<u32>,
     #[serde(default)]
     pub call_id: Option<u64>,

@@ -35,6 +35,8 @@ Future<PlaylistOccurrencePage> fetchPlaylistOccurrences(
       final file = entry.file;
       return InternalMediaFile(
         id: file?.id ?? 0,
+        libraryId: file?.libraryId ?? '',
+        track: file?.track ?? entry.trackUuid,
         path: file?.path ?? '',
         artist: file?.artist ?? '',
         album: file?.album ?? '',

@@ -494,6 +494,7 @@ impl Signal for FetchPlaylistOccurrencesRequest {
             &library.fsio,
             &library.main_db,
             &node,
+            &library.library_id.to_string(),
             summaries,
             root,
         )

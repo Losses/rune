@@ -3,7 +3,10 @@ import '../../bindings/bindings.dart';
 import '../playing_item.dart';
 
 Future<bool?> setLiked(PlayingItem item, bool liked) async {
-  final updateRequest = SetLikedRequest(item: item.toRequest(), liked: liked);
+  final updateRequest = SetLikedRequest(
+    item: (await playingItemRefs([item])).single,
+    liked: liked,
+  );
   final rustSignal = await awaitResponse(
     'SetLikedRequest',
     SetLikedResponse.rustSignalStream,

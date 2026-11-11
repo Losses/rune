@@ -43,6 +43,7 @@ pub async fn get_media_metadata_handler(
             .node()
             .map_err(|error| (StatusCode::SERVICE_UNAVAILABLE, error.to_string()))?
             .node_id,
+        &library.library_id.to_string(),
         vec![media_file],
         Arc::new(library.media_root.clone()),
     )

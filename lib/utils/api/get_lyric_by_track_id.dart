@@ -5,6 +5,7 @@ import '../playing_item.dart';
 import 'request_failure.dart';
 
 Future<List<LyricContentLine>> getLyricByTrackId(PlayingItem? item) async {
+  final itemRef = item == null ? null : (await playingItemRefs([item])).single;
   if (item == null) return [];
   try {
     final response = await awaitResponse(
@@ -13,8 +14,7 @@ Future<List<LyricContentLine>> getLyricByTrackId(PlayingItem? item) async {
         (event) => PlayingItem.fromRequest(event.message.item) == item,
       ),
       timeout: const Duration(seconds: 10),
-      send: () =>
-          GetLyricByTrackIdRequest(item: item.toRequest()).sendSignalToRust(),
+      send: () => GetLyricByTrackIdRequest(item: itemRef!).sendSignalToRust(),
     );
     return response.message.lines;
   } on TimeoutException {

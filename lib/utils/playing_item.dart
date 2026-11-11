@@ -1,4 +1,6 @@
 import '../bindings/bindings.dart';
+import 'api/fetch_media_file_by_ids.dart';
+import '../widgets/track_list/utils/internal_media_file.dart';
 
 class PlayingItem {
   final int? inLibrary;
@@ -29,37 +31,25 @@ class PlayingItem {
     required String trackId,
   }) : this._(subsonicLibraryId: libraryId, subsonicTrackId: trackId);
   const PlayingItem.independentFile(String path)
-      : this._(independentFile: path);
+    : this._(independentFile: path);
   const PlayingItem.unknown() : this._(isUnknown: true);
 
   bool get hasLocalFileId => inLibrary != null;
 
-  // Mirrors `From<PlayingItemRequest> for PlayingItem` in the hub: a file
-  // outside the library is sent without `inLibrary`.
-  static PlayingItem fromRequest(PlayingItemRequest request) {
-    final inLibrary = request.inLibrary;
-    final independentFile = request.independentFile;
-    final libraryItem = request.libraryItem;
-    final subsonicItem = request.subsonicItem;
+  static PlayingItem fromRequest(PlayingItemRef request) => switch (request) {
+    PlayingItemRefLibraryTrack(:final libraryId, :final track)
+        when _isUuid(track) =>
+      PlayingItem.libraryItem(libraryId: libraryId, fileUuid: track),
+    PlayingItemRefLibraryTrack(:final libraryId, :final track) =>
+      PlayingItem.subsonicTrack(libraryId: libraryId, trackId: track),
+    PlayingItemRefIndependentFile(:final path) when path.isNotEmpty =>
+      PlayingItem.independentFile(path),
+    _ => const PlayingItem.unknown(),
+  };
 
-    if (subsonicItem != null) {
-      return PlayingItem.subsonicTrack(
-        libraryId: subsonicItem.libraryId,
-        trackId: subsonicItem.trackId,
-      );
-    } else if (inLibrary != null && inLibrary.fileId != 0) {
-      return PlayingItem.inLibrary(inLibrary.fileId);
-    } else if (libraryItem != null) {
-      return PlayingItem.libraryItem(
-        libraryId: libraryItem.libraryId,
-        fileUuid: libraryItem.fileUuid,
-      );
-    } else if (independentFile != null && independentFile.rawPath.isNotEmpty) {
-      return PlayingItem.independentFile(independentFile.rawPath);
-    } else {
-      return PlayingItem.unknown();
-    }
-  }
+  static bool _isUuid(String value) => RegExp(
+    r'^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$',
+  ).hasMatch(value);
 
   @override
   bool operator ==(Object other) =>
@@ -75,84 +65,100 @@ class PlayingItem {
           isUnknown == other.isUnknown;
 
   @override
-  int get hashCode =>
-      Object.hash(inLibrary, libraryId, fileUuid, subsonicLibraryId,
-          subsonicTrackId, independentFile, isUnknown);
+  int get hashCode => Object.hash(
+    inLibrary,
+    libraryId,
+    fileUuid,
+    subsonicLibraryId,
+    subsonicTrackId,
+    independentFile,
+    isUnknown,
+  );
 
   static const independentFilePrefix = 'PlayingItem::IndependentFile(';
 
   static PlayingItem fromString(String str) {
-    if (str.startsWith('PlayingItem::InLibrary(') && str.endsWith(')')) {
-      final idStr = str.substring(23, str.length - 1);
-      final id = int.tryParse(idStr);
-      if (id != null) {
-        return PlayingItem.inLibrary(id);
-      }
-    } else if (str.startsWith(independentFilePrefix) &&
-        str.endsWith(')')) {
-      final path = str.substring(independentFilePrefix.length, str.length - 1);
-      return PlayingItem.independentFile(path);
+    if (str.startsWith(independentFilePrefix) && str.endsWith(')')) {
+      return PlayingItem.independentFile(
+        str.substring(independentFilePrefix.length, str.length - 1),
+      );
     }
-    // Unknown, Online and anything else the Dart side cannot represent
-    return PlayingItem.unknown();
+    return const PlayingItem.unknown();
   }
 
   @override
   String toString() {
-    if (inLibrary != null) {
-      return 'PlayingItem::InLibrary($inLibrary)';
-    } else if (independentFile != null) {
+    if (inLibrary != null) return 'PlayingItem::InLibrary($inLibrary)';
+    if (independentFile != null) {
       return 'PlayingItem::IndependentFile($independentFile)';
-    } else if (libraryId != null && fileUuid != null) {
-      return 'PlayingItem::LibraryItem($libraryId, $fileUuid)';
-    } else if (subsonicLibraryId != null && subsonicTrackId != null) {
-      return 'PlayingItem::Subsonic($subsonicLibraryId, $subsonicTrackId)';
-    } else if (isUnknown) {
-      return 'PlayingItem::Unknown()';
+    }
+    if (libraryId != null && fileUuid != null) {
+      return 'PlayingItem::LibraryTrack($libraryId, $fileUuid)';
+    }
+    if (subsonicLibraryId != null && subsonicTrackId != null) {
+      return 'PlayingItem::LibraryTrack($subsonicLibraryId, $subsonicTrackId)';
     }
     return 'PlayingItem::Unknown()';
   }
 }
 
+/// The single conversion point from a local catalog row to its stable wire identity.
+PlayingItemRef localTrackRef(int rowId, Iterable<InternalMediaFile> files) {
+  InternalMediaFile? file;
+  for (final candidate in files) {
+    if (candidate.id == rowId) {
+      file = candidate;
+      break;
+    }
+  }
+  if (file == null) {
+    throw StateError(
+      'Track row $rowId was not present in the resolved catalog items',
+    );
+  }
+  return PlayingItemRefLibraryTrack(
+    libraryId: file.libraryId,
+    track: file.track,
+  );
+}
+
+Future<List<PlayingItemRef>> playingItemRefs(List<PlayingItem> items) async {
+  final rowIds = items
+      .map((item) => item.inLibrary)
+      .whereType<int>()
+      .toSet()
+      .toList();
+  final files = rowIds.isEmpty
+      ? <InternalMediaFile>[]
+      : await fetchMediaFileByIds(rowIds, false);
+  return items.map((item) {
+    if (item.inLibrary != null) return localTrackRef(item.inLibrary!, files);
+    return item.toRequest();
+  }).toList();
+}
+
 extension PlayingItemExtension on PlayingItem {
-  PlayingItemRequest toRequest() {
-    if (inLibrary != null) {
-      return PlayingItemRequest(
-        inLibrary: InLibraryPlayingItem(fileId: inLibrary!),
-        independentFile: null,
-        libraryItem: null,
-      );
-    } else if (libraryId != null && fileUuid != null) {
-      return PlayingItemRequest(
-        inLibrary: null,
-        independentFile: null,
-        libraryItem: LibraryItemRequest(
-          libraryId: libraryId!,
-          fileUuid: fileUuid!,
-        ),
-      );
-    } else if (subsonicLibraryId != null && subsonicTrackId != null) {
-      return PlayingItemRequest(
-        inLibrary: null,
-        independentFile: null,
-        libraryItem: null,
-        subsonicItem: SubsonicItemRequest(
-          libraryId: subsonicLibraryId!,
-          trackId: subsonicTrackId!,
-        ),
-      );
-    } else if (independentFile != null) {
-      return PlayingItemRequest(
-        inLibrary: null,
-        independentFile: IndependentFilePlayingItem(rawPath: independentFile!),
-        libraryItem: null,
-      );
-    } else {
-      return PlayingItemRequest(
-        inLibrary: null,
-        independentFile: null,
-        libraryItem: null,
+  PlayingItemRef toRequest() {
+    if (libraryId != null && fileUuid != null) {
+      return PlayingItemRefLibraryTrack(
+        libraryId: libraryId!,
+        track: fileUuid!,
       );
     }
+    if (subsonicLibraryId != null && subsonicTrackId != null) {
+      return PlayingItemRefLibraryTrack(
+        libraryId: subsonicLibraryId!,
+        track: subsonicTrackId!,
+      );
+    }
+    if (independentFile != null) {
+      return PlayingItemRefIndependentFile(path: independentFile!);
+    }
+    if (inLibrary != null) {
+      throw StateError(
+        'Local row ids must be converted with localTrackRef before sending',
+      );
+    }
+    throw StateError('Unknown playing items cannot be sent');
   }
 }

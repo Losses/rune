@@ -27,14 +27,14 @@ void main() {
         await failures.close();
       });
       const item = PlaylistItem(
-        item: PlayingItemRequest(),
+        item: PlayingItemRefIndependentFile(path: ''),
         artist: '',
         album: '',
         title: '',
         duration: 0,
       );
       const secondItem = PlaylistItem(
-        item: PlayingItemRequest(),
+        item: PlayingItemRefIndependentFile(path: ''),
         artist: '',
         album: '',
         title: 'second',

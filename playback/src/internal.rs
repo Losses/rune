@@ -27,8 +27,8 @@ use crate::decoder::RuneDecoder;
 use crate::output_stream::{RuneOutputStream, RuneOutputStreamHandle};
 use crate::pcm_tap::PcmTap;
 use crate::player::{
-    AudioPlaybackNote, AudioSourceMode, PlaybackSource, PlaybackSourceResolver, PlayerStatus,
-    PlayingItem, RemoteAudioError, UnavailableReason,
+    AudioPlaybackNote, AudioSourceMode, LibraryTrackKey, PlaybackSource, PlaybackSourceResolver,
+    PlayerStatus, PlayingItem, RemoteAudioError, SubsonicItem, UnavailableReason,
 };
 use crate::realtime_fft::RealTimeFFT;
 use crate::shared_source::SharedSource;
@@ -944,31 +944,58 @@ impl PlayerInternal {
                     let mut fsio = fsio;
                     let mut resolver = resolver;
                     let mut remote_storage = false;
-                    if let (PlayingItem::InLibrary(identity), Some(root)) =
-                        (&item.item, resolver.as_ref())
-                        && let Some(library) =
-                            root.for_library(identity.library_id.to_string()).await?
+                    let library_track_key =
+                        if let (PlayingItem::LibraryTrack { library_id, track }, Some(resolver)) =
+                            (&item.item, resolver.as_ref())
+                        {
+                            Some(
+                                resolver
+                                    .resolve_track(library_id.to_string(), track.clone())
+                                    .await?,
+                            )
+                        } else {
+                            None
+                        };
+                    if matches!(library_track_key, Some(LibraryTrackKey::Rune(_)))
+                        && let (PlayingItem::LibraryTrack { library_id, .. }, Some(root)) =
+                            (&item.item, resolver.as_ref())
+                        && let Some(library) = root.for_library(library_id.to_string()).await?
                     {
                         remote_storage = library.fsio.name() == "OpenDAL";
                         fsio = library.fsio;
                         resolver = Some(library.resolver);
                     }
-                    let local_file_id = if let (PlayingItem::InLibrary(identity), Some(resolver)) =
-                        (&item.item, resolver.as_ref())
-                    {
-                        debug!("Resolving source identity for track load {index}");
-                        Some(
-                            resolver
-                                .resolve_id(identity.file_uuid)
-                                .await?
-                                .context("library track no longer exists")?,
-                        )
-                    } else {
-                        None
-                    };
+                    let local_file_id =
+                        if let (Some(LibraryTrackKey::Rune(file_uuid)), Some(resolver)) =
+                            (&library_track_key, resolver.as_ref())
+                        {
+                            debug!("Resolving source identity for track load {index}");
+                            Some(
+                                resolver
+                                    .resolve_id(*file_uuid)
+                                    .await?
+                                    .context("library track no longer exists")?,
+                            )
+                        } else {
+                            None
+                        };
                     let resolved_item = item.item.clone();
                     match &resolved_item {
-                        PlayingItem::IndependentFile(_) | PlayingItem::InLibrary(_) => {
+                        PlayingItem::IndependentFile(_) => {
+                            let path = match &item.source {
+                                PlaybackSource::Local(path) => path.clone(),
+                                PlaybackSource::LibraryStream => {
+                                    bail!("library stream resolver unavailable")
+                                }
+                            };
+                            let source = open_local_source(fsio, path.clone(), remote_storage)
+                                .await
+                                .with_context(|| format!("Failed to open file: {path:?}"))?;
+                            Ok((source, path, resolved_item.clone()))
+                        }
+                        PlayingItem::LibraryTrack { .. }
+                            if matches!(library_track_key, Some(LibraryTrackKey::Rune(_))) =>
+                        {
                             let path = if let (Some(id), Some(resolver)) =
                                 (local_file_id, resolver.as_ref())
                             {
@@ -1000,13 +1027,24 @@ impl PlayerInternal {
                                 .with_context(|| format!("Failed to open file: {path:?}"))?;
                             Ok((source, path, resolved_item.clone()))
                         }
-                        PlayingItem::Subsonic(identity) => {
+                        PlayingItem::LibraryTrack { library_id, .. }
+                            if matches!(library_track_key, Some(LibraryTrackKey::Subsonic(_))) =>
+                        {
                             let resolver = resolver
                                 .as_ref()
                                 .context("Subsonic playback resolver unavailable")?;
-                            let (source, path) =
-                                open_subsonic_stream(resolver, identity.clone()).await?;
+                            let item = SubsonicItem {
+                                library_id: *library_id,
+                                track_id: match library_track_key.as_ref() {
+                                    Some(LibraryTrackKey::Subsonic(track)) => track.clone(),
+                                    _ => bail!("Subsonic track key unavailable"),
+                                },
+                            };
+                            let (source, path) = open_subsonic_stream(resolver, item).await?;
                             Ok((source, path, resolved_item.clone()))
+                        }
+                        PlayingItem::LibraryTrack { .. } => {
+                            bail!("library track resolver unavailable")
                         }
                         PlayingItem::Online(url, _) => {
                             info!("Downloading from url: {url}");
@@ -2104,7 +2142,7 @@ impl PlayerInternal {
 #[cfg(test)]
 mod stream_open_tests {
     use super::*;
-    use crate::player::{AudioRequest, LibraryItem, LibraryPlaybackSource, RemoteAudioSource};
+    use crate::player::{AudioRequest, LibraryPlaybackSource, RemoteAudioSource};
     use futures::future::BoxFuture;
     use std::collections::{HashMap, HashSet};
     use std::io::{Read, Seek, SeekFrom};
@@ -2490,10 +2528,10 @@ mod stream_open_tests {
                             .iter()
                             .map(|file_uuid| {
                                 (
-                                    PlayingItem::InLibrary(LibraryItem {
+                                    PlayingItem::LibraryTrack {
                                         library_id,
-                                        file_uuid: *file_uuid,
-                                    }),
+                                        track: file_uuid.to_string(),
+                                    },
                                     PlaybackSource::LibraryStream,
                                 )
                             })
@@ -2556,12 +2594,12 @@ mod stream_open_tests {
                 let runner = tokio::task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
-                    let track = |file_uuid| {
+                    let track = |file_uuid: Uuid| {
                         (
-                            PlayingItem::InLibrary(LibraryItem {
+                            PlayingItem::LibraryTrack {
                                 library_id,
-                                file_uuid,
-                            }),
+                                track: file_uuid.to_string(),
+                            },
                             PlaybackSource::LibraryStream,
                         )
                     };
@@ -2594,10 +2632,10 @@ mod stream_open_tests {
                     assert_eq!(&*ids.lock().unwrap(), &[1, 2]);
                     release.notify_one();
 
-                    let expected = PlayingItem::InLibrary(LibraryItem {
+                    let expected = PlayingItem::LibraryTrack {
                         library_id,
-                        file_uuid: file_uuids[1],
-                    });
+                        track: file_uuids[1].to_string(),
+                    };
                     tokio::time::timeout(Duration::from_secs(3), async {
                         loop {
                             if let Some(PlayerEvent::Playing { item, .. }) = events.recv().await
@@ -2645,10 +2683,10 @@ mod stream_open_tests {
                 let runner = tokio::task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
-                    let expected = PlayingItem::InLibrary(LibraryItem {
+                    let expected = PlayingItem::LibraryTrack {
                         library_id,
-                        file_uuid: file_uuids[0],
-                    });
+                        track: file_uuids[0].to_string(),
+                    };
                     commands_sender.send(PlayerCommand::AddToPlaylist {
                         tracks: vec![(expected.clone(), PlaybackSource::LibraryStream)],
                         mode: AddMode::AppendToEnd,
@@ -2684,7 +2722,6 @@ mod playback_state_tests {
         DelayedResolver, delayed_resolver_fixture, delayed_resolver_fixture_with_samples,
     };
     use super::*;
-    use crate::player::LibraryItem;
     use std::sync::atomic::Ordering;
     use std::sync::mpsc::channel;
     use tokio::runtime::Builder;
@@ -2714,10 +2751,10 @@ mod playback_state_tests {
     }
 
     fn library_item(library_id: Uuid, file_uuid: Uuid) -> PlayingItem {
-        PlayingItem::InLibrary(LibraryItem {
+        PlayingItem::LibraryTrack {
             library_id,
-            file_uuid,
-        })
+            track: file_uuid.to_string(),
+        }
     }
 
     fn library_tracks(library_id: Uuid, file_uuids: &[Uuid]) -> Vec<(PlayingItem, PlaybackSource)> {

@@ -110,7 +110,7 @@ impl PlayingItemActionDispatcher {
     ) -> Result<Vec<PlayingItemMetadataSummary>> {
         let in_library_results = if items
             .iter()
-            .any(|item| matches!(item, PlayingItem::InLibrary(_)))
+            .any(|item| matches!(item, PlayingItem::LibraryTrack { track, .. } if uuid::Uuid::parse_str(track).is_ok()))
         {
             self.in_library_processor
                 .get_metadata_summary(fsio, main_db, items)
@@ -174,7 +174,12 @@ impl PlayingItemActionDispatcher {
         item: &PlayingItem,
     ) -> Option<i32> {
         match item {
-            PlayingItem::InLibrary(_) | PlayingItem::Online(_, Some(_)) => {
+            PlayingItem::LibraryTrack { track, .. } if uuid::Uuid::parse_str(track).is_ok() => {
+                self.in_library_processor
+                    .get_cover_art_primary_color(fsio, lib_path, main_db, item)
+                    .await
+            }
+            PlayingItem::Online(_, Some(_)) => {
                 self.in_library_processor
                     .get_cover_art_primary_color(fsio, lib_path, main_db, item)
                     .await
@@ -189,7 +194,7 @@ impl PlayingItemActionDispatcher {
                     .get_cover_art_primary_color(fsio, lib_path, main_db, item)
                     .await
             }
-            PlayingItem::Subsonic(_) | PlayingItem::Unknown => None,
+            PlayingItem::LibraryTrack { .. } | PlayingItem::Unknown => None,
         }
     }
 }

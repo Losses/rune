@@ -87,6 +87,7 @@ impl Signal for FetchMediaFilesRequest {
             fsio,
             main_db,
             &node_id,
+            &library.library_id.to_string(),
             media_summaries,
             Arc::new(media_root.clone()),
         )
@@ -139,6 +140,7 @@ impl Signal for FetchMediaFileByIdsRequest {
             fsio,
             main_db,
             &node_id,
+            &library.library_id.to_string(),
             media_summaries,
             Arc::new(media_root.clone()),
         )
@@ -198,6 +200,7 @@ impl Signal for FetchParsedMediaFileRequest {
             fsio,
             db,
             &node_id,
+            &library.library_id.to_string(),
             vec![media_file],
             Arc::new(media_root.clone()),
         )
