@@ -6,6 +6,19 @@ use database::library_registry::{
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct GetOpenLibraryRequest {
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct GetOpenLibraryResponse {
+    pub library_id: Option<String>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LibraryInitializeMode {
     Portable,

@@ -1,10 +1,12 @@
 use crate::node::NodeContext;
 use crate::request_error::ExpectedRequestError;
 use crate::request_owner::OpenLibrary;
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
 use std::{
     collections::HashMap,
     sync::{
-        Arc, Weak,
+        Arc, RwLock as StdRwLock, Weak,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
@@ -33,8 +35,9 @@ use urlencoding::encode;
 use uuid::Uuid;
 
 use crate::{
-    macros::listen_local_gui,
+    macros::{RequestScope, listen_local_gui},
     messages::*,
+    rpc::TargetRequest,
     server::{
         api::fetch_device_info_at_port,
         generate_or_load_certificates, get_or_generate_alias,
@@ -201,6 +204,7 @@ pub(crate) enum RendererLinkUse {
 
 pub struct RendererLink {
     id: Uuid,
+    active_library_id: Arc<StdRwLock<Option<Uuid>>>,
     fingerprint: String,
     alias: String,
     peer_version: ProtocolVersion,
@@ -208,6 +212,8 @@ pub struct RendererLink {
     cancel: CancellationToken,
     locally_detached: Arc<AtomicBool>,
     pending_replies: PendingReplies,
+    #[cfg(test)]
+    sent_requests: AtomicUsize,
     node: Weak<NodeContext>,
     reader: tokio::task::JoinHandle<()>,
 }
@@ -284,6 +290,15 @@ impl RendererLink {
             link_use,
         )
         .await;
+        let current_library = link
+            .call(&GetOpenLibraryRequest { call_id: None })
+            .await
+            .map_err(protocol)?;
+        let library_id = current_library
+            .library_id
+            .map(|library_id| Uuid::parse_str(&library_id).map_err(protocol))
+            .transpose()?;
+        link.set_active_library_id(library_id);
         Ok((link, host.to_owned(), alias))
     }
 
@@ -298,11 +313,12 @@ impl RendererLink {
         let id = Uuid::new_v4();
         let cancel = node.token.child_token();
         let locally_detached = Arc::new(AtomicBool::new(false));
+        let active_library_id = Arc::new(StdRwLock::new(None));
         let (write, mut read) = stream.split();
         let write = Arc::new(Mutex::new(write));
         let handlers = Arc::new(Mutex::new(HashMap::<String, MessageHandler>::new()));
         if link_use == RendererLinkUse::Control {
-            register_session_handlers(&handlers, &node, id).await;
+            register_session_handlers(&handlers, &node, id, active_library_id.clone()).await;
         }
         let reader_handlers = handlers.clone();
         let pending_replies: PendingReplies = Arc::new(Mutex::new(HashMap::new()));
@@ -371,6 +387,7 @@ impl RendererLink {
         });
         Self {
             id,
+            active_library_id,
             fingerprint,
             alias,
             peer_version,
@@ -378,6 +395,8 @@ impl RendererLink {
             cancel,
             locally_detached,
             pending_replies,
+            #[cfg(test)]
+            sent_requests: AtomicUsize::new(0),
             node: Arc::downgrade(&node),
             reader,
         }
@@ -386,11 +405,50 @@ impl RendererLink {
     /// Send a catalogue-declared request and decode its declared response.
     pub async fn call<R>(&self, request: &R) -> Result<R::Response>
     where
-        R: crate::TypedRequest + DartSignal + Serialize,
+        R: TargetRequest + DartSignal + Serialize,
         R::Response: DeserializeOwned,
     {
+        self.call_addressed(request, None).await
+    }
+
+    /// Send a catalogue-declared library request to the named library.
+    pub async fn call_for_library<R>(&self, library_id: Uuid, request: &R) -> Result<R::Response>
+    where
+        R: TargetRequest + DartSignal + Serialize,
+        R::Response: DeserializeOwned,
+    {
+        self.call_addressed(request, Some(library_id)).await
+    }
+
+    /// Send a library request to the renderer's currently open library.
+    pub async fn call_for_current_library<R>(&self, request: &R) -> Result<R::Response>
+    where
+        R: TargetRequest + DartSignal + Serialize,
+        R::Response: DeserializeOwned,
+    {
+        let library_id = self
+            .active_library_id()
+            .ok_or(ExpectedRequestError::Unavailable { what: "library id" })?;
+        self.call_addressed(request, Some(library_id)).await
+    }
+
+    async fn call_addressed<R>(&self, request: &R, library_id: Option<Uuid>) -> Result<R::Response>
+    where
+        R: TargetRequest + DartSignal + Serialize,
+        R::Response: DeserializeOwned,
+    {
+        if (R::SCOPE == RequestScope::Library) != library_id.is_some() {
+            return Err(ExpectedRequestError::Unavailable {
+                what: if R::SCOPE == RequestScope::Library {
+                    "library id"
+                } else {
+                    "library address for non-library request"
+                },
+            }
+            .into());
+        }
         let payload = rinf::serialize(request).context("Could not encode renderer request")?;
-        let (name, payload) = self.request(R::wire_name(), &payload).await?;
+        let (name, payload) = self.request(R::wire_name(), &payload, library_id).await?;
         if name != R::response_name() {
             return Err(ExpectedRequestError::UnexpectedResponse {
                 expected: R::response_name().to_owned(),
@@ -402,7 +460,12 @@ impl RendererLink {
     }
 
     /// Send a request to the renderer and wait for its matching response frame.
-    async fn request(&self, name: &str, payload: &[u8]) -> Result<(String, Vec<u8>)> {
+    async fn request(
+        &self,
+        name: &str,
+        payload: &[u8],
+        library_id: Option<Uuid>,
+    ) -> Result<(String, Vec<u8>)> {
         let request_id = Uuid::new_v4();
         let (sender, receiver) = oneshot::channel();
         self.pending_replies.lock().await.insert(request_id, sender);
@@ -412,7 +475,10 @@ impl RendererLink {
             self.pending_replies.lock().await.remove(&request_id);
             return Err(ExpectedRequestError::Unavailable { what: "renderer" }.into());
         }
-        let frame = encode_message(name, payload, Some(request_id));
+        let frame = match library_id {
+            Some(library_id) => encode_request(name, payload, request_id, library_id),
+            None => encode_message(name, payload, Some(request_id)),
+        };
         let send = async {
             self.write
                 .lock()
@@ -431,6 +497,8 @@ impl RendererLink {
             self.report_send_failure(detail).await;
             return Err(ExpectedRequestError::Unavailable { what: "renderer" }.into());
         }
+        #[cfg(test)]
+        self.sent_requests.fetch_add(1, Ordering::Relaxed);
         match tokio::time::timeout(Duration::from_secs(30), receiver).await {
             Ok(Ok(result)) => result,
             Ok(Err(_)) | Err(_) => {
@@ -453,6 +521,21 @@ impl RendererLink {
 
     pub(crate) fn id(&self) -> Uuid {
         self.id
+    }
+
+    pub(crate) fn active_library_id(&self) -> Option<Uuid> {
+        self.active_library_id.read().ok().and_then(|value| *value)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn sent_request_count(&self) -> usize {
+        self.sent_requests.load(Ordering::Relaxed)
+    }
+
+    fn set_active_library_id(&self, library_id: Option<Uuid>) {
+        if let Ok(mut active_library_id) = self.active_library_id.write() {
+            *active_library_id = library_id;
+        }
     }
 
     pub(crate) fn fingerprint(&self) -> &str {
@@ -497,22 +580,53 @@ impl Drop for RendererLink {
 
 /// Only the active control link may publish events. Library events belong to @RR;
 /// Play on continues to show this device's library.
-async fn register_session_handlers(handlers: &HandlerMap, node: &Arc<NodeContext>, id: Uuid) {
+async fn register_session_handlers(
+    handlers: &HandlerMap,
+    node: &Arc<NodeContext>,
+    id: Uuid,
+    active_library_id: Arc<StdRwLock<Option<Uuid>>>,
+) {
     for declaration in REMOTE_EVENT_DECLARATIONS {
         let weak_node = Arc::downgrade(node);
         let scope = declaration.scope;
         let decode = declaration.decode;
+        let event_name = declaration.name;
+        let event_library_id = active_library_id.clone();
         handlers.lock().await.insert(
             declaration.name.into(),
             Box::new(move |payload| {
                 let Some(node) = weak_node.upgrade() else {
                     return;
                 };
-                if !node
-                    .renderer_link()
-                    .ok()
-                    .flatten()
-                    .is_some_and(|link| link.id() == id)
+                let current_link = node.renderer_link().ok().flatten();
+                let active = current_link.as_ref().is_some_and(|link| link.id() == id);
+                if event_name == "RequestCapabilities" {
+                    match rinf::deserialize::<RequestCapabilities>(&payload) {
+                        Ok(capabilities) => {
+                            let library_id = capabilities
+                                .library_id
+                                .as_deref()
+                                .map(Uuid::parse_str)
+                                .transpose();
+                            match library_id {
+                                Ok(library_id) => {
+                                    if let Ok(mut active) = event_library_id.write() {
+                                        *active = library_id;
+                                    }
+                                    if active {
+                                        node.gui_broadcaster.broadcast(&capabilities);
+                                    }
+                                }
+                                Err(error) => {
+                                    error!("Renderer published an invalid library id: {error}");
+                                }
+                            }
+                        }
+                        Err(error) => error!("Failed to decode renderer capabilities: {error}"),
+                    }
+                    return;
+                }
+                if !active
                     || (scope == RemoteEventScope::Library
                         && !matches!(node.current_library(), Ok(OpenLibrary::RunePeer { .. })))
                 {
@@ -789,7 +903,9 @@ pub(crate) async fn open_remote_library_for_fingerprint(
     )
     .await?;
     link.call(&RefreshSessionRequest { call_id: None }).await?;
-    let params = Arc::new(node.params_for_ui()?);
+    let mut params = node.params_for_ui()?;
+    params.library_id = link.active_library_id();
+    let params = Arc::new(params);
     let generation = node
         .attach_remote_ui(&params, fingerprint.to_owned(), record_id)
         .await?;

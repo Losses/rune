@@ -106,6 +106,7 @@ enum UiLibrary {
 struct OpenLibraryState {
     record_id: Option<LibraryRecordId>,
     generation: u64,
+    library_id: Option<Uuid>,
     catalog: LibraryBinding,
 }
 
@@ -175,7 +176,8 @@ impl Broadcaster for NodeBroadcaster {
             .current_player
             .lock()
             .is_ok_and(|player| player.suppresses_local_session_events())
-            && remote_event == Some(RemoteEventScope::Session);
+            && remote_event == Some(RemoteEventScope::Session)
+            && message.name() != "RequestCapabilities";
         if !suppress_local_status {
             self.local.broadcast(message);
         }
@@ -226,7 +228,7 @@ impl NodeContext {
         if last.as_ref() == Some(&capabilities) {
             return Ok(());
         }
-        self.gui_broadcaster.broadcast(&capabilities);
+        self.broadcaster.broadcast(&capabilities);
         *last = Some(capabilities);
         Ok(())
     }
@@ -841,6 +843,7 @@ impl NodeContext {
         self.attach_ui(params).await;
         self.set_open_catalog(
             record_id,
+            params.library_id,
             LibraryBinding::RemotePeer {
                 fingerprint,
                 reconnect: None,
@@ -848,8 +851,12 @@ impl NodeContext {
         )
     }
 
-    pub(crate) fn set_open_local_catalog(&self, record_id: Option<LibraryRecordId>) -> Result<u64> {
-        self.set_open_catalog(record_id, LibraryBinding::Local)
+    pub(crate) fn set_open_local_catalog(
+        &self,
+        record_id: Option<LibraryRecordId>,
+        library_id: Uuid,
+    ) -> Result<u64> {
+        self.set_open_catalog(record_id, Some(library_id), LibraryBinding::Local)
     }
 
     pub(crate) fn set_open_subsonic_catalog(
@@ -857,7 +864,11 @@ impl NodeContext {
         record_id: Option<LibraryRecordId>,
         binding: Arc<SubsonicBinding>,
     ) -> Result<u64> {
-        self.set_open_catalog(record_id, LibraryBinding::Subsonic(binding))
+        self.set_open_catalog(
+            record_id,
+            Some(binding.library_id),
+            LibraryBinding::Subsonic(binding),
+        )
     }
 
     pub(crate) fn subsonic_binding(
@@ -894,6 +905,7 @@ impl NodeContext {
     fn set_open_catalog(
         &self,
         record_id: Option<LibraryRecordId>,
+        library_id: Option<Uuid>,
         catalog: LibraryBinding,
     ) -> Result<u64> {
         let jukebox_binding = match &catalog {
@@ -910,6 +922,7 @@ impl NodeContext {
         *ui = UiLibrary::Open(OpenLibraryState {
             record_id,
             generation,
+            library_id,
             catalog,
         });
         drop(ui);
@@ -921,16 +934,19 @@ impl NodeContext {
         Ok(generation)
     }
 
-    pub(crate) fn capability_library_identity(&self) -> Result<(Option<String>, u64)> {
+    pub(crate) fn capability_library_identity(
+        &self,
+    ) -> Result<(Option<String>, u64, Option<Uuid>)> {
         let ui = self
             .ui_library
             .lock()
             .map_err(|_| anyhow::anyhow!("UI library lock poisoned"))?;
         Ok(match &*ui {
-            UiLibrary::Closed => (None, 0),
+            UiLibrary::Closed => (None, 0, None),
             UiLibrary::Open(open) => (
                 open.record_id.map(|record_id| record_id.0.to_string()),
                 open.generation,
+                open.library_id,
             ),
         })
     }

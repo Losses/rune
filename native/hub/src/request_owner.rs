@@ -14,7 +14,7 @@ use crate::{
     Signal, TypedRequest,
     backends::remote::RendererLink,
     library_pool::LibraryHandle,
-    macros::RequestSlots,
+    macros::{RequestScope, RequestSlots},
     request_error::ExpectedRequestError,
     rpc::{Slot, TargetRequest},
     subsonic_binding::SubsonicBinding,
@@ -198,7 +198,12 @@ impl Implementation {
                 else {
                     anyhow::bail!("Forward slot has no renderer link");
                 };
-                Ok(Some(link.call(request).await?))
+                let response = if R::SCOPE == RequestScope::Library {
+                    link.call_for_current_library(request).await?
+                } else {
+                    link.call(request).await?
+                };
+                Ok(Some(response))
             }
             Slot::Translate => {
                 let Self::Subsonic(binding) = self.execution_implementation() else {

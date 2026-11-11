@@ -21,6 +21,7 @@ use tokio::{
     sync::{Mutex, RwLock},
 };
 use tracing_subscriber::EnvFilter;
+use uuid::Uuid;
 
 use ::discovery::{
     client::CertValidator, config::get_config_dir, protocol::DiscoveryService,
@@ -61,13 +62,13 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli {
-        Cli::Repl(args) => repl_mode(&args.service_url).await,
+        Cli::Repl(args) => repl_mode(&args.service_url, args.library_id).await,
         Cli::Discovery(cmd) => handle_discovery_command(cmd).await,
         Cli::Remote(cmd) => handle_remote_command(cmd).await,
     }
 }
 
-async fn repl_mode(service_url: &str) -> Result<()> {
+async fn repl_mode(service_url: &str, library_id: Uuid) -> Result<()> {
     let service_url = match validate_and_format_url(service_url) {
         Ok(x) => x,
         Err(e) => {
@@ -81,7 +82,7 @@ async fn repl_mode(service_url: &str) -> Result<()> {
     println!("\nType 'help' to see available commands");
 
     let config = EditorConfig::default();
-    let connection = match WSConnection::connect(service_url.clone()).await {
+    let connection = match WSConnection::connect(service_url.clone(), library_id).await {
         Ok(x) => x,
         Err(e) => {
             error!("{e}");

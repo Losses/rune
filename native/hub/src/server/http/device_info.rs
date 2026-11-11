@@ -2,9 +2,8 @@ use std::sync::Arc;
 
 use axum::{Json, extract::State};
 
-use discovery::{capabilities::Capabilities, utils::DeviceInfo};
-
 use crate::server::{ServerState, utils::device::SanitizedDeviceInfo};
+use discovery::{capabilities::Capabilities, utils::DeviceInfo};
 
 fn sanitize_device_info(original: &DeviceInfo) -> SanitizedDeviceInfo {
     SanitizedDeviceInfo {

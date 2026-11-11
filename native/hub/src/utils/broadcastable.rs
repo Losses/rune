@@ -40,4 +40,5 @@ crate::declare_remote_events!(
     ScanAudioLibraryResponse => Library,
     AnalyzeAudioLibraryProgress => Library,
     AnalyzeAudioLibraryResponse => Library,
+    RequestCapabilities => Session,
 );

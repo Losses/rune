@@ -26,6 +26,7 @@ pub enum CapabilityReason {
 pub struct RequestCapabilities {
     pub record_id: Option<String>,
     pub generation: u64,
+    pub library_id: Option<String>,
     pub attach_renderer_request: RequestCapability,
     pub detach_renderer_request: RequestCapability,
     pub list_renderers_request: RequestCapability,
@@ -152,6 +153,7 @@ pub struct RequestCapabilities {
     pub stop_server_request: RequestCapability,
     pub list_clients_request: RequestCapability,
     pub get_ssl_certificate_fingerprint_request: RequestCapability,
+    pub get_open_library_request: RequestCapability,
     pub add_trusted_server_request: RequestCapability,
     pub remove_trusted_client_request: RequestCapability,
     pub update_client_status_request: RequestCapability,

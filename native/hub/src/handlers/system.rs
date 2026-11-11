@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::sync::Arc;
 #[cfg(not(target_os = "ios"))]
 use sysinfo::System;
 #[cfg(not(target_os = "ios"))]
@@ -7,8 +8,39 @@ use sysinfo::Users;
 use crate::{
     Session, Signal,
     messages::*,
+    node::NodeContext,
     utils::{GlobalParams, ParamsExtractor},
 };
+
+impl ParamsExtractor for GetOpenLibraryRequest {
+    type Params = Arc<NodeContext>;
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        all_params.node.clone()
+    }
+}
+
+impl Signal for GetOpenLibraryRequest {
+    type Params = Arc<NodeContext>;
+    type Response = GetOpenLibraryResponse;
+
+    async fn handle(
+        &self,
+        node: Self::Params,
+        _session: Option<Session>,
+        request: &Self,
+    ) -> Result<Option<Self::Response>> {
+        Ok(Some(GetOpenLibraryResponse {
+            library_id: node
+                .current_ui()
+                .await
+                .ok()
+                .and_then(|params| params.library_id)
+                .map(|library_id| library_id.to_string()),
+            call_id: request.call_id,
+        }))
+    }
+}
 
 impl ParamsExtractor for SystemInfoRequest {
     type Params = ();

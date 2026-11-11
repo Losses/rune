@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::macros::RequestScope;
 use crate::node::NodeContext;
-use crate::request_error::FailedCall;
+use crate::request_error::{ExpectedRequestError, FailedCall};
 use crate::rpc::TargetRequest;
 use crate::utils::ParamsExtractor;
 use crate::{RequestCallId, ResponseCallId, Session, Signal, TypedRequest};
@@ -26,6 +26,9 @@ where
     <R as TypedRequest>::Response: Serialize,
     <R as TypedRequest>::Response: ResponseCallId,
 {
+    if R::SCOPE == RequestScope::Library && library_id.is_none() {
+        return Err(ExpectedRequestError::Unavailable { what: "library id" }.into());
+    }
     let addressed_library = library_id.filter(|_| R::SCOPE == RequestScope::Library);
     let params = if let Some(library_id) = addressed_library {
         if let Some(session) = &session {
@@ -41,7 +44,9 @@ where
         // Unaddressed library requests need the UI library; session-only requests do not.
         let ui_params = match node.current_ui().await {
             Ok(params) => params,
-            Err(_) if R::SCOPE == RequestScope::Session => Arc::new(node.params_for_ui()?),
+            Err(_) if matches!(R::SCOPE, RequestScope::Session | RequestScope::Node) => {
+                Arc::new(node.params_for_ui()?)
+            }
             Err(error) => return Err(error),
         };
         if let Some(session) = &session {

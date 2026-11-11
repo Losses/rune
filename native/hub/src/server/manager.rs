@@ -846,7 +846,7 @@ mod lifecycle_tests {
     };
     use super::super::utils::device::load_device_info;
     use crate::Signal;
-    use crate::macros::dispatch_remote;
+    use crate::macros::{RequestScope, dispatch_remote, request_scope};
     use crate::messages::*;
     use crate::request_error::classify;
     use crate::server::WebSocketService;
@@ -1261,11 +1261,16 @@ mod lifecycle_tests {
                 .is_none()
         );
         let payload = rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?;
+        let library_id = manager
+            .global_params
+            .library_id
+            .context("current library")?;
         let (name, response) = service
-            .handle_message(
+            .handle_addressed_message(
                 "GetMediaFilesCountRequest",
                 payload,
                 None,
+                Some(library_id),
                 &manager.global_params.node,
             )
             .await
@@ -1566,6 +1571,7 @@ mod lifecycle_tests {
             .error_for_status()?;
         let body: serde_json::Value = response.json().await?;
 
+        assert!(body.get("active_library_id").is_none());
         let capabilities: discovery::capabilities::Capabilities =
             serde_json::from_value(body["capabilities"].clone())?;
         assert_eq!(capabilities, Capabilities::rune_native());
@@ -1902,12 +1908,12 @@ mod lifecycle_tests {
         assert_eq!(name, "RemoteRequestFailed");
         let failure: RemoteRequestFailed = rinf::deserialize(&bytes)?;
         assert_eq!(failure.kind, RequestErrorKind::Unavailable);
-        assert!(failure.detail.contains("no library is open on this device"));
         let node = a.global_params.node.clone();
         let reopened =
             fixture_from_library(node.clone(), node.library_pool.acquire_ui(id).await?).await?;
         let (name, bytes) =
-            socket_request(&mut socket, "GetMediaFilesCountRequest", &payload).await?;
+            socket_request_for_library(&mut socket, "GetMediaFilesCountRequest", &payload, id)
+                .await?;
         assert_eq!(name, "GetMediaFilesCountResponse");
         assert_eq!(
             rinf::deserialize::<GetMediaFilesCountResponse>(&bytes)?.count,
@@ -2163,6 +2169,8 @@ mod lifecycle_tests {
     }
 
     async fn assert_websocket_request_is_ignored(name: &str, payload: Vec<u8>) -> Result<()> {
+        use crate::backends::remote::encode_request;
+
         let renderer_dir = tempfile::tempdir()?;
         let controller_dir = tempfile::tempdir()?;
         let renderer = fixture(renderer_dir.path()).await?;
@@ -2178,6 +2186,10 @@ mod lifecycle_tests {
         .await?;
         let ignored_id = Uuid::new_v4();
         let following_id = Uuid::new_v4();
+        let library_id = renderer
+            .global_params
+            .library_id
+            .context("renderer library id")?;
         socket
             .send(Message::Binary(
                 encode_message(name, &payload, Some(ignored_id)).into(),
@@ -2186,7 +2198,13 @@ mod lifecycle_tests {
         let payload = rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?;
         socket
             .send(Message::Binary(
-                encode_message("GetMediaFilesCountRequest", &payload, Some(following_id)).into(),
+                encode_request(
+                    "GetMediaFilesCountRequest",
+                    &payload,
+                    following_id,
+                    library_id,
+                )
+                .into(),
             ))
             .await?;
         timeout(Duration::from_secs(5), async {
@@ -2458,8 +2476,8 @@ mod lifecycle_tests {
         name: &str,
         payload: &[u8],
     ) -> Result<(String, Vec<u8>)> {
-        use crate::backends::remote::{decode_message, encode_message};
-        use futures::{SinkExt, StreamExt};
+        use crate::backends::remote::encode_message;
+        use futures::SinkExt;
         use tokio_tungstenite::tungstenite::Message;
 
         let id = Uuid::new_v4();
@@ -2468,6 +2486,17 @@ mod lifecycle_tests {
                 encode_message(name, payload, Some(id)).into(),
             ))
             .await?;
+        next_socket_response(socket, id).await
+    }
+
+    async fn next_socket_response(
+        socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        request_id: Uuid,
+    ) -> Result<(String, Vec<u8>)> {
+        use crate::backends::remote::decode_message;
+        use anyhow::Context;
+        use futures::StreamExt;
+
         loop {
             let frame = tokio::time::timeout(Duration::from_secs(2), socket.next())
                 .await?
@@ -2477,8 +2506,9 @@ mod lifecycle_tests {
             if response_name == "RequestCapabilities" {
                 continue;
             }
-            assert_eq!(response_id, id);
-            return Ok((response_name, payload));
+            if response_id == request_id {
+                return Ok((response_name, payload));
+            }
         }
     }
 
@@ -2488,8 +2518,8 @@ mod lifecycle_tests {
         payload: &[u8],
         library_id: Uuid,
     ) -> Result<(String, Vec<u8>)> {
-        use crate::backends::remote::{decode_message, encode_request};
-        use futures::{SinkExt, StreamExt};
+        use crate::backends::remote::encode_request;
+        use futures::SinkExt;
         use tokio_tungstenite::tungstenite::Message;
 
         let id = Uuid::new_v4();
@@ -2498,17 +2528,19 @@ mod lifecycle_tests {
                 encode_request(name, payload, id, library_id).into(),
             ))
             .await?;
-        loop {
-            let frame = tokio::time::timeout(Duration::from_secs(2), socket.next())
-                .await?
-                .context("socket closed")??;
-            let (response_name, payload, response_id) =
-                decode_message(&frame.into_data()).context("invalid frame")?;
-            if response_name == "RequestCapabilities" {
-                continue;
-            }
-            assert_eq!(response_id, id);
-            return Ok((response_name, payload));
+        next_socket_response(socket, id).await
+    }
+
+    async fn socket_request_for_catalogue_scope(
+        socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        name: &str,
+        payload: &[u8],
+        library_id: Uuid,
+    ) -> Result<(String, Vec<u8>)> {
+        if request_scope(name) == Some(RequestScope::Library) {
+            socket_request_for_library(socket, name, payload, library_id).await
+        } else {
+            socket_request(socket, name, payload).await
         }
     }
 
@@ -2517,7 +2549,9 @@ mod lifecycle_tests {
         use crate::Session;
         use crate::access_policy::{ConnectionLevel, DeviceGrants, LibraryGrants};
         use crate::backends::remote::connect_remote;
-        use crate::messages::CreatePlaylistRequest;
+        use crate::messages::{
+            CreatePlaylistRequest, RemotePlaylistRevisionRequest, SessionSnapshotRequest,
+        };
 
         let first = tempfile::tempdir()?;
         let second = tempfile::tempdir()?;
@@ -2635,29 +2669,48 @@ mod lifecycle_tests {
         let response: GetMediaFilesCountResponse = rinf::deserialize(&payload)?;
         assert_eq!(response.count, 1);
 
-        // Legacy frames still use the currently open UI library until C6.
+        // A library-scoped frame without an address is rejected before decoding or dispatch.
         let (name, payload) =
             socket_request(&mut socket, "GetMediaFilesCountRequest", &count_request).await?;
-        assert_eq!(name, "GetMediaFilesCountResponse");
-        let response: GetMediaFilesCountResponse = rinf::deserialize(&payload)?;
-        assert_eq!(response.count, 2);
+        assert_eq!(name, "RemoteRequestFailed");
+        let failure: RemoteRequestFailed = rinf::deserialize(&payload)?;
+        assert_eq!(failure.kind, RequestErrorKind::Unavailable);
+        let (name, payload) = socket_request(&mut socket, "GetMediaFilesCountRequest", &[]).await?;
+        assert_eq!(name, "RemoteRequestFailed");
+        let failure: RemoteRequestFailed = rinf::deserialize(&payload)?;
+        assert_eq!(failure.kind, RequestErrorKind::Unavailable);
 
-        // With no UI attached, the renderer still serves its explicitly addressed held library.
-        renderer
-            .global_params
-            .node
-            .close_ui(&renderer.global_params.main_token)
-            .await;
-        let (name, payload) = socket_request_for_library(
-            &mut socket,
-            "GetMediaFilesCountRequest",
-            &count_request,
-            other_id,
+        let session_request = rinf::serialize(&SessionSnapshotRequest { call_id: None })?;
+        let (name, session_result) = dispatch_remote(
+            "SessionSnapshotRequest",
+            &session_request,
+            Some(Session {
+                fingerprint: peer_session.fingerprint.clone(),
+                public_key: peer_session.public_key.clone(),
+                host: peer_session.host.clone(),
+            }),
+            None,
+            &renderer.global_params.node,
         )
-        .await?;
-        assert_eq!(name, "GetMediaFilesCountResponse");
-        let response: GetMediaFilesCountResponse = rinf::deserialize(&payload)?;
-        assert_eq!(response.count, 1);
+        .await
+        .context("session-scoped request dispatch")?;
+        assert_eq!(name, "SessionSnapshotResponse");
+        session_result?;
+        let node_request = rinf::serialize(&RemotePlaylistRevisionRequest {
+            fingerprint: "not-a-trusted-device".into(),
+            call_id: None,
+        })?;
+        let (_, node_result) = dispatch_remote(
+            "RemotePlaylistRevisionRequest",
+            &node_request,
+            None,
+            None,
+            &renderer.global_params.node,
+        )
+        .await
+        .context("node-scoped request dispatch")?;
+        let node_error = node_result.expect_err("unknown renderer must fail normally");
+        assert_eq!(classify(&node_error), RequestErrorKind::NotFound);
 
         // A write against a read-only addressed library is denied.
         renderer.global_params.node.access_policy.set(
@@ -2745,10 +2798,12 @@ mod lifecycle_tests {
             &b.global_params.node.sync_tokens,
         )
         .await?;
-        let (name, _) = socket_request(
+        let renderer_id = a.global_params.library_id.context("renderer library")?;
+        let (name, _) = socket_request_for_library(
             &mut socket,
             "GetMediaFilesCountRequest",
             &rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?,
+            renderer_id,
         )
         .await?;
         assert_eq!(name, "GetMediaFilesCountResponse");
@@ -2777,7 +2832,9 @@ mod lifecycle_tests {
                 })?,
             ),
         ] {
-            let (name, payload) = socket_request(&mut socket, request, &payload).await?;
+            let (name, payload) =
+                socket_request_for_catalogue_scope(&mut socket, request, &payload, renderer_id)
+                    .await?;
             assert_eq!(name, "RemoteRequestFailed");
             let failure: RemoteRequestFailed = rinf::deserialize(&payload)?;
             assert_eq!(
@@ -2854,6 +2911,7 @@ mod lifecycle_tests {
             &b.global_params.node.sync_tokens,
         )
         .await?;
+        let library_id = a.global_params.library_id.context("library")?;
         for (name, payload) in [
             ("FetchParsedMediaFileRequest", vec![]),
             (
@@ -2868,7 +2926,8 @@ mod lifecycle_tests {
                 rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?,
             ),
         ] {
-            let (response_name, payload) = socket_request(&mut socket, name, &payload).await?;
+            let (response_name, payload) =
+                socket_request_for_catalogue_scope(&mut socket, name, &payload, library_id).await?;
             if name == "GetMediaFilesCountRequest" {
                 assert_eq!(response_name, "GetMediaFilesCountResponse");
                 let response: GetMediaFilesCountResponse = rinf::deserialize(&payload)?;
@@ -2916,16 +2975,25 @@ mod lifecycle_tests {
             &b.global_params.node.sync_tokens,
         )
         .await?;
-        async fn count(socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>) -> Result<()> {
+        let library_id = a.global_params.library_id.context("library")?;
+        async fn count(
+            socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+            library_id: Uuid,
+        ) -> Result<()> {
             let payload = rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?;
-            let (name, payload) =
-                socket_request(socket, "GetMediaFilesCountRequest", &payload).await?;
+            let (name, payload) = socket_request_for_library(
+                socket,
+                "GetMediaFilesCountRequest",
+                &payload,
+                library_id,
+            )
+            .await?;
             assert_eq!(name, "GetMediaFilesCountResponse");
             let response: GetMediaFilesCountResponse = rinf::deserialize(&payload)?;
             assert_eq!(response.count, 0);
             Ok(())
         }
-        count(&mut socket).await?;
+        count(&mut socket, library_id).await?;
         let request = FetchRemoteFileRequest {
             call_id: None,
             url: "http://example.invalid/file".into(),
@@ -2945,7 +3013,7 @@ mod lifecycle_tests {
                 .await
                 .is_err()
         );
-        count(&mut socket).await?;
+        count(&mut socket, library_id).await?;
 
         let name = format!("{}.txt", Uuid::new_v4());
         let bytes = b"remote file contents";

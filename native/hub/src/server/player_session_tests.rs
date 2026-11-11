@@ -48,7 +48,7 @@ use url::Url;
 use crate::{
     Signal,
     access_policy::{ConnectionLevel, DeviceGrants, SyncLevel},
-    backends::remote::{RendererLink, RendererLinkUse},
+    backends::remote::{RendererLink, RendererLinkUse, open_remote_library_for_fingerprint},
     handlers::playback::{
         playing_item_from_request, playing_item_requests, session_snapshot_from_status,
     },
@@ -7109,6 +7109,10 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     )
     .await?;
     let b = fixture(second.path()).await?;
+    b.global_params.node.set_open_local_catalog(
+        None,
+        b.global_params.library_id.context("renderer library id")?,
+    )?;
     let address = super::paired_full(&b, &a).await?;
     let fingerprint = super::info(&b).await?.fingerprint;
     a.global_params
@@ -8784,6 +8788,10 @@ async fn registered_remote_control_opens_and_routes_library_and_session_requests
     let b_dir = tempfile::tempdir()?;
     let a = fixture(a_dir.path()).await?;
     let b = fixture(b_dir.path()).await?;
+    b.global_params.node.set_open_local_catalog(
+        None,
+        b.global_params.library_id.context("renderer library id")?,
+    )?;
     let address = super::paired_full(&b, &a).await?;
     let fingerprint = super::info(&b).await?.fingerprint;
     a.global_params
@@ -8818,6 +8826,9 @@ async fn registered_remote_control_opens_and_routes_library_and_session_requests
     .await;
     assert_eq!(opened.result, OpenLibraryResult::Opened);
     let params = a.global_params.node.current_ui().await?;
+    assert_eq!(params.library_id, b.global_params.library_id);
+    let other_id = super::held_owned_library(&b, &b_dir.path().join("other-library")).await?;
+    super::scan_held_track(&b, other_id, "other-library-track.ogg").await?;
     dispatch_gui_request(&params, &FetchAllPlaylistsRequest { call_id: None }).await?;
     dispatch_gui_request(
         &params,
@@ -8828,8 +8839,110 @@ async fn registered_remote_control_opens_and_routes_library_and_session_requests
     )
     .await?;
     wait_player(&b, |status| status.volume == 0.37).await?;
+
+    let registry = LibraryRegistry::load(Path::new(&*b.global_params.config_path))?;
+    let record_id = registry.catalog(other_id)?.record_id.0.to_string();
+    let opened = open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: None,
+            record_id,
+        },
+        b.global_params.node.clone(),
+        Arc::new(Mutex::new(ScrobblingManager::new(10, Duration::from_secs(5)))),
+    )
+    .await;
+    assert_eq!(opened.result, OpenLibraryResult::Opened);
+    let link = a
+        .global_params
+        .node
+        .renderer_link()?
+        .context("remote renderer link")?;
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while link.active_library_id() != Some(other_id) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("renderer library-open event did not update the remote link")?;
+    let count = dispatch_gui_request(
+        &params,
+        &GetMediaFilesCountRequest { call_id: None },
+    )
+    .await?
+    .context("remote media count response")?;
+    assert_eq!(count.count, 1);
     a.global_params.node.shutdown().await?;
     b.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn remote_library_request_without_renderer_library_is_typed_and_not_sent() -> Result<()> {
+    let controller_dir = tempfile::tempdir()?;
+    let renderer_dir = tempfile::tempdir()?;
+    let controller = fixture(controller_dir.path()).await?;
+    let renderer = fixture(renderer_dir.path()).await?;
+    renderer.global_params.node.set_open_local_catalog(
+        None,
+        renderer
+            .global_params
+            .library_id
+            .context("renderer library id")?,
+    )?;
+    let address = super::paired_full(&renderer, &controller).await?;
+    let fingerprint = super::info(&renderer).await?.fingerprint;
+    controller
+        .global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(
+            &fingerprint,
+            vec![format!("127.0.0.1:{}", address.port())],
+        )
+        .await?;
+    let (params, _) = open_remote_library_for_fingerprint(
+        controller.global_params.node.clone(),
+        &fingerprint,
+        vec![format!("127.0.0.1:{}", address.port())],
+        None,
+    )
+    .await?;
+    let link = controller
+        .global_params
+        .node
+        .renderer_link()?
+        .context("remote renderer link")?;
+    assert_eq!(link.active_library_id(), renderer.global_params.library_id);
+    let sent_before_close = link.sent_request_count();
+
+    let renderer_ui = renderer.global_params.node.current_ui().await?;
+    super::close_ui(&renderer_ui).await?;
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while link.active_library_id().is_some() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("renderer close event did not clear the remote link library")?;
+
+    let error = match dispatch_gui_request(
+        &params,
+        &GetMediaFilesCountRequest { call_id: None },
+    )
+    .await
+    {
+        Ok(_) => anyhow::bail!("library request without renderer library must fail"),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        error.downcast_ref::<ExpectedRequestError>(),
+        Some(ExpectedRequestError::Unavailable { what: "library id" })
+    ));
+    assert_eq!(link.sent_request_count(), sent_before_close);
+
+    controller.global_params.node.shutdown().await?;
+    renderer.global_params.node.shutdown().await?;
     Ok(())
 }
 

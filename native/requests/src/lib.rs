@@ -1133,6 +1133,14 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
+            request: "GetOpenLibraryRequest".to_string(),
+            response: Some("GetOpenLibraryResponse".to_string()),
+            scope: RequestScope::Node,
+            access: RequestAccess::Control,
+            introduced_minor: None,
+            receiver: RequestReceiver::NodeLoop,
+        },
+        RequestResponse {
             request: "GetSslCertificateFingerprintRequest".to_string(),
             response: Some("GetSslCertificateFingerprintResponse".to_string()),
             scope: RequestScope::Node,
@@ -1709,8 +1717,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         }
 
         pub(crate) fn capability_snapshot(node: &NodeContext) -> Result<RequestCapabilities> {
-            let (record_id, generation) = node.capability_library_identity()?;
-            Ok(RequestCapabilities { record_id, generation, #(#capability_snapshot_fields)* })
+            let (record_id, generation, library_id) = node.capability_library_identity()?;
+            Ok(RequestCapabilities { record_id, generation, library_id: library_id.map(|id| id.to_string()), #(#capability_snapshot_fields)* })
         }
 
         impl RequestCapabilities {
@@ -1725,12 +1733,12 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         #[cfg(test)]
         impl RequestCapabilities {
             pub(crate) fn all_available() -> Self {
-                Self { record_id: None, generation: 0, #(#capability_slot_fields: RequestCapability::Available,)* }
+                Self { record_id: None, generation: 0, library_id: None, #(#capability_slot_fields: RequestCapability::Available,)* }
             }
 
             pub(crate) fn from_implementation(implementation: &Implementation) -> Self {
                 let slots = implementation.slots();
-                Self { record_id: None, generation: 0, #(#capability_slot_fields: RequestCapability::from(<#capability_request_idents as TargetRequest>::slot(&slots)),)* }
+                Self { record_id: None, generation: 0, library_id: None, #(#capability_slot_fields: RequestCapability::from(<#capability_request_idents as TargetRequest>::slot(&slots)),)* }
             }
         }
 

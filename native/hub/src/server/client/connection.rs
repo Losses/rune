@@ -12,26 +12,27 @@ use tungstenite::Message;
 use uuid::Uuid;
 
 use hub::{
-    TypedRequest,
-    backends::remote::{decode_message, encode_message},
+    backends::remote::{decode_message, encode_message, encode_request},
     messages::RemoteRequestFailed,
     request_error::ExpectedRequestError,
+    rpc::{RequestScope, TargetRequest},
 };
 
 type ResponseFrame = (String, Vec<u8>);
 type ResponseChannels = Arc<RwLock<HashMap<Uuid, mpsc::Sender<ResponseFrame>>>>;
 
 pub struct WSConnection {
-    tx: mpsc::Sender<(String, Vec<u8>, Uuid)>,
+    tx: mpsc::Sender<Vec<u8>>,
     response_channels: ResponseChannels,
+    library_id: Uuid,
 }
 
 impl WSConnection {
-    pub async fn connect(url: String) -> Result<Self> {
+    pub async fn connect(url: String, library_id: Uuid) -> Result<Self> {
         let (ws_stream, _) = connect_async(url).await?;
         let (write, mut read) = ws_stream.split();
 
-        let (tx, mut rx) = mpsc::channel::<(String, Vec<u8>, Uuid)>(32);
+        let (tx, mut rx) = mpsc::channel::<Vec<u8>>(32);
         let response_channels = Arc::new(RwLock::new(
             HashMap::<Uuid, mpsc::Sender<ResponseFrame>>::new(),
         ));
@@ -40,8 +41,7 @@ impl WSConnection {
         // Handle outgoing messages
         tokio::spawn(async move {
             let mut write = write;
-            while let Some((type_name, payload, uuid)) = rx.recv().await {
-                let message = encode_message(&type_name, &payload, Some(uuid));
+            while let Some(message) = rx.recv().await {
                 if let Err(e) = write.send(Message::Binary(message.into())).await {
                     eprintln!("Failed to send message: {e}");
                     break;
@@ -74,12 +74,13 @@ impl WSConnection {
         Ok(Self {
             tx,
             response_channels,
+            library_id,
         })
     }
 
     pub async fn request<R>(&self, request: &R) -> Result<R::Response>
     where
-        R: TypedRequest + DartSignal + Serialize,
+        R: TargetRequest + DartSignal + Serialize,
         R::Response: for<'a> Deserialize<'a>,
     {
         let (response_tx, mut response_rx) = mpsc::channel(1);
@@ -91,9 +92,8 @@ impl WSConnection {
         }
 
         let payload = rinf::serialize(&request).with_context(|| "Failed to serialize request")?;
-        self.tx
-            .send((R::wire_name().to_string(), payload, uuid))
-            .await?;
+        let frame = encode_client_request::<R>(R::wire_name(), &payload, uuid, self.library_id);
+        self.tx.send(frame).await?;
 
         let (name, response) = response_rx
             .recv()
@@ -128,8 +128,69 @@ impl WSConnection {
 
     pub async fn request_simple<R>(&self, request: &R) -> Result<()>
     where
-        R: TypedRequest<Response = ()> + DartSignal + Serialize,
+        R: TargetRequest<Response = ()> + DartSignal + Serialize,
     {
         self.request(request).await
+    }
+}
+
+fn encode_client_request<R: TargetRequest>(
+    name: &str,
+    payload: &[u8],
+    request_id: Uuid,
+    library_id: Uuid,
+) -> Vec<u8> {
+    if R::SCOPE == RequestScope::Library {
+        encode_request(name, payload, request_id, library_id)
+    } else {
+        encode_message(name, payload, Some(request_id))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::encode_client_request;
+    use hub::{
+        TypedRequest,
+        backends::remote::decode_message_with_library_id,
+        messages::{FetchAllPlaylistsRequest, PauseRequest},
+    };
+    use uuid::Uuid;
+
+    #[test]
+    fn client_requests_address_library_scope_and_leave_session_scope_unaddressed() {
+        let library_id = Uuid::new_v4();
+        let request_id = Uuid::new_v4();
+        let library_frame = encode_client_request::<FetchAllPlaylistsRequest>(
+            FetchAllPlaylistsRequest::wire_name(),
+            &[],
+            request_id,
+            library_id,
+        );
+        assert_eq!(
+            decode_message_with_library_id(&library_frame),
+            Some((
+                FetchAllPlaylistsRequest::wire_name().to_owned(),
+                Vec::new(),
+                request_id,
+                Some(library_id),
+            ))
+        );
+
+        let session_frame = encode_client_request::<PauseRequest>(
+            PauseRequest::wire_name(),
+            &[],
+            request_id,
+            library_id,
+        );
+        assert_eq!(
+            decode_message_with_library_id(&session_frame),
+            Some((
+                PauseRequest::wire_name().to_owned(),
+                Vec::new(),
+                request_id,
+                None,
+            ))
+        );
     }
 }

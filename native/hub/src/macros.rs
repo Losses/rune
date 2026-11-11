@@ -153,6 +153,11 @@ mod node_request_loop_tests {
             GetSslCertificateFingerprintResponse
         );
         error_handler!(
+            handle_get_open_library_request,
+            GetOpenLibraryRequest,
+            GetOpenLibraryResponse
+        );
+        error_handler!(
             handle_visualizer_support_request,
             VisualizerSupportRequest,
             VisualizerSupportResponse
@@ -443,6 +448,7 @@ mod node_request_loop_tests {
         let (_replace_subsonic_tx, replace_subsonic_rx) = signal_channel();
         let (opendal_tx, opendal_rx) = signal_channel();
         let (open_tx, open_rx) = signal_channel();
+        let (_get_open_library_tx, get_open_library_rx) = signal_channel();
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
         let emit = move |signal: &dyn RinfRustSignal| {
             output_tx
@@ -504,6 +510,7 @@ mod node_request_loop_tests {
                 replace_subsonic_credential_request_receiver: replace_subsonic_rx,
                 register_open_dal_library_request_receiver: opendal_rx,
                 open_library_request_receiver: open_rx,
+                get_open_library_request_receiver: get_open_library_rx,
             },
         ));
 

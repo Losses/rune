@@ -107,7 +107,7 @@ async fn record_summaries(
             reason: InvalidRecordReasonSummary::from(reason),
         })
         .collect();
-    let (record_id, generation) = node.capability_library_identity()?;
+    let (record_id, generation, _) = node.capability_library_identity()?;
     Ok((
         records,
         invalid_records,
@@ -185,7 +185,7 @@ impl Signal for RemoveLibraryRecordRequest {
                 ),
             }));
         };
-        let (open_id, _) = node.capability_library_identity()?;
+        let (open_id, _, _) = node.capability_library_identity()?;
         if open_id
             .as_deref()
             .and_then(|record_id| Uuid::parse_str(record_id).ok())

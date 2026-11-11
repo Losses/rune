@@ -155,6 +155,7 @@ RequestCapabilities snapshot({
     stopServerRequest: capability,
     listClientsRequest: capability,
     getSslCertificateFingerprintRequest: capability,
+    getOpenLibraryRequest: capability,
     addTrustedServerRequest: capability,
     removeTrustedClientRequest: capability,
     updateClientStatusRequest: capability,

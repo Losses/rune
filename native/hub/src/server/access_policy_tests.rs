@@ -812,14 +812,15 @@ mod access_policy_tests {
             &pair.b.global_params.node.sync_tokens,
         )
         .await?;
-        let (name, _) = socket_request(
+        let (name, _) = socket_request_for_library(
             &mut socket,
             "GetMediaFilesCountRequest",
             &rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?,
+            pair.id,
         )
         .await?;
         assert_eq!(name, "GetMediaFilesCountResponse");
-        let (name, payload) = socket_request(
+        let (name, payload) = socket_request_for_library(
             &mut socket,
             "CreatePlaylistRequest",
             &rinf::serialize(&CreatePlaylistRequest {
@@ -827,6 +828,7 @@ mod access_policy_tests {
                 name: "guest denied".into(),
                 group: "test".into(),
             })?,
+            pair.id,
         )
         .await?;
         assert_eq!(name, "RemoteRequestFailed");
@@ -1015,10 +1017,11 @@ mod access_policy_tests {
         )
         .await?;
         assert_ne!(name, "RemoteRequestFailed");
-        let (name, payload) = socket_request(
+        let (name, payload) = socket_request_for_library(
             &mut socket,
             "GetMediaFilesCountRequest",
             &rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?,
+            pair.id,
         )
         .await?;
         assert_eq!(name, "RemoteRequestFailed");
@@ -1051,7 +1054,7 @@ mod access_policy_tests {
             &pair.b.global_params.node.sync_tokens,
         )
         .await?;
-        let (name, _) = socket_request(
+        let (name, _) = socket_request_for_library(
             &mut socket,
             "CreatePlaylistRequest",
             &rinf::serialize(&CreatePlaylistRequest {
@@ -1059,6 +1062,7 @@ mod access_policy_tests {
                 name: "axis edit".into(),
                 group: "test".into(),
             })?,
+            pair.id,
         )
         .await?;
         assert_eq!(name, "CreatePlaylistResponse");
@@ -1106,10 +1110,11 @@ mod access_policy_tests {
             &pair.b.global_params.node.sync_tokens,
         )
         .await?;
-        let (name, payload) = socket_request(
+        let (name, payload) = socket_request_for_library(
             &mut socket,
             "GetMediaFilesCountRequest",
             &rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?,
+            pair.id,
         )
         .await?;
         assert_eq!(name, "RemoteRequestFailed");
@@ -1187,10 +1192,11 @@ mod access_policy_tests {
             _ = sleep(Duration::from_millis(200)) => {},
         }
         pair.grants(DeviceSyncLevel::None).await?;
-        let (name, payload) = socket_request(
+        let (name, payload) = socket_request_for_library(
             &mut socket,
             "GetMediaFilesCountRequest",
             &rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?,
+            pair.id,
         )
         .await?;
         assert_eq!(name, "RemoteRequestFailed");
@@ -1350,6 +1356,7 @@ mod access_policy_tests {
             "FetchServerCertificateRequest" => RequestAccess::NodeLocal,
             "FetchRemoteFileRequest" => RequestAccess::NodeLocal,
             "RemoveItemFromPlaylistRequest" => RequestAccess::ConnectionEdit,
+            "GetOpenLibraryRequest" => RequestAccess::Control,
             _ => return None,
         })
     }

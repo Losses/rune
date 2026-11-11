@@ -6,7 +6,8 @@ use rinf::DartSignal;
 use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error;
 
-use crate::macros::{RequestAccess, RequestScope, RequestSlots, RequestTranslator};
+pub use crate::macros::RequestScope;
+use crate::macros::{RequestAccess, RequestSlots, RequestTranslator};
 use crate::request_error::ExpectedRequestError;
 use crate::utils::{GlobalParams, ParamsExtractor};
 use crate::{Signal, TypedRequest};

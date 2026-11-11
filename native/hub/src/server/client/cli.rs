@@ -1,4 +1,5 @@
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
+use uuid::Uuid;
 
 #[derive(Clone, Debug)]
 pub enum PlaybackMode {
@@ -237,4 +238,7 @@ pub struct ReplArgs {
     /// Service URL
     #[arg(help = "The URL of the service, e.g., example.com:7863 or 192.168.1.1:8963")]
     pub service_url: String,
+    /// Library ID to browse on the service.
+    #[arg(long, value_name = "UUID")]
+    pub library_id: Uuid,
 }
