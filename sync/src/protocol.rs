@@ -19,11 +19,15 @@ pub use receiver::{
     MAX_RECEIVER_METADATA_ITEMS, MAX_RECEIVER_RETRY_RECEIPTS, PreparedEvent, PreparedLeaf,
     PromotionAdmission, PromotionStep, RangeAdmission, ReceiverLedger,
 };
-use std::{collections::BTreeSet, fmt::Debug, future::Future, pin::Pin, sync::Arc};
+use std::{
+    collections::BTreeSet, fmt::Debug, future::Future, pin::Pin, result::Result as StdResult,
+    sync::Arc,
+};
 pub use uuid::Uuid;
 pub type Digest = [u8; 32];
 pub type Result<T> = std::result::Result<T, SyncError>;
-pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>>;
+pub type BoxFuture<'a, T, E = SyncError> =
+    Pin<Box<dyn Future<Output = StdResult<T, E>> + Send + 'a>>;
 pub const MAX_NUMBER: u64 = i64::MAX as u64;
 pub const MAX_CANDIDATE_BYTES: u64 = 64 * 1024;
 pub const MAX_TAG_BYTES: usize = 128;
