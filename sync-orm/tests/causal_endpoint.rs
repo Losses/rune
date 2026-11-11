@@ -4,14 +4,19 @@ mod fixtures;
 use anyhow::{Context, Result, ensure};
 use sea_orm::sea_query::Condition;
 use sea_orm::sea_query::Func;
-use std::collections::BTreeMap;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    io::Read,
+};
 use sync::causal;
 use sync::causal::Dot;
+use sync::share::{self, decode_chunk};
+use sync_orm::base_exporter::{BaseExportOptions, canonical_manifest, export_base};
 use sync_orm::maintenance::Maintenance;
 
 struct CompactAfterHistory<'a> {
@@ -1025,7 +1030,7 @@ use sea_orm::{
     sea_query::{Alias, ColumnDef, Expr, OnConflict, Order, Query, Table},
 };
 use serde::{Deserialize, Serialize};
-use sync::protocol::{self as p, ReceiveStore, SnapshotSink, SyncStore};
+use sync::protocol::{self as p, ReceiveStore, SnapshotSink, SnapshotSource, SyncStore};
 use sync_orm::{
     causal_capabilities::{CausalEndpoint, TransactionProjection},
     causal_progress,
@@ -2549,5 +2554,272 @@ async fn oversize_leaf_reports_work_limit_and_splits_when_allowed() -> Result<()
             "key {n}"
         );
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn base_export_round_trips_chunks_deduplicates_and_excludes_local_state() -> Result<()> {
+    let (db, endpoint, _) = setup(Uuid::new_v4()).await?;
+    endpoint
+        .write_local(
+            p::ObjectKey {
+                collection: 1,
+                id: Uuid::from_u128(1),
+            },
+            Some(Note("replicated value".into())),
+        )
+        .await?;
+    db.execute(
+        &Table::create()
+            .table(Alias::new("private_settings"))
+            .col(ColumnDef::new(Alias::new("secret")).text().not_null())
+            .to_owned(),
+    )
+    .await?;
+    db.execute(
+        &Query::insert()
+            .into_table(Alias::new("private_settings"))
+            .columns([Alias::new("secret")])
+            .values_panic(["fixture-device-credential".into()])
+            .to_owned(),
+    )
+    .await?;
+
+    let own_prefix = format!("{}.{}", Uuid::new_v4(), Uuid::new_v4());
+    let first_options = BaseExportOptions {
+        own_prefix,
+        ..BaseExportOptions::default()
+    };
+    let first = export_base(&endpoint, first_options.clone()).await?;
+    let verification_request = Uuid::new_v4();
+    let mut resume = None;
+    let verification = loop {
+        match endpoint
+            .open_snapshot_with_ttl(
+                verification_request,
+                p::Scope {
+                    collections: [1].into_iter().collect(),
+                },
+                first_options.work,
+                resume.take(),
+                p::MAX_SNAPSHOT_TTL_MS,
+            )
+            .await?
+        {
+            p::WorkOutcome::Ready(snapshot) => break snapshot,
+            p::WorkOutcome::Incomplete { cursor } => resume = Some(cursor),
+        }
+    };
+    let manifest_collection = first
+        .manifest
+        .collections
+        .get("notes")
+        .context("notes summary")?;
+    let live_root = verification.roots.first().context("snapshot root")?;
+    assert_eq!(manifest_collection.root.range, live_root.range);
+    assert_eq!(
+        manifest_collection.root.candidate_count,
+        live_root.candidate_count
+    );
+    assert_eq!(
+        manifest_collection.root.candidate_bytes,
+        live_root.candidate_bytes
+    );
+    assert_eq!(manifest_collection.root.aggregate, live_root.aggregate);
+    for bucket in &manifest_collection.buckets {
+        let summary = match endpoint
+            .summarize(
+                verification.snapshot_id,
+                bucket.range.clone(),
+                first_options.work,
+                None,
+            )
+            .await?
+        {
+            p::WorkOutcome::Ready(summary) => summary,
+            p::WorkOutcome::Incomplete { .. } => {
+                anyhow::bail!("test bucket summary unexpectedly incomplete")
+            }
+        };
+        assert_eq!(bucket.range, summary.range);
+        assert_eq!(bucket.candidate_count, summary.candidate_count);
+        assert_eq!(bucket.candidate_bytes, summary.candidate_bytes);
+        assert_eq!(bucket.aggregate, summary.aggregate);
+    }
+    endpoint.close_snapshot(verification.snapshot_id).await?;
+    let first_chunks: BTreeSet<_> = first
+        .manifest
+        .collections
+        .values()
+        .flat_map(|collection| collection.buckets.iter().map(|bucket| bucket.chunk.clone()))
+        .collect();
+    let first_chunk_objects: Vec<_> = first
+        .objects
+        .iter()
+        .filter(|object| first_chunks.contains(&object.name))
+        .collect();
+    assert_eq!(first_chunk_objects.len(), first_chunks.len());
+    assert_eq!(
+        first.objects.last().context("first manifest object")?.name,
+        first.base_id
+    );
+    let chunk_positions: Vec<_> = first
+        .objects
+        .iter()
+        .enumerate()
+        .filter(|(_, object)| first_chunks.contains(&object.name))
+        .map(|(index, _)| index)
+        .collect();
+    let context_positions: Vec<_> = first
+        .objects
+        .iter()
+        .enumerate()
+        .filter(|(_, object)| !first_chunks.contains(&object.name) && object.name != first.base_id)
+        .map(|(index, _)| index)
+        .collect();
+    if let (Some(last_chunk), Some(first_context)) =
+        (chunk_positions.last(), context_positions.first())
+    {
+        assert!(last_chunk < first_context);
+    }
+    let mut decoded_candidates = Vec::new();
+    for object in first_chunk_objects {
+        let verified = decode_chunk(&object.name, &object.bytes)?;
+        let wire: serde_json::Value = serde_json::from_slice(&verified.canonical_bytes)?;
+        let candidates: Vec<p::Candidate<Notes>> = serde_json::from_value(
+            wire.get("candidates")
+                .context("chunk candidate list")?
+                .clone(),
+        )?;
+        assert!(!candidates.is_empty());
+        decoded_candidates.extend(candidates);
+        assert!(
+            !String::from_utf8_lossy(&verified.canonical_bytes)
+                .contains("fixture-device-credential")
+        );
+    }
+    for object in &first.objects {
+        if first_chunks.contains(&object.name) || object.name == first.base_id {
+            continue;
+        }
+        let mut decoded = Vec::new();
+        flate2::read::GzDecoder::new(&object.bytes[..]).read_to_end(&mut decoded)?;
+        let fragment: p::Fragment = serde_json::from_slice(&decoded)?;
+        assert_eq!(p::fragment_digest(&fragment)?, fragment.digest);
+        assert_eq!(blake3::hash(&decoded).to_hex().as_str(), object.name);
+        assert!(!String::from_utf8_lossy(&decoded).contains("fixture-device-credential"));
+    }
+    let memory = p::MemorySyncStore::<Notes>::new(
+        endpoint.identity().await?,
+        endpoint.local_author().await?,
+    )?;
+    for candidate in decoded_candidates {
+        memory
+            .write_local(candidate.key, Some(candidate.payload))
+            .await?;
+    }
+    let key = p::ObjectKey {
+        collection: 1,
+        id: Uuid::from_u128(1),
+    };
+    assert_eq!(memory.get(&key).await?, endpoint.get(&key).await?);
+
+    endpoint
+        .write_local(
+            p::ObjectKey {
+                collection: 1,
+                id: Uuid::from_u128(1),
+            },
+            Some(Note("changed replicated value".into())),
+        )
+        .await?;
+    let options = BaseExportOptions {
+        own_prefix: first
+            .manifest
+            .covers
+            .keys()
+            .next()
+            .context("own prefix")?
+            .clone(),
+        retained_chunk_names: first_chunks.clone(),
+        previous_bucket_bits: first.bucket_bits.clone(),
+        ..BaseExportOptions::default()
+    };
+    let second = export_base(&endpoint, options).await?;
+    let second_chunks: BTreeSet<_> = second
+        .manifest
+        .collections
+        .values()
+        .flat_map(|collection| collection.buckets.iter().map(|bucket| bucket.chunk.clone()))
+        .collect();
+    assert_eq!(first_chunks.difference(&second_chunks).count(), 1);
+    assert_eq!(second_chunks.difference(&first_chunks).count(), 1);
+    assert_eq!(
+        second
+            .objects
+            .iter()
+            .filter(|object| !first_chunks.contains(&object.name)
+                && second_chunks.contains(&object.name))
+            .count(),
+        1
+    );
+    assert_ne!(first.base_id, second.base_id);
+    assert_eq!(
+        second.objects.last().context("manifest object")?.name,
+        second.base_id
+    );
+    for object in &second.objects {
+        let content = if second_chunks.contains(&object.name) {
+            decode_chunk(&object.name, &object.bytes)?.canonical_bytes
+        } else if object.name == second.base_id {
+            object.bytes.clone()
+        } else {
+            let mut decoded = Vec::new();
+            flate2::read::GzDecoder::new(&object.bytes[..]).read_to_end(&mut decoded)?;
+            decoded
+        };
+        assert!(!String::from_utf8_lossy(&content).contains("fixture-device-credential"));
+    }
+    let mut changed_manifest = second.manifest.clone();
+    changed_manifest.covers.insert(
+        "changed-prefix".into(),
+        share::Checkpoint {
+            seq: 1,
+            anchor: [1; 32],
+        },
+    );
+    assert_ne!(canonical_manifest(&changed_manifest)?.0, second.base_id);
+    let mut changed_root = second.manifest.clone();
+    changed_root
+        .collections
+        .get_mut("notes")
+        .context("notes root")?
+        .root
+        .aggregate[0] ^= 1;
+    assert_ne!(canonical_manifest(&changed_root)?.0, second.base_id);
+    let mut changed_bucket = second.manifest.clone();
+    changed_bucket
+        .collections
+        .get_mut("notes")
+        .context("notes bucket")?
+        .buckets[0]
+        .candidate_bytes += 1;
+    assert_ne!(canonical_manifest(&changed_bucket)?.0, second.base_id);
+    let mut changed_contexts = second.manifest.clone();
+    changed_contexts
+        .collections
+        .get_mut("notes")
+        .context("notes contexts")?
+        .context_fragments
+        .push("a".repeat(64));
+    assert_ne!(canonical_manifest(&changed_contexts)?.0, second.base_id);
+    let mut changed_bucket_count = second.manifest.clone();
+    let collection = changed_bucket_count
+        .collections
+        .get_mut("notes")
+        .context("notes buckets")?;
+    collection.buckets.push(collection.buckets[0].clone());
+    collection.bucket_count += 1;
+    assert_ne!(canonical_manifest(&changed_bucket_count)?.0, second.base_id);
     Ok(())
 }

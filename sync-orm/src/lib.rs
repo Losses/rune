@@ -20,6 +20,7 @@ pub mod maintenance;
 pub mod registry;
 pub mod row_policy;
 
+pub mod base_exporter;
 pub mod derived_effect;
 pub mod owned_list;
 

@@ -3,7 +3,10 @@ use crate::{
     causal_candidates,
     causal_leases::lock_on,
     causal_manifests, causal_progress, causal_snapshot,
-    causal_source::{open_batch_step_locked_on, split_locked_on, summarize_locked_on},
+    causal_source::{
+        SnapshotBatchLimits, SnapshotStepPlan, SnapshotTiming, open_batch_step_locked_on,
+        split_locked_on, summarize_locked_on,
+    },
     causal_store::CausalReplica,
 };
 use anyhow::{Result, ensure};
@@ -230,68 +233,13 @@ impl<M: p::SyncModel> p::SnapshotSource<M> for CausalEndpoint<M> {
         limits: p::WorkLimits,
         resume: Option<p::WorkCursor>,
     ) -> BoxFuture<'_, p::WorkOutcome<p::SnapshotDescriptor<M>>> {
-        Box::pin(async move {
-            let limits = source_work(limits)?;
-            let result: Result<p::WorkOutcome<p::SnapshotDescriptor<M>>> = async {
-                let mut budget = SourceRequestBudget::new(limits);
-                let started = Instant::now();
-                let mut resume = resume;
-                let mut committed: Option<p::WorkCursor> = None;
-                let mut plan: Option<crate::causal_source::SnapshotStepPlan> = None;
-                loop {
-                    // The deadline is cooperative: an admitted transaction
-                    // completes atomically before another step is considered.
-                    if let Some(cursor) = &committed
-                        && (!budget.has_work() || started.elapsed() >= Duration::from_millis(200))
-                    {
-                        return Ok(p::WorkOutcome::Incomplete {
-                            cursor: cursor.clone(),
-                        });
-                    }
-                    let reserved = plan.as_ref().map_or(limits, |step| step.admitted);
-                    if !budget.reserve(reserved) {
-                        return committed
-                            .map(|cursor| p::WorkOutcome::Incomplete { cursor })
-                            .ok_or_else(|| p::SyncError::WorkLimit.into());
-                    }
-                    let tx = self.inner.store.connection().begin().await?;
-                    crate::causal_leases::lock_on(&tx, self.inner.store.namespace()).await?;
-                    let transaction_started = Instant::now();
-                    let step = open_batch_step_locked_on(
-                        &tx,
-                        self.inner.store.identity_on(&tx).await?,
-                        request_id,
-                        scope.clone(),
-                        crate::causal_source::SnapshotTiming {
-                            now_ms: now() as i64,
-                            ttl_ms: p::DEFAULT_SNAPSHOT_TTL_MS as i64,
-                        },
-                        crate::causal_source::SnapshotBatchLimits { full: limits, plan },
-                        resume,
-                    )
-                    .await?;
-                    SourceRequestBudget::validate_charge(reserved, step.charged)?;
-                    tx.commit().await?;
-                    if let Some(observer) = &self.lock_holder_observer {
-                        observer("open_batch_step_on", transaction_started.elapsed());
-                    }
-                    budget.release_unused(reserved, step.charged);
-                    plan = step.next;
-                    match step.outcome {
-                        p::WorkOutcome::Ready(descriptor) => {
-                            return Ok(p::WorkOutcome::Ready(descriptor));
-                        }
-                        p::WorkOutcome::Incomplete { cursor } => {
-                            resume = Some(cursor.clone());
-                            committed = Some(cursor);
-                        }
-                    }
-                    tokio::task::yield_now().await;
-                }
-            }
-            .await;
-            result.map_err(error)
-        })
+        self.open_snapshot_with_ttl(
+            request_id,
+            scope,
+            limits,
+            resume,
+            p::DEFAULT_SNAPSHOT_TTL_MS,
+        )
     }
     fn summarize(
         &self,
@@ -404,6 +352,81 @@ fn empty_projection<M: p::SyncModel>() -> p::ProjectionBatch<M> {
     }
 }
 impl<M: p::SyncModel> CausalEndpoint<M> {
+    /// Open a retained source snapshot with a caller-selected lease duration.
+    pub fn open_snapshot_with_ttl(
+        &self,
+        request_id: Uuid,
+        scope: p::Scope<M>,
+        limits: p::WorkLimits,
+        resume: Option<p::WorkCursor>,
+        ttl_ms: u64,
+    ) -> BoxFuture<'_, p::WorkOutcome<p::SnapshotDescriptor<M>>> {
+        Box::pin(async move {
+            if ttl_ms == 0 || ttl_ms > p::MAX_SNAPSHOT_TTL_MS {
+                return Err(p::SyncError::Invalid(
+                    "invalid snapshot lease duration".into(),
+                ));
+            }
+            let limits = source_work(limits)?;
+            let result: Result<p::WorkOutcome<p::SnapshotDescriptor<M>>> = async {
+                let mut budget = SourceRequestBudget::new(limits);
+                let started = Instant::now();
+                let mut resume = resume;
+                let mut committed: Option<p::WorkCursor> = None;
+                let mut plan: Option<SnapshotStepPlan> = None;
+                loop {
+                    if let Some(cursor) = &committed
+                        && (!budget.has_work() || started.elapsed() >= Duration::from_millis(200))
+                    {
+                        return Ok(p::WorkOutcome::Incomplete {
+                            cursor: cursor.clone(),
+                        });
+                    }
+                    let reserved = plan.as_ref().map_or(limits, |step| step.admitted);
+                    if !budget.reserve(reserved) {
+                        return committed
+                            .map(|cursor| p::WorkOutcome::Incomplete { cursor })
+                            .ok_or_else(|| p::SyncError::WorkLimit.into());
+                    }
+                    let tx = self.inner.store.connection().begin().await?;
+                    lock_on(&tx, self.inner.store.namespace()).await?;
+                    let transaction_started = Instant::now();
+                    let step = open_batch_step_locked_on(
+                        &tx,
+                        self.inner.store.identity_on(&tx).await?,
+                        request_id,
+                        scope.clone(),
+                        SnapshotTiming {
+                            now_ms: now() as i64,
+                            ttl_ms: ttl_ms as i64,
+                        },
+                        SnapshotBatchLimits { full: limits, plan },
+                        resume,
+                    )
+                    .await?;
+                    SourceRequestBudget::validate_charge(reserved, step.charged)?;
+                    tx.commit().await?;
+                    if let Some(observer) = &self.lock_holder_observer {
+                        observer("open_batch_step_on", transaction_started.elapsed());
+                    }
+                    budget.release_unused(reserved, step.charged);
+                    plan = step.next;
+                    match step.outcome {
+                        p::WorkOutcome::Ready(descriptor) => {
+                            return Ok(p::WorkOutcome::Ready(descriptor));
+                        }
+                        p::WorkOutcome::Incomplete { cursor } => {
+                            resume = Some(cursor.clone());
+                            committed = Some(cursor);
+                        }
+                    }
+                    tokio::task::yield_now().await;
+                }
+            }
+            .await;
+            result.map_err(error)
+        })
+    }
     pub fn new(store: CausalReplica<M>) -> Self {
         Self::with_projection(store, Arc::new(NoProjection))
     }

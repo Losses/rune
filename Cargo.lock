@@ -8247,6 +8247,7 @@ dependencies = [
  "base64 0.22.1",
  "blake3",
  "chrono",
+ "flate2",
  "sea-orm",
  "serde",
  "serde_json",
