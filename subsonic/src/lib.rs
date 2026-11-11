@@ -275,6 +275,53 @@ impl SubsonicClient {
             .ok_or_else(|| SubsonicError::Malformed("getSong omitted song".into()))
     }
 
+    /// Star songs for the authenticated account.
+    pub async fn star(&self, song_ids: &[&str]) -> Result<(), SubsonicError> {
+        self.song_ids_action("star", song_ids).await
+    }
+
+    /// Remove songs from the authenticated account's starred list.
+    pub async fn unstar(&self, song_ids: &[&str]) -> Result<(), SubsonicError> {
+        self.song_ids_action("unstar", song_ids).await
+    }
+
+    /// Return songs starred by the authenticated account.
+    pub async fn starred_songs(&self) -> Result<Vec<SubsonicSong>, SubsonicError> {
+        let response: StarredResponse = self.call("getStarred2", &[]).await?;
+        Ok(response
+            .starred
+            .and_then(|value| value.song)
+            .map(OneOrMany::into_vec)
+            .unwrap_or_default())
+    }
+
+    /// Read lyrics using the legacy artist and title lookup.
+    pub async fn lyrics(&self, artist: &str, title: &str) -> Result<SubsonicLyrics, SubsonicError> {
+        let response: LyricsResponse = self
+            .call("getLyrics", &[("artist", artist), ("title", title)])
+            .await?;
+        Ok(response
+            .lyrics
+            .map(|lyrics| SubsonicLyrics {
+                plain_lyrics: lyrics.value,
+                synced_lyrics: Vec::new(),
+            })
+            .unwrap_or_default())
+    }
+
+    /// Read lyrics using the OpenSubsonic songLyrics extension.
+    pub async fn lyrics_by_song_id(&self, id: &str) -> Result<SubsonicLyrics, SubsonicError> {
+        let response: LyricsBySongIdResponse =
+            self.call("getLyricsBySongId", &[("id", id)]).await?;
+        Ok(response.lyrics_list.map(Into::into).unwrap_or_default())
+    }
+
+    async fn song_ids_action(&self, action: &str, song_ids: &[&str]) -> Result<(), SubsonicError> {
+        let params = song_ids.iter().map(|id| ("id", *id)).collect::<Vec<_>>();
+        let _: EmptyResponse = self.call(action, &params).await?;
+        Ok(())
+    }
+
     /// Search the ID3 library.
     pub async fn search(
         &self,
@@ -790,6 +837,49 @@ pub struct SubsonicSong {
     pub content_type: Option<String>,
     pub cover_art: Option<String>,
     pub bit_rate: Option<u32>,
+    pub starred: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SubsonicLyrics {
+    pub plain_lyrics: Option<String>,
+    pub synced_lyrics: Vec<SubsonicSyncedLyrics>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SubsonicSyncedLyrics {
+    pub lang: Option<String>,
+    pub synced: bool,
+    pub lines: Vec<SubsonicSyncedLine>,
+}
+
+impl<'de> Deserialize<'de> for SubsonicSyncedLyrics {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Raw {
+            lang: Option<String>,
+            #[serde(default)]
+            synced: bool,
+            #[serde(default, rename = "line")]
+            lines: Option<OneOrMany<SubsonicSyncedLine>>,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        Ok(Self {
+            lang: raw.lang,
+            synced: raw.synced,
+            lines: raw.lines.map(OneOrMany::into_vec).unwrap_or_default(),
+        })
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct SubsonicSyncedLine {
+    pub start: u32,
+    pub value: String,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -903,6 +993,61 @@ struct AlbumList {
 struct SongResponse {
     #[serde(default)]
     song: Option<SubsonicSong>,
+}
+#[derive(Deserialize)]
+struct StarredResponse {
+    #[serde(default, rename = "starred2")]
+    starred: Option<StarredSongs>,
+}
+#[derive(Deserialize)]
+struct StarredSongs {
+    #[serde(default)]
+    song: Option<OneOrMany<SubsonicSong>>,
+}
+#[derive(Deserialize)]
+struct LyricsResponse {
+    #[serde(default)]
+    lyrics: Option<RawPlainLyrics>,
+}
+#[derive(Deserialize)]
+struct RawPlainLyrics {
+    #[serde(default)]
+    value: Option<String>,
+}
+#[derive(Deserialize)]
+struct LyricsBySongIdResponse {
+    #[serde(default, rename = "lyricsList")]
+    lyrics_list: Option<RawLyricsList>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawLyricsList {
+    #[serde(default)]
+    structured_lyrics: Option<OneOrMany<SubsonicSyncedLyrics>>,
+    #[serde(default)]
+    plain_lyrics: Option<OneOrMany<RawOpenSubsonicPlainLyrics>>,
+}
+#[derive(Deserialize)]
+struct RawOpenSubsonicPlainLyrics {
+    #[serde(default)]
+    text: String,
+}
+impl From<RawLyricsList> for SubsonicLyrics {
+    fn from(raw: RawLyricsList) -> Self {
+        Self {
+            plain_lyrics: raw
+                .plain_lyrics
+                .map(OneOrMany::into_vec)
+                .unwrap_or_default()
+                .into_iter()
+                .next()
+                .map(|lyrics| lyrics.text),
+            synced_lyrics: raw
+                .structured_lyrics
+                .map(OneOrMany::into_vec)
+                .unwrap_or_default(),
+        }
+    }
 }
 #[derive(Deserialize)]
 struct SearchResponse {

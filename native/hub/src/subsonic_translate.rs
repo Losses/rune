@@ -1,6 +1,8 @@
 use anyhow::{Result, anyhow};
 use database::actions::utils::generate_group_name;
 use database::actions::{collection::CollectionQueryType, search::convert_to_collection_types};
+use database::error::ExpectedError;
+use lyric::lrc::parse_lrc;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
@@ -18,22 +20,175 @@ use crate::messages::{
     FetchAllPlaylistsRequest, FetchAllPlaylistsResponse, FetchCollectionByIdsRequest,
     FetchCollectionByIdsResponse, FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
     FetchCollectionGroupsResponse, FetchMediaFileByIdsRequest, FetchMediaFileByIdsResponse,
+    GetLikedRequest, GetLikedResponse, GetLyricByTrackIdRequest, GetLyricByTrackIdResponse,
     GetPlaylistByIdRequest, GetPlaylistByIdResponse, HandoffLoadRequest, LoadRequest,
-    LoadResolvedItemsRequest, LoadResolvedItemsResponse, MediaFile, MixQueryRequest,
-    MixQueryResponse, MovePlaylistItemRequest, NextRequest, PauseRequest, PlayRequest,
-    PlayingItemRef, Playlist, PlaylistOperateMode, PreviousRequest, RefreshSessionRequest,
-    RemoveItemFromPlaylistRequest, RemoveItemFromPlaylistResponse, RemovePlaylistRequest,
-    RemovePlaylistResponse, RemoveRequest, ReorderPlaylistItemPositionRequest,
-    ReorderPlaylistItemPositionResponse, SearchForRequest, SearchForResponse, SeekRequest,
-    SessionSnapshotRequest, SetAdaptiveSwitchingEnabledRequest, SetPlaybackModeRequest,
-    SetRealtimeFFTEnabledRequest, SwitchRequest, TakeBackHandoffBlockRequest,
-    UpdatePlaylistRequest, UpdatePlaylistResponse, VolumeRequest, VolumeResponse,
+    LoadResolvedItemsRequest, LoadResolvedItemsResponse, LyricContentLine, LyricContentLineSection,
+    MediaFile, MixQueryRequest, MixQueryResponse, MovePlaylistItemRequest, NextRequest,
+    PauseRequest, PlayRequest, PlayingItemRef, Playlist, PlaylistOperateMode, PreviousRequest,
+    RefreshSessionRequest, RemoveItemFromPlaylistRequest, RemoveItemFromPlaylistResponse,
+    RemovePlaylistRequest, RemovePlaylistResponse, RemoveRequest,
+    ReorderPlaylistItemPositionRequest, ReorderPlaylistItemPositionResponse, SearchForRequest,
+    SearchForResponse, SeekRequest, SessionSnapshotRequest, SetAdaptiveSwitchingEnabledRequest,
+    SetLikedRequest, SetLikedResponse, SetPlaybackModeRequest, SetRealtimeFFTEnabledRequest,
+    SwitchRequest, TakeBackHandoffBlockRequest, UpdatePlaylistRequest, UpdatePlaylistResponse,
+    VolumeRequest, VolumeResponse,
 };
 use crate::request_error::ExpectedRequestError;
 use crate::rpc::{RequestTranslationFuture, Slot, UnsupportedReason};
 use crate::subsonic_binding::{SubsonicBinding, SubsonicIdKind};
 use database::actions::mixes::{QueryOperator, parse_query};
 use uuid::Uuid;
+
+fn subsonic_track_id(binding: &SubsonicBinding, item: &Option<PlayingItemRef>) -> Result<String> {
+    match item {
+        Some(PlayingItemRef::LibraryTrack { library_id, track })
+            if library_id == &binding.library_id.to_string() =>
+        {
+            Ok(track.clone())
+        }
+        Some(PlayingItemRef::LibraryTrack { .. }) => {
+            Err(ExpectedRequestError::invalid_input("Item belongs to another library").into())
+        }
+        _ => Err(ExpectedRequestError::invalid_input("Expected a Subsonic library track").into()),
+    }
+}
+
+pub(crate) async fn set_liked_request(
+    binding: &SubsonicBinding,
+    request: &SetLikedRequest,
+) -> Result<Option<SetLikedResponse>> {
+    let track = subsonic_track_id(binding, &request.item)?;
+    if request.liked {
+        binding
+            .client
+            .star(&[&track])
+            .await
+            .map_err(subsonic_request_error)?;
+    } else {
+        binding
+            .client
+            .unstar(&[&track])
+            .await
+            .map_err(subsonic_request_error)?;
+    }
+    Ok(request.item.clone().map(|item| SetLikedResponse {
+        item,
+        liked: request.liked,
+        success: true,
+        call_id: request.call_id,
+    }))
+}
+
+pub(crate) async fn get_liked_request(
+    binding: &SubsonicBinding,
+    request: &GetLikedRequest,
+) -> Result<Option<GetLikedResponse>> {
+    let track = subsonic_track_id(binding, &request.item)?;
+    let song = binding
+        .client
+        .song(&track)
+        .await
+        .map_err(subsonic_request_error)?;
+    Ok(request.item.clone().map(|item| GetLikedResponse {
+        item,
+        liked: song.starred.is_some(),
+        call_id: request.call_id,
+    }))
+}
+
+pub(crate) async fn get_lyric_request(
+    binding: &SubsonicBinding,
+    request: &GetLyricByTrackIdRequest,
+) -> Result<Option<GetLyricByTrackIdResponse>> {
+    let track = subsonic_track_id(binding, &request.item)?;
+    let song = binding
+        .client
+        .song(&track)
+        .await
+        .map_err(subsonic_request_error)?;
+    let needs_extension = binding
+        .probe
+        .extensions
+        .iter()
+        .any(|(name, _)| name == "songLyrics");
+    let lyrics = if needs_extension {
+        binding
+            .client
+            .lyrics_by_song_id(&track)
+            .await
+            .map_err(subsonic_request_error)?
+    } else {
+        binding
+            .client
+            .lyrics(song.artist.as_deref().unwrap_or_default(), &song.title)
+            .await
+            .map_err(subsonic_request_error)?
+    };
+    let mut lines = Vec::new();
+    if let Some(lyric) = lyrics
+        .synced_lyrics
+        .into_iter()
+        .find(|lyrics| lyrics.synced)
+    {
+        for (index, line) in lyric.lines.iter().enumerate() {
+            let start = line.start.min(i32::MAX as u32) as i32;
+            let end = lyric
+                .lines
+                .get(index + 1)
+                .map(|next| next.start.min(i32::MAX as u32) as i32)
+                .unwrap_or(start);
+            lines.push(LyricContentLine {
+                start_time: start,
+                end_time: end,
+                sections: vec![LyricContentLineSection {
+                    start_time: start,
+                    end_time: end,
+                    content: line.value.clone(),
+                }],
+            });
+        }
+    } else if let Some(plain) = lyrics.plain_lyrics.filter(|value| !value.trim().is_empty()) {
+        let parsed_lines = parse_lrc(&plain).ok().map(|parsed| parsed.lyrics);
+        if let Some(parsed_lines) = parsed_lines.filter(|lines| !lines.is_empty()) {
+            lines = parsed_lines
+                .into_iter()
+                .map(|line| {
+                    let start_time = line.start_time.into();
+                    let end_time = line.end_time.into();
+                    let content = line.text;
+                    LyricContentLine {
+                        start_time,
+                        end_time,
+                        sections: vec![LyricContentLineSection {
+                            start_time,
+                            end_time,
+                            content,
+                        }],
+                    }
+                })
+                .collect();
+        } else {
+            lines = plain
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .map(|line| LyricContentLine {
+                    start_time: 0,
+                    end_time: 0,
+                    sections: vec![LyricContentLineSection {
+                        start_time: 0,
+                        end_time: 0,
+                        content: line.to_owned(),
+                    }],
+                })
+                .collect();
+        }
+    }
+    Ok(request.item.clone().map(|item| GetLyricByTrackIdResponse {
+        item,
+        lines,
+        call_id: request.call_id,
+    }))
+}
 
 fn resolve_playlist_id(binding: &SubsonicBinding, playlist_id: i32) -> Result<String> {
     let catalog = binding
@@ -1210,6 +1365,13 @@ fn subsonic_request_error(error: SubsonicError) -> anyhow::Error {
             ..
         } => ExpectedRequestError::SubsonicNotAuthorized.into(),
         SubsonicError::Server {
+            kind: SubsonicServerError::NotFound,
+            ..
+        } => ExpectedError::NotFound {
+            what: "Subsonic item",
+        }
+        .into(),
+        SubsonicError::Server {
             kind:
                 SubsonicServerError::Generic
                 | SubsonicServerError::MissingParameter
@@ -1218,7 +1380,6 @@ fn subsonic_request_error(error: SubsonicError) -> anyhow::Error {
                 | SubsonicServerError::TokenAuthenticationNotSupported
                 | SubsonicServerError::AuthenticationMechanismNotSupported
                 | SubsonicServerError::ConflictingAuthentication
-                | SubsonicServerError::NotFound
                 | SubsonicServerError::Unknown(_),
             ..
         } => ExpectedRequestError::UnexpectedResponse {
@@ -1283,6 +1444,9 @@ macro_rules! subsonic_requests {
 
 subsonic_requests! {
     supported {
+        SetLikedRequest => set_liked_request as translate_set_liked_request,
+        GetLikedRequest => get_liked_request as translate_get_liked_request,
+        GetLyricByTrackIdRequest => get_lyric_request as translate_get_lyric_by_track_id_request,
         FetchAllPlaylistsRequest => fetch_all_playlists_request as translate_fetch_all_playlists_request,
         GetPlaylistByIdRequest => get_playlist_by_id_request as translate_get_playlist_by_id_request,
         CreatePlaylistRequest => create_playlist_request as translate_create_playlist_request,
@@ -1338,7 +1502,7 @@ subsonic_requests! {
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::HashMap,
+        collections::{HashMap, HashSet},
         net::SocketAddr,
         sync::{
             Arc, Mutex,
@@ -1367,10 +1531,11 @@ mod tests {
     use super::{
         add_item_to_playlist_request, create_playlist_request, fetch_all_playlists_request,
         fetch_collection_group_summary_request, fetch_collection_groups_request,
-        fetch_media_file_by_ids_request, fetch_remote_playlist, get_playlist_by_id_request,
-        jukebox_error, remove_item_from_playlist_request, remove_playlist_request,
-        reorder_playlist_item_position_request, search_for_request, subsonic_request_error,
-        update_playlist_request,
+        fetch_media_file_by_ids_request, fetch_remote_playlist, get_liked_request,
+        get_lyric_request, get_playlist_by_id_request, jukebox_error,
+        remove_item_from_playlist_request, remove_playlist_request,
+        reorder_playlist_item_position_request, search_for_request, set_liked_request,
+        subsonic_request_error, update_playlist_request,
     };
     use crate::{
         TypedRequest,
@@ -1379,15 +1544,15 @@ mod tests {
             AddItemToPlaylistRequest, CastPreflightRequest, CollectionType,
             CreateM3u8PlaylistRequest, CreatePlaylistRequest, FetchAllPlaylistsRequest,
             FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
-            FetchMediaFileByIdsRequest, FetchPlaylistOccurrencesRequest, GetPlaylistByIdRequest,
-            HandoffLoadRequest, LoadRequest, LoadResolvedItemsRequest, MovePlaylistItemRequest,
-            NextRequest, PauseRequest, PlayRequest, PlayingItemRef, PlaylistOperateMode,
-            PreviousRequest, RefreshSessionRequest, RemoveItemFromPlaylistRequest,
-            RemovePlaylistRequest, RemoveRequest, ReorderPlaylistItemPositionRequest,
-            SearchForRequest, SeekRequest, SessionSnapshotRequest,
-            SetAdaptiveSwitchingEnabledRequest, SetPlaybackModeRequest,
-            SetRealtimeFFTEnabledRequest, SwitchRequest, TakeBackHandoffBlockRequest,
-            UpdatePlaylistRequest, VolumeRequest,
+            FetchMediaFileByIdsRequest, FetchPlaylistOccurrencesRequest, GetLikedRequest,
+            GetLyricByTrackIdRequest, GetPlaylistByIdRequest, HandoffLoadRequest, LoadRequest,
+            LoadResolvedItemsRequest, MovePlaylistItemRequest, NextRequest, PauseRequest,
+            PlayRequest, PlayingItemRef, PlaylistOperateMode, PreviousRequest,
+            RefreshSessionRequest, RemoveItemFromPlaylistRequest, RemovePlaylistRequest,
+            RemoveRequest, ReorderPlaylistItemPositionRequest, SearchForRequest, SeekRequest,
+            SessionSnapshotRequest, SetAdaptiveSwitchingEnabledRequest, SetLikedRequest,
+            SetPlaybackModeRequest, SetRealtimeFFTEnabledRequest, SwitchRequest,
+            TakeBackHandoffBlockRequest, UpdatePlaylistRequest, VolumeRequest,
         },
         request_error::{ExpectedRequestError, classify},
         request_owner::Implementation,
@@ -1408,6 +1573,7 @@ mod tests {
         reject_scrobble: Arc<AtomicUsize>,
         playlists: Arc<Mutex<Vec<MockPlaylist>>>,
         playlist_calls: MockPlaylistCalls,
+        starred: Arc<Mutex<HashSet<String>>>,
     }
 
     type MockPlaylistCalls = Arc<Mutex<Vec<(String, Vec<(String, String)>)>>>;
@@ -1476,6 +1642,7 @@ mod tests {
             playlist_calls: Arc::new(Mutex::new(Vec::new())),
             scrobble_calls: Arc::new(Mutex::new(Vec::new())),
             reject_scrobble: Arc::new(AtomicUsize::new(0)),
+            starred: Arc::new(Mutex::new(HashSet::new())),
         };
         let app = Router::new()
             .route("/rest/{*endpoint}", get(mock_endpoint))
@@ -1627,7 +1794,7 @@ mod tests {
             return mock_response(inner);
         }
         if endpoint == "scrobble" {
-            state.scrobble_calls.lock().unwrap().push(query);
+            state.scrobble_calls.lock().unwrap().push(query.clone());
             if state.reject_scrobble.load(Ordering::SeqCst) != 0 {
                 return Response::builder()
                     .status(StatusCode::OK)
@@ -1698,6 +1865,41 @@ mod tests {
             return mock_response(inner);
         }
         let inner = match endpoint.as_str() {
+            "star" => {
+                for (_, id) in params.iter().filter(|(key, _)| key == "id") {
+                    state.starred.lock().unwrap().insert(id.clone());
+                }
+                serde_json::json!({})
+            }
+            "unstar" => {
+                for (_, id) in params.iter().filter(|(key, _)| key == "id") {
+                    state.starred.lock().unwrap().remove(id);
+                }
+                serde_json::json!({})
+            }
+            "getStarred2" => {
+                serde_json::json!({"starred2":{"song":state.starred.lock().unwrap().iter().map(|id| mock_song(id)).collect::<Vec<_>>()}})
+            }
+            "getSong" => {
+                let id = query.get("id").map(String::as_str).unwrap_or_default();
+                let mut song = mock_song(id);
+                if state.starred.lock().unwrap().contains(id) {
+                    song["starred"] = serde_json::json!("2026-01-01T00:00:00Z");
+                }
+                serde_json::json!({"song":song})
+            }
+            "getLyrics" if query.get("title").is_some_and(|title| title == "empty") => {
+                serde_json::json!({})
+            }
+            "getLyrics" => {
+                serde_json::json!({"lyrics":{"artist":"Artist","title":"song-1","value":"[00:01.00]plain line"}})
+            }
+            "getLyricsBySongId" if query.get("id").is_some_and(|id| id == "plain-extension") => {
+                serde_json::json!({"lyricsList":{"plainLyrics":{"lang":"en","text":"extension plain text"}}})
+            }
+            "getLyricsBySongId" => {
+                serde_json::json!({"lyricsList":{"structuredLyrics":{"lang":"en","synced":true,"line":[{"start":1200,"value":"timed line"}]}}})
+            }
             "search3" => serde_json::json!({"searchResult3": {
                 "song": [
                     {"id":"song-1","title":"One","coverArt":"cover-1"},
@@ -2053,6 +2255,178 @@ mod tests {
                 }
             );
         }
+    }
+
+    #[tokio::test]
+    async fn subsonic_likes_and_lyrics_translate_and_reject_cross_library_items() {
+        let root = TempDir::new().unwrap();
+        let (mut binding, server) = mock_subsonic(&root, false).await;
+        let item = PlayingItemRef::LibraryTrack {
+            library_id: binding.library_id.to_string(),
+            track: "song-1".into(),
+        };
+        let request = SetLikedRequest {
+            item: Some(item.clone()),
+            liked: true,
+            call_id: Some(9),
+        };
+        let response = set_liked_request(&binding, &request)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(response.success && response.liked);
+        assert!(
+            get_liked_request(
+                &binding,
+                &GetLikedRequest {
+                    item: Some(item.clone()),
+                    call_id: None
+                }
+            )
+            .await
+            .unwrap()
+            .unwrap()
+            .liked
+        );
+        let before = server.state.requests.lock().unwrap().len();
+        let foreign_item = PlayingItemRef::LibraryTrack {
+            library_id: Uuid::new_v4().to_string(),
+            track: "song-1".into(),
+        };
+        assert!(
+            set_liked_request(
+                &binding,
+                &SetLikedRequest {
+                    item: Some(foreign_item.clone()),
+                    liked: false,
+                    call_id: None
+                }
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            get_liked_request(
+                &binding,
+                &GetLikedRequest {
+                    item: Some(foreign_item.clone()),
+                    call_id: None
+                }
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            get_lyric_request(
+                &binding,
+                &GetLyricByTrackIdRequest {
+                    item: Some(foreign_item),
+                    call_id: None
+                }
+            )
+            .await
+            .is_err()
+        );
+        assert_eq!(server.state.requests.lock().unwrap().len(), before);
+        set_liked_request(
+            &binding,
+            &SetLikedRequest {
+                item: Some(item.clone()),
+                liked: false,
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(
+            !get_liked_request(
+                &binding,
+                &GetLikedRequest {
+                    item: Some(item.clone()),
+                    call_id: None
+                }
+            )
+            .await
+            .unwrap()
+            .unwrap()
+            .liked
+        );
+
+        binding
+            .probe
+            .extensions
+            .push(("songLyrics".into(), vec![1]));
+        let lyrics = get_lyric_request(
+            &binding,
+            &GetLyricByTrackIdRequest {
+                item: Some(item.clone()),
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(lyrics.lines[0].start_time, 1200);
+        assert_eq!(lyrics.lines[0].sections[0].content, "timed line");
+        let plain_extension_item = PlayingItemRef::LibraryTrack {
+            library_id: binding.library_id.to_string(),
+            track: "plain-extension".into(),
+        };
+        let lyrics = get_lyric_request(
+            &binding,
+            &GetLyricByTrackIdRequest {
+                item: Some(plain_extension_item),
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(lyrics.lines[0].start_time, 0);
+        assert_eq!(lyrics.lines[0].sections[0].content, "extension plain text");
+        binding.probe.extensions.clear();
+        let lyrics = get_lyric_request(
+            &binding,
+            &GetLyricByTrackIdRequest {
+                item: Some(item),
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(lyrics.lines[0].sections[0].content, "plain line");
+        let empty = PlayingItemRef::LibraryTrack {
+            library_id: binding.library_id.to_string(),
+            track: "empty".into(),
+        };
+        let lyrics = get_lyric_request(
+            &binding,
+            &GetLyricByTrackIdRequest {
+                item: Some(empty),
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(lyrics.lines.is_empty());
+    }
+
+    #[test]
+    fn subsonic_likes_and_lyrics_capabilities_are_supported_without_extensions() {
+        let slots = RequestSlots::subsonic(&SubsonicProbe {
+            api_version: "1.16.1".into(),
+            open_subsonic: false,
+            server_type: None,
+            server_version: None,
+            extensions: Vec::new(),
+            roles: SubsonicRoles::default(),
+            roles_known: true,
+        });
+        assert_eq!(SetLikedRequest::slot(&slots), Slot::Translate);
+        assert_eq!(GetLikedRequest::slot(&slots), Slot::Translate);
+        assert_eq!(GetLyricByTrackIdRequest::slot(&slots), Slot::Translate);
     }
 
     fn assert_secret_free(value: &str) {
