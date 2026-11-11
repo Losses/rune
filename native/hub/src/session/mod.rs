@@ -18,7 +18,6 @@ use database::{
     actions::{
         file::file_ids_by_uuid,
         logging::{LogLevel, insert_log},
-        stats::increase_played_through,
     },
     connection::MainDbConnection,
     error::ExpectedError,
@@ -30,7 +29,7 @@ use playback::{
     controller::{MediaControlManager, handle_media_control_event},
     player::{
         HandoffBlockId, InterruptedItem, Playable, PlaybackSource, PlaybackState, Player,
-        PlayerStatus, PlayingItem, PlaylistStatus, QueueEntry, SubsonicItem, TakeBackBlockResult,
+        PlayerStatus, PlayingItem, PlaylistStatus, QueueEntry, TakeBackBlockResult,
         UnavailableReason,
     },
 };
@@ -48,7 +47,6 @@ use uuid::Uuid;
 
 use crate::{
     handlers::playback::playing_item_requests,
-    library_pool::LibraryHandle,
     messages::{
         AttachedControllerInfo, ControllersUpdated, CrashResponse, PlaybackStatus, PlayingItemRef,
         PlaylistItem, PlaylistUnavailableReason, PlaylistUpdate, RealtimeFFT,
@@ -56,14 +54,15 @@ use crate::{
     },
     node::NodeContext,
     request_error::ExpectedRequestError,
+    request_owner::Implementation,
     server::PairedAudioResolver,
     utils::{
-        Broadcaster,
+        Broadcaster, library_item_metadata, playback_implementation_for_library,
         player::{
             metadata_summary_to_scrobbling_track, update_media_controls_metadata,
             update_media_controls_progress,
         },
-        subsonic_binding_for_playback,
+        record_library_item_played, report_item_played_through,
     },
     visualizer::{VISUALIZER, playing_cover_changed},
 };
@@ -532,6 +531,11 @@ impl PlayerSession {
                         if let Some(manager) = &controls { let _ = manager.lock().await.controls.detach(); }
                         return;
                     },
+                    Ok(item) = played.recv() => {
+                        if let Some(node) = weak.upgrade() {
+                            handle_played_event(&node, item, &item_state, &scrobbler).await;
+                        }
+                    }
                     Ok(value) = status.recv() => {
                         let Some(node) = weak.upgrade() else { return };
                         if persist_status_tx.send(value.clone()).await.is_err() { return; }
@@ -542,11 +546,6 @@ impl PlayerSession {
                         if let Some(node) = weak.upgrade() {
                             let revision = event_state.lock().await.queue_revision;
                             handle_playlist_event(&node, value, broadcaster.as_ref(), &session_id, revision).await;
-                        }
-                    }
-                    Ok(item) = played.recv() => {
-                        if let Some(node) = weak.upgrade() {
-                            handle_played_event(&node, item, &scrobbler).await;
                         }
                     }
                     Ok(value) = fft.recv() => broadcaster.broadcast(&RealtimeFFT { value }),
@@ -672,6 +671,7 @@ struct ItemEventState {
     library: Option<ResolvedLibrary>,
     metadata: PlayingItemMetadataSummary,
     cover: Option<String>,
+    track_started: bool,
     /// `last_item` as sent to Dart, valid for `request_ui_library`.
     request: Option<PlayingItemRef>,
     request_ui_library: Option<Uuid>,
@@ -680,6 +680,7 @@ struct ItemEventState {
 struct ResolvedLibrary {
     fsio: Arc<FsIo>,
     media_root: String,
+    implementation: Implementation,
 }
 
 /// Turns a player status into the GUI report. `scrobbler` is `None` when only
@@ -699,31 +700,24 @@ async fn handle_status_event(
         item_state.metadata = PlayingItemMetadataSummary::default();
         item_state.cover = None;
         item_state.library = None;
+        item_state.track_started = false;
         if let Some(item) = &value.item {
             let result = match item {
-                PlayingItem::LibraryTrack { library_id, track } => {
+                PlayingItem::LibraryTrack { library_id, .. } => {
                     match node.library_pool.acquire(*library_id).await {
                         Ok(library) => {
-                            if matches!(
-                                &library.descriptor.protocol,
-                                database::library_registry::ProtocolAdapter::SubsonicTranslate { .. }
-                            ) {
-                                subsonic_track_metadata(
-                                    node,
-                                    &SubsonicItem {
-                                        library_id: *library_id,
-                                        track_id: track.clone(),
-                                    },
-                                    true,
-                                )
-                                .await
-                            } else {
-                                let result = item_metadata_from_library(item, true, &library).await;
-                                item_state.library = Some(ResolvedLibrary {
-                                    fsio: library.fsio.clone(),
-                                    media_root: library.media_root.clone(),
-                                });
-                                result
+                            match playback_implementation_for_library(node, &library).await {
+                                Ok(implementation) => {
+                                    let result =
+                                        implementation.item_metadata(item, true, &library).await;
+                                    item_state.library = Some(ResolvedLibrary {
+                                        fsio: library.fsio.clone(),
+                                        media_root: library.media_root.clone(),
+                                        implementation,
+                                    });
+                                    result
+                                }
+                                Err(error) => Err(error),
                             }
                         }
                         Err(error) => Err(error),
@@ -751,6 +745,18 @@ async fn handle_status_event(
         }
         playing_cover_changed(item_state.cover.as_deref());
         item_state.last_item = value.item.clone();
+    }
+    if value.state == PlaybackState::Playing && !item_state.track_started {
+        let start_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .ok()
+            .and_then(|time| u64::try_from(time.as_millis()).ok());
+        if let (Some(start_time), Some(item), Some(library)) =
+            (start_time, value.item.as_ref(), item_state.library.as_ref())
+        {
+            item_state.track_started = true;
+            library.implementation.track_started(item, start_time).await;
+        }
     }
     let root = item_state
         .library
@@ -806,6 +812,7 @@ async fn handle_playlist_event(
 async fn handle_played_event(
     node: &NodeContext,
     item: PlayingItem,
+    item_state: &ItemEventState,
     scrobbler: &Arc<Mutex<dyn ScrobblingServiceManager>>,
 ) {
     if let Err(error) = record_played(node, &item).await {
@@ -816,6 +823,17 @@ async fn handle_played_event(
             .lock()
             .await
             .scrobble_all(metadata_summary_to_scrobbling_track(&metadata));
+    }
+    let report = if item_state.last_item.as_ref() == Some(&item)
+        && let Some(library) = item_state.library.as_ref()
+    {
+        library.implementation.track_played_through(&item).await;
+        Ok(())
+    } else {
+        report_item_played_through(node, &item).await
+    };
+    if let Err(error) = report {
+        log::warn!("Could not report library track completion: {error:#}");
     }
 }
 
@@ -863,23 +881,8 @@ async fn item_metadata(
     item: &PlayingItem,
     with_cover: bool,
 ) -> Result<(PlayingItemMetadataSummary, Option<String>)> {
-    if let PlayingItem::LibraryTrack { library_id, track } = item {
-        let library = node.library_pool.acquire(*library_id).await?;
-        if matches!(
-            &library.descriptor.protocol,
-            database::library_registry::ProtocolAdapter::SubsonicTranslate { .. }
-        ) {
-            return subsonic_track_metadata(
-                node,
-                &SubsonicItem {
-                    library_id: *library_id,
-                    track_id: track.clone(),
-                },
-                with_cover,
-            )
-            .await;
-        }
-        return item_metadata_from_library(item, with_cover, &library).await;
+    if matches!(item, PlayingItem::LibraryTrack { .. }) {
+        return library_item_metadata(node, item, with_cover).await;
     }
     let dispatcher = PlayingItemActionDispatcher::new();
     let items = from_ref(item);
@@ -907,79 +910,8 @@ async fn item_metadata(
     }
 }
 
-async fn subsonic_track_metadata(
-    node: &NodeContext,
-    item: &SubsonicItem,
-    with_cover: bool,
-) -> Result<(PlayingItemMetadataSummary, Option<String>)> {
-    let binding = subsonic_binding_for_playback(node, item.library_id).await?;
-    let song = binding.song(&item.track_id).await?;
-    let summary = PlayingItemMetadataSummary {
-        item: PlayingItem::LibraryTrack {
-            library_id: item.library_id,
-            track: item.track_id.clone(),
-        },
-        artist: song.artist.unwrap_or_else(|| "Unknown Artist".to_owned()),
-        album: song.album.unwrap_or_else(|| "Unknown Album".to_owned()),
-        title: if song.title.is_empty() {
-            "Unknown Title".to_owned()
-        } else {
-            song.title
-        },
-        track_number: song
-            .track
-            .and_then(|number| i32::try_from(number).ok())
-            .unwrap_or_default(),
-        duration: f64::from(song.duration.unwrap_or_default()),
-    };
-    let cover = with_cover
-        .then(|| binding.cover_path(song.cover_art.as_deref()))
-        .flatten();
-    Ok((summary, cover))
-}
-
-async fn item_metadata_from_library(
-    item: &PlayingItem,
-    with_cover: bool,
-    library: &LibraryHandle,
-) -> Result<(PlayingItemMetadataSummary, Option<String>)> {
-    let dispatcher = PlayingItemActionDispatcher::new();
-    let items = from_ref(item);
-    let metadata = dispatcher
-        .get_metadata_summary(&library.fsio, &library.main_db, items)
-        .await?
-        .into_iter()
-        .next()
-        .context("Track metadata unavailable")?;
-    let cover = if with_cover {
-        dispatcher
-            .bake_cover_art(&library.fsio, &library.media_root, &library.main_db, items)
-            .await?
-            .remove(item)
-    } else {
-        None
-    };
-    Ok((metadata, cover))
-}
-
 async fn record_played(node: &NodeContext, item: &PlayingItem) -> Result<()> {
-    if let PlayingItem::LibraryTrack { library_id, track } = item {
-        let library = node.library_pool.acquire(*library_id).await?;
-        if matches!(
-            &library.descriptor.protocol,
-            database::library_registry::ProtocolAdapter::SubsonicTranslate { .. }
-        ) {
-            return Ok(());
-        }
-        let file_uuid = Uuid::parse_str(track).context("Invalid Rune library track UUID")?;
-        let ids = file_ids_by_uuid(&library.main_db, &[file_uuid]).await?;
-        let id = ids
-            .get(&file_uuid)
-            .context("Playing track no longer exists in its library")?;
-        let store = library.library_sync.record_store();
-        increase_played_through(&library.main_db, &store, *id, store.author()).await?;
-    }
-    Ok(())
+    record_library_item_played(node, item).await
 }
 
 async fn item_log(
@@ -1014,46 +946,22 @@ async fn send_playlist(
     session_id: &str,
     revision: u64,
 ) {
-    let mut library_tracks = HashMap::<Uuid, Vec<PlayingItem>>::new();
     let mut independent_items = Vec::new();
-    let mut subsonic_tracks = Vec::new();
     for entry in &playlist.items {
         let item = &entry.item;
         match item {
-            PlayingItem::LibraryTrack { library_id, .. } => {
-                if let Ok(library) = node.library_pool.acquire(*library_id).await {
-                    if matches!(
-                        &library.descriptor.protocol,
-                        database::library_registry::ProtocolAdapter::SubsonicTranslate { .. }
-                    ) {
-                        subsonic_tracks.push(item.clone());
-                    } else {
-                        library_tracks
-                            .entry(*library_id)
-                            .or_default()
-                            .push(item.clone());
-                    }
-                }
-            }
+            PlayingItem::LibraryTrack { .. } => {}
             _ => independent_items.push(item.clone()),
         }
     }
 
     let dispatcher = PlayingItemActionDispatcher::new();
     let mut metadata = HashMap::<PlayingItem, PlayingItemMetadataSummary>::new();
-    for (library_id, batch) in library_tracks {
-        let Ok(library) = node.library_pool.acquire(library_id).await else {
-            continue;
-        };
-        if let Ok(summaries) = dispatcher
-            .get_metadata_summary(&library.fsio, &library.main_db, &batch)
-            .await
+    for entry in &playlist.items {
+        if matches!(entry.item, PlayingItem::LibraryTrack { .. })
+            && let Ok((summary, _)) = library_item_metadata(node, &entry.item, false).await
         {
-            metadata.extend(
-                summaries
-                    .into_iter()
-                    .map(|summary| (summary.item.clone(), summary)),
-            );
+            metadata.insert(entry.item.clone(), summary);
         }
     }
 
@@ -1073,22 +981,6 @@ async fn send_playlist(
                     .into_iter()
                     .map(|summary| (summary.item.clone(), summary)),
             );
-        }
-    }
-
-    for item in subsonic_tracks {
-        if let PlayingItem::LibraryTrack { library_id, track } = &item
-            && let Ok((summary, _)) = subsonic_track_metadata(
-                node,
-                &SubsonicItem {
-                    library_id: *library_id,
-                    track_id: track.clone(),
-                },
-                false,
-            )
-            .await
-        {
-            metadata.insert(item, summary);
         }
     }
 

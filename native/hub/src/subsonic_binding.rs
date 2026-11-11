@@ -1,6 +1,7 @@
 use crate::{
     messages::{
         LibraryContentChanged, PlaybackStatus, PlayingItemRef, PlaylistItem, PlaylistUpdate,
+        RequestErrorKind, RequestFailedResponse, RequestFailureCause,
     },
     utils::Broadcaster,
 };
@@ -15,10 +16,11 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use anyhow::Result;
+use database::playing_item::PlayingItemMetadataSummary;
 use futures::future::BoxFuture;
 use playback::player::{
-    AudioPlaybackNote, AudioRequest, AudioSourceMode, RemoteAudioError, RemoteAudioSource,
-    SubsonicItem, UnavailableReason,
+    AudioPlaybackNote, AudioRequest, AudioSourceMode, PlayingItem, RemoteAudioError,
+    RemoteAudioSource, SubsonicItem, UnavailableReason,
 };
 use subsonic::{SubsonicAlbum, SubsonicArtist, SubsonicClient, SubsonicJukebox, SubsonicSong};
 
@@ -83,6 +85,7 @@ pub(crate) struct SubsonicBinding {
     pub(crate) covers: Arc<SubsonicCoverCache>,
     jukebox_poll: Mutex<Option<CancellationToken>>,
     jukebox_state: Arc<Mutex<Option<JukeboxPollState>>>,
+    playback_starts: Mutex<HashMap<String, u64>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -343,6 +346,7 @@ impl SubsonicBinding {
             }),
             jukebox_poll: Mutex::new(None),
             jukebox_state: Arc::new(Mutex::new(None)),
+            playback_starts: Mutex::new(HashMap::new()),
         }
     }
 
@@ -407,6 +411,94 @@ impl SubsonicBinding {
             && let Some(token) = poll.take()
         {
             token.cancel();
+        }
+    }
+
+    pub(crate) async fn report_track_started_at(&self, track_id: &str, start_time: u64) {
+        if !self.play_on_this_device {
+            return;
+        }
+        if let Ok(mut starts) = self.playback_starts.lock() {
+            starts.insert(track_id.to_owned(), start_time);
+            while starts.len() > 64 {
+                let Some(oldest_track) = starts
+                    .iter()
+                    .min_by_key(|(_, time)| *time)
+                    .map(|(track, _)| track.clone())
+                else {
+                    break;
+                };
+                starts.remove(&oldest_track);
+            }
+        }
+        self.report_scrobble(track_id, None, false).await;
+    }
+
+    pub(crate) async fn report_track_played(&self, track_id: &str) {
+        let start_time = self
+            .playback_starts
+            .lock()
+            .ok()
+            .and_then(|mut starts| starts.remove(track_id));
+        if let Some(start_time) = start_time {
+            self.report_scrobble(track_id, Some(start_time), true).await;
+        }
+    }
+
+    pub(crate) async fn item_metadata(
+        &self,
+        library_id: Uuid,
+        track_id: &str,
+        with_cover: bool,
+    ) -> Result<(PlayingItemMetadataSummary, Option<String>)> {
+        let song = self.song(track_id).await?;
+        let summary = PlayingItemMetadataSummary {
+            item: PlayingItem::LibraryTrack {
+                library_id,
+                track: track_id.to_owned(),
+            },
+            artist: song.artist.unwrap_or_else(|| "Unknown Artist".to_owned()),
+            album: song.album.unwrap_or_else(|| "Unknown Album".to_owned()),
+            title: if song.title.is_empty() {
+                "Unknown Title".to_owned()
+            } else {
+                song.title
+            },
+            track_number: song
+                .track
+                .and_then(|number| i32::try_from(number).ok())
+                .unwrap_or_default(),
+            duration: f64::from(song.duration.unwrap_or_default()),
+        };
+        let cover = with_cover
+            .then(|| self.cover_path(song.cover_art.as_deref()))
+            .flatten();
+        Ok((summary, cover))
+    }
+
+    async fn report_scrobble(&self, track_id: &str, time: Option<u64>, submission: bool) {
+        if !self.play_on_this_device {
+            return;
+        }
+        if let Err(error) = self.client.scrobble(track_id, time, submission).await {
+            log::warn!("Subsonic scrobble failed: {error:?}");
+            if matches!(
+                error,
+                subsonic::SubsonicError::Server {
+                    kind: subsonic::SubsonicServerError::WrongCredentials
+                        | subsonic::SubsonicServerError::NotAuthorized
+                        | subsonic::SubsonicServerError::InvalidApiKey,
+                    ..
+                }
+            ) {
+                self.covers.broadcaster.broadcast(&RequestFailedResponse {
+                    request: "Subsonic scrobble".into(),
+                    call_id: None,
+                    kind: RequestErrorKind::PermissionDenied,
+                    detail: "Subsonic account is not authorized for this request".into(),
+                    cause: Some(RequestFailureCause::SubsonicNotAuthorized),
+                });
+            }
         }
     }
 

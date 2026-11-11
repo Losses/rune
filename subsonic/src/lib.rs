@@ -378,6 +378,24 @@ impl SubsonicClient {
         Ok(())
     }
 
+    /// Report now-playing state or a completed listen to the server.
+    pub async fn scrobble(
+        &self,
+        id: &str,
+        time: Option<u64>,
+        submission: bool,
+    ) -> Result<(), SubsonicError> {
+        let submission = submission.to_string();
+        let time = time.map(|time| time.to_string());
+        let mut params = vec![("id", id)];
+        if let Some(time) = time.as_deref() {
+            params.push(("time", time));
+        }
+        params.push(("submission", &submission));
+        let _: EmptyResponse = self.call("scrobble", &params).await?;
+        Ok(())
+    }
+
     /// Read the jukebox playlist and its current playback status.
     pub async fn jukebox_get(&self) -> Result<SubsonicJukebox, SubsonicError> {
         let response: JukeboxPlaylistResponse = self.jukebox_call("get", &[]).await?;

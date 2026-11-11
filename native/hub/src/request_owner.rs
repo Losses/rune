@@ -1,12 +1,19 @@
+use std::slice::from_ref;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use database::{
+    actions::{file::file_ids_by_uuid, stats::increase_played_through},
+    playing_item::{PlayingItemMetadataSummary, dispatcher::PlayingItemActionDispatcher},
+};
+use playback::player::PlayingItem;
 use rinf::DartSignal;
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
     Signal, TypedRequest,
     backends::remote::RendererLink,
+    library_pool::LibraryHandle,
     macros::RequestSlots,
     request_error::ExpectedRequestError,
     rpc::{Slot, TargetRequest},
@@ -55,6 +62,78 @@ pub(crate) enum Implementation {
 }
 
 impl Implementation {
+    pub(crate) async fn item_metadata(
+        &self,
+        item: &PlayingItem,
+        with_cover: bool,
+        library: &LibraryHandle,
+    ) -> Result<(PlayingItemMetadataSummary, Option<String>)> {
+        match self.execution_implementation() {
+            Self::Subsonic(binding) => {
+                let PlayingItem::LibraryTrack { library_id, track } = item else {
+                    anyhow::bail!("Subsonic library item is not a library track");
+                };
+                binding.item_metadata(*library_id, track, with_cover).await
+            }
+            _ => {
+                let dispatcher = PlayingItemActionDispatcher::new();
+                let items = from_ref(item);
+                let metadata = dispatcher
+                    .get_metadata_summary(&library.fsio, &library.main_db, items)
+                    .await?
+                    .into_iter()
+                    .next()
+                    .context("Track metadata unavailable")?;
+                let cover = if with_cover {
+                    dispatcher
+                        .bake_cover_art(&library.fsio, &library.media_root, &library.main_db, items)
+                        .await?
+                        .remove(item)
+                } else {
+                    None
+                };
+                Ok((metadata, cover))
+            }
+        }
+    }
+
+    pub(crate) async fn track_started(&self, item: &PlayingItem, start_time: u64) {
+        if let (Self::Subsonic(binding), PlayingItem::LibraryTrack { track, .. }) =
+            (self.execution_implementation(), item)
+        {
+            binding.report_track_started_at(track, start_time).await;
+        }
+    }
+
+    pub(crate) async fn track_played_through(&self, item: &PlayingItem) {
+        if let (Self::Subsonic(binding), PlayingItem::LibraryTrack { track, .. }) =
+            (self.execution_implementation(), item)
+        {
+            binding.report_track_played(track).await;
+        }
+    }
+
+    pub(crate) async fn record_played(
+        &self,
+        item: &PlayingItem,
+        library: &LibraryHandle,
+    ) -> Result<()> {
+        let Self::Subsonic(_) = self.execution_implementation() else {
+            if let PlayingItem::LibraryTrack { track, .. } = item {
+                let file_uuid =
+                    uuid::Uuid::parse_str(track).context("Invalid Rune library track UUID")?;
+                let ids = file_ids_by_uuid(&library.main_db, &[file_uuid]).await?;
+                let id = ids
+                    .get(&file_uuid)
+                    .context("Playing track no longer exists in its library")?;
+                let store = library.library_sync.record_store();
+                increase_played_through(&library.main_db, &store, *id, store.author()).await?;
+            }
+            return Ok(());
+        };
+        Ok(())
+    }
+
     pub(crate) fn slots(&self) -> RequestSlots {
         match self {
             Self::Local => RequestSlots::local(),

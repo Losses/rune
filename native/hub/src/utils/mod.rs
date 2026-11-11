@@ -50,7 +50,7 @@ use ::database::{
         CatalogPlacement, FsAdapter, InvalidRecord, LibraryRecord, LibraryRecordId,
         LibraryRegistry, ProtocolAdapter, RuneForwardMode, SubsonicOpenMode, resolve_library,
     },
-    playing_item::MediaFileHandle,
+    playing_item::{MediaFileHandle, PlayingItemMetadataSummary},
 };
 use ::discovery::{client::CertValidator, protocol::DiscoveryService, server::PermissionManager};
 use ::playback::{
@@ -68,6 +68,7 @@ use crate::library_pool::{LibraryHandle, LibraryPool};
 use crate::macros::NodeRequestHandlers;
 use crate::messages::*;
 use crate::request_error::ExpectedRequestError;
+use crate::request_owner::Implementation;
 use crate::server::ServerManager;
 use crate::subsonic_binding::SubsonicBinding;
 use subsonic::{SubsonicClient, SubsonicCredentials, SubsonicError, SubsonicServerError};
@@ -1931,6 +1932,58 @@ pub(crate) async fn subsonic_binding_for_playback(
         true,
         Arc::clone(&node.gui_broadcaster),
     )))
+}
+
+pub(crate) async fn playback_implementation_for_library(
+    node: &NodeContext,
+    library: &LibraryHandle,
+) -> Result<Implementation> {
+    match &library.descriptor.protocol {
+        ProtocolAdapter::SubsonicTranslate { .. } => Ok(Implementation::Subsonic(
+            subsonic_binding_for_playback(node, library.library_id).await?,
+        )),
+        _ => Ok(Implementation::Local),
+    }
+}
+
+pub(crate) async fn library_item_metadata(
+    node: &NodeContext,
+    item: &PlayingItem,
+    with_cover: bool,
+) -> Result<(PlayingItemMetadataSummary, Option<String>)> {
+    let PlayingItem::LibraryTrack { library_id, .. } = item else {
+        anyhow::bail!("Item does not belong to a library");
+    };
+    let library = node.library_pool.acquire(*library_id).await?;
+    let implementation = playback_implementation_for_library(node, &library).await?;
+    implementation
+        .item_metadata(item, with_cover, &library)
+        .await
+}
+
+pub(crate) async fn record_library_item_played(
+    node: &NodeContext,
+    item: &PlayingItem,
+) -> Result<()> {
+    let PlayingItem::LibraryTrack { library_id, .. } = item else {
+        return Ok(());
+    };
+    let library = node.library_pool.acquire(*library_id).await?;
+    let implementation = playback_implementation_for_library(node, &library).await?;
+    implementation.record_played(item, &library).await
+}
+
+pub(crate) async fn report_item_played_through(
+    node: &NodeContext,
+    item: &PlayingItem,
+) -> Result<()> {
+    let PlayingItem::LibraryTrack { library_id, .. } = item else {
+        return Ok(());
+    };
+    let library = node.library_pool.acquire(*library_id).await?;
+    let implementation = playback_implementation_for_library(node, &library).await?;
+    implementation.track_played_through(item).await;
+    Ok(())
 }
 
 async fn open_catalog_record(

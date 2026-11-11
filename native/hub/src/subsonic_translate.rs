@@ -1354,6 +1354,8 @@ mod tests {
         http::{Response, StatusCode},
         routing::get,
     };
+    use database::library_registry::SubsonicOpenMode;
+    use playback::player::PlayingItem;
     use subsonic::{
         SubsonicClient, SubsonicCredentials, SubsonicError, SubsonicProbe, SubsonicRoles,
     };
@@ -1388,6 +1390,7 @@ mod tests {
             UpdatePlaylistRequest, VolumeRequest,
         },
         request_error::{ExpectedRequestError, classify},
+        request_owner::Implementation,
         rpc::{Slot, TargetRequest, UnsupportedReason},
         subsonic_binding::SubsonicBinding,
         utils::{Broadcaster, RinfRustSignal},
@@ -1401,6 +1404,8 @@ mod tests {
         requests: Arc<Mutex<Vec<String>>>,
         jukebox: Arc<Mutex<MockJukebox>>,
         jukebox_calls: Arc<Mutex<Vec<HashMap<String, String>>>>,
+        scrobble_calls: Arc<Mutex<Vec<HashMap<String, String>>>>,
+        reject_scrobble: Arc<AtomicUsize>,
         playlists: Arc<Mutex<Vec<MockPlaylist>>>,
         playlist_calls: MockPlaylistCalls,
     }
@@ -1450,6 +1455,14 @@ mod tests {
     }
 
     async fn mock_subsonic(root: &TempDir, jukebox_role: bool) -> (SubsonicBinding, MockServer) {
+        mock_subsonic_mode(root, jukebox_role, SubsonicOpenMode::RemoteControl).await
+    }
+
+    async fn mock_subsonic_mode(
+        root: &TempDir,
+        jukebox_role: bool,
+        mode: SubsonicOpenMode,
+    ) -> (SubsonicBinding, MockServer) {
         let state = MockState {
             cover_calls: Arc::new(AtomicUsize::new(0)),
             requests: Arc::new(Mutex::new(Vec::new())),
@@ -1461,6 +1474,8 @@ mod tests {
                 songs: vec!["song-1".into(), "song-2".into(), "song-1".into()],
             }])),
             playlist_calls: Arc::new(Mutex::new(Vec::new())),
+            scrobble_calls: Arc::new(Mutex::new(Vec::new())),
+            reject_scrobble: Arc::new(AtomicUsize::new(0)),
         };
         let app = Router::new()
             .route("/rest/{*endpoint}", get(mock_endpoint))
@@ -1498,7 +1513,7 @@ mod tests {
             },
             root.path().to_path_buf(),
             Uuid::new_v4(),
-            false,
+            mode == SubsonicOpenMode::PlayOnThisDevice,
             Arc::new(CountingBroadcaster(Arc::clone(&broadcasts))),
         );
         (
@@ -1610,6 +1625,18 @@ mod tests {
                 _ => serde_json::json!({}),
             };
             return mock_response(inner);
+        }
+        if endpoint == "scrobble" {
+            state.scrobble_calls.lock().unwrap().push(query);
+            if state.reject_scrobble.load(Ordering::SeqCst) != 0 {
+                return Response::builder()
+                    .status(StatusCode::OK)
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"subsonic-response":{"status":"failed","version":"1.16.1","error":{"code":50,"message":"account is no longer authorized"}}}"#,
+                    ))
+                    .unwrap();
+            }
         }
         if endpoint == "getCoverArt" {
             state.cover_calls.fetch_add(1, Ordering::SeqCst);
@@ -2104,6 +2131,99 @@ mod tests {
                 reason: UnsupportedReason::NotImplemented
             }
         );
+    }
+
+    #[tokio::test]
+    async fn play_on_device_reports_now_playing_then_the_completed_track() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) =
+            mock_subsonic_mode(&root, false, SubsonicOpenMode::PlayOnThisDevice).await;
+        binding
+            .report_track_started_at("song-42", 1_700_000_123_456)
+            .await;
+        binding.report_track_played("song-42").await;
+
+        let calls = server.state.scrobble_calls.lock().unwrap();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0]["id"], "song-42");
+        assert_eq!(calls[0]["submission"], "false");
+        assert!(!calls[0].contains_key("time"));
+        assert_eq!(calls[1]["id"], "song-42");
+        assert_eq!(calls[1]["time"], "1700000123456");
+        assert_eq!(calls[1]["submission"], "true");
+    }
+
+    #[tokio::test]
+    async fn jukebox_binding_does_not_report_local_scrobbles() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) =
+            mock_subsonic_mode(&root, true, SubsonicOpenMode::RemoteControl).await;
+        binding
+            .report_track_started_at("song-42", 1_700_000_123_456)
+            .await;
+        binding.report_track_played("song-42").await;
+
+        assert!(server.state.scrobble_calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn rune_library_playback_facts_do_not_report_scrobbles() {
+        let root = TempDir::new().unwrap();
+        let (_, server) =
+            mock_subsonic_mode(&root, false, SubsonicOpenMode::PlayOnThisDevice).await;
+        let implementation = Implementation::Local;
+        let item = PlayingItem::LibraryTrack {
+            library_id: Uuid::new_v4(),
+            track: "rune-track".into(),
+        };
+
+        implementation.track_started(&item, 1_700_000_123_456).await;
+        implementation.track_played_through(&item).await;
+
+        assert!(server.state.scrobble_calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn skipped_track_keeps_only_the_now_playing_notification() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) =
+            mock_subsonic_mode(&root, false, SubsonicOpenMode::PlayOnThisDevice).await;
+        binding
+            .report_track_started_at("song-42", 1_700_000_123_456)
+            .await;
+
+        let calls = server.state.scrobble_calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["id"], "song-42");
+        assert_eq!(calls[0]["submission"], "false");
+    }
+
+    #[tokio::test]
+    async fn unreachable_scrobble_server_does_not_propagate_into_playback() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) =
+            mock_subsonic_mode(&root, false, SubsonicOpenMode::PlayOnThisDevice).await;
+        server._task.abort();
+
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            binding.report_track_started_at("song-42", 1_700_000_123_456),
+        )
+        .await
+        .expect("scrobble failure blocked the playback caller");
+    }
+
+    #[tokio::test]
+    async fn rejected_scrobble_credentials_emit_the_existing_relogin_failure() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) =
+            mock_subsonic_mode(&root, false, SubsonicOpenMode::PlayOnThisDevice).await;
+        server.state.reject_scrobble.store(1, Ordering::SeqCst);
+        binding
+            .report_track_started_at("song-42", 1_700_000_123_456)
+            .await;
+
+        assert_eq!(server.broadcasts.load(Ordering::SeqCst), 1);
     }
 
     fn subsonic_load(
