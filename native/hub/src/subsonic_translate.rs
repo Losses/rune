@@ -16,12 +16,13 @@ use crate::messages::{
     CollectionGroupSummary, CollectionGroupSummaryResponse, CollectionType,
     FetchCollectionByIdsRequest, FetchCollectionByIdsResponse, FetchCollectionGroupSummaryRequest,
     FetchCollectionGroupsRequest, FetchCollectionGroupsResponse, FetchMediaFileByIdsRequest,
-    FetchMediaFileByIdsResponse, LoadRequest, LoadResolvedItemsRequest, LoadResolvedItemsResponse,
-    MediaFile, MixQueryRequest, MixQueryResponse, MovePlaylistItemRequest, NextRequest,
-    PauseRequest, PlayRequest, PlayingItemRef, PlaylistOperateMode, PreviousRequest,
-    RefreshSessionRequest, RemoveRequest, SearchForRequest, SearchForResponse, SeekRequest,
-    SessionSnapshotRequest, SetAdaptiveSwitchingEnabledRequest, SetPlaybackModeRequest,
-    SetRealtimeFFTEnabledRequest, SwitchRequest, VolumeRequest, VolumeResponse,
+    FetchMediaFileByIdsResponse, HandoffLoadRequest, LoadRequest, LoadResolvedItemsRequest,
+    LoadResolvedItemsResponse, MediaFile, MixQueryRequest, MixQueryResponse,
+    MovePlaylistItemRequest, NextRequest, PauseRequest, PlayRequest, PlayingItemRef,
+    PlaylistOperateMode, PreviousRequest, RefreshSessionRequest, RemoveRequest, SearchForRequest,
+    SearchForResponse, SeekRequest, SessionSnapshotRequest, SetAdaptiveSwitchingEnabledRequest,
+    SetPlaybackModeRequest, SetRealtimeFFTEnabledRequest, SwitchRequest,
+    TakeBackHandoffBlockRequest, VolumeRequest, VolumeResponse,
 };
 use crate::request_error::ExpectedRequestError;
 use crate::rpc::{RequestTranslationFuture, Slot, UnsupportedReason};
@@ -1042,6 +1043,8 @@ subsonic_requests! {
         SetRealtimeFFTEnabledRequest,
         SetAdaptiveSwitchingEnabledRequest,
         LoadResolvedItemsRequest,
+        HandoffLoadRequest,
+        TakeBackHandoffBlockRequest,
         CastPreflightRequest,
         RefreshSessionRequest,
         SessionSnapshotRequest,
@@ -1084,12 +1087,13 @@ mod tests {
         macros::{RequestSlots, RequestTranslator},
         messages::{
             CastPreflightRequest, CollectionType, FetchCollectionGroupSummaryRequest,
-            FetchCollectionGroupsRequest, FetchMediaFileByIdsRequest, LoadRequest,
-            LoadResolvedItemsRequest, MovePlaylistItemRequest, NextRequest, PauseRequest,
-            PlayRequest, PlayingItemRef, PlaylistOperateMode, PreviousRequest,
+            FetchCollectionGroupsRequest, FetchMediaFileByIdsRequest, HandoffLoadRequest,
+            LoadRequest, LoadResolvedItemsRequest, MovePlaylistItemRequest, NextRequest,
+            PauseRequest, PlayRequest, PlayingItemRef, PlaylistOperateMode, PreviousRequest,
             RefreshSessionRequest, RemoveRequest, SearchForRequest, SeekRequest,
             SessionSnapshotRequest, SetAdaptiveSwitchingEnabledRequest, SetPlaybackModeRequest,
-            SetRealtimeFFTEnabledRequest, SwitchRequest, VolumeRequest,
+            SetRealtimeFFTEnabledRequest, SwitchRequest, TakeBackHandoffBlockRequest,
+            VolumeRequest,
         },
         request_error::{ExpectedRequestError, classify},
         rpc::{Slot, TargetRequest, UnsupportedReason},
@@ -1463,6 +1467,18 @@ mod tests {
         assert_eq!(VolumeRequest::slot(&slots), Slot::Translate);
         assert_eq!(LoadRequest::slot(&slots), Slot::Translate);
         assert_eq!(LoadResolvedItemsRequest::slot(&slots), Slot::Translate);
+        assert_eq!(
+            HandoffLoadRequest::slot(&slots),
+            Slot::Unsupported {
+                reason: UnsupportedReason::NotImplemented
+            }
+        );
+        assert_eq!(
+            TakeBackHandoffBlockRequest::slot(&slots),
+            Slot::Unsupported {
+                reason: UnsupportedReason::NotImplemented
+            }
+        );
         assert_eq!(RefreshSessionRequest::slot(&slots), Slot::Translate);
         assert_eq!(RemoveRequest::slot(&slots), Slot::Translate);
         // Existing capability defaults remain in place for unsupported jukebox operations.

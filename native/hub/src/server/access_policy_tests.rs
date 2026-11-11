@@ -1,7 +1,7 @@
 use crate::macros::non_local_request_names;
 mod access_policy_tests {
-    use super::*;
     use super::player_session_tests::replicate_host_library_at;
+    use super::*;
     use crate::access_policy::{ConnectionLevel, DeviceGrants, SyncLevel};
     use crate::backends::remote::connect_remote;
     use crate::macros::{
@@ -19,7 +19,9 @@ mod access_policy_tests {
     use crate::server::sync_worker::TestPeerSession;
     use database::actions::stats::{get_liked, set_liked};
     use database::entities::media_cover_art;
-    use database::library_registry::{CatalogPlacement, FsAdapter, ProtocolAdapter, RuneForwardMode};
+    use database::library_registry::{
+        CatalogPlacement, FsAdapter, ProtocolAdapter, RuneForwardMode,
+    };
     use http_request::sync::MetadataPeer;
     use sea_orm::{
         ActiveValue,
@@ -50,12 +52,34 @@ mod access_policy_tests {
         anyhow::ensure!(record.library_id.is_some(), "record is not a catalog");
         let local_path = record.local_folder_path().map(str::to_owned);
         let mode = match &record.protocol {
-            ProtocolAdapter::RuneForward { mode: RuneForwardMode::Replica { access_level, connection_access }, .. } => RuneForwardMode::Replica { access_level: *access_level, connection_access: *connection_access },
-            _ => RuneForwardMode::Replica { access_level: None, connection_access: None },
+            ProtocolAdapter::RuneForward {
+                mode:
+                    RuneForwardMode::Replica {
+                        access_level,
+                        connection_access,
+                    },
+                ..
+            } => RuneForwardMode::Replica {
+                access_level: *access_level,
+                connection_access: *connection_access,
+            },
+            _ => RuneForwardMode::Replica {
+                access_level: None,
+                connection_access: None,
+            },
         };
-        record.protocol = ProtocolAdapter::RuneForward { owner_fingerprint: fingerprint.clone(), mode };
-        record.fs = local_path.into_iter().map(|path| FsAdapter::Local { path }).chain([FsAdapter::RunePeer { fingerprint }]).collect();
-        if record.catalog == CatalogPlacement::None { record.catalog = CatalogPlacement::ConfigReplica; }
+        record.protocol = ProtocolAdapter::RuneForward {
+            owner_fingerprint: fingerprint.clone(),
+            mode,
+        };
+        record.fs = local_path
+            .into_iter()
+            .map(|path| FsAdapter::Local { path })
+            .chain([FsAdapter::RunePeer { fingerprint }])
+            .collect();
+        if record.catalog == CatalogPlacement::None {
+            record.catalog = CatalogPlacement::ConfigReplica;
+        }
         Ok(())
     }
 
@@ -148,7 +172,7 @@ mod access_policy_tests {
             level: DeviceSyncLevel,
         ) -> Result<()> {
             let request = SetDeviceGrantsRequest {
-            call_id: None,
+                call_id: None,
                 fingerprint: info(peer).await?.fingerprint,
                 grants: set_grants(vec![DeviceLibraryGrant {
                         library_id: self.id.to_string(),
@@ -265,9 +289,7 @@ mod access_policy_tests {
         // performs authenticated HTTP setup before reaching its write; release just after
         // that first busy result so the retry can complete.
         sleep(Duration::from_millis(11_250)).await;
-        sea_orm::sqlx::query("ROLLBACK")
-            .execute(&mut lock)
-            .await?;
+        sea_orm::sqlx::query("ROLLBACK").execute(&mut lock).await?;
         let (result, pair) = pass.await?;
         assert_eq!(result?, PeerPass::Complete);
         let replica = pair.b.global_params.test_library();
@@ -282,14 +304,13 @@ mod access_policy_tests {
         write_album(host, "busy cap").await?;
         let mut lock = lock_replica_library(&pair.b).await?;
 
-        let result = pair
-            .pass_with_timeout(false, Duration::from_secs(45))
-            .await;
-        sea_orm::sqlx::query("ROLLBACK")
-            .execute(&mut lock)
-            .await?;
+        let result = pair.pass_with_timeout(false, Duration::from_secs(45)).await;
+        sea_orm::sqlx::query("ROLLBACK").execute(&mut lock).await?;
         let error = result.expect_err("held SQLite lock must exhaust the retry cap");
-        assert_eq!(error.downcast_ref::<SyncError>(), Some(&SyncError::StorageBusy));
+        assert_eq!(
+            error.downcast_ref::<SyncError>(),
+            Some(&SyncError::StorageBusy)
+        );
         pair.close().await
     }
 
@@ -363,8 +384,7 @@ mod access_policy_tests {
         let (name, _) = socket_request(
             &mut socket,
             "PauseRequest",
-            &rinf::serialize(&PauseRequest {
-            call_id: None,})?,
+            &rinf::serialize(&PauseRequest { call_id: None })?,
         )
         .await?;
         assert_eq!(name, "");
@@ -480,9 +500,7 @@ mod access_policy_tests {
         let album = write_album(&left, "read-only pull").await?;
         assert_eq!(pair.pass(false).await?, PeerPass::Complete);
         let registry = LibraryRegistry::load(Path::new(&*pair.b.global_params.config_path))?;
-        let replica = registry
-            .catalog(pair.id)
-            .context("replica descriptor")?;
+        let replica = registry.catalog(pair.id).context("replica descriptor")?;
         assert_eq!(
             serde_json::to_value(replica)?["protocol"]["mode"]["access_level"],
             "Read"
@@ -543,9 +561,7 @@ mod access_policy_tests {
         pair.grants(DeviceSyncLevel::PullPush).await?;
         assert_eq!(pair.pass(false).await?, PeerPass::Complete);
         let registry = LibraryRegistry::load(Path::new(&*pair.b.global_params.config_path))?;
-        let replica = registry
-            .catalog(pair.id)
-            .context("replica descriptor")?;
+        let replica = registry.catalog(pair.id).context("replica descriptor")?;
         assert_eq!(
             serde_json::to_value(replica)?["protocol"]["mode"]["access_level"],
             "ReadWrite"
@@ -753,8 +769,7 @@ mod access_policy_tests {
         let (name, _) = socket_request(
             &mut socket,
             "GetMediaFilesCountRequest",
-            &rinf::serialize(&GetMediaFilesCountRequest {
-            call_id: None,})?,
+            &rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?,
         )
         .await?;
         assert_eq!(name, "GetMediaFilesCountResponse");
@@ -762,7 +777,7 @@ mod access_policy_tests {
             &mut socket,
             "CreatePlaylistRequest",
             &rinf::serialize(&CreatePlaylistRequest {
-            call_id: None,
+                call_id: None,
                 name: "guest denied".into(),
                 group: "test".into(),
             })?,
@@ -947,16 +962,14 @@ mod access_policy_tests {
         let (name, _) = socket_request(
             &mut socket,
             "PauseRequest",
-            &rinf::serialize(&PauseRequest {
-            call_id: None,})?,
+            &rinf::serialize(&PauseRequest { call_id: None })?,
         )
         .await?;
         assert_ne!(name, "RemoteRequestFailed");
         let (name, payload) = socket_request(
             &mut socket,
             "GetMediaFilesCountRequest",
-            &rinf::serialize(&GetMediaFilesCountRequest {
-            call_id: None,})?,
+            &rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?,
         )
         .await?;
         assert_eq!(name, "RemoteRequestFailed");
@@ -993,7 +1006,7 @@ mod access_policy_tests {
             &mut socket,
             "CreatePlaylistRequest",
             &rinf::serialize(&CreatePlaylistRequest {
-            call_id: None,
+                call_id: None,
                 name: "axis edit".into(),
                 group: "test".into(),
             })?,
@@ -1047,8 +1060,7 @@ mod access_policy_tests {
         let (name, payload) = socket_request(
             &mut socket,
             "GetMediaFilesCountRequest",
-            &rinf::serialize(&GetMediaFilesCountRequest {
-            call_id: None,})?,
+            &rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?,
         )
         .await?;
         assert_eq!(name, "RemoteRequestFailed");
@@ -1129,8 +1141,7 @@ mod access_policy_tests {
         let (name, payload) = socket_request(
             &mut socket,
             "GetMediaFilesCountRequest",
-            &rinf::serialize(&GetMediaFilesCountRequest {
-            call_id: None,})?,
+            &rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?,
         )
         .await?;
         assert_eq!(name, "RemoteRequestFailed");
@@ -1248,7 +1259,9 @@ mod access_policy_tests {
             "MixQueryRequest" => RequestAccess::ConnectionView,
             "FetchMixQueriesRequest" => RequestAccess::ConnectionView,
             "ResolveMixQueryRequest" => RequestAccess::ConnectionView,
-            "LoadResolvedItemsRequest" => RequestAccess::Control,
+            "LoadResolvedItemsRequest" | "HandoffLoadRequest" | "TakeBackHandoffBlockRequest" => {
+                RequestAccess::Control
+            }
             "PlaylistRevisionRequest" => RequestAccess::Control,
             "CastResolvedItemsRequest" | "RemotePlaylistRevisionRequest" => RequestAccess::Control,
             "CastPreflightRequest" => RequestAccess::Control,
@@ -1305,7 +1318,11 @@ mod access_policy_tests {
         }
         for_all_requests0!(assert_catalogue);
         for name in non_local_request_names() {
-            assert_ne!(request_access(name), Some(RequestAccess::NodeLocal), "{name}");
+            assert_ne!(
+                request_access(name),
+                Some(RequestAccess::NodeLocal),
+                "{name}"
+            );
         }
     }
 

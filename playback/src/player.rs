@@ -89,12 +89,77 @@ pub struct PlayerStatus {
     pub path: Option<PathBuf>,
     pub position: Duration,
     pub state: PlaybackState,
-    pub playlist: Vec<PlayingItem>,
+    pub playlist: Vec<QueueEntry>,
     pub unavailable: Vec<PlayingItem>,
     pub unavailable_reasons: HashMap<PlayingItem, UnavailableReason>,
     pub playback_mode: PlaybackMode,
     pub ready: bool,
     pub volume: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct HandoffBlockId(pub Uuid);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueueEntry {
+    pub item: PlayingItem,
+    pub block: Option<HandoffBlockId>,
+}
+
+impl QueueEntry {
+    pub fn untagged(item: PlayingItem) -> Self {
+        Self { item, block: None }
+    }
+}
+
+impl PartialEq<PlayingItem> for QueueEntry {
+    fn eq(&self, other: &PlayingItem) -> bool {
+        self.item == *other
+    }
+}
+
+impl PartialEq<QueueEntry> for PlayingItem {
+    fn eq(&self, other: &QueueEntry) -> bool {
+        *self == other.item
+    }
+}
+
+impl From<PlayingItem> for QueueEntry {
+    fn from(item: PlayingItem) -> Self {
+        Self::untagged(item)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InterruptedItem {
+    Nothing,
+    Item {
+        index_hint: usize,
+        item: PlayingItem,
+        position: Duration,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct HandoffLoadResult {
+    pub interrupted: InterruptedItem,
+    pub items: Vec<QueueEntry>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TakeBackBlockResult {
+    pub items: Vec<QueueEntry>,
+    pub remaining: Vec<QueueEntry>,
+    pub index: Option<usize>,
+    pub position: Duration,
+    pub playback_mode: PlaybackMode,
+    pub playing: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClearHandoffBlocksResult {
+    pub changed: bool,
+    pub items: Vec<QueueEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -189,6 +254,16 @@ pub enum PlaybackSource {
     Local(PathBuf),
     LibraryStream,
 }
+
+impl From<&PlayingItem> for PlaybackSource {
+    fn from(item: &PlayingItem) -> Self {
+        match item {
+            PlayingItem::IndependentFile(path) => Self::Local(PathBuf::from(path)),
+            _ => Self::LibraryStream,
+        }
+    }
+}
+
 impl PlaybackSource {
     /// Recheck a queued source before opening it, since its track may have changed.
     pub async fn requires_stream_at_load(
@@ -282,7 +357,7 @@ pub trait PlaybackSourceResolver: Send + Sync {
 
 #[derive(Debug, Clone)]
 pub struct PlaylistStatus {
-    pub items: Vec<PlayingItem>,
+    pub items: Vec<QueueEntry>,
     pub unavailable: HashMap<PlayingItem, UnavailableReason>,
 }
 
@@ -364,6 +439,21 @@ pub trait Playable: Send {
             self.load_at_position(insertion + load.start_index, load.position, load.play);
         }
     }
+    fn handoff_load(
+        &self,
+        tracks: Vec<(PlayingItem, PlaybackSource)>,
+        block: HandoffBlockId,
+        start_index: Option<usize>,
+        position: Duration,
+        play: bool,
+        playback_mode: Option<PlaybackMode>,
+    ) -> oneshot::Receiver<HandoffLoadResult>;
+    fn take_back_block(
+        &self,
+        block: HandoffBlockId,
+        interrupted: InterruptedItem,
+    ) -> oneshot::Receiver<Option<TakeBackBlockResult>>;
+    fn clear_handoff_blocks(&self) -> oneshot::Receiver<ClearHandoffBlocksResult>;
     fn restore(
         &self,
         tracks: Vec<(PlayingItem, PlaybackSource)>,
@@ -378,6 +468,13 @@ pub trait Playable: Send {
         }
         let _ = mode;
     }
+    fn restore_tagged(
+        &self,
+        entries: Vec<QueueEntry>,
+        index: Option<usize>,
+        position: Duration,
+        mode: PlaybackMode,
+    );
     fn set_source_resolver(&self, _resolver: Arc<dyn PlaybackSourceResolver>) {}
     fn remove_from_playlist(&self, index: usize);
     fn clear_playlist(&self);
@@ -409,6 +506,7 @@ pub struct PlaylistEdit {
     pub placement: PlaylistPlacement,
     pub playback_mode: Option<PlaybackMode>,
     pub load: Option<PlaylistLoad>,
+    pub block: Option<HandoffBlockId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -661,14 +759,22 @@ impl Player {
                         });
                     }
                     PlayerEvent::PlaylistUpdated(playlist) => {
-                        status.unavailable.retain(|item| playlist.contains(item));
+                        let items: Vec<PlayingItem> =
+                            playlist.iter().map(|entry| entry.item.clone()).collect();
+                        status.unavailable.retain(|item| items.contains(item));
                         status
                             .unavailable_reasons
-                            .retain(|item, _| playlist.contains(item));
-                        status.playlist = playlist.clone();
+                            .retain(|item, _| items.contains(item));
+                        status.playlist = playlist
+                            .iter()
+                            .map(|entry| QueueEntry {
+                                item: entry.item.clone(),
+                                block: entry.block,
+                            })
+                            .collect();
                         debug!("Sending playlist status");
                         playlist_sender_clone.send(PlaylistStatus {
-                            items: playlist.clone(),
+                            items: status.playlist.clone(),
                             unavailable: status.unavailable_reasons.clone(),
                         });
                     }
@@ -766,6 +872,45 @@ impl Playable for Player {
     fn edit_playlist(&mut self, edit: PlaylistEdit) {
         self.command(PlayerCommand::EditPlaylist(edit));
     }
+    fn handoff_load(
+        &self,
+        tracks: Vec<(PlayingItem, PlaybackSource)>,
+        block: HandoffBlockId,
+        start_index: Option<usize>,
+        position: Duration,
+        play: bool,
+        playback_mode: Option<PlaybackMode>,
+    ) -> oneshot::Receiver<HandoffLoadResult> {
+        let (response, receiver) = oneshot::channel();
+        self.command(PlayerCommand::HandoffLoad {
+            tracks,
+            block,
+            start_index,
+            position,
+            play,
+            playback_mode,
+            response,
+        });
+        receiver
+    }
+    fn take_back_block(
+        &self,
+        block: HandoffBlockId,
+        interrupted: InterruptedItem,
+    ) -> oneshot::Receiver<Option<TakeBackBlockResult>> {
+        let (response, receiver) = oneshot::channel();
+        self.command(PlayerCommand::TakeBackBlock {
+            block,
+            interrupted,
+            response,
+        });
+        receiver
+    }
+    fn clear_handoff_blocks(&self) -> oneshot::Receiver<ClearHandoffBlocksResult> {
+        let (response, receiver) = oneshot::channel();
+        self.command(PlayerCommand::ClearHandoffBlocks { response });
+        receiver
+    }
     fn restore(
         &self,
         tracks: Vec<(PlayingItem, PlaybackSource)>,
@@ -775,6 +920,20 @@ impl Playable for Player {
     ) {
         self.command(PlayerCommand::Restore {
             tracks,
+            index,
+            position,
+            mode,
+        });
+    }
+    fn restore_tagged(
+        &self,
+        entries: Vec<QueueEntry>,
+        index: Option<usize>,
+        position: Duration,
+        mode: PlaybackMode,
+    ) {
+        self.command(PlayerCommand::RestoreTagged {
+            entries,
             index,
             position,
             mode,
@@ -865,7 +1024,13 @@ impl Playable for Player {
     }
 
     fn get_playlist(&self) -> Vec<PlayingItem> {
-        self.current_status.lock().unwrap().playlist.clone()
+        self.current_status
+            .lock()
+            .unwrap()
+            .playlist
+            .iter()
+            .map(|entry| entry.item.clone())
+            .collect()
     }
 
     fn subscribe_status(&self) -> SimpleReceiver<PlayerStatus> {
@@ -905,7 +1070,55 @@ impl Playable for MockPlayer {
     fn switch(&self, _index: usize) {}
     fn seek(&self, _position_seconds: f64) {}
     fn add_to_playlist(&self, _tracks: Vec<(PlayingItem, PathBuf)>, _mode: AddMode) {}
+    fn handoff_load(
+        &self,
+        _tracks: Vec<(PlayingItem, PlaybackSource)>,
+        _block: HandoffBlockId,
+        _start_index: Option<usize>,
+        _position: Duration,
+        _play: bool,
+        _playback_mode: Option<PlaybackMode>,
+    ) -> oneshot::Receiver<HandoffLoadResult> {
+        let (sender, receiver) = oneshot::channel();
+        let _ = sender.send(HandoffLoadResult {
+            interrupted: InterruptedItem::Nothing,
+            items: Vec::new(),
+        });
+        receiver
+    }
+    fn take_back_block(
+        &self,
+        _block: HandoffBlockId,
+        _interrupted: InterruptedItem,
+    ) -> oneshot::Receiver<Option<TakeBackBlockResult>> {
+        let (sender, receiver) = oneshot::channel();
+        let _ = sender.send(Some(TakeBackBlockResult {
+            items: Vec::new(),
+            remaining: Vec::new(),
+            index: None,
+            position: Duration::ZERO,
+            playback_mode: PlaybackMode::Sequential,
+            playing: false,
+        }));
+        receiver
+    }
+    fn clear_handoff_blocks(&self) -> oneshot::Receiver<ClearHandoffBlocksResult> {
+        let (sender, receiver) = oneshot::channel();
+        let _ = sender.send(ClearHandoffBlocksResult {
+            changed: false,
+            items: Vec::new(),
+        });
+        receiver
+    }
     fn remove_from_playlist(&self, _index: usize) {}
+    fn restore_tagged(
+        &self,
+        _entries: Vec<QueueEntry>,
+        _index: Option<usize>,
+        _position: Duration,
+        _mode: PlaybackMode,
+    ) {
+    }
     fn clear_playlist(&self) {}
     fn move_playlist_item(&self, _old_index: usize, _new_index: usize) {}
     fn set_playback_mode(&mut self, _mode: PlaybackMode) {}

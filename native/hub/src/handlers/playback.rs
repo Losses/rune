@@ -21,8 +21,8 @@ use ::database::{
     playing_item::{MediaFileHandle, dispatcher::PlayingItemActionDispatcher},
 };
 use ::playback::player::{
-    LibraryItem, Playable, PlaybackSource, PlaybackState, PlayerStatus, PlayingItem, PlaylistEdit,
-    PlaylistLoad, PlaylistPlacement,
+    HandoffBlockId as PlayerHandoffBlockId, LibraryItem, Playable, PlaybackSource, PlaybackState,
+    PlayerStatus, PlayingItem, PlaylistEdit, PlaylistLoad, PlaylistPlacement,
 };
 
 use crate::backends::remote::{RendererLink, RendererLinkUse};
@@ -32,9 +32,9 @@ use crate::subsonic_binding::SubsonicBinding;
 use crate::{
     Session, Signal,
     library_pool::{LibraryHandle, LibraryPool},
-    messages::*,
+    messages::{HandoffBlockId, *},
     node::NodeContext,
-    session::PlayerSession,
+    session::{HandoffLoadParams, PlayerSession},
     utils::{
         GlobalParams, ParamsExtractor, files_to_playback_request, find_nearest_index,
         require_library,
@@ -141,6 +141,7 @@ fn edit_playlist(
         placement,
         playback_mode: playback_mode.filter(|mode| *mode != 99).map(Into::into),
         load,
+        block: None,
     });
     changed
 }
@@ -709,6 +710,99 @@ impl ParamsExtractor for LoadResolvedItemsRequest {
     }
 }
 
+impl ParamsExtractor for HandoffLoadRequest {
+    type Params = Arc<NodeContext>;
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        all_params.node.clone()
+    }
+}
+
+impl Signal for HandoffLoadRequest {
+    type Params = Arc<NodeContext>;
+    type Response = LoadResolvedItemsResponse;
+
+    async fn handle(
+        &self,
+        node: Self::Params,
+        session: Option<Session>,
+        request: &Self,
+    ) -> Result<Option<Self::Response>> {
+        if session.is_none() {
+            return Err(ExpectedRequestError::Unavailable {
+                what: "renderer session",
+            }
+            .into());
+        }
+        apply_handoff_load(&node, request.block, &request.load).await?;
+        Ok(Some(LoadResolvedItemsResponse { call_id: None }))
+    }
+}
+
+impl ParamsExtractor for TakeBackHandoffBlockRequest {
+    type Params = Arc<NodeContext>;
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        all_params.node.clone()
+    }
+}
+
+impl Signal for TakeBackHandoffBlockRequest {
+    type Params = Arc<NodeContext>;
+    type Response = SessionSnapshotResponse;
+
+    async fn handle(
+        &self,
+        node: Self::Params,
+        session: Option<Session>,
+        request: &Self,
+    ) -> Result<Option<Self::Response>> {
+        if session.is_none() {
+            return Err(ExpectedRequestError::Unavailable {
+                what: "renderer session",
+            }
+            .into());
+        }
+        let (result, revision) = node
+            .session()?
+            .take_back_handoff_block(request.block.into())
+            .await?;
+        let items = result
+            .items
+            .into_iter()
+            .map(|entry| match entry.item {
+                PlayingItem::LibraryTrack { library_id, track } => {
+                    Ok(PlayingItemRef::LibraryTrack {
+                        library_id: library_id.to_string(),
+                        track,
+                    })
+                }
+                _ => Err(ExpectedRequestError::Unavailable {
+                    what: "handoff block item",
+                }
+                .into()),
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Some(SessionSnapshotResponse {
+            call_id: None,
+            items,
+            index: result
+                .index
+                .map(u32::try_from)
+                .transpose()
+                .map_err(|error| {
+                    ExpectedRequestError::invalid_input(format!(
+                        "Invalid handoff block index: {error}"
+                    ))
+                })?,
+            position_seconds: result.position.as_secs_f64(),
+            playback_mode: result.playback_mode.into(),
+            playing: result.playing,
+            revision,
+        }))
+    }
+}
+
 impl Signal for LoadResolvedItemsRequest {
     type Params = (Option<LibraryHandle>, Arc<NodeContext>);
     type Response = LoadResolvedItemsResponse;
@@ -941,6 +1035,25 @@ impl Signal for CastPreflightRequest {
 }
 
 async fn apply_cast_load(node: &NodeContext, request: &LoadResolvedItemsRequest) -> Result<()> {
+    apply_resolved_items_load(node, request, None).await
+}
+
+async fn apply_handoff_load(
+    node: &NodeContext,
+    block: HandoffBlockId,
+    request: &LoadResolvedItemsRequest,
+) -> Result<()> {
+    if request.mode != PlaylistOperateMode::PlayNext {
+        return Err(ExpectedRequestError::invalid_input("Handoff load must use PlayNext").into());
+    }
+    apply_resolved_items_load(node, request, Some(block)).await
+}
+
+async fn apply_resolved_items_load(
+    node: &NodeContext,
+    request: &LoadResolvedItemsRequest,
+    block: Option<HandoffBlockId>,
+) -> Result<()> {
     let position = request
         .position_seconds
         .map(Duration::try_from_secs_f64)
@@ -1056,21 +1169,40 @@ async fn apply_cast_load(node: &NodeContext, request: &LoadResolvedItemsRequest)
             ExpectedRequestError::invalid_input(format!("Invalid cast start index: {error}"))
         })?;
     let start_index = remap_cast_start_index(&items, &prepared_by_item, requested_start_index)?;
-    node.session()?
-        .edit_queue(request.expected_revision, |player| {
-            edit_playlist(
-                player,
-                &prepared,
-                PlaylistEditOptions {
-                    mode: request.mode,
-                    start_index,
-                    playback_mode: request.playback_mode,
-                    position,
-                    play: request.play,
-                },
-            )
-        })
-        .await?;
+    if let Some(block) = block {
+        let position = position.unwrap_or_default();
+        let play = request.play.unwrap_or(true);
+        node.session()?
+            .handoff_load_queue(HandoffLoadParams {
+                expected_revision: request.expected_revision,
+                tracks: prepared,
+                block: block.into(),
+                start_index,
+                position,
+                play,
+                playback_mode: request
+                    .playback_mode
+                    .filter(|mode| *mode != 99)
+                    .map(Into::into),
+            })
+            .await?;
+    } else {
+        node.session()?
+            .edit_queue(request.expected_revision, |player| {
+                edit_playlist(
+                    player,
+                    &prepared,
+                    PlaylistEditOptions {
+                        mode: request.mode,
+                        start_index,
+                        playback_mode: request.playback_mode,
+                        position,
+                        play: request.play,
+                    },
+                )
+            })
+            .await?;
+    }
     Ok(())
 }
 
@@ -1297,7 +1429,7 @@ pub(crate) fn session_snapshot_from_status(
     let items = status
         .playlist
         .into_iter()
-        .map(|item| match item {
+        .map(|entry| match entry.item {
             PlayingItem::LibraryTrack { library_id, track }
                 if !subsonic_library_ids.contains(&library_id) =>
             {
@@ -1362,6 +1494,44 @@ impl Signal for HandoffRequest {
         if already_there {
             return Ok(Some(HandoffResponse { call_id: None }));
         }
+        if target.is_none()
+            && let Some(source) = attached.as_ref()
+            && let Some(block) = node.take_handoff_block(source.fingerprint()).await
+        {
+            match source
+                .call(&TakeBackHandoffBlockRequest {
+                    block: block.into(),
+                    call_id: None,
+                })
+                .await
+            {
+                Ok(snapshot) => {
+                    let load = handoff_load(snapshot, PlaylistOperateMode::Replace);
+                    apply_cast_load(&node, &load).await?;
+                    node.detach_renderer().await?;
+                    return Ok(Some(HandoffResponse { call_id: None }));
+                }
+                Err(error)
+                    if error.chain().any(|cause| {
+                        cause
+                            .downcast_ref::<ExpectedRequestError>()
+                            .is_some_and(|expected| {
+                                matches!(
+                                    expected,
+                                    ExpectedRequestError::Unavailable { .. }
+                                        | ExpectedRequestError::Remote {
+                                            kind: RequestErrorKind::Unavailable,
+                                            ..
+                                        }
+                                )
+                            })
+                    }) =>
+                {
+                    log::info!("Handoff block is unavailable; using the existing return path");
+                }
+                Err(error) => return Err(error),
+            }
+        }
         let load_mode = if target.is_none() && attached.is_some() {
             PlaylistOperateMode::Replace
         } else {
@@ -1373,7 +1543,9 @@ impl Signal for HandoffRequest {
         );
         match target {
             Some(target) => {
-                hand_off_to_renderer(&node, attached.clone(), target, load, generation).await?
+                let block = PlayerHandoffBlockId(Uuid::new_v4());
+                hand_off_to_renderer(&node, attached.clone(), target, block, load, generation)
+                    .await?
             }
             None => hand_off_to_this_device(&node, attached, &load, generation).await?,
         }
@@ -1422,13 +1594,19 @@ async fn hand_off_to_renderer(
     node: &Arc<NodeContext>,
     attached: Option<Arc<RendererLink>>,
     target: &str,
+    block: PlayerHandoffBlockId,
     load: LoadResolvedItemsRequest,
     generation: u64,
 ) -> Result<()> {
     let (link, alias) = node
         .connect_renderer(target, RendererLinkUse::Control)
         .await?;
-    if let Err(error) = link.call(&load).await {
+    let handoff = HandoffLoadRequest {
+        block: block.into(),
+        load,
+        call_id: None,
+    };
+    if let Err(error) = link.call(&handoff).await {
         link.close();
         return Err(error);
     }
@@ -1446,10 +1624,13 @@ async fn hand_off_to_renderer(
             }
         }
     } else {
-        node.session()?.player.lock().await.pause();
+        let session = node.session()?;
+        session.clear_handoff_blocks().await?;
+        session.player.lock().await.pause();
         HandoffOutcome::SourcePaused
     };
     node.install_renderer_link(link, alias)?;
+    node.remember_handoff_block(target.to_owned(), block).await;
     node.publish_capabilities()?;
     if let Some(link) = node.renderer_link()?
         && let Err(error) = link.call(&RefreshSessionRequest { call_id: None }).await

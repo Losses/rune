@@ -1,6 +1,7 @@
-use playback::player::UnavailableReason;
+use playback::player::{HandoffBlockId as PlaybackHandoffBlockId, UnavailableReason};
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Clone, Deserialize, Serialize, RustSignal)]
 pub struct PlaybackStatus {
@@ -297,7 +298,7 @@ impl From<playback::player::SubsonicItem> for PlayingItemRef {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, DartSignal)]
+#[derive(Debug, Clone, Serialize, Deserialize, SignalPiece, DartSignal)]
 pub struct LoadResolvedItemsRequest {
     pub items: Vec<PlayingItemRef>,
     pub start_index: Option<u32>,
@@ -340,6 +341,38 @@ pub struct CastResolvedItemsResponse {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct LoadResolvedItemsResponse {
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct HandoffBlockId(pub Uuid);
+
+impl SignalPiece for HandoffBlockId {}
+
+impl From<PlaybackHandoffBlockId> for HandoffBlockId {
+    fn from(block: PlaybackHandoffBlockId) -> Self {
+        Self(block.0)
+    }
+}
+
+impl From<HandoffBlockId> for PlaybackHandoffBlockId {
+    fn from(block: HandoffBlockId) -> Self {
+        Self(block.0)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, DartSignal)]
+pub struct HandoffLoadRequest {
+    pub block: HandoffBlockId,
+    pub load: LoadResolvedItemsRequest,
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, DartSignal)]
+pub struct TakeBackHandoffBlockRequest {
+    pub block: HandoffBlockId,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

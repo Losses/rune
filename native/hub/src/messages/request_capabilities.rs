@@ -121,6 +121,8 @@ pub struct RequestCapabilities {
     pub fetch_mix_queries_request: RequestCapability,
     pub resolve_mix_query_request: RequestCapability,
     pub load_resolved_items_request: RequestCapability,
+    pub handoff_load_request: RequestCapability,
+    pub take_back_handoff_block_request: RequestCapability,
     pub cast_resolved_items_request: RequestCapability,
     pub cast_preflight_request: RequestCapability,
     pub refresh_session_request: RequestCapability,

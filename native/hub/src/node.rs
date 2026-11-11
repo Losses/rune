@@ -26,7 +26,7 @@ use discovery::{
     protocol::DiscoveryService,
     server::{PermissionManager, UserStatus},
 };
-use playback::sfx_player::SfxPlayer;
+use playback::{player::HandoffBlockId as PlayerHandoffBlockId, sfx_player::SfxPlayer};
 use rinf::{DartSignal, RustSignal};
 use tokio::{
     sync::{Mutex, RwLock},
@@ -152,6 +152,7 @@ pub struct NodeContext {
     handoff_generation: AtomicU64,
     handoff_gate: Mutex<()>,
     handoff_retry_handles: Mutex<Vec<JoinHandle<()>>>,
+    handoff_blocks: Mutex<HashMap<String, PlayerHandoffBlockId>>,
     #[cfg(test)]
     handoff_pause_failures: AtomicUsize,
 }
@@ -315,6 +316,7 @@ impl NodeContext {
             handoff_generation: AtomicU64::new(0),
             handoff_gate: Mutex::new(()),
             handoff_retry_handles: Mutex::new(Vec::new()),
+            handoff_blocks: Mutex::new(HashMap::new()),
             #[cfg(test)]
             handoff_pause_failures: AtomicUsize::new(0),
         });
@@ -452,6 +454,21 @@ impl NodeContext {
     pub(crate) async fn begin_handoff(&self) -> u64 {
         let _guard = self.handoff_gate.lock().await;
         self.handoff_generation.fetch_add(1, Ordering::AcqRel) + 1
+    }
+
+    pub(crate) async fn remember_handoff_block(
+        &self,
+        fingerprint: String,
+        block: PlayerHandoffBlockId,
+    ) {
+        self.handoff_blocks.lock().await.insert(fingerprint, block);
+    }
+
+    pub(crate) async fn take_handoff_block(
+        &self,
+        fingerprint: &str,
+    ) -> Option<PlayerHandoffBlockId> {
+        self.handoff_blocks.lock().await.remove(fingerprint)
     }
 
     pub(crate) fn handoff_generation(&self) -> u64 {

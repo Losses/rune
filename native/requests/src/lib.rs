@@ -1,5 +1,6 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
+use std::collections::HashSet;
 
 #[derive(Clone, Copy, PartialEq)]
 enum RequestScope {
@@ -900,6 +901,22 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             receiver: RequestReceiver::Library,
         },
         RequestResponse {
+            request: "HandoffLoadRequest".to_string(),
+            response: Some("LoadResolvedItemsResponse".to_string()),
+            scope: RequestScope::Session,
+            access: RequestAccess::Control,
+            introduced_minor: None,
+            receiver: RequestReceiver::Library,
+        },
+        RequestResponse {
+            request: "TakeBackHandoffBlockRequest".to_string(),
+            response: Some("SessionSnapshotResponse".to_string()),
+            scope: RequestScope::Session,
+            access: RequestAccess::Control,
+            introduced_minor: None,
+            receiver: RequestReceiver::Library,
+        },
+        RequestResponse {
             request: "CastPreflightRequest".to_string(),
             response: Some("CastPreflightResponse".to_string()),
             scope: RequestScope::Session,
@@ -1228,7 +1245,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         .iter()
         .map(|t| syn::parse_str::<syn::Ident>(t.response.as_ref().unwrap()).unwrap())
         .collect();
-    all_responses.dedup();
+    let mut seen_responses = HashSet::new();
+    all_responses.retain(|response| seen_responses.insert(response.to_string()));
 
     let all_requests: Vec<_> = with_response
         .iter()

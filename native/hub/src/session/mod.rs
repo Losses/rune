@@ -27,9 +27,11 @@ use database::{
 };
 use fsio::FsIo;
 use playback::{
+    PlaybackMode,
     controller::{MediaControlManager, handle_media_control_event},
     player::{
-        Playable, PlaybackState, Player, PlayerStatus, PlayingItem, PlaylistStatus, SubsonicItem,
+        HandoffBlockId, InterruptedItem, Playable, PlaybackSource, PlaybackState, Player,
+        PlayerStatus, PlayingItem, PlaylistStatus, QueueEntry, SubsonicItem, TakeBackBlockResult,
         UnavailableReason,
     },
 };
@@ -69,6 +71,16 @@ use crate::{
 use store::SessionState;
 
 /// One renderer and its durable queue, with node-scoped event listeners.
+pub(crate) struct HandoffLoadParams {
+    pub expected_revision: Option<u64>,
+    pub tracks: Vec<(PlayingItem, PlaybackSource)>,
+    pub block: HandoffBlockId,
+    pub start_index: Option<usize>,
+    pub position: Duration,
+    pub play: bool,
+    pub playback_mode: Option<PlaybackMode>,
+}
+
 pub struct PlayerSession {
     pub player: Arc<Mutex<dyn Playable>>,
     pub scrobbler: Arc<Mutex<dyn ScrobblingServiceManager>>,
@@ -216,6 +228,87 @@ impl PlayerSession {
         Ok(())
     }
 
+    pub(crate) async fn handoff_load_queue(&self, params: HandoffLoadParams) -> Result<()> {
+        let mut state = self.state.lock().await;
+        if let Some(expected) = params.expected_revision
+            && expected != state.queue_revision
+        {
+            return Err(ExpectedRequestError::StaleQueueRevision {
+                expected,
+                current: state.queue_revision,
+            }
+            .into());
+        }
+        let player = self.player.lock().await;
+        let result = player
+            .handoff_load(
+                params.tracks,
+                params.block,
+                params.start_index,
+                params.position,
+                params.play,
+                params.playback_mode,
+            )
+            .await
+            .context("Handoff load player command failed")?;
+        state.add_handoff_block(params.block, result.interrupted);
+        state.update_queue(&result.items);
+        state.queue_revision = state
+            .queue_revision
+            .checked_add(1)
+            .context("Queue revision overflow")?;
+        Ok(())
+    }
+
+    pub(crate) async fn take_back_handoff_block(
+        &self,
+        block: HandoffBlockId,
+    ) -> Result<(TakeBackBlockResult, u64)> {
+        let mut state = self.state.lock().await;
+        let record = state
+            .handoff_block(block)
+            .ok_or(ExpectedRequestError::Unavailable {
+                what: "handoff block",
+            })?;
+        let interrupted: InterruptedItem = record.interrupted.into();
+        let player = self.player.lock().await;
+        let result = player
+            .take_back_block(block, interrupted)
+            .await
+            .context("Take-back player command failed")?
+            .ok_or(ExpectedRequestError::Unavailable {
+                what: "handoff block",
+            })?;
+        state.update_queue(&result.remaining);
+        state.remove_handoff_block(block);
+        state.queue_revision = state
+            .queue_revision
+            .checked_add(1)
+            .context("Queue revision overflow")?;
+        Ok((result, state.queue_revision))
+    }
+
+    pub(crate) async fn clear_handoff_blocks(&self) -> Result<()> {
+        let mut state = self.state.lock().await;
+        let result = self
+            .player
+            .lock()
+            .await
+            .clear_handoff_blocks()
+            .await
+            .context("Clear handoff block tags player command failed")?;
+        if !result.changed {
+            return Ok(());
+        }
+        state.update_queue(&result.items);
+        state.handoff_blocks.clear();
+        state.queue_revision = state
+            .queue_revision
+            .checked_add(1)
+            .context("Queue revision overflow")?;
+        Ok(())
+    }
+
     pub async fn session_id(&self) -> String {
         self.state.lock().await.session_id.to_string()
     }
@@ -284,7 +377,7 @@ impl PlayerSession {
             .get_status()
             .playlist
             .into_iter()
-            .filter_map(|item| match item {
+            .filter_map(|entry| match entry.item {
                 PlayingItem::LibraryTrack {
                     library_id: item_library,
                     track,
@@ -315,7 +408,7 @@ impl PlayerSession {
         let path = Path::new(&*node.config_path)
             .join("sessions")
             .join(format!("{name}.json"));
-        let state = SessionState::read(&path, &node.library_pool).await?;
+        let state = SessionState::read(&path)?;
         let cancel = node.token.child_token();
         #[cfg(not(target_os = "android"))]
         let fsio = FsIo::new();
@@ -367,8 +460,8 @@ impl PlayerSession {
             attached_controllers: StdMutex::new(Vec::new()),
         });
         session.start_events(node).await;
-        session.player.lock().await.restore(
-            state.tracks(),
+        session.player.lock().await.restore_tagged(
+            state.queue_entries(),
             state.index,
             state.position,
             state.playback_mode(),
@@ -399,14 +492,14 @@ impl PlayerSession {
         let mut status = self.player.lock().await.get_status();
         // A controller may have populated the session before the first library opens.
         if status.playlist.is_empty() {
-            status.playlist = items.clone();
+            status.playlist = items.clone().into_iter().map(Into::into).collect();
             state.update(&status);
             state.migrated = true;
             state.write(&self.path)?;
             self.legacy_restore
                 .store(!items.is_empty(), Ordering::Release);
-            self.player.lock().await.restore(
-                state.tracks(),
+            self.player.lock().await.restore_tagged(
+                state.queue_entries(),
                 None,
                 Duration::ZERO,
                 state.playback_mode(),
@@ -545,13 +638,6 @@ impl PlayerSession {
     }
 }
 
-async fn update_persisted_queue(state: &Mutex<SessionState>, items: &[PlayingItem]) -> bool {
-    let mut state = state.lock().await;
-    let previous = state.clone();
-    state.update_queue(items);
-    *state != previous
-}
-
 async fn update_persisted_cursor(state: &Mutex<SessionState>, status: &PlayerStatus) -> bool {
     let mut state = state.lock().await;
     let previous = state.clone();
@@ -561,10 +647,13 @@ async fn update_persisted_cursor(state: &Mutex<SessionState>, status: &PlayerSta
 
 async fn record_playlist_change(
     state: &Mutex<SessionState>,
-    items: Vec<PlayingItem>,
+    items: Vec<QueueEntry>,
     deadline: &mut Option<Instant>,
 ) {
-    if update_persisted_queue(state, &items).await {
+    let mut state = state.lock().await;
+    let previous = state.clone();
+    state.update_queue(&items);
+    if *state != previous {
         deadline.get_or_insert_with(|| Instant::now() + Duration::from_millis(300));
     }
 }
@@ -963,7 +1052,8 @@ async fn send_playlist(
     let mut library_tracks = HashMap::<Uuid, Vec<PlayingItem>>::new();
     let mut independent_items = Vec::new();
     let mut subsonic_tracks = Vec::new();
-    for item in &playlist.items {
+    for entry in &playlist.items {
+        let item = &entry.item;
         match item {
             PlayingItem::LibraryTrack { library_id, .. } => {
                 if let Ok(library) = node.library_pool.acquire(*library_id).await {
@@ -1038,13 +1128,19 @@ async fn send_playlist(
     }
 
     let ui_library_id = current_ui_library_id(node).await;
+    let queue_items = playlist
+        .items
+        .iter()
+        .map(|entry| entry.item.clone())
+        .collect::<Vec<_>>();
     let item_requests =
-        playing_item_requests(&playlist.items, &node.library_pool, ui_library_id).await;
+        playing_item_requests(&queue_items, &node.library_pool, ui_library_id).await;
     let items = playlist
         .items
         .iter()
         .zip(item_requests)
-        .map(|(item, item_request)| {
+        .map(|(entry, item_request)| {
+            let item = &entry.item;
             let summary = metadata.get(item);
             let unavailable = playlist
                 .unavailable

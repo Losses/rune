@@ -27,9 +27,10 @@ use crate::decoder::RuneDecoder;
 use crate::output_stream::{RuneOutputStream, RuneOutputStreamHandle};
 use crate::pcm_tap::PcmTap;
 use crate::player::{
-    AudioPlaybackNote, AudioSourceMode, LibraryTrackKey, PlaybackSource, PlaybackSourceResolver,
-    PlayerStatus, PlayingItem, PlaylistEdit, PlaylistPlacement, RemoteAudioError, SubsonicItem,
-    UnavailableReason,
+    AudioPlaybackNote, AudioSourceMode, ClearHandoffBlocksResult, HandoffBlockId,
+    HandoffLoadResult, InterruptedItem, LibraryTrackKey, PlaybackSource, PlaybackSourceResolver,
+    PlayerStatus, PlayingItem, PlaylistEdit, PlaylistPlacement, QueueEntry, RemoteAudioError,
+    SubsonicItem, TakeBackBlockResult, UnavailableReason,
 };
 use crate::realtime_fft::RealTimeFFT;
 use crate::shared_source::SharedSource;
@@ -394,6 +395,12 @@ pub enum PlayerCommand {
         position: Duration,
         mode: PlaybackMode,
     },
+    RestoreTagged {
+        entries: Vec<QueueEntry>,
+        index: Option<usize>,
+        position: Duration,
+        mode: PlaybackMode,
+    },
     Load {
         index: usize,
     },
@@ -424,6 +431,23 @@ pub enum PlayerCommand {
         mode: AddMode,
     },
     EditPlaylist(PlaylistEdit),
+    HandoffLoad {
+        tracks: Vec<(PlayingItem, PlaybackSource)>,
+        block: HandoffBlockId,
+        start_index: Option<usize>,
+        position: Duration,
+        play: bool,
+        playback_mode: Option<PlaybackMode>,
+        response: oneshot::Sender<HandoffLoadResult>,
+    },
+    TakeBackBlock {
+        block: HandoffBlockId,
+        interrupted: InterruptedItem,
+        response: oneshot::Sender<Option<TakeBackBlockResult>>,
+    },
+    ClearHandoffBlocks {
+        response: oneshot::Sender<ClearHandoffBlocksResult>,
+    },
     RemoveFromPlaylist {
         index: usize,
     },
@@ -508,7 +532,7 @@ pub enum PlayerEvent {
         ready: bool,
     },
     VolumeUpdate(f32),
-    PlaylistUpdated(Vec<PlayingItem>),
+    PlaylistUpdated(Vec<PlaylistItem>),
     RealtimeFFT(Vec<f32>),
     Log(InternalLog),
 }
@@ -517,6 +541,14 @@ pub enum PlayerEvent {
 pub struct PlaylistItem {
     pub item: PlayingItem,
     pub source: PlaybackSource,
+    pub block: Option<HandoffBlockId>,
+}
+
+fn queue_entry(item: &PlaylistItem) -> QueueEntry {
+    QueueEntry {
+        item: item.item.clone(),
+        block: item.block,
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -754,6 +786,23 @@ impl PlayerInternal {
                             self.set_playback_mode(mode)?;
                             self.load_at(index, false, false, Some(position))?;
                         },
+                        PlayerCommand::RestoreTagged { entries, index, position, mode } => {
+                            self.clear_unavailable(None)?;
+                            self.playlist = entries
+                                .into_iter()
+                                .map(|entry| PlaylistItem {
+                                    source: PlaybackSource::from(&entry.item),
+                                    item: entry.item,
+                                    block: entry.block,
+                                })
+                                .collect();
+                            self.debounce_timer = None;
+                            self.playback_strategy.on_playlist_updated(self.playlist.len(), UpdateReason::ClearPlaylist);
+                            self.playback_strategy.on_playlist_updated(self.playlist.len(), UpdateReason::AddToPlaylist { mode: AddMode::AppendToEnd, index: None, count: self.playlist.len() });
+                            self.send_playlist_updated()?;
+                            self.set_playback_mode(mode)?;
+                            self.load_at(index, false, false, Some(position))?;
+                        },
                         PlayerCommand::Load { index } => {
                             if index < self.playlist.len() {
                                 let mapped = self.get_mapped_track_index(index);
@@ -845,7 +894,7 @@ impl PlayerInternal {
                             };
                             let added = !edit.tracks.is_empty();
                             if added {
-                                self.add_to_playlist(edit.tracks, add_mode);
+                                self.add_to_playlist_tagged(edit.tracks, add_mode, edit.block);
                             }
                             if let Some(mode) = edit.playback_mode {
                                 self.set_playback_mode(mode)?;
@@ -863,6 +912,98 @@ impl PlayerInternal {
                             {
                                 self.load_at(Some(insertion), true, false, Some(Duration::ZERO))?;
                             }
+                        },
+                        PlayerCommand::HandoffLoad { tracks, block, start_index, position, play, playback_mode, response } => {
+                            let interrupted = self.interrupted_item();
+                            let current_index = self.current_queue_edit_index()
+                                .and_then(|_| self.current_playlist_index());
+                            let insertion = current_index.map_or(self.playlist.len(), |index| index + 1);
+                            if let Some(index) = current_index {
+                                self.current_track_index = Some(index);
+                                self.current_track_mapped = false;
+                            }
+                            self.add_to_playlist_tagged(tracks, AddMode::PlayNext, Some(block));
+                            if let Some(mode) = playback_mode {
+                                self.set_playback_mode(mode)?;
+                            }
+                            if let Some(start_index) = start_index {
+                                self.load_at(Some(insertion + start_index), play, false, Some(position))?;
+                            }
+                            let _ = response.send(HandoffLoadResult {
+                                interrupted,
+                                items: self.playlist.iter().map(queue_entry).collect(),
+                            });
+                        },
+                        PlayerCommand::TakeBackBlock { block, interrupted, response } => {
+                            if !self.playlist.iter().any(|item| item.block == Some(block)) {
+                                let _ = response.send(None);
+                                continue;
+                            }
+                            let current_index = self.current_playlist_index();
+                            let current_item = self.current_item.clone();
+                            let was_playing = self.state == InternalPlaybackState::Playing
+                                || (self.state == InternalPlaybackState::Loading && self.play_when_loaded);
+                            let was_inside = self.state != InternalPlaybackState::Stopped
+                                && current_item.is_some()
+                                && current_index
+                                .and_then(|index| self.playlist.get(index))
+                                .is_some_and(|item| item.block == Some(block));
+                            let block_items = self.playlist.iter()
+                                .filter(|item| item.block == Some(block))
+                                .map(queue_entry)
+                                .collect::<Vec<_>>();
+                            let block_index = if was_inside {
+                                current_index.map(|index| self.playlist[..index]
+                                    .iter().filter(|item| item.block == Some(block)).count())
+                            } else {
+                                None
+                            };
+                            let position = if was_inside { self.current_position().unwrap_or_default() } else { Duration::ZERO };
+                            let indices = self.playlist.iter().enumerate()
+                                .filter_map(|(index, item)| (item.block == Some(block)).then_some(index))
+                                .collect::<Vec<_>>();
+                            for index in indices.into_iter().rev() {
+                                self.remove_from_playlist(index)?;
+                            }
+                            if was_inside {
+                                match interrupted {
+                                    InterruptedItem::Nothing => self.stop()?,
+                                    InterruptedItem::Item { index_hint, item, position } => {
+                                        let index = self.playlist.iter().position(|entry| entry.item == item)
+                                            .unwrap_or_else(|| index_hint.min(self.playlist.len().saturating_sub(1)));
+                                        if self.playlist.is_empty() {
+                                            self.stop()?;
+                                        } else {
+                                            self.load_at(Some(index), false, false, Some(position))?;
+                                        }
+                                    }
+                                }
+                            } else if let Some(item) = current_item {
+                                self.current_track_index = self.playlist.iter()
+                                    .position(|entry| entry.item == item);
+                                self.current_track_mapped = false;
+                            }
+                            let _ = response.send(Some(TakeBackBlockResult {
+                                items: block_items,
+                                remaining: self.playlist.iter().map(queue_entry).collect(),
+                                index: block_index,
+                                position,
+                                playback_mode: self.playback_mode,
+                                playing: was_playing,
+                            }));
+                        },
+                        PlayerCommand::ClearHandoffBlocks { response } => {
+                            let mut changed = false;
+                            for item in &mut self.playlist {
+                                changed |= item.block.take().is_some();
+                            }
+                            if changed {
+                                self.schedule_playlist_update();
+                            }
+                            let _ = response.send(ClearHandoffBlocksResult {
+                                changed,
+                                items: self.playlist.iter().map(queue_entry).collect(),
+                            });
                         },
                         PlayerCommand::RemoveFromPlaylist { index } => self.remove_from_playlist(index)?,
                         PlayerCommand::ClearPlaylist => self.clear_playlist()?,
@@ -1831,6 +1972,15 @@ impl PlayerInternal {
     }
 
     fn add_to_playlist(&mut self, tracks: Vec<(PlayingItem, PlaybackSource)>, mode: AddMode) {
+        self.add_to_playlist_tagged(tracks, mode, None);
+    }
+
+    fn add_to_playlist_tagged(
+        &mut self,
+        tracks: Vec<(PlayingItem, PlaybackSource)>,
+        mode: AddMode,
+        requested_block: Option<HandoffBlockId>,
+    ) {
         debug!("Adding tracks to playlist with mode: {:?}", { mode });
         let count = tracks.len();
         let insert_index = match mode {
@@ -1844,6 +1994,14 @@ impl PlayerInternal {
             AddMode::AppendToEnd => None,
         };
 
+        let inherited_index = insert_index.unwrap_or(self.playlist.len());
+        let current_item = (self.state != InternalPlaybackState::Stopped)
+            .then_some(self.current_item.as_ref())
+            .flatten();
+        let inherited_block =
+            inherited_block_for_insert(&self.playlist, inherited_index, current_item);
+        let block = requested_block.or(inherited_block);
+
         if let Some(index) = insert_index {
             for (i, track) in tracks.into_iter().enumerate() {
                 self.playlist.insert(
@@ -1851,6 +2009,7 @@ impl PlayerInternal {
                     PlaylistItem {
                         item: track.0,
                         source: track.1,
+                        block,
                     },
                 );
             }
@@ -1859,6 +2018,7 @@ impl PlayerInternal {
                 .extend(tracks.into_iter().map(|track| PlaylistItem {
                     item: track.0,
                     source: track.1,
+                    block,
                 }));
         }
 
@@ -1873,9 +2033,22 @@ impl PlayerInternal {
         self.schedule_playlist_update();
     }
 
+    fn interrupted_item(&self) -> InterruptedItem {
+        match (self.current_track_index, self.current_item.as_ref()) {
+            (Some(index_hint), Some(item)) if self.state != InternalPlaybackState::Stopped => {
+                InterruptedItem::Item {
+                    index_hint: self.current_playlist_index().unwrap_or(index_hint),
+                    item: item.clone(),
+                    position: self.current_position().unwrap_or_default(),
+                }
+            }
+            _ => InterruptedItem::Nothing,
+        }
+    }
+
     fn current_queue_edit_index(&self) -> Option<usize> {
         (self.state != InternalPlaybackState::Stopped)
-            .then_some(self.current_track_index)
+            .then(|| self.current_playlist_index())
             .flatten()
     }
 
@@ -2109,8 +2282,7 @@ impl PlayerInternal {
     }
 
     fn send_playlist_updated(&self) -> Result<()> {
-        let playlist_items: Vec<PlayingItem> =
-            self.playlist.iter().map(|item| item.item.clone()).collect();
+        let playlist_items: Vec<PlaylistItem> = self.playlist.clone();
         self.event_sender
             .send(PlayerEvent::PlaylistUpdated(playlist_items))
             .with_context(|| "Failed to send PlaylistUpdated event")?;
@@ -2184,6 +2356,30 @@ impl PlayerInternal {
 
         Ok(())
     }
+}
+
+fn inherited_block_for_insert(
+    playlist: &[PlaylistItem],
+    index: usize,
+    current_item: Option<&PlayingItem>,
+) -> Option<HandoffBlockId> {
+    let left = index.checked_sub(1).and_then(|left| playlist.get(left));
+    let right = playlist.get(index);
+    let between_same_block = left
+        .and_then(|item| item.block)
+        .filter(|block| right.is_some_and(|item| item.block == Some(*block)));
+    between_same_block.or_else(|| {
+        left.and_then(|item| item.block).filter(|block| {
+            !playlist[index..]
+                .iter()
+                .any(|item| item.block == Some(*block))
+                && current_item.is_some_and(|current| {
+                    playlist
+                        .iter()
+                        .any(|entry| entry.block == Some(*block) && &entry.item == current)
+                })
+        })
+    })
 }
 
 #[cfg(test)]
@@ -2824,6 +3020,72 @@ mod playback_state_tests {
         }
     }
 
+    #[test]
+    fn handoff_tags_propagate_only_inside_the_block_and_follow_queue_edits() -> Result<()> {
+        let (commands_sender, commands) = mpsc::unbounded_channel();
+        let (event_sender, _events) = mpsc::unbounded_channel();
+        let mut internal = PlayerInternal::new(
+            commands,
+            event_sender,
+            CancellationToken::new(),
+            commands_sender,
+            Arc::new(FsIo::new_noop()),
+            PcmTap::new(),
+            Arc::new(RwLock::new(None)),
+        );
+        let library_id = Uuid::new_v4();
+        let block = HandoffBlockId(Uuid::new_v4());
+        let ids = (0..6).map(|_| Uuid::new_v4()).collect::<Vec<_>>();
+        internal.playlist = ids[..4]
+            .iter()
+            .enumerate()
+            .map(|(index, id)| PlaylistItem {
+                item: library_item(library_id, *id),
+                source: PlaybackSource::LibraryStream,
+                block: (index < 3).then_some(block),
+            })
+            .collect();
+        internal.current_item = Some(library_item(library_id, ids[1]));
+        internal.current_track_index = Some(1);
+        internal.state = InternalPlaybackState::Paused;
+
+        internal.add_to_playlist_tagged(
+            library_tracks(library_id, &[ids[4]]),
+            AddMode::PlayNext,
+            None,
+        );
+        assert_eq!(internal.playlist[2].block, Some(block));
+        assert_eq!(internal.playlist[4].block, None);
+
+        internal.current_item = Some(library_item(library_id, ids[2]));
+        internal.current_track_index = Some(3);
+        internal.add_to_playlist_tagged(
+            library_tracks(library_id, &[ids[5]]),
+            AddMode::PlayNext,
+            None,
+        );
+        assert_eq!(internal.playlist[4].block, Some(block));
+        assert_eq!(
+            inherited_block_for_insert(&internal.playlist[..5], 5, internal.current_item.as_ref(),),
+            Some(block)
+        );
+
+        let moved = internal.playlist[0].clone();
+        internal.move_playlist_item(0, 5);
+        assert_eq!(internal.playlist[5].item, moved.item);
+        assert_eq!(internal.playlist[5].block, moved.block);
+        internal.remove_from_playlist(5)?;
+
+        internal.clear_playlist()?;
+        internal.add_to_playlist_tagged(
+            library_tracks(library_id, &[ids[0], ids[1]]),
+            AddMode::AppendToEnd,
+            None,
+        );
+        assert!(internal.playlist.iter().all(|item| item.block.is_none()));
+        Ok(())
+    }
+
     // Waits for the next event that brings a track up, plays it or pauses it.
     async fn next_track_state(
         events: &mut mpsc::UnboundedReceiver<PlayerEvent>,
@@ -2973,6 +3235,7 @@ mod playback_state_tests {
                         tracks: library_tracks(library_id, &file_uuids[5..8]),
                         placement: PlaylistPlacement::PlayNext,
                         playback_mode: None,
+                        block: None,
                         load: Some(PlaylistLoad {
                             start_index: 1,
                             position: Duration::from_secs(1),
@@ -3021,6 +3284,7 @@ mod playback_state_tests {
                         tracks: library_tracks(library_id, &file_uuids[3..]),
                         placement: PlaylistPlacement::PlayNext,
                         playback_mode: None,
+                        block: None,
                         load: None,
                     }))?;
                     let started = next_track_state(&mut events).await?;
