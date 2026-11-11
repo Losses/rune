@@ -22,14 +22,16 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use log::info;
 use reqwest::redirect::Policy;
-use tokio::sync::RwLock;
+use tokio::{sync::RwLock, time::timeout};
 use url::Url;
 use uuid::Uuid;
 
 use ::database::actions::cover_art::COVER_TEMP_DIR;
 use ::discovery::{
     DiscoveryParams,
-    client::{CertValidator, fetch_server_certificate, select_best_host, try_connect},
+    client::{
+        CertValidator, CertValidatorError, fetch_server_certificate, select_best_host, try_connect,
+    },
     protocol::DiscoveryService,
     server::{PermissionManager, UserStatus},
     url::decode_rnsrv_url,
@@ -511,31 +513,71 @@ impl Signal for ServerAvailabilityTestRequest {
 
         let hosts = match decode_rnsrv_url(&req.url) {
             Ok(x) => x,
-            Err(e) => {
+            Err(_) => {
                 return Ok(Some(ServerAvailabilityTestResponse {
                     call_id: None,
-                    success: false,
-                    error: format!("{e:#?}"),
+                    outcome: ServerAvailabilityTestOutcome::Failed(
+                        ServerAvailabilityTestFailure::AddressMalformed,
+                    ),
                 }));
             }
         };
 
         let client_config = Arc::new(validator.clone().into_client_config());
-        let host = select_best_host(hosts, client_config).await;
+        let outcome = match timeout(
+            Duration::from_secs(5),
+            select_best_host(hosts.clone(), client_config),
+        )
+        .await
+        {
+            Err(_) => availability_outcome(Err(ServerAvailabilityTestFailure::TimedOut)),
+            Ok(Ok(_)) => availability_outcome(Ok(())),
+            Ok(Err(_)) => {
+                let failure = if has_fingerprint_mismatch(&hosts, &validator).await {
+                    ServerAvailabilityTestFailure::TlsFingerprintMismatch
+                } else {
+                    ServerAvailabilityTestFailure::NoHostReachable
+                };
+                availability_outcome(Err(failure))
+            }
+        };
 
-        Ok(Some(match host {
-            Ok(_) => ServerAvailabilityTestResponse {
-                call_id: None,
-                success: true,
-                error: String::new(),
-            },
-            Err(e) => ServerAvailabilityTestResponse {
-                call_id: None,
-                success: false,
-                error: format!("{e:#?}"),
-            },
+        Ok(Some(ServerAvailabilityTestResponse {
+            call_id: None,
+            outcome,
         }))
     }
+}
+
+fn availability_outcome(
+    result: Result<(), ServerAvailabilityTestFailure>,
+) -> ServerAvailabilityTestOutcome {
+    match result {
+        Ok(()) => ServerAvailabilityTestOutcome::Success,
+        Err(failure) => ServerAvailabilityTestOutcome::Failed(failure),
+    }
+}
+
+async fn has_fingerprint_mismatch(hosts: &[String], validator: &CertValidator) -> bool {
+    for host in hosts {
+        let url = format!("https://{host}/ping");
+        let Ok(Ok(server_certificate)) =
+            timeout(Duration::from_secs(5), fetch_server_certificate(&url)).await
+        else {
+            continue;
+        };
+        let Ok(certificate_pem) = pem::parse(server_certificate.cert) else {
+            continue;
+        };
+        let certificate = rustls::pki_types::CertificateDer::from(certificate_pem.into_contents());
+        if matches!(
+            validator.verify_certificate(&certificate, host).await,
+            Err(CertValidatorError::FingerprintMismatch)
+        ) {
+            return true;
+        }
+    }
+    false
 }
 
 impl ParamsExtractor for UpdateClientStatusRequest {
@@ -1213,5 +1255,53 @@ mod remote_file_cache_tests {
         assert!(result.is_err());
         assert!(!temp.path().join(file_name).exists());
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod server_availability_test_tests {
+    use super::availability_outcome;
+    use crate::messages::{ServerAvailabilityTestFailure, ServerAvailabilityTestOutcome};
+
+    #[test]
+    fn malformed_address_is_reported_as_typed_failure() {
+        assert_eq!(
+            availability_outcome(Err(ServerAvailabilityTestFailure::AddressMalformed)),
+            ServerAvailabilityTestOutcome::Failed(ServerAvailabilityTestFailure::AddressMalformed,),
+        );
+    }
+
+    #[test]
+    fn unreachable_hosts_are_reported_as_typed_failure() {
+        assert_eq!(
+            availability_outcome(Err(ServerAvailabilityTestFailure::NoHostReachable)),
+            ServerAvailabilityTestOutcome::Failed(ServerAvailabilityTestFailure::NoHostReachable,),
+        );
+    }
+
+    #[test]
+    fn tls_fingerprint_mismatch_is_reported_as_typed_failure() {
+        assert_eq!(
+            availability_outcome(Err(ServerAvailabilityTestFailure::TlsFingerprintMismatch,)),
+            ServerAvailabilityTestOutcome::Failed(
+                ServerAvailabilityTestFailure::TlsFingerprintMismatch,
+            ),
+        );
+    }
+
+    #[test]
+    fn timed_out_probe_is_reported_as_typed_failure() {
+        assert_eq!(
+            availability_outcome(Err(ServerAvailabilityTestFailure::TimedOut)),
+            ServerAvailabilityTestOutcome::Failed(ServerAvailabilityTestFailure::TimedOut),
+        );
+    }
+
+    #[test]
+    fn successful_probe_has_success_outcome() {
+        assert_eq!(
+            availability_outcome(Ok(())),
+            ServerAvailabilityTestOutcome::Success,
+        );
     }
 }

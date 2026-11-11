@@ -1,7 +1,20 @@
 import 'request_failure.dart';
 import '../../bindings/bindings.dart';
+import '../../l10n/app_localizations.dart';
 
-Future<bool> serverAvailabilityTest(String url) async {
+String serverAvailabilityFailureMessage(
+  AppLocalizations s,
+  ServerAvailabilityTestFailure failure,
+) =>
+    switch (failure) {
+      ServerAvailabilityTestFailure.addressMalformed => s.requestInvalid,
+      ServerAvailabilityTestFailure.noHostReachable => s.requestUnavailable,
+      ServerAvailabilityTestFailure.tlsFingerprintMismatch =>
+        s.requestCertificateMismatch,
+      ServerAvailabilityTestFailure.timedOut => s.requestUnavailable,
+    };
+
+Future<bool> serverAvailabilityTest(String url, AppLocalizations s) async {
   final removeTrustRequest = ServerAvailabilityTestRequest(url: url);
 
   final rustSignal = await awaitResponse(
@@ -11,9 +24,12 @@ Future<bool> serverAvailabilityTest(String url) async {
   );
   final response = rustSignal.message;
 
-  if (!response.success) {
-    throw response.error;
+  switch (response.outcome) {
+    case ServerAvailabilityTestOutcomeSuccess():
+      return true;
+    case ServerAvailabilityTestOutcomeFailed(:final value):
+      throw serverAvailabilityFailureMessage(s, value);
+    default:
+      throw s.unknownError;
   }
-
-  return response.success;
 }

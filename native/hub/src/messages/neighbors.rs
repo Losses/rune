@@ -223,10 +223,23 @@ pub struct ServerAvailabilityTestRequest {
     pub call_id: Option<u64>,
 }
 
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ServerAvailabilityTestFailure {
+    AddressMalformed,
+    NoHostReachable,
+    TlsFingerprintMismatch,
+    TimedOut,
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ServerAvailabilityTestOutcome {
+    Success,
+    Failed(ServerAvailabilityTestFailure),
+}
+
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct ServerAvailabilityTestResponse {
-    pub success: bool,
-    pub error: String,
+    pub outcome: ServerAvailabilityTestOutcome,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
