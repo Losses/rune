@@ -2,6 +2,7 @@
 mod formats;
 mod keys;
 mod peer;
+mod planners;
 mod snapshot;
 mod store;
 mod verification;
@@ -9,6 +10,7 @@ mod verification;
 pub use formats::*;
 pub use keys::*;
 pub use peer::*;
+pub use planners::*;
 pub use store::*;
 pub use verification::{
     FormatError, decode_chunk, decode_head, decode_library, decode_manifest, decode_segment,
