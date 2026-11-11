@@ -4303,8 +4303,6 @@ mod lifecycle_tests {
             Ok(())
         })
         .await?;
-        // Let the background workers finish their shared per-IP auth burst.
-        tokio::time::sleep(Duration::from_secs(1)).await;
         let audio_library = peer_step(
             "acquire audio library",
             a.global_params
@@ -4573,7 +4571,11 @@ mod lifecycle_tests {
             ),
         )
         .await?;
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        peer_step(
+            "stop background worker before direct full-listener auth",
+            async { a.stop_worker().await },
+        )
+        .await?;
         let (_, full_authorized) = peer_step("authenticate full listener client", async {
             authenticated_client(
                 &b.global_params.node,

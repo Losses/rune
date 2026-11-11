@@ -5788,22 +5788,44 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     let source_queue = source_before.playlist.clone();
     let source_index = source_before.index.context("shuffle source index")?;
     assert!(source_index > 0);
-    let source_position = source_before.position;
-
     let handoff = HandoffRequest {
             call_id: None,
         target: Some(b_fingerprint.clone()),
     };
+    let b_status_events = b.global_params.player.lock().await.subscribe_status();
+    let handed_off_item = source_before.item.clone();
+    let handed_off_queue = source_queue.clone();
+    let b_status_waiter = tokio::spawn(async move {
+        loop {
+            let status = b_status_events.recv().await.context("player status channel closed")?;
+            if status.index == Some(source_index)
+                && status.item == handed_off_item
+                && status.state == PlaybackState::Playing
+                && status.playlist == handed_off_queue
+            {
+                return Ok::<_, anyhow::Error>(status);
+            }
+        }
+    });
     a_signals.0.lock().unwrap().clear();
     dispatch_gui_request(&controller.global_params, &handoff).await?;
-    let b_status = wait_player(&b, |status| {
-        status.index == Some(source_index)
-            && status.item == source_before.item
-            && status.state == PlaybackState::Playing
-            && status.playlist == source_queue
-            && status.position.abs_diff(source_position) <= Duration::from_millis(1500)
+    let a_paused = wait_player(controller, |status| {
+        status.state == PlaybackState::Paused && status.playlist == source_queue
     })
     .await?;
+    let b_status = timeout(Duration::from_secs(10), b_status_waiter)
+        .await
+        .context("renderer did not start the handed-off item")???;
+    // The source keeps playing until the target has loaded, so the handed-off
+    // position lies between the test's snapshot and the source's paused position.
+    assert!(
+        b_status.position + Duration::from_millis(1500) >= source_before.position
+            && b_status.position <= a_paused.position + Duration::from_millis(1500),
+        "target position {:?} outside source positions {:?}..{:?} during handoff",
+        b_status.position,
+        source_before.position,
+        a_paused.position
+    );
     let remote_session_id = b.global_params.node.session()?.session_id().await;
     timeout(Duration::from_secs(5), async {
         loop {
@@ -5831,11 +5853,6 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
         .context("renderer PlaylistUpdate after handoff")?;
     assert_eq!(refreshed.revision, b.global_params.node.session()?.queue_revision().await);
     assert_eq!(b_status.playlist, source_queue);
-    assert!(b_status.position.abs_diff(source_position) <= Duration::from_millis(1500));
-    let a_paused = wait_player(controller, |status| {
-        status.state == PlaybackState::Paused && status.playlist == source_queue
-    })
-    .await?;
     assert_eq!(a_paused.playlist, source_queue);
     assert_eq!(a_paused.index, Some(source_index));
     assert_eq!(
@@ -5857,19 +5874,44 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     let b_index = b_before_return.index.context("shuffle return index")?;
     let back = HandoffRequest {
             call_id: None, target: None };
+    let returned_status_events = controller
+        .global_params
+        .player
+        .lock()
+        .await
+        .subscribe_status();
+    let returned_item = b_before_return.item.clone();
+    let returned_queue = b_queue.clone();
+    let returned_status_waiter = tokio::spawn(async move {
+        loop {
+            let status = returned_status_events.recv().await.context("player status channel closed")?;
+            if status.index == Some(b_index)
+                && status.item == returned_item
+                && status.state == PlaybackState::Playing
+                && status.playlist == returned_queue
+            {
+                return Ok::<_, anyhow::Error>(status);
+            }
+        }
+    });
     dispatch_gui_request(&controller.global_params, &back).await?;
-    let a_returned = wait_player(controller, |status| {
-        status.index == Some(b_index)
-            && status.item == b_before_return.item
-            && status.state == PlaybackState::Playing
-            && status.playlist == b_queue
-            && status.position.abs_diff(b_before_return.position) <= Duration::from_millis(1500)
+    let b_paused = wait_player(&b, |status| {
+        status.state == PlaybackState::Paused && status.playlist == b_queue
     })
     .await?;
+    let a_returned = timeout(Duration::from_secs(10), returned_status_waiter)
+        .await
+        .context("source did not start the returned item")???;
+    assert!(
+        a_returned.position + Duration::from_millis(1500) >= b_before_return.position
+            && a_returned.position <= b_paused.position + Duration::from_millis(1500),
+        "returned position {:?} outside renderer positions {:?}..{:?} during handoff",
+        a_returned.position,
+        b_before_return.position,
+        b_paused.position
+    );
     assert_eq!(a_returned.playlist, b_queue);
-    assert!(a_returned.position.abs_diff(b_before_return.position) <= Duration::from_millis(1500));
     assert!(controller.global_params.node.renderer_link()?.is_none());
-    let b_paused = wait_player(&b, |status| status.state == PlaybackState::Paused).await?;
     assert_eq!(b_paused.playlist, b_queue);
     controller.global_params.player.lock().await.pause();
     wait_player(controller, |status| status.state == PlaybackState::Paused).await?;
