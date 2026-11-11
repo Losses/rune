@@ -1402,6 +1402,7 @@ fn subsonic_request_error(error: SubsonicError) -> anyhow::Error {
 macro_rules! subsonic_requests {
     (
         supported { $($request:ty => $handler:ident as $method:ident),* $(,)? }
+        routed_native { $($native_request:ty),* $(,)? }
         jukebox_supported { $($jukebox_request:ty => $jukebox_handler:ident as $jukebox_method:ident),* $(,)? }
         player { $($player_request:ty),* $(,)? }
     ) => {
@@ -1437,6 +1438,7 @@ macro_rules! subsonic_requests {
                     $(slots.set::<$jukebox_request>(Slot::Translate);)*
                 }
                 $(slots.set::<$request>(Slot::Translate);)*
+                $(slots.set::<$native_request>(Slot::Native);)*
                 slots
             }
         }
@@ -1462,6 +1464,10 @@ subsonic_requests! {
         FetchCollectionByIdsRequest => fetch_collection_by_ids_request as translate_fetch_collection_by_ids_request,
         MixQueryRequest => mix_query_request as translate_mix_query_request,
         SearchForRequest => search_for_request as translate_search_for_request,
+    }
+    routed_native {
+        SetLikedRequest,
+        GetLikedRequest,
     }
     jukebox_supported {
         VolumeRequest => jukebox_volume_request as translate_volume_request,
@@ -2425,8 +2431,8 @@ mod tests {
             roles: SubsonicRoles::default(),
             roles_known: true,
         });
-        assert_eq!(SetLikedRequest::slot(&slots), Slot::Translate);
-        assert_eq!(GetLikedRequest::slot(&slots), Slot::Translate);
+        assert_eq!(SetLikedRequest::slot(&slots), Slot::Native);
+        assert_eq!(GetLikedRequest::slot(&slots), Slot::Native);
         assert_eq!(GetLyricByTrackIdRequest::slot(&slots), Slot::Translate);
     }
 

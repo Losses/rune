@@ -332,7 +332,10 @@ void main() {
         ],
         child: FluentApp(
           home: LikeButton(
-            item: const PlayingItem.inLibrary(1),
+            item: const PlayingItem.libraryItem(
+              libraryId: 'library-b',
+              fileUuid: '7f8b99b0-5a5a-4ce7-b6db-764a11edce4b',
+            ),
             fetchLikedStatus: (_) async => false,
           ),
         ),

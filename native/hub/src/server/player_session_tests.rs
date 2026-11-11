@@ -8,6 +8,7 @@ use crate::messages::{
     PlaybackStatus, PlaylistOperateMode, RegisterLibraryOutcome, RemoteConnectionLost,
     RemoteLibraryReconnected, RemoteLibraryReconnecting, RemoteLossKind, RequestCapabilities,
     RequestCapability, RequestFailedResponse, ScanAudioLibraryProgress, ScanTaskType,
+    SetLikedRequest,
 };
 use crate::messages::{
     OpenDalLibraryService, RegisterOpenDalLibraryRequest, RegisterSubsonicLibraryRequest,
@@ -1235,6 +1236,175 @@ async fn session_audio(f: &Fixture, name: &str) -> Result<i32> {
         .await?
         .context("scanned session audio")?
         .id)
+}
+
+#[tokio::test]
+async fn liked_requests_address_a_library_other_than_the_ui_library() -> Result<()> {
+    use crate::messages::{GetLikedRequest, RegisterLocalLibraryRequest};
+
+    let node_dir = tempfile::tempdir()?;
+    let second_library_dir = tempfile::tempdir()?;
+    let fixture = fixture(node_dir.path()).await?;
+    let registered = register_local_library_on_node(
+        &RegisterLocalLibraryRequest {
+            call_id: None,
+            path: second_library_dir.path().to_string_lossy().into_owned(),
+            alias: "Second liked library".into(),
+            mode: Some(LibraryInitializeMode::Portable),
+        },
+        &fixture.global_params.node,
+    )
+    .await;
+    let record = registered.record.context("second library record")?;
+    let library_id = LibraryRegistry::load(node_dir.path())?
+        .catalogs()
+        .find(|library| library.alias == record.alias)
+        .and_then(|library| library.library_id)
+        .context("second library catalog id")?;
+    let library = fixture
+        .global_params
+        .library_pool
+        .acquire(library_id)
+        .await?;
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg");
+    let target = Path::new(&library.media_root).join("liked-in-second-library.ogg");
+    fs::copy(source, &target)?;
+    scan_audio_file(
+        &library.fsio,
+        &library.main_db,
+        &fixture.global_params.node_id,
+        Path::new(&library.media_root),
+        &target,
+        &library.library_sync.record_store(),
+    )
+    .await?;
+    let file = media_files::Entity::find()
+        .filter(Column::FileName.eq("liked-in-second-library.ogg"))
+        .one(&*library.main_db)
+        .await?
+        .context("second library track")?;
+    let track = file_uuids_by_id(&library.main_db, &[file.id])
+        .await?
+        .get(&file.id)
+        .copied()
+        .context("second library track UUID")?;
+    let item = PlayingItemRef::LibraryTrack {
+        library_id: library_id.to_string(),
+        track: track.to_string(),
+    };
+
+    let initial = dispatch_gui_request(
+        &fixture.global_params,
+        &GetLikedRequest {
+            call_id: None,
+            item: Some(item.clone()),
+        },
+    )
+    .await?
+    .context("initial liked response")?;
+    assert!(!initial.liked);
+    let updated = dispatch_gui_request(
+        &fixture.global_params,
+        &SetLikedRequest {
+            call_id: None,
+            item: Some(item.clone()),
+            liked: true,
+        },
+    )
+    .await?
+    .context("set liked response")?;
+    assert!(updated.success);
+    let final_state = dispatch_gui_request(
+        &fixture.global_params,
+        &GetLikedRequest {
+            call_id: None,
+            item: Some(item.clone()),
+        },
+    )
+    .await?
+    .context("final liked response")?;
+    assert!(final_state.liked);
+    let unliked = dispatch_gui_request(
+        &fixture.global_params,
+        &SetLikedRequest {
+            call_id: None,
+            item: Some(item.clone()),
+            liked: false,
+        },
+    )
+    .await?
+    .context("unset liked response")?;
+    assert!(unliked.success);
+    let final_state = dispatch_gui_request(
+        &fixture.global_params,
+        &GetLikedRequest {
+            call_id: None,
+            item: Some(item),
+        },
+    )
+    .await?
+    .context("final unliked response")?;
+    assert!(!final_state.liked);
+    Ok(())
+}
+
+#[tokio::test]
+async fn setting_liked_on_a_read_only_replica_returns_a_typed_error() -> Result<()> {
+    use crate::messages::SetLikedRequest;
+    use database::library_registry::{
+        CatalogPlacement, FsAdapter, LibraryAccess, LibraryConnectionAccess, LibraryRecord,
+        LibraryRecordId, LibraryRegistry, ProtocolAdapter, RuneForwardMode,
+    };
+
+    let node_dir = tempfile::tempdir()?;
+    let fixture = fixture(node_dir.path()).await?;
+    let library_id = Uuid::new_v4();
+    let owner_fingerprint = "read-only-owner";
+    LibraryRegistry::update(node_dir.path(), |registry| {
+        registry.libraries.push(LibraryRecord {
+            record_id: LibraryRecordId(Uuid::new_v4()),
+            alias: "Read-only replica".into(),
+            library_id: Some(library_id),
+            protocol: ProtocolAdapter::RuneForward {
+                owner_fingerprint: owner_fingerprint.into(),
+                mode: RuneForwardMode::Replica {
+                    access_level: Some(LibraryAccess::Read),
+                    connection_access: Some(LibraryConnectionAccess::None),
+                },
+            },
+            fs: vec![FsAdapter::RunePeer {
+                fingerprint: owner_fingerprint.into(),
+            }],
+            catalog: CatalogPlacement::ConfigReplica,
+            background_sync: false,
+        });
+        Ok(())
+    })
+    .await?;
+    let item = PlayingItemRef::LibraryTrack {
+        library_id: library_id.to_string(),
+        track: Uuid::new_v4().to_string(),
+    };
+    let error = match dispatch_gui_request(
+        &fixture.global_params,
+        &SetLikedRequest {
+            call_id: None,
+            item: Some(item),
+            liked: true,
+        },
+    )
+    .await
+    {
+        Ok(_) => panic!("read-only replica must reject liked-state writes"),
+        Err(error) => error,
+    };
+    assert!(error.chain().any(|cause| matches!(
+        cause.downcast_ref::<ExpectedRequestError>(),
+        Some(ExpectedRequestError::Unavailable {
+            what: "write access to liked state"
+        })
+    )));
+    Ok(())
 }
 
 async fn attach_test_cover(f: &Fixture, media_file_id: i32, bytes: &[u8]) -> Result<()> {

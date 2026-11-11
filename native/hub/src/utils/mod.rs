@@ -1903,7 +1903,7 @@ pub(crate) async fn subsonic_binding_for_playback(
     let ProtocolAdapter::SubsonicTranslate {
         endpoint,
         credential,
-        mode: SubsonicOpenMode::PlayOnThisDevice,
+        mode,
     } = &record.protocol
     else {
         return Err(anyhow::Error::new(RemoteAudioError::LibraryUnavailable));
@@ -1950,7 +1950,7 @@ pub(crate) async fn subsonic_binding_for_playback(
         probe,
         Path::new(&*node.config_path).to_path_buf(),
         library_id,
-        true,
+        *mode == SubsonicOpenMode::PlayOnThisDevice,
         Arc::clone(&node.gui_broadcaster),
     )))
 }

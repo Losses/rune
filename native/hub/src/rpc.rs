@@ -97,7 +97,7 @@ mod tests {
     use super::{RequestSlots, Slot, TargetRequest, UnsupportedReason};
     use crate::messages::{
         FetchAllPlaylistsRequest, FetchCollectionByIdsRequest, FetchMediaFileByIdsRequest,
-        PlayRequest, SearchForRequest, SetPlaybackModeRequest,
+        GetLikedRequest, PlayRequest, SearchForRequest, SetLikedRequest, SetPlaybackModeRequest,
     };
     use subsonic::{SubsonicProbe, SubsonicRoles};
 
@@ -115,6 +115,8 @@ mod tests {
         assert_eq!(SearchForRequest::slot(&slots), Slot::Translate);
         assert_eq!(FetchMediaFileByIdsRequest::slot(&slots), Slot::Translate);
         assert_eq!(FetchCollectionByIdsRequest::slot(&slots), Slot::Translate);
+        assert_eq!(SetLikedRequest::slot(&slots), Slot::Native);
+        assert_eq!(GetLikedRequest::slot(&slots), Slot::Native);
         assert_eq!(
             PlayRequest::slot(&slots),
             Slot::Unsupported {

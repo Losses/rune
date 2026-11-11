@@ -72,6 +72,7 @@ async fn handle(
         "getPlaylists" => {
             r#"{"playlists":{"playlist":{"id":"playlist-001","name":"Mix","songCount":1,"owner":"alice","public":false,"unknown":1}}}"#
         }
+        "getStarred2" => r#"{"starred2":{"song":{"id":"song-001","title":"Track"}}}"#,
         "getPlaylist" => {
             r#"{"playlist":{"id":"playlist-001","name":"Mix","songCount":1,"entry":{"id":"song-001","title":"Track"}}}"#
         }
@@ -112,6 +113,36 @@ async fn bounded<T>(future: impl std::future::Future<Output = T>) -> T {
     tokio::time::timeout(Duration::from_secs(3), future)
         .await
         .expect("request timed out")
+}
+
+#[tokio::test]
+async fn stars_round_trip_with_opaque_track_ids() {
+    let fixture = fixture().await;
+    let client = client(fixture.url.clone());
+
+    let starred = client.starred_songs().await.unwrap();
+    assert_eq!(
+        starred
+            .iter()
+            .map(|song| song.id.as_str())
+            .collect::<Vec<_>>(),
+        ["song-001"]
+    );
+    client.star(&["song-001"]).await.unwrap();
+    client.unstar(&["song-001"]).await.unwrap();
+
+    let requests = fixture.requests.lock().unwrap();
+    assert_eq!(requests[0].0, "getStarred2");
+    assert_eq!(requests[1].0, "star");
+    assert_eq!(
+        requests[1].1.get("id").map(String::as_str),
+        Some("song-001")
+    );
+    assert_eq!(requests[2].0, "unstar");
+    assert_eq!(
+        requests[2].1.get("id").map(String::as_str),
+        Some("song-001")
+    );
 }
 
 #[tokio::test]

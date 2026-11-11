@@ -46,7 +46,7 @@ void main() {
     expect(find.text('Other Library Artist'), findsOneWidget);
   });
 
-  testWidgets('the now-playing like action is hidden without a local id', (
+  testWidgets('the now-playing like action shows without a local id', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -58,12 +58,13 @@ void main() {
               libraryId: 'library-uuid',
               fileUuid: 'file-uuid',
             ),
+            fetchLikedStatus: (_) async => false,
           ),
         ),
       ),
     );
 
-    expect(find.byIcon(Symbols.favorite), findsNothing);
+    expect(find.byIcon(Symbols.favorite), findsOneWidget);
   });
 }
 

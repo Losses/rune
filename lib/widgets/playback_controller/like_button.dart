@@ -44,7 +44,7 @@ class _LikeButtonState extends State<LikeButton> {
   }
 
   Future<void> _fetchLikedStatus() async {
-    if (item == null || !item!.hasLocalFileId) return;
+    if (item == null) return;
 
     try {
       final isLiked =
@@ -55,12 +55,15 @@ class _LikeButtonState extends State<LikeButton> {
         });
       }
     } on RequestFailure catch (error) {
-      if (error.kind != RequestErrorKind.notFound) rethrow;
+      if (error.kind != RequestErrorKind.notFound &&
+          error.kind != RequestErrorKind.unavailable) {
+        rethrow;
+      }
     }
   }
 
   Future<void> _toggleLikedStatus() async {
-    if (item == null || !item!.hasLocalFileId) return;
+    if (item == null) return;
 
     final newLikedStatus = !liked;
     try {
@@ -71,14 +74,16 @@ class _LikeButtonState extends State<LikeButton> {
         });
       }
     } on RequestFailure catch (error) {
-      if (error.kind != RequestErrorKind.notFound) rethrow;
+      if (error.kind != RequestErrorKind.notFound &&
+          error.kind != RequestErrorKind.unavailable) {
+        rethrow;
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     if (item == null ||
-        !item!.hasLocalFileId ||
         context.watch<LibraryOpenStateProvider>().isReadOnlyReplica) {
       return const SizedBox.shrink();
     }
