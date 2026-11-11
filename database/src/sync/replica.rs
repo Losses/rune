@@ -6,9 +6,11 @@ use crate::sync::{import, legacy};
 use anyhow::{Result, ensure};
 use sea_orm::{DatabaseConnection, TransactionTrait};
 use std::sync::Arc;
-use sync::{StoreIdentity, SyncStore};
+use sync::{StoreIdentity, SyncModel, SyncStore};
 use sync_orm::{
     causal_capabilities::CausalEndpoint,
+    causal_schema::clear_namespace_on,
+    causal_store::namespace_model_on,
     registry::{ProjectionBudget, RegistryProjection},
 };
 use uuid::Uuid;
@@ -94,7 +96,19 @@ impl LibrarySyncStore {
             library_id.is_none_or(|id| id == actual),
             "namespace mismatch"
         );
-        let inner = if existing.is_empty() {
+        let mut rebuild_encoding = false;
+        if !existing.is_empty()
+            && let Some(model) = namespace_model_on(&db, actual).await?
+            && model.model == RuneModel::model_id()
+            && model.schema == "1"
+        {
+            // Candidate digests bind the old JSON arrays; rebuild causal history from source rows.
+            let tx = db.begin().await?;
+            clear_namespace_on(&tx, actual).await?;
+            tx.commit().await?;
+            rebuild_encoding = true;
+        }
+        let inner = if existing.is_empty() || rebuild_encoding {
             SeaOrmSyncStore::create_empty(db.clone(), actual, node_id).await?
         } else {
             SeaOrmSyncStore::open(db.clone(), actual, node_id).await?
@@ -111,7 +125,7 @@ impl LibrarySyncStore {
             inner,
             endpoint,
         };
-        if reset {
+        if reset || rebuild_encoding {
             library.import_existing(node_id).await?;
         }
         Ok(library)

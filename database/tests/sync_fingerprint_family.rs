@@ -19,6 +19,7 @@ use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
     QueryFilter, QueryOrder, Set, TransactionTrait, sea_query::Expr,
 };
+use sync_orm::row_policy::BinaryValue;
 use uuid::Uuid;
 
 #[tokio::test]
@@ -381,7 +382,7 @@ async fn independent_configurations_coexist_in_primary_rows() -> Result<()> {
                     algorithm: Some("algo".into()),
                     configuration: Some(config.into()),
                     format_version: Some(1),
-                    bytes: vec![1, 2, 3, 4],
+                    bytes: BinaryValue(vec![1, 2, 3, 4]),
                     is_duplicated: 1,
                 })),
             )

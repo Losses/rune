@@ -8,6 +8,7 @@ publish = false
 sync = { path = "../sync" }
 sea-orm = { version = "2.0.4", features = ["sqlx-sqlite", "runtime-tokio-native-tls", "macros"] }
 anyhow = "1.0.98"
+base64 = "0.22.1"
 async-trait = "0.1.88"
 chrono = "0.4.40"
 blake3 = "=1.7.0"

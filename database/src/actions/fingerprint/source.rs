@@ -9,6 +9,7 @@ use anyhow::{Result, ensure};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, DatabaseTransaction, EntityTrait, QueryFilter, Set,
 };
+use sync_orm::row_policy::BinaryValue;
 use tag_editor::music_brainz::fingerprint::Configuration;
 
 /// A computed fingerprint and the provenance used to derive its identity.
@@ -105,7 +106,7 @@ pub async fn assign_computed_fingerprint(
         algorithm: Some(algorithm),
         configuration: Some(configuration),
         format_version: Some(format_version),
-        bytes,
+        bytes: BinaryValue(bytes),
         is_duplicated,
     }));
     let key = ObjectKey {
@@ -375,7 +376,7 @@ pub async fn assign_duplicate_mark(
         algorithm: row.algorithm,
         configuration: row.configuration,
         format_version: row.format_version,
-        bytes: row.fingerprint,
+        bytes: BinaryValue(row.fingerprint),
         is_duplicated: mark,
     }));
     let key = ObjectKey {

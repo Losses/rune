@@ -2,13 +2,48 @@
 //!
 //! References are ordinary portable UUID columns. They are never followed or
 //! rewritten during projection; callers resolve them in their own read queries.
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder,
     QuerySelect, QueryTrait, Value, sea_query::Expr,
 };
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashSet;
 use std::marker::PhantomData;
 use uuid::Uuid;
+
+/// Binary source-column data serialized as canonical standard base64 text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BinaryValue(pub Vec<u8>);
+
+impl Serialize for BinaryValue {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&STANDARD.encode(&self.0))
+    }
+}
+
+impl<'de> Deserialize<'de> for BinaryValue {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let encoded = String::deserialize(deserializer)?;
+        STANDARD
+            .decode(encoded.as_bytes())
+            .map(Self)
+            .map_err(D::Error::custom)
+    }
+}
+
+impl FieldCodec for BinaryValue {
+    fn from_column(value: Value) -> Result<Self, DbErr> {
+        <Vec<u8> as FieldCodec>::from_column(value).map(Self)
+    }
+    fn to_column(&self) -> Value {
+        self.0.clone().into()
+    }
+    fn sample() -> Value {
+        Vec::<u8>::new().into()
+    }
+}
 
 /// Conversion between portable values and source-column values.
 pub trait FieldCodec: Sized {
@@ -201,6 +236,11 @@ impl BoundedField for Vec<u8> {
         } else {
             Ok(())
         }
+    }
+}
+impl BoundedField for BinaryValue {
+    fn check_bounds(&self, min: i128, max: i128) -> Result<(), DbErr> {
+        self.0.check_bounds(min, max)
     }
 }
 impl<T: BoundedField> BoundedField for Option<T> {

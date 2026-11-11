@@ -45,6 +45,26 @@ pub async fn list_namespace_ids_on<C: ConnectionTrait>(db: &C, limit: u64) -> Re
     }
     Ok(namespaces)
 }
+
+/// Read the model identity for one stored namespace without opening it as a model.
+pub async fn namespace_model_on<C: ConnectionTrait>(
+    db: &C,
+    namespace: Uuid,
+) -> Result<Option<ModelId>> {
+    let query = Query::select()
+        .columns(["model", "schema"].map(Alias::new))
+        .from(Alias::new("sync_meta"))
+        .and_where(Expr::col(Alias::new("namespace")).eq(namespace.as_bytes().to_vec()))
+        .to_owned();
+    let statement = db.get_database_backend().build(&query);
+    let Some(row) = db.query_one_raw(statement).await? else {
+        return Ok(None);
+    };
+    Ok(Some(ModelId {
+        model: row.try_get_by_index(0)?,
+        schema: row.try_get_by_index(1)?,
+    }))
+}
 #[derive(Clone)]
 pub struct CausalReplica<M: SyncModel> {
     db: DatabaseConnection,
