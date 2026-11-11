@@ -535,9 +535,11 @@ jobs:
           KEYCHAIN_PATH=$RUNNER_TEMP/rune-signing.keychain-db
           PP_PATH=$RUNNER_TEMP/Rune_Notarized.provisionprofile
 
-          # import certificate and provisioning profile from secrets
-          echo -n "$DEVELOPER_ID_APPLICATION_P12_BASE64_MAC" | base64 --decode --output $DEVELOPER_ID_APPLICATION_CERTIFICATE_PATH
-          echo -n "$BUILD_NOTARIZED_PROVISION_PROFILE" | base64 --decode --output $PP_PATH
+          # decode and check every secret, so one run names all the bad ones
+          failed=0
+          scripts/apple/ci_decode_secret.sh DEVELOPER_ID_APPLICATION_P12_BASE64_MAC "$DEVELOPER_ID_APPLICATION_CERTIFICATE_PATH" P12_PASSWORD || failed=1
+          scripts/apple/ci_decode_secret.sh BUILD_NOTARIZED_PROVISION_PROFILE "$PP_PATH" || failed=1
+          [ "$failed" = 0 ]
 
           # create temporary keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
@@ -677,10 +679,13 @@ jobs:
           KEYCHAIN_PATH=$RUNNER_TEMP/rune-signing.keychain-db
           PP_PATH=$RUNNER_TEMP/Rune_App_Store.provisionprofile
 
-          # import certificate and provisioning profile from secrets
-          echo -n "$APPLE_DISTRIBUTION_CERTIFICATE" | base64 --decode --output $APPLE_DISTRIBUTION_CERTIFICATE_PATH
-          echo -n "$MAC_DEVELOPER_INSTALLER_CERTIFICATE" | base64 --decode --output $MAC_DEVELOPER_INSTALLER_CERTIFICATE_PATH
-          echo -n "$BUILD_APP_STORE_PROVISION_PROFILE" | base64 --decode --output $PP_PATH
+          # decode and check every secret, so one run names all the bad ones
+          failed=0
+          scripts/apple/ci_decode_secret.sh APPLE_DISTRIBUTION_CERTIFICATE "$APPLE_DISTRIBUTION_CERTIFICATE_PATH" APPLE_DISTRIBUTION_PASSWORD || failed=1
+          scripts/apple/ci_decode_secret.sh MAC_DEVELOPER_INSTALLER_CERTIFICATE "$MAC_DEVELOPER_INSTALLER_CERTIFICATE_PATH" MAC_DEVELOPER_INSTALLER_PASSWORD || failed=1
+          scripts/apple/ci_decode_secret.sh BUILD_APP_STORE_PROVISION_PROFILE "$PP_PATH" || failed=1
+          scripts/apple/ci_decode_secret.sh APP_STORE_CONNECT_API_KEY "$RUNNER_TEMP/AuthKey_$APP_STORE_CONNECT_KEYID.p8" || failed=1
+          [ "$failed" = 0 ]
 
           # create temporary keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
@@ -693,9 +698,6 @@ jobs:
           security import $MAC_DEVELOPER_INSTALLER_CERTIFICATE_PATH -P "$MAC_DEVELOPER_INSTALLER_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
           security list-keychain -d user -s $KEYCHAIN_PATH
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-
-          # import App Store Connect API Key
-          echo "$APP_STORE_CONNECT_API_KEY" | base64 --decode --output $RUNNER_TEMP/AuthKey_$APP_STORE_CONNECT_KEYID.p8
 
           # apply provisioning profile
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
@@ -768,9 +770,12 @@ jobs:
           KEYCHAIN_PATH=$RUNNER_TEMP/rune-signing.keychain-db
           PP_PATH=$RUNNER_TEMP/Rune_iOS_App_Store.mobileprovision
 
-          # import certificate and provisioning profile from secrets
-          echo -n "$APPLE_DISTRIBUTION_CERTIFICATE" | base64 --decode --output $APPLE_DISTRIBUTION_CERTIFICATE_PATH
-          echo -n "$BUILD_IOS_APP_STORE_PROVISION_PROFILE" | base64 --decode --output $PP_PATH
+          # decode and check every secret, so one run names all the bad ones
+          failed=0
+          scripts/apple/ci_decode_secret.sh APPLE_DISTRIBUTION_CERTIFICATE "$APPLE_DISTRIBUTION_CERTIFICATE_PATH" APPLE_DISTRIBUTION_PASSWORD || failed=1
+          scripts/apple/ci_decode_secret.sh BUILD_IOS_APP_STORE_PROVISION_PROFILE "$PP_PATH" || failed=1
+          scripts/apple/ci_decode_secret.sh APP_STORE_CONNECT_API_KEY "$RUNNER_TEMP/AuthKey_$APP_STORE_CONNECT_KEYID.p8" || failed=1
+          [ "$failed" = 0 ]
 
           # create temporary keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
@@ -782,9 +787,6 @@ jobs:
           security import $APPLE_DISTRIBUTION_CERTIFICATE_PATH -P "$APPLE_DISTRIBUTION_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
           security list-keychain -d user -s $KEYCHAIN_PATH
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-
-          # import App Store Connect API Key
-          echo "$APP_STORE_CONNECT_API_KEY" | base64 --decode --output $RUNNER_TEMP/AuthKey_$APP_STORE_CONNECT_KEYID.p8
 
           # apply provisioning profile
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
