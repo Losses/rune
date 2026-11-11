@@ -257,7 +257,7 @@ impl Drop for SubsonicBinding {
 #[cfg(test)]
 mod tests {
     use std::{
-        fs,
+        fs::{self, OpenOptions},
         time::{Duration, SystemTime},
     };
 
@@ -299,7 +299,9 @@ mod tests {
             let path = root.path().join(format!("cover-{index}.img"));
             fs::write(&path, [index as u8]).unwrap();
             let modified = SystemTime::UNIX_EPOCH + Duration::from_secs(index + 1);
-            fs::File::open(&path)
+            OpenOptions::new()
+                .write(true)
+                .open(&path)
                 .unwrap()
                 .set_times(fs::FileTimes::new().set_modified(modified))
                 .unwrap();

@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::fmt;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind, Read, Seek, SeekFrom, Write};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
@@ -146,20 +146,7 @@ impl OpenDalFsIo {
     }
 
     fn key(&self, path: &Path) -> Result<String, FileIoError> {
-        let mut parts = Vec::new();
-        for component in path.components() {
-            match component {
-                Component::Normal(value) => {
-                    parts.push(value.to_str().ok_or(FileIoError::InvalidPath)?)
-                }
-                Component::CurDir => {}
-                Component::RootDir | Component::Prefix(_) | Component::ParentDir => {
-                    return Err(FileIoError::InvalidPath)
-                }
-            }
-        }
-        let relative = parts.join("/");
-        Ok(relative)
+        path_to_key(path)
     }
 
     fn run<T>(
@@ -183,8 +170,8 @@ impl OpenDalFsIo {
         })
     }
 
-    fn listed_node(entry: &opendal::Entry) -> FsNode {
-        let key = entry.path();
+    fn listed_node(entry: &opendal::Entry) -> Result<FsNode, FileIoError> {
+        let key = normalize_key(entry.path())?;
         let metadata = entry.metadata();
         let filename = key
             .trim_end_matches('/')
@@ -192,14 +179,14 @@ impl OpenDalFsIo {
             .next()
             .unwrap_or_default()
             .to_string();
-        FsNode {
+        Ok(FsNode {
             filename,
-            path: PathBuf::from(key),
-            raw_path: path_string(key),
+            path: PathBuf::from(&key),
+            raw_path: path_string(&key),
             is_dir: metadata.is_dir(),
             is_file: metadata.is_file(),
             size: metadata.content_length(),
-        }
+        })
     }
 
     fn directory_exists(&self, key: &str) -> Result<bool, FileIoError> {
@@ -242,12 +229,12 @@ impl OpenDalFsIo {
         let current = key.trim_matches('/');
         let mut seen = HashSet::new();
         for entry in entries {
-            let entry_key = entry.path().to_string();
+            let entry_key = normalize_key(entry.path())?;
             let normalized = entry_key.trim_matches('/');
             if normalized == current || !seen.insert(normalized.to_string()) {
                 continue;
             }
-            let node = Self::listed_node(&entry);
+            let node = Self::listed_node(&entry)?;
             let directory = node.is_dir;
             nodes.push(node);
             if directory {
@@ -264,15 +251,38 @@ impl OpenDalFsIo {
         let mut seen = HashSet::new();
         let mut nodes = Vec::new();
         for entry in entries {
-            let entry_key = entry.path().to_string();
+            let entry_key = normalize_key(entry.path())?;
             let normalized = entry_key.trim_matches('/');
             if normalized == current || !seen.insert(normalized.to_string()) {
                 continue;
             }
-            nodes.push(Self::listed_node(&entry));
+            nodes.push(Self::listed_node(&entry)?);
         }
         Ok(nodes)
     }
+}
+
+fn path_to_key(path: &Path) -> Result<String, FileIoError> {
+    let path = path.to_str().ok_or(FileIoError::InvalidPath)?;
+    normalize_key(path)
+}
+
+fn normalize_key(path: &str) -> Result<String, FileIoError> {
+    let normalized = path.replace('\\', "/");
+    let mut parts = Vec::new();
+    for (index, part) in normalized.split('/').enumerate() {
+        if part.is_empty() || part == "." {
+            continue;
+        }
+        if part == ".." {
+            return Err(FileIoError::InvalidPath);
+        }
+        if index == 0 && part.len() == 2 && part.as_bytes()[1] == b':' {
+            continue;
+        }
+        parts.push(part);
+    }
+    Ok(parts.join("/"))
 }
 
 fn directory_key(key: &str) -> String {
@@ -285,6 +295,24 @@ fn directory_key(key: &str) -> String {
 
 fn path_string(key: &str) -> String {
     key.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::path_to_key;
+    use std::path::Path;
+
+    #[test]
+    fn windows_shaped_paths_become_relative_slash_separated_keys() {
+        assert_eq!(
+            path_to_key(Path::new(r"folder\nested\track.ogg")).unwrap(),
+            "folder/nested/track.ogg"
+        );
+        assert_eq!(
+            path_to_key(Path::new(r"C:\library\nested\track.ogg")).unwrap(),
+            "library/nested/track.ogg"
+        );
+    }
 }
 
 fn remote_error(operation: &str) -> FileIoError {
