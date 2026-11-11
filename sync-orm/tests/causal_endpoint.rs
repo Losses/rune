@@ -103,11 +103,18 @@ async fn synchronize(
     source: &CausalEndpoint<Notes>,
     target: &CausalEndpoint<Notes>,
 ) -> Result<usize> {
+    synchronize_with_limits(source, target, session_limits()).await
+}
+async fn synchronize_with_limits(
+    source: &CausalEndpoint<Notes>,
+    target: &CausalEndpoint<Notes>,
+    limits: p::SessionLimits,
+) -> Result<usize> {
     let mut coordinator = p::Coordinator::new(
         p::Scope {
             collections: [1].into_iter().collect(),
         },
-        session_limits(),
+        limits,
     )?;
     for step in 0..20000 {
         match coordinator
@@ -774,6 +781,153 @@ async fn sql_coordinator_reconciles_split_ranges_then_journal_and_reaches_stabil
 }
 
 #[tokio::test]
+async fn relayed_journal_origin_is_the_immediate_source_and_stays_local_only() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let (_a_db, a, _) = setup(namespace).await?;
+    let (b_db, b, _) = setup(namespace).await?;
+    let (c_db, c, _) = setup(namespace).await?;
+    let key = p::ObjectKey {
+        collection: 1,
+        id: Uuid::new_v4(),
+    };
+    a.write_local(key, Some(Note("A authored".into()))).await?;
+    let a_identity = p::SyncPeer::identity(&a).await?;
+    let genesis = p::ReceiveProgress {
+        sequence: 0,
+        anchor: p::initial_anchor(&a_identity)?,
+    };
+    let local_page = a
+        .store()
+        .read_page_with_origins(p::PageRequest {
+            source: a_identity.clone(),
+            scope: p::Scope {
+                collections: [1].into_iter().collect(),
+            },
+            after: genesis.clone(),
+            through: p::SyncPeer::head(&a).await?,
+            limits: p::PageLimits {
+                max_scanned: 8,
+                max_bytes: 65536,
+            },
+        })
+        .await?;
+    assert_eq!(local_page.origins.len(), 1);
+    assert_eq!(local_page.origins[0].origin, None);
+    assert!(matches!(local_page.read, p::PageRead::Page(_)));
+
+    synchronize(&a, &b).await?;
+    let b_identity = p::SyncPeer::identity(&b).await?;
+    let b_origin = b_db
+        .query_one(
+            &Query::select()
+                .columns(["origin_replica", "origin_generation"].map(Alias::new))
+                .from(Alias::new("sync_journal"))
+                .to_owned(),
+        )
+        .await?
+        .context("B did not relay an event")?;
+    assert_eq!(
+        b_origin.try_get_by_index::<Option<Vec<u8>>>(0)?,
+        Some(a_identity.replica.as_bytes().to_vec())
+    );
+    assert_eq!(
+        b_origin.try_get_by_index::<Option<Vec<u8>>>(1)?,
+        Some(a_identity.generation.as_bytes().to_vec())
+    );
+
+    a.write_local(
+        p::ObjectKey {
+            collection: 1,
+            id: Uuid::new_v4(),
+        },
+        Some(Note("key page relay".into())),
+    )
+    .await?;
+    synchronize(&a, &b).await?;
+    let b_key_origin = b_db
+        .query_one(
+            &Query::select()
+                .columns(["origin_replica", "origin_generation"].map(Alias::new))
+                .from(Alias::new("sync_journal"))
+                .order_by(Alias::new("sequence"), Order::Desc)
+                .to_owned(),
+        )
+        .await?
+        .context("B did not relay the key page event")?;
+    assert_eq!(
+        b_key_origin.try_get_by_index::<Option<Vec<u8>>>(0)?,
+        Some(a_identity.replica.as_bytes().to_vec())
+    );
+
+    a.write_local(
+        p::ObjectKey {
+            collection: 1,
+            id: Uuid::new_v4(),
+        },
+        Some(Note("fragmented event ".repeat(3000))),
+    )
+    .await?;
+    let mut fragmented_limits = session_limits();
+    fragmented_limits.pages.max_bytes = 16 * 1024;
+    synchronize_with_limits(&a, &b, fragmented_limits).await?;
+    let b_fragment_origin = b_db
+        .query_one(
+            &Query::select()
+                .columns(["origin_replica", "origin_generation"].map(Alias::new))
+                .from(Alias::new("sync_journal"))
+                .order_by(Alias::new("sequence"), Order::Desc)
+                .to_owned(),
+        )
+        .await?
+        .context("B did not relay the fragmented event")?;
+    assert_eq!(
+        b_fragment_origin.try_get_by_index::<Option<Vec<u8>>>(0)?,
+        Some(a_identity.replica.as_bytes().to_vec())
+    );
+
+    synchronize(&b, &c).await?;
+    let c_origin = c_db
+        .query_one(
+            &Query::select()
+                .columns(["origin_replica", "origin_generation"].map(Alias::new))
+                .from(Alias::new("sync_journal"))
+                .order_by(Alias::new("sequence"), Order::Desc)
+                .to_owned(),
+        )
+        .await?
+        .context("C did not relay an event")?;
+    assert_eq!(
+        c_origin.try_get_by_index::<Option<Vec<u8>>>(0)?,
+        Some(b_identity.replica.as_bytes().to_vec())
+    );
+    assert_eq!(
+        c_origin.try_get_by_index::<Option<Vec<u8>>>(1)?,
+        Some(b_identity.generation.as_bytes().to_vec())
+    );
+    let wire_page = p::SyncPeer::read_page(
+        &a,
+        p::PageRequest {
+            source: a_identity,
+            scope: p::Scope {
+                collections: [1].into_iter().collect(),
+            },
+            after: p::ReceiveProgress {
+                sequence: 0,
+                anchor: genesis.anchor,
+            },
+            through: p::SyncPeer::head(&a).await?,
+            limits: p::PageLimits {
+                max_scanned: 8,
+                max_bytes: 65536,
+            },
+        },
+    )
+    .await?;
+    assert!(matches!(wire_page, p::PageRead::Page(_)));
+    Ok(())
+}
+
+#[tokio::test]
 async fn sql_snapshot_build_resumes_after_restart_and_cancels_after_lost_reply() -> Result<()> {
     use p::SnapshotSource;
     let namespace = Uuid::new_v4();
@@ -868,7 +1022,7 @@ async fn sql_snapshot_build_resumes_after_restart_and_cancels_after_lost_reply()
 use async_trait::async_trait;
 use sea_orm::{
     ConnectionTrait, DatabaseTransaction, ExprTrait, TransactionTrait,
-    sea_query::{Alias, ColumnDef, Expr, OnConflict, Query, Table},
+    sea_query::{Alias, ColumnDef, Expr, OnConflict, Order, Query, Table},
 };
 use serde::{Deserialize, Serialize};
 use sync::protocol::{self as p, ReceiveStore, SnapshotSink, SyncStore};
@@ -1705,7 +1859,8 @@ async fn post_snapshot_arrival_is_removed_by_sql_promotion() -> Result<()> {
 async fn sql_promotion_chunks_resume_and_are_idempotent() -> Result<()> {
     let ns = Uuid::new_v4();
     let (db, a, _) = setup(ns).await?;
-    let (_, b, _) = setup(ns).await?;
+    let (b_db, b, _) = setup(ns).await?;
+    let a_identity = p::SyncPeer::identity(&a).await?;
     let writer = Uuid::new_v4();
     let mut context = causal::Context::default();
     for n in 1..=3000 {
@@ -1722,6 +1877,7 @@ async fn sql_promotion_chunks_resume_and_are_idempotent() -> Result<()> {
                 added: vec![],
                 observed: p::exact_context(&context),
             },
+            &a_identity,
             apply,
             &mut 16384,
         )
@@ -1759,6 +1915,24 @@ async fn sql_promotion_chunks_resume_and_are_idempotent() -> Result<()> {
     );
     assert_eq!(b.head().await?, head);
     assert_eq!(b.complete_reconciliation(session).await?, remote.head);
+    let promotion_origin = b_db
+        .query_one(
+            &Query::select()
+                .columns(["origin_replica", "origin_generation"].map(Alias::new))
+                .from(Alias::new("sync_journal"))
+                .order_by(Alias::new("sequence"), Order::Desc)
+                .to_owned(),
+        )
+        .await?
+        .context("promotion did not journal its relay")?;
+    assert_eq!(
+        promotion_origin.try_get_by_index::<Option<Vec<u8>>>(0)?,
+        Some(a_identity.replica.as_bytes().to_vec())
+    );
+    assert_eq!(
+        promotion_origin.try_get_by_index::<Option<Vec<u8>>>(1)?,
+        Some(a_identity.generation.as_bytes().to_vec())
+    );
     let snapshot = open_sql(&b).await?;
     assert_eq!(snapshot.contexts, remote.contexts);
     Ok(())

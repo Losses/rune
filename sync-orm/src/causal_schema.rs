@@ -4,6 +4,7 @@
 //! history requires an explicit import and cannot manufacture causal knowledge.
 use sea_orm::{
     ConnectionTrait, DatabaseConnection, DatabaseTransaction, DbBackend, DbErr, ExprTrait,
+    Statement,
     sea_query::{Alias, ColumnDef, Expr, Index, Query, Table},
 };
 
@@ -75,6 +76,8 @@ const TABLES: &[Layout] = &[
             Field("event_digest", B, false),
             Field("event_manifest", B, false),
             Field("anchor_after", B, false),
+            Field("origin_replica", B, true),
+            Field("origin_generation", B, true),
         ],
         &["namespace", "generation", "sequence"],
     ),
@@ -274,6 +277,31 @@ pub async fn install_fresh(db: &DatabaseConnection) -> Result<(), DbErr> {
     let tx = crate::causal_leases::begin_write(db).await?;
     install_on(&tx).await?;
     tx.commit().await
+}
+
+/// Add nullable relay-origin columns to replicas created before origin tracking.
+/// Existing journal rows remain NULL because their source cannot be recovered.
+pub async fn ensure_journal_origin_on<C: ConnectionTrait>(db: &C) -> Result<(), DbErr> {
+    let columns = db
+        .query_all_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "PRAGMA table_info(sync_journal)",
+        ))
+        .await?;
+    let names = columns
+        .iter()
+        .map(|row| row.try_get_by_index::<String>(1))
+        .collect::<Result<Vec<_>, _>>()?;
+    for name in ["origin_replica", "origin_generation"] {
+        if !names.iter().any(|column| column == name) {
+            let statement = Table::alter()
+                .table(Alias::new("sync_journal"))
+                .add_column(ColumnDef::new(Alias::new(name)).binary())
+                .to_owned();
+            db.execute(&statement).await?;
+        }
+    }
+    Ok(())
 }
 
 /// Install on the migration runner's transaction.

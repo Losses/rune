@@ -1042,7 +1042,7 @@ impl<M: p::SyncModel> p::SnapshotSink<M> for CausalEndpoint<M> {
                 }
                 validate_apply_limits(limits)?;
                 let input = ledger.prepare_range(session, &range)?;
-                let (_, local) = ledger.descriptors(session)?;
+                let (remote, local) = ledger.descriptors(session)?;
                 let tx = self.inner.store.connection().begin().await?;
                 crate::causal_leases::lock_on(&tx, self.inner.store.namespace()).await?;
                 let mutation_start = mutations_on(&tx).await?;
@@ -1113,7 +1113,7 @@ impl<M: p::SyncModel> p::SnapshotSink<M> for CausalEndpoint<M> {
                     Some(delta) => {
                         self.inner
                             .store
-                            .apply_merge_locked_on(&tx, &delta, limits, &mut budget)
+                            .apply_merge_locked_on(&tx, &delta, &remote.source, limits, &mut budget)
                             .await?
                             .1
                     }
@@ -1153,7 +1153,7 @@ impl<M: p::SyncModel> p::SnapshotSink<M> for CausalEndpoint<M> {
                         causal_changes: 0,
                     });
                 };
-                let (_, local) = ledger.descriptors(session)?;
+                let (remote, local) = ledger.descriptors(session)?;
                 let tx = self.inner.store.connection().begin().await?;
                 crate::causal_leases::lock_on(&tx, self.inner.store.namespace()).await?;
                 let mutation_start = mutations_on(&tx).await?;
@@ -1236,6 +1236,7 @@ impl<M: p::SyncModel> p::SnapshotSink<M> for CausalEndpoint<M> {
                                 added: vec![],
                                 observed: p::exact_context(&observed),
                             },
+                            &remote.source,
                             limits,
                             &mut budget,
                         )

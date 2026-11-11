@@ -1,6 +1,7 @@
 //! Transaction-bound causal authoring, reception, and accepted-state queries.
 use crate::causal_candidates::CandidateRow;
 use crate::causal_leases::{begin_write, lock_on};
+use crate::causal_schema::ensure_journal_origin_on;
 use crate::causal_writer::WriterIncarnation;
 use anyhow::{Result, ensure};
 use sea_orm::sea_query::Order;
@@ -216,6 +217,35 @@ pub struct CausalReplica<M: SyncModel> {
     writer: Arc<WriterIncarnation>,
     model: PhantomData<M>,
 }
+
+/// The store that supplied a relayed journal event.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct JournalOrigin {
+    pub replica: Uuid,
+    pub generation: Uuid,
+}
+
+/// Local read metadata keyed by sequence, kept outside the peer wire format.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JournalOriginEntry {
+    pub sequence: u64,
+    pub origin: Option<JournalOrigin>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LocalPageRead<M: SyncModel> {
+    pub read: protocol::PageRead<M>,
+    pub origins: Vec<JournalOriginEntry>,
+}
+
+struct DeltaApply<'a, M: SyncModel> {
+    delta: &'a protocol::MergeDelta<M>,
+    event: &'a protocol::Event<M>,
+    revision: u64,
+    origin: &'a protocol::StoreIdentity,
+    limits: protocol::ApplyLimits,
+    budget: &'a mut u64,
+}
 pub(crate) fn winner<M: SyncModel>(
     values: &[protocol::Candidate<M>],
 ) -> Result<Option<protocol::Candidate<M>>> {
@@ -278,6 +308,7 @@ impl<M: SyncModel> CausalReplica<M> {
         };
         let anchor = protocol::initial_anchor(&identity)?;
         let tx = begin_write(&db).await?;
+        ensure_journal_origin_on(&tx).await?;
         ensure_writer_columns_on(&tx).await?;
         let q = Query::insert()
             .into_table(Alias::new("sync_meta"))
@@ -354,6 +385,7 @@ impl<M: SyncModel> CausalReplica<M> {
         );
         protocol::validate_model::<M>()?;
         let tx = begin_write(&db).await?;
+        ensure_journal_origin_on(&tx).await?;
         ensure_writer_columns_on(&tx).await?;
         let writer = Arc::new(reserve_writer_on(&tx, namespace, author, file_token).await?);
         let replica = Self {
@@ -727,6 +759,8 @@ impl<M: SyncModel> CausalReplica<M> {
                     "event_digest",
                     "event_manifest",
                     "anchor_after",
+                    "origin_replica",
+                    "origin_generation",
                 ]
                 .map(Alias::new),
             )
@@ -739,6 +773,8 @@ impl<M: SyncModel> CausalReplica<M> {
                 digest.to_vec().into(),
                 manifest.manifest_digest.to_vec().into(),
                 new_anchor.to_vec().into(),
+                Option::<Vec<u8>>::None.into(),
+                Option::<Vec<u8>>::None.into(),
             ])
             .to_owned();
         tx.execute(&q).await?;
@@ -787,22 +823,25 @@ impl<M: SyncModel> CausalReplica<M> {
     ) -> Result<protocol::Record<M>> {
         self.author_on(tx, key, value).await
     }
-    /// Apply one already-received keyed event inside the caller transaction.
+    /// Apply one already-received keyed event inside the caller transaction,
+    /// recording the immediate source store as its relay origin.
     /// The caller must combine projection and any receive checkpoint with this
     /// operation and roll back the entire transaction on failure.
     pub async fn apply_key_on(
         &self,
         tx: &DatabaseTransaction,
         delta: &protocol::KeyDelta<M>,
+        origin: &protocol::StoreIdentity,
     ) -> Result<protocol::ProjectionChange<M>> {
         lock_on(tx, self.namespace).await?;
-        self.apply_key_locked_on(tx, delta).await
+        self.apply_key_locked_on(tx, delta, origin).await
     }
 
     async fn apply_key_locked_on(
         &self,
         tx: &DatabaseTransaction,
         delta: &protocol::KeyDelta<M>,
+        origin: &protocol::StoreIdentity,
     ) -> Result<protocol::ProjectionChange<M>> {
         let event = protocol::Event::Key(delta.clone());
         protocol::canonical_event(&event)?;
@@ -856,11 +895,14 @@ impl<M: SyncModel> CausalReplica<M> {
         let mut budget = u64::MAX;
         self.apply_delta_on(
             tx,
-            &merge,
-            &event,
-            delta.author.counter,
-            limits,
-            &mut budget,
+            DeltaApply {
+                delta: &merge,
+                event: &event,
+                revision: delta.author.counter,
+                origin,
+                limits,
+                budget: &mut budget,
+            },
         )
         .await?;
         let after = winner(&self.key_candidates_on(tx, &delta.key).await?)?;
@@ -1066,7 +1108,9 @@ impl<M: SyncModel> CausalReplica<M> {
         for link in &page.links {
             if let Some(EventRef::Inline(Event::Key(delta))) = &link.event {
                 let before_head = self.meta_on(tx).await?.1.head;
-                let change = self.apply_key_locked_on(tx, delta).await?;
+                let change = self
+                    .apply_key_locked_on(tx, delta, &page.request.source)
+                    .await?;
                 let after_head = self.meta_on(tx).await?.1.head;
                 if after_head > before_head {
                     causal_changes += 1;
@@ -1091,7 +1135,13 @@ impl<M: SyncModel> CausalReplica<M> {
             if let Some(EventRef::Inline(Event::Merge(range))) = &link.event {
                 ensure!(range_budget > 0, protocol::SyncError::WorkLimit);
                 let (_, batch) = self
-                    .apply_merge_locked_on(tx, range, limits, &mut range_budget)
+                    .apply_merge_locked_on(
+                        tx,
+                        range,
+                        &page.request.source,
+                        limits,
+                        &mut range_budget,
+                    )
                     .await?;
                 causal_changes = causal_changes
                     .checked_add(batch.causal_changes)
@@ -1359,6 +1409,15 @@ impl<M: SyncModel> CausalReplica<M> {
         &self,
         request: protocol::PageRequest<M>,
     ) -> Result<protocol::PageRead<M>> {
+        Ok(self.read_page_with_origins(request).await?.read)
+    }
+
+    /// Read a peer page with local-only journal origin metadata. Origins are
+    /// keyed by sequence and are never serialized into `ChangePage`.
+    pub async fn read_page_with_origins(
+        &self,
+        request: protocol::PageRequest<M>,
+    ) -> Result<LocalPageRead<M>> {
         use protocol::{ChangePage, EventRef, PageRead, ReceiveProgress, ScanLink};
         ensure!(
             request.limits.max_scanned > 0
@@ -1410,6 +1469,8 @@ impl<M: SyncModel> CausalReplica<M> {
                     "event_digest",
                     "event_manifest",
                     "anchor_after",
+                    "origin_replica",
+                    "origin_generation",
                 ]
                 .map(Alias::new),
             )
@@ -1439,6 +1500,7 @@ impl<M: SyncModel> CausalReplica<M> {
         );
         let mut link_bytes = 0_usize;
         let mut previous = request.after.anchor;
+        let mut origins = Vec::new();
         for row in rows {
             let sequence = u64::try_from(row.try_get_by_index::<i64>(0)?)?;
             ensure!(sequence == page.next.sequence + 1, "journal gap");
@@ -1462,6 +1524,20 @@ impl<M: SyncModel> CausalReplica<M> {
             let anchor: [u8; 32] = stored_anchor
                 .try_into()
                 .map_err(|_| anyhow::anyhow!("invalid journal anchor"))?;
+            let origin_replica: Option<Vec<u8>> = row.try_get_by_index(5)?;
+            let origin_generation: Option<Vec<u8>> = row.try_get_by_index(6)?;
+            ensure!(
+                origin_replica.is_some() == origin_generation.is_some(),
+                "partial journal origin"
+            );
+            let origin = match (origin_replica, origin_generation) {
+                (Some(replica), Some(generation)) => Some(JournalOrigin {
+                    replica: Uuid::from_slice(&replica)?,
+                    generation: Uuid::from_slice(&generation)?,
+                }),
+                (None, None) => None,
+                _ => anyhow::bail!("partial journal origin"),
+            };
             ensure!(
                 protocol::next_anchor::<M>(previous, sequence, &collection, digest)? == anchor,
                 "journal continuity mismatch"
@@ -1530,18 +1606,22 @@ impl<M: SyncModel> CausalReplica<M> {
                     };
                     ensure!(scoped, protocol::SyncError::WorkLimit);
                     tx.commit().await?;
-                    return Ok(PageRead::FragmentNeeded {
-                        request,
-                        sequence,
-                        collection,
-                        event_digest: digest,
-                        manifest,
+                    return Ok(LocalPageRead {
+                        read: PageRead::FragmentNeeded {
+                            request,
+                            sequence,
+                            collection,
+                            event_digest: digest,
+                            manifest,
+                        },
+                        origins: vec![JournalOriginEntry { sequence, origin }],
                     });
                 }
                 break;
             }
             link_bytes += new_link_size;
             page.links.push(link);
+            origins.push(JournalOriginEntry { sequence, origin });
             page.next = ReceiveProgress { sequence, anchor };
             page.done = done;
             previous = anchor;
@@ -1556,7 +1636,10 @@ impl<M: SyncModel> CausalReplica<M> {
             "page exceeds limit"
         );
         tx.commit().await?;
-        Ok(PageRead::Page(page))
+        Ok(LocalPageRead {
+            read: PageRead::Page(page),
+            origins,
+        })
     }
     pub async fn identity_on<C: ConnectionTrait>(&self, tx: &C) -> Result<StoreIdentity> {
         Ok(self.meta_on(tx).await?.0)
@@ -1612,23 +1695,27 @@ impl<M: SyncModel> CausalReplica<M> {
             .collect()
     }
 
-    /// Apply a complete collection-wide delta and relay its original event.
+    /// Apply a complete collection-wide delta and relay its original event,
+    /// recording the immediate source store as its relay origin.
     /// The caller owns projection, commit, and rollback on any failure.
     pub async fn apply_merge_on(
         &self,
         tx: &DatabaseTransaction,
         delta: &protocol::MergeDelta<M>,
+        origin: &protocol::StoreIdentity,
         limits: protocol::ApplyLimits,
         budget: &mut u64,
     ) -> Result<(bool, protocol::ProjectionBatch<M>)> {
         lock_on(tx, self.namespace).await?;
-        self.apply_merge_locked_on(tx, delta, limits, budget).await
+        self.apply_merge_locked_on(tx, delta, origin, limits, budget)
+            .await
     }
 
     pub(crate) async fn apply_merge_locked_on(
         &self,
         tx: &DatabaseTransaction,
         delta: &protocol::MergeDelta<M>,
+        origin: &protocol::StoreIdentity,
         limits: protocol::ApplyLimits,
         budget: &mut u64,
     ) -> Result<(bool, protocol::ProjectionBatch<M>)> {
@@ -1652,19 +1739,33 @@ impl<M: SyncModel> CausalReplica<M> {
             .map(|c| c.revision.counter)
             .max()
             .unwrap_or(0);
-        self.apply_delta_on(tx, delta, &event, revision, limits, budget)
-            .await
+        self.apply_delta_on(
+            tx,
+            DeltaApply {
+                delta,
+                event: &event,
+                revision,
+                origin,
+                limits,
+                budget,
+            },
+        )
+        .await
     }
 
     async fn apply_delta_on(
         &self,
         tx: &DatabaseTransaction,
-        delta: &protocol::MergeDelta<M>,
-        event: &protocol::Event<M>,
-        revision: u64,
-        limits: protocol::ApplyLimits,
-        budget: &mut u64,
+        apply: DeltaApply<'_, M>,
     ) -> Result<(bool, protocol::ProjectionBatch<M>)> {
+        let DeltaApply {
+            delta,
+            event,
+            revision,
+            origin,
+            limits,
+            budget,
+        } = apply;
         use std::collections::{BTreeMap, BTreeSet};
         let (identity, meta) = self.meta_on(tx).await?;
         let tag = M::collection_tag(&delta.collection).as_bytes();
@@ -1887,6 +1988,8 @@ impl<M: SyncModel> CausalReplica<M> {
                             "event_digest",
                             "event_manifest",
                             "anchor_after",
+                            "origin_replica",
+                            "origin_generation",
                         ]
                         .map(Alias::new),
                     )
@@ -1899,6 +2002,8 @@ impl<M: SyncModel> CausalReplica<M> {
                         digest.to_vec().into(),
                         manifest.manifest_digest.to_vec().into(),
                         anchor.to_vec().into(),
+                        origin.replica.as_bytes().to_vec().into(),
+                        origin.generation.as_bytes().to_vec().into(),
                     ])
                     .to_owned(),
             )
