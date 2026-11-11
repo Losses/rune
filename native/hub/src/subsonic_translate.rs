@@ -2,7 +2,7 @@ use anyhow::{Result, anyhow};
 use database::actions::utils::generate_group_name;
 use database::actions::{collection::CollectionQueryType, search::convert_to_collection_types};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
 };
 use subsonic::{
@@ -12,23 +12,296 @@ use subsonic::{
 use crate::TypedRequest;
 use crate::macros::{RequestSlots, RequestTranslator};
 use crate::messages::{
-    AudioAvailability, AudioOrigin, CastPreflightRequest, Collection, CollectionGroup,
-    CollectionGroupSummary, CollectionGroupSummaryResponse, CollectionType,
-    FetchCollectionByIdsRequest, FetchCollectionByIdsResponse, FetchCollectionGroupSummaryRequest,
-    FetchCollectionGroupsRequest, FetchCollectionGroupsResponse, FetchMediaFileByIdsRequest,
-    FetchMediaFileByIdsResponse, HandoffLoadRequest, LoadRequest, LoadResolvedItemsRequest,
-    LoadResolvedItemsResponse, MediaFile, MixQueryRequest, MixQueryResponse,
-    MovePlaylistItemRequest, NextRequest, PauseRequest, PlayRequest, PlayingItemRef,
-    PlaylistOperateMode, PreviousRequest, RefreshSessionRequest, RemoveRequest, SearchForRequest,
-    SearchForResponse, SeekRequest, SessionSnapshotRequest, SetAdaptiveSwitchingEnabledRequest,
-    SetPlaybackModeRequest, SetRealtimeFFTEnabledRequest, SwitchRequest,
-    TakeBackHandoffBlockRequest, VolumeRequest, VolumeResponse,
+    AddItemToPlaylistRequest, AddItemToPlaylistResponse, AudioAvailability, AudioOrigin,
+    CastPreflightRequest, Collection, CollectionGroup, CollectionGroupSummary,
+    CollectionGroupSummaryResponse, CollectionType, CreatePlaylistRequest, CreatePlaylistResponse,
+    FetchAllPlaylistsRequest, FetchAllPlaylistsResponse, FetchCollectionByIdsRequest,
+    FetchCollectionByIdsResponse, FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
+    FetchCollectionGroupsResponse, FetchMediaFileByIdsRequest, FetchMediaFileByIdsResponse,
+    GetPlaylistByIdRequest, GetPlaylistByIdResponse, HandoffLoadRequest, LoadRequest,
+    LoadResolvedItemsRequest, LoadResolvedItemsResponse, MediaFile, MixQueryRequest,
+    MixQueryResponse, MovePlaylistItemRequest, NextRequest, PauseRequest, PlayRequest,
+    PlayingItemRef, Playlist, PlaylistOperateMode, PreviousRequest, RefreshSessionRequest,
+    RemoveItemFromPlaylistRequest, RemoveItemFromPlaylistResponse, RemovePlaylistRequest,
+    RemovePlaylistResponse, RemoveRequest, ReorderPlaylistItemPositionRequest,
+    ReorderPlaylistItemPositionResponse, SearchForRequest, SearchForResponse, SeekRequest,
+    SessionSnapshotRequest, SetAdaptiveSwitchingEnabledRequest, SetPlaybackModeRequest,
+    SetRealtimeFFTEnabledRequest, SwitchRequest, TakeBackHandoffBlockRequest,
+    UpdatePlaylistRequest, UpdatePlaylistResponse, VolumeRequest, VolumeResponse,
 };
 use crate::request_error::ExpectedRequestError;
 use crate::rpc::{RequestTranslationFuture, Slot, UnsupportedReason};
 use crate::subsonic_binding::{SubsonicBinding, SubsonicIdKind};
 use database::actions::mixes::{QueryOperator, parse_query};
 use uuid::Uuid;
+
+fn resolve_playlist_id(binding: &SubsonicBinding, playlist_id: i32) -> Result<String> {
+    let catalog = binding
+        .catalog
+        .lock()
+        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+    Ok(catalog
+        .ids
+        .resolve(SubsonicIdKind::Playlist, playlist_id)?
+        .to_owned())
+}
+
+fn playlist_id(binding: &SubsonicBinding, remote_id: &str) -> Result<i32> {
+    binding
+        .catalog
+        .lock()
+        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?
+        .ids
+        .intern(SubsonicIdKind::Playlist, remote_id)
+}
+
+async fn fetch_remote_playlist(
+    binding: &SubsonicBinding,
+    id: i32,
+) -> Result<(String, Vec<String>)> {
+    let remote_id = resolve_playlist_id(binding, id)?;
+    let playlist = binding
+        .client
+        .playlist(&remote_id)
+        .await
+        .map_err(subsonic_request_error)?;
+    Ok((
+        remote_id,
+        playlist.songs.into_iter().map(|song| song.id).collect(),
+    ))
+}
+
+pub(crate) async fn fetch_all_playlists_request(
+    binding: &SubsonicBinding,
+    _: &FetchAllPlaylistsRequest,
+) -> Result<Option<FetchAllPlaylistsResponse>> {
+    let remote = binding
+        .client
+        .playlists()
+        .await
+        .map_err(subsonic_request_error)?;
+    let mut catalog = binding
+        .catalog
+        .lock()
+        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+    let playlists = remote
+        .into_iter()
+        .map(|item| {
+            Ok(Playlist {
+                id: catalog.ids.intern(SubsonicIdKind::Playlist, &item.id)?,
+                name: item.name,
+                group: String::new(),
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(Some(FetchAllPlaylistsResponse {
+        playlists,
+        call_id: None,
+    }))
+}
+
+pub(crate) async fn get_playlist_by_id_request(
+    binding: &SubsonicBinding,
+    request: &GetPlaylistByIdRequest,
+) -> Result<Option<GetPlaylistByIdResponse>> {
+    let remote_id = resolve_playlist_id(binding, request.playlist_id)?;
+    let remote = binding
+        .client
+        .playlist(&remote_id)
+        .await
+        .map_err(subsonic_request_error)?;
+    Ok(Some(GetPlaylistByIdResponse {
+        playlist: Playlist {
+            id: playlist_id(binding, &remote.id)?,
+            name: remote.name,
+            group: String::new(),
+        },
+        call_id: None,
+    }))
+}
+
+pub(crate) async fn create_playlist_request(
+    binding: &SubsonicBinding,
+    request: &CreatePlaylistRequest,
+) -> Result<Option<CreatePlaylistResponse>> {
+    let existing_ids = binding
+        .client
+        .playlists()
+        .await
+        .map_err(subsonic_request_error)?
+        .into_iter()
+        .map(|item| item.id)
+        .collect::<HashSet<_>>();
+    binding
+        .client
+        .create_playlist(&request.name, &[])
+        .await
+        .map_err(subsonic_request_error)?;
+    let remote = binding
+        .client
+        .playlists()
+        .await
+        .map_err(subsonic_request_error)?;
+    let created = remote
+        .into_iter()
+        .find(|item| item.name == request.name && !existing_ids.contains(&item.id))
+        .ok_or_else(|| ExpectedRequestError::UnexpectedResponse {
+            expected: "created Subsonic playlist".into(),
+            actual: "no matching playlist returned".into(),
+        })?;
+    Ok(Some(CreatePlaylistResponse {
+        playlist: Playlist {
+            id: playlist_id(binding, &created.id)?,
+            name: created.name,
+            group: String::new(),
+        },
+        call_id: None,
+    }))
+}
+
+pub(crate) async fn update_playlist_request(
+    binding: &SubsonicBinding,
+    request: &UpdatePlaylistRequest,
+) -> Result<Option<UpdatePlaylistResponse>> {
+    let remote_id = resolve_playlist_id(binding, request.playlist_id)?;
+    binding
+        .client
+        .update_playlist(&remote_id, Some(&request.name), &[], &[])
+        .await
+        .map_err(subsonic_request_error)?;
+    Ok(Some(UpdatePlaylistResponse {
+        playlist: Playlist {
+            id: request.playlist_id,
+            name: request.name.clone(),
+            group: String::new(),
+        },
+        call_id: None,
+    }))
+}
+
+pub(crate) async fn remove_playlist_request(
+    binding: &SubsonicBinding,
+    request: &RemovePlaylistRequest,
+) -> Result<Option<RemovePlaylistResponse>> {
+    let remote_id = resolve_playlist_id(binding, request.playlist_id)?;
+    binding
+        .client
+        .delete_playlist(&remote_id)
+        .await
+        .map_err(subsonic_request_error)?;
+    Ok(Some(RemovePlaylistResponse {
+        playlist_id: request.playlist_id,
+        success: true,
+        call_id: None,
+    }))
+}
+
+pub(crate) async fn add_item_to_playlist_request(
+    binding: &SubsonicBinding,
+    request: &AddItemToPlaylistRequest,
+) -> Result<Option<AddItemToPlaylistResponse>> {
+    let playlist_remote = resolve_playlist_id(binding, request.playlist_id)?;
+    let track_remote = {
+        let catalog = binding
+            .catalog
+            .lock()
+            .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+        catalog
+            .ids
+            .resolve(SubsonicIdKind::Track, request.media_file_id)?
+            .to_owned()
+    };
+    let playlist = binding
+        .client
+        .playlist(&playlist_remote)
+        .await
+        .map_err(subsonic_request_error)?;
+    let songs = playlist
+        .songs
+        .iter()
+        .map(|song| song.id.clone())
+        .collect::<Vec<_>>();
+    let append_position = i32::try_from(songs.len())
+        .map_err(|_| ExpectedRequestError::invalid_input("Subsonic playlist is too large"))?;
+    if request
+        .position
+        .is_some_and(|position| position != append_position)
+    {
+        return Err(ExpectedRequestError::Unsupported {
+            request: AddItemToPlaylistRequest::wire_name(),
+            reason: UnsupportedReason::NotImplemented,
+        }
+        .into());
+    }
+    binding
+        .client
+        .update_playlist(&playlist_remote, None, &[&track_remote], &[])
+        .await
+        .map_err(subsonic_request_error)?;
+    Ok(Some(AddItemToPlaylistResponse {
+        success: true,
+        occurrence_id: append_position.to_string(),
+        call_id: None,
+    }))
+}
+
+fn occurrence_position(value: &str, len: usize) -> Result<usize> {
+    let position = value
+        .parse::<usize>()
+        .map_err(|_| ExpectedRequestError::invalid_input("Invalid Subsonic playlist occurrence"))?;
+    if position >= len {
+        return Err(
+            ExpectedRequestError::invalid_input("Unknown Subsonic playlist occurrence").into(),
+        );
+    }
+    Ok(position)
+}
+
+pub(crate) async fn remove_item_from_playlist_request(
+    binding: &SubsonicBinding,
+    request: &RemoveItemFromPlaylistRequest,
+) -> Result<Option<RemoveItemFromPlaylistResponse>> {
+    let (remote_id, songs) = fetch_remote_playlist(binding, request.playlist_id).await?;
+    let position = occurrence_position(&request.occurrence_id, songs.len())?;
+    let position = u32::try_from(position)
+        .map_err(|_| ExpectedRequestError::invalid_input("Subsonic playlist is too large"))?;
+    binding
+        .client
+        .update_playlist(&remote_id, None, &[], &[position])
+        .await
+        .map_err(subsonic_request_error)?;
+    Ok(Some(RemoveItemFromPlaylistResponse {
+        success: true,
+        error: String::new(),
+        call_id: None,
+    }))
+}
+
+pub(crate) async fn reorder_playlist_item_position_request(
+    binding: &SubsonicBinding,
+    request: &ReorderPlaylistItemPositionRequest,
+) -> Result<Option<ReorderPlaylistItemPositionResponse>> {
+    let (remote_id, songs) = fetch_remote_playlist(binding, request.playlist_id).await?;
+    let from = occurrence_position(&request.occurrence_id, songs.len())?;
+    let target = usize::try_from(request.new_position)
+        .map_err(|_| ExpectedRequestError::invalid_input("Invalid playlist position"))?;
+    if target >= songs.len() {
+        return Err(ExpectedRequestError::invalid_input("Invalid playlist position").into());
+    }
+    let mut reordered = songs;
+    let song = reordered.remove(from);
+    reordered.insert(target, song);
+    let refs = reordered.iter().map(String::as_str).collect::<Vec<_>>();
+    binding
+        .client
+        .replace_playlist_songs(&remote_id, &refs)
+        .await
+        .map_err(subsonic_request_error)?;
+    Ok(Some(ReorderPlaylistItemPositionResponse {
+        success: true,
+        call_id: None,
+    }))
+}
 
 fn subsonic_cover_map(
     binding: &SubsonicBinding,
@@ -219,7 +492,7 @@ pub(crate) async fn fetch_collection_by_ids_request(
             let cached_name = match kind {
                 SubsonicIdKind::Artist => catalog.artists.get(id).map(|artist| artist.name.clone()),
                 SubsonicIdKind::Album => catalog.albums.get(id).map(|album| album.name.clone()),
-                SubsonicIdKind::Track | SubsonicIdKind::CoverArt => None,
+                SubsonicIdKind::Track | SubsonicIdKind::CoverArt | SubsonicIdKind::Playlist => None,
             };
             (remote_id, cached_name)
         };
@@ -278,6 +551,9 @@ pub(crate) async fn fetch_collection_by_ids_request(
                 SubsonicIdKind::Track | SubsonicIdKind::CoverArt => {
                     return Err(anyhow!("Unexpected Subsonic track collection"));
                 }
+                SubsonicIdKind::Playlist => {
+                    return Err(anyhow!("Unexpected Subsonic playlist collection"));
+                }
             },
         };
         let cover_id = {
@@ -294,7 +570,7 @@ pub(crate) async fn fetch_collection_by_ids_request(
                     .albums
                     .get(id)
                     .and_then(|item| item.cover_art.clone()),
-                SubsonicIdKind::Track | SubsonicIdKind::CoverArt => None,
+                SubsonicIdKind::Track | SubsonicIdKind::CoverArt | SubsonicIdKind::Playlist => None,
             };
             if let Some(cover_id) = cover.as_deref() {
                 catalog.ids.intern(SubsonicIdKind::CoverArt, cover_id)?;
@@ -1007,6 +1283,14 @@ macro_rules! subsonic_requests {
 
 subsonic_requests! {
     supported {
+        FetchAllPlaylistsRequest => fetch_all_playlists_request as translate_fetch_all_playlists_request,
+        GetPlaylistByIdRequest => get_playlist_by_id_request as translate_get_playlist_by_id_request,
+        CreatePlaylistRequest => create_playlist_request as translate_create_playlist_request,
+        UpdatePlaylistRequest => update_playlist_request as translate_update_playlist_request,
+        RemovePlaylistRequest => remove_playlist_request as translate_remove_playlist_request,
+        AddItemToPlaylistRequest => add_item_to_playlist_request as translate_add_item_to_playlist_request,
+        RemoveItemFromPlaylistRequest => remove_item_from_playlist_request as translate_remove_item_from_playlist_request,
+        ReorderPlaylistItemPositionRequest => reorder_playlist_item_position_request as translate_reorder_playlist_item_position_request,
         FetchMediaFileByIdsRequest => fetch_media_file_by_ids_request as translate_fetch_media_file_by_ids_request,
         FetchCollectionGroupSummaryRequest => fetch_collection_group_summary_request as translate_fetch_collection_group_summary_request,
         FetchCollectionGroupsRequest => fetch_collection_groups_request as translate_fetch_collection_groups_request,
@@ -1066,7 +1350,7 @@ mod tests {
     use axum::{
         Router,
         body::Body,
-        extract::{Path, Query, State},
+        extract::{Path, Query, RawQuery, State},
         http::{Response, StatusCode},
         routing::get,
     };
@@ -1079,21 +1363,29 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
+        add_item_to_playlist_request, create_playlist_request, fetch_all_playlists_request,
         fetch_collection_group_summary_request, fetch_collection_groups_request,
-        fetch_media_file_by_ids_request, jukebox_error, search_for_request, subsonic_request_error,
+        fetch_media_file_by_ids_request, fetch_remote_playlist, get_playlist_by_id_request,
+        jukebox_error, remove_item_from_playlist_request, remove_playlist_request,
+        reorder_playlist_item_position_request, search_for_request, subsonic_request_error,
+        update_playlist_request,
     };
     use crate::{
         TypedRequest,
         macros::{RequestSlots, RequestTranslator},
         messages::{
-            CastPreflightRequest, CollectionType, FetchCollectionGroupSummaryRequest,
-            FetchCollectionGroupsRequest, FetchMediaFileByIdsRequest, HandoffLoadRequest,
-            LoadRequest, LoadResolvedItemsRequest, MovePlaylistItemRequest, NextRequest,
-            PauseRequest, PlayRequest, PlayingItemRef, PlaylistOperateMode, PreviousRequest,
-            RefreshSessionRequest, RemoveRequest, SearchForRequest, SeekRequest,
-            SessionSnapshotRequest, SetAdaptiveSwitchingEnabledRequest, SetPlaybackModeRequest,
+            AddItemToPlaylistRequest, CastPreflightRequest, CollectionType,
+            CreateM3u8PlaylistRequest, CreatePlaylistRequest, FetchAllPlaylistsRequest,
+            FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
+            FetchMediaFileByIdsRequest, FetchPlaylistOccurrencesRequest, GetPlaylistByIdRequest,
+            HandoffLoadRequest, LoadRequest, LoadResolvedItemsRequest, MovePlaylistItemRequest,
+            NextRequest, PauseRequest, PlayRequest, PlayingItemRef, PlaylistOperateMode,
+            PreviousRequest, RefreshSessionRequest, RemoveItemFromPlaylistRequest,
+            RemovePlaylistRequest, RemoveRequest, ReorderPlaylistItemPositionRequest,
+            SearchForRequest, SeekRequest, SessionSnapshotRequest,
+            SetAdaptiveSwitchingEnabledRequest, SetPlaybackModeRequest,
             SetRealtimeFFTEnabledRequest, SwitchRequest, TakeBackHandoffBlockRequest,
-            VolumeRequest,
+            UpdatePlaylistRequest, VolumeRequest,
         },
         request_error::{ExpectedRequestError, classify},
         rpc::{Slot, TargetRequest, UnsupportedReason},
@@ -1109,6 +1401,17 @@ mod tests {
         requests: Arc<Mutex<Vec<String>>>,
         jukebox: Arc<Mutex<MockJukebox>>,
         jukebox_calls: Arc<Mutex<Vec<HashMap<String, String>>>>,
+        playlists: Arc<Mutex<Vec<MockPlaylist>>>,
+        playlist_calls: MockPlaylistCalls,
+    }
+
+    type MockPlaylistCalls = Arc<Mutex<Vec<(String, Vec<(String, String)>)>>>;
+
+    #[derive(Clone)]
+    struct MockPlaylist {
+        id: String,
+        name: String,
+        songs: Vec<String>,
     }
 
     struct MockJukebox {
@@ -1152,6 +1455,12 @@ mod tests {
             requests: Arc::new(Mutex::new(Vec::new())),
             jukebox: Arc::new(Mutex::new(MockJukebox::default())),
             jukebox_calls: Arc::new(Mutex::new(Vec::new())),
+            playlists: Arc::new(Mutex::new(vec![MockPlaylist {
+                id: "playlist-1".into(),
+                name: "Road".into(),
+                songs: vec!["song-1".into(), "song-2".into(), "song-1".into()],
+            }])),
+            playlist_calls: Arc::new(Mutex::new(Vec::new())),
         };
         let app = Router::new()
             .route("/rest/{*endpoint}", get(mock_endpoint))
@@ -1207,8 +1516,17 @@ mod tests {
         State(state): State<MockState>,
         Path(endpoint): Path<String>,
         Query(query): Query<HashMap<String, String>>,
+        RawQuery(raw_query): RawQuery,
     ) -> Response<Body> {
         let endpoint = endpoint.trim_end_matches(".view").to_owned();
+        let params = raw_query
+            .as_deref()
+            .map(|query| {
+                url::form_urlencoded::parse(query.as_bytes())
+                    .map(|(key, value)| (key.into_owned(), value.into_owned()))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         let cover_id = query.get("id").cloned().unwrap_or_default();
         state.requests.lock().unwrap().push(endpoint.clone());
         if endpoint == "jukeboxControl" {
@@ -1306,6 +1624,51 @@ mod tests {
                 .header("content-type", "image/jpeg")
                 .body(Body::from(format!("image-{cover_id}")))
                 .unwrap();
+        }
+        if matches!(
+            endpoint.as_str(),
+            "getPlaylists" | "getPlaylist" | "createPlaylist" | "updatePlaylist" | "deletePlaylist"
+        ) {
+            state
+                .playlist_calls
+                .lock()
+                .unwrap()
+                .push((endpoint.clone(), params.clone()));
+            let mut playlists = state.playlists.lock().unwrap();
+            let get = |key: &str| {
+                params
+                    .iter()
+                    .rev()
+                    .find(|(name, _)| name == key)
+                    .map(|(_, value)| value.as_str())
+            };
+            let inner = match endpoint.as_str() {
+                "getPlaylists" => serde_json::json!({"playlists":{"playlist":playlists.iter().map(|playlist| serde_json::json!({"id":playlist.id,"name":playlist.name,"songCount":playlist.songs.len()})).collect::<Vec<_>>()}}),
+                "getPlaylist" => playlists.iter().find(|playlist| Some(playlist.id.as_str()) == get("id")).map(|playlist| serde_json::json!({"playlist":{"id":playlist.id,"name":playlist.name,"entry":playlist.songs.iter().map(|id|mock_song(id)).collect::<Vec<_>>()}})).unwrap_or_else(|| serde_json::json!({})),
+                "createPlaylist" => {
+                    let songs = params.iter().filter(|(key, _)| key == "songId").map(|(_, value)| value.clone()).collect::<Vec<_>>();
+                    if let Some(id) = get("playlistId") {
+                        if let Some(playlist) = playlists.iter_mut().find(|playlist| playlist.id == id) { playlist.songs = songs; }
+                    } else {
+                        let id = format!("playlist-{}", playlists.len() + 1);
+                        playlists.push(MockPlaylist { id, name: get("name").unwrap_or_default().into(), songs });
+                    }
+                    serde_json::json!({})
+                }
+                "updatePlaylist" => {
+                    if let Some(playlist) = playlists.iter_mut().find(|playlist| Some(playlist.id.as_str()) == get("playlistId")) {
+                        if let Some(name) = get("name") { playlist.name = name.into(); }
+                        for (_, song) in params.iter().filter(|(key, _)| key == "songIdToAdd") { playlist.songs.push(song.clone()); }
+                        let mut indexes = params.iter().filter(|(key, _)| key == "songIndexToRemove").filter_map(|(_, value)| value.parse::<usize>().ok()).collect::<Vec<_>>();
+                        indexes.sort_unstable_by(|left, right| right.cmp(left));
+                        for index in indexes { if index < playlist.songs.len() { playlist.songs.remove(index); } }
+                    }
+                    serde_json::json!({})
+                }
+                "deletePlaylist" => { playlists.retain(|playlist| Some(playlist.id.as_str()) != get("id")); serde_json::json!({}) }
+                _ => serde_json::json!({}),
+            };
+            return mock_response(inner);
         }
         let inner = match endpoint.as_str() {
             "search3" => serde_json::json!({"searchResult3": {
@@ -1435,6 +1798,234 @@ mod tests {
             assert!(!error.contains(secret));
         }
         assert!(!server.url.contains("cover-secret-password"));
+    }
+
+    #[tokio::test]
+    async fn playlist_translations_mutate_remote_state_and_reject_unknown_track_before_http() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        let search = search_for_request(
+            &binding,
+            &SearchForRequest {
+                call_id: None,
+                query_str: "song".into(),
+                fields: vec!["track".into()],
+                n: 10,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let playlists =
+            fetch_all_playlists_request(&binding, &FetchAllPlaylistsRequest { call_id: None })
+                .await
+                .unwrap()
+                .unwrap();
+        let playlist_id = playlists.playlists[0].id;
+        assert_eq!(playlists.playlists[0].name, "Road");
+        assert_eq!(
+            get_playlist_by_id_request(
+                &binding,
+                &GetPlaylistByIdRequest {
+                    playlist_id,
+                    call_id: None
+                }
+            )
+            .await
+            .unwrap()
+            .unwrap()
+            .playlist
+            .name,
+            "Road"
+        );
+
+        update_playlist_request(
+            &binding,
+            &UpdatePlaylistRequest {
+                playlist_id,
+                name: "Renamed".into(),
+                group: String::new(),
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            fetch_remote_playlist(&binding, playlist_id)
+                .await
+                .unwrap()
+                .1,
+            ["song-1", "song-2", "song-1"]
+        );
+
+        let call_count = server.state.playlist_calls.lock().unwrap().len();
+        let error = match add_item_to_playlist_request(
+            &binding,
+            &AddItemToPlaylistRequest {
+                playlist_id,
+                media_file_id: i32::MAX,
+                position: None,
+                call_id: None,
+            },
+        )
+        .await
+        {
+            Err(error) => error,
+            Ok(_) => panic!("unknown track ID must be rejected"),
+        };
+        assert!(matches!(
+            error.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::InvalidInput { .. })
+        ));
+        assert_eq!(
+            server.state.playlist_calls.lock().unwrap().len(),
+            call_count
+        );
+
+        let added = add_item_to_playlist_request(
+            &binding,
+            &AddItemToPlaylistRequest {
+                playlist_id,
+                media_file_id: search.tracks[0],
+                position: None,
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(added.occurrence_id, "3");
+        assert_eq!(
+            fetch_remote_playlist(&binding, playlist_id)
+                .await
+                .unwrap()
+                .1
+                .len(),
+            4
+        );
+
+        remove_item_from_playlist_request(
+            &binding,
+            &RemoveItemFromPlaylistRequest {
+                playlist_id,
+                occurrence_id: added.occurrence_id,
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            fetch_remote_playlist(&binding, playlist_id)
+                .await
+                .unwrap()
+                .1,
+            ["song-1", "song-2", "song-1"]
+        );
+
+        reorder_playlist_item_position_request(
+            &binding,
+            &ReorderPlaylistItemPositionRequest {
+                playlist_id,
+                occurrence_id: "0".into(),
+                new_position: 2,
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let reordered = fetch_remote_playlist(&binding, playlist_id)
+            .await
+            .unwrap()
+            .1;
+        assert_eq!(reordered, ["song-2", "song-1", "song-1"]);
+        let replace_call = server
+            .state
+            .playlist_calls
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(name, params)| {
+                name == "createPlaylist" && params.iter().any(|(key, _)| key == "playlistId")
+            })
+            .cloned()
+            .unwrap();
+        let replaced_ids = replace_call
+            .1
+            .iter()
+            .filter(|(key, _)| key == "songId")
+            .map(|(_, value)| value.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(replaced_ids, ["song-2", "song-1", "song-1"]);
+
+        remove_playlist_request(
+            &binding,
+            &RemovePlaylistRequest {
+                playlist_id,
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(binding.client.playlists().await.unwrap().is_empty());
+        let created = create_playlist_request(
+            &binding,
+            &CreatePlaylistRequest {
+                name: "Fresh".into(),
+                group: String::new(),
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(created.playlist.name, "Fresh");
+        assert_eq!(
+            fetch_all_playlists_request(&binding, &FetchAllPlaylistsRequest { call_id: None })
+                .await
+                .unwrap()
+                .unwrap()
+                .playlists
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn subsonic_playlist_capabilities_support_only_expressible_playlist_requests() {
+        let slots = RequestSlots::subsonic(&SubsonicProbe {
+            api_version: "1.16.1".into(),
+            open_subsonic: false,
+            server_type: None,
+            server_version: None,
+            extensions: Vec::new(),
+            roles: SubsonicRoles::default(),
+            roles_known: true,
+        });
+        for slot in [
+            FetchAllPlaylistsRequest::slot(&slots),
+            GetPlaylistByIdRequest::slot(&slots),
+            CreatePlaylistRequest::slot(&slots),
+            UpdatePlaylistRequest::slot(&slots),
+            RemovePlaylistRequest::slot(&slots),
+            AddItemToPlaylistRequest::slot(&slots),
+            RemoveItemFromPlaylistRequest::slot(&slots),
+            ReorderPlaylistItemPositionRequest::slot(&slots),
+        ] {
+            assert_eq!(slot, Slot::Translate);
+        }
+        for slot in [
+            FetchPlaylistOccurrencesRequest::slot(&slots),
+            CreateM3u8PlaylistRequest::slot(&slots),
+        ] {
+            assert_eq!(
+                slot,
+                Slot::Unsupported {
+                    reason: UnsupportedReason::NotImplemented
+                }
+            );
+        }
     }
 
     fn assert_secret_free(value: &str) {

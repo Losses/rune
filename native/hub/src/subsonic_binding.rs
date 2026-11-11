@@ -38,6 +38,7 @@ pub(crate) enum SubsonicIdKind {
     Artist,
     Album,
     Track,
+    Playlist,
     CoverArt,
 }
 

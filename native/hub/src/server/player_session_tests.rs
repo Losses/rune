@@ -255,6 +255,9 @@ async fn subsonic_hub_response(
         "getArtist" => {
             json!({ "subsonic-response": { "status": "ok", "artist": { "id": "artist-opaque", "name": "Artist", "albumCount": 1, "album": { "id": "album-opaque", "name": "Album", "artist": "Artist", "artistId": "artist-opaque" } } } })
         }
+        "getPlaylists" => {
+            json!({ "subsonic-response": { "status": "ok", "playlists": { "playlist": { "id": "playlist-opaque", "name": "Road" } } } })
+        }
         "getAlbum" => {
             json!({ "subsonic-response": { "status": "ok", "album": { "id": "album-opaque", "name": "Album", "artist": "Artist", "artistId": "artist-opaque", "song": [ { "id": "song-later", "title": "Later disc", "artist": "Artist", "album": "Album", "discNumber": 2, "track": 1, "duration": 90 }, { "id": "song-first", "title": "First disc", "artist": "Artist", "album": "Album", "discNumber": 1, "track": 8, "duration": 100 } ] } } })
         }
@@ -475,7 +478,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     assert_eq!(capabilities.mix_query_request, RequestCapability::Available);
     assert_eq!(
         capabilities.fetch_all_playlists_request,
-        RequestCapability::Hidden
+        RequestCapability::Available
     );
     assert_eq!(capabilities.play_request, RequestCapability::Available);
     let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
@@ -676,18 +679,17 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
         unsupported_collection.downcast_ref::<ExpectedRequestError>(),
         Some(ExpectedRequestError::Unsupported { .. })
     ));
-    let unsupported = dispatch_gui_request(
+    let playlists = dispatch_gui_request(
         &fixture.global_params,
         &FetchAllPlaylistsRequest { call_id: None },
     )
     .await
-    .err()
-    .context("expected unsupported playlist request")?;
-    assert!(matches!(
-        unsupported.downcast_ref::<ExpectedRequestError>(),
-        Some(ExpectedRequestError::Unsupported { .. })
-    ));
-    assert_eq!(calls.lock().unwrap().len(), calls_before_unsupported);
+    ?
+    .context("Subsonic playlist list response")?;
+    assert_eq!(playlists.playlists.len(), 1);
+    assert_eq!(playlists.playlists[0].name, "Road");
+    assert_eq!(calls.lock().unwrap().len(), calls_before_unsupported + 1);
+    assert_eq!(calls.lock().unwrap().last().map(String::as_str), Some("getPlaylists"));
     let item = PlayingItem::LibraryTrack {
         library_id: record.record_id.0,
         track: "song-opaque".into(),

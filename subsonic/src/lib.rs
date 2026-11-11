@@ -316,6 +316,68 @@ impl SubsonicClient {
             .ok_or_else(|| SubsonicError::Malformed("getPlaylist omitted playlist".into()))
     }
 
+    /// Create a playlist with the supplied opaque song IDs.
+    pub async fn create_playlist(
+        &self,
+        name: &str,
+        song_ids: &[&str],
+    ) -> Result<(), SubsonicError> {
+        let mut params = vec![("name", name)];
+        params.extend(song_ids.iter().map(|id| ("songId", *id)));
+        self.playlist_action("createPlaylist", &params).await
+    }
+
+    /// Replace all songs in an existing playlist with the supplied IDs.
+    pub async fn replace_playlist_songs(
+        &self,
+        playlist_id: &str,
+        song_ids: &[&str],
+    ) -> Result<(), SubsonicError> {
+        let mut params = vec![("playlistId", playlist_id)];
+        params.extend(song_ids.iter().map(|id| ("songId", *id)));
+        self.playlist_action("createPlaylist", &params).await
+    }
+
+    /// Rename a playlist, add songs and remove song positions in one request.
+    pub async fn update_playlist(
+        &self,
+        playlist_id: &str,
+        name: Option<&str>,
+        song_ids_to_add: &[&str],
+        song_indexes_to_remove: &[u32],
+    ) -> Result<(), SubsonicError> {
+        let mut params = vec![("playlistId", playlist_id)];
+        if let Some(name) = name {
+            params.push(("name", name));
+        }
+        params.extend(song_ids_to_add.iter().map(|id| ("songIdToAdd", *id)));
+        let indexes = song_indexes_to_remove
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>();
+        params.extend(
+            indexes
+                .iter()
+                .map(|index| ("songIndexToRemove", index.as_str())),
+        );
+        self.playlist_action("updatePlaylist", &params).await
+    }
+
+    /// Delete a playlist by its opaque Subsonic ID.
+    pub async fn delete_playlist(&self, playlist_id: &str) -> Result<(), SubsonicError> {
+        self.playlist_action("deletePlaylist", &[("id", playlist_id)])
+            .await
+    }
+
+    async fn playlist_action(
+        &self,
+        action: &str,
+        params: &[(&str, &str)],
+    ) -> Result<(), SubsonicError> {
+        let _: EmptyResponse = self.call(action, params).await?;
+        Ok(())
+    }
+
     /// Read the jukebox playlist and its current playback status.
     pub async fn jukebox_get(&self) -> Result<SubsonicJukebox, SubsonicError> {
         let response: JukeboxPlaylistResponse = self.jukebox_call("get", &[]).await?;

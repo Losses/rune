@@ -120,12 +120,7 @@ mod tests {
                 reason: UnsupportedReason::AccountRoleMissing
             }
         );
-        assert_eq!(
-            FetchAllPlaylistsRequest::slot(&slots),
-            Slot::Unsupported {
-                reason: UnsupportedReason::NotImplemented
-            }
-        );
+        assert_eq!(FetchAllPlaylistsRequest::slot(&slots), Slot::Translate);
 
         let jukebox = RequestSlots::subsonic(&SubsonicProbe {
             api_version: "1.16.1".into(),
