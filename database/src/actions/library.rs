@@ -25,7 +25,7 @@ get_cover_ids!(
 
 /// Remove bounded batches of local rows whose file was explicitly removed.
 pub async fn clean_local_orphans(db: &DatabaseConnection) -> Result<()> {
-    use crate::entities::{media_analysis, media_files, playback_queue};
+    use crate::entities::{media_analysis, media_files};
     use sea_orm::{
         ColumnTrait, EntityTrait, QueryFilter, QuerySelect, QueryTrait, TransactionTrait,
     };
@@ -48,27 +48,6 @@ pub async fn clean_local_orphans(db: &DatabaseConnection) -> Result<()> {
     if !analysis.is_empty() {
         media_analysis::Entity::delete_many()
             .filter(media_analysis::Column::Id.is_in(analysis))
-            .exec(&tx)
-            .await?;
-    }
-    let queue = playback_queue::Entity::find()
-        .select_only()
-        .column(playback_queue::Column::Id)
-        .filter(
-            playback_queue::Column::MediaFileId.not_in_subquery(
-                media_files::Entity::find()
-                    .select_only()
-                    .column(media_files::Column::Id)
-                    .into_query(),
-            ),
-        )
-        .limit(64)
-        .into_tuple::<i32>()
-        .all(&tx)
-        .await?;
-    if !queue.is_empty() {
-        playback_queue::Entity::delete_many()
-            .filter(playback_queue::Column::Id.is_in(queue))
             .exec(&tx)
             .await?;
     }

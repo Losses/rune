@@ -46,6 +46,7 @@ mod m20261031_000030_add_analysis_version;
 mod m20261101_000031_create_sync_store;
 mod m20261101_000032_create_sync_library;
 mod m20261101_000034_create_download_rules;
+mod m20261111_000035_drop_playback_queue;
 
 tokio::task_local! {
     static MIGRATION_ACTOR: Option<String>;
@@ -107,6 +108,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261101_000031_create_sync_store::Migration),
             Box::new(m20261101_000032_create_sync_library::Migration),
             Box::new(m20261101_000034_create_download_rules::Migration),
+            Box::new(m20261111_000035_drop_playback_queue::Migration),
         ]
     }
 }

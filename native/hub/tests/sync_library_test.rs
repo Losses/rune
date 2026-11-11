@@ -671,11 +671,7 @@ async fn changed_content_sync_preserves_track_identity_and_playlist() -> Result<
 
 #[tokio::test]
 async fn attachment_keeps_player_references_across_scans() -> Result<()> {
-    use database::actions::{
-        file::get_media_files,
-        metadata::scan_audio_library,
-        playback_queue::{list_legacy_playback_queue, replace_playback_queue},
-    };
+    use database::actions::{file::get_media_files, metadata::scan_audio_library};
     let root = tempfile::tempdir()?;
     let fixtures = fixtures::asset_directory();
     let original = std::fs::read(fixtures.join("startup_0.ogg"))?;
@@ -700,7 +696,6 @@ async fn attachment_keeps_player_references_across_scans() -> Result<()> {
     store.import_existing(node).await?;
     set_liked(&db, &store.record_store(), old.id, true).await?;
     increase_played_through(&db, &store.record_store(), old.id, node).await?;
-    replace_playback_queue(&db, vec![old.id, old.id]).await?;
 
     let playlist = create_playlist(
         &db,
@@ -768,7 +763,6 @@ async fn attachment_keeps_player_references_across_scans() -> Result<()> {
             &store.record_store(),
         )
         .await?;
-        assert_eq!(list_legacy_playback_queue(&db).await?, vec![old.id, old.id]);
         assert!(get_liked(&db, old.id).await?);
         assert_eq!(resolve_local_id(&db, old.id).await?, Some(old.id));
         assert_eq!(std::fs::read(root.path().join("original.ogg"))?, original);
@@ -974,10 +968,7 @@ async fn remote_metadata_edits_project_onto_existing_audio_without_feedback() ->
 
 #[tokio::test]
 async fn cache_cleanup_keeps_distinct_catalog_ids_and_references() -> Result<()> {
-    use database::actions::{
-        file::get_media_files_count,
-        playback_queue::{list_legacy_playback_queue, replace_playback_queue},
-    };
+    use database::actions::file::get_media_files_count;
     let (db, root) = setup().await?;
     file(&db, 10).await?;
     std::fs::write(root.path().join("second.ogg"), b"shared bytes")?;
@@ -993,7 +984,6 @@ async fn cache_cleanup_keeps_distinct_catalog_ids_and_references() -> Result<()>
     )
     .await?;
     add_item_to_playlist(&db, &store.record_store(), playlist.id, 10, None).await?;
-    replace_playback_queue(&db, vec![10]).await?;
     store.head().await?;
     std::fs::remove_file(root.path().join("song.ogg"))?;
     fixtures::cleanup_scan(
@@ -1006,7 +996,6 @@ async fn cache_cleanup_keeps_distinct_catalog_ids_and_references() -> Result<()>
     )
     .await?;
     assert_eq!(get_media_files_count(&db).await?, 2);
-    assert_eq!(list_legacy_playback_queue(&db).await?, vec![10]);
     assert_eq!(i64::from(entry_file(&db).await?), i64::from(10));
     std::fs::remove_file(root.path().join("second.ogg"))?;
     fixtures::cleanup_scan(
@@ -1021,7 +1010,6 @@ async fn cache_cleanup_keeps_distinct_catalog_ids_and_references() -> Result<()>
     assert_eq!(get_media_files_count(&db).await?, 2);
     assert!(!is_materialized(&db, &FsIo::new(), root.path(), 10).await?);
     assert_eq!(resolve_local_id(&db, 10).await?, Some(10));
-    assert_eq!(list_legacy_playback_queue(&db).await?, vec![10]);
     Ok(())
 }
 

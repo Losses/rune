@@ -71,7 +71,6 @@ use database::actions::{
     downloads::cleanup_unselected_downloads,
     file::{catalog_track, file_ids_by_uuid, file_uuids_by_id},
     mixes::query_mix_media_files,
-    playback_queue::{list_legacy_playback_queue, replace_playback_queue},
 };
 use database::credentials::{Credential, Secret};
 use database::entities::media_file_stats;
@@ -3003,45 +3002,6 @@ async fn session_d2_restart_restores_state() -> Result<()> {
     b.global_params.node.shutdown().await
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn session_d3_ignores_legacy_catalog_queue() -> Result<()> {
-    let dir = tempfile::tempdir()?;
-    let a = super::step("create legacy queue fixture", fixture(dir.path())).await?;
-    let id = super::step("scan legacy queue track", session_audio(&a, "legacy.ogg")).await?;
-    super::step(
-        "write legacy queue rows",
-        replace_playback_queue(&a.global_params.test_library().main_db, vec![id, id]),
-    )
-    .await?;
-    super::step(
-        "verify the node session stays empty",
-        wait_player(&a, |s| s.playlist.is_empty()),
-    )
-    .await?;
-    let b = super::step("shutdown and reopen node", reopen_fixture(&a)).await?;
-    assert!(
-        super::step("read reopened session queue", async {
-            b.global_params
-                .player
-                .lock()
-                .await
-                .get_playlist()
-                .is_empty()
-        })
-        .await
-    );
-    // The catalog queue is retained as catalog data and never feeds the node session.
-    assert_eq!(
-        super::step(
-            "read retained legacy rows",
-            list_legacy_playback_queue(&b.global_params.test_library().main_db),
-        )
-        .await?,
-        vec![id, id]
-    );
-    super::step("shutdown reopened node", b.global_params.node.shutdown()).await
-}
-
 #[tokio::test]
 async fn registered_open_helper_releases_its_ui_lease() -> Result<()> {
     let node_dir = tempfile::tempdir()?;
@@ -3270,8 +3230,6 @@ async fn session_d4_queue_queries_and_download_rules_are_library_scoped() -> Res
     let bid = session_audio(&b, "other.ogg").await?;
     assert_eq!(aid, bid, "exercise colliding catalog integer IDs");
     queue_session(&a, &[aid]).await?;
-    // A stale catalog queue must not make B's track appear queued.
-    replace_playback_queue(&b.global_params.test_library().main_db, vec![bid]).await?;
     sleep(Duration::from_millis(400)).await;
     for (f, expected) in [(&a, vec![aid]), (&b, vec![])] {
         let library = f.global_params.test_library();
