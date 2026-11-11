@@ -51,8 +51,9 @@ use crate::{
     messages::{
         AttachedRenderer, ClientStatus, ClientSummary, IncommingClientPermissionNotification,
         InitializeNodeRequest, InitializeNodeResponse, PauseRequest, ProtocolUpdateSide,
-        RemoteLibraryReconnecting, RemoteLossKind, RendererAttachmentChanged, RendererLinkLost,
-        RequestCapabilities, TrustListUpdated, TrustedClientsChanged, TrustedServerCertificate,
+        RefreshSessionRequest, RemoteLibraryReconnecting, RemoteLossKind,
+        RendererAttachmentChanged, RendererLinkLost, RequestCapabilities, TrustListUpdated,
+        TrustedClientsChanged, TrustedServerCertificate,
     },
     request_error::classify,
     server::{ServerManager, WebSocketService, utils::device::load_device_info},
@@ -532,9 +533,20 @@ impl NodeContext {
         let (link, alias) = self
             .connect_renderer(fingerprint, RendererLinkUse::Control)
             .await?;
+        if let Some(previous) = self.renderer_link()?
+            && let Err(error) = previous.call(&PauseRequest { call_id: None }).await
+        {
+            link.close();
+            return Err(error).context("Pause previously attached renderer");
+        }
         self.install_renderer_link(link, alias)?;
         self.publish_capabilities()?;
         self.session()?.player.lock().await.pause();
+        if let Some(link) = self.renderer_link()?
+            && let Err(error) = link.call(&RefreshSessionRequest { call_id: None }).await
+        {
+            log::warn!("Renderer attached, but its state refresh failed: {error:#}");
+        }
         Ok(())
     }
 

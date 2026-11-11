@@ -49,7 +49,7 @@ use crate::{
     },
     library_pool::LibraryHandle,
     messages::{
-        CastLibraryState, CastTarget, LoadResolvedItemsRequest,
+        CastLibraryState, CastResolvedItemsRequest, CastTarget, LoadResolvedItemsRequest,
         ResolveMixQueryRequest, CastPreflightRequest, GetMediaFilesCountRequest, InLibraryPlayingItem,
         LibraryItemRequest, ListControllersRequest, ListRenderersRequest, PlayingItemRequest,
         PlaylistUpdate, RendererAvailability, RendererCandidate, RequestErrorKind,
@@ -337,11 +337,6 @@ impl MixPlaybackTestRequest {
             .await?
             .context("mix query resolution")?;
         let load = LoadResolvedItemsRequest {
-            target_fingerprint: self
-                .cast_to
-                .as_ref()
-                .filter(|target| !target.attach)
-                .map(|target| target.fingerprint.clone()),
             call_id: None,
             position_seconds: None,
             play: None,
@@ -353,8 +348,18 @@ impl MixPlaybackTestRequest {
         };
         match &self.cast_to {
             Some(target) if !target.attach => {
-                load.handle((library.clone(), node.clone()), None, &load)
-                    .await?;
+                let cast = CastResolvedItemsRequest {
+                    fingerprint: target.fingerprint.clone(),
+                    items: load.items.clone(),
+                    start_index: load.start_index,
+                    mode: load.mode,
+                    expected_revision: load.expected_revision,
+                    playback_mode: load.playback_mode,
+                    position_seconds: load.position_seconds,
+                    play: load.play,
+                    call_id: None,
+                };
+                cast.handle(node.clone(), None, &cast).await?;
             }
             Some(target) => {
                 node.attach_renderer(&target.fingerprint).await?;
@@ -673,7 +678,6 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     ));
     assert_eq!(calls.lock().unwrap().len(), calls_before_unsupported);
     let load = LoadResolvedItemsRequest {
-        target_fingerprint: None,
         items: vec![PlayingItemRequest {
             in_library: Some(InLibraryPlayingItem {
                 file_id: search.tracks[0],
@@ -1275,6 +1279,32 @@ async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -
     wait_player(&a, |status| status.state == PlaybackState::Paused).await?;
     let local_session_id = a.global_params.node.session()?.session_id().await;
     let remote_session_id = b.global_params.node.session()?.session_id().await;
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let has_remote = signals.0.lock().unwrap().iter().any(|(name, payload)| {
+                name == "PlaylistUpdate"
+                    && rinf::deserialize::<PlaylistUpdate>(payload)
+                        .is_ok_and(|update| update.session_id == remote_session_id)
+            });
+            if has_remote {
+                break;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .context("renderer queue refresh did not reach local GUI after attach")?;
+    let refreshed = signals
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(name, _)| name == "PlaylistUpdate")
+        .filter_map(|(_, payload)| rinf::deserialize::<PlaylistUpdate>(payload).ok())
+        .find(|update| update.session_id == remote_session_id)
+        .context("renderer PlaylistUpdate after attach")?;
+    assert_eq!(refreshed.revision, b.global_params.node.session()?.queue_revision().await);
+    assert_ne!(refreshed.session_id, local_session_id);
     let local_queue_len = a
         .global_params
         .player
@@ -2217,7 +2247,12 @@ async fn attached_mix_query_rejects_items_outside_renderer_libraries() -> Result
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() -> Result<()> {
     use crate::backends::remote::RendererLinkUse;
-    use crate::messages::{CastTarget, MixQuery, PlaylistOperateMode, RendererAttachmentChanged};
+    use crate::messages::{
+        CastResolvedItemsRequest, CastTarget, MixQuery, PlaylistOperateMode,
+        RemotePlaylistRevisionRequest,
+        PlayingItemRequest, RendererAttachmentChanged,
+    };
+    use crate::rpc::dispatch_gui_request;
 
     let host_dir = tempfile::tempdir()?;
     let controller_dir = tempfile::tempdir()?;
@@ -2484,6 +2519,8 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
     );
 
     signals.0.lock().unwrap().clear();
+    renderer.global_params.player.lock().await.play();
+    wait_player(&renderer, |status| status.state == PlaybackState::Playing).await?;
     controller_replica
         .global_params
         .node
@@ -2506,6 +2543,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
         Some(other_info.fingerprint.as_str())
     );
     wait_controller_count(&renderer.global_params.node, 0).await?;
+    wait_player(&renderer, |status| status.state == PlaybackState::Paused).await?;
     assert_eq!(
         controller_replica
             .global_params
@@ -2515,6 +2553,71 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
             .map(|link| link.fingerprint()),
         Some(other_info.fingerprint.as_str())
     );
+
+    let other_before = other_renderer.global_params.player.lock().await.get_playlist();
+    let revision_request = RemotePlaylistRevisionRequest {
+        call_id: None,
+        fingerprint: renderer_info.fingerprint.clone(),
+    };
+    let revision_response = dispatch_gui_request(
+        &controller_replica.global_params,
+        &revision_request,
+    )
+    .await?
+    .context("target renderer queue revision")?;
+    assert_eq!(
+        revision_response.revision,
+        renderer.global_params.node.session()?.queue_revision().await
+    );
+    let targeted_load = CastResolvedItemsRequest {
+        call_id: None,
+        fingerprint: renderer_info.fingerprint.clone(),
+        items: vec![PlayingItemRequest {
+            in_library: None,
+            independent_file: None,
+            library_item: Some(host_items[0].into()),
+            subsonic_item: None,
+        }],
+        start_index: Some(0),
+        mode: PlaylistOperateMode::Replace,
+        expected_revision: Some(revision_response.revision),
+        playback_mode: None,
+        position_seconds: None,
+        play: None,
+    };
+    dispatch_gui_request(&controller_replica.global_params, &targeted_load).await?;
+    wait_player(&renderer, |status| {
+        status.playlist == vec![PlayingItem::InLibrary(host_items[0])]
+    })
+    .await?;
+    assert_eq!(other_renderer.global_params.player.lock().await.get_playlist(), other_before);
+
+    renderer.global_params.player.lock().await.stop();
+    wait_player(&renderer, |status| status.index.is_none()).await?;
+    let appended_index = renderer.global_params.player.lock().await.get_playlist().len();
+    let play_next_when_idle = CastResolvedItemsRequest {
+        call_id: None,
+        fingerprint: renderer_info.fingerprint.clone(),
+        items: vec![PlayingItemRequest {
+            in_library: None,
+            independent_file: None,
+            library_item: Some(host_items[1].into()),
+            subsonic_item: None,
+        }],
+        start_index: None,
+        mode: PlaylistOperateMode::PlayNext,
+        expected_revision: None,
+        playback_mode: None,
+        position_seconds: None,
+        play: None,
+    };
+    dispatch_gui_request(&controller_replica.global_params, &play_next_when_idle).await?;
+    wait_player(&renderer, |status| {
+        status.state == PlaybackState::Playing
+            && status.index == Some(appended_index)
+            && status.item == Some(PlayingItem::InLibrary(host_items[1]))
+    })
+    .await?;
 
     let before_queue = other_renderer
         .global_params
@@ -4051,7 +4154,6 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         .map(|item| (*item).into())
         .collect::<Vec<_>>();
     let load = LoadResolvedItemsRequest {
-            target_fingerprint: None,
 
             call_id: None,
         items: cast_items.clone(),
@@ -4107,7 +4209,6 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
     let local_cast_id = session_audio(&renderer, "cast-local.ogg").await?;
     let local_cast_item = library_item_for_id(&renderer, local_cast_id).await?;
     let stale_load = LoadResolvedItemsRequest {
-            target_fingerprint: None,
 
             call_id: None,
         items: vec![local_cast_item.into()],
@@ -4169,7 +4270,6 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         &mut socket,
         "LoadResolvedItemsRequest",
         rinf::serialize(&LoadResolvedItemsRequest {
-            target_fingerprint: None,
 
             call_id: None,
             items: vec![not_held.clone().into()],
@@ -4228,7 +4328,6 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         &mut socket,
         "LoadResolvedItemsRequest",
         rinf::serialize(&LoadResolvedItemsRequest {
-            target_fingerprint: None,
 
             call_id: None,
             items: cast_items.clone(),
@@ -4275,7 +4374,6 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         &mut socket,
         "LoadResolvedItemsRequest",
         rinf::serialize(&LoadResolvedItemsRequest {
-            target_fingerprint: None,
 
             call_id: None,
             items: cast_items,
@@ -4326,7 +4424,6 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         &mut socket,
         "LoadResolvedItemsRequest",
         rinf::serialize(&LoadResolvedItemsRequest {
-            target_fingerprint: None,
 
             call_id: None,
             items: vec![LibraryItemRequest {
@@ -4578,7 +4675,6 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
         .queue_revision()
         .await;
     let append_without_switch = LoadResolvedItemsRequest {
-            target_fingerprint: None,
 
             call_id: None,
         items: vec![items[1].into()],
@@ -4618,7 +4714,6 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
         ),
     ] {
         let request = LoadResolvedItemsRequest {
-            target_fingerprint: None,
 
             call_id: None,
             items: vec![item.into()],
@@ -4658,7 +4753,6 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
         .queue_revision()
         .await;
     let invalid = LoadResolvedItemsRequest {
-            target_fingerprint: None,
 
             call_id: None,
         items: vec![LibraryItemRequest {
@@ -4690,7 +4784,6 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
     assert_eq!(classify(&error), RequestErrorKind::InvalidInput);
 
     let not_held = LoadResolvedItemsRequest {
-            target_fingerprint: None,
 
             call_id: None,
         items: vec![LibraryItemRequest {
@@ -4913,6 +5006,7 @@ async fn switch_request_rejects_stale_queue_revision_and_accepts_current_revisio
             true
         })
         .await?;
+    wait_player(&fixture, |status| status.playlist.len() == 2).await?;
     fixture.global_params.player.lock().await.switch(0);
     wait_player(&fixture, |status| status.index == Some(0)).await?;
     let before = fixture.global_params.player.lock().await.get_status().item;
@@ -4938,6 +5032,18 @@ async fn switch_request_rejects_stale_queue_revision_and_accepts_current_revisio
     let params = current.extract_params(&fixture.global_params);
     current.handle(params, None, &current).await?;
     wait_player(&fixture, |status| status.index == Some(1)).await?;
+    assert_eq!(
+        fixture.global_params.player.lock().await.get_status().item,
+        Some(PlayingItem::InLibrary(items[1])),
+    );
+    let invalid = SwitchRequest {
+        call_id: None,
+        index: 2,
+        expected_revision: Some(1),
+    };
+    let params = invalid.extract_params(&fixture.global_params);
+    let error = invalid.handle(params, None, &invalid).await.unwrap_err();
+    assert_eq!(classify(&error), RequestErrorKind::InvalidInput);
     assert_eq!(
         fixture.global_params.player.lock().await.get_status().item,
         Some(PlayingItem::InLibrary(items[1])),
@@ -5338,7 +5444,7 @@ async fn failed_handoff_load_does_not_pause_source() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Result<()> {
     use crate::Signal;
-    use crate::messages::HandoffRequest;
+    use crate::messages::{HandoffRequest, SetPlaybackModeRequest};
     use crate::request_error::request_failure_cause;
     use crate::utils::ParamsExtractor;
 
@@ -5349,7 +5455,14 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     let c_dir = tempfile::tempdir()?;
     let h = fixture(h_dir.path()).await?;
     let g = fixture(g_dir.path()).await?;
-    let a = fixture(a_dir.path()).await?;
+    let a_signals = Arc::new(RecordedSignals::default());
+    let a = fixture_with_broadcaster(
+        a_dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        a_signals.clone(),
+    )
+    .await?;
     let b = fixture(b_dir.path()).await?;
     let c = fixture(c_dir.path()).await?;
 
@@ -5406,6 +5519,17 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
         .copied()
         .context("replica G file id")?;
     let controller = &a_g_replica;
+    let shuffle = SetPlaybackModeRequest {
+        call_id: None,
+        mode: 3,
+    };
+    shuffle
+        .handle(
+            shuffle.extract_params(&controller.global_params),
+            None,
+            &shuffle,
+        )
+        .await?;
     let g_row = media_files::Entity::find_by_id(g_id)
         .one(&*g_source.main_db)
         .await?
@@ -5436,7 +5560,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
         .await?;
     wait_player(controller, |status| status.playlist.len() == 3).await?;
     controller.global_params.player.lock().await.switch(1);
-    wait_player(controller, |status| status.index == Some(1)).await?;
+    wait_player(controller, |status| status.index.is_some_and(|index| index > 0)).await?;
     controller.global_params.player.lock().await.play();
     wait_player(controller, |status| status.state == PlaybackState::Playing).await?;
     let source_before = wait_player(controller, |status| {
@@ -5444,12 +5568,15 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     })
     .await?;
     let source_queue = source_before.playlist.clone();
+    let source_index = source_before.index.context("shuffle source index")?;
+    assert!(source_index > 0);
     let source_position = source_before.position;
 
     let handoff = HandoffRequest {
             call_id: None,
         target: Some(b_fingerprint.clone()),
     };
+    a_signals.0.lock().unwrap().clear();
     handoff
         .handle(
             handoff.extract_params(&controller.global_params),
@@ -5458,12 +5585,39 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
         )
         .await?;
     let b_status = wait_player(&b, |status| {
-        status.index == Some(1)
+        status.index == Some(source_index)
+            && status.item == source_before.item
             && status.state == PlaybackState::Playing
             && status.playlist == source_queue
             && status.position.abs_diff(source_position) <= Duration::from_millis(1500)
     })
     .await?;
+    let remote_session_id = b.global_params.node.session()?.session_id().await;
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let has_remote = a_signals.0.lock().unwrap().iter().any(|(name, payload)| {
+                name == "PlaylistUpdate"
+                    && rinf::deserialize::<PlaylistUpdate>(payload)
+                        .is_ok_and(|update| update.session_id == remote_session_id)
+            });
+            if has_remote {
+                break;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .context("renderer queue refresh did not reach local GUI after handoff")?;
+    let refreshed = a_signals
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(name, _)| name == "PlaylistUpdate")
+        .filter_map(|(_, payload)| rinf::deserialize::<PlaylistUpdate>(payload).ok())
+        .find(|update| update.session_id == remote_session_id)
+        .context("renderer PlaylistUpdate after handoff")?;
+    assert_eq!(refreshed.revision, b.global_params.node.session()?.queue_revision().await);
     assert_eq!(b_status.playlist, source_queue);
     assert!(b_status.position.abs_diff(source_position) <= Duration::from_millis(1500));
     let a_paused = wait_player(controller, |status| {
@@ -5471,7 +5625,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     })
     .await?;
     assert_eq!(a_paused.playlist, source_queue);
-    assert_eq!(a_paused.index, Some(1));
+    assert_eq!(a_paused.index, Some(source_index));
     assert_eq!(
         controller
             .global_params
@@ -5488,12 +5642,14 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     wait_player(&b, |status| status.state == PlaybackState::Playing).await?;
     let b_before_return = b.global_params.player.lock().await.get_status();
     let b_queue = b_before_return.playlist.clone();
+    let b_index = b_before_return.index.context("shuffle return index")?;
     let back = HandoffRequest {
             call_id: None, target: None };
     back.handle(back.extract_params(&controller.global_params), None, &back)
         .await?;
     let a_returned = wait_player(controller, |status| {
-        status.index == Some(1)
+        status.index == Some(b_index)
+            && status.item == b_before_return.item
             && status.state == PlaybackState::Playing
             && status.playlist == b_queue
             && status.position.abs_diff(b_before_return.position) <= Duration::from_millis(1500)
@@ -6099,7 +6255,6 @@ async fn typed_renderer_call_rejects_wrong_reply_name() -> Result<()> {
     )
     .await;
     let request = LoadResolvedItemsRequest {
-            target_fingerprint: None,
 
             call_id: None,
         items: Vec::new(),
@@ -6602,7 +6757,6 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
             position_seconds: None,
             play: None,
 
-        target_fingerprint: None,
             call_id: None,
             items: resolved.playing_items,
             start_index: resolved.start_index,

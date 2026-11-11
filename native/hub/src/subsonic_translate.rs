@@ -1500,7 +1500,6 @@ mod tests {
         mode: PlaylistOperateMode,
     ) -> LoadResolvedItemsRequest {
         LoadResolvedItemsRequest {
-            target_fingerprint: None,
             items: vec![PlayingItemRequest {
                 in_library: None,
                 independent_file: None,

@@ -216,10 +216,10 @@ fn edit_playlist(
     let offset = match mode {
         PlaylistOperateMode::Replace => 0,
         PlaylistOperateMode::AppendToEnd => player.get_playlist().len(),
-        PlaylistOperateMode::PlayNext => player
-            .get_status()
-            .index
-            .map_or(0, |index| index.saturating_add(1)),
+        PlaylistOperateMode::PlayNext => player.get_status().index.map_or_else(
+            || player.get_playlist().len(),
+            |index| index.saturating_add(1),
+        ),
     };
     let add_mode = if mode == PlaylistOperateMode::PlayNext {
         AddMode::PlayNext
@@ -246,6 +246,12 @@ fn edit_playlist(
             player.switch(index);
             player.play();
         }
+    } else if mode == PlaylistOperateMode::PlayNext
+        && !prepared.is_empty()
+        && player.get_status().index.is_none()
+    {
+        player.switch(offset);
+        player.play();
     }
     queue_changed || !prepared.is_empty()
 }
@@ -603,13 +609,23 @@ impl Signal for SwitchRequest {
             ExpectedRequestError::invalid_input(format!("Invalid switch index: {error}"))
         })?;
         let mut previous_item = None;
+        let mut invalid_index = false;
         node.session()?
             .edit_queue(dart_signal.expected_revision, |player| {
+                if index >= player.get_playlist().len() {
+                    invalid_index = true;
+                    return false;
+                }
                 previous_item = player.get_status().item;
                 player.switch(index);
                 false
             })
             .await?;
+        if invalid_index {
+            return Err(
+                ExpectedRequestError::invalid_input("Invalid switch index: out of range").into(),
+            );
+        }
         record_skip_item(&node, previous_item).await?;
 
         Ok(Some(()))
@@ -867,15 +883,6 @@ impl Signal for LoadResolvedItemsRequest {
     ) -> Result<Option<Self::Response>> {
         if session.is_some() {
             apply_cast_load(&node, request).await?;
-        } else if let Some(fingerprint) = &request.target_fingerprint {
-            let (link, _) = node
-                .connect_renderer(fingerprint, RendererLinkUse::Cast)
-                .await?;
-            let mut forwarded = request.clone();
-            forwarded.target_fingerprint = None;
-            let result = link.call(&forwarded).await;
-            link.close();
-            result?;
         } else {
             if let Some(binding) = node.open_subsonic_binding()?
                 && binding.play_on_this_device
@@ -998,6 +1005,44 @@ impl Signal for LoadResolvedItemsRequest {
                 .await?;
         }
         Ok(Some(LoadResolvedItemsResponse { call_id: None }))
+    }
+}
+
+impl ParamsExtractor for CastResolvedItemsRequest {
+    type Params = Arc<NodeContext>;
+
+    fn extract_params(&self, params: &GlobalParams) -> Self::Params {
+        params.node.clone()
+    }
+}
+
+impl Signal for CastResolvedItemsRequest {
+    type Params = Arc<NodeContext>;
+    type Response = CastResolvedItemsResponse;
+
+    async fn handle(
+        &self,
+        node: Self::Params,
+        _session: Option<Session>,
+        request: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let (link, _) = node
+            .connect_renderer(&request.fingerprint, RendererLinkUse::Cast)
+            .await?;
+        let forwarded = LoadResolvedItemsRequest {
+            items: request.items.clone(),
+            start_index: request.start_index,
+            mode: request.mode,
+            expected_revision: request.expected_revision,
+            playback_mode: request.playback_mode,
+            position_seconds: request.position_seconds,
+            play: request.play,
+            call_id: None,
+        };
+        let result = link.call(&forwarded).await;
+        link.close();
+        result?;
+        Ok(Some(CastResolvedItemsResponse { call_id: None }))
     }
 }
 
@@ -1131,13 +1176,14 @@ async fn apply_cast_load(node: &NodeContext, request: &LoadResolvedItemsRequest)
         .iter()
         .filter_map(|item| prepared_by_item.get(item).cloned())
         .collect::<Vec<_>>();
-    let start_index = request
+    let requested_start_index = request
         .start_index
         .map(usize::try_from)
         .transpose()
         .map_err(|error| {
             ExpectedRequestError::invalid_input(format!("Invalid cast start index: {error}"))
         })?;
+    let start_index = remap_cast_start_index(&items, &prepared_by_item, requested_start_index)?;
     node.session()?
         .edit_queue(request.expected_revision, |player| {
             edit_playlist(
@@ -1156,6 +1202,40 @@ async fn apply_cast_load(node: &NodeContext, request: &LoadResolvedItemsRequest)
     Ok(())
 }
 
+fn remap_cast_start_index(
+    items: &[LibraryItem],
+    prepared_by_item: &HashMap<LibraryItem, (PlayingItem, PlaybackSource)>,
+    requested_start_index: Option<usize>,
+) -> Result<Option<usize>> {
+    if !items.is_empty() && prepared_by_item.is_empty() {
+        return Err(ExpectedRequestError::Unavailable {
+            what: "no cast items are available on destination",
+        }
+        .into());
+    }
+    let Some(index) = requested_start_index else {
+        return Ok(None);
+    };
+    if index >= items.len() {
+        return Err(
+            ExpectedRequestError::invalid_input("Invalid cast start index: out of range").into(),
+        );
+    }
+    let current_item = items[index];
+    if !prepared_by_item.contains_key(&current_item) {
+        return Err(ExpectedRequestError::Unavailable {
+            what: "current cast item is unavailable on destination",
+        }
+        .into());
+    }
+    Ok(Some(
+        items[..index]
+            .iter()
+            .filter(|item| prepared_by_item.contains_key(item))
+            .count(),
+    ))
+}
+
 impl ParamsExtractor for RefreshSessionRequest {
     type Params = (Arc<NodeContext>,);
 
@@ -1171,15 +1251,10 @@ impl Signal for RefreshSessionRequest {
     async fn handle(
         &self,
         (node,): Self::Params,
-        session: Option<Session>,
+        _session: Option<Session>,
         _: &Self,
     ) -> Result<Option<Self::Response>> {
-        let broadcaster = if session.is_some() {
-            &node.broadcaster
-        } else {
-            &node.gui_broadcaster
-        };
-        node.session()?.reemit_to(broadcaster).await?;
+        node.session()?.reemit_to(&node.broadcaster).await?;
         Ok(Some(()))
     }
 }
@@ -1204,6 +1279,133 @@ impl Signal for SessionSnapshotRequest {
     ) -> Result<Option<Self::Response>> {
         let session = node.session()?;
         Ok(Some(session_snapshot(&session).await?))
+    }
+}
+
+#[cfg(test)]
+mod cast_index_tests {
+    use std::collections::HashMap;
+
+    use playback::player::{LibraryItem, PlaybackSource, PlayingItem};
+    use uuid::Uuid;
+
+    use crate::{
+        handlers::playback::remap_cast_start_index, messages::RequestErrorKind,
+        request_error::classify,
+    };
+
+    #[test]
+    fn dropped_items_before_the_selected_item_remap_the_index() {
+        let items = [identity(), identity(), identity()];
+        let prepared = HashMap::from([
+            (
+                items[0],
+                (
+                    PlayingItem::InLibrary(items[0]),
+                    PlaybackSource::LibraryStream,
+                ),
+            ),
+            (
+                items[2],
+                (
+                    PlayingItem::InLibrary(items[2]),
+                    PlaybackSource::LibraryStream,
+                ),
+            ),
+        ]);
+
+        assert_eq!(
+            remap_cast_start_index(&items, &prepared, Some(2)).unwrap(),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn unavailable_selected_item_rejects_the_cast_load() {
+        let items = [identity(), identity()];
+        let prepared = HashMap::from([(
+            items[0],
+            (
+                PlayingItem::InLibrary(items[0]),
+                PlaybackSource::LibraryStream,
+            ),
+        )]);
+
+        let error = remap_cast_start_index(&items, &prepared, Some(1)).unwrap_err();
+        assert_eq!(classify(&error), RequestErrorKind::Unavailable);
+    }
+
+    #[test]
+    fn all_unplayable_items_reject_the_cast_load_without_a_start_index() {
+        let items = [identity(), identity()];
+        let prepared = HashMap::new();
+
+        let error = remap_cast_start_index(&items, &prepared, None).unwrap_err();
+        assert_eq!(classify(&error), RequestErrorKind::Unavailable);
+    }
+
+    fn identity() -> LibraryItem {
+        LibraryItem {
+            library_id: Uuid::new_v4(),
+            file_uuid: Uuid::new_v4(),
+        }
+    }
+}
+
+impl ParamsExtractor for PlaylistRevisionRequest {
+    type Params = Arc<NodeContext>;
+
+    fn extract_params(&self, params: &GlobalParams) -> Self::Params {
+        params.node.clone()
+    }
+}
+
+impl Signal for PlaylistRevisionRequest {
+    type Params = Arc<NodeContext>;
+    type Response = PlaylistRevisionResponse;
+
+    async fn handle(
+        &self,
+        node: Self::Params,
+        _session: Option<Session>,
+        _request: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let revision = node.session()?.queue_revision().await;
+        Ok(Some(PlaylistRevisionResponse {
+            call_id: None,
+            revision,
+        }))
+    }
+}
+
+impl ParamsExtractor for RemotePlaylistRevisionRequest {
+    type Params = Arc<NodeContext>;
+
+    fn extract_params(&self, params: &GlobalParams) -> Self::Params {
+        params.node.clone()
+    }
+}
+
+impl Signal for RemotePlaylistRevisionRequest {
+    type Params = Arc<NodeContext>;
+    type Response = RemotePlaylistRevisionResponse;
+
+    async fn handle(
+        &self,
+        node: Self::Params,
+        _session: Option<Session>,
+        request: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let (link, _) = node
+            .connect_renderer(&request.fingerprint, RendererLinkUse::Cast)
+            .await?;
+        let forwarded = PlaylistRevisionRequest { call_id: None };
+        let result = link.call(&forwarded).await;
+        link.close();
+        Ok(Some(RemotePlaylistRevisionResponse {
+            call_id: None,
+            revision: result?.revision,
+        }))
     }
 }
 
@@ -1299,7 +1501,6 @@ async fn snapshot_handoff_source(
 fn handoff_load(snapshot: SessionSnapshotResponse) -> LoadResolvedItemsRequest {
     LoadResolvedItemsRequest {
         call_id: None,
-        target_fingerprint: None,
         items: snapshot
             .items
             .into_iter()
@@ -1360,6 +1561,11 @@ async fn hand_off_to_renderer(
     };
     node.install_renderer_link(link, alias)?;
     node.publish_capabilities()?;
+    if let Some(link) = node.renderer_link()?
+        && let Err(error) = link.call(&RefreshSessionRequest { call_id: None }).await
+    {
+        warn!("Handoff succeeded, but renderer state refresh failed: {error:#}");
+    }
     log::info!("Handoff outcome: {outcome:?}");
     Ok(())
 }

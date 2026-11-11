@@ -23,6 +23,9 @@ final class PlaylistEntry {
 class PlaylistProvider with ChangeNotifier {
   List<PlaylistEntry> _items = [];
   Uint64? _revision;
+  List<PlaylistEntry>? _pendingReorder;
+  Uint64? _pendingReorderCallId;
+  int _nextCallId = DateTime.now().microsecondsSinceEpoch;
 
   List<PlaylistEntry> get items => _items;
 
@@ -79,6 +82,14 @@ class PlaylistProvider with ChangeNotifier {
   }
 
   void _handleRequestFailure(RequestFailedResponse response) {
+    if (response.kind == RequestErrorKind.conflict &&
+        _pendingReorder != null &&
+        response.callId == _pendingReorderCallId) {
+      _items = _pendingReorder!;
+      _pendingReorder = null;
+      _pendingReorderCallId = null;
+      notifyListeners();
+    }
     if (response.request == 'MovePlaylistItemRequest' ||
         response.request == 'RemoveRequest' ||
         response.request == 'SwitchRequest') {
@@ -94,6 +105,8 @@ class PlaylistProvider with ChangeNotifier {
   }
 
   void _updatePlaylist(PlaylistUpdate playlistUpdate) {
+    _pendingReorder = null;
+    _pendingReorderCallId = null;
     _revision = playlistUpdate.revision;
     final newItems = playlistUpdate.items;
     _items = newItems
@@ -108,6 +121,9 @@ class PlaylistProvider with ChangeNotifier {
     if (newIndex > oldIndex) {
       newIndex -= 1;
     }
+    _pendingReorder = List<PlaylistEntry>.of(_items);
+    final callId = Uint64.fromBigInt(BigInt.from(_nextCallId++));
+    _pendingReorderCallId = callId;
     final item = items.removeAt(oldIndex);
     items.insert(newIndex, item);
     notifyListeners();
@@ -117,6 +133,7 @@ class PlaylistProvider with ChangeNotifier {
         oldIndex: oldIndex,
         newIndex: newIndex,
         expectedRevision: _revision,
+        callId: callId,
       ),
     );
   }

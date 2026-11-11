@@ -1129,6 +1129,8 @@ mod access_policy_tests {
             "FetchMixQueriesRequest" => RequestAccess::ConnectionView,
             "ResolveMixQueryRequest" => RequestAccess::ConnectionView,
             "LoadResolvedItemsRequest" => RequestAccess::Control,
+            "PlaylistRevisionRequest" => RequestAccess::Control,
+            "CastResolvedItemsRequest" | "RemotePlaylistRevisionRequest" => RequestAccess::Control,
             "CastPreflightRequest" => RequestAccess::Control,
             "SessionSnapshotRequest" | "RefreshSessionRequest" => RequestAccess::Control,
             "SetLikedRequest" => RequestAccess::ConnectionEdit,

@@ -234,6 +234,33 @@ pub struct SessionSnapshotResponse {
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
+pub struct PlaylistRevisionRequest {
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct RemotePlaylistRevisionRequest {
+    pub fingerprint: String,
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct RemotePlaylistRevisionResponse {
+    pub revision: u64,
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct PlaylistRevisionResponse {
+    pub revision: u64,
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, DartSignal)]
 pub struct HandoffRequest {
     pub target: Option<String>,
     #[serde(default)]
@@ -317,8 +344,6 @@ impl From<LibraryItem> for PlayingItemRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, DartSignal)]
 pub struct LoadResolvedItemsRequest {
-    #[serde(default)]
-    pub target_fingerprint: Option<String>,
     pub items: Vec<PlayingItemRequest>,
     pub start_index: Option<u32>,
     pub mode: PlaylistOperateMode,
@@ -330,6 +355,30 @@ pub struct LoadResolvedItemsRequest {
     pub position_seconds: Option<f64>,
     #[serde(default)]
     pub play: Option<bool>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, DartSignal)]
+pub struct CastResolvedItemsRequest {
+    pub fingerprint: String,
+    pub items: Vec<PlayingItemRequest>,
+    pub start_index: Option<u32>,
+    pub mode: PlaylistOperateMode,
+    #[serde(default)]
+    pub expected_revision: Option<u64>,
+    #[serde(default)]
+    pub playback_mode: Option<u32>,
+    #[serde(default)]
+    pub position_seconds: Option<f64>,
+    #[serde(default)]
+    pub play: Option<bool>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct CastResolvedItemsResponse {
     #[serde(default)]
     pub call_id: Option<u64>,
 }

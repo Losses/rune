@@ -154,7 +154,6 @@ pub async fn operate_playback_with_mix_query_request(
             position_seconds: None,
             play: None,
 
-            target_fingerprint: None,
             call_id: None,
             items: resolved.playing_items.clone(),
             start_index: resolved.start_index,

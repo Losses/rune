@@ -876,6 +876,22 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             receiver: RequestReceiver::Library,
         },
         RequestResponse {
+            request: "CastResolvedItemsRequest".to_string(),
+            response: Some("CastResolvedItemsResponse".to_string()),
+            scope: RequestScope::Node,
+            access: RequestAccess::Control,
+            introduced_minor: None,
+            receiver: RequestReceiver::Library,
+        },
+        RequestResponse {
+            request: "RemotePlaylistRevisionRequest".to_string(),
+            response: Some("RemotePlaylistRevisionResponse".to_string()),
+            scope: RequestScope::Node,
+            access: RequestAccess::Control,
+            introduced_minor: None,
+            receiver: RequestReceiver::Library,
+        },
+        RequestResponse {
             request: "LoadResolvedItemsRequest".to_string(),
             response: Some("LoadResolvedItemsResponse".to_string()),
             scope: RequestScope::Session,
@@ -902,6 +918,14 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         RequestResponse {
             request: "SessionSnapshotRequest".to_string(),
             response: Some("SessionSnapshotResponse".to_string()),
+            scope: RequestScope::Session,
+            access: RequestAccess::Control,
+            introduced_minor: None,
+            receiver: RequestReceiver::Library,
+        },
+        RequestResponse {
+            request: "PlaylistRevisionRequest".to_string(),
+            response: Some("PlaylistRevisionResponse".to_string()),
             scope: RequestScope::Session,
             access: RequestAccess::Control,
             introduced_minor: None,

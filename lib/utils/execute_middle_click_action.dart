@@ -106,7 +106,10 @@ Future<bool> _castAttaches() async =>
 /// Casts a track to [fingerprint] as the cast settings say.
 Future<void> castTrackWithSettings(int id, String fingerprint) async {
   final playNext =
-      await $settingsManager.getValue<bool>(kCastTrackModeKey) ?? false;
+      castTrackBehaviorForSetting(
+        await $settingsManager.getValue<String>(kCastTrackModeKey),
+      ).operateMode ==
+      PlaylistOperateMode.playNext;
   await castTrack(
     id,
     castTargetFor(fingerprint, await _castAttaches()),
@@ -132,6 +135,10 @@ Future<void> castCollectionWithSettings(
 ) => playNext
     ? (operateMode: PlaylistOperateMode.playNext, instantlyPlay: false)
     : (operateMode: PlaylistOperateMode.replace, instantlyPlay: true);
+
+({PlaylistOperateMode operateMode, bool instantlyPlay})
+castTrackBehaviorForSetting(String? value) =>
+    castTrackBehavior(value == 'playNext');
 
 Future<void> castTrack(int id, CastTarget castTo, bool playNext) async {
   final behavior = castTrackBehavior(playNext);

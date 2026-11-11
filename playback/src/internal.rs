@@ -761,10 +761,9 @@ impl PlayerInternal {
                         },
                         PlayerCommand::LoadAtPosition { index, position, play } => {
                             if index < self.playlist.len() {
-                                let mapped = self.get_mapped_track_index(index);
-                                self.clear_unavailable(Some(self.playlist[mapped].item.clone()))?;
+                                self.clear_unavailable(Some(self.playlist[index].item.clone()))?;
                             }
-                            self.load_at(Some(index), play, true, Some(position))?;
+                            self.load_at(Some(index), play, false, Some(position))?;
                         },
                         PlayerCommand::LoadComplete { generation, result, item, original_item, index, mapped, playlist_index, path } => {
                             if generation != self.load_generation {
@@ -4588,6 +4587,43 @@ mod playback_state_tests {
         );
         assert_about(position_of(&event), Duration::from_secs(1));
         let _ = std::fs::remove_file(wav_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn load_at_position_uses_the_playlist_index_in_shuffle_mode() -> Result<()> {
+        let file_uuids: Vec<Uuid> = (0..4).map(|_| Uuid::new_v4()).collect();
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&file_uuids);
+        let library_id = Uuid::new_v4();
+        let expected = library_item(library_id, file_uuids[2]);
+        internal.playback_mode = PlaybackMode::Shuffle;
+        internal.playback_strategy = Box::new(ShiftedOrder);
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                commands_sender.send(add_library_tracks(library_id, &file_uuids))?;
+                tokio::time::timeout(Duration::from_secs(2), async {
+                    while !matches!(events.recv().await, Some(PlayerEvent::PlaylistUpdated(_))) {}
+                })
+                .await?;
+
+                commands_sender.send(PlayerCommand::LoadAtPosition {
+                    index: 2,
+                    position: Duration::from_secs(1),
+                    play: false,
+                })?;
+                let event = next_track_state(&mut events).await?;
+                assert!(
+                    matches!(&event, PlayerEvent::Loaded { item, index: 2, .. } if *item == expected),
+                    "{event:?}"
+                );
+
+                runner.abort();
+                let _ = std::fs::remove_file(wav_path);
+                Ok::<(), anyhow::Error>(())
+            })
+            .await?;
         Ok(())
     }
 

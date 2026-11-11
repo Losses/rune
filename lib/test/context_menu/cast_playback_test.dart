@@ -7,6 +7,7 @@ import '../../l10n/app_localizations.dart';
 import '../../providers/library_open_state.dart';
 import '../../utils/context_menu/collection_item_context_menu.dart';
 import '../../utils/execute_middle_click_action.dart';
+import '../../utils/api/operate_playback_with_mix_query.dart';
 
 void main() {
   test(
@@ -20,6 +21,9 @@ void main() {
         operateMode: PlaylistOperateMode.replace,
         instantlyPlay: true,
       ));
+      expect(castTrackBehaviorForSetting('replace'), castTrackBehavior(false));
+      expect(castTrackBehaviorForSetting('playNext'), castTrackBehavior(true));
+      expect(castTrackBehaviorForSetting(null), castTrackBehavior(false));
       expect(castCollectionBehavior(), (
         operateMode: PlaylistOperateMode.replace,
         instantlyPlay: true,
@@ -30,6 +34,39 @@ void main() {
       );
     },
   );
+
+  test(
+    'a failed attach cast restores the prior player and play state',
+    () async {
+      String? attached;
+      var detached = false;
+      var resumed = false;
+      await restoreCastAttachmentAfterLoadFailure(
+        previousRenderer: 'renderer-a',
+        wasPlaying: true,
+        attach: (fingerprint) async => attached = fingerprint,
+        detach: () async => detached = true,
+        resume: () => resumed = true,
+      );
+      expect(attached, 'renderer-a');
+      expect(detached, isFalse);
+      expect(resumed, isTrue);
+    },
+  );
+
+  test('a failed first attach detaches and resumes local playback', () async {
+    var detached = false;
+    var resumed = false;
+    await restoreCastAttachmentAfterLoadFailure(
+      previousRenderer: null,
+      wasPlaying: true,
+      attach: (_) async {},
+      detach: () async => detached = true,
+      resume: () => resumed = true,
+    );
+    expect(detached, isTrue);
+    expect(resumed, isTrue);
+  });
 
   testWidgets('collection Play on is hidden for a remote-control library', (
     tester,

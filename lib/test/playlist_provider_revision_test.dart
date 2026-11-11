@@ -76,6 +76,17 @@ void main() {
       expect(failure.request, 'SwitchRequest');
       expect(failure.kind, RequestErrorKind.conflict);
       expect(provider.items.map((entry) => entry.entry.title), ['second', '']);
+      final moveConflictFeedback = provider.failureFeedback.first;
+      failures.add(
+        RequestFailedResponse(
+          request: 'MovePlaylistItemRequest',
+          kind: RequestErrorKind.conflict,
+          detail: 'stale queue revision',
+          callId: sent.single.callId,
+        ),
+      );
+      expect((await moveConflictFeedback).request, 'MovePlaylistItemRequest');
+      expect(provider.items.map((entry) => entry.entry.title), ['', 'second']);
       updates.add(
         PlaylistUpdate(
           items: [item, secondItem],
