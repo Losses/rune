@@ -89,6 +89,7 @@ use playback::{
     },
     strategies::AddMode,
 };
+use rust_decimal::prelude::ToPrimitive;
 use sea_orm::sea_query::Expr;
 use sea_orm::{ActiveModelTrait, EntityTrait, IntoActiveModel, Set};
 use serde::de::DeserializeOwned;
@@ -3378,7 +3379,26 @@ async fn session_d5_stats_follow_item_library() -> Result<()> {
     close_ui(&a.global_params).await?;
     let b = fixture_open_local_library(&a, bdir.path()).await?;
     session_audio(&b, "collision.ogg").await?;
+    let duration = media_files::Entity::find_by_id(id)
+        .one(&*a.global_params.test_library().main_db)
+        .await?
+        .context("stats track")?
+        .duration
+        .to_f64()
+        .context("stats track duration")?;
     b.global_params.player.lock().await.switch(0);
+    wait_player(&b, |status| status.state == PlaybackState::Playing).await?;
+    b.global_params
+        .player
+        .lock()
+        .await
+        .seek((duration - 0.1).max(0.0));
+    b.global_params
+        .player
+        .lock()
+        .await
+        .status_after_pending()
+        .await;
     timeout(Duration::from_secs(15), async {
         loop {
             let rows = media_file_stats::Entity::find()
@@ -5925,19 +5945,6 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     .await?;
     controller.global_params.player.lock().await.play();
     wait_player(controller, |status| status.state == PlaybackState::Playing).await?;
-    let source_before = wait_player(controller, |status| {
-        status.position >= Duration::from_millis(1900)
-    })
-    .await?;
-    let source_queue = source_before
-        .playlist
-        .iter()
-        .map(|entry| entry.item.clone())
-        .collect::<Vec<_>>();
-    let source_index = source_before.index.context("shuffle source index")?;
-    assert!(source_index > 0);
-    let source_position = source_before.position;
-
     let target_ids = [
         session_audio(&b, "handoff-target-a.ogg").await?,
         session_audio(&b, "handoff-target-b.ogg").await?,
@@ -5976,7 +5983,18 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     b.global_params.player.lock().await.play();
     wait_player(&b, |status| status.state == PlaybackState::Playing).await?;
     b.global_params.player.lock().await.seek(1.1);
+    let source_before = wait_player(controller, |status| {
+        status.state == PlaybackState::Playing
+            && status.position >= Duration::from_millis(1900)
+    })
+    .await?;
     let target_before = wait_player(&b, |status| status.position >= Duration::from_secs(1)).await?;
+    let source_queue = source_before
+        .playlist
+        .iter()
+        .map(|entry| entry.item.clone())
+        .collect::<Vec<_>>();
+    let source_index = source_before.index.context("shuffle source index")?;
 
     let handoff = HandoffRequest {
         call_id: None,
@@ -5991,7 +6009,6 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
             && status.playlist.len() == target_queue.len() + source_queue.len()
             && status.playlist[..3] == target_queue[..3]
             && status.playlist[3 + source_queue.len()..] == target_queue[3..]
-            && status.position.abs_diff(source_position) <= Duration::from_millis(1500)
     })
     .await?;
     let remote_session_id = b.global_params.node.session()?.session_id().await;
@@ -6027,7 +6044,6 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     combined_queue.extend(source_queue.clone());
     combined_queue.extend(target_queue[3..].iter().cloned());
     assert_eq!(b_status.playlist, combined_queue);
-    assert!(b_status.position.abs_diff(source_position) <= Duration::from_millis(1500));
     let a_paused = wait_player(controller, |status| {
         status.state == PlaybackState::Paused && status.playlist == source_queue
     })

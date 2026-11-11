@@ -1689,8 +1689,16 @@ async fn resume_handoff_source(paused: PausedHandoffSource) -> Result<()> {
         return Ok(());
     }
     match paused.source {
-        PausedSource::Renderer(source) => source.call(&PlayRequest { call_id: None }).await?,
-        PausedSource::Local(session) => session.player.lock().await.play(),
+        PausedSource::Renderer(source) => {
+            source.call(&PlayRequest { call_id: None }).await?;
+            source
+                .call(&SessionSnapshotRequest { call_id: None })
+                .await?;
+        }
+        PausedSource::Local(session) => {
+            session.player.lock().await.play();
+            session.playback_snapshot().await;
+        }
     }
     Ok(())
 }
