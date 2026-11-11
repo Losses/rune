@@ -1,10 +1,16 @@
-use crate::{messages::LibraryContentChanged, utils::Broadcaster};
+use crate::{
+    messages::{
+        LibraryContentChanged, PlaybackStatus, PlayingItemRequest, PlaylistItem, PlaylistUpdate,
+        SubsonicItemRequest,
+    },
+    utils::Broadcaster,
+};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -15,9 +21,10 @@ use playback::player::{
     AudioPlaybackNote, AudioRequest, AudioSourceMode, RemoteAudioError, RemoteAudioSource,
     SubsonicItem, UnavailableReason,
 };
-use subsonic::{SubsonicAlbum, SubsonicArtist, SubsonicClient, SubsonicSong};
+use subsonic::{SubsonicAlbum, SubsonicArtist, SubsonicClient, SubsonicJukebox, SubsonicSong};
 
 use crate::request_error::ExpectedRequestError;
+use crate::subsonic_translate::jukebox_error_for_refresh;
 
 /// Opaque catalog IDs are scoped to the lifetime of the open Subsonic binding.
 #[derive(Default)]
@@ -74,6 +81,96 @@ pub(crate) struct SubsonicBinding {
     pub(crate) probe: subsonic::SubsonicProbe,
     pub(crate) catalog: Mutex<SubsonicCatalog>,
     pub(crate) covers: Arc<SubsonicCoverCache>,
+    jukebox_poll: Mutex<Option<CancellationToken>>,
+    jukebox_state: Arc<Mutex<Option<JukeboxPollState>>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct JukeboxPollState {
+    jukebox: SubsonicJukebox,
+    // The server exposes no queue revision, so this local revision is best effort.
+    revision: u64,
+}
+
+fn broadcast_jukebox(
+    broadcaster: &dyn Broadcaster,
+    library_id: Uuid,
+    jukebox: &SubsonicJukebox,
+    revision: u64,
+) {
+    let session_id = library_id.to_string();
+    let items = jukebox
+        .playlist
+        .songs
+        .iter()
+        .map(|song| PlaylistItem {
+            unavailable: None,
+            item: PlayingItemRequest {
+                in_library: None,
+                independent_file: None,
+                library_item: None,
+                subsonic_item: Some(SubsonicItemRequest {
+                    library_id: session_id.clone(),
+                    track_id: song.id.clone(),
+                }),
+            },
+            artist: song.artist.clone().unwrap_or_default(),
+            album: song.album.clone().unwrap_or_default(),
+            title: song.title.clone(),
+            duration: f64::from(song.duration.unwrap_or_default()),
+        })
+        .collect();
+    broadcaster.broadcast(&PlaylistUpdate {
+        items,
+        session_id: session_id.clone(),
+        revision,
+    });
+
+    let current = jukebox
+        .status
+        .current_index
+        .and_then(|index| jukebox.playlist.songs.get(index as usize));
+    let position = jukebox.status.position_secs.unwrap_or_default() as f32;
+    let duration = current
+        .and_then(|song| song.duration)
+        .map(f64::from)
+        .unwrap_or_default();
+    broadcaster.broadcast(&PlaybackStatus {
+        session_id,
+        state: if jukebox.status.playing {
+            "playing".into()
+        } else {
+            "paused".into()
+        },
+        progress_seconds: position,
+        progress_percentage: if duration > 0.0 {
+            position / duration as f32
+        } else {
+            0.0
+        },
+        artist: current.and_then(|song| song.artist.clone()),
+        album: current.and_then(|song| song.album.clone()),
+        title: current.map(|song| song.title.clone()),
+        duration,
+        index: jukebox
+            .status
+            .current_index
+            .and_then(|index| i32::try_from(index).ok()),
+        item: current.map(|song| song.id.clone()),
+        item_request: current.map(|song| PlayingItemRequest {
+            in_library: None,
+            independent_file: None,
+            library_item: None,
+            subsonic_item: Some(SubsonicItemRequest {
+                library_id: library_id.to_string(),
+                track_id: song.id.clone(),
+            }),
+        }),
+        playback_mode: 0,
+        ready: current.is_some(),
+        cover_art_path: None,
+        lib_path: String::new(),
+    });
 }
 
 pub(crate) struct SubsonicCoverCache {
@@ -254,7 +351,104 @@ impl SubsonicBinding {
                 cancellation: CancellationToken::new(),
                 broadcaster,
             }),
+            jukebox_poll: Mutex::new(None),
+            jukebox_state: Arc::new(Mutex::new(None)),
         }
+    }
+
+    pub(crate) fn start_jukebox_polling(self: &Arc<Self>) {
+        if self.play_on_this_device || !self.probe.roles.jukebox_role {
+            return;
+        }
+        let Ok(mut poll) = self.jukebox_poll.lock() else {
+            return;
+        };
+        if let Some(token) = poll.take() {
+            token.cancel();
+        }
+        let cancellation = self.covers.cancellation.child_token();
+        *poll = Some(cancellation.clone());
+        let client = Arc::clone(&self.client);
+        let library_id = self.library_id;
+        let broadcaster = Arc::clone(&self.covers.broadcaster);
+        let binding_state = Arc::clone(&self.jukebox_state);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(3));
+            loop {
+                tokio::select! {
+                    _ = cancellation.cancelled() => break,
+                    _ = interval.tick() => {
+                        let result = tokio::select! {
+                            _ = cancellation.cancelled() => break,
+                            result = async {
+                                let status = client.jukebox_status().await?;
+                                let mut jukebox = client.jukebox_get().await?;
+                                jukebox.status = status;
+                                Ok::<_, subsonic::SubsonicError>(jukebox)
+                            } => result,
+                        };
+                        match result {
+                            Ok(jukebox) => {
+                                let changed = {
+                                    let Ok(mut previous) = binding_state.lock() else { continue; };
+                                    let revision = match previous.as_ref() {
+                                        Some(current) if current.jukebox == jukebox => continue,
+                                        Some(current) => current.revision.saturating_add(1),
+                                        None => 1,
+                                    };
+                                    *previous = Some(JukeboxPollState {
+                                        jukebox: jukebox.clone(),
+                                        revision,
+                                    });
+                                    revision
+                                };
+                                broadcast_jukebox(&*broadcaster, library_id, &jukebox, changed);
+                            }
+                            Err(error) => log::debug!("Subsonic jukebox status poll failed: {error}"),
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    pub(crate) fn stop_jukebox_polling(&self) {
+        if let Ok(mut poll) = self.jukebox_poll.lock()
+            && let Some(token) = poll.take()
+        {
+            token.cancel();
+        }
+    }
+
+    pub(crate) async fn publish_jukebox_snapshot(&self) -> Result<()> {
+        let jukebox = self
+            .client
+            .jukebox_get()
+            .await
+            .map_err(jukebox_error_for_refresh)?;
+        let revision = {
+            let mut state = self
+                .jukebox_state
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Subsonic jukebox state lock poisoned"))?;
+            let revision = match state.as_ref() {
+                Some(current) if current.jukebox == jukebox => return Ok(()),
+                Some(current) => current.revision.saturating_add(1),
+                None => 1,
+            };
+            *state = Some(JukeboxPollState {
+                jukebox: jukebox.clone(),
+                revision,
+            });
+            revision
+        };
+        broadcast_jukebox(
+            &*self.covers.broadcaster,
+            self.library_id,
+            &jukebox,
+            revision,
+        );
+        Ok(())
     }
 
     pub(crate) async fn playback_source(
@@ -414,6 +608,7 @@ fn subsonic_playback_error(error: subsonic::SubsonicError) -> anyhow::Error {
 
 impl Drop for SubsonicBinding {
     fn drop(&mut self) {
+        self.stop_jukebox_polling();
         self.covers.cancellation.cancel();
     }
 }

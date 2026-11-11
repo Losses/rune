@@ -16,16 +16,18 @@ use crate::messages::{
     CollectionGroupSummary, CollectionGroupSummaryResponse, CollectionType,
     FetchCollectionByIdsRequest, FetchCollectionByIdsResponse, FetchCollectionGroupSummaryRequest,
     FetchCollectionGroupsRequest, FetchCollectionGroupsResponse, FetchMediaFileByIdsRequest,
-    FetchMediaFileByIdsResponse, LoadRequest, LoadResolvedItemsRequest, MediaFile, MixQueryRequest,
-    MixQueryResponse, MovePlaylistItemRequest, NextRequest, PauseRequest, PlayRequest,
-    PreviousRequest, RefreshSessionRequest, RemoveRequest, SearchForRequest, SearchForResponse,
-    SeekRequest, SessionSnapshotRequest, SetAdaptiveSwitchingEnabledRequest,
-    SetPlaybackModeRequest, SetRealtimeFFTEnabledRequest, SwitchRequest, VolumeRequest,
+    FetchMediaFileByIdsResponse, LoadRequest, LoadResolvedItemsRequest, LoadResolvedItemsResponse,
+    MediaFile, MixQueryRequest, MixQueryResponse, MovePlaylistItemRequest, NextRequest,
+    PauseRequest, PlayRequest, PlaylistOperateMode, PreviousRequest, RefreshSessionRequest,
+    RemoveRequest, SearchForRequest, SearchForResponse, SeekRequest, SessionSnapshotRequest,
+    SetAdaptiveSwitchingEnabledRequest, SetPlaybackModeRequest, SetRealtimeFFTEnabledRequest,
+    SwitchRequest, VolumeRequest, VolumeResponse,
 };
 use crate::request_error::ExpectedRequestError;
 use crate::rpc::{RequestTranslationFuture, Slot, UnsupportedReason};
 use crate::subsonic_binding::{SubsonicBinding, SubsonicIdKind};
 use database::actions::mixes::{QueryOperator, parse_query};
+use uuid::Uuid;
 
 fn subsonic_cover_map(
     binding: &SubsonicBinding,
@@ -314,6 +316,244 @@ pub(crate) async fn fetch_collection_by_ids_request(
         collection_type: request.collection_type,
         result,
     }))
+}
+
+fn jukebox_disabled(request: &'static str) -> anyhow::Error {
+    ExpectedRequestError::Unsupported {
+        request,
+        reason: UnsupportedReason::NotImplemented,
+    }
+    .into()
+}
+
+fn jukebox_error(error: SubsonicError, request: &'static str) -> anyhow::Error {
+    match error {
+        SubsonicError::Transport(_) => ExpectedRequestError::Unavailable {
+            what: "Subsonic jukebox",
+        }
+        .into(),
+        SubsonicError::HttpStatus(status) if status == reqwest::StatusCode::UNAUTHORIZED => {
+            ExpectedRequestError::SubsonicNotAuthorized.into()
+        }
+        SubsonicError::HttpStatus(_) => ExpectedRequestError::Unavailable {
+            what: "Subsonic jukebox",
+        }
+        .into(),
+        SubsonicError::JukeboxUnsupported => jukebox_disabled(request),
+        error => subsonic_request_error(error),
+    }
+}
+
+pub(crate) fn jukebox_error_for_refresh(error: SubsonicError) -> anyhow::Error {
+    jukebox_error(error, RefreshSessionRequest::wire_name())
+}
+
+async fn jukebox_status(binding: &SubsonicBinding) -> Result<subsonic::SubsonicJukeboxStatus> {
+    binding
+        .client
+        .jukebox_status()
+        .await
+        .map_err(|error| jukebox_error(error, "Subsonic jukebox status"))
+}
+
+async fn jukebox_play_request(binding: &SubsonicBinding, _: &PlayRequest) -> Result<Option<()>> {
+    binding
+        .client
+        .jukebox_start()
+        .await
+        .map_err(|error| jukebox_error(error, PlayRequest::wire_name()))?;
+    Ok(Some(()))
+}
+
+async fn jukebox_pause_request(binding: &SubsonicBinding, _: &PauseRequest) -> Result<Option<()>> {
+    binding
+        .client
+        .jukebox_stop()
+        .await
+        .map_err(|error| jukebox_error(error, PauseRequest::wire_name()))?;
+    Ok(Some(()))
+}
+
+async fn jukebox_load_request(
+    binding: &SubsonicBinding,
+    request: &LoadRequest,
+) -> Result<Option<()>> {
+    let index = u32::try_from(request.index).map_err(|error| {
+        ExpectedRequestError::invalid_input(format!("Invalid jukebox index: {error}"))
+    })?;
+    binding
+        .client
+        .jukebox_skip(index, 0)
+        .await
+        .map_err(|error| jukebox_error(error, LoadRequest::wire_name()))?;
+    Ok(Some(()))
+}
+
+async fn jukebox_next_request(binding: &SubsonicBinding, _: &NextRequest) -> Result<Option<()>> {
+    let queue = binding
+        .client
+        .jukebox_get()
+        .await
+        .map_err(|error| jukebox_error(error, NextRequest::wire_name()))?;
+    let index = queue.status.current_index.unwrap_or(0).saturating_add(1);
+    binding
+        .client
+        .jukebox_skip(index, 0)
+        .await
+        .map_err(|error| jukebox_error(error, NextRequest::wire_name()))?;
+    Ok(Some(()))
+}
+
+async fn jukebox_previous_request(
+    binding: &SubsonicBinding,
+    _: &PreviousRequest,
+) -> Result<Option<()>> {
+    let queue = binding
+        .client
+        .jukebox_get()
+        .await
+        .map_err(|error| jukebox_error(error, PreviousRequest::wire_name()))?;
+    let index = queue.status.current_index.unwrap_or(0).saturating_sub(1);
+    binding
+        .client
+        .jukebox_skip(index, 0)
+        .await
+        .map_err(|error| jukebox_error(error, PreviousRequest::wire_name()))?;
+    Ok(Some(()))
+}
+
+async fn jukebox_switch_request(
+    binding: &SubsonicBinding,
+    request: &SwitchRequest,
+) -> Result<Option<()>> {
+    binding
+        .client
+        .jukebox_skip(request.index, 0)
+        .await
+        .map_err(|error| jukebox_error(error, SwitchRequest::wire_name()))?;
+    Ok(Some(()))
+}
+
+async fn jukebox_seek_request(
+    binding: &SubsonicBinding,
+    request: &SeekRequest,
+) -> Result<Option<()>> {
+    if !request.position_seconds.is_finite()
+        || request.position_seconds < 0.0
+        || request.position_seconds > f64::from(u32::MAX)
+    {
+        return Err(ExpectedRequestError::invalid_input("Invalid jukebox seek position").into());
+    }
+    let position = request.position_seconds as u32;
+    let status = jukebox_status(binding).await?;
+    binding
+        .client
+        .jukebox_skip(status.current_index.unwrap_or(0), position)
+        .await
+        .map_err(|error| jukebox_error(error, SeekRequest::wire_name()))?;
+    Ok(Some(()))
+}
+
+async fn jukebox_volume_request(
+    binding: &SubsonicBinding,
+    request: &VolumeRequest,
+) -> Result<Option<VolumeResponse>> {
+    binding
+        .client
+        .jukebox_set_gain(request.volume)
+        .await
+        .map_err(|error| jukebox_error(error, VolumeRequest::wire_name()))?;
+    Ok(Some(VolumeResponse {
+        volume: request.volume,
+        call_id: request.call_id,
+    }))
+}
+
+async fn jukebox_playback_mode_request(
+    binding: &SubsonicBinding,
+    request: &SetPlaybackModeRequest,
+) -> Result<Option<()>> {
+    if request.mode != 3 {
+        return Err(ExpectedRequestError::Unsupported {
+            request: SetPlaybackModeRequest::wire_name(),
+            reason: UnsupportedReason::NotImplemented,
+        }
+        .into());
+    }
+    binding
+        .client
+        .jukebox_shuffle()
+        .await
+        .map_err(|error| jukebox_error(error, SetPlaybackModeRequest::wire_name()))?;
+    Ok(Some(()))
+}
+
+async fn jukebox_remove_request(
+    binding: &SubsonicBinding,
+    request: &RemoveRequest,
+) -> Result<Option<()>> {
+    binding
+        .client
+        .jukebox_remove(request.index)
+        .await
+        .map_err(|error| jukebox_error(error, RemoveRequest::wire_name()))?;
+    Ok(Some(()))
+}
+
+fn subsonic_track_ids(
+    binding: &SubsonicBinding,
+    request: &LoadResolvedItemsRequest,
+) -> Result<Vec<String>> {
+    request
+        .items
+        .iter()
+        .map(|item| {
+            let subsonic = item.subsonic_item.as_ref().ok_or_else(|| {
+                ExpectedRequestError::invalid_input(
+                    "Subsonic jukebox accepts only Subsonic library items",
+                )
+            })?;
+            let library_id = Uuid::parse_str(&subsonic.library_id).map_err(|error| {
+                ExpectedRequestError::invalid_input(format!("Invalid Subsonic library id: {error}"))
+            })?;
+            if library_id != binding.library_id {
+                return Err(ExpectedRequestError::invalid_input(
+                    "Subsonic jukebox item belongs to another library",
+                )
+                .into());
+            }
+            Ok(subsonic.track_id.clone())
+        })
+        .collect()
+}
+
+async fn jukebox_load_resolved_items_request(
+    binding: &SubsonicBinding,
+    request: &LoadResolvedItemsRequest,
+) -> Result<Option<LoadResolvedItemsResponse>> {
+    let ids = subsonic_track_ids(binding, request)?;
+    let references = ids.iter().map(String::as_str).collect::<Vec<_>>();
+    let result = match request.mode {
+        PlaylistOperateMode::Replace if references.is_empty() => {
+            binding.client.jukebox_clear().await
+        }
+        PlaylistOperateMode::Replace => binding.client.jukebox_set(&references).await,
+        PlaylistOperateMode::AppendToEnd | PlaylistOperateMode::PlayNext => {
+            binding.client.jukebox_add(&references).await
+        }
+    };
+    result.map_err(|error| jukebox_error(error, LoadResolvedItemsRequest::wire_name()))?;
+    Ok(Some(LoadResolvedItemsResponse {
+        call_id: request.call_id,
+    }))
+}
+
+async fn jukebox_refresh_session_request(
+    binding: &SubsonicBinding,
+    _: &RefreshSessionRequest,
+) -> Result<Option<()>> {
+    binding.publish_jukebox_snapshot().await?;
+    Ok(Some(()))
 }
 
 async fn ensure_artists(binding: &SubsonicBinding) -> Result<()> {
@@ -718,6 +958,7 @@ fn subsonic_request_error(error: SubsonicError) -> anyhow::Error {
 macro_rules! subsonic_requests {
     (
         supported { $($request:ty => $handler:ident as $method:ident),* $(,)? }
+        jukebox_supported { $($jukebox_request:ty => $jukebox_handler:ident as $jukebox_method:ident),* $(,)? }
         player { $($player_request:ty),* $(,)? }
     ) => {
         impl RequestTranslator for SubsonicBinding {
@@ -727,6 +968,14 @@ macro_rules! subsonic_requests {
                     request: &'a $request,
                 ) -> RequestTranslationFuture<'a, <$request as crate::TypedRequest>::Response> {
                     Box::pin($handler(self, request))
+                }
+            )*
+            $(
+                fn $jukebox_method<'a>(
+                    &'a self,
+                    request: &'a $jukebox_request,
+                ) -> RequestTranslationFuture<'a, <$jukebox_request as crate::TypedRequest>::Response> {
+                    Box::pin($jukebox_handler(self, request))
                 }
             )*
         }
@@ -740,6 +989,9 @@ macro_rules! subsonic_requests {
                     UnsupportedReason::AccountRoleMissing
                 };
                 $(slots.set::<$player_request>(Slot::Unsupported { reason: player_reason });)*
+                if probe.roles_known && probe.roles.jukebox_role {
+                    $(slots.set::<$jukebox_request>(Slot::Translate);)*
+                }
                 $(slots.set::<$request>(Slot::Translate);)*
                 slots
             }
@@ -755,6 +1007,20 @@ subsonic_requests! {
         FetchCollectionByIdsRequest => fetch_collection_by_ids_request as translate_fetch_collection_by_ids_request,
         MixQueryRequest => mix_query_request as translate_mix_query_request,
         SearchForRequest => search_for_request as translate_search_for_request,
+    }
+    jukebox_supported {
+        VolumeRequest => jukebox_volume_request as translate_volume_request,
+        SetPlaybackModeRequest => jukebox_playback_mode_request as translate_set_playback_mode_request,
+        LoadRequest => jukebox_load_request as translate_load_request,
+        PlayRequest => jukebox_play_request as translate_play_request,
+        PauseRequest => jukebox_pause_request as translate_pause_request,
+        NextRequest => jukebox_next_request as translate_next_request,
+        PreviousRequest => jukebox_previous_request as translate_previous_request,
+        SwitchRequest => jukebox_switch_request as translate_switch_request,
+        SeekRequest => jukebox_seek_request as translate_seek_request,
+        RemoveRequest => jukebox_remove_request as translate_remove_request,
+        LoadResolvedItemsRequest => jukebox_load_resolved_items_request as translate_load_resolved_items_request,
+        RefreshSessionRequest => jukebox_refresh_session_request as translate_refresh_session_request,
     }
     player {
         VolumeRequest,
@@ -806,14 +1072,22 @@ mod tests {
 
     use super::{
         fetch_collection_group_summary_request, fetch_collection_groups_request,
-        fetch_media_file_by_ids_request, search_for_request, subsonic_request_error,
+        fetch_media_file_by_ids_request, jukebox_error, search_for_request, subsonic_request_error,
     };
     use crate::{
+        TypedRequest,
+        macros::{RequestSlots, RequestTranslator},
         messages::{
-            CollectionType, FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
-            FetchMediaFileByIdsRequest, SearchForRequest,
+            CastPreflightRequest, CollectionType, FetchCollectionGroupSummaryRequest,
+            FetchCollectionGroupsRequest, FetchMediaFileByIdsRequest, LibraryItemRequest,
+            LoadRequest, LoadResolvedItemsRequest, MovePlaylistItemRequest, NextRequest,
+            PauseRequest, PlayRequest, PlayingItemRequest, PlaylistOperateMode, PreviousRequest,
+            RefreshSessionRequest, RemoveRequest, SearchForRequest, SeekRequest,
+            SessionSnapshotRequest, SetAdaptiveSwitchingEnabledRequest, SetPlaybackModeRequest,
+            SetRealtimeFFTEnabledRequest, SubsonicItemRequest, SwitchRequest, VolumeRequest,
         },
         request_error::{ExpectedRequestError, classify},
+        rpc::{Slot, TargetRequest, UnsupportedReason},
         subsonic_binding::SubsonicBinding,
         utils::{Broadcaster, RinfRustSignal},
     };
@@ -824,24 +1098,51 @@ mod tests {
     struct MockState {
         cover_calls: Arc<AtomicUsize>,
         requests: Arc<Mutex<Vec<String>>>,
+        jukebox: Arc<Mutex<MockJukebox>>,
+        jukebox_calls: Arc<Mutex<Vec<HashMap<String, String>>>>,
+    }
+
+    struct MockJukebox {
+        entries: Vec<serde_json::Value>,
+        current_index: Option<u32>,
+        playing: bool,
+        gain: f32,
+        position: u32,
+    }
+
+    impl Default for MockJukebox {
+        fn default() -> Self {
+            Self {
+                entries: vec![mock_song("track-a"), mock_song("track-b")],
+                current_index: Some(0),
+                playing: false,
+                gain: 1.0,
+                position: 0,
+            }
+        }
     }
 
     struct MockServer {
         url: String,
         state: MockState,
+        broadcasts: Arc<AtomicUsize>,
         _task: JoinHandle<()>,
     }
 
-    struct QuietBroadcaster;
+    struct CountingBroadcaster(Arc<AtomicUsize>);
 
-    impl Broadcaster for QuietBroadcaster {
-        fn broadcast(&self, _: &dyn RinfRustSignal) {}
+    impl Broadcaster for CountingBroadcaster {
+        fn broadcast(&self, _: &dyn RinfRustSignal) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
     }
 
-    async fn mock_subsonic(root: &TempDir) -> (SubsonicBinding, MockServer) {
+    async fn mock_subsonic(root: &TempDir, jukebox_role: bool) -> (SubsonicBinding, MockServer) {
         let state = MockState {
             cover_calls: Arc::new(AtomicUsize::new(0)),
             requests: Arc::new(Mutex::new(Vec::new())),
+            jukebox: Arc::new(Mutex::new(MockJukebox::default())),
+            jukebox_calls: Arc::new(Mutex::new(Vec::new())),
         };
         let app = Router::new()
             .route("/rest/{*endpoint}", get(mock_endpoint))
@@ -862,6 +1163,7 @@ mod tests {
             },
             reqwest::Client::new(),
         );
+        let broadcasts = Arc::new(AtomicUsize::new(0));
         let binding = SubsonicBinding::new(
             client,
             SubsonicProbe {
@@ -870,19 +1172,23 @@ mod tests {
                 server_type: None,
                 server_version: None,
                 extensions: Vec::new(),
-                roles: SubsonicRoles::default(),
+                roles: SubsonicRoles {
+                    jukebox_role,
+                    ..SubsonicRoles::default()
+                },
                 roles_known: true,
             },
             root.path().to_path_buf(),
             Uuid::new_v4(),
             false,
-            Arc::new(QuietBroadcaster),
+            Arc::new(CountingBroadcaster(Arc::clone(&broadcasts))),
         );
         (
             binding,
             MockServer {
                 url,
                 state,
+                broadcasts,
                 _task: task,
             },
         )
@@ -896,6 +1202,88 @@ mod tests {
         let endpoint = endpoint.trim_end_matches(".view").to_owned();
         let cover_id = query.get("id").cloned().unwrap_or_default();
         state.requests.lock().unwrap().push(endpoint.clone());
+        if endpoint == "jukeboxControl" {
+            state.jukebox_calls.lock().unwrap().push(query.clone());
+            let mut jukebox = state.jukebox.lock().unwrap();
+            let inner = match query.get("action").map(String::as_str) {
+                Some("get") | Some("status") => {
+                    let status = serde_json::json!({
+                        "currentIndex": jukebox.current_index,
+                        "playing": jukebox.playing,
+                        "gain": jukebox.gain,
+                        "position": jukebox.position,
+                    });
+                    if query.get("action").is_some_and(|action| action == "get") {
+                        serde_json::json!({"jukeboxPlaylist": {
+                            "entry": jukebox.entries.clone(),
+                            "currentIndex": jukebox.current_index,
+                            "playing": jukebox.playing,
+                            "gain": jukebox.gain,
+                            "position": jukebox.position,
+                        }})
+                    } else {
+                        serde_json::json!({"jukeboxStatus": status})
+                    }
+                }
+                Some("set") => {
+                    jukebox.entries = vec![mock_song(
+                        query.get("id").map(String::as_str).unwrap_or_default(),
+                    )];
+                    jukebox.current_index = Some(0);
+                    serde_json::json!({})
+                }
+                Some("add") => {
+                    jukebox.entries.push(mock_song(
+                        query.get("id").map(String::as_str).unwrap_or_default(),
+                    ));
+                    serde_json::json!({})
+                }
+                Some("remove") => {
+                    if let Some(index) = query
+                        .get("index")
+                        .and_then(|value| value.parse::<usize>().ok())
+                        && index < jukebox.entries.len()
+                    {
+                        jukebox.entries.remove(index);
+                    }
+                    serde_json::json!({})
+                }
+                Some("clear") => {
+                    jukebox.entries.clear();
+                    jukebox.current_index = None;
+                    serde_json::json!({})
+                }
+                Some("skip") => {
+                    jukebox.current_index = query.get("index").and_then(|value| value.parse().ok());
+                    jukebox.position = query
+                        .get("offset")
+                        .and_then(|value| value.parse().ok())
+                        .unwrap_or_default();
+                    serde_json::json!({})
+                }
+                Some("start") => {
+                    jukebox.playing = true;
+                    serde_json::json!({})
+                }
+                Some("stop") => {
+                    jukebox.playing = false;
+                    serde_json::json!({})
+                }
+                Some("setGain") => {
+                    jukebox.gain = query
+                        .get("gain")
+                        .and_then(|value| value.parse().ok())
+                        .unwrap_or_default();
+                    serde_json::json!({})
+                }
+                Some("shuffle") => {
+                    jukebox.entries.reverse();
+                    serde_json::json!({})
+                }
+                _ => serde_json::json!({}),
+            };
+            return mock_response(inner);
+        }
         if endpoint == "getCoverArt" {
             state.cover_calls.fetch_add(1, Ordering::SeqCst);
             if cover_id == "error-cover" {
@@ -925,6 +1313,14 @@ mod tests {
             }}}),
             _ => serde_json::json!({}),
         };
+        mock_response(inner)
+    }
+
+    fn mock_song(id: &str) -> serde_json::Value {
+        serde_json::json!({"id":id,"title":id,"artist":"Artist","album":"Album","duration":180})
+    }
+
+    fn mock_response(inner: serde_json::Value) -> Response<Body> {
         let mut envelope = serde_json::json!({"subsonic-response":{
             "status":"ok","version":"1.16.1"
         }});
@@ -958,7 +1354,7 @@ mod tests {
     #[tokio::test]
     async fn searched_and_browsed_covers_are_cached_locally_and_reused() {
         let root = TempDir::new().unwrap();
-        let (binding, server) = mock_subsonic(&root).await;
+        let (binding, server) = mock_subsonic(&root, false).await;
         let search = search_for_request(
             &binding,
             &SearchForRequest {
@@ -1038,10 +1434,423 @@ mod tests {
         }
     }
 
+    #[test]
+    fn jukebox_capabilities_expose_only_controls_supported_by_subsonic() {
+        let probe = SubsonicProbe {
+            api_version: "1.16.1".into(),
+            open_subsonic: false,
+            server_type: None,
+            server_version: None,
+            extensions: Vec::new(),
+            roles: SubsonicRoles {
+                jukebox_role: true,
+                ..SubsonicRoles::default()
+            },
+            roles_known: true,
+        };
+        let slots = RequestSlots::subsonic(&probe);
+        assert_eq!(PlayRequest::slot(&slots), Slot::Translate);
+        assert_eq!(PauseRequest::slot(&slots), Slot::Translate);
+        assert_eq!(NextRequest::slot(&slots), Slot::Translate);
+        assert_eq!(PreviousRequest::slot(&slots), Slot::Translate);
+        assert_eq!(SwitchRequest::slot(&slots), Slot::Translate);
+        assert_eq!(SeekRequest::slot(&slots), Slot::Translate);
+        assert_eq!(VolumeRequest::slot(&slots), Slot::Translate);
+        assert_eq!(LoadRequest::slot(&slots), Slot::Translate);
+        assert_eq!(LoadResolvedItemsRequest::slot(&slots), Slot::Translate);
+        assert_eq!(RefreshSessionRequest::slot(&slots), Slot::Translate);
+        assert_eq!(RemoveRequest::slot(&slots), Slot::Translate);
+        // Existing capability defaults remain in place for unsupported jukebox operations.
+        assert_eq!(
+            MovePlaylistItemRequest::slot(&slots),
+            Slot::Unsupported {
+                reason: UnsupportedReason::NotImplemented
+            }
+        );
+        assert_eq!(SetPlaybackModeRequest::slot(&slots), Slot::Translate);
+        assert_eq!(
+            SetRealtimeFFTEnabledRequest::slot(&slots),
+            Slot::Unsupported {
+                reason: UnsupportedReason::NotImplemented
+            }
+        );
+        assert_eq!(
+            SetAdaptiveSwitchingEnabledRequest::slot(&slots),
+            Slot::Unsupported {
+                reason: UnsupportedReason::NotImplemented
+            }
+        );
+        assert_eq!(
+            CastPreflightRequest::slot(&slots),
+            Slot::Unsupported {
+                reason: UnsupportedReason::NotImplemented
+            }
+        );
+        assert_eq!(
+            SessionSnapshotRequest::slot(&slots),
+            Slot::Unsupported {
+                reason: UnsupportedReason::NotImplemented
+            }
+        );
+    }
+
+    fn subsonic_load(
+        library_id: Uuid,
+        track_id: &str,
+        mode: PlaylistOperateMode,
+    ) -> LoadResolvedItemsRequest {
+        LoadResolvedItemsRequest {
+            target_fingerprint: None,
+            items: vec![PlayingItemRequest {
+                in_library: None,
+                independent_file: None,
+                library_item: None,
+                subsonic_item: Some(SubsonicItemRequest {
+                    library_id: library_id.to_string(),
+                    track_id: track_id.to_owned(),
+                }),
+            }],
+            start_index: Some(0),
+            mode,
+            expected_revision: None,
+            playback_mode: None,
+            position_seconds: None,
+            play: None,
+            call_id: Some(17),
+        }
+    }
+
+    #[tokio::test]
+    async fn translated_player_calls_issue_jukebox_actions_and_change_status() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, true).await;
+        let library_id = binding.library_id;
+        RequestTranslator::translate_play_request(&binding, &PlayRequest { call_id: None })
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(binding.client.jukebox_status().await.unwrap().playing);
+        RequestTranslator::translate_pause_request(&binding, &PauseRequest { call_id: None })
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!binding.client.jukebox_status().await.unwrap().playing);
+
+        RequestTranslator::translate_set_playback_mode_request(
+            &binding,
+            &SetPlaybackModeRequest {
+                mode: 3,
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let unsupported_mode = RequestTranslator::translate_set_playback_mode_request(
+            &binding,
+            &SetPlaybackModeRequest {
+                mode: 1,
+                call_id: None,
+            },
+        )
+        .await;
+        assert!(matches!(
+            unsupported_mode
+                .err()
+                .and_then(|error| error.downcast::<ExpectedRequestError>().ok()),
+            Some(ExpectedRequestError::Unsupported { .. })
+        ));
+
+        RequestTranslator::translate_switch_request(
+            &binding,
+            &SwitchRequest {
+                index: 1,
+                expected_revision: None,
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        RequestTranslator::translate_seek_request(
+            &binding,
+            &SeekRequest {
+                position_seconds: 43.0,
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let status = binding.client.jukebox_status().await.unwrap();
+        assert_eq!(status.current_index, Some(1));
+        assert_eq!(status.position_secs, Some(43));
+
+        let volume = RequestTranslator::translate_volume_request(
+            &binding,
+            &VolumeRequest {
+                volume: 0.42,
+                call_id: Some(8),
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(volume.call_id, Some(8));
+        assert_eq!(binding.client.jukebox_status().await.unwrap().gain, 0.42);
+
+        RequestTranslator::translate_load_resolved_items_request(
+            &binding,
+            &subsonic_load(library_id, "track-c", PlaylistOperateMode::Replace),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let queue = binding.client.jukebox_get().await.unwrap();
+        assert_eq!(queue.playlist.songs.len(), 1);
+        assert_eq!(queue.playlist.songs[0].id, "track-c");
+        RequestTranslator::translate_load_resolved_items_request(
+            &binding,
+            &subsonic_load(library_id, "track-d", PlaylistOperateMode::AppendToEnd),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            binding
+                .client
+                .jukebox_get()
+                .await
+                .unwrap()
+                .playlist
+                .songs
+                .len(),
+            2
+        );
+        RequestTranslator::translate_load_resolved_items_request(
+            &binding,
+            &subsonic_load(library_id, "track-e", PlaylistOperateMode::PlayNext),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            binding
+                .client
+                .jukebox_get()
+                .await
+                .unwrap()
+                .playlist
+                .songs
+                .len(),
+            3
+        );
+
+        RequestTranslator::translate_load_request(
+            &binding,
+            &LoadRequest {
+                index: 0,
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        RequestTranslator::translate_next_request(&binding, &NextRequest { call_id: None })
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            binding.client.jukebox_status().await.unwrap().current_index,
+            Some(1)
+        );
+        RequestTranslator::translate_previous_request(&binding, &PreviousRequest { call_id: None })
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            binding.client.jukebox_status().await.unwrap().current_index,
+            Some(0)
+        );
+        RequestTranslator::translate_remove_request(
+            &binding,
+            &RemoveRequest {
+                index: 1,
+                expected_revision: None,
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            binding
+                .client
+                .jukebox_get()
+                .await
+                .unwrap()
+                .playlist
+                .songs
+                .len(),
+            2
+        );
+
+        {
+            let calls = server.state.jukebox_calls.lock().unwrap();
+            assert!(
+                calls
+                    .iter()
+                    .any(|call| call.get("action").is_some_and(|action| action == "set"))
+            );
+            assert!(
+                calls
+                    .iter()
+                    .any(|call| call.get("action").is_some_and(|action| action == "add"))
+            );
+            assert!(
+                calls
+                    .iter()
+                    .any(|call| call.get("action").is_some_and(|action| action == "setGain"))
+            );
+            assert!(
+                calls
+                    .iter()
+                    .any(|call| call.get("action").is_some_and(|action| action == "remove"))
+            );
+            assert!(calls.iter().any(|call| {
+                call.get("action").is_some_and(|action| action == "skip")
+                    && call.get("index").is_some_and(|index| index == "1")
+                    && call.get("offset").is_some_and(|offset| offset == "43")
+            }));
+            assert!(
+                calls
+                    .iter()
+                    .any(|call| call.get("action").is_some_and(|action| action == "shuffle"))
+            );
+            assert!(
+                calls
+                    .iter()
+                    .any(|call| call.get("action").is_some_and(|action| action == "start"))
+            );
+            assert!(
+                calls
+                    .iter()
+                    .any(|call| call.get("action").is_some_and(|action| action == "stop"))
+            );
+        }
+        let events_before_refresh = server.broadcasts.load(Ordering::SeqCst);
+        RequestTranslator::translate_refresh_session_request(
+            &binding,
+            &RefreshSessionRequest { call_id: None },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            server.broadcasts.load(Ordering::SeqCst),
+            events_before_refresh + 2
+        );
+    }
+
+    #[tokio::test]
+    async fn non_subsonic_load_items_are_rejected_before_http() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, true).await;
+        let mut request = subsonic_load(binding.library_id, "unused", PlaylistOperateMode::Replace);
+        request.items[0].subsonic_item = None;
+        request.items[0].library_item = Some(LibraryItemRequest {
+            library_id: Uuid::new_v4().to_string(),
+            file_uuid: Uuid::new_v4().to_string(),
+        });
+        let error = match RequestTranslator::translate_load_resolved_items_request(
+            &binding, &request,
+        )
+        .await
+        {
+            Ok(_) => panic!("non-Subsonic items must be rejected"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            error.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::InvalidInput { .. })
+        ));
+        assert!(server.state.jukebox_calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn no_role_keeps_player_calls_unsupported_and_makes_no_jukebox_request() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        let slots = RequestSlots::subsonic(&binding.probe);
+        for slot in [
+            PlayRequest::slot(&slots),
+            PauseRequest::slot(&slots),
+            LoadRequest::slot(&slots),
+            NextRequest::slot(&slots),
+            PreviousRequest::slot(&slots),
+            SwitchRequest::slot(&slots),
+            SeekRequest::slot(&slots),
+            VolumeRequest::slot(&slots),
+            RemoveRequest::slot(&slots),
+            LoadResolvedItemsRequest::slot(&slots),
+            SetPlaybackModeRequest::slot(&slots),
+            MovePlaylistItemRequest::slot(&slots),
+            SetRealtimeFFTEnabledRequest::slot(&slots),
+            SetAdaptiveSwitchingEnabledRequest::slot(&slots),
+            CastPreflightRequest::slot(&slots),
+            RefreshSessionRequest::slot(&slots),
+            SessionSnapshotRequest::slot(&slots),
+        ] {
+            assert_eq!(
+                slot,
+                Slot::Unsupported {
+                    reason: UnsupportedReason::AccountRoleMissing
+                }
+            );
+        }
+        assert!(server.state.jukebox_calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn jukebox_poll_broadcasts_changes_once_and_stops_when_closed() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, true).await;
+        let binding = Arc::new(binding);
+        binding.start_jukebox_polling();
+        tokio::time::timeout(Duration::from_secs(4), async {
+            while server.broadcasts.load(Ordering::SeqCst) < 2 {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+        tokio::time::sleep(Duration::from_millis(3100)).await;
+        assert_eq!(server.broadcasts.load(Ordering::SeqCst), 2);
+        server.state.jukebox.lock().unwrap().playing = true;
+        tokio::time::timeout(Duration::from_secs(4), async {
+            while server.broadcasts.load(Ordering::SeqCst) < 4 {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+        binding.stop_jukebox_polling();
+        let stopped_count = server.broadcasts.load(Ordering::SeqCst);
+        server
+            .state
+            .jukebox
+            .lock()
+            .unwrap()
+            .entries
+            .push(mock_song("after-close"));
+        tokio::time::sleep(Duration::from_millis(3200)).await;
+        assert_eq!(server.broadcasts.load(Ordering::SeqCst), stopped_count);
+    }
+
     #[tokio::test]
     async fn browsed_collection_returns_cached_local_path_after_background_fetch() {
         let root = TempDir::new().unwrap();
-        let (binding, server) = mock_subsonic(&root).await;
+        let (binding, server) = mock_subsonic(&root, false).await;
         fetch_collection_group_summary_request(
             &binding,
             &FetchCollectionGroupSummaryRequest {
@@ -1101,5 +1910,38 @@ mod tests {
             ));
             assert_eq!(classify(&error), RequestErrorKind::PermissionDenied);
         }
+    }
+
+    #[test]
+    fn jukebox_failures_keep_authorization_unavailable_and_disabled_types() {
+        use subsonic::SubsonicServerError;
+
+        let unauthorized = jukebox_error(
+            SubsonicError::Server {
+                kind: SubsonicServerError::WrongCredentials,
+                message: "rejected".into(),
+            },
+            PlayRequest::wire_name(),
+        );
+        assert!(matches!(
+            unauthorized.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::SubsonicNotAuthorized)
+        ));
+        let unavailable = jukebox_error(
+            SubsonicError::Transport("offline".into()),
+            PlayRequest::wire_name(),
+        );
+        assert!(matches!(
+            unavailable.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::Unavailable { .. })
+        ));
+        let disabled = jukebox_error(SubsonicError::JukeboxUnsupported, PlayRequest::wire_name());
+        assert!(matches!(
+            disabled.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::Unsupported {
+                reason: UnsupportedReason::NotImplemented,
+                ..
+            })
+        ));
     }
 }

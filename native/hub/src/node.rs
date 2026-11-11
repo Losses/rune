@@ -848,6 +848,12 @@ impl NodeContext {
         record_id: Option<LibraryRecordId>,
         catalog: LibraryBinding,
     ) -> Result<u64> {
+        let jukebox_binding = match &catalog {
+            LibraryBinding::Subsonic(binding) if !binding.play_on_this_device => {
+                Some(Arc::clone(binding))
+            }
+            _ => None,
+        };
         let mut ui = self
             .ui_library
             .lock()
@@ -860,6 +866,9 @@ impl NodeContext {
         });
         drop(ui);
         self.refresh_current_player()?;
+        if let Some(binding) = jukebox_binding {
+            binding.start_jukebox_polling();
+        }
         self.publish_capabilities()?;
         Ok(generation)
     }
@@ -1043,7 +1052,7 @@ impl NodeContext {
     }
 
     async fn leave_remote_ui(&self) {
-        let remote = self.ui_library.lock().is_ok_and(|mut ui| {
+        let (remote, subsonic) = self.ui_library.lock().map_or((false, None), |mut ui| {
             let remote = matches!(
                 &*ui,
                 UiLibrary::Open(OpenLibraryState {
@@ -1051,6 +1060,13 @@ impl NodeContext {
                     ..
                 })
             );
+            let subsonic = match &*ui {
+                UiLibrary::Open(OpenLibraryState {
+                    catalog: LibraryBinding::Subsonic(binding),
+                    ..
+                }) => Some(Arc::clone(binding)),
+                _ => None,
+            };
             if matches!(
                 &*ui,
                 UiLibrary::Open(OpenLibraryState {
@@ -1065,8 +1081,11 @@ impl NodeContext {
                     .broadcast(&RendererAttachmentChanged { renderer: None });
             }
             *ui = UiLibrary::Closed;
-            remote
+            (remote, subsonic)
         });
+        if let Some(binding) = subsonic {
+            binding.stop_jukebox_polling();
+        }
         self.refresh_current_player().ok();
         if let Err(error) = self.publish_capabilities() {
             log::warn!("Could not publish request capabilities after remote UI close: {error:#}");

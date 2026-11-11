@@ -96,7 +96,7 @@ mod tests {
     use super::{RequestSlots, Slot, TargetRequest, UnsupportedReason};
     use crate::messages::{
         FetchAllPlaylistsRequest, FetchCollectionByIdsRequest, FetchMediaFileByIdsRequest,
-        PlayRequest, SearchForRequest,
+        PlayRequest, SearchForRequest, SetPlaybackModeRequest,
     };
     use subsonic::{SubsonicProbe, SubsonicRoles};
 
@@ -139,12 +139,8 @@ mod tests {
             },
             roles_known: true,
         });
-        assert_eq!(
-            PlayRequest::slot(&jukebox),
-            Slot::Unsupported {
-                reason: UnsupportedReason::NotImplemented
-            }
-        );
+        assert_eq!(PlayRequest::slot(&jukebox), Slot::Translate);
+        assert_eq!(SetPlaybackModeRequest::slot(&jukebox), Slot::Translate);
     }
 }
 
