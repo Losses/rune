@@ -7,7 +7,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::{ScrobblingClient, ScrobblingTrack};
+use crate::{ScrobblingAuthFailure, ScrobblingClient, ScrobblingTrack};
 
 impl From<&ScrobblingTrack> for Value {
     fn from(track: &ScrobblingTrack) -> Self {
@@ -78,7 +78,10 @@ impl ListenBrainzClient {
             if response.status().is_success() {
                 Ok(response)
             } else {
-                bail!("Request failed: {:?}", response.text().await?)
+                bail!(
+                    "ListenBrainz request failed with HTTP {}",
+                    response.status()
+                )
             }
         } else {
             bail!("Client is not authenticated.")
@@ -103,13 +106,26 @@ impl ScrobblingClient for ListenBrainzClient {
             let json: Value = response.json().await?;
             if json["valid"].as_bool().unwrap_or(false) {
             } else {
-                bail!(
-                    "Token invalid: {:?}",
-                    json["message"].as_str().unwrap_or("Unknown error")
-                )
+                return Err(ScrobblingAuthFailure::CredentialsRejected {
+                    detail: "ListenBrainz rejected the user token".into(),
+                }
+                .into());
             }
         } else {
-            bail!("Failed to validate token: {:?}", response.text().await?)
+            let status = response.status();
+            if status.is_server_error() {
+                return Err(ScrobblingAuthFailure::ServiceUnreachable {
+                    detail: format!("ListenBrainz validation endpoint returned HTTP {status}"),
+                }
+                .into());
+            }
+            if status.as_u16() == 401 || status.as_u16() == 403 {
+                return Err(ScrobblingAuthFailure::CredentialsRejected {
+                    detail: format!("ListenBrainz rejected the user token (HTTP {status})"),
+                }
+                .into());
+            }
+            bail!("ListenBrainz validation endpoint returned HTTP {status}")
         }
 
         self.session_key = Some(password.to_string());

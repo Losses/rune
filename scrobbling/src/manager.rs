@@ -7,8 +7,8 @@ use simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
 use tokio::{sync::Mutex, time::sleep};
 
 use crate::{
-    ScrobblingClient, ScrobblingTrack, last_fm::LastFmClient, libre_fm::LibreFmClient,
-    listen_brainz::ListenBrainzClient,
+    LastFmApiCredentialField, ScrobblingAuthFailure, ScrobblingClient, ScrobblingTrack,
+    last_fm::LastFmClient, libre_fm::LibreFmClient, listen_brainz::ListenBrainzClient,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -120,6 +120,75 @@ pub struct ScrobblingCredential {
     pub password: String,
     pub api_key: Option<String>,
     pub api_secret: Option<String>,
+}
+
+fn redact_authentication_secrets(
+    mut message: String,
+    password: &str,
+    api_key: Option<&str>,
+    api_secret: Option<&str>,
+) -> String {
+    for secret in [Some(password), api_key, api_secret].into_iter().flatten() {
+        if !secret.is_empty() {
+            message = message.replace(secret, "<redacted>");
+        }
+    }
+    message
+}
+
+fn classify_authentication_error(
+    error: anyhow::Error,
+    password: &str,
+    api_key: Option<&str>,
+    api_secret: Option<&str>,
+) -> ScrobblingAuthFailure {
+    if let Some(failure) = error.downcast_ref::<ScrobblingAuthFailure>() {
+        let redact = |detail: &str| {
+            redact_authentication_secrets(detail.to_string(), password, api_key, api_secret)
+        };
+        return match failure {
+            ScrobblingAuthFailure::CredentialsRejected { detail } => {
+                ScrobblingAuthFailure::CredentialsRejected {
+                    detail: redact(detail),
+                }
+            }
+            ScrobblingAuthFailure::ServiceUnreachable { detail } => {
+                ScrobblingAuthFailure::ServiceUnreachable {
+                    detail: redact(detail),
+                }
+            }
+            ScrobblingAuthFailure::LastFmApiCredentialsMissing(field) => {
+                ScrobblingAuthFailure::LastFmApiCredentialsMissing(*field)
+            }
+            ScrobblingAuthFailure::LastFmApiCredentialsInvalid { detail } => {
+                ScrobblingAuthFailure::LastFmApiCredentialsInvalid {
+                    detail: redact(detail),
+                }
+            }
+            ScrobblingAuthFailure::Other { detail } => ScrobblingAuthFailure::Other {
+                detail: redact(detail),
+            },
+        };
+    }
+
+    if let Some(network_error) = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<reqwest::Error>())
+        && (network_error.is_timeout() || network_error.is_connect())
+    {
+        return ScrobblingAuthFailure::ServiceUnreachable {
+            detail: redact_authentication_secrets(
+                format!("Scrobbling service is unreachable: {error:#}"),
+                password,
+                api_key,
+                api_secret,
+            ),
+        };
+    }
+
+    ScrobblingAuthFailure::Other {
+        detail: redact_authentication_secrets(format!("{error:#}"), password, api_key, api_secret),
+    }
 }
 
 impl ScrobblingManager {
@@ -282,17 +351,30 @@ impl ScrobblingServiceManager for ScrobblingManager {
             info!("Authenticating to {service} ({attempts})...");
             let result = match service {
                 ScrobblingService::LastFm => {
-                    let api_key = api_key
-                        .clone()
-                        .ok_or_else(|| anyhow::anyhow!("Last.fm requires API key"))?;
-                    let api_secret = api_secret
-                        .clone()
-                        .ok_or_else(|| anyhow::anyhow!("Last.fm requires API secret"))?;
-                    let mut client = LastFmClient::new(api_key, api_secret)?;
-                    client.authenticate(username, password).await.map(|_| {
-                        self.lastfm = Some(client);
-                        self.lastfm_error = None;
-                    })
+                    match (
+                        api_key.clone().filter(|value| !value.trim().is_empty()),
+                        api_secret.clone().filter(|value| !value.trim().is_empty()),
+                    ) {
+                        (None, _) => Err(ScrobblingAuthFailure::LastFmApiCredentialsMissing(
+                            LastFmApiCredentialField::ApiKey,
+                        )
+                        .into()),
+                        (_, None) => Err(ScrobblingAuthFailure::LastFmApiCredentialsMissing(
+                            LastFmApiCredentialField::ApiSecret,
+                        )
+                        .into()),
+                        (Some(api_key), Some(api_secret)) => {
+                            match LastFmClient::new(api_key, api_secret) {
+                                Ok(mut client) => {
+                                    client.authenticate(username, password).await.map(|_| {
+                                        self.lastfm = Some(client);
+                                        self.lastfm_error = None;
+                                    })
+                                }
+                                Err(error) => Err(error),
+                            }
+                        }
+                    }
                 }
                 ScrobblingService::LibreFm => {
                     let mut client = LibreFmClient::new()?;
@@ -320,7 +402,14 @@ impl ScrobblingServiceManager for ScrobblingManager {
                 }
                 Err(e) => {
                     attempts += 1;
-                    let error_message = e.to_string();
+                    let failure = classify_authentication_error(
+                        e,
+                        password,
+                        api_key.as_deref(),
+                        api_secret.as_deref(),
+                    );
+                    let error_message = failure.to_string();
+                    error!("Failed to authenticate to {service}: {error_message}");
                     match service {
                         ScrobblingService::LastFm => self.lastfm_error = Some(error_message),
                         ScrobblingService::LibreFm => self.librefm_error = Some(error_message),
@@ -329,12 +418,10 @@ impl ScrobblingServiceManager for ScrobblingManager {
                         }
                     }
 
-                    error!("Failed to authenticate to {service}: {e}");
-
                     if attempts >= self.max_retries || !enable_retry {
                         self.is_authenticating = false;
                         self.send_login_status().await;
-                        return Err(e);
+                        return Err(anyhow::Error::new(failure));
                     }
                     sleep(self.retry_delay).await;
                 }
@@ -386,7 +473,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
             .await;
 
             if let Err(e) = result {
-                error!("Failed to update now playing for {service}: {e}");
+                error!("Failed to update now playing for {service}");
 
                 self.error_sender.send(ScrobblingError {
                     service: *service,
@@ -518,7 +605,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
                         .await;
 
                 if let Err(e) = result {
-                    error!("Failed to scrobble to {service}: {e}");
+                    error!("Failed to scrobble to {service}");
 
                     self.error_sender.send(ScrobblingError {
                         service,
@@ -736,5 +823,45 @@ impl ScrobblingServiceManager for MockScrobblingManager {
 
     fn error_sender(&self) -> Arc<SimpleSender<ScrobblingError>> {
         Arc::clone(&self.error_sender)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{classify_authentication_error, redact_authentication_secrets};
+    use crate::ScrobblingAuthFailure;
+    use anyhow::anyhow;
+
+    #[test]
+    fn auth_error_redaction_preserves_non_secret_details() {
+        let error = redact_authentication_secrets(
+            "Authentication failed: invalid credentials for user, token-value".into(),
+            "token-value",
+            Some("api-key-value"),
+            Some("api-secret-value"),
+        );
+
+        assert_eq!(
+            error,
+            "Authentication failed: invalid credentials for user, <redacted>"
+        );
+    }
+
+    #[test]
+    fn auth_failure_classifier_redacts_secrets_from_upstream_details() {
+        let failure = classify_authentication_error(
+            anyhow!("upstream response echoed password-value, api-key-value, api-secret-value"),
+            "password-value",
+            Some("api-key-value"),
+            Some("api-secret-value"),
+        );
+
+        let ScrobblingAuthFailure::Other { detail } = failure else {
+            panic!("unexpected auth failure kind");
+        };
+        assert_eq!(
+            detail,
+            "upstream response echoed <redacted>, <redacted>, <redacted>"
+        );
     }
 }

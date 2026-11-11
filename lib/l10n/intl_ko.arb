@@ -1005,6 +1005,28 @@
   "@loginFailedSubtitle": {
     "description": "로그인 모달의 로그인 실패 버튼 부제목입니다."
   },
+  "scrobbleCredentialsRejected": "서비스에서 이 인증 정보를 거부했습니다. 사용자 이름과 비밀번호 또는 토큰을 확인하세요.",
+  "@scrobbleCredentialsRejected": {
+    "description": "Shown when a scrobbling service rejects the account credentials."
+  },
+  "scrobbleServiceUnreachable": "서비스에 연결할 수 없습니다. 연결을 확인한 후 다시 시도하세요.",
+  "@scrobbleServiceUnreachable": {
+    "description": "Shown when a scrobbling service is unreachable or times out."
+  },
+  "scrobbleLastFmApiCredentialsMissing": "Last.fm {field}이(가) 없습니다.",
+  "@scrobbleLastFmApiCredentialsMissing": {
+    "description": "Shown when the Last.fm API key or secret is missing.",
+    "placeholders": {
+      "field": {
+        "type": "String",
+        "example": "API 키"
+      }
+    }
+  },
+  "scrobbleLastFmApiCredentialsInvalid": "Last.fm에서 API 키 또는 시크릿을 거부했습니다. API 인증 정보를 확인한 후 다시 시도하세요.",
+  "@scrobbleLastFmApiCredentialsInvalid": {
+    "description": "Shown when Last.fm reports invalid API credentials."
+  },
   "lastFmSubtitle": "이 음악 추적 서비스를 통해 상세한 청취 통계를 제공합니다.",
   "@lastFmSubtitle": {
     "description": "스크로블 서비스의 서비스 설명입니다."

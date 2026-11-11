@@ -5,7 +5,7 @@ use anyhow::{Result, bail};
 use async_trait::async_trait;
 use reqwest::{Client, Response};
 
-use crate::{AuthResponse, ScrobblingClient, ScrobblingTrack};
+use crate::{AuthResponse, ScrobblingAuthFailure, ScrobblingClient, ScrobblingTrack};
 
 #[derive(Clone)]
 pub struct LibreFmClient {
@@ -55,13 +55,14 @@ impl ScrobblingClient for LibreFmClient {
         if response.status().is_success() {
             let auth_response: AuthResponse = response.json().await?;
 
-            if auth_response.error.is_some() {
-                bail!(
-                    "Authentication failed: {}",
-                    auth_response
-                        .message
-                        .unwrap_or_else(|| "Unknown error".to_string())
-                );
+            if let Some(code) = auth_response.error {
+                if code == 4 {
+                    return Err(ScrobblingAuthFailure::CredentialsRejected {
+                        detail: "Libre.fm rejected the account credentials (API error 4)".into(),
+                    }
+                    .into());
+                }
+                bail!("Libre.fm authentication failed (API error {code})");
             }
 
             if let Some(session) = auth_response.session {
@@ -71,8 +72,20 @@ impl ScrobblingClient for LibreFmClient {
                 bail!("Authentication failed: No session key returned");
             }
         } else {
-            let error_text = response.text().await?;
-            bail!("Authentication failed: {}", error_text)
+            let status = response.status();
+            if status.is_server_error() {
+                return Err(ScrobblingAuthFailure::ServiceUnreachable {
+                    detail: format!("Libre.fm authentication endpoint returned HTTP {status}"),
+                }
+                .into());
+            }
+            if status.as_u16() == 401 || status.as_u16() == 403 {
+                return Err(ScrobblingAuthFailure::CredentialsRejected {
+                    detail: format!("Libre.fm rejected the account credentials (HTTP {status})"),
+                }
+                .into());
+            }
+            bail!("Libre.fm authentication endpoint returned HTTP {status}")
         }
     }
 

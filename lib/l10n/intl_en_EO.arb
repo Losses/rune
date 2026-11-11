@@ -1005,6 +1005,28 @@
   "@loginFailedSubtitle": {
     "description": "The subtitle of the login failed button of the login modal."
   },
+  "scrobbleCredentialsRejected": "La servo rifuzis tiujn akreditaĵojn. Kontrolu vian uzantnomon kaj pasvorton aŭ ĵetonon.",
+  "@scrobbleCredentialsRejected": {
+    "description": "Shown when a scrobbling service rejects the account credentials."
+  },
+  "scrobbleServiceUnreachable": "La servo ne atingeblis. Kontrolu vian konekton kaj reprovu.",
+  "@scrobbleServiceUnreachable": {
+    "description": "Shown when a scrobbling service is unreachable or times out."
+  },
+  "scrobbleLastFmApiCredentialsMissing": "Via Last.fm {field} mankas.",
+  "@scrobbleLastFmApiCredentialsMissing": {
+    "description": "Shown when the Last.fm API key or secret is missing.",
+    "placeholders": {
+      "field": {
+        "type": "String",
+        "example": "API-Ŝlosilo"
+      }
+    }
+  },
+  "scrobbleLastFmApiCredentialsInvalid": "Last.fm rifuzis la API-ŝlosilon aŭ sekreton. Kontrolu viajn API-akreditaĵojn kaj reprovu.",
+  "@scrobbleLastFmApiCredentialsInvalid": {
+    "description": "Shown when Last.fm reports invalid API credentials."
+  },
   "lastFmSubtitle": "Provizu detalajn aŭskultajn statistikojn per ĉi tiu muzikspura servo.",
   "@lastFmSubtitle": {
     "description": "The service description of the scrobble service."

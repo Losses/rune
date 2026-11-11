@@ -2,12 +2,53 @@ use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize, SignalPiece)]
+pub enum ScrobbleApiCredentials {
+    None,
+    LastFm { api_key: String, api_secret: String },
+}
+
+#[derive(Clone, Serialize, Deserialize, SignalPiece)]
+pub enum ScrobbleSecretInput {
+    Password {
+        password: String,
+        api_credentials: ScrobbleApiCredentials,
+        replaces: Option<String>,
+    },
+    Saved {
+        credential_ref: String,
+    },
+}
+
+#[derive(Clone, Serialize, Deserialize, SignalPiece)]
+pub enum LastFmApiCredentialField {
+    ApiKey,
+    ApiSecret,
+}
+
+#[derive(Clone, Serialize, Deserialize, SignalPiece)]
+pub enum ScrobbleAuthenticationFailure {
+    CredentialsRejected,
+    ServiceUnreachable,
+    LastFmApiCredentialsMissing { field: LastFmApiCredentialField },
+    LastFmApiCredentialsInvalid,
+    Other { detail: String },
+}
+
+#[derive(Clone, Serialize, Deserialize, SignalPiece)]
+pub enum AuthenticateSingleServiceResult {
+    Success {
+        credential_ref: String,
+    },
+    Failure {
+        failure: ScrobbleAuthenticationFailure,
+    },
+}
+
+#[derive(Clone, Serialize, Deserialize, SignalPiece)]
 pub struct LoginRequestItem {
     pub service_id: String,
     pub username: String,
-    pub password: String,
-    pub api_key: Option<String>,
-    pub api_secret: Option<String>,
+    pub secret_input: ScrobbleSecretInput,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
@@ -19,8 +60,7 @@ pub struct AuthenticateSingleServiceRequest {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct AuthenticateSingleServiceResponse {
-    pub success: bool,
-    pub error: Option<String>,
+    pub result: AuthenticateSingleServiceResult,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -47,6 +87,7 @@ pub struct ScrobbleServiceStatusUpdated {
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct LogoutSingleServiceRequest {
     pub service_id: String,
+    pub credential_ref: String,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

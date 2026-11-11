@@ -1005,6 +1005,28 @@
   "@loginFailedSubtitle": {
     "description": "The subtitle of the login failed button of the login modal."
   },
+  "scrobbleCredentialsRejected": "Il servizio ha rifiutato queste credenziali. Controlla il nome utente e la password o il token.",
+  "@scrobbleCredentialsRejected": {
+    "description": "Shown when a scrobbling service rejects the account credentials."
+  },
+  "scrobbleServiceUnreachable": "Impossibile raggiungere il servizio. Controlla la connessione e riprova.",
+  "@scrobbleServiceUnreachable": {
+    "description": "Shown when a scrobbling service is unreachable or times out."
+  },
+  "scrobbleLastFmApiCredentialsMissing": "Manca il {field} di Last.fm.",
+  "@scrobbleLastFmApiCredentialsMissing": {
+    "description": "Shown when the Last.fm API key or secret is missing.",
+    "placeholders": {
+      "field": {
+        "type": "String",
+        "example": "Chiave API"
+      }
+    }
+  },
+  "scrobbleLastFmApiCredentialsInvalid": "Last.fm ha rifiutato la chiave o il segreto API. Controlla le credenziali API e riprova.",
+  "@scrobbleLastFmApiCredentialsInvalid": {
+    "description": "Shown when Last.fm reports invalid API credentials."
+  },
   "lastFmSubtitle": "Fornisce dettagliate informazioni di ascolto con questo servizio di tracciamento musicale.",
   "@lastFmSubtitle": {
     "description": "The service description of the scrobble service."

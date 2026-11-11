@@ -1045,6 +1045,28 @@
   "@listenBrainzSubtitle": {
     "description": "The service description of the scrobble service."
   },
+  "scrobbleCredentialsRejected": "The service rejected these credentials. Check your username and password or token.",
+  "@scrobbleCredentialsRejected": {
+    "description": "Shown when a scrobbling service rejects the account credentials."
+  },
+  "scrobbleServiceUnreachable": "The service could not be reached. Check your connection and try again.",
+  "@scrobbleServiceUnreachable": {
+    "description": "Shown when a scrobbling service is unreachable or times out."
+  },
+  "scrobbleLastFmApiCredentialsMissing": "Your Last.fm {field} is missing.",
+  "@scrobbleLastFmApiCredentialsMissing": {
+    "description": "Shown when the Last.fm API key or secret is missing.",
+    "placeholders": {
+      "field": {
+        "type": "String",
+        "example": "API Key"
+      }
+    }
+  },
+  "scrobbleLastFmApiCredentialsInvalid": "Last.fm rejected the API key or secret. Check your API credentials and try again.",
+  "@scrobbleLastFmApiCredentialsInvalid": {
+    "description": "Shown when Last.fm reports invalid API credentials."
+  },
   "fix": "Fix",
   "@fix": {
     "description": "The action button of the service login failed settings item."

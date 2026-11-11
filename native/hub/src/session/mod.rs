@@ -770,17 +770,25 @@ async fn handle_log_event(node: &NodeContext, item: PlayingItem, domain: String,
 }
 
 async fn handle_scrobbler_error(node: Option<Arc<NodeContext>>, error: ScrobblingError) {
+    let detail = format_scrobbler_error(&error);
+    log::warn!("{detail}");
     if let (Some(node), Some(library_id)) = (node, error.library_id.clone()) {
         if let Ok(library_id) = library_id.parse() {
             let domain = format!("scrobbler::{:?}::{:?}", error.action, error.service);
-            let detail = format!("{error:#?}");
             let _ = library_log(&node, library_id, domain, detail).await;
         } else {
-            log::warn!("Scrobbler error with invalid library context: {error:#?}");
+            log::warn!("Scrobbler error with invalid library context");
         }
     } else {
-        log::warn!("Scrobbler error without catalog context: {error:#?}");
+        log::warn!("Scrobbler error without catalog context");
     }
+}
+
+fn format_scrobbler_error(error: &ScrobblingError) -> String {
+    format!(
+        "Scrobbler {:?} for {} failed: {:#}",
+        error.action, error.service, error.error
+    )
 }
 
 fn handle_login_event(value: Vec<LoginStatus>, broadcaster: &dyn Broadcaster) {
@@ -1109,5 +1117,31 @@ impl Drop for PlayerSession {
         for task in self.tasks.get_mut().drain(..) {
             task.abort();
         }
+    }
+}
+
+#[cfg(test)]
+mod scrobbler_error_tests {
+    use anyhow::anyhow;
+    use scrobbling::manager::{ActionType, ScrobblingError, ScrobblingService};
+
+    use super::format_scrobbler_error;
+
+    #[test]
+    fn scrobbler_error_log_keeps_context_and_sanitized_cause() {
+        let error = ScrobblingError {
+            library_id: None,
+            service: ScrobblingService::ListenBrainz,
+            action: ActionType::Authenticate,
+            error: anyhow!("token rejected: <redacted>; status=401"),
+        };
+
+        let detail = format_scrobbler_error(&error);
+
+        assert!(detail.contains("Authenticate"));
+        assert!(detail.contains("ListenBrainz"));
+        assert!(detail.contains("token rejected"));
+        assert!(detail.contains("status=401"));
+        assert!(!detail.contains("secret-token-value"));
     }
 }

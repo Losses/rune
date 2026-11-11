@@ -736,6 +736,28 @@
   "@loginFailedSubtitle": {
     "description": "登入模態框中登入失敗按鈕的副標題。"
   },
+  "scrobbleCredentialsRejected": "此服務拒絕了這些憑證。請檢查您的使用者名稱與密碼或權杖。",
+  "@scrobbleCredentialsRejected": {
+    "description": "Shown when a scrobbling service rejects the account credentials."
+  },
+  "scrobbleServiceUnreachable": "無法連線至此服務。請檢查網路連線後再試一次。",
+  "@scrobbleServiceUnreachable": {
+    "description": "Shown when a scrobbling service is unreachable or times out."
+  },
+  "scrobbleLastFmApiCredentialsMissing": "缺少 Last.fm 的{field}。",
+  "@scrobbleLastFmApiCredentialsMissing": {
+    "description": "Shown when the Last.fm API key or secret is missing.",
+    "placeholders": {
+      "field": {
+        "type": "String",
+        "example": "API Key"
+      }
+    }
+  },
+  "scrobbleLastFmApiCredentialsInvalid": "Last.fm 拒絕了 API 金鑰或密鑰。請檢查 API 憑證後再試一次。",
+  "@scrobbleLastFmApiCredentialsInvalid": {
+    "description": "Shown when Last.fm reports invalid API credentials."
+  },
   "lastFmSubtitle": "透過此音樂追蹤服務提供詳細的聆聽分析。",
   "@lastFmSubtitle": {
     "description": "Scrobble服務的服務描述。"

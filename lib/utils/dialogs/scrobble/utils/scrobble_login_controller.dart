@@ -19,9 +19,15 @@ class ScrobbleLoginController {
     return LoginRequestItem(
       serviceId: serviceName,
       username: usernameController.text,
-      password: passwordController.text,
-      apiKey: apiKeyController.text,
-      apiSecret: apiSecretController.text,
+      secretInput: ScrobbleSecretInputPassword(
+        password: passwordController.text,
+        apiCredentials: serviceName == 'LastFm'
+            ? ScrobbleApiCredentialsLastFm(
+                apiKey: apiKeyController.text,
+                apiSecret: apiSecretController.text,
+              )
+            : const ScrobbleApiCredentialsNone(),
+      ),
     );
   }
 }

@@ -1003,6 +1003,28 @@
   "@loginFailedSubtitle": {
     "description": "The subtitle of the login failed button of the login modal."
   },
+  "scrobbleCredentialsRejected": "Сервіс відхилив ці облікові дані. Перевірте ім’я користувача та пароль або токен.",
+  "@scrobbleCredentialsRejected": {
+    "description": "Shown when a scrobbling service rejects the account credentials."
+  },
+  "scrobbleServiceUnreachable": "Не вдалося під’єднатися до сервісу. Перевірте з’єднання та спробуйте ще раз.",
+  "@scrobbleServiceUnreachable": {
+    "description": "Shown when a scrobbling service is unreachable or times out."
+  },
+  "scrobbleLastFmApiCredentialsMissing": "Ваш {field} Last.fm відсутній.",
+  "@scrobbleLastFmApiCredentialsMissing": {
+    "description": "Shown when the Last.fm API key or secret is missing.",
+    "placeholders": {
+      "field": {
+        "type": "String",
+        "example": "API-ключ"
+      }
+    }
+  },
+  "scrobbleLastFmApiCredentialsInvalid": "Last.fm відхилив ключ або секрет API. Перевірте облікові дані API та спробуйте ще раз.",
+  "@scrobbleLastFmApiCredentialsInvalid": {
+    "description": "Shown when Last.fm reports invalid API credentials."
+  },
   "lastFmSubtitle": "Надайте детальну статистику прослуховування за допомогою цього сервісу відстеження музики.",
   "@lastFmSubtitle": {
     "description": "The service description of the scrobble service."

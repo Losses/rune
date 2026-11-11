@@ -1003,6 +1003,28 @@
   "@loginFailedSubtitle": {
     "description": "The subtitle of the login failed button of the login modal."
   },
+  "scrobbleCredentialsRejected": "認証情報拒絶。利用者名・合言葉又は認証符号を確かめよ。",
+  "@scrobbleCredentialsRejected": {
+    "description": "Shown when a scrobbling service rejects the account credentials."
+  },
+  "scrobbleServiceUnreachable": "接続不能。通信状態を確かめ再試行せよ。",
+  "@scrobbleServiceUnreachable": {
+    "description": "Shown when a scrobbling service is unreachable or times out."
+  },
+  "scrobbleLastFmApiCredentialsMissing": "Last.fm {field} 不在。",
+  "@scrobbleLastFmApiCredentialsMissing": {
+    "description": "Shown when the Last.fm API key or secret is missing.",
+    "placeholders": {
+      "field": {
+        "type": "String",
+        "example": "応用処理制御接面鍵"
+      }
+    }
+  },
+  "scrobbleLastFmApiCredentialsInvalid": "Last.fm API 鍵又は秘密を拒絶。API 認証情報を確かめ再試行せよ。",
+  "@scrobbleLastFmApiCredentialsInvalid": {
+    "description": "Shown when Last.fm reports invalid API credentials."
+  },
   "lastFmSubtitle": "此音楽追跡業務、視聴関詳細洞察提供。",
   "@lastFmSubtitle": {
     "description": "The service description of the scrobble service."

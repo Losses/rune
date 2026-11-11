@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use md5;
 use reqwest::{Client, Response};
 
-use crate::{AuthResponse, ScrobblingClient, ScrobblingTrack};
+use crate::{AuthResponse, ScrobblingAuthFailure, ScrobblingClient, ScrobblingTrack};
 
 #[derive(Clone)]
 pub struct LastFmClient {
@@ -67,13 +67,24 @@ impl ScrobblingClient for LastFmClient {
         if response.status().is_success() {
             let auth_response: AuthResponse = response.json().await?;
 
-            if auth_response.error.is_some() {
-                bail!(
-                    "Authentication failed: {}",
-                    auth_response
-                        .message
-                        .unwrap_or_else(|| "Unknown error".to_string())
-                );
+            if let Some(code) = auth_response.error {
+                match code {
+                    4 => {
+                        return Err(ScrobblingAuthFailure::CredentialsRejected {
+                            detail: "Last.fm rejected the account credentials (API error 4)".into(),
+                        }
+                        .into());
+                    }
+                    10 | 13 | 26 => {
+                        return Err(ScrobblingAuthFailure::LastFmApiCredentialsInvalid {
+                            detail: format!(
+                                "Last.fm rejected the API credentials (API error {code})"
+                            ),
+                        }
+                        .into());
+                    }
+                    _ => bail!("Last.fm authentication failed (API error {code})"),
+                }
             }
 
             if let Some(session) = auth_response.session {
@@ -83,8 +94,20 @@ impl ScrobblingClient for LastFmClient {
                 bail!("Authentication failed: No session key returned");
             }
         } else {
-            let auth_response = response.text().await?;
-            bail!("Authentication failed: {}", auth_response);
+            let status = response.status();
+            if status.is_server_error() {
+                return Err(ScrobblingAuthFailure::ServiceUnreachable {
+                    detail: format!("Last.fm authentication endpoint returned HTTP {status}"),
+                }
+                .into());
+            }
+            if status.as_u16() == 401 || status.as_u16() == 403 {
+                return Err(ScrobblingAuthFailure::CredentialsRejected {
+                    detail: format!("Last.fm rejected the account credentials (HTTP {status})"),
+                }
+                .into());
+            }
+            bail!("Last.fm authentication endpoint returned HTTP {status}");
         }
     }
 
@@ -167,5 +190,50 @@ impl ScrobblingClient for LastFmClient {
 
     fn session_key(&self) -> Option<&str> {
         self.session_key.as_deref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
+
+    use super::LastFmClient;
+    use crate::{ScrobblingAuthFailure, ScrobblingClient};
+
+    #[tokio::test]
+    async fn authentication_response_body_cannot_echo_credentials_into_errors() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let password = "password-secret-value";
+        let api_secret = "api-secret-value";
+        let response_body =
+            format!(r#"{{"error":4,"message":"echoed {password} and {api_secret}"}}"#);
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            response_body.len(),
+            response_body
+        );
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0; 2048];
+            let _ = stream.read(&mut request).await;
+            stream.write_all(response.as_bytes()).await.unwrap();
+        });
+
+        let mut client = LastFmClient::new("api-key-value".into(), api_secret.into()).unwrap();
+        client.base_url = format!("http://{address}/");
+        let error = client.authenticate("listener", password).await.unwrap_err();
+        server.await.unwrap();
+
+        assert!(matches!(
+            error.downcast_ref::<ScrobblingAuthFailure>(),
+            Some(ScrobblingAuthFailure::CredentialsRejected { .. })
+        ));
+        assert!(!format!("{error:#}").contains(password));
+        assert!(!format!("{error:#}").contains(api_secret));
+        assert!(!format!("{error:#}").contains("api-key-value"));
     }
 }

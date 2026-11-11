@@ -8,11 +8,44 @@ use async_trait::async_trait;
 use reqwest::Response;
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LastFmApiCredentialField {
+    ApiKey,
+    ApiSecret,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ScrobblingAuthFailure {
+    CredentialsRejected { detail: String },
+    ServiceUnreachable { detail: String },
+    LastFmApiCredentialsMissing(LastFmApiCredentialField),
+    LastFmApiCredentialsInvalid { detail: String },
+    Other { detail: String },
+}
+
+impl std::fmt::Display for ScrobblingAuthFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::CredentialsRejected { detail }
+            | Self::ServiceUnreachable { detail }
+            | Self::LastFmApiCredentialsInvalid { detail }
+            | Self::Other { detail } => f.write_str(detail),
+            Self::LastFmApiCredentialsMissing(LastFmApiCredentialField::ApiKey) => {
+                f.write_str("Last.fm API key is missing")
+            }
+            Self::LastFmApiCredentialsMissing(LastFmApiCredentialField::ApiSecret) => {
+                f.write_str("Last.fm API secret is missing")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ScrobblingAuthFailure {}
+
 #[derive(Debug, Deserialize)]
 struct AuthResponse {
     session: Option<SessionInfo>,
     error: Option<i32>,
-    message: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -1003,6 +1003,28 @@
   "@loginFailedSubtitle": {
     "description": "The subtitle of the login failed button of the login modal."
   },
+  "scrobbleCredentialsRejected": "サービスがクレデンシャルをリジェクトしました。ユーザーネームとパスワードまたはトークンをチェックしてください。",
+  "@scrobbleCredentialsRejected": {
+    "description": "Shown when a scrobbling service rejects the account credentials."
+  },
+  "scrobbleServiceUnreachable": "サービスにコネクトできませんでした。コネクションをチェックしてリトライしてください。",
+  "@scrobbleServiceUnreachable": {
+    "description": "Shown when a scrobbling service is unreachable or times out."
+  },
+  "scrobbleLastFmApiCredentialsMissing": "Last.fm の {field} がミッシングです。",
+  "@scrobbleLastFmApiCredentialsMissing": {
+    "description": "Shown when the Last.fm API key or secret is missing.",
+    "placeholders": {
+      "field": {
+        "type": "String",
+        "example": "アプリケーションプログラミングインタフェースキー"
+      }
+    }
+  },
+  "scrobbleLastFmApiCredentialsInvalid": "Last.fm が API キーまたはシークレットをリジェクトしました。API クレデンシャルをチェックしてリトライしてください。",
+  "@scrobbleLastFmApiCredentialsInvalid": {
+    "description": "Shown when Last.fm reports invalid API credentials."
+  },
   "lastFmSubtitle": "このミュージックトラッキングサービスで、リスニングにインサイトをプロバイドしましょう。",
   "@lastFmSubtitle": {
     "description": "The service description of the scrobble service."

@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:collection/collection.dart';
 
 import '../../utils/l10n.dart';
+import '../../bindings/bindings.dart';
 import '../../utils/router/router_aware_flyout_controller.dart';
 import '../../utils/dialogs/scrobble/show_scrobble_login_dialog.dart';
 import '../../utils/dialogs/information/confirm.dart';
@@ -36,8 +37,9 @@ class _SettingsBoxScrobbleLoginState extends State<SettingsBoxScrobbleLogin> {
     final s = S.of(context);
     final scrobbleProvider = Provider.of<ScrobbleProvider>(context);
 
-    final serviceStatus = scrobbleProvider.serviceStatuses
-        .firstWhereOrNull((status) => status.serviceId == widget.serviceId);
+    final serviceStatus = scrobbleProvider.serviceStatuses.firstWhereOrNull(
+      (status) => status.serviceId == widget.serviceId,
+    );
 
     bool isLoggedIn = serviceStatus != null && serviceStatus.isAvailable;
     bool hasError = serviceStatus != null && serviceStatus.error.isNotEmpty;
@@ -46,33 +48,39 @@ class _SettingsBoxScrobbleLoginState extends State<SettingsBoxScrobbleLogin> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: isLoggedIn
           ? (hasError)
-              ? [
-                  Button(
-                    child: Text(s.retryLogin),
-                    onPressed: () => _retryLogin(context),
-                  ),
-                  Button(
-                    child: Text(s.logout),
-                    onPressed: () => _showLogoutConfirmation(context),
-                  ),
-                  Button(
-                    child: Text(s.edit),
-                    onPressed: () => showScrobbleLoginDialog(
-                        context, widget.serviceId, widget.title),
-                  ),
-                ]
-              : [
-                  Button(
-                    child: Text(s.logout),
-                    onPressed: () => _showLogoutConfirmation(context),
-                  )
-                ]
+                ? [
+                    Button(
+                      child: Text(s.retryLogin),
+                      onPressed: () => _retryLogin(context),
+                    ),
+                    Button(
+                      child: Text(s.logout),
+                      onPressed: () => _showLogoutConfirmation(context),
+                    ),
+                    Button(
+                      child: Text(s.edit),
+                      onPressed: () => showScrobbleLoginDialog(
+                        context,
+                        widget.serviceId,
+                        widget.title,
+                      ),
+                    ),
+                  ]
+                : [
+                    Button(
+                      child: Text(s.logout),
+                      onPressed: () => _showLogoutConfirmation(context),
+                    ),
+                  ]
           : [
               Button(
                 child: Text(s.login),
                 onPressed: () => showScrobbleLoginDialog(
-                    context, widget.serviceId, widget.title),
-              )
+                  context,
+                  widget.serviceId,
+                  widget.title,
+                ),
+              ),
             ],
     );
   }
@@ -81,11 +89,13 @@ class _SettingsBoxScrobbleLoginState extends State<SettingsBoxScrobbleLogin> {
     final s = S.of(context);
     final scrobbleProvider = Provider.of<ScrobbleProvider>(context);
 
-    final serviceStatus = scrobbleProvider.serviceStatuses
-        .firstWhereOrNull((status) => status.serviceId == widget.serviceId);
+    final serviceStatus = scrobbleProvider.serviceStatuses.firstWhereOrNull(
+      (status) => status.serviceId == widget.serviceId,
+    );
 
     bool isLoggedIn = serviceStatus != null && serviceStatus.isAvailable;
-    bool hasError = serviceStatus != null &&
+    bool hasError =
+        serviceStatus != null &&
         serviceStatus.error.isNotEmpty &&
         serviceStatus.hasCredentials;
 
@@ -99,20 +109,23 @@ class _SettingsBoxScrobbleLoginState extends State<SettingsBoxScrobbleLogin> {
                   _showErrorOptionsMenu(context);
                 } else {
                   showScrobbleLoginDialog(
-                      context, widget.serviceId, widget.title);
+                    context,
+                    widget.serviceId,
+                    widget.title,
+                  );
                 }
               },
-        child: Text(
-          isLoggedIn ? s.logout : (hasError ? s.fix : s.login),
-        ),
+        child: Text(isLoggedIn ? s.logout : (hasError ? s.fix : s.login)),
       ),
     );
   }
 
   void _retryLogin(BuildContext context) async {
     final s = S.of(context);
-    final scrobbleProvider =
-        Provider.of<ScrobbleProvider>(context, listen: false);
+    final scrobbleProvider = Provider.of<ScrobbleProvider>(
+      context,
+      listen: false,
+    );
 
     try {
       await scrobbleProvider.retryLogin(widget.serviceId);
@@ -122,7 +135,9 @@ class _SettingsBoxScrobbleLoginState extends State<SettingsBoxScrobbleLogin> {
         context: context,
         title: s.loginFailed,
         subtitle: s.loginFailedSubtitle,
-        errorMessage: e.toString(),
+        errorMessage: e is AuthenticateSingleServiceResultFailure
+            ? scrobbleAuthenticationFailureMessage(e, s)
+            : s.loginFailedSubtitle,
       );
     }
   }
@@ -139,8 +154,10 @@ class _SettingsBoxScrobbleLoginState extends State<SettingsBoxScrobbleLogin> {
       if (confirmed == true) {
         if (!context.mounted) return;
 
-        Provider.of<ScrobbleProvider>(context, listen: false)
-            .logout(widget.serviceId);
+        Provider.of<ScrobbleProvider>(
+          context,
+          listen: false,
+        ).logout(widget.serviceId);
       }
     });
   }
@@ -177,7 +194,10 @@ class _SettingsBoxScrobbleLoginState extends State<SettingsBoxScrobbleLogin> {
               onPressed: () {
                 Navigator.pop(context);
                 showScrobbleLoginDialog(
-                    context, widget.serviceId, widget.title);
+                  context,
+                  widget.serviceId,
+                  widget.title,
+                );
               },
             ),
           ],

@@ -1033,6 +1033,28 @@
   "@loginFailedSubtitle": {
     "description": "登录模态框中登录失败按钮的副标题。"
   },
+  "scrobbleCredentialsRejected": "此服务拒绝了这些凭据。请检查用户名和密码或令牌。",
+  "@scrobbleCredentialsRejected": {
+    "description": "Shown when a scrobbling service rejects the account credentials."
+  },
+  "scrobbleServiceUnreachable": "无法连接到此服务。请检查网络连接后重试。",
+  "@scrobbleServiceUnreachable": {
+    "description": "Shown when a scrobbling service is unreachable or times out."
+  },
+  "scrobbleLastFmApiCredentialsMissing": "缺少 Last.fm 的{field}。",
+  "@scrobbleLastFmApiCredentialsMissing": {
+    "description": "Shown when the Last.fm API key or secret is missing.",
+    "placeholders": {
+      "field": {
+        "type": "String",
+        "example": "API Key"
+      }
+    }
+  },
+  "scrobbleLastFmApiCredentialsInvalid": "Last.fm 拒绝了 API 密钥或密码。请检查 API 凭据后重试。",
+  "@scrobbleLastFmApiCredentialsInvalid": {
+    "description": "Shown when Last.fm reports invalid API credentials."
+  },
   "lastFmSubtitle": "使用此音乐跟踪服务提供详细的收听见解。",
   "@lastFmSubtitle": {
     "description": "scrobble 服务的描述。"

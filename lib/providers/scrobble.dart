@@ -7,17 +7,24 @@ import 'package:uuid/uuid.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:pointycastle/export.dart' as pc;
 
+import '../l10n/app_localizations.dart';
 import '../utils/settings_manager.dart';
 import '../bindings/bindings.dart';
 
 extension LoginRequestItemJson on LoginRequestItem {
+  String? get credentialRef => secretInput is ScrobbleSecretInputSaved
+      ? (secretInput as ScrobbleSecretInputSaved).credentialRef
+      : null;
+
+  bool get hasCredentials =>
+      secretInput is ScrobbleSecretInputSaved ||
+      secretInput is ScrobbleSecretInputPassword;
+
   Map<String, dynamic> toMap() {
     return {
       'serviceId': serviceId,
       'username': username,
-      'password': password,
-      if (apiKey != "") 'api_key': apiKey,
-      if (apiSecret != "") 'api_secret': apiSecret,
+      if (credentialRef != null) 'credential_ref': credentialRef,
     };
   }
 }
@@ -26,10 +33,34 @@ LoginRequestItem itemFromMap(Map<String, dynamic> json) {
   return LoginRequestItem(
     serviceId: json['serviceId'] as String,
     username: json['username'] as String,
-    password: json['password'] as String,
-    apiKey: json['api_key'] as String?,
-    apiSecret: json['api_secret'] as String?,
+    secretInput: ScrobbleSecretInputSaved(
+      credentialRef: json['credential_ref'] as String,
+    ),
   );
+}
+
+String scrobbleAuthenticationFailureMessage(
+  AuthenticateSingleServiceResultFailure result,
+  AppLocalizations strings,
+) {
+  final failure = result.failure;
+  return switch (failure) {
+    ScrobbleAuthenticationFailureCredentialsRejected() =>
+      strings.scrobbleCredentialsRejected,
+    ScrobbleAuthenticationFailureServiceUnreachable() =>
+      strings.scrobbleServiceUnreachable,
+    ScrobbleAuthenticationFailureLastFmApiCredentialsMissing(:final field) =>
+      strings.scrobbleLastFmApiCredentialsMissing(
+        field == LastFmApiCredentialField.apiKey
+            ? strings.apiKey
+            : strings.apiSecret,
+      ),
+    ScrobbleAuthenticationFailureLastFmApiCredentialsInvalid() =>
+      strings.scrobbleLastFmApiCredentialsInvalid,
+    ScrobbleAuthenticationFailureOther(:final detail) =>
+      '${strings.loginFailedSubtitle}: $detail',
+    _ => strings.loginFailedSubtitle,
+  };
 }
 
 class ServiceStatus {
@@ -71,23 +102,31 @@ class ScrobbleProvider with ChangeNotifier {
 
   final SettingsManager _settingsManager = SettingsManager();
   late StreamSubscription<RustSignalPack<ScrobbleServiceStatusUpdated>>
-      _statusSubscription;
+  _statusSubscription;
   List<ServiceStatus> _serviceStatuses = [];
   List<ServiceStatus> get serviceStatuses => _serviceStatuses;
   String _encryptionKeyValue = '';
 
   ScrobbleProvider() {
     _init();
-    _statusSubscription = ScrobbleServiceStatusUpdated.rustSignalStream
-        .listen(_handleStatusUpdate);
+    _statusSubscription = ScrobbleServiceStatusUpdated.rustSignalStream.listen(
+      _handleStatusUpdate,
+    );
   }
 
   Future<void> _init() async {
     _encryptionKeyValue = await _getOrGenerateEncryptionKey();
-    List<LoginRequestItem> storedCredentials = await _getStoredCredentials();
+    late final List<LoginRequestItem> storedCredentials;
+    try {
+      storedCredentials = await _getStoredCredentials();
+    } catch (_) {
+      await _settingsManager.removeValue(credentialsKey);
+      return;
+    }
     if (storedCredentials.isNotEmpty) {
-      AuthenticateMultipleServiceRequest(requests: storedCredentials)
-          .sendSignalToRust();
+      AuthenticateMultipleServiceRequest(
+        requests: storedCredentials,
+      ).sendSignalToRust();
     }
   }
 
@@ -105,8 +144,9 @@ class ScrobbleProvider with ChangeNotifier {
   }
 
   Future<List<LoginRequestItem>> _getStoredCredentials() async {
-    String? encryptedData =
-        await _settingsManager.getValue<String>(credentialsKey);
+    String? encryptedData = await _settingsManager.getValue<String>(
+      credentialsKey,
+    );
     if (encryptedData == null) return [];
 
     String decryptedData = _decrypt(encryptedData);
@@ -115,18 +155,16 @@ class ScrobbleProvider with ChangeNotifier {
   }
 
   Future<void> retryLogin(String serviceId) async {
-    // Retrieve stored credentials
-    List<LoginRequestItem> storedCredentials = await _getStoredCredentials();
-
-    // Find the credentials for the given serviceId
-    LoginRequestItem? credentials = storedCredentials.firstWhere(
-      (item) => item.serviceId == serviceId,
-      orElse: () =>
-          throw Exception('No credentials found for serviceId: $serviceId'),
-    );
-
     // Send login request using the found credentials
-    AuthenticateSingleServiceRequest(request: credentials).sendSignalToRust();
+    final stored = await _storedCredential(serviceId);
+    final request = LoginRequestItem(
+      serviceId: stored.serviceId,
+      username: stored.username,
+      secretInput: ScrobbleSecretInputSaved(
+        credentialRef: stored.credentialRef!,
+      ),
+    );
+    AuthenticateSingleServiceRequest(request: request).sendSignalToRust();
 
     // Wait for the response
     final rustSignal =
@@ -134,70 +172,110 @@ class ScrobbleProvider with ChangeNotifier {
     final response = rustSignal.message;
 
     // Handle the response
-    if (!response.success) {
-      throw response.error ?? "Unknown error";
-    }
+    final result = response.result;
+    if (result is AuthenticateSingleServiceResultFailure) throw result;
   }
 
   Future<void> login(LoginRequestItem credentials) async {
-    AuthenticateSingleServiceRequest(request: credentials).sendSignalToRust();
+    final storedCredentials = await _getStoredCredentials();
+    final previous = storedCredentials.where(
+      (item) => item.serviceId == credentials.serviceId,
+    );
+    final oldReference = previous.isEmpty ? null : previous.first.credentialRef;
+    final loginRequest = LoginRequestItem(
+      serviceId: credentials.serviceId,
+      username: credentials.username,
+      secretInput: switch (credentials.secretInput) {
+        ScrobbleSecretInputPassword(:final password, :final apiCredentials) =>
+          ScrobbleSecretInputPassword(
+            password: password,
+            apiCredentials: apiCredentials,
+            replaces: oldReference,
+          ),
+        ScrobbleSecretInputSaved() => credentials.secretInput,
+        _ => credentials.secretInput,
+      },
+    );
+    AuthenticateSingleServiceRequest(request: loginRequest).sendSignalToRust();
 
     final rustSignal =
         await AuthenticateSingleServiceResponse.rustSignalStream.first;
     final response = rustSignal.message;
 
-    if (!response.success) {
-      throw response.error ?? "Unknown error";
-    }
-
-    // Read existing credentials
-    List<LoginRequestItem> storedCredentials = await _getStoredCredentials();
-
-    // Check if the same serviceId already exists, update if it does, otherwise add
-    int existingIndex = storedCredentials
-        .indexWhere((item) => item.serviceId == credentials.serviceId);
-    if (existingIndex != -1) {
-      storedCredentials[existingIndex] = credentials;
+    final result = response.result;
+    if (result is AuthenticateSingleServiceResultFailure) throw result;
+    final reference =
+        (result as AuthenticateSingleServiceResultSuccess).credentialRef;
+    final replacement = LoginRequestItem(
+      serviceId: credentials.serviceId,
+      username: credentials.username,
+      secretInput: ScrobbleSecretInputSaved(credentialRef: reference),
+    );
+    final existingIndex = storedCredentials.indexWhere(
+      (item) => item.serviceId == credentials.serviceId,
+    );
+    if (existingIndex == -1) {
+      storedCredentials.add(replacement);
     } else {
-      storedCredentials.add(credentials);
+      storedCredentials[existingIndex] = replacement;
     }
-
-    // Save the updated list of credentials back
-    String encryptedData = _encrypt(
-        jsonEncode(storedCredentials.map((item) => item.toMap()).toList()));
-    await _settingsManager.setValue(credentialsKey, encryptedData);
+    await _saveCredentials(storedCredentials);
   }
 
   Future<void> logout(String serviceId) async {
     // Send logout request to the backend
-    LogoutSingleServiceRequest(serviceId: serviceId).sendSignalToRust();
-
-    // Remove the service from stored credentials
     List<LoginRequestItem> storedCredentials = await _getStoredCredentials();
+    final matches = storedCredentials.where(
+      (item) => item.serviceId == serviceId,
+    );
+    final stored = matches.isEmpty ? null : matches.first;
+    final storedReference = stored?.credentialRef;
+    if (storedReference == null) return;
+    LogoutSingleServiceRequest(
+      serviceId: serviceId,
+      credentialRef: storedReference,
+    ).sendSignalToRust();
     storedCredentials.removeWhere((item) => item.serviceId == serviceId);
-
-    // Save the updated list of credentials
-    String encryptedData = _encrypt(
-        jsonEncode(storedCredentials.map((item) => item.toMap()).toList()));
-    await _settingsManager.setValue(credentialsKey, encryptedData);
+    await _saveCredentials(storedCredentials);
   }
 
   Future<void> _handleStatusUpdate(
-      RustSignalPack<ScrobbleServiceStatusUpdated> signal) async {
+    RustSignalPack<ScrobbleServiceStatusUpdated> signal,
+  ) async {
     List<LoginRequestItem> storedCredentials = await _getStoredCredentials();
-    Set<String> credentialServiceIds =
-        storedCredentials.map((c) => c.serviceId).toSet();
+    Set<String> credentialServiceIds = storedCredentials
+        .where((item) => item.hasCredentials)
+        .map((c) => c.serviceId)
+        .toSet();
 
     _serviceStatuses = signal.message.services
-        .map((status) => ServiceStatus(
-              serviceId: status.serviceId,
-              isAvailable: status.isAvailable,
-              hasCredentials: credentialServiceIds.contains(status.serviceId),
-              error: status.error ?? "",
-            ))
+        .map(
+          (status) => ServiceStatus(
+            serviceId: status.serviceId,
+            isAvailable: status.isAvailable,
+            hasCredentials: credentialServiceIds.contains(status.serviceId),
+            error: status.error ?? "",
+          ),
+        )
         .toList();
 
     notifyListeners();
+  }
+
+  Future<LoginRequestItem> _storedCredential(String serviceId) async {
+    final storedCredentials = await _getStoredCredentials();
+    return storedCredentials.firstWhere(
+      (item) => item.serviceId == serviceId && item.credentialRef != null,
+      orElse: () =>
+          throw Exception('No credentials found for serviceId: $serviceId'),
+    );
+  }
+
+  Future<void> _saveCredentials(List<LoginRequestItem> credentials) async {
+    final encryptedData = _encrypt(
+      jsonEncode(credentials.map((item) => item.toMap()).toList()),
+    );
+    await _settingsManager.setValue(credentialsKey, encryptedData);
   }
 
   String _encrypt(String data) {
@@ -205,12 +283,16 @@ class ScrobbleProvider with ChangeNotifier {
     final iv = Uint8List(16);
 
     final pc.KeyParameter keyParam = pc.KeyParameter(Uint8List.fromList(key));
-    final pc.ParametersWithIV<pc.KeyParameter> params =
-        pc.ParametersWithIV(keyParam, iv);
+    final pc.ParametersWithIV<pc.KeyParameter> params = pc.ParametersWithIV(
+      keyParam,
+      iv,
+    );
 
-    final pc
-        .PaddedBlockCipherParameters<pc.CipherParameters, pc.CipherParameters>
-        paddedParams = pc.PaddedBlockCipherParameters(params, null);
+    final pc.PaddedBlockCipherParameters<
+      pc.CipherParameters,
+      pc.CipherParameters
+    >
+    paddedParams = pc.PaddedBlockCipherParameters(params, null);
 
     final pc.BlockCipher cipher = pc.PaddedBlockCipher('AES/CBC/PKCS7');
     cipher.init(true, paddedParams);
@@ -226,12 +308,16 @@ class ScrobbleProvider with ChangeNotifier {
     final iv = Uint8List(16);
 
     final pc.KeyParameter keyParam = pc.KeyParameter(Uint8List.fromList(key));
-    final pc.ParametersWithIV<pc.KeyParameter> params =
-        pc.ParametersWithIV(keyParam, iv);
+    final pc.ParametersWithIV<pc.KeyParameter> params = pc.ParametersWithIV(
+      keyParam,
+      iv,
+    );
 
-    final pc
-        .PaddedBlockCipherParameters<pc.CipherParameters, pc.CipherParameters>
-        paddedParams = pc.PaddedBlockCipherParameters(params, null);
+    final pc.PaddedBlockCipherParameters<
+      pc.CipherParameters,
+      pc.CipherParameters
+    >
+    paddedParams = pc.PaddedBlockCipherParameters(params, null);
 
     final pc.BlockCipher cipher = pc.PaddedBlockCipher('AES/CBC/PKCS7');
     cipher.init(false, paddedParams);
