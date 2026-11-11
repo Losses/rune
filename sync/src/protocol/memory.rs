@@ -160,6 +160,34 @@ impl<M: SyncModel> MemorySyncStore<M> {
             }),
         })
     }
+
+    /// Adopt a verified genesis checkpoint for a retained source history.
+    /// This is the pull glue's fast path when the peer advertises floor zero.
+    pub fn adopt_genesis_checkpoint(
+        &self,
+        key: CheckpointKey,
+        progress: ReceiveProgress,
+    ) -> Result<()> {
+        let mut state = self.lock()?;
+        if key.namespace != state.core.identity.namespace || progress.sequence != 0 {
+            return Err(SyncError::Invalid(
+                "invalid genesis checkpoint adoption".into(),
+            ));
+        }
+        let source = StoreIdentity {
+            namespace: key.namespace,
+            model: state.core.identity.model.clone(),
+            replica: key.source_replica,
+            generation: key.source_generation,
+        };
+        if progress.anchor != initial_anchor(&source)? {
+            return Err(SyncError::Invalid(
+                "genesis checkpoint anchor mismatch".into(),
+            ));
+        }
+        set_checkpoint(&mut state.checkpoints, key, progress);
+        Ok(())
+    }
     fn lock(&self) -> Result<MutexGuard<'_, State<M>>> {
         let mut state = self
             .state

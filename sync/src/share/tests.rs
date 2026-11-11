@@ -1,12 +1,16 @@
 use super::*;
 use crate::protocol::{
-    Event, KeyDelta, KeyRange, ModelId, ObjectKey as SyncObjectKey, RangeSummary,
-    Result as ProtocolResult, Revision, StoreIdentity, SyncModel, event_digest, initial_anchor,
-    next_anchor,
+    ApplyLimits, CheckpointKey, Coordinator, DEFAULT_LOGICAL_BYTES, DEFAULT_LOGICAL_ITEMS,
+    DEFAULT_STAGE_BYTES, DEFAULT_STAGES, Event, EventRef, HistoryStatus, KeyDelta, KeyRange,
+    LocalAuthor, MemorySyncStore, ModelId, ObjectKey as SyncObjectKey, PageLimits, PageRead,
+    PageRequest, RangeSummary, ReceiveProgress, ReceiveStore, Result as ProtocolResult, Revision,
+    Scope, SessionAdvance, SessionLimits, StageLimits, StoreIdentity, SyncError, SyncModel,
+    SyncPeer, SyncStore, WorkLimits, decode_event, event_digest, fragment_digest, initial_anchor,
+    next_anchor, scope_id,
 };
 use flate2::read::GzDecoder;
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, io::Read, time::Duration};
+use std::{collections::BTreeMap, io::Read, sync::Arc, time::Duration};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -109,6 +113,803 @@ fn segment_fixture() -> Segment<Model> {
         }],
         last_anchor: last,
     }
+}
+
+struct PeerFixture {
+    objects: Arc<MemoryObjectStore>,
+    source: Arc<MemorySyncStore<Model>>,
+    identity: StoreIdentity,
+    head: Head,
+}
+
+fn share_scope() -> Scope<Model> {
+    Scope {
+        collections: [Collection::Notes].into_iter().collect(),
+    }
+}
+
+fn share_limits() -> SessionLimits {
+    SessionLimits {
+        pages: PageLimits {
+            max_scanned: 8,
+            max_bytes: 256 * 1024,
+        },
+        stages: StageLimits {
+            max_total_bytes: DEFAULT_STAGE_BYTES,
+            max_stages: DEFAULT_STAGES,
+            max_event_bytes: DEFAULT_LOGICAL_BYTES,
+            max_event_items: DEFAULT_LOGICAL_ITEMS,
+            max_fragment_bytes: 64 * 1024,
+        },
+        apply: ApplyLimits {
+            max_projection_items: 8,
+            max_projection_bytes: 256 * 1024,
+            max_mutations: 1024,
+        },
+        work: WorkLimits {
+            max_requests: 128,
+            max_bytes: 4 * 1024 * 1024,
+            max_depth: 32,
+            max_rows_scanned: 64,
+            max_mutations: 4096,
+        },
+    }
+}
+
+fn share_prefix(identity: &StoreIdentity) -> String {
+    format!("{}.{}", identity.replica, identity.generation)
+}
+
+async fn peer_fixture(count: u64) -> PeerFixture {
+    let identity = StoreIdentity {
+        namespace: Uuid::from_u128(1),
+        model: ModelId {
+            model: Model::model_id().into(),
+            schema: Model::schema_id().into(),
+        },
+        replica: Uuid::from_u128(20),
+        generation: Uuid::from_u128(21),
+    };
+    let source = Arc::new(
+        MemorySyncStore::<Model>::new(
+            identity.clone(),
+            LocalAuthor {
+                author: Uuid::from_u128(22),
+                writer_incarnation: Uuid::from_u128(23),
+            },
+        )
+        .unwrap(),
+    );
+    for n in 1..=count {
+        source
+            .write_local(
+                SyncObjectKey {
+                    collection: Collection::Notes,
+                    id: Uuid::from_u128(100 + u128::from(n)),
+                },
+                Some(Payload {
+                    text: format!("note {n}"),
+                }),
+            )
+            .await
+            .unwrap();
+    }
+    let initial = initial_anchor(&identity).unwrap();
+    let page = match source
+        .read_page(PageRequest {
+            source: identity.clone(),
+            scope: share_scope(),
+            after: ReceiveProgress {
+                sequence: 0,
+                anchor: initial,
+            },
+            through: source.head().await.unwrap(),
+            limits: share_limits().pages,
+        })
+        .await
+        .unwrap()
+    {
+        PageRead::Page(page) => page,
+        PageRead::FragmentNeeded { .. } => panic!("small share fixture unexpectedly fragmented"),
+    };
+    let mut previous = initial;
+    let mut segments = Vec::new();
+    let mut references = Vec::new();
+    for scan in page.links {
+        let Some(EventRef::Inline(event)) = scan.event else {
+            panic!("fixture event missing");
+        };
+        let anchor =
+            next_anchor::<Model>(previous, scan.sequence, &scan.collection, scan.event_digest)
+                .unwrap();
+        let segment = Segment {
+            format: FORMAT_VERSION,
+            prev_anchor: previous,
+            links: vec![SegmentLink {
+                seq: scan.sequence,
+                collection: scan.collection,
+                event,
+            }],
+            last_anchor: anchor,
+        };
+        let bytes = encode_segment(&segment).unwrap();
+        let name = blake3::hash(&bytes).to_hex()[..16].to_owned();
+        references.push(SegmentRef {
+            level: 0,
+            first: scan.sequence,
+            last: scan.sequence,
+            prev_anchor: previous,
+            last_anchor: anchor,
+            name: name.clone(),
+            bytes: bytes.len() as u64,
+        });
+        segments.push((scan.sequence, name, bytes));
+        previous = anchor;
+    }
+    let prefix = share_prefix(&identity);
+    let objects = Arc::new(MemoryObjectStore::default());
+    objects
+        .put(
+            &library_key(),
+            &encode_library(&LibraryFile {
+                format: FORMAT_VERSION,
+                library_id: identity.namespace,
+                model: identity.model.model.clone(),
+                schema: identity.model.schema.clone(),
+            })
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    for (sequence, name, bytes) in segments {
+        objects
+            .put(
+                &segment_key(&prefix, sequence, sequence, &name).unwrap(),
+                &bytes,
+            )
+            .await
+            .unwrap();
+    }
+    let head = Head {
+        format: FORMAT_VERSION,
+        library_id: identity.namespace,
+        stream: identity.replica,
+        generation: identity.generation,
+        local_replica: Uuid::from_u128(24),
+        writer_session: Uuid::from_u128(25),
+        counter: 1,
+        head: Checkpoint {
+            seq: count,
+            anchor: previous,
+        },
+        floor: Checkpoint {
+            seq: 0,
+            anchor: initial,
+        },
+        floor_base: FloorBase {
+            owner_prefix: prefix.clone(),
+            base_id: "a".repeat(64),
+            covers_seq: 0,
+            covers_anchor: initial,
+        },
+        segments: references,
+        bases: Vec::new(),
+        acks: BTreeMap::new(),
+        local_cursor: count,
+        retired: Vec::new(),
+        updated_ms: 0,
+    };
+    objects
+        .put(&head_key(&prefix, 1).unwrap(), &encode_head(&head).unwrap())
+        .await
+        .unwrap();
+    PeerFixture {
+        objects,
+        source,
+        identity,
+        head,
+    }
+}
+
+fn checkpoint_key(identity: &StoreIdentity) -> CheckpointKey {
+    CheckpointKey {
+        namespace: identity.namespace,
+        source_replica: identity.replica,
+        source_generation: identity.generation,
+        scope_id: scope_id(&share_scope()).unwrap(),
+    }
+}
+
+async fn coordinator_pull(fixture: &PeerFixture, target: &MemorySyncStore<Model>) {
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        share_prefix(&fixture.identity),
+    )
+    .unwrap();
+    let mut coordinator = Coordinator::new(share_scope(), share_limits()).unwrap();
+    for _ in 0..3000 {
+        match coordinator
+            .advance(target, target, target, &peer, target)
+            .await
+            .unwrap()
+        {
+            SessionAdvance::Complete(_) => return,
+            SessionAdvance::BudgetExhausted => coordinator.start_pass(),
+            SessionAdvance::Incomplete => (),
+            SessionAdvance::Cancelled => panic!("unexpected cancellation"),
+        }
+    }
+    panic!("share peer coordinator did not finish");
+}
+
+#[tokio::test]
+async fn share_peer_identity_and_history_statuses_follow_head_and_anchors() {
+    let fixture = peer_fixture(3).await;
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        share_prefix(&fixture.identity),
+    )
+    .unwrap();
+    let identity = peer.identity().await.unwrap();
+    assert_eq!(identity, fixture.identity);
+    let key = checkpoint_key(&identity);
+    let initial = ReceiveProgress {
+        sequence: 0,
+        anchor: initial_anchor(&identity).unwrap(),
+    };
+    assert!(matches!(
+        peer.history_status(&key, None).await.unwrap(),
+        HistoryStatus::Uninitialized { .. }
+    ));
+    assert!(matches!(
+        peer.history_status(
+            &key,
+            Some(ReceiveProgress {
+                sequence: 4,
+                anchor: [1; 32]
+            })
+        )
+        .await
+        .unwrap(),
+        HistoryStatus::HeadBehind { head: 3 }
+    ));
+    assert!(matches!(
+        peer.history_status(
+            &key,
+            Some(ReceiveProgress {
+                sequence: 1,
+                anchor: [9; 32]
+            })
+        )
+        .await
+        .unwrap(),
+        HistoryStatus::AnchorMismatch { .. }
+    ));
+    assert!(matches!(
+        peer.history_status(&key, Some(initial.clone()))
+            .await
+            .unwrap(),
+        HistoryStatus::Continuous { .. }
+    ));
+    let other_generation = CheckpointKey {
+        source_generation: Uuid::from_u128(999),
+        ..key.clone()
+    };
+    assert!(matches!(
+        peer.history_status(&other_generation, Some(initial.clone()))
+            .await
+            .unwrap(),
+        HistoryStatus::GenerationChanged { .. }
+    ));
+    assert_eq!(peer.genesis_checkpoint().await.unwrap(), Some(initial));
+}
+
+#[tokio::test]
+async fn share_peer_reports_below_floor_and_missing_referenced_segments() {
+    let fixture = peer_fixture(3).await;
+    let prefix = share_prefix(&fixture.identity);
+    let mut head = fixture.head.clone();
+    head.floor = Checkpoint {
+        seq: 1,
+        anchor: head.segments[0].last_anchor,
+    };
+    head.floor_base.covers_seq = 1;
+    head.floor_base.covers_anchor = head.floor.anchor;
+    head.counter = 2;
+    fixture
+        .objects
+        .put(&head_key(&prefix, 0).unwrap(), &encode_head(&head).unwrap())
+        .await
+        .unwrap();
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        prefix.clone(),
+    )
+    .unwrap();
+    let key = checkpoint_key(&fixture.identity);
+    assert!(matches!(
+        peer.history_status(
+            &key,
+            Some(ReceiveProgress {
+                sequence: 0,
+                anchor: initial_anchor(&fixture.identity).unwrap()
+            })
+        )
+        .await
+        .unwrap(),
+        HistoryStatus::BelowFloor { .. }
+    ));
+
+    let current = fixture.head.segments[1].clone();
+    fixture
+        .objects
+        .delete(&segment_key(&prefix, current.first, current.last, &current.name).unwrap())
+        .await
+        .unwrap();
+    let checkpoint = ReceiveProgress {
+        sequence: 2,
+        anchor: current.last_anchor,
+    };
+    assert!(matches!(
+        peer.history_status(&key, Some(checkpoint)).await.unwrap(),
+        HistoryStatus::BelowFloor { .. }
+    ));
+}
+
+#[tokio::test]
+async fn share_peer_uses_highest_valid_head_and_rejects_two_torn_slots() {
+    let fixture = peer_fixture(2).await;
+    let prefix = share_prefix(&fixture.identity);
+    fixture
+        .objects
+        .put(
+            &head_key(&prefix, 0).unwrap(),
+            &encode_head(&fixture.head).unwrap(),
+        )
+        .await
+        .unwrap();
+    fixture
+        .objects
+        .put(&head_key(&prefix, 1).unwrap(), b"torn")
+        .await
+        .unwrap();
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        prefix.clone(),
+    )
+    .unwrap();
+    assert_eq!(peer.head().await.unwrap().sequence, 2);
+    fixture
+        .objects
+        .put(&head_key(&prefix, 0).unwrap(), b"torn")
+        .await
+        .unwrap();
+    assert!(matches!(peer.head().await, Err(SyncError::Storage(_))));
+}
+
+#[tokio::test]
+async fn share_peer_page_verifies_links_and_maps_503_to_transient_error() {
+    let fixture = peer_fixture(1).await;
+    let prefix = share_prefix(&fixture.identity);
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        prefix.clone(),
+    )
+    .unwrap();
+    let request = PageRequest {
+        source: fixture.identity.clone(),
+        scope: share_scope(),
+        after: ReceiveProgress {
+            sequence: 0,
+            anchor: initial_anchor(&fixture.identity).unwrap(),
+        },
+        through: peer.head().await.unwrap(),
+        limits: share_limits().pages,
+    };
+    fixture.objects.inject_error(
+        StoreOperation::Get,
+        StoreError::Transient("HTTP 503".into()),
+    );
+    assert!(matches!(
+        peer.read_page(request.clone()).await,
+        Err(SyncError::Transport(_))
+    ));
+    fixture.objects.clear_error(StoreOperation::Get);
+    let reference = fixture.head.segments[0].clone();
+    let key = segment_key(&prefix, reference.first, reference.last, &reference.name).unwrap();
+    let original = fixture.objects.get(&key).await.unwrap();
+    let mut altered = decode_segment::<Model>(&original.bytes).unwrap();
+    let (sequence, collection, digest) = {
+        let link = &mut altered.links[0];
+        let Event::Key(delta) = &mut link.event else {
+            panic!("fixture event should be a key event");
+        };
+        delta.author.counter += 1;
+        if let Some(candidate) = delta.added.first_mut() {
+            candidate.revision = delta.author;
+        }
+        (
+            link.seq,
+            link.collection.clone(),
+            event_digest(&link.event).unwrap(),
+        )
+    };
+    altered.last_anchor =
+        next_anchor::<Model>(altered.prev_anchor, sequence, &collection, digest).unwrap();
+    fixture
+        .objects
+        .put(&key, &encode_segment(&altered).unwrap())
+        .await
+        .unwrap();
+    assert!(matches!(
+        peer.read_page(request).await,
+        Err(SyncError::NeedsReconciliation(
+            HistoryStatus::BelowFloor { .. }
+        ))
+    ));
+}
+
+#[tokio::test]
+async fn share_peer_large_event_fragments_are_read_from_segment_bytes() {
+    let fixture = peer_fixture(1).await;
+    let event_record = fixture
+        .source
+        .write_local(
+            SyncObjectKey {
+                collection: Collection::Notes,
+                id: Uuid::from_u128(777),
+            },
+            Some(Payload {
+                text: "large event ".repeat(1000),
+            }),
+        )
+        .await
+        .unwrap();
+    let after = fixture.source.head().await.unwrap();
+    let source_page = match fixture
+        .source
+        .read_page(PageRequest {
+            source: fixture.identity.clone(),
+            scope: share_scope(),
+            after: ReceiveProgress {
+                sequence: 1,
+                anchor: fixture.head.head.anchor,
+            },
+            through: after.clone(),
+            limits: share_limits().pages,
+        })
+        .await
+        .unwrap()
+    {
+        PageRead::Page(page) => page,
+        PageRead::FragmentNeeded { .. } => {
+            panic!("large fixture source page unexpectedly fragmented")
+        }
+    };
+    let scan = &source_page.links[0];
+    let EventRef::Inline(event) = scan.event.clone().unwrap() else {
+        panic!("event missing")
+    };
+    let bytes = encode_segment(&Segment {
+        format: FORMAT_VERSION,
+        prev_anchor: fixture.head.head.anchor,
+        links: vec![SegmentLink {
+            seq: scan.sequence,
+            collection: scan.collection.clone(),
+            event: event.clone(),
+        }],
+        last_anchor: after.anchor,
+    })
+    .unwrap();
+    let name = blake3::hash(&bytes).to_hex()[..16].to_owned();
+    let prefix = share_prefix(&fixture.identity);
+    fixture
+        .objects
+        .put(&segment_key(&prefix, 2, 2, &name).unwrap(), &bytes)
+        .await
+        .unwrap();
+    let mut head = fixture.head.clone();
+    head.counter = 2;
+    head.head = Checkpoint {
+        seq: 2,
+        anchor: after.anchor,
+    };
+    head.segments.push(SegmentRef {
+        level: 0,
+        first: 2,
+        last: 2,
+        prev_anchor: fixture.head.head.anchor,
+        last_anchor: after.anchor,
+        name,
+        bytes: bytes.len() as u64,
+    });
+    fixture
+        .objects
+        .put(&head_key(&prefix, 0).unwrap(), &encode_head(&head).unwrap())
+        .await
+        .unwrap();
+
+    let peer = SharePeer::<Model>::new(fixture.objects.clone(), fixture.identity.namespace, prefix)
+        .unwrap();
+    let request = PageRequest {
+        source: fixture.identity.clone(),
+        scope: share_scope(),
+        after: ReceiveProgress {
+            sequence: 1,
+            anchor: fixture.head.head.anchor,
+        },
+        through: after,
+        limits: PageLimits {
+            max_scanned: 8,
+            max_bytes: 4096,
+        },
+    };
+    let PageRead::FragmentNeeded {
+        manifest,
+        sequence,
+        event_digest: digest,
+        ..
+    } = peer.read_page(request).await.unwrap()
+    else {
+        panic!("large event did not request fragments");
+    };
+    assert_eq!(sequence, 2);
+    let mut encoded = Vec::new();
+    for ordinal in 0..manifest.fragment_count {
+        let fragment = peer
+            .read_fragment(manifest.clone(), ordinal, 4096)
+            .await
+            .unwrap();
+        assert_eq!(fragment.offset, encoded.len() as u64);
+        assert_eq!(fragment.digest, fragment_digest(&fragment).unwrap());
+        encoded.extend(fragment.bytes);
+    }
+    assert_eq!(
+        event_digest(&decode_event::<Model>(&encoded).unwrap()).unwrap(),
+        digest
+    );
+    assert_eq!(
+        event_record.value,
+        Some(Payload {
+            text: "large event ".repeat(1000)
+        })
+    );
+}
+
+#[tokio::test]
+async fn share_peer_coordinator_keeps_receiver_unchanged_on_503() {
+    let fixture = peer_fixture(1).await;
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        share_prefix(&fixture.identity),
+    )
+    .unwrap();
+    let target = MemorySyncStore::<Model>::new(
+        StoreIdentity {
+            replica: Uuid::from_u128(41),
+            generation: Uuid::from_u128(42),
+            ..fixture.identity.clone()
+        },
+        LocalAuthor {
+            author: Uuid::from_u128(43),
+            writer_incarnation: Uuid::from_u128(44),
+        },
+    )
+    .unwrap();
+    let key = checkpoint_key(&fixture.identity);
+    target
+        .adopt_genesis_checkpoint(
+            key.clone(),
+            peer.genesis_checkpoint().await.unwrap().unwrap(),
+        )
+        .unwrap();
+    let before = target.head().await.unwrap();
+    let before_checkpoint = target.checkpoint(&key).await.unwrap();
+    fixture.objects.inject_error(
+        StoreOperation::Get,
+        StoreError::Transient("HTTP 503".into()),
+    );
+    let mut coordinator = Coordinator::new(share_scope(), share_limits()).unwrap();
+    let result = coordinator
+        .advance(&target, &target, &target, &peer, &target)
+        .await;
+    assert!(matches!(result, Err(SyncError::Transport(_))));
+    assert_eq!(target.head().await.unwrap(), before);
+    assert_eq!(target.checkpoint(&key).await.unwrap(), before_checkpoint);
+}
+
+#[tokio::test]
+async fn share_peer_rejects_unknown_library_and_head_versions() {
+    let fixture = peer_fixture(1).await;
+    let prefix = share_prefix(&fixture.identity);
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        prefix.clone(),
+    )
+    .unwrap();
+    fixture.objects.put(&library_key(), br#"{"format":2,"library_id":"00000000-0000-0000-0000-000000000001","model":"share-test","schema":"one"}"#).await.unwrap();
+    assert!(
+        matches!(peer.head().await, Err(SyncError::Storage(message)) if message.contains("unknown library format version 2"))
+    );
+
+    fixture
+        .objects
+        .put(
+            &library_key(),
+            &encode_library(&LibraryFile {
+                format: FORMAT_VERSION,
+                library_id: fixture.identity.namespace,
+                model: fixture.identity.model.model.clone(),
+                schema: fixture.identity.model.schema.clone(),
+            })
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let encoded_head = encode_head(&fixture.head).unwrap();
+    let body_end = encoded_head
+        .iter()
+        .rposition(|byte| *byte == b'\n')
+        .unwrap();
+    let mut json: serde_json::Value = serde_json::from_slice(&encoded_head[..body_end]).unwrap();
+    json["format"] = serde_json::json!(2);
+    let body = serde_json::to_vec(&json).unwrap();
+    let mut torn = body.clone();
+    torn.push(b'\n');
+    torn.extend_from_slice(blake3::hash(&body).to_hex().as_bytes());
+    fixture
+        .objects
+        .put(&head_key(&prefix, 0).unwrap(), &torn)
+        .await
+        .unwrap();
+    assert!(
+        matches!(peer.head().await, Err(SyncError::Storage(message)) if message.contains("unknown head format version 2"))
+    );
+}
+
+#[tokio::test]
+async fn share_peer_pulls_full_and_incremental_prefix_through_coordinator() {
+    let fixture = peer_fixture(3).await;
+    let target_identity = StoreIdentity {
+        replica: Uuid::from_u128(31),
+        generation: Uuid::from_u128(32),
+        ..fixture.identity.clone()
+    };
+    let target = MemorySyncStore::<Model>::new(
+        target_identity,
+        LocalAuthor {
+            author: Uuid::from_u128(33),
+            writer_incarnation: Uuid::from_u128(34),
+        },
+    )
+    .unwrap();
+    let key = checkpoint_key(&fixture.identity);
+    target
+        .adopt_genesis_checkpoint(
+            key,
+            ReceiveProgress {
+                sequence: 0,
+                anchor: initial_anchor(&fixture.identity).unwrap(),
+            },
+        )
+        .unwrap();
+    coordinator_pull(&fixture, &target).await;
+    for n in 1..=3 {
+        let key = SyncObjectKey {
+            collection: Collection::Notes,
+            id: Uuid::from_u128(100 + n),
+        };
+        assert_eq!(
+            target.get(&key).await.unwrap(),
+            fixture.source.get(&key).await.unwrap()
+        );
+    }
+
+    let changed = fixture
+        .source
+        .write_local(
+            SyncObjectKey {
+                collection: Collection::Notes,
+                id: Uuid::from_u128(104),
+            },
+            Some(Payload {
+                text: "incremental".into(),
+            }),
+        )
+        .await
+        .unwrap();
+    let after = fixture.source.head().await.unwrap();
+    let page = match fixture
+        .source
+        .read_page(PageRequest {
+            source: fixture.identity.clone(),
+            scope: share_scope(),
+            after: ReceiveProgress {
+                sequence: 3,
+                anchor: fixture.head.head.anchor,
+            },
+            through: after.clone(),
+            limits: share_limits().pages,
+        })
+        .await
+        .unwrap()
+    {
+        PageRead::Page(page) => page,
+        PageRead::FragmentNeeded { .. } => {
+            panic!("small incremental event unexpectedly fragmented")
+        }
+    };
+    let EventRef::Inline(event) = page.links[0].event.clone().unwrap() else {
+        panic!("event missing")
+    };
+    let previous = fixture.head.head.anchor;
+    let link = &page.links[0];
+    let segment = Segment {
+        format: FORMAT_VERSION,
+        prev_anchor: previous,
+        links: vec![SegmentLink {
+            seq: link.sequence,
+            collection: link.collection.clone(),
+            event,
+        }],
+        last_anchor: after.anchor,
+    };
+    let bytes = encode_segment(&segment).unwrap();
+    let name = blake3::hash(&bytes).to_hex()[..16].to_owned();
+    let prefix = share_prefix(&fixture.identity);
+    fixture
+        .objects
+        .put(&segment_key(&prefix, 4, 4, &name).unwrap(), &bytes)
+        .await
+        .unwrap();
+    let mut head = fixture.head.clone();
+    head.counter = 2;
+    head.head = Checkpoint {
+        seq: 4,
+        anchor: after.anchor,
+    };
+    head.segments.push(SegmentRef {
+        level: 0,
+        first: 4,
+        last: 4,
+        prev_anchor: previous,
+        last_anchor: after.anchor,
+        name: name.clone(),
+        bytes: bytes.len() as u64,
+    });
+    fixture
+        .objects
+        .put(&head_key(&prefix, 0).unwrap(), &encode_head(&head).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(
+        changed.value,
+        Some(Payload {
+            text: "incremental".into()
+        })
+    );
+    coordinator_pull(&fixture, &target).await;
+    assert_eq!(
+        target
+            .get(&SyncObjectKey {
+                collection: Collection::Notes,
+                id: Uuid::from_u128(104)
+            })
+            .await
+            .unwrap()
+            .unwrap()
+            .value,
+        Some(Payload {
+            text: "incremental".into()
+        })
+    );
 }
 
 #[test]
