@@ -80,6 +80,10 @@ export CARGO_HOME="$cargo_home"
 export E2E_LIBRARY_A="$music_a"
 export E2E_LIBRARY_B="$music_b"
 
+# Generated bindings and localizations are not tracked; regenerate them so the
+# run never exercises Dart code that is out of date with the Rust messages.
+(cd "$repo_root" && nix develop -c bash -c 'rinf gen && flutter gen-l10n')
+
 started=$SECONDS
 for phase in 1 2 3 4; do
   export E2E_PHASE="$phase"

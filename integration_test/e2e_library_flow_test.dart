@@ -112,7 +112,6 @@ Future<void> addLibrary(
   await tester.tap(find.text(localized(tester).confirm));
   await tester.pumpAndSettle();
 
-  final name = path.split(Platform.pathSeparator).last;
   final modeLabel = S.of(context).portableMode;
   final modeOption = find.text(modeLabel);
   await waitFor(
@@ -120,14 +119,14 @@ Future<void> addLibrary(
     () => modeOption.evaluate().isNotEmpty,
     description: 'the Library Setup step in the guide',
   );
+  // The Library Setup step completes on a single tap of the chosen mode.
   await tester.tap(modeOption);
   await tester.pump();
-  await tester.tap(find.widgetWithText(Button, localized(tester).confirm));
-  await tester.pump();
+  final name = path.split(Platform.pathSeparator).last;
   await waitFor(
     tester,
-    () => openState.openRecord?.recordId != null,
-    description: 'the app state to observe the opened library',
+    () => openState.openRecord?.alias == name,
+    description: 'the app state to observe the newly added library',
   );
   final record = openState.openRecord!;
   expect(record.alias, name);
