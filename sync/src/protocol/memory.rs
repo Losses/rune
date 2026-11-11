@@ -2936,6 +2936,90 @@ mod tests {
             Some(Value { n: 8 })
         );
     }
+    #[tokio::test]
+    async fn adopted_genesis_makes_coordinator_pull_continuous() {
+        let source = sync::Arc::new(store(12));
+        let receiver = sync::Arc::new(store(13));
+        source
+            .write_local(key(12), Some(Value { n: 12 }))
+            .await
+            .unwrap();
+        let identity = ReceiveStore::identity(&*source).await.unwrap();
+        let checkpoint = CheckpointKey {
+            namespace: identity.namespace,
+            source_replica: identity.replica,
+            source_generation: identity.generation,
+            scope_id: scope_id(&scope()).unwrap(),
+        };
+        set_checkpoint(
+            &mut receiver.lock().unwrap().checkpoints,
+            checkpoint,
+            ReceiveProgress {
+                sequence: 0,
+                anchor: initial_anchor(&identity).unwrap(),
+            },
+        );
+        let counted = CountingSource::new(source.clone());
+        let mut coordinator = Coordinator::new(scope(), session_limits()).unwrap();
+        finish_coordinator(&mut coordinator, &receiver, &source, &counted).await;
+        assert_eq!(counted.open_calls.load(Ordering::Relaxed), 0);
+        assert_eq!(
+            receiver.get(&key(12)).await.unwrap().unwrap().value,
+            Some(Value { n: 12 })
+        );
+    }
+
+    #[tokio::test]
+    async fn reconciliation_covers_adopted_for_another_source_pull_continuously() {
+        let base = sync::Arc::new(store(22));
+        let second = sync::Arc::new(store(23));
+        let receiver = sync::Arc::new(store(24));
+        base.write_local(key(22), Some(Value { n: 22 }))
+            .await
+            .unwrap();
+        second
+            .write_local(key(23), Some(Value { n: 23 }))
+            .await
+            .unwrap();
+        let mut base_from_second = Coordinator::new(scope(), session_limits()).unwrap();
+        finish_coordinator(&mut base_from_second, &base, &second, &*second).await;
+        let mut coordinator = Coordinator::new(scope(), session_limits()).unwrap();
+        finish_coordinator(&mut coordinator, &receiver, &base, &*base).await;
+        assert_eq!(
+            receiver.get(&key(23)).await.unwrap().unwrap().value,
+            Some(Value { n: 23 })
+        );
+
+        let second_identity = ReceiveStore::identity(&*second).await.unwrap();
+        let covers = second.head().await.unwrap();
+        let second_key = CheckpointKey {
+            namespace: second_identity.namespace,
+            source_replica: second_identity.replica,
+            source_generation: second_identity.generation,
+            scope_id: scope_id(&scope()).unwrap(),
+        };
+        set_checkpoint(
+            &mut receiver.lock().unwrap().checkpoints,
+            second_key.clone(),
+            covers.clone(),
+        );
+        assert!(matches!(
+            second
+                .history_status(&second_key, Some(covers))
+                .await
+                .unwrap(),
+            HistoryStatus::Continuous { .. }
+        ));
+
+        let counted = CountingSource::new(second.clone());
+        let mut coordinator = Coordinator::new(scope(), session_limits()).unwrap();
+        finish_coordinator(&mut coordinator, &receiver, &second, &counted).await;
+        assert_eq!(counted.open_calls.load(Ordering::Relaxed), 0);
+        assert_eq!(
+            receiver.get(&key(23)).await.unwrap().unwrap().value,
+            Some(Value { n: 23 })
+        );
+    }
     struct CountingSource {
         inner: Arc<MemorySyncStore<Model>>,
         calls: AtomicUsize,

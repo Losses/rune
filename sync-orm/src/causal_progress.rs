@@ -94,15 +94,92 @@ pub async fn checkpoint_on<M: SyncModel, C: ConnectionTrait>(
     let Some(row) = db.query_one(&query).await? else {
         return Ok(None);
     };
-    let scope: p::Scope<M> = serde_json::from_slice(&row.try_get_by_index::<Vec<u8>>(2)?)?;
-    ensure!(
-        p::scope_id(&scope)? == key.scope_id,
-        "stored checkpoint scope mismatch"
-    );
+    let normalized_scope = row.try_get_by_index::<Vec<u8>>(2)?;
+    // An adopted checkpoint is keyed by the caller-verified scope digest. Its
+    // normalized scope is unavailable at this generic boundary.
+    if !normalized_scope.is_empty() {
+        let scope: p::Scope<M> = serde_json::from_slice(&normalized_scope)?;
+        ensure!(
+            p::scope_id(&scope)? == key.scope_id,
+            "stored checkpoint scope mismatch"
+        );
+    }
     Ok(Some(progress(
         row.try_get_by_index(0)?,
         row.try_get_by_index(1)?,
     )?))
+}
+
+/// Raise a source checkpoint using verified external coverage, such as share
+/// genesis or a base manifest. The caller owns the transaction so this can be
+/// committed atomically with reconciliation and its projection.
+pub async fn adopt_checkpoint_on(
+    tx: &DatabaseTransaction,
+    key: &CheckpointKey,
+    received: &ReceiveProgress,
+) -> Result<ReceiveProgress> {
+    valid_key(key)?;
+    let sequence = i64::try_from(received.sequence)?;
+    lock_on(tx, key.namespace).await?;
+    let current_query = Query::select()
+        .columns(["sequence", "anchor"].map(Alias::new))
+        .from(Alias::new("sync_checkpoints"))
+        .cond_where(checkpoint_filter(key))
+        .to_owned();
+    if let Some(row) = tx.query_one(&current_query).await? {
+        let current = progress(row.try_get_by_index(0)?, row.try_get_by_index(1)?)?;
+        if current.sequence > received.sequence {
+            return Ok(current);
+        }
+        ensure!(
+            current.sequence != received.sequence || current.anchor == received.anchor,
+            p::SyncError::CheckpointAnchorMismatch(current.clone())
+        );
+        if current.sequence == received.sequence {
+            return Ok(current);
+        }
+    }
+    let query = Query::insert()
+        .into_table(Alias::new("sync_checkpoints"))
+        .columns(
+            [
+                "namespace",
+                "source_replica",
+                "source_generation",
+                "scope_digest",
+                "normalized_scope",
+                "sequence",
+                "anchor",
+                "completed_at",
+            ]
+            .map(Alias::new),
+        )
+        .values_panic([
+            key.namespace.as_bytes().to_vec().into(),
+            key.source_replica.as_bytes().to_vec().into(),
+            key.source_generation.as_bytes().to_vec().into(),
+            key.scope_id.to_vec().into(),
+            Vec::<u8>::new().into(),
+            sequence.into(),
+            received.anchor.to_vec().into(),
+            chrono::Utc::now().to_rfc3339().into(),
+        ])
+        .on_conflict(
+            OnConflict::columns(
+                [
+                    "namespace",
+                    "source_replica",
+                    "source_generation",
+                    "scope_digest",
+                ]
+                .map(Alias::new),
+            )
+            .update_columns(["sequence", "anchor", "completed_at"].map(Alias::new))
+            .to_owned(),
+        )
+        .to_owned();
+    tx.execute(&query).await?;
+    Ok(received.clone())
 }
 
 /// The caller uses one database snapshot for the identity, floor and anchor reads.
@@ -254,7 +331,9 @@ pub async fn initialize_checkpoint_on<M: SyncModel>(
                 ]
                 .map(Alias::new),
             )
-            .update_columns(["sequence", "anchor", "completed_at"].map(Alias::new))
+            .update_columns(
+                ["normalized_scope", "sequence", "anchor", "completed_at"].map(Alias::new),
+            )
             .to_owned(),
         )
         .to_owned();

@@ -77,6 +77,7 @@ pub enum SyncError {
     StageQuota,
     WorkLimit,
     RetryAt(ReceiveProgress),
+    CheckpointAnchorMismatch(ReceiveProgress),
     NeedsReconciliation(HistoryStatus),
     SnapshotExpired,
     ConflictingDot,
