@@ -1515,6 +1515,7 @@
   "guestAccessDescription": "Può controllare la riproduzione ed esplorare durante il controllo",
   "customDeviceAccess": "Personalizzato",
   "customizeDevice": "Personalizza",
+  "disconnect": "Disconnetti",
   "controlPlayback": "Controlla riproduzione",
   "controlPlaybackDescription": "Può riprodurre, mettere in pausa, accodare e trasmettere a questo dispositivo",
   "deviceAccessLibraries": "Librerie",

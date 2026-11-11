@@ -1513,6 +1513,7 @@
   "guestAccessDescription": "Може керувати відтворенням і переглядати під час керування",
   "customDeviceAccess": "Власні налаштування",
   "customizeDevice": "Налаштувати",
+  "disconnect": "Від’єднати",
   "controlPlayback": "Керувати відтворенням",
   "controlPlaybackDescription": "Може відтворювати, призупиняти, додавати в чергу й транслювати на цей пристрій",
   "deviceAccessLibraries": "Бібліотеки",

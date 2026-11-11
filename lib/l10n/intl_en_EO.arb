@@ -1450,6 +1450,7 @@
   "guestAccessDescription": "Povas regi la ludadon kaj foliumi dum tio",
   "customDeviceAccess": "Propra",
   "customizeDevice": "Agordi",
+  "disconnect": "Malkonekti",
   "controlPlayback": "Regi la ludadon",
   "controlPlaybackDescription": "Povas ludi, paŭzi, vicigi kaj ĵeti al ĉi tiu aparato.",
   "deviceAccessLibraries": "Bibliotekoj",

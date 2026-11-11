@@ -247,6 +247,7 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
               showActions: selectedUserId == client.fingerprint,
               actionsBuilder: (context) => Row(
                 children: [
+                  DisconnectControllerAction(fingerprint: client.fingerprint),
                   if (client.status == ClientStatus.approved) ...[
                     Button(
                       onPressed: () async {
@@ -308,5 +309,40 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
       case ClientStatus.blocked:
         return Colors.red;
     }
+  }
+}
+
+class DisconnectControllerAction extends StatelessWidget {
+  const DisconnectControllerAction({required this.fingerprint, super.key});
+
+  final String fingerprint;
+
+  @override
+  Widget build(BuildContext context) {
+    final controllersProvider = Provider.of<ControllersProvider>(context);
+    if (!controllersProvider.isControlling(fingerprint)) {
+      return const SizedBox.shrink();
+    }
+
+    return Row(
+      children: [
+        Button(
+          onPressed: () async {
+            try {
+              await controllersProvider.disconnect(fingerprint);
+            } catch (error) {
+              if (!context.mounted) return;
+              showErrorDialog(
+                context: context,
+                title: S.of(context).disconnect,
+                errorMessage: requestErrorText(S.of(context), error),
+              );
+            }
+          },
+          child: Text(S.of(context).disconnect),
+        ),
+        const SizedBox(width: 12),
+      ],
+    );
   }
 }

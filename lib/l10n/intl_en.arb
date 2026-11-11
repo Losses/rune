@@ -1614,6 +1614,7 @@
   "guestAccessDescription": "Can control playback and browse libraries.",
   "customDeviceAccess": "Custom",
   "customizeDevice": "Customize",
+  "disconnect": "Disconnect",
   "controlPlayback": "Control Playback",
   "controlPlaybackDescription": "Can control playback and cast to this device.",
   "deviceAccessLibraries": "Libraries",

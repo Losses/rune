@@ -1515,6 +1515,7 @@
   "guestAccessDescription": "Peut contrôler la lecture et parcourir pendant le contrôle",
   "customDeviceAccess": "Personnalisé",
   "customizeDevice": "Personnaliser",
+  "disconnect": "Déconnecter",
   "controlPlayback": "Contrôler la lecture",
   "controlPlaybackDescription": "Peut lire, mettre en pause, ajouter à la file et diffuser vers cet appareil",
   "deviceAccessLibraries": "Bibliothèques",

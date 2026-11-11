@@ -1513,6 +1513,7 @@
   "guestAccessDescription": "Kann die Wiedergabe steuern und dabei browsen",
   "customDeviceAccess": "Benutzerdefiniert",
   "customizeDevice": "Anpassen",
+  "disconnect": "Trennen",
   "controlPlayback": "Wiedergabe steuern",
   "controlPlaybackDescription": "Kann auf diesem Gerät abspielen, pausieren, Titel einreihen und übertragen",
   "deviceAccessLibraries": "Mediatheken",

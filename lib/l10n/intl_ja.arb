@@ -1513,6 +1513,7 @@
   "guestAccessDescription": "再生を操作しながら閲覧できます",
   "customDeviceAccess": "カスタム",
   "customizeDevice": "カスタマイズ",
+  "disconnect": "切断",
   "controlPlayback": "再生を操作",
   "controlPlaybackDescription": "このデバイスで再生、一時停止、キュー追加、キャストができます",
   "deviceAccessLibraries": "ライブラリ",

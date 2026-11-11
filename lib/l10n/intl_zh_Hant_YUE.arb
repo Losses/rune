@@ -1448,6 +1448,7 @@
   "guestAccessDescription": "可以控制播放並在控制時瀏覽",
   "customDeviceAccess": "自訂",
   "customizeDevice": "自訂",
+  "disconnect": "斷開連接",
   "controlPlayback": "控制播放",
   "controlPlaybackDescription": "可以喺呢部裝置播放、暫停、加入佇列同投放",
   "deviceAccessLibraries": "音樂庫",

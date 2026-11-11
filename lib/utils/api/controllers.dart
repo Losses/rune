@@ -9,3 +9,17 @@ Future<List<AttachedControllerInfo>> listControllers() async {
   );
   return response.message.controllers;
 }
+
+Future<void> detachController(String id) async {
+  await awaitResponse<void>(
+    'DetachControllerRequest',
+    ControllersUpdated.rustSignalStream
+        .map((event) => event.message)
+        .where(
+          (update) =>
+              update.controllers.every((controller) => controller.id != id),
+        )
+        .map((_) {}),
+    send: () => DetachControllerRequest(id: id).sendSignalToRust(),
+  );
+}

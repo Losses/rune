@@ -1448,6 +1448,7 @@
   "guestAccessDescription": "サイセイヲ ソウサシナガラ エツラン デキマス",
   "customDeviceAccess": "カスタム",
   "customizeDevice": "カスタマイズ",
+  "disconnect": "セツダン",
   "controlPlayback": "サイセイヲ ソウサ",
   "controlPlaybackDescription": "コノ デバイスデ サイセイ、イチジテイシ、キューツイカ、キャストガ デキマス",
   "deviceAccessLibraries": "ライブラリ",

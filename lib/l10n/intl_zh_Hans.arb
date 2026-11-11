@@ -1594,6 +1594,7 @@
   "guestAccessDescription": "可以控制播放并在控制时浏览",
   "customDeviceAccess": "自定义",
   "customizeDevice": "自定义",
+  "disconnect": "断开连接",
   "controlPlayback": "控制播放",
   "controlPlaybackDescription": "可以在此设备上播放、暂停、加入队列并投放",
   "deviceAccessLibraries": "音乐库",
