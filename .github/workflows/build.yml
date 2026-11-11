@@ -17,6 +17,7 @@ on:
           - mac-app-store
           - ios-app-store
           - ios-unsigned
+          - check-apple-secrets
   push:
     tags:
       - v*
@@ -883,3 +884,39 @@ jobs:
           omitNameDuringUpdate: true
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev') }}
           makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta')) }}
+
+  # Checks every Apple signing secret without building, signing or uploading anything.
+  check-apple-secrets:
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'check-apple-secrets'
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check Apple signing secrets
+        env:
+          DEVELOPER_ID_APPLICATION_P12_BASE64_MAC: ${{ secrets.DEVELOPER_ID_APPLICATION_P12_BASE64_MAC }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          BUILD_NOTARIZED_PROVISION_PROFILE: ${{ secrets.BUILD_NOTARIZED_PROVISION_PROFILE }}
+          APPLE_DISTRIBUTION_CERTIFICATE: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE }}
+          APPLE_DISTRIBUTION_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_PASSWORD }}
+          MAC_DEVELOPER_INSTALLER_CERTIFICATE: ${{ secrets.MAC_DEVELOPER_INSTALLER_CERTIFICATE }}
+          MAC_DEVELOPER_INSTALLER_PASSWORD: ${{ secrets.MAC_DEVELOPER_INSTALLER_PASSWORD }}
+          BUILD_APP_STORE_PROVISION_PROFILE: ${{ secrets.BUILD_APP_STORE_PROVISION_PROFILE }}
+          BUILD_IOS_APP_STORE_PROVISION_PROFILE: ${{ secrets.BUILD_IOS_APP_STORE_PROVISION_PROFILE }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+        run: |
+          failed=0
+          check() { scripts/apple/ci_decode_secret.sh "$@" || failed=1; }
+          check DEVELOPER_ID_APPLICATION_P12_BASE64_MAC "$RUNNER_TEMP/check_developer_id_application.p12" P12_PASSWORD
+          check BUILD_NOTARIZED_PROVISION_PROFILE "$RUNNER_TEMP/check_notarized.provisionprofile"
+          check APPLE_DISTRIBUTION_CERTIFICATE "$RUNNER_TEMP/check_apple_distribution.p12" APPLE_DISTRIBUTION_PASSWORD
+          check MAC_DEVELOPER_INSTALLER_CERTIFICATE "$RUNNER_TEMP/check_mac_developer_installer.p12" MAC_DEVELOPER_INSTALLER_PASSWORD
+          check BUILD_APP_STORE_PROVISION_PROFILE "$RUNNER_TEMP/check_app_store.provisionprofile"
+          check BUILD_IOS_APP_STORE_PROVISION_PROFILE "$RUNNER_TEMP/check_ios_app_store.mobileprovision"
+          check APP_STORE_CONNECT_API_KEY "$RUNNER_TEMP/check_AuthKey.p8"
+          [ "$failed" = 0 ]
+
+      - name: Clean up
+        if: ${{ always() }}
+        run: rm -f "$RUNNER_TEMP"/check_*
