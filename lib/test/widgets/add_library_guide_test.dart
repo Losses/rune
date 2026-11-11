@@ -160,6 +160,17 @@ void main() {
       expect(find.text('S3'), findsOneWidget);
       expect(find.text('Subsonic'), findsOneWidget);
       expect(find.byType(ListTile), findsNWidgets(5));
+      // Sources added later stay below the original two rows.
+      final rows = [
+        'Local Folder',
+        'Rune Device',
+        'WebDAV',
+        'S3',
+        'Subsonic',
+      ].map((label) => tester.getTopLeft(find.text(label)).dy).toList();
+      for (var index = 1; index < rows.length; index++) {
+        expect(rows[index], greaterThan(rows[index - 1]));
+      }
       expect(find.text('Confirm'), findsNothing);
 
       await tester.tap(find.text('Local Folder'));

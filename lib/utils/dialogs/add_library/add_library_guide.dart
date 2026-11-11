@@ -26,7 +26,7 @@ import '../../../widgets/settings/settings_tile_title.dart';
 import '../../../screens/settings_neighbors/utils/show_add_remote_device_dialog.dart';
 import '../../../screens/settings_server/widgets/peer_libraries_dialog.dart';
 
-enum AddLibrarySource { localFolder, webDav, s3, runeDevice, subsonic }
+enum AddLibrarySource { localFolder, runeDevice, webDav, s3, subsonic }
 
 class AddLibraryGuideDependencies {
   const AddLibraryGuideDependencies({
@@ -184,18 +184,18 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
         s.localFolderSubtitle,
       ),
       _sourceRow(
+        AddLibrarySource.runeDevice,
+        Symbols.devices,
+        s.runeDevice,
+        s.runeDeviceSubtitle,
+      ),
+      _sourceRow(
         AddLibrarySource.webDav,
         Symbols.cloud_sync,
         s.webDav,
         s.webDavSubtitle,
       ),
       _sourceRow(AddLibrarySource.s3, Symbols.cloud_sync, s.s3, s.s3Subtitle),
-      _sourceRow(
-        AddLibrarySource.runeDevice,
-        Symbols.devices,
-        s.runeDevice,
-        s.runeDeviceSubtitle,
-      ),
       _sourceRow(
         AddLibrarySource.subsonic,
         Symbols.music_note,
