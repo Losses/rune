@@ -127,7 +127,6 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
 
     info!("Initializing player");
     let session = node.session()?;
-    session.migrate_legacy(&library).await?;
     let player = session.player.clone();
     let scrobbler = session.scrobbler.clone();
 

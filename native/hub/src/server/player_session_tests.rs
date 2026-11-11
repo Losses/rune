@@ -2969,7 +2969,7 @@ async fn session_d2_restart_restores_state() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn session_d3_imports_legacy_queue_once() -> Result<()> {
+async fn session_d3_ignores_legacy_catalog_queue() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let a = super::step("create legacy queue fixture", fixture(dir.path())).await?;
     let id = super::step("scan legacy queue track", session_audio(&a, "legacy.ogg")).await?;
@@ -2978,38 +2978,12 @@ async fn session_d3_imports_legacy_queue_once() -> Result<()> {
         replace_playback_queue(&a.global_params.test_library().main_db, vec![id, id]),
     )
     .await?;
-    super::step("import legacy queue", async {
-        a.global_params
-            .node
-            .session()?
-            .migrate_legacy(a.global_params.test_library())
-            .await
-    })
-    .await?;
     super::step(
-        "wait for imported queue",
-        wait_player(&a, |s| s.playlist.len() == 2),
-    )
-    .await?;
-    super::step("clear imported queue", async {
-        a.global_params.player.lock().await.clear_playlist();
-    })
-    .await;
-    super::step(
-        "wait for cleared queue",
+        "verify the node session stays empty",
         wait_player(&a, |s| s.playlist.is_empty()),
     )
     .await?;
     let b = super::step("shutdown and reopen node", reopen_fixture(&a)).await?;
-    super::step("verify legacy queue is not reimported", async {
-        b.global_params
-            .node
-            .session()?
-            .migrate_legacy(b.global_params.test_library())
-            .await
-    })
-    .await?;
-    sleep(Duration::from_millis(400)).await;
     assert!(
         super::step("read reopened session queue", async {
             b.global_params
@@ -3021,7 +2995,7 @@ async fn session_d3_imports_legacy_queue_once() -> Result<()> {
         })
         .await
     );
-    // The legacy rows remain untouched; they are no longer the live queue.
+    // The catalog queue is retained as catalog data and never feeds the node session.
     assert_eq!(
         super::step(
             "read retained legacy rows",
@@ -4948,11 +4922,27 @@ async fn session_f3_persists_changes_without_rewriting_while_idle() -> Result<()
     wait_player(&a, |status| status.state == PlaybackState::Playing).await?;
     a.global_params.player.lock().await.pause();
     wait_player(&a, |status| status.state == PlaybackState::Paused).await?;
-    sleep(Duration::from_millis(350)).await;
+    let session = a.global_params.node.session()?;
+    let mut writes = session.persistence_write_count();
+    let mut quiet_since = Instant::now();
+    timeout(Duration::from_secs(5), async {
+        loop {
+            sleep(Duration::from_millis(100)).await;
+            let current = session.persistence_write_count();
+            if current != writes {
+                writes = current;
+                quiet_since = Instant::now();
+            } else if quiet_since.elapsed() >= Duration::from_secs(1) {
+                return;
+            }
+        }
+    })
+    .await
+    .context("session store did not become idle after pause")?;
     let before = fs::read(&store)?;
-    let modified_before = fs::metadata(&store)?.modified()?;
+    let writes_before = session.persistence_write_count();
     sleep(Duration::from_secs(1)).await;
-    assert_eq!(fs::metadata(&store)?.modified()?, modified_before);
+    assert_eq!(session.persistence_write_count(), writes_before);
     assert_eq!(fs::read(&store)?, before);
 
     let second = session_audio(&a, "persist-second.ogg").await?;

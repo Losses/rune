@@ -8,7 +8,7 @@ use std::{
     slice::from_ref,
     sync::{
         Arc, Mutex as StdMutex, MutexGuard, PoisonError, Weak,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicUsize, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -16,9 +16,8 @@ use std::{
 use anyhow::{Context, Result};
 use database::{
     actions::{
-        file::{file_ids_by_uuid, file_uuids_by_id},
+        file::file_ids_by_uuid,
         logging::{LogLevel, insert_log},
-        playback_queue::list_legacy_playback_queue,
         stats::increase_played_through,
     },
     connection::MainDbConnection,
@@ -90,7 +89,7 @@ pub struct PlayerSession {
     state: Arc<Mutex<SessionState>>,
     path: PathBuf,
     node: Weak<NodeContext>,
-    legacy_restore: AtomicBool,
+    persistence_writes: Arc<AtomicUsize>,
     attached_controllers: StdMutex<Vec<ControllerEntry>>,
 }
 
@@ -456,7 +455,7 @@ impl PlayerSession {
             state: Arc::new(Mutex::new(state.clone())),
             path,
             node: Arc::downgrade(node),
-            legacy_restore: AtomicBool::new(false),
+            persistence_writes: Arc::new(AtomicUsize::new(0)),
             attached_controllers: StdMutex::new(Vec::new()),
         });
         session.start_events(node).await;
@@ -469,52 +468,9 @@ impl PlayerSession {
         Ok(session)
     }
 
-    /// Import the first opened catalog queue only when this session has no store.
-    pub async fn migrate_legacy(&self, library: &LibraryHandle) -> Result<()> {
-        let mut state = self.state.lock().await;
-        if state.migrated {
-            return Ok(());
-        }
-        let ids = list_legacy_playback_queue(&library.main_db).await?;
-        let identities = file_uuids_by_id(&library.main_db, &ids).await?;
-        let items = ids
-            .into_iter()
-            .filter_map(|id| {
-                identities
-                    .get(&id)
-                    .copied()
-                    .map(|file_uuid| PlayingItem::LibraryTrack {
-                        library_id: library.library_id,
-                        track: file_uuid.to_string(),
-                    })
-            })
-            .collect::<Vec<_>>();
-        let mut status = self.player.lock().await.get_status();
-        // A controller may have populated the session before the first library opens.
-        if status.playlist.is_empty() {
-            status.playlist = items.clone().into_iter().map(Into::into).collect();
-            state.update(&status);
-            state.migrated = true;
-            state.write(&self.path)?;
-            self.legacy_restore
-                .store(!items.is_empty(), Ordering::Release);
-            self.player.lock().await.restore_tagged(
-                state.queue_entries(),
-                None,
-                Duration::ZERO,
-                state.playback_mode(),
-            );
-        } else {
-            state.update(&status);
-            state.migrated = true;
-            state.write(&self.path)?;
-        }
-        Ok(())
-    }
-
-    /// Consume the one-time request for the app to restore its legacy cursor.
-    pub fn take_legacy_restore(&self) -> bool {
-        self.legacy_restore.swap(false, Ordering::AcqRel)
+    #[cfg(test)]
+    pub(crate) fn persistence_write_count(&self) -> usize {
+        self.persistence_writes.load(Ordering::Acquire)
     }
 
     /// Flush durable state and await the event listeners before terminating playback.
@@ -609,6 +565,7 @@ impl PlayerSession {
         });
         let state = self.state.clone();
         let path = self.path.clone();
+        let persistence_writes = self.persistence_writes.clone();
         let cancel = self.cancel.clone();
         let persistence_task = tokio::spawn(async move {
             let mut written = state.lock().await.clone();
@@ -617,7 +574,7 @@ impl PlayerSession {
                 tokio::select! {
                     biased;
                     _ = cancel.cancelled() => {
-                        flush_session_state(&state, &path, &mut written).await;
+                        flush_session_state(&state, &path, &mut written, &persistence_writes).await;
                         return;
                     },
                     Some(value) = persist_playlist_rx.recv() => {
@@ -627,7 +584,7 @@ impl PlayerSession {
                         record_status_change(&state, &value, &mut dirty_deadline).await;
                     }
                     _ = sleep_until(dirty_deadline.unwrap_or_else(Instant::now)), if dirty_deadline.is_some() =>
-                        persist_when_due(&state, &path, &mut written, &mut dirty_deadline).await,
+                        persist_when_due(&state, &path, &mut written, &mut dirty_deadline, &persistence_writes).await,
                 }
             }
         });
@@ -673,17 +630,23 @@ async fn persist_when_due(
     path: &Path,
     written: &mut SessionState,
     deadline: &mut Option<Instant>,
+    writes: &AtomicUsize,
 ) {
     if deadline.take().is_some()
-        && let Err(error) = persist_session_state(state, path, written).await
+        && let Err(error) = persist_session_state(state, path, written, writes).await
     {
         log::error!("Could not persist player session: {error:#}");
         *deadline = Some(Instant::now() + Duration::from_millis(300));
     }
 }
 
-async fn flush_session_state(state: &Mutex<SessionState>, path: &Path, written: &mut SessionState) {
-    if let Err(error) = persist_session_state(state, path, written).await {
+async fn flush_session_state(
+    state: &Mutex<SessionState>,
+    path: &Path,
+    written: &mut SessionState,
+    writes: &AtomicUsize,
+) {
+    if let Err(error) = persist_session_state(state, path, written, writes).await {
         log::error!("Could not flush player session: {error:#}");
     }
 }
@@ -692,10 +655,12 @@ async fn persist_session_state(
     state: &Mutex<SessionState>,
     path: &Path,
     written: &mut SessionState,
+    writes: &AtomicUsize,
 ) -> Result<()> {
     let current = state.lock().await;
     if *current != *written {
         current.write(path)?;
+        writes.fetch_add(1, Ordering::AcqRel);
         *written = current.clone();
     }
     Ok(())

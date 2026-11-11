@@ -96,7 +96,6 @@ pub(crate) struct SessionState {
     version: u32,
     pub session_id: Uuid,
     pub queue_revision: u64,
-    pub migrated: bool,
     queue: Vec<StoredQueueEntry>,
     pub handoff_blocks: Vec<HandoffBlock>,
     pub index: Option<usize>,
@@ -160,7 +159,6 @@ impl Default for SessionState {
             version: 5,
             session_id: Uuid::new_v4(),
             queue_revision: 0,
-            migrated: false,
             queue: Vec::new(),
             handoff_blocks: Vec::new(),
             index: None,
@@ -229,9 +227,6 @@ impl SessionState {
         self.handoff_blocks
             .retain(|block| live_blocks.contains(&block.id));
         self.version = 5;
-        if !self.queue.is_empty() {
-            self.migrated = true;
-        }
     }
     pub fn update_cursor(&mut self, status: &PlayerStatus) {
         self.index = status.index;
@@ -293,7 +288,6 @@ mod tests {
             "version": 4,
             "session_id": Uuid::new_v4(),
             "queue_revision": 9,
-            "migrated": true,
             "queue": [{"type": "unknown"}],
             "index": 0,
             "position": 1,
@@ -305,7 +299,6 @@ mod tests {
 
         assert!(state.queue_entries().is_empty());
         assert_eq!(state.queue_revision, 0);
-        assert!(!state.migrated);
         let saved: serde_json::Value =
             serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
         assert_eq!(saved["version"], 5);

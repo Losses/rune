@@ -33,7 +33,6 @@ pub async fn local_player_loop(
 
     info!("Initializing player");
     let session = node.session()?;
-    session.migrate_legacy(&library).await?;
     let player = session.player.clone();
     let scrobbler = session.scrobbler.clone();
 
