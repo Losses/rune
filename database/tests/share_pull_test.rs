@@ -5,22 +5,24 @@ use anyhow::{Context, Result, ensure};
 use database::sync::model::{Collection, ObjectKey, RuneModel};
 use database::sync::share::{
     PublishJournalRequest, ShareCapabilities, SharePullError, SharePushError, SharePushResult,
-    ShareState, ShareWriter, publish_journal,
+    ShareState, ShareWriter, load_or_create_state, publish_journal, save_state,
 };
 use sea_orm::{
     ConnectionTrait, ExprTrait, TransactionTrait,
     sea_query::{Alias, Expr, Query},
 };
 use std::collections::{BTreeMap, BTreeSet};
+use std::str::FromStr;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
 use support::SqlLibrary;
 use sync::share::{
-    BaseRef, Checkpoint, ConditionalGet, FloorBase, Head, LibraryFile, MemoryObjectStore,
-    ObjectKey as ShareObjectKey, ObjectStore, ObjectTag, ObjectValue, Segment, SegmentLink,
-    SegmentRef, StoreError, StoreOperation, parse_key,
+    BaseRef, Checkpoint, ConditionalGet, DevicePrefix, FloorBase, GcObservation, Head, LibraryFile,
+    MemoryObjectStore, ObjectGcState, ObjectKey as ShareObjectKey, ObjectStore, ObjectTag,
+    ObjectValue, Segment, SegmentLink, SegmentRef, StoreError, StoreObjectKind, StoreOperation,
+    parse_key,
 };
 use sync::{self as p, SyncModel, SyncPeer, SyncStore, share};
 use sync_orm::base_exporter::{BaseExportOptions, export_base};
@@ -37,6 +39,53 @@ struct Published {
 
 fn cache_path() -> std::path::PathBuf {
     std::env::temp_dir().join(format!("share-pull-{}", Uuid::new_v4()))
+}
+
+async fn age_base_observation(
+    source: &SqlLibrary,
+    published: &Published,
+    store: &MemoryObjectStore,
+    age_ms: i64,
+) -> Result<()> {
+    source
+        .library
+        .pull_share(
+            published.store.clone(),
+            source.library.identity().await?.namespace,
+            cache_path(),
+            Default::default(),
+        )
+        .await?;
+    let identity = source.library.identity().await?;
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let mut state = load_or_create_state(
+        &source.db,
+        identity.replica,
+        identity.namespace,
+        cache_path(),
+        now_ms,
+    )
+    .await?;
+    let base = published
+        .head
+        .bases
+        .last()
+        .context("base reference missing")?;
+    let key = share::base_key(&published.prefix, &base.base_id)?;
+    let object = store
+        .get(&key)
+        .await
+        .map_err(|error| anyhow::anyhow!("read base for age fixture: {error:?}"))?;
+    state.observe_tag(
+        ShareObjectKey::Base {
+            prefix: DevicePrefix::from_str(&published.prefix)?,
+            base_id: base.base_id.clone(),
+        },
+        object.tag,
+        now_ms - age_ms,
+    );
+    save_state(&source.db, &state).await?;
+    Ok(())
 }
 
 async fn publish_base(
@@ -665,6 +714,438 @@ async fn push_pass_pulls_before_reading_and_publishing_the_local_tail() -> Resul
         target.library.get(&remote_key).await?,
         remote.library.get(&remote_key).await?
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn stale_base_is_replaced_by_own_stream_cut() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let store = Arc::new(MemoryObjectStore::default());
+    source
+        .library
+        .write_local(
+            ObjectKey {
+                collection: Collection::Playlists,
+                id: Uuid::from_u128(913),
+            },
+            support::playlist("base cut value"),
+        )
+        .await?;
+    let mut published = publish_base(&source, store.clone(), Default::default()).await?;
+    let unchanged_chunk_keys = published
+        .bucket_chunks
+        .iter()
+        .map(|name| share::chunk_key(&published.prefix, name))
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let creates_before = unchanged_chunk_keys
+        .iter()
+        .map(|key| store.create_count(key))
+        .collect::<Vec<_>>();
+    append_segment(&mut published, 920, "tail compacted by the new base").await?;
+    let old_segment = published
+        .head
+        .segments
+        .last()
+        .context("segment for base-cut GC missing")?;
+    let old_segment_key = share::segment_key(
+        &published.prefix,
+        old_segment.first,
+        old_segment.last,
+        &old_segment.name,
+    )?;
+    let old_base_key = share::base_key(&published.prefix, &published.head.bases[0].base_id)?;
+    source
+        .library
+        .pull_share(store.clone(), namespace, cache_path(), Default::default())
+        .await?;
+    let identity = source.library.identity().await?;
+    let mut state = load_or_create_state(
+        &source.db,
+        identity.replica,
+        namespace,
+        cache_path(),
+        chrono::Utc::now().timestamp_millis(),
+    )
+    .await?;
+    let base_key = share::base_key(&published.prefix, &published.head.bases[0].base_id)?;
+    let base = store
+        .get(&base_key)
+        .await
+        .map_err(|error| anyhow::anyhow!("read base: {error:?}"))?;
+    let old_time = chrono::Utc::now().timestamp_millis() - share::BASE_MAX_AGE_MS as i64 - 1;
+    state.observe_tag(
+        ShareObjectKey::Base {
+            prefix: DevicePrefix::from_str(&published.prefix)?,
+            base_id: published.head.bases[0].base_id.clone(),
+        },
+        base.tag,
+        old_time,
+    );
+    save_state(&source.db, &state).await?;
+
+    let head = source
+        .library
+        .push_share(store.clone(), namespace, cache_path(), Default::default())
+        .await?
+        .context("stale base was not replaced")?;
+    ensure!(
+        head.bases.len() == published.head.bases.len() + 1,
+        "base cut did not publish a new manifest"
+    );
+    ensure!(
+        head.floor_base.base_id
+            == head
+                .bases
+                .last()
+                .context("missing replacement base")?
+                .base_id,
+        "head does not reference the new base"
+    );
+    ensure!(
+        unchanged_chunk_keys
+            .iter()
+            .zip(creates_before)
+            .all(|(key, before)| store.create_count(key) == before),
+        "base cut fetched or rewrote unchanged chunks"
+    );
+    ensure!(
+        matches!(store.get(&old_segment_key).await, Err(StoreError::NotFound)),
+        "base cut retained a superseded segment with no active readers"
+    );
+    ensure!(
+        store.get(&old_base_key).await.is_ok(),
+        "GC removed a superseded base before its retention period"
+    );
+    let mut state = load_or_create_state(
+        &source.db,
+        source.library.identity().await?.replica,
+        namespace,
+        cache_path(),
+        chrono::Utc::now().timestamp_millis(),
+    )
+    .await?;
+    let old_base = ShareObjectKey::Base {
+        prefix: DevicePrefix::from_str(&published.prefix)?,
+        base_id: published.head.bases[0].base_id.clone(),
+    };
+    let old_base_observation = state
+        .observed_objects
+        .get_mut(&old_base)
+        .context("old base timer was not recorded")?;
+    old_base_observation.gc_state = ObjectGcState::Superseded {
+        since_ms: chrono::Utc::now().timestamp_millis()
+            - share::SUPERSEDED_BASE_RETENTION_MS as i64
+            - 1,
+    };
+    save_state(&source.db, &state).await?;
+    let tail_key = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(914),
+    };
+    source
+        .library
+        .write_local(tail_key.clone(), support::playlist("tail after base cut"))
+        .await?;
+    source
+        .library
+        .push_share(store.clone(), namespace, cache_path(), Default::default())
+        .await?;
+    ensure!(
+        matches!(store.get(&old_base_key).await, Err(StoreError::NotFound)),
+        "GC retained a superseded base after its retention deadline"
+    );
+    let target = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    target
+        .library
+        .pull_share(store, namespace, cache_path(), Default::default())
+        .await?;
+    ensure!(
+        target.library.get(&tail_key).await? == source.library.get(&tail_key).await?,
+        "new device did not apply the base plus its tail"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn first_share_push_creates_a_base_before_its_head() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let target = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let store = Arc::new(MemoryObjectStore::default());
+    let key = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(916),
+    };
+    source
+        .library
+        .write_local(key.clone(), support::playlist("first share base"))
+        .await?;
+
+    let head = source
+        .library
+        .push_share(store.clone(), namespace, cache_path(), Default::default())
+        .await?
+        .context("first push did not create a base")?;
+    ensure!(
+        head.bases.len() == 1,
+        "first share head does not reference its base"
+    );
+    target
+        .library
+        .pull_share(store, namespace, cache_path(), Default::default())
+        .await?;
+    ensure!(
+        target.library.get(&key).await? == source.library.get(&key).await?,
+        "first base did not initialize a new device"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn only_the_elected_keeper_cuts_a_retained_base() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let a = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let b = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let store = Arc::new(MemoryObjectStore::default());
+    a.library
+        .write_local(
+            ObjectKey {
+                collection: Collection::Playlists,
+                id: Uuid::from_u128(918),
+            },
+            support::playlist("keeper A"),
+        )
+        .await?;
+    b.library
+        .write_local(
+            ObjectKey {
+                collection: Collection::Playlists,
+                id: Uuid::from_u128(919),
+            },
+            support::playlist("keeper B"),
+        )
+        .await?;
+    let published_a = publish_base(&a, store.clone(), Default::default()).await?;
+    let published_b = publish_base(&b, store.clone(), Default::default()).await?;
+    let old_base_age = 31 * 24 * 60 * 60 * 1000_i64;
+    age_base_observation(&a, &published_a, &store, old_base_age).await?;
+    age_base_observation(&b, &published_b, &store, old_base_age).await?;
+
+    let (keeper, keeper_base, non_keeper, non_keeper_base) =
+        if published_a.head.stream < published_b.head.stream {
+            (&a, &published_a, &b, &published_b)
+        } else {
+            (&b, &published_b, &a, &published_a)
+        };
+    let non_keeper_head = non_keeper
+        .library
+        .push_share(store.clone(), namespace, cache_path(), Default::default())
+        .await?;
+    let non_keeper_head =
+        non_keeper_head.context("non-keeper did not publish its acknowledgement")?;
+    ensure!(
+        non_keeper_head.bases.len() == non_keeper_base.head.bases.len(),
+        "non-keeper cut the base"
+    );
+    let keeper_head = keeper
+        .library
+        .push_share(store, namespace, cache_path(), Default::default())
+        .await?
+        .context("elected keeper did not cut the stale base")?;
+    ensure!(
+        keeper_head.bases.len() == keeper_base.head.bases.len() + 1,
+        "elected keeper did not publish the replacement base"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn interrupted_base_cut_leaves_orphans_for_delayed_own_gc() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let store = Arc::new(MemoryObjectStore::default());
+    let foreign = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    foreign
+        .library
+        .write_local(
+            ObjectKey {
+                collection: Collection::Playlists,
+                id: Uuid::from_u128(920),
+            },
+            support::playlist("foreign prefix stays live"),
+        )
+        .await?;
+    let foreign_published = publish_base(&foreign, store.clone(), Default::default()).await?;
+    let foreign_objects = store
+        .list_prefix(&format!("devices/{}/", foreign_published.prefix))
+        .await
+        .map_err(|error| anyhow::anyhow!("list foreign prefix before GC: {error:?}"))?;
+    let key = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(917),
+    };
+    source
+        .library
+        .write_local(key.clone(), support::playlist("before interrupted cut"))
+        .await?;
+    source
+        .library
+        .pull_share(store.clone(), namespace, cache_path(), Default::default())
+        .await?;
+    let identity = source.library.identity().await?;
+    let state = load_or_create_state(
+        &source.db,
+        identity.replica,
+        namespace,
+        cache_path(),
+        chrono::Utc::now().timestamp_millis(),
+    )
+    .await?;
+    let prefix = format!("{}.{}", state.stream, state.generation);
+    let export = export_base(
+        &source.library.endpoint(),
+        BaseExportOptions {
+            own_prefix: prefix.clone(),
+            ..BaseExportOptions::default()
+        },
+    )
+    .await?;
+    let manifest_key = share::base_key(&prefix, &export.base_id)?;
+    let mut orphan_keys = export
+        .objects
+        .iter()
+        .filter(|object| object.name != export.base_id)
+        .map(|object| share::chunk_key(&prefix, &object.name))
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    ensure!(
+        !orphan_keys.is_empty(),
+        "interrupted cut fixture has no chunks"
+    );
+    store.inject_error_for_kind(
+        StoreOperation::Create,
+        StoreObjectKind::Base,
+        StoreError::Transient("injected manifest failure".into()),
+    );
+    let interrupted = source
+        .library
+        .push_share(store.clone(), namespace, cache_path(), Default::default())
+        .await;
+    if interrupted.is_ok() {
+        let listed = store
+            .list_prefix("devices/")
+            .await
+            .map_err(|error| anyhow::anyhow!("list successful cut: {error:?}"))?;
+        anyhow::bail!(
+            "manifest failure did not interrupt the base cut; expected={manifest_key}, observed={listed:?}"
+        );
+    }
+    ensure!(
+        store
+            .list_prefix("devices/")
+            .await
+            .map_err(|error| anyhow::anyhow!("list after interrupted cut: {error:?}"))?
+            .iter()
+            .all(|object| {
+                !matches!(parse_key(object), Ok(ShareObjectKey::Head { prefix: owner, .. }) if owner.to_string() == prefix)
+            }),
+        "interrupted base became reachable from a head"
+    );
+    for orphan in &orphan_keys {
+        store
+            .get(orphan)
+            .await
+            .map_err(|error| anyhow::anyhow!("partial base chunk missing: {error:?}"))?;
+    }
+
+    store.clear_error_for_kind(StoreOperation::Create, StoreObjectKind::Base);
+    source
+        .library
+        .write_local(key, support::playlist("replacement snapshot"))
+        .await?;
+    let replacement = source
+        .library
+        .push_share(store.clone(), namespace, cache_path(), Default::default())
+        .await?
+        .context("replacement base was not published")?;
+    let replacement_key = share::base_key(
+        &prefix,
+        &replacement
+            .bases
+            .last()
+            .context("replacement base reference missing")?
+            .base_id,
+    )?;
+    let replacement_object = store
+        .get(&replacement_key)
+        .await
+        .map_err(|error| anyhow::anyhow!("read replacement manifest: {error:?}"))?;
+    let replacement_manifest = share::decode_manifest::<RuneModel>(
+        &replacement_object.bytes,
+        &replacement
+            .bases
+            .last()
+            .context("replacement base reference missing")?
+            .base_id,
+    )?;
+    let retained = replacement_manifest
+        .collections
+        .values()
+        .flat_map(|collection| {
+            collection
+                .buckets
+                .iter()
+                .map(|bucket| bucket.chunk.clone())
+                .chain(collection.context_fragments.iter().cloned())
+        })
+        .collect::<BTreeSet<_>>();
+    orphan_keys.retain(|key| {
+        matches!(parse_key(key), Ok(ShareObjectKey::Chunk { digest, .. }) if !retained.contains(&digest))
+    });
+    ensure!(
+        !orphan_keys.is_empty(),
+        "replacement base retained every interrupted chunk"
+    );
+    let mut state = load_or_create_state(
+        &source.db,
+        identity.replica,
+        namespace,
+        cache_path(),
+        chrono::Utc::now().timestamp_millis(),
+    )
+    .await?;
+    let old_time =
+        chrono::Utc::now().timestamp_millis() - share::OBJECT_UNREFERENCED_MS as i64 - 10;
+    let second_observation = chrono::Utc::now().timestamp_millis();
+    for key in &orphan_keys {
+        let ShareObjectKey::Chunk { prefix, digest } = parse_key(key)? else {
+            anyhow::bail!("orphan chunk key did not parse as a chunk");
+        };
+        let observed = state
+            .observed_objects
+            .get_mut(&ShareObjectKey::Chunk { prefix, digest })
+            .context("GC did not persist the first orphan observation")?;
+        observed.gc_state = ObjectGcState::Unreferenced {
+            first_seen_ms: old_time,
+            second_observation: GcObservation::ObservedAt(second_observation as u64),
+        };
+    }
+    save_state(&source.db, &state).await?;
+    source
+        .library
+        .push_share(store.clone(), namespace, cache_path(), Default::default())
+        .await?;
+    for orphan in orphan_keys {
+        ensure!(
+            matches!(store.get(&orphan).await, Err(StoreError::NotFound)),
+            "own-prefix GC retained an old interrupted-cut orphan"
+        );
+    }
+    for object in foreign_objects {
+        store.get(&object).await.map_err(|error| {
+            anyhow::anyhow!("own-prefix GC touched a foreign object: {error:?}")
+        })?;
+    }
     Ok(())
 }
 

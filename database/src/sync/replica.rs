@@ -4,9 +4,9 @@ use super::model::Collection;
 use super::model::{ObjectKey, Payload, Record, RuneModel};
 use super::references::collect;
 use super::share::{
-    PublishJournalRequest, ShareCapabilities, SharePullError, SharePullRequest, SharePullResult,
-    SharePushError, SharePushResult, ShareWriter, load_or_create_state, publish_journal, pull,
-    push_store_error,
+    BaseCutRequest, PublishJournalRequest, ShareCapabilities, SharePullError, SharePullRequest,
+    SharePullResult, SharePushError, SharePushResult, ShareWriter, collect_own_prefix, cut_base,
+    load_or_create_state, publish_journal, pull, push_store_error,
 };
 use crate::sync::{import, legacy};
 use anyhow::{Result, ensure};
@@ -19,9 +19,10 @@ use std::{
 use sync::{
     EventRef, PageRead, ReceiveStore, StoreIdentity, SyncModel, SyncPeer, SyncStore,
     share::{
-        BaseSize, DevicePrefix, ExportCursorStatus, FormatError, Head, JournalEvent,
-        ObjectKey as ShareObjectKey, ObjectStore, StoreError, base_key, decode_head, head_key,
-        parse_key,
+        BaseSize, Checkpoint, DevicePrefix, ExportCursorStatus, FormatError, Head, JournalEvent,
+        KeeperDecision, NewestBase, ObjectKey as ShareObjectKey, ObjectStore, PublishDecision,
+        PublishInput, StoreError, StreamActivity, base_key, decode_head, head_key, parse_key,
+        plan_keeper, plan_publish,
     },
 };
 use sync_orm::{
@@ -267,15 +268,63 @@ impl LibrarySyncStore {
             stream: state.stream,
             generation: state.generation,
         };
-        let current_head = heads
-            .get(&own_prefix)
-            .cloned()
-            .ok_or(SharePushError::NeedsBase)?;
         let scope = sync::Scope {
             collections: RuneModel::collections().into_iter().collect(),
         };
         let scope_id =
             sync::scope_id(&scope).map_err(|error| SharePushError::Failed(error.to_string()))?;
+        if !heads.contains_key(&own_prefix) {
+            let mut covers = BTreeMap::new();
+            for (prefix, head) in &heads {
+                let checkpoint = sync::CheckpointKey {
+                    namespace: identity.namespace,
+                    source_replica: head.stream,
+                    source_generation: head.generation,
+                    scope_id,
+                };
+                if let Some(progress) = self
+                    .endpoint
+                    .checkpoint(&checkpoint)
+                    .await
+                    .map_err(|error| SharePushError::Failed(error.to_string()))?
+                {
+                    covers.insert(
+                        prefix.to_string(),
+                        Checkpoint {
+                            seq: progress.sequence,
+                            anchor: progress.anchor,
+                        },
+                    );
+                }
+            }
+            let head = cut_base(BaseCutRequest {
+                db: &self.db,
+                state: &mut state,
+                writer: &self.share_writer,
+                store: &*store,
+                identity: &identity,
+                source: &self.endpoint,
+                current_head: None,
+                covers,
+                capabilities,
+            })
+            .await?;
+            let head = collect_own_prefix(
+                &self.db,
+                &mut state,
+                &self.share_writer,
+                &*store,
+                &head,
+                &heads,
+                capabilities,
+            )
+            .await?;
+            return Ok(Some(head));
+        }
+        let current_head = heads
+            .get(&own_prefix)
+            .cloned()
+            .ok_or(SharePushError::NeedsBase)?;
         let mut acknowledgements = BTreeMap::new();
         let mut share_stream_ids = BTreeSet::new();
         let mut share_local_replicas = BTreeSet::new();
@@ -373,14 +422,142 @@ impl LibrarySyncStore {
             let key = base_key(&own_prefix.to_string(), &base.base_id)
                 .map_err(|error| SharePushError::Failed(error.to_string()))?;
             match store.get(&key).await {
-                Ok(object) => BaseSize::GzipBytes(object.bytes.len() as u64),
+                Ok(object) => {
+                    state.observe_tag(
+                        ShareObjectKey::Base {
+                            prefix: own_prefix.clone(),
+                            base_id: base.base_id.clone(),
+                        },
+                        object.tag,
+                        chrono::Utc::now().timestamp_millis(),
+                    );
+                    BaseSize::GzipBytes(object.bytes.len() as u64)
+                }
                 Err(StoreError::NotFound) => BaseSize::Absent,
                 Err(error) => return Err(push_store_error(error)),
             }
         } else {
             BaseSize::Absent
         };
-        publish_journal(PublishJournalRequest {
+        let now_ms = chrono::Utc::now().timestamp_millis().max(0) as u64;
+        let activities = heads
+            .iter()
+            .map(|(prefix, head)| StreamActivity {
+                stream_id: head.stream,
+                last_head_change_ms: [0, 1]
+                    .into_iter()
+                    .filter_map(|slot| {
+                        state
+                            .observed_objects
+                            .get(&ShareObjectKey::Head {
+                                prefix: prefix.clone(),
+                                slot,
+                            })
+                            .map(|observed| observed.last_change_ms.max(0) as u64)
+                    })
+                    .max()
+                    .unwrap_or_default(),
+            })
+            .collect::<Vec<_>>();
+        let newest = current_head
+            .bases
+            .last()
+            .map_or(NewestBase::Absent, |_base| NewestBase::Present {
+                created_ms: current_head
+                    .bases
+                    .last()
+                    .and_then(|base| {
+                        state.observed_objects.get(&ShareObjectKey::Base {
+                            prefix: own_prefix.clone(),
+                            base_id: base.base_id.clone(),
+                        })
+                    })
+                    .map(|observed| observed.first_seen_ms.max(0) as u64)
+                    .unwrap_or(now_ms),
+                gzip_bytes: match newest_base {
+                    BaseSize::GzipBytes(bytes) => bytes,
+                    BaseSize::Absent => 0,
+                },
+            });
+        let tail_bytes = current_head
+            .segments
+            .iter()
+            .map(|segment| segment.bytes)
+            .sum();
+        let keeper = plan_keeper(state.stream, now_ms, &activities, newest, tail_bytes);
+        let bulk_cut = cursor_status == ExportCursorStatus::NeedsBase
+            || matches!(
+                plan_publish(PublishInput {
+                    identity: &StoreIdentity {
+                        namespace: identity.namespace,
+                        model: identity.model.clone(),
+                        replica: own_prefix.stream,
+                        generation: own_prefix.generation,
+                    },
+                    after_cursor: state.local_cursor,
+                    entries: &entries,
+                    share_stream_ids: &share_stream_ids,
+                    share_local_replicas: &share_local_replicas,
+                    head: Checkpoint {
+                        seq: current_head.head.seq,
+                        anchor: current_head.head.anchor,
+                    },
+                    existing_segments: &current_head.segments,
+                    newest_base_gzip_bytes: newest_base,
+                    export_cursor: cursor_status,
+                    max_events_per_segment: 100,
+                }),
+                Ok(PublishDecision::CutBase { .. })
+            );
+        if bulk_cut || matches!(keeper, KeeperDecision::CutBase(_)) {
+            let mut covers = BTreeMap::new();
+            for (prefix, head) in &heads {
+                let checkpoint = sync::CheckpointKey {
+                    namespace: identity.namespace,
+                    source_replica: head.stream,
+                    source_generation: head.generation,
+                    scope_id,
+                };
+                if let Some(progress) = self
+                    .endpoint
+                    .checkpoint(&checkpoint)
+                    .await
+                    .map_err(|error| SharePushError::Failed(error.to_string()))?
+                {
+                    covers.insert(
+                        prefix.to_string(),
+                        Checkpoint {
+                            seq: progress.sequence,
+                            anchor: progress.anchor,
+                        },
+                    );
+                }
+            }
+            let head = cut_base(BaseCutRequest {
+                db: &self.db,
+                state: &mut state,
+                writer: &self.share_writer,
+                store: &*store,
+                identity: &identity,
+                source: &self.endpoint,
+                current_head: Some(&current_head),
+                covers,
+                capabilities,
+            })
+            .await?;
+            let head = collect_own_prefix(
+                &self.db,
+                &mut state,
+                &self.share_writer,
+                &*store,
+                &head,
+                &heads,
+                capabilities,
+            )
+            .await?;
+            return Ok(Some(head));
+        }
+        let published = publish_journal(PublishJournalRequest {
             db: &self.db,
             state: &mut state,
             writer: &self.share_writer,
@@ -396,7 +573,18 @@ impl LibrarySyncStore {
             capabilities,
             max_events_per_segment: 100,
         })
-        .await
+        .await?;
+        let gc_head = collect_own_prefix(
+            &self.db,
+            &mut state,
+            &self.share_writer,
+            &*store,
+            published.as_ref().unwrap_or(&current_head),
+            &heads,
+            capabilities,
+        )
+        .await?;
+        Ok(published.or_else(|| (gc_head != current_head).then_some(gc_head)))
     }
     pub async fn identity(&self) -> Result<StoreIdentity> {
         Ok(ReceiveStore::identity(&self.endpoint).await?)

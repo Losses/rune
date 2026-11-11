@@ -557,7 +557,7 @@ pub struct OwnSegment {
     pub key: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 /// Supersession state persisted for an own-prefix base.
 pub enum SupersededSince {
     /// No covering live base has superseded this base.
@@ -574,13 +574,27 @@ pub struct OwnBase {
     pub superseded_since: SupersededSince,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 /// Whether an orphan was not yet observed or was observed during a GC pass.
 pub enum GcObservation {
     /// No GC pass has observed this object as unreferenced.
     NotObserved,
     /// Local time when a GC pass observed this object as unreferenced.
     ObservedAt(u64),
+}
+
+/// Persisted lifecycle state for an observed share object.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ObjectGcState {
+    /// The object is currently referenced, or has no active retention timer.
+    Current,
+    /// The object is unreferenced and has zero or one delayed GC observations.
+    Unreferenced {
+        first_seen_ms: i64,
+        second_observation: GcObservation,
+    },
+    /// A base has been superseded and is still inside its retention period.
+    Superseded { since_ms: i64 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

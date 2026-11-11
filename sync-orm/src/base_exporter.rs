@@ -208,7 +208,11 @@ async fn build_export<M: p::SyncModel>(
                 let name = blake3::hash(&fragment.bytes).to_hex().to_string();
                 let bytes = gzip(&fragment.bytes)?;
                 context_names.push(name.clone());
-                context_objects.push(BaseObject { name, bytes });
+                if !options.retained_chunk_names.contains(&name)
+                    && emitted_chunks.insert(name.clone())
+                {
+                    context_objects.push(BaseObject { name, bytes });
+                }
             }
         }
         export.manifest.collections.insert(

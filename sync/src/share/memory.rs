@@ -1,4 +1,5 @@
 //! In-memory asynchronous object store for share tests.
+use super::super::{ObjectKey, parse_key};
 use super::{ConditionalGet, ObjectStore, ObjectTag, ObjectValue, StoreError, StoreOperation};
 use crate::protocol::BoxFuture;
 use std::{
@@ -20,9 +21,19 @@ pub struct MemoryStoreConfig {
 pub struct MemoryObjectStore {
     objects: Mutex<BTreeMap<String, ObjectValue>>,
     failures: Mutex<BTreeMap<StoreOperation, StoreError>>,
+    kind_failures: Mutex<BTreeMap<(StoreOperation, StoreObjectKind), StoreError>>,
     config: Mutex<MemoryStoreConfig>,
     calls: Mutex<BTreeSet<StoreOperation>>,
     gets: Mutex<BTreeMap<String, u64>>,
+    creates: Mutex<BTreeMap<String, u64>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum StoreObjectKind {
+    Head,
+    Segment,
+    Base,
+    Chunk,
 }
 
 impl MemoryObjectStore {
@@ -32,6 +43,19 @@ impl MemoryObjectStore {
 
     pub fn clear_error(&self, operation: StoreOperation) {
         recover_lock(&self.failures).remove(&operation);
+    }
+
+    pub fn inject_error_for_kind(
+        &self,
+        operation: StoreOperation,
+        kind: StoreObjectKind,
+        error: StoreError,
+    ) {
+        recover_lock(&self.kind_failures).insert((operation, kind), error);
+    }
+
+    pub fn clear_error_for_kind(&self, operation: StoreOperation, kind: StoreObjectKind) {
+        recover_lock(&self.kind_failures).remove(&(operation, kind));
     }
 
     pub fn configure(&self, config: MemoryStoreConfig) {
@@ -49,12 +73,44 @@ impl MemoryObjectStore {
             .unwrap_or_default()
     }
 
+    pub fn create_count(&self, key: &str) -> u64 {
+        recover_lock(&self.creates)
+            .get(key)
+            .copied()
+            .unwrap_or_default()
+    }
+
     fn before<'a>(&'a self, operation: StoreOperation) -> BoxFuture<'a, (), StoreError> {
         Box::pin(async move {
             recover_lock(&self.calls).insert(operation);
             let config = recover_lock(&self.config).clone();
             cooperate(config.delay).await;
             if let Some(error) = recover_lock(&self.failures).get(&operation).cloned() {
+                return Err(error);
+            }
+            Ok(())
+        })
+    }
+
+    fn before_key<'a>(
+        &'a self,
+        operation: StoreOperation,
+        key: &'a str,
+    ) -> BoxFuture<'a, (), StoreError> {
+        Box::pin(async move {
+            self.before(operation).await?;
+            let kind = match parse_key(key) {
+                Ok(ObjectKey::Head { .. }) => Some(StoreObjectKind::Head),
+                Ok(ObjectKey::Segment { .. }) => Some(StoreObjectKind::Segment),
+                Ok(ObjectKey::Base { .. }) => Some(StoreObjectKind::Base),
+                Ok(ObjectKey::Chunk { .. }) => Some(StoreObjectKind::Chunk),
+                Ok(ObjectKey::Library | ObjectKey::Other(_)) | Err(_) => None,
+            };
+            if let Some(error) = kind.and_then(|kind| {
+                recover_lock(&self.kind_failures)
+                    .get(&(operation, kind))
+                    .cloned()
+            }) {
                 return Err(error);
             }
             Ok(())
@@ -140,7 +196,10 @@ impl ObjectStore for MemoryObjectStore {
 
     fn create<'a>(&'a self, key: &'a str, bytes: &'a [u8]) -> BoxFuture<'a, ObjectTag, StoreError> {
         Box::pin(async move {
-            self.before(StoreOperation::Create).await?;
+            self.before_key(StoreOperation::Create, key).await?;
+            *recover_lock(&self.creates)
+                .entry(key.to_owned())
+                .or_default() += 1;
             let mut objects = recover_lock(&self.objects);
             if objects.contains_key(key) {
                 return Err(StoreError::PreconditionFailed);

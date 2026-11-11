@@ -3,7 +3,7 @@ use crate::protocol::BoxFuture;
 use std::result::Result as StdResult;
 #[path = "memory.rs"]
 mod memory;
-pub use memory::{MemoryObjectStore, MemoryStoreConfig};
+pub use memory::{MemoryObjectStore, MemoryStoreConfig, StoreObjectKind};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StoreError {
