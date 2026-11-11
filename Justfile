@@ -44,3 +44,7 @@ ios-ci-all-appstore:
   ./scripts/apple/ios/1_ci_setup_deps.sh
   ./scripts/apple/ios/2_build_for_appstore.sh
   ./scripts/apple/ios/3_submit_to_appstore.sh
+
+ios-ci-unsigned output="build/ios/ipa/Rune-unsigned.ipa":
+  ./scripts/apple/ios/1_ci_setup_deps.sh
+  ./scripts/apple/ios/2_build_unsigned_ipa.sh "{{output}}"

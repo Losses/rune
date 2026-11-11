@@ -16,6 +16,7 @@ on:
           - steam-sniper
           - mac-app-store
           - ios-app-store
+          - ios-unsigned
   push:
     tags:
       - v*
@@ -815,3 +816,70 @@ jobs:
           fi
           rm -f .env
           rm -f $RUNNER_TEMP/*.p8
+
+  build-ios-unsigned:
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'ios-unsigned'
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,x86_64-apple-ios,aarch64-apple-ios-sim
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
+
+      - name: Name the IPA
+        id: ipa
+        run: |
+          # A workflow_dispatch run can come from a branch name with "/", which upload-artifact rejects.
+          safe_ref=$(printf '%s' "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9._-' '-')
+          suffix=""
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then suffix="-$SHORT_SHA"; fi
+          echo "name=Rune-$safe_ref$suffix-iOS-unsigned.ipa" >> "$GITHUB_OUTPUT"
+        env:
+          SHORT_SHA: ${{ steps.short-sha.outputs.sha }}
+
+      - name: All
+        run: |
+          brew install just
+          just ios-ci-unsigned "build/ios/ipa/${{ steps.ipa.outputs.name }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          path: build/ios/ipa/${{ steps.ipa.outputs.name }}
+          name: ${{ steps.ipa.outputs.name }}
+
+      - name: Release
+        uses: ncipollo/release-action@v1
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          artifacts: "build/ios/ipa/${{ steps.ipa.outputs.name }}"
+          allowUpdates: true
+          replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          omitPrereleaseDuringUpdate: true
+          omitDraftDuringUpdate: true
+          omitNameDuringUpdate: true
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev') }}
+          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta')) }}
