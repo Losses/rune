@@ -22,6 +22,7 @@ pub struct MemoryObjectStore {
     failures: Mutex<BTreeMap<StoreOperation, StoreError>>,
     config: Mutex<MemoryStoreConfig>,
     calls: Mutex<BTreeSet<StoreOperation>>,
+    gets: Mutex<BTreeMap<String, u64>>,
 }
 
 impl MemoryObjectStore {
@@ -39,6 +40,13 @@ impl MemoryObjectStore {
 
     pub fn calls(&self) -> BTreeSet<StoreOperation> {
         recover_lock(&self.calls).clone()
+    }
+
+    pub fn get_count(&self, key: &str) -> u64 {
+        recover_lock(&self.gets)
+            .get(key)
+            .copied()
+            .unwrap_or_default()
     }
 
     fn before<'a>(&'a self, operation: StoreOperation) -> BoxFuture<'a, (), StoreError> {
@@ -80,6 +88,7 @@ impl ObjectStore for MemoryObjectStore {
     fn get<'a>(&'a self, key: &'a str) -> BoxFuture<'a, ObjectValue, StoreError> {
         Box::pin(async move {
             self.before(StoreOperation::Get).await?;
+            *recover_lock(&self.gets).entry(key.to_owned()).or_default() += 1;
             recover_lock(&self.objects)
                 .get(key)
                 .cloned()

@@ -72,7 +72,9 @@ pub enum SyncError {
     Invalid(String),
     IncompatibleModel,
     ClockExhausted,
-    LimitTooSmall { required: u64 },
+    LimitTooSmall {
+        required: u64,
+    },
     LogicalLimit,
     StageQuota,
     WorkLimit,
@@ -90,6 +92,8 @@ pub enum SyncError {
     Forbidden,
     NamespaceNotServed,
     StorageBusy,
+    /// A referenced immutable share base object is missing or fails its digest check.
+    SnapshotSourceUnavailable,
     Storage(String),
     Transport(String),
 }

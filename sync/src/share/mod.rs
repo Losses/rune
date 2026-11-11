@@ -2,6 +2,7 @@
 mod formats;
 mod keys;
 mod peer;
+mod snapshot;
 mod store;
 mod verification;
 

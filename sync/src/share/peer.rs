@@ -1,4 +1,5 @@
 //! Pull-only SyncPeer adapter for one immutable share device prefix.
+use super::snapshot::SnapshotBinding;
 use super::{
     FormatError, Head, ObjectStore, Segment, SegmentRef, StoreError, decode_head, decode_library,
     decode_segment, head_key, library_key, segment_key,
@@ -10,24 +11,34 @@ use crate::protocol::{
     SyncError, SyncModel, SyncPeer, canonical_event, content_digest, event_digest, fragment_bounds,
     fragment_digest, initial_anchor, manifest_digest, next_anchor, scope_id,
 };
-use std::{fmt::Display, marker::PhantomData, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    fmt::Display,
+    marker::PhantomData,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 use uuid::Uuid;
 
 /// Reads the journal published under one `devices/<stream>.<generation>/` prefix.
 pub struct SharePeer<M: SyncModel> {
-    store: Arc<dyn ObjectStore>,
-    library_id: Uuid,
-    stream: Uuid,
-    generation: Uuid,
-    prefix: String,
+    pub(super) store: Arc<dyn ObjectStore>,
+    pub(super) library_id: Uuid,
+    pub(super) stream: Uuid,
+    pub(super) generation: Uuid,
+    pub(super) prefix: String,
+    pub(super) cache_dir: PathBuf,
+    pub(super) snapshots: Mutex<BTreeMap<Uuid, SnapshotBinding<M>>>,
     marker: PhantomData<M>,
 }
 
 impl<M: SyncModel> SharePeer<M> {
+    /// Creates a read peer and uses `cache_dir` for its bounded content cache.
     pub fn new(
         store: Arc<dyn ObjectStore>,
         library_id: Uuid,
         prefix: impl Into<String>,
+        cache_dir: impl Into<PathBuf>,
     ) -> ProtocolResult<Self> {
         let prefix = prefix.into();
         let (stream, generation) = prefix
@@ -46,11 +57,13 @@ impl<M: SyncModel> SharePeer<M> {
             stream,
             generation,
             prefix,
+            cache_dir: cache_dir.into(),
+            snapshots: Mutex::new(BTreeMap::new()),
             marker: std::marker::PhantomData,
         })
     }
 
-    fn identity_for(&self) -> StoreIdentity {
+    pub(super) fn identity_for(&self) -> StoreIdentity {
         StoreIdentity {
             namespace: self.library_id,
             model: ModelId {
@@ -62,7 +75,7 @@ impl<M: SyncModel> SharePeer<M> {
         }
     }
 
-    async fn read_head(&self) -> ProtocolResult<Head> {
+    pub(super) async fn read_head(&self) -> ProtocolResult<Head> {
         let library_object = self.store.get(&library_key()).await.map_err(store_error)?;
         let library = decode_library(&library_object.bytes).map_err(permanent_format)?;
         if library.library_id != self.library_id

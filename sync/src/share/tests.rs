@@ -4,13 +4,20 @@ use crate::protocol::{
     DEFAULT_STAGE_BYTES, DEFAULT_STAGES, Event, EventRef, HistoryStatus, KeyDelta, KeyRange,
     LocalAuthor, MemorySyncStore, ModelId, ObjectKey as SyncObjectKey, PageLimits, PageRead,
     PageRequest, RangeSummary, ReceiveProgress, ReceiveStore, Result as ProtocolResult, Revision,
-    Scope, SessionAdvance, SessionLimits, StageLimits, StoreIdentity, SyncError, SyncModel,
-    SyncPeer, SyncStore, WorkLimits, decode_event, event_digest, fragment_digest, initial_anchor,
-    next_anchor, scope_id,
+    Scope, SessionAdvance, SessionLimits, SnapshotSource, StageLimits, StoreIdentity, SyncError,
+    SyncModel, SyncPeer, SyncStore, WorkLimits, WorkOutcome, decode_event, event_digest,
+    fragment_digest, initial_anchor, next_anchor, scope_id,
 };
-use flate2::read::GzDecoder;
+use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, io::Read, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeMap,
+    env,
+    io::{Read, Write},
+    path::PathBuf,
+    sync::Arc,
+    time::Duration,
+};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -158,6 +165,548 @@ fn share_limits() -> SessionLimits {
 
 fn share_prefix(identity: &StoreIdentity) -> String {
     format!("{}.{}", identity.replica, identity.generation)
+}
+
+fn share_cache_dir() -> PathBuf {
+    env::temp_dir().join(format!("rune-share-test-{}", Uuid::new_v4()))
+}
+
+async fn base_peer_fixture(count: u64) -> PeerFixture {
+    let fixture = peer_fixture(count).await;
+    let descriptor = match SnapshotSource::open_snapshot(
+        &*fixture.source,
+        Uuid::new_v4(),
+        share_scope(),
+        share_limits().work,
+        None,
+    )
+    .await
+    .unwrap()
+    {
+        WorkOutcome::Ready(descriptor) => descriptor,
+        WorkOutcome::Incomplete { .. } => panic!("fixture snapshot should be bounded"),
+    };
+    let root = descriptor.roots[0].clone();
+    let mut after = None;
+    let mut candidates = Vec::new();
+    loop {
+        let page = SnapshotSource::leaf(
+            &*fixture.source,
+            descriptor.snapshot_id,
+            root.range.clone(),
+            after,
+            PageLimits {
+                max_scanned: 128,
+                max_bytes: 4 * 1024 * 1024,
+            },
+        )
+        .await
+        .unwrap();
+        candidates.extend(page.candidates);
+        after = page.next;
+        if page.done {
+            break;
+        }
+    }
+    let values = candidates
+        .iter()
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    let canonical_candidates = serde_json::to_vec(&serde_json::Value::Array(values)).unwrap();
+    let (chunk_name, chunk_bytes) = encode_chunk(canonical_candidates).unwrap();
+    let prefix = share_prefix(&fixture.identity);
+    fixture
+        .objects
+        .put(&chunk_key(&prefix, &chunk_name).unwrap(), &chunk_bytes)
+        .await
+        .unwrap();
+    let context = &descriptor.contexts[0];
+    let mut context_names = Vec::new();
+    for ordinal in 0..context.context.manifest.fragment_count {
+        let fragment = SnapshotSource::read_fragment(
+            &*fixture.source,
+            descriptor.snapshot_id,
+            context.context.manifest.clone(),
+            ordinal,
+            256 * 1024,
+        )
+        .await
+        .unwrap();
+        let digest = blake3::hash(&fragment.bytes).to_hex().to_string();
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&fragment.bytes).unwrap();
+        let compressed = encoder.finish().unwrap();
+        fixture
+            .objects
+            .put(&chunk_key(&prefix, &digest).unwrap(), &compressed)
+            .await
+            .unwrap();
+        context_names.push(digest);
+    }
+    let head = fixture.source.head().await.unwrap();
+    let checkpoint = Checkpoint {
+        seq: head.sequence,
+        anchor: head.anchor,
+    };
+    let bucket_count = if root.candidate_count == 0 { 0 } else { 1 };
+    let buckets = if bucket_count == 0 {
+        Vec::new()
+    } else {
+        vec![BucketSummary {
+            range: root.range.clone(),
+            candidate_count: root.candidate_count,
+            candidate_bytes: root.candidate_bytes,
+            aggregate: root.aggregate,
+            chunk: chunk_name,
+        }]
+    };
+    let manifest = BaseManifest {
+        format: FORMAT_VERSION,
+        covers: BTreeMap::from([(
+            prefix.clone(),
+            Checkpoint {
+                seq: checkpoint.seq,
+                anchor: checkpoint.anchor,
+            },
+        )]),
+        collections: BTreeMap::from([(
+            "notes".to_owned(),
+            CollectionSummary {
+                root,
+                bucket_count,
+                buckets,
+                context_fragments: context_names,
+            },
+        )]),
+    };
+    let (base_id, manifest_bytes) = encode_manifest(&manifest).unwrap();
+    fixture
+        .objects
+        .put(&base_key(&prefix, &base_id).unwrap(), &manifest_bytes)
+        .await
+        .unwrap();
+    let mut new_head = fixture.head.clone();
+    new_head.counter += 1;
+    new_head.floor = Checkpoint {
+        seq: checkpoint.seq,
+        anchor: checkpoint.anchor,
+    };
+    new_head.floor_base = FloorBase {
+        owner_prefix: prefix.clone(),
+        base_id: base_id.clone(),
+        covers_seq: checkpoint.seq,
+        covers_anchor: checkpoint.anchor,
+    };
+    new_head.bases.push(BaseRef {
+        base_id,
+        covers: BTreeMap::from([(prefix.clone(), checkpoint)]),
+    });
+    let slot = (new_head.counter % 2) as u8;
+    fixture
+        .objects
+        .put(
+            &head_key(&prefix, slot).unwrap(),
+            &encode_head(&new_head).unwrap(),
+        )
+        .await
+        .unwrap();
+    PeerFixture {
+        head: new_head,
+        ..fixture
+    }
+}
+
+async fn advance_to_complete(peer: &SharePeer<Model>, target: &MemorySyncStore<Model>) {
+    let mut coordinator = Coordinator::new(share_scope(), share_limits()).unwrap();
+    for _ in 0..3000 {
+        match coordinator
+            .advance(target, target, target, peer, peer)
+            .await
+            .unwrap()
+        {
+            SessionAdvance::Complete(_) => return,
+            SessionAdvance::BudgetExhausted => coordinator.start_pass(),
+            SessionAdvance::Incomplete => (),
+            SessionAdvance::Cancelled => panic!("unexpected cancellation"),
+        }
+    }
+    panic!("base reconciliation did not complete");
+}
+
+async fn append_share_segment(fixture: &PeerFixture) {
+    let key = SyncObjectKey {
+        collection: Collection::Notes,
+        id: Uuid::from_u128(900),
+    };
+    fixture
+        .source
+        .write_local(
+            key,
+            Some(Payload {
+                text: "after base".into(),
+            }),
+        )
+        .await
+        .unwrap();
+    let previous = ReceiveProgress {
+        sequence: fixture.head.head.seq,
+        anchor: fixture.head.head.anchor,
+    };
+    let through = fixture.source.head().await.unwrap();
+    let page = fixture
+        .source
+        .read_page(PageRequest {
+            source: fixture.identity.clone(),
+            scope: share_scope(),
+            after: previous.clone(),
+            through: through.clone(),
+            limits: share_limits().pages,
+        })
+        .await
+        .unwrap();
+    let PageRead::Page(page) = page else {
+        panic!("small fixture event should be inline");
+    };
+    let link = page.links.into_iter().next().unwrap();
+    let event = match link.event.unwrap() {
+        EventRef::Inline(event) => event,
+        EventRef::Fragmented(_) => panic!("small fixture event should be inline"),
+    };
+    let anchor = next_anchor::<Model>(
+        previous.anchor,
+        link.sequence,
+        &link.collection,
+        link.event_digest,
+    )
+    .unwrap();
+    let segment = Segment {
+        format: FORMAT_VERSION,
+        prev_anchor: previous.anchor,
+        links: vec![SegmentLink {
+            seq: link.sequence,
+            collection: link.collection,
+            event,
+        }],
+        last_anchor: anchor,
+    };
+    let bytes = encode_segment(&segment).unwrap();
+    let name = blake3::hash(&bytes).to_hex()[..16].to_owned();
+    let prefix = share_prefix(&fixture.identity);
+    fixture
+        .objects
+        .put(
+            &segment_key(&prefix, link.sequence, link.sequence, &name).unwrap(),
+            &bytes,
+        )
+        .await
+        .unwrap();
+    let mut head = fixture.head.clone();
+    head.counter += 1;
+    head.head = Checkpoint {
+        seq: through.sequence,
+        anchor: through.anchor,
+    };
+    head.segments.push(SegmentRef {
+        level: 0,
+        first: link.sequence,
+        last: link.sequence,
+        prev_anchor: previous.anchor,
+        last_anchor: anchor,
+        name,
+        bytes: bytes.len() as u64,
+    });
+    let slot = (head.counter % 2) as u8;
+    fixture
+        .objects
+        .put(
+            &head_key(&prefix, slot).unwrap(),
+            &encode_head(&head).unwrap(),
+        )
+        .await
+        .unwrap();
+}
+
+fn fresh_receiver() -> MemorySyncStore<Model> {
+    MemorySyncStore::new(
+        StoreIdentity {
+            namespace: Uuid::from_u128(1),
+            model: ModelId {
+                model: Model::model_id().into(),
+                schema: Model::schema_id().into(),
+            },
+            replica: Uuid::new_v4(),
+            generation: Uuid::new_v4(),
+        },
+        LocalAuthor {
+            author: Uuid::new_v4(),
+            writer_incarnation: Uuid::new_v4(),
+        },
+    )
+    .unwrap()
+}
+
+#[tokio::test]
+async fn share_base_reconciles_then_continues_from_its_cover() {
+    let fixture = base_peer_fixture(3).await;
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        share_prefix(&fixture.identity),
+        share_cache_dir(),
+    )
+    .unwrap();
+    let target = fresh_receiver();
+    advance_to_complete(&peer, &target).await;
+    for id in 100..103 {
+        let key = SyncObjectKey {
+            collection: Collection::Notes,
+            id: Uuid::from_u128(id),
+        };
+        assert_eq!(
+            target.get(&key).await.unwrap(),
+            fixture.source.get(&key).await.unwrap()
+        );
+    }
+
+    append_share_segment(&fixture).await;
+    let checkpoint_key = checkpoint_key(&fixture.identity);
+    let checkpoint = target.checkpoint(&checkpoint_key).await.unwrap();
+    assert!(matches!(
+        peer.history_status(&checkpoint_key, checkpoint)
+            .await
+            .unwrap(),
+        HistoryStatus::Continuous { .. }
+    ));
+    let page = peer
+        .read_page(PageRequest {
+            source: fixture.identity.clone(),
+            scope: share_scope(),
+            after: ReceiveProgress {
+                sequence: fixture.head.head.seq,
+                anchor: fixture.head.head.anchor,
+            },
+            through: peer.head().await.unwrap(),
+            limits: share_limits().pages,
+        })
+        .await
+        .unwrap();
+    assert!(matches!(page, PageRead::Page(ref page) if page.links.len() == 1));
+    advance_to_complete(&peer, &target).await;
+    let key = SyncObjectKey {
+        collection: Collection::Notes,
+        id: Uuid::from_u128(900),
+    };
+    assert_eq!(
+        target.get(&key).await.unwrap(),
+        fixture.source.get(&key).await.unwrap()
+    );
+}
+
+#[tokio::test]
+async fn equal_base_buckets_use_precomputed_summaries_without_chunk_reads() {
+    let fixture = base_peer_fixture(2).await;
+    let prefix = share_prefix(&fixture.identity);
+    let chunk = &fixture.head.bases[0].base_id;
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        prefix.clone(),
+        share_cache_dir(),
+    )
+    .unwrap();
+    let descriptor = match SnapshotSource::open_snapshot(
+        &peer,
+        Uuid::new_v4(),
+        share_scope(),
+        share_limits().work,
+        None,
+    )
+    .await
+    .unwrap()
+    {
+        WorkOutcome::Ready(descriptor) => descriptor,
+        WorkOutcome::Incomplete { .. } => panic!("immutable base is immediately ready"),
+    };
+    let root = &descriptor.roots[0];
+    let manifest = decode_manifest::<Model>(
+        &fixture
+            .objects
+            .get(&base_key(&prefix, chunk).unwrap())
+            .await
+            .unwrap()
+            .bytes,
+        chunk,
+    )
+    .unwrap();
+    let chunk_name = &manifest.collections["notes"].buckets[0].chunk;
+    let object_key = chunk_key(&prefix, chunk_name).unwrap();
+    let before = fixture.objects.get_count(&object_key);
+    assert_eq!(
+        SnapshotSource::summarize(
+            &peer,
+            descriptor.snapshot_id,
+            root.range.clone(),
+            share_limits().work,
+            None
+        )
+        .await
+        .unwrap(),
+        WorkOutcome::Ready(root.clone())
+    );
+    let children = SnapshotSource::split(
+        &peer,
+        descriptor.snapshot_id,
+        root.range.clone(),
+        share_limits().work,
+        None,
+    )
+    .await
+    .unwrap();
+    let WorkOutcome::Ready(children) = children else {
+        panic!("split is immediate")
+    };
+    assert_eq!(children.len(), 1);
+    let child = SnapshotSource::summarize(
+        &peer,
+        descriptor.snapshot_id,
+        children[0].clone(),
+        share_limits().work,
+        None,
+    )
+    .await
+    .unwrap();
+    assert!(matches!(child, WorkOutcome::Ready(_)));
+    assert_eq!(fixture.objects.get_count(&object_key), before);
+}
+
+#[tokio::test]
+async fn share_base_chunk_corruption_is_typed() {
+    let fixture = base_peer_fixture(2).await;
+    let prefix = share_prefix(&fixture.identity);
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        prefix.clone(),
+        share_cache_dir(),
+    )
+    .unwrap();
+    let descriptor = match SnapshotSource::open_snapshot(
+        &peer,
+        Uuid::new_v4(),
+        share_scope(),
+        share_limits().work,
+        None,
+    )
+    .await
+    .unwrap()
+    {
+        WorkOutcome::Ready(descriptor) => descriptor,
+        WorkOutcome::Incomplete { .. } => panic!("immutable base is immediately ready"),
+    };
+    let manifest = decode_manifest::<Model>(
+        &fixture
+            .objects
+            .get(&base_key(&prefix, &fixture.head.floor_base.base_id).unwrap())
+            .await
+            .unwrap()
+            .bytes,
+        &fixture.head.floor_base.base_id,
+    )
+    .unwrap();
+    let name = &manifest.collections["notes"].buckets[0].chunk;
+    fixture
+        .objects
+        .put(&chunk_key(&prefix, name).unwrap(), b"corrupt gzip")
+        .await
+        .unwrap();
+    let result = SnapshotSource::leaf(
+        &peer,
+        descriptor.snapshot_id,
+        descriptor.roots[0].range.clone(),
+        None,
+        share_limits().pages,
+    )
+    .await;
+    assert_eq!(result, Err(SyncError::SnapshotSourceUnavailable));
+}
+
+#[tokio::test]
+async fn share_base_missing_manifest_is_typed() {
+    let missing = base_peer_fixture(1).await;
+    let missing_prefix = share_prefix(&missing.identity);
+    missing
+        .objects
+        .delete(&base_key(&missing_prefix, &missing.head.floor_base.base_id).unwrap())
+        .await
+        .unwrap();
+    let missing_peer = SharePeer::<Model>::new(
+        missing.objects.clone(),
+        missing.identity.namespace,
+        missing_prefix,
+        share_cache_dir(),
+    )
+    .unwrap();
+    assert_eq!(
+        SnapshotSource::open_snapshot(
+            &missing_peer,
+            Uuid::new_v4(),
+            share_scope(),
+            share_limits().work,
+            None
+        )
+        .await,
+        Err(SyncError::SnapshotSourceUnavailable)
+    );
+}
+
+#[tokio::test]
+async fn share_base_chunk_cache_hits_do_not_read_the_object_store() {
+    let fixture = base_peer_fixture(2).await;
+    let prefix = share_prefix(&fixture.identity);
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        prefix.clone(),
+        share_cache_dir(),
+    )
+    .unwrap();
+    let descriptor = match SnapshotSource::open_snapshot(
+        &peer,
+        Uuid::new_v4(),
+        share_scope(),
+        share_limits().work,
+        None,
+    )
+    .await
+    .unwrap()
+    {
+        WorkOutcome::Ready(descriptor) => descriptor,
+        WorkOutcome::Incomplete { .. } => panic!("immutable base is immediately ready"),
+    };
+    let manifest = decode_manifest::<Model>(
+        &fixture
+            .objects
+            .get(&base_key(&prefix, &fixture.head.floor_base.base_id).unwrap())
+            .await
+            .unwrap()
+            .bytes,
+        &fixture.head.floor_base.base_id,
+    )
+    .unwrap();
+    let object_key = chunk_key(&prefix, &manifest.collections["notes"].buckets[0].chunk).unwrap();
+    for _ in 0..2 {
+        SnapshotSource::leaf(
+            &peer,
+            descriptor.snapshot_id,
+            descriptor.roots[0].range.clone(),
+            None,
+            share_limits().pages,
+        )
+        .await
+        .unwrap();
+    }
+    assert_eq!(fixture.objects.get_count(&object_key), 1);
 }
 
 async fn peer_fixture(count: u64) -> PeerFixture {
@@ -325,6 +874,7 @@ async fn coordinator_pull(fixture: &PeerFixture, target: &MemorySyncStore<Model>
         fixture.objects.clone(),
         fixture.identity.namespace,
         share_prefix(&fixture.identity),
+        share_cache_dir(),
     )
     .unwrap();
     let mut coordinator = Coordinator::new(share_scope(), share_limits()).unwrap();
@@ -350,6 +900,7 @@ async fn share_peer_identity_and_history_statuses_follow_head_and_anchors() {
         fixture.objects.clone(),
         fixture.identity.namespace,
         share_prefix(&fixture.identity),
+        share_cache_dir(),
     )
     .unwrap();
     let identity = peer.identity().await.unwrap();
@@ -427,6 +978,7 @@ async fn share_peer_reports_below_floor_and_missing_referenced_segments() {
         fixture.objects.clone(),
         fixture.identity.namespace,
         prefix.clone(),
+        share_cache_dir(),
     )
     .unwrap();
     let key = checkpoint_key(&fixture.identity);
@@ -480,6 +1032,7 @@ async fn share_peer_uses_highest_valid_head_and_rejects_two_torn_slots() {
         fixture.objects.clone(),
         fixture.identity.namespace,
         prefix.clone(),
+        share_cache_dir(),
     )
     .unwrap();
     assert_eq!(peer.head().await.unwrap().sequence, 2);
@@ -499,6 +1052,7 @@ async fn share_peer_page_verifies_links_and_maps_503_to_transient_error() {
         fixture.objects.clone(),
         fixture.identity.namespace,
         prefix.clone(),
+        share_cache_dir(),
     )
     .unwrap();
     let request = PageRequest {
@@ -634,8 +1188,13 @@ async fn share_peer_large_event_fragments_are_read_from_segment_bytes() {
         .await
         .unwrap();
 
-    let peer = SharePeer::<Model>::new(fixture.objects.clone(), fixture.identity.namespace, prefix)
-        .unwrap();
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        prefix,
+        share_cache_dir(),
+    )
+    .unwrap();
     let request = PageRequest {
         source: fixture.identity.clone(),
         scope: share_scope(),
@@ -661,8 +1220,7 @@ async fn share_peer_large_event_fragments_are_read_from_segment_bytes() {
     assert_eq!(sequence, 2);
     let mut encoded = Vec::new();
     for ordinal in 0..manifest.fragment_count {
-        let fragment = peer
-            .read_fragment(manifest.clone(), ordinal, 4096)
+        let fragment = SyncPeer::read_fragment(&peer, manifest.clone(), ordinal, 4096)
             .await
             .unwrap();
         assert_eq!(fragment.offset, encoded.len() as u64);
@@ -688,6 +1246,7 @@ async fn share_peer_coordinator_keeps_receiver_unchanged_on_503() {
         fixture.objects.clone(),
         fixture.identity.namespace,
         share_prefix(&fixture.identity),
+        share_cache_dir(),
     )
     .unwrap();
     let target = MemorySyncStore::<Model>::new(
@@ -732,6 +1291,7 @@ async fn share_peer_rejects_unknown_library_and_head_versions() {
         fixture.objects.clone(),
         fixture.identity.namespace,
         prefix.clone(),
+        share_cache_dir(),
     )
     .unwrap();
     fixture.objects.put(&library_key(), br#"{"format":2,"library_id":"00000000-0000-0000-0000-000000000001","model":"share-test","schema":"one"}"#).await.unwrap();
