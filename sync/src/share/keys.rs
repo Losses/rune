@@ -1,22 +1,61 @@
 //! Object key construction and strict parsing.
 use super::verification::{FormatError, valid_hash};
+use std::{fmt, str::FromStr};
 use uuid::Uuid;
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DevicePrefix {
+    pub stream: Uuid,
+    pub generation: Uuid,
+}
+
+impl FromStr for DevicePrefix {
+    type Err = FormatError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let (stream, generation) = value
+            .split_once('.')
+            .ok_or_else(|| FormatError::Invalid("invalid device prefix".into()))?;
+        let stream = Uuid::parse_str(stream)
+            .map_err(|_| FormatError::Invalid("invalid device stream id".into()))?;
+        let generation = Uuid::parse_str(generation)
+            .map_err(|_| FormatError::Invalid("invalid device generation id".into()))?;
+        if stream.is_nil() || generation.is_nil() {
+            return Err(FormatError::Invalid("invalid device prefix".into()));
+        }
+        let parsed = Self { stream, generation };
+        if parsed.to_string() != value {
+            return Err(FormatError::Invalid("invalid device prefix".into()));
+        }
+        Ok(parsed)
+    }
+}
+
+impl fmt::Display for DevicePrefix {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}.{}", self.stream, self.generation)
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ObjectKey {
     Library,
     Head {
+        prefix: DevicePrefix,
         slot: u8,
     },
     Segment {
+        prefix: DevicePrefix,
         first: u64,
         last: u64,
         hash16: String,
     },
     Base {
+        prefix: DevicePrefix,
         base_id: String,
     },
     Chunk {
+        prefix: DevicePrefix,
         digest: String,
     },
     Other(String),
@@ -69,19 +108,8 @@ pub fn chunk_key(prefix: &str, digest: &str) -> Result<String, FormatError> {
     Ok(format!("devices/{prefix}/obj/{digest}.gz"))
 }
 pub(super) fn valid_prefix(prefix: &str) -> Result<(), FormatError> {
-    let (stream, generation) = prefix
-        .split_once('.')
-        .ok_or_else(|| FormatError::Invalid("invalid device prefix".into()))?;
-    if Uuid::parse_str(stream)
-        .map(|uuid| uuid.to_string())
-        .as_deref()
-        != Ok(stream)
-        || Uuid::parse_str(generation)
-            .map(|uuid| uuid.to_string())
-            .as_deref()
-            != Ok(generation)
-        || prefix.contains('/')
-    {
+    let parsed = DevicePrefix::from_str(prefix)?;
+    if parsed.to_string() != prefix {
         return Err(FormatError::Invalid("invalid device prefix".into()));
     }
     Ok(())
@@ -90,18 +118,18 @@ pub fn parse_key(key: &str) -> Result<ObjectKey, FormatError> {
     if key == library_key() {
         return Ok(ObjectKey::Library);
     }
-    if let Some((prefix, tail)) = key
+    if let Some((prefix_text, tail)) = key
         .strip_prefix("devices/")
         .and_then(|value| value.split_once('/'))
-        .filter(|(prefix, _)| valid_prefix(prefix).is_ok())
     {
+        let prefix = DevicePrefix::from_str(prefix_text)?;
         if let Some(slot) = tail
             .strip_prefix("head.")
             .and_then(|v| v.strip_suffix(".json"))
             .and_then(|v| v.parse::<u8>().ok())
             .filter(|v| *v <= 1)
         {
-            return Ok(ObjectKey::Head { slot });
+            return Ok(ObjectKey::Head { prefix, slot });
         }
         if let Some(name) = tail
             .strip_prefix("seg/")
@@ -112,12 +140,13 @@ pub fn parse_key(key: &str) -> Result<ObjectKey, FormatError> {
                 && let (Ok(first), Ok(last)) = (parts[0].parse(), parts[1].parse())
             {
                 let key = ObjectKey::Segment {
+                    prefix: prefix.clone(),
                     first,
                     last,
                     hash16: parts[2].into(),
                 };
-                if segment_key(prefix, first, last, parts[2]).as_deref()
-                    == Ok(key_string(prefix, &key).as_str())
+                if segment_key(&prefix.to_string(), first, last, parts[2]).as_deref()
+                    == Ok(key_string(&key).as_str())
                 {
                     return Ok(key);
                 }
@@ -128,7 +157,10 @@ pub fn parse_key(key: &str) -> Result<ObjectKey, FormatError> {
             .and_then(|v| v.strip_suffix(".json"))
             && valid_hash(id)
         {
-            return Ok(ObjectKey::Base { base_id: id.into() });
+            return Ok(ObjectKey::Base {
+                prefix,
+                base_id: id.into(),
+            });
         }
         if let Some(digest) = tail
             .strip_prefix("obj/")
@@ -136,15 +168,17 @@ pub fn parse_key(key: &str) -> Result<ObjectKey, FormatError> {
             && valid_hash(digest)
         {
             return Ok(ObjectKey::Chunk {
+                prefix,
                 digest: digest.into(),
             });
         }
     }
     Err(FormatError::Invalid("unrecognized share object key".into()))
 }
-fn key_string(prefix: &str, key: &ObjectKey) -> String {
+fn key_string(key: &ObjectKey) -> String {
     match key {
         ObjectKey::Segment {
+            prefix,
             first,
             last,
             hash16,

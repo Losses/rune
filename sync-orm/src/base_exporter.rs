@@ -205,9 +205,8 @@ async fn build_export<M: p::SyncModel>(
                         && p::fragment_digest(&fragment)? == fragment.digest,
                     "snapshot context fragment failed integrity validation"
                 );
-                let canonical_fragment = canonical_json(&fragment)?;
-                let name = blake3::hash(&canonical_fragment).to_hex().to_string();
-                let bytes = gzip(&canonical_fragment)?;
+                let name = blake3::hash(&fragment.bytes).to_hex().to_string();
+                let bytes = gzip(&fragment.bytes)?;
                 context_names.push(name.clone());
                 context_objects.push(BaseObject { name, bytes });
             }
@@ -235,6 +234,9 @@ async fn build_buckets<M: p::SyncModel>(
     mut bits: u32,
     options: &BaseExportOptions,
 ) -> Result<(u32, Vec<(p::RangeSummary<M>, String, Vec<u8>)>)> {
+    if root.candidate_count == 0 {
+        return Ok((0, Vec::new()));
+    }
     let mut visited = BTreeSet::new();
     let mut best_bits = bits;
     let mut best_gap = u64::MAX;

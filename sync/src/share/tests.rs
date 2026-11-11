@@ -1001,13 +1001,22 @@ async fn share_peer_reports_below_floor_and_missing_referenced_segments() {
         .delete(&segment_key(&prefix, current.first, current.last, &current.name).unwrap())
         .await
         .unwrap();
-    let checkpoint = ReceiveProgress {
-        sequence: 2,
-        anchor: current.last_anchor,
-    };
     assert!(matches!(
-        peer.history_status(&key, Some(checkpoint)).await.unwrap(),
-        HistoryStatus::BelowFloor { .. }
+        peer.read_page(PageRequest {
+            source: fixture.identity.clone(),
+            scope: share_scope(),
+            after: ReceiveProgress {
+                sequence: 1,
+                anchor: head.floor.anchor,
+            },
+            through: peer.head().await.unwrap(),
+            limits: PageLimits {
+                max_scanned: 32,
+                max_bytes: 64 * 1024,
+            },
+        })
+        .await,
+        Err(SyncError::NeedsReconciliation(_))
     ));
 }
 
@@ -1619,10 +1628,17 @@ fn verification_distinguishes_parse_version_checksum_digest_and_chain_failures()
 fn keys_round_trip_and_foreign_names_are_rejected() {
     let prefix = format!("{}.{}", Uuid::from_u128(2), Uuid::from_u128(3));
     let examples = [
-        (head_key(&prefix, 0).unwrap(), ObjectKey::Head { slot: 0 }),
+        (
+            head_key(&prefix, 0).unwrap(),
+            ObjectKey::Head {
+                prefix: prefix.parse().unwrap(),
+                slot: 0,
+            },
+        ),
         (
             segment_key(&prefix, 1, 2, "a1".repeat(8).as_str()).unwrap(),
             ObjectKey::Segment {
+                prefix: prefix.parse().unwrap(),
                 first: 1,
                 last: 2,
                 hash16: "a1".repeat(8),
@@ -1631,12 +1647,14 @@ fn keys_round_trip_and_foreign_names_are_rejected() {
         (
             base_key(&prefix, &"b".repeat(64)).unwrap(),
             ObjectKey::Base {
+                prefix: prefix.parse().unwrap(),
                 base_id: "b".repeat(64),
             },
         ),
         (
             chunk_key(&prefix, &"c".repeat(64)).unwrap(),
             ObjectKey::Chunk {
+                prefix: prefix.parse().unwrap(),
                 digest: "c".repeat(64),
             },
         ),

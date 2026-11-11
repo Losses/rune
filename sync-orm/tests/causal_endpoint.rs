@@ -15,7 +15,10 @@ use std::{
 };
 use sync::causal;
 use sync::causal::Dot;
-use sync::share::{self, decode_chunk};
+use sync::share::{
+    self, BaseRef, FloorBase, Head, LibraryFile, MemoryObjectStore, ObjectStore, SharePeer,
+    decode_chunk,
+};
 use sync_orm::base_exporter::{BaseExportOptions, canonical_manifest, export_base};
 use sync_orm::maintenance::Maintenance;
 
@@ -1052,13 +1055,17 @@ impl p::SyncModel for Notes {
         "1"
     }
     fn collections() -> Vec<u8> {
-        vec![1]
+        vec![1, 2]
     }
-    fn collection_tag(_: &u8) -> &'static str {
-        "notes"
+    fn collection_tag(collection: &u8) -> &'static str {
+        if *collection == 1 { "notes" } else { "other" }
     }
     fn collection_from_tag(value: &str) -> Option<u8> {
-        (value == "notes").then_some(1)
+        match value {
+            "notes" => Some(1),
+            "other" => Some(2),
+            _ => None,
+        }
     }
     fn validate(_: &p::ObjectKey<Self>, _: &Option<Note>) -> p::Result<()> {
         Ok(())
@@ -2598,7 +2605,7 @@ async fn base_export_round_trips_chunks_deduplicates_and_excludes_local_state() 
             .open_snapshot_with_ttl(
                 verification_request,
                 p::Scope {
-                    collections: [1].into_iter().collect(),
+                    collections: <Notes as p::SyncModel>::collections().into_iter().collect(),
                 },
                 first_options.work,
                 resume.take(),
@@ -2704,8 +2711,6 @@ async fn base_export_round_trips_chunks_deduplicates_and_excludes_local_state() 
         }
         let mut decoded = Vec::new();
         flate2::read::GzDecoder::new(&object.bytes[..]).read_to_end(&mut decoded)?;
-        let fragment: p::Fragment = serde_json::from_slice(&decoded)?;
-        assert_eq!(p::fragment_digest(&fragment)?, fragment.digest);
         assert_eq!(blake3::hash(&decoded).to_hex().as_str(), object.name);
         assert!(!String::from_utf8_lossy(&decoded).contains("fixture-device-credential"));
     }
@@ -2821,5 +2826,166 @@ async fn base_export_round_trips_chunks_deduplicates_and_excludes_local_state() 
     collection.buckets.push(collection.buckets[0].clone());
     collection.bucket_count += 1;
     assert_ne!(canonical_manifest(&changed_bucket_count)?.0, second.base_id);
+    Ok(())
+}
+
+#[tokio::test]
+async fn exported_base_round_trips_through_share_peer() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let (_db, endpoint, _) = setup(namespace).await?;
+    for id in 1..=3 {
+        endpoint
+            .write_local(
+                p::ObjectKey {
+                    collection: 1,
+                    id: Uuid::from_u128(id),
+                },
+                Some(Note(format!("exported {id}"))),
+            )
+            .await?;
+    }
+    let identity = p::SyncPeer::identity(&endpoint).await?;
+    let prefix = format!("{}.{}", identity.replica, identity.generation);
+    let export = export_base(
+        &endpoint,
+        BaseExportOptions {
+            own_prefix: prefix.clone(),
+            ..BaseExportOptions::default()
+        },
+    )
+    .await?;
+    let store = Arc::new(MemoryObjectStore::default());
+    let library = LibraryFile {
+        format: share::FORMAT_VERSION,
+        library_id: namespace,
+        model: "endpoint-notes".to_owned(),
+        schema: "1".to_owned(),
+    };
+    store
+        .put(&share::library_key(), &share::encode_library(&library)?)
+        .await
+        .map_err(|error| anyhow::anyhow!("put library metadata: {error:?}"))?;
+    for object in &export.objects {
+        let key = if object.name == export.base_id {
+            share::base_key(&prefix, &object.name)?
+        } else {
+            share::chunk_key(&prefix, &object.name)?
+        };
+        store
+            .put(&key, &object.bytes)
+            .await
+            .map_err(|error| anyhow::anyhow!("put base object: {error:?}"))?;
+    }
+    let cover = export
+        .manifest
+        .covers
+        .get(&prefix)
+        .context("exported base did not cover its owner")?;
+    let head = Head {
+        format: share::FORMAT_VERSION,
+        library_id: namespace,
+        stream: identity.replica,
+        generation: identity.generation,
+        local_replica: identity.replica,
+        writer_session: Uuid::new_v4(),
+        counter: 1,
+        head: cover.clone(),
+        floor: cover.clone(),
+        floor_base: FloorBase {
+            owner_prefix: prefix.clone(),
+            base_id: export.base_id.clone(),
+            covers_seq: cover.seq,
+            covers_anchor: cover.anchor,
+        },
+        segments: Vec::new(),
+        bases: vec![BaseRef {
+            base_id: export.base_id,
+            covers: export.manifest.covers.clone(),
+        }],
+        acks: BTreeMap::new(),
+        local_cursor: 0,
+        retired: Vec::new(),
+        updated_ms: 1,
+    };
+    store
+        .put(&share::head_key(&prefix, 0)?, &share::encode_head(&head)?)
+        .await
+        .map_err(|error| anyhow::anyhow!("put share head: {error:?}"))?;
+    let peer = SharePeer::<Notes>::new(
+        store,
+        namespace,
+        prefix,
+        std::env::temp_dir().join(format!("share-export-{}", Uuid::new_v4())),
+    )?;
+    assert!(matches!(
+        peer.open_snapshot(
+            Uuid::new_v4(),
+            p::Scope {
+                collections: [1].into_iter().collect(),
+            },
+            session_limits().work,
+            None,
+        )
+        .await,
+        Err(p::SyncError::Invalid(_))
+    ));
+    let scope = p::Scope {
+        collections: <Notes as p::SyncModel>::collections().into_iter().collect(),
+    };
+    let request = Uuid::new_v4();
+    let mut resume = None;
+    let source_descriptor = loop {
+        match endpoint
+            .open_snapshot(request, scope.clone(), session_limits().work, resume.take())
+            .await?
+        {
+            p::WorkOutcome::Ready(descriptor) => break descriptor,
+            p::WorkOutcome::Incomplete { cursor } => resume = Some(cursor),
+        }
+    };
+    let share_descriptor = match peer
+        .open_snapshot(Uuid::new_v4(), scope, session_limits().work, None)
+        .await?
+    {
+        p::WorkOutcome::Ready(descriptor) => descriptor,
+        p::WorkOutcome::Incomplete { .. } => anyhow::bail!("share snapshot was incomplete"),
+    };
+    assert_eq!(share_descriptor.roots[0].candidate_count, 3);
+    let source_page = endpoint
+        .leaf(
+            source_descriptor.snapshot_id,
+            source_descriptor.roots[0].range.clone(),
+            None,
+            session_limits().pages,
+        )
+        .await?;
+    let share_page = peer
+        .leaf(
+            share_descriptor.snapshot_id,
+            share_descriptor.roots[0].range.clone(),
+            None,
+            session_limits().pages,
+        )
+        .await?;
+    assert_eq!(share_page.candidates, source_page.candidates);
+    assert_eq!(
+        peer.read_fragment(
+            share_descriptor.snapshot_id,
+            share_descriptor.contexts[0].context.manifest.clone(),
+            0,
+            p::MAX_PAGE_BYTES,
+        )
+        .await?
+        .bytes,
+        SnapshotSource::read_fragment(
+            &endpoint,
+            source_descriptor.snapshot_id,
+            source_descriptor.contexts[0].context.manifest.clone(),
+            0,
+            p::MAX_PAGE_BYTES,
+        )
+        .await?
+        .bytes
+    );
     Ok(())
 }

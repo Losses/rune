@@ -54,6 +54,21 @@ impl<M: SyncModel> SharePeer<M> {
 
     async fn read_base(&self) -> ProtocolResult<(String, BaseManifest<M>, ReceiveProgress)> {
         let head = self.read_head().await?;
+        if let Some(selected) = &self.selected_base {
+            let covers = selected
+                .manifest
+                .covers
+                .get(&self.prefix)
+                .ok_or(SyncError::SnapshotSourceUnavailable)?;
+            return Ok((
+                selected.owner_prefix.clone(),
+                selected.manifest.clone(),
+                ReceiveProgress {
+                    sequence: covers.seq,
+                    anchor: covers.anchor,
+                },
+            ));
+        }
         let reference = &head.floor_base;
         let key = base_key(&reference.owner_prefix, &reference.base_id).map_err(format_error)?;
         let object = match self.store.get(&key).await {
@@ -141,6 +156,11 @@ impl<M: SyncModel> SnapshotSource<M> for SharePeer<M> {
                     "invalid immutable base snapshot request".into(),
                 ));
             }
+            if scope != full_model_scope::<M>() {
+                return Err(SyncError::Invalid(
+                    "share snapshots require the full model scope".into(),
+                ));
+            }
             if let Some(existing) = self
                 .snapshots
                 .lock()
@@ -164,7 +184,9 @@ impl<M: SyncModel> SnapshotSource<M> for SharePeer<M> {
             let (owner_prefix, manifest, head) = self.read_base().await?;
             let mut roots = Vec::new();
             let mut contexts = Vec::new();
-            for collection in &scope.collections {
+            let mut collections = scope.collections.iter().collect::<Vec<_>>();
+            collections.sort_by_key(|collection| M::collection_tag(collection));
+            for collection in collections {
                 let tag = M::collection_tag(collection);
                 let summary = manifest
                     .collections
@@ -215,40 +237,21 @@ impl<M: SyncModel> SnapshotSource<M> for SharePeer<M> {
                 return Err(SyncError::StaleWork);
             }
             let binding = self.snapshot_binding(snapshot)?;
+            if binding.scope != full_model_scope::<M>() {
+                return Err(SyncError::Invalid(
+                    "share summaries require the full model scope".into(),
+                ));
+            }
             validate_range(&binding.scope, &range)?;
             let collection = binding
                 .manifest
                 .collections
                 .get(M::collection_tag(&range.collection))
                 .ok_or(SyncError::IncompatibleModel)?;
-            if let Some(summary) = known_summary(collection, &range, binding.id) {
-                return Ok(WorkOutcome::Ready(summary));
-            }
-            let candidates = self
-                .candidates_in_range(&binding.owner_prefix, collection, &range, &binding.scope)
-                .await?;
-            let mut byte_count = 0u64;
-            for candidate in &candidates {
-                byte_count = byte_count
-                    .checked_add(canonical_candidate(candidate)?.len() as u64)
-                    .ok_or(SyncError::LogicalLimit)?;
-            }
-            let mut hasher = RangeHasher::new(
-                &binding.scope,
-                range.clone(),
-                candidates.len() as u64,
-                byte_count,
-            )?;
-            for candidate in &candidates {
-                hasher.push_candidate(candidate)?;
-            }
-            Ok(WorkOutcome::Ready(RangeSummary {
-                snapshot_id: binding.id,
-                range,
-                candidate_count: candidates.len() as u64,
-                candidate_bytes: byte_count,
-                aggregate: hasher.finish()?,
-            }))
+            let summary = known_summary(collection, &range, binding.id).ok_or_else(|| {
+                SyncError::Invalid("requested summary is not present in the base manifest".into())
+            })?;
+            Ok(WorkOutcome::Ready(summary))
         })
     }
 
@@ -311,7 +314,7 @@ impl<M: SyncModel> SnapshotSource<M> for SharePeer<M> {
                 .get(M::collection_tag(&range.collection))
                 .ok_or(SyncError::IncompatibleModel)?;
             let mut candidates = self
-                .candidates_in_range(&binding.owner_prefix, collection, &range, &binding.scope)
+                .candidates_in_range(&binding.owner_prefix, collection, &range)
                 .await?;
             candidates.sort_by_key(|candidate| CandidateCursor {
                 key: candidate.key.clone(),
@@ -459,8 +462,10 @@ impl<M: SyncModel> SharePeer<M> {
         prefix: &str,
         summary: &CollectionSummary<M>,
         range: &KeyRange<M>,
-        scope: &Scope<M>,
     ) -> ProtocolResult<Vec<Candidate<M>>> {
+        // Base exporters hash all buckets against the full model scope, even when
+        // a reader asks this immutable source for only one collection.
+        let scope = full_model_scope::<M>();
         let mut candidates = Vec::new();
         for bucket in &summary.buckets {
             if !ranges_intersect(&bucket.range, range) {
@@ -475,7 +480,7 @@ impl<M: SyncModel> SharePeer<M> {
                 .map_err(|error| SyncError::Storage(error.to_string()))?;
             let mut candidate_bytes = 0u64;
             let mut hasher = RangeHasher::new(
-                scope,
+                &scope,
                 bucket.range.clone(),
                 bucket.candidate_count,
                 bucket.candidate_bytes,
@@ -525,6 +530,12 @@ impl<M: SyncModel> SharePeer<M> {
             }
         }
         Ok(candidates)
+    }
+}
+
+fn full_model_scope<M: SyncModel>() -> Scope<M> {
+    Scope {
+        collections: M::collections().into_iter().collect(),
     }
 }
 

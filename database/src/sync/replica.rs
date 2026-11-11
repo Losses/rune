@@ -2,11 +2,13 @@
 use super::SeaOrmSyncStore;
 use super::model::Collection;
 use super::model::{ObjectKey, Payload, Record, RuneModel};
+use super::references::collect;
+use super::share::{ShareCapabilities, SharePullRequest, SharePullResult, pull};
 use crate::sync::{import, legacy};
 use anyhow::{Result, ensure};
 use sea_orm::{DatabaseConnection, TransactionTrait};
-use std::sync::Arc;
-use sync::{StoreIdentity, SyncModel, SyncStore};
+use std::{path::PathBuf, sync::Arc};
+use sync::{ReceiveStore, StoreIdentity, SyncModel, SyncStore, share::ObjectStore};
 use sync_orm::{
     causal_capabilities::CausalEndpoint,
     causal_schema::clear_namespace_on,
@@ -26,7 +28,7 @@ impl LibrarySyncStore {
         self.inner.clone()
     }
     /// Explicitly traverse the registry; reads never initiate source import.
-    async fn import_collections(&self, collections: &[super::model::Collection]) -> Result<()> {
+    async fn import_collections(&self, collections: &[Collection]) -> Result<()> {
         if sync_orm::causal_progress::initialization_complete_on(&self.db, self.inner.namespace())
             .await?
         {
@@ -55,7 +57,7 @@ impl LibrarySyncStore {
         Ok(())
     }
     pub async fn import_basic(&self) -> Result<()> {
-        self.import_collections(&<RuneModel as sync::protocol::SyncModel>::collections())
+        self.import_collections(&<RuneModel as SyncModel>::collections())
             .await
     }
     pub async fn import_existing(&self, device_id: Uuid) -> Result<()> {
@@ -152,8 +154,32 @@ impl LibrarySyncStore {
     pub fn endpoint(&self) -> CausalEndpoint<RuneModel> {
         self.endpoint.clone()
     }
+    /// Pull every discovered share stream into this library through the normal causal endpoint.
+    pub async fn pull_share(
+        &self,
+        store: Arc<dyn ObjectStore>,
+        library_id: Uuid,
+        cache_path: PathBuf,
+        capabilities: ShareCapabilities,
+    ) -> SharePullResult<Vec<sync::ReceiveProgress>> {
+        pull::<RuneModel>(SharePullRequest {
+            db: &self.db,
+            local: &self.endpoint,
+            sink: &self.endpoint,
+            local_source: &self.endpoint,
+            store,
+            library_id,
+            scope: sync::Scope {
+                collections: RuneModel::collections().into_iter().collect(),
+            },
+            limits: super::session_limits(),
+            cache_path,
+            capabilities,
+        })
+        .await
+    }
     pub async fn identity(&self) -> Result<StoreIdentity> {
-        Ok(sync::ReceiveStore::identity(&self.endpoint).await?)
+        Ok(ReceiveStore::identity(&self.endpoint).await?)
     }
     pub async fn head(&self) -> Result<sync::ReceiveProgress> {
         Ok(self.endpoint.head().await?)
@@ -165,20 +191,18 @@ impl LibrarySyncStore {
         Ok(self.endpoint.write_local(key, value).await?)
     }
     pub async fn pending_mixes(&self) -> Result<Vec<(Uuid, String)>> {
-        Ok(
-            super::references::collect(&self.db, &self.inner, [Collection::Mixes])
-                .await?
-                .into_iter()
-                .map(|(key, reason)| (key.id, reason))
-                .collect(),
-        )
+        Ok(collect(&self.db, &self.inner, [Collection::Mixes])
+            .await?
+            .into_iter()
+            .map(|(key, reason)| (key.id, reason))
+            .collect())
     }
     /// Explicit diagnostic; automatic synchronization does not traverse these pages.
     pub async fn pending_references(&self) -> Result<Vec<(ObjectKey, String)>> {
-        super::references::collect(
+        collect(
             &self.db,
             &self.inner,
-            <RuneModel as sync::SyncModel>::collections(),
+            <RuneModel as SyncModel>::collections(),
         )
         .await
     }

@@ -1,8 +1,8 @@
 //! Pull-only SyncPeer adapter for one immutable share device prefix.
 use super::snapshot::SnapshotBinding;
 use super::{
-    FormatError, Head, ObjectStore, Segment, SegmentRef, StoreError, decode_head, decode_library,
-    decode_segment, head_key, library_key, segment_key,
+    BaseManifest, DevicePrefix, FormatError, Head, ObjectStore, Segment, SegmentRef, StoreError,
+    decode_head, decode_library, decode_segment, head_key, library_key, segment_key,
 };
 use crate::protocol::{
     BoxFuture, ChangePage, CheckpointKey, Digest, Event, EventRef, Fragment, HistoryStatus,
@@ -16,6 +16,7 @@ use std::{
     fmt::Display,
     marker::PhantomData,
     path::PathBuf,
+    str::FromStr,
     sync::{Arc, Mutex},
 };
 use uuid::Uuid;
@@ -27,9 +28,17 @@ pub struct SharePeer<M: SyncModel> {
     pub(super) stream: Uuid,
     pub(super) generation: Uuid,
     pub(super) prefix: String,
+    pub(super) selected_base: Option<SelectedBase<M>>,
     pub(super) cache_dir: PathBuf,
     pub(super) snapshots: Mutex<BTreeMap<Uuid, SnapshotBinding<M>>>,
     marker: PhantomData<M>,
+}
+
+#[derive(Clone)]
+pub struct SelectedBase<M: SyncModel> {
+    pub owner_prefix: String,
+    pub base_id: String,
+    pub manifest: BaseManifest<M>,
 }
 
 impl<M: SyncModel> SharePeer<M> {
@@ -41,13 +50,10 @@ impl<M: SyncModel> SharePeer<M> {
         cache_dir: impl Into<PathBuf>,
     ) -> ProtocolResult<Self> {
         let prefix = prefix.into();
-        let (stream, generation) = prefix
-            .split_once('.')
-            .ok_or_else(|| SyncError::Invalid("invalid share prefix".into()))?;
-        let stream = Uuid::parse_str(stream)
-            .map_err(|_| SyncError::Invalid("invalid share stream id".into()))?;
-        let generation = Uuid::parse_str(generation)
-            .map_err(|_| SyncError::Invalid("invalid share generation id".into()))?;
+        let parsed = DevicePrefix::from_str(&prefix)
+            .map_err(|error| SyncError::Invalid(error.to_string()))?;
+        let stream = parsed.stream;
+        let generation = parsed.generation;
         if stream.is_nil() || generation.is_nil() || library_id.is_nil() {
             return Err(SyncError::Invalid("invalid share peer identity".into()));
         }
@@ -57,10 +63,38 @@ impl<M: SyncModel> SharePeer<M> {
             stream,
             generation,
             prefix,
+            selected_base: None,
             cache_dir: cache_dir.into(),
             snapshots: Mutex::new(BTreeMap::new()),
             marker: std::marker::PhantomData,
         })
+    }
+
+    /// Creates a read peer that reconciles from a caller-selected, verified live base.
+    pub fn new_with_base(
+        store: Arc<dyn ObjectStore>,
+        library_id: Uuid,
+        prefix: impl Into<String>,
+        cache_dir: impl Into<PathBuf>,
+        selected_base: SelectedBase<M>,
+    ) -> ProtocolResult<Self> {
+        let mut peer = Self::new(store, library_id, prefix, cache_dir)?;
+        DevicePrefix::from_str(&selected_base.owner_prefix)
+            .map_err(|error| SyncError::Invalid(error.to_string()))?;
+        let (manifest_id, _) =
+            super::encode_manifest(&selected_base.manifest).map_err(permanent_format)?;
+        if manifest_id != selected_base.base_id {
+            return Err(SyncError::Invalid(
+                "selected share base id does not match its manifest".into(),
+            ));
+        }
+        if !selected_base.manifest.covers.contains_key(&peer.prefix) {
+            return Err(SyncError::Invalid(
+                "selected share base does not cover this stream".into(),
+            ));
+        }
+        peer.selected_base = Some(selected_base);
+        Ok(peer)
     }
 
     pub(super) fn identity_for(&self) -> StoreIdentity {
@@ -165,6 +199,13 @@ impl<M: SyncModel> SharePeer<M> {
         }
         if sequence == head.head.seq {
             return Ok(Some(head.head.anchor));
+        }
+        if let Some(reference) = head
+            .segments
+            .iter()
+            .find(|segment| segment.last == sequence)
+        {
+            return Ok(Some(reference.last_anchor));
         }
         let Some(reference) = head
             .segments

@@ -7,6 +7,7 @@ mod legacy;
 pub mod model;
 pub mod references;
 pub mod replica;
+pub mod share;
 pub mod store;
 pub use replica::LibrarySyncStore;
 pub use store::OrmReplica;
