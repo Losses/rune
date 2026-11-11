@@ -5,15 +5,20 @@ mod support;
 use anyhow::Result;
 use database::{
     actions::fingerprint::{
-        ComputedFingerprint, assign_computed_fingerprint, reset_duplicate_marks,
+        ComputedFingerprint, ComputedSimilarity, Configuration, assign_computed_fingerprint,
+        assign_computed_similarity, compare_all_pairs, default_similarity_configuration,
+        mark_duplicate_files, reset_duplicate_marks,
     },
     entities::{media_file_fingerprint, media_file_similarity, media_files},
     sync::{
-        SeaOrmSyncStore,
-        model::{Fingerprint, ScoreValue, Similarity},
+        SeaOrmSyncStore, bindings,
+        model::{Collection, Fingerprint, ObjectKey, Payload, ScoreValue, Similarity},
     },
 };
-use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set, sea_query::Expr};
+use sea_orm::{
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
+    QueryFilter, QueryOrder, Set, TransactionTrait, sea_query::Expr,
+};
 use uuid::Uuid;
 
 #[tokio::test]
@@ -117,6 +122,225 @@ async fn fingerprint_source_change_and_failed_journal_leave_no_assignment() -> R
             .sequence,
         1
     );
+    Ok(())
+}
+
+async fn fingerprinted_file(
+    db: &DatabaseConnection,
+    store: &SeaOrmSyncStore,
+    id: i32,
+    file_uuid: Uuid,
+    fingerprint: Vec<u32>,
+) -> Result<media_files::Model> {
+    let mut file = support::local_file(db, id, file_uuid, &format!("file-{id}")).await?;
+    file.content_hash = Some(format!("{}", id).repeat(64));
+    file.content_size = Some(100);
+    let mut update: media_files::ActiveModel = file.clone().into();
+    update.content_hash = ActiveValue::Set(file.content_hash.clone());
+    update.content_size = ActiveValue::Set(file.content_size);
+    file = update.update(db).await?;
+    assign_computed_fingerprint(
+        db,
+        store,
+        &file,
+        ComputedFingerprint {
+            algorithm: "chromaprint".into(),
+            configuration: "rusty-chromaprint-0.3.0/default".into(),
+            format_version: 1,
+            bytes: fingerprint.into_iter().flat_map(u32::to_le_bytes).collect(),
+            is_duplicated: 0,
+        },
+    )
+    .await?;
+    Ok(file)
+}
+
+async fn author_zero_similarity(
+    db: &DatabaseConnection,
+    store: &SeaOrmSyncStore,
+    first: &media_files::Model,
+    second: &media_files::Model,
+) -> Result<()> {
+    let first_uuid = first.hlc_uuid.parse()?;
+    let second_uuid = second.hlc_uuid.parse()?;
+    let configuration = default_similarity_configuration();
+    let key = ObjectKey {
+        collection: Collection::Similarities,
+        id: migration::catalog_identity::similarity(
+            first_uuid,
+            second_uuid,
+            Some("chromaprint-match"),
+            Some(&configuration),
+            Some(1),
+        ),
+    };
+    let tx = db.begin().await?;
+    store.lock(&tx).await?;
+    let record = store
+        .author_on(
+            &tx,
+            key,
+            Some(Payload::Similarity(Similarity {
+                first_file_id: first_uuid,
+                second_file_id: second_uuid,
+                first_source_hash: first.content_hash.clone(),
+                first_source_size: first.content_size,
+                second_source_hash: second.content_hash.clone(),
+                second_source_size: second.content_size,
+                algorithm: Some("chromaprint-match".into()),
+                configuration: Some(configuration),
+                format_version: Some(1),
+                score: ScoreValue(0),
+            })),
+        )
+        .await?;
+    bindings::apply(&tx, &record.key, record.value.as_ref()).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn comparison_authors_only_pairs_with_matching_segments() -> Result<()> {
+    let node = Uuid::new_v4();
+    let db = fixtures::memory_database(node).await?;
+    let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
+    let first = vec![0x1111_1111; 64];
+    let first_file = fingerprinted_file(&db, &store, 1, Uuid::new_v4(), first.clone()).await?;
+    let _second_file = fingerprinted_file(&db, &store, 2, Uuid::new_v4(), first).await?;
+    let third_file =
+        fingerprinted_file(&db, &store, 3, Uuid::new_v4(), vec![0xeeee_eeee; 64]).await?;
+    author_zero_similarity(&db, &store, &first_file, &third_file).await?;
+
+    compare_all_pairs(&db, |_, _| {}, &Configuration::default(), None, &store).await?;
+
+    let rows = media_file_similarity::Entity::find().all(&db).await?;
+    assert_eq!(rows.len(), 1);
+    assert!(rows[0].similarity > 0.0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn zero_similarity_removes_the_synced_row() -> Result<()> {
+    let node = Uuid::new_v4();
+    let db = fixtures::memory_database(node).await?;
+    let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
+    let first_uuid = Uuid::new_v4();
+    let second_uuid = Uuid::new_v4();
+    let first = fingerprinted_file(&db, &store, 1, first_uuid, vec![1, 2, 3, 4]).await?;
+    let second = fingerprinted_file(&db, &store, 2, second_uuid, vec![5, 6, 7, 8]).await?;
+    let first_fingerprint = vec![1u32, 2, 3, 4]
+        .into_iter()
+        .flat_map(u32::to_le_bytes)
+        .collect::<Vec<_>>();
+    let second_fingerprint = vec![5u32, 6, 7, 8]
+        .into_iter()
+        .flat_map(u32::to_le_bytes)
+        .collect::<Vec<_>>();
+    let computation = |score| ComputedSimilarity {
+        first_fingerprint: &first_fingerprint,
+        second_fingerprint: &second_fingerprint,
+        algorithm: "chromaprint-match".into(),
+        configuration: "rusty-chromaprint-0.3.0/default".into(),
+        format_version: 1,
+        score,
+    };
+    assign_computed_similarity(&db, &store, &first, &second, computation(0.5)).await?;
+    let sequence_after_match = sync_orm::causal_progress::head_on(&db, store.namespace())
+        .await?
+        .sequence;
+    assert_eq!(
+        media_file_similarity::Entity::find().all(&db).await?.len(),
+        1
+    );
+
+    assign_computed_similarity(&db, &store, &first, &second, computation(0.0)).await?;
+
+    assert!(
+        media_file_similarity::Entity::find()
+            .all(&db)
+            .await?
+            .is_empty()
+    );
+    assert_eq!(
+        sync_orm::causal_progress::head_on(&db, store.namespace())
+            .await?
+            .sequence,
+        sequence_after_match + 1
+    );
+    let key = ObjectKey {
+        collection: Collection::Similarities,
+        id: migration::catalog_identity::similarity(
+            first_uuid,
+            second_uuid,
+            Some("chromaprint-match"),
+            Some("rusty-chromaprint-0.3.0/default"),
+            Some(1),
+        ),
+    };
+    assert!(store.get_on(&db, &key).await?.is_none());
+    Ok(())
+}
+
+#[tokio::test]
+async fn missing_zero_score_pairs_preserve_zero_threshold_duplicate_marks() -> Result<()> {
+    let node = Uuid::new_v4();
+    let db = fixtures::memory_database(node).await?;
+    let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
+    let first = fingerprinted_file(&db, &store, 1, Uuid::new_v4(), vec![1; 64]).await?;
+    let _second = fingerprinted_file(&db, &store, 2, Uuid::new_v4(), vec![1; 64]).await?;
+    let third = fingerprinted_file(&db, &store, 3, Uuid::new_v4(), vec![u32::MAX; 64]).await?;
+    compare_all_pairs(&db, |_, _| {}, &Configuration::default(), None, &store).await?;
+
+    let first_uuid = first.hlc_uuid.parse()?;
+    let third_uuid = third.hlc_uuid.parse()?;
+    let key = ObjectKey {
+        collection: Collection::Similarities,
+        id: migration::catalog_identity::similarity(
+            first_uuid,
+            third_uuid,
+            Some("chromaprint-match"),
+            Some("rusty-chromaprint-0.3.0/default"),
+            Some(1),
+        ),
+    };
+    author_zero_similarity(&db, &store, &first, &third).await?;
+
+    let marked_before = mark_duplicate_files(&db, 0.0, |_, _| {}, &store).await?;
+    let before: Vec<_> = media_file_fingerprint::Entity::find()
+        .order_by_asc(media_file_fingerprint::Column::TrackUuid)
+        .all(&db)
+        .await?
+        .into_iter()
+        .map(|row| (row.track_uuid, row.is_duplicated))
+        .collect();
+    reset_duplicate_marks(&db, |_, _| {}, &store).await?;
+    let zero_rows = media_file_similarity::Entity::find()
+        .filter(media_file_similarity::Column::Similarity.eq(0.0))
+        .all(&db)
+        .await?;
+    for row in zero_rows {
+        let key = ObjectKey {
+            id: row.hlc_uuid.parse()?,
+            ..key.clone()
+        };
+        let tx = db.begin().await?;
+        store.lock(&tx).await?;
+        store.author_on(&tx, key.clone(), None).await?;
+        bindings::apply(&tx, &key, None).await?;
+        tx.commit().await?;
+    }
+    assert_eq!(
+        mark_duplicate_files(&db, 0.0, |_, _| {}, &store).await?,
+        marked_before
+    );
+    let after: Vec<_> = media_file_fingerprint::Entity::find()
+        .order_by_asc(media_file_fingerprint::Column::TrackUuid)
+        .all(&db)
+        .await?
+        .into_iter()
+        .map(|row| (row.track_uuid, row.is_duplicated))
+        .collect();
+    assert_eq!(before, after);
     Ok(())
 }
 

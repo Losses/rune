@@ -1,12 +1,14 @@
 //! Assign fingerprint and similarity values to their existing source rows.
 
 use crate::entities::{media_file_fingerprint, media_file_similarity, media_files};
-use crate::sync::bindings::apply;
 use crate::sync::model::{
     Collection, Fingerprint, MAX_PORTABLE_FINGERPRINT_BYTES, Payload, ScoreValue, Similarity,
 };
+use crate::sync::{SeaOrmSyncStore, bindings::apply};
 use anyhow::{Result, ensure};
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseTransaction, EntityTrait, QueryFilter, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, Condition, DatabaseTransaction, EntityTrait, QueryFilter, Set,
+};
 use tag_editor::music_brainz::fingerprint::Configuration;
 
 /// A computed fingerprint and the provenance used to derive its identity.
@@ -156,6 +158,12 @@ pub async fn assign_computed_similarity(
     );
     let first_file_id = first.hlc_uuid.parse()?;
     let second_file_id = second.hlc_uuid.parse()?;
+    let matching = score > 0.0;
+    remove_unmatched_similarity_rows(&tx, store, first_file_id, second_file_id, !matching).await?;
+    if !matching {
+        tx.commit().await?;
+        return Ok(());
+    }
     let id = migration::catalog_identity::similarity(
         first_file_id,
         second_file_id,
@@ -185,6 +193,47 @@ pub async fn assign_computed_similarity(
     };
     apply(&tx, &record.key, record.value.as_ref()).await?;
     tx.commit().await?;
+    Ok(())
+}
+
+async fn remove_unmatched_similarity_rows(
+    tx: &DatabaseTransaction,
+    store: &SeaOrmSyncStore,
+    first_file_id: uuid::Uuid,
+    second_file_id: uuid::Uuid,
+    remove_all: bool,
+) -> Result<()> {
+    use crate::sync::model::{Collection, ObjectKey};
+
+    let first_id = first_file_id.to_string();
+    let second_id = second_file_id.to_string();
+    let rows = media_file_similarity::Entity::find()
+        .filter(
+            Condition::any()
+                .add(
+                    Condition::all()
+                        .add(media_file_similarity::Column::FirstTrackUuid.eq(first_id.clone()))
+                        .add(media_file_similarity::Column::SecondTrackUuid.eq(second_id.clone())),
+                )
+                .add(
+                    Condition::all()
+                        .add(media_file_similarity::Column::FirstTrackUuid.eq(second_id))
+                        .add(media_file_similarity::Column::SecondTrackUuid.eq(first_id)),
+                ),
+        )
+        .all(tx)
+        .await?;
+    for row in rows {
+        if !remove_all && row.similarity > 0.0 {
+            continue;
+        }
+        let key = ObjectKey {
+            collection: Collection::Similarities,
+            id: row.hlc_uuid.parse()?,
+        };
+        let record = store.author_on(tx, key, None).await?;
+        apply(tx, &record.key, record.value.as_ref()).await?;
+    }
     Ok(())
 }
 
