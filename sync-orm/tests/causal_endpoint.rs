@@ -407,6 +407,7 @@ async fn single_key_write_does_not_read_neighboring_candidate_bodies() -> Result
         CausalReplica::open(db, namespace, original.store().author()).await?,
         projection,
     );
+    reads.store(0, Ordering::SeqCst);
     endpoint
         .write_local(
             p::ObjectKey {

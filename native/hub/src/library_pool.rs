@@ -366,8 +366,13 @@ impl LibraryPool {
                 .context("Database path is not UTF-8")?;
             initialize_databases(&fsio, path, Some(db_path), &self.node_id).await?
         };
-        let library_sync =
-            initialize_library_replica(&databases.main_db, &self.node_id, library_id).await?;
+        let library_sync = initialize_library_replica(
+            &databases.main_db,
+            &self.node_id,
+            library_id,
+            &self.config_dir,
+        )
+        .await?;
         let entry = Entry {
             resources: Arc::new(LibraryResources {
                 library_id,
@@ -600,6 +605,7 @@ mod tests {
                 &databases.main_db,
                 &self.node_id,
                 self.descriptor.catalog_library_id().unwrap(),
+                self.dir.path(),
             )
             .await?;
             Ok(LibraryResources {

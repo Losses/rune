@@ -1,18 +1,162 @@
 //! Transaction-bound causal authoring, reception, and accepted-state queries.
 use crate::causal_candidates::CandidateRow;
-use crate::causal_leases::lock_on;
+use crate::causal_leases::{begin_write, lock_on};
 use crate::causal_writer::WriterIncarnation;
 use anyhow::{Result, ensure};
 use sea_orm::sea_query::Order;
 use sea_orm::{
-    ConnectionTrait, DatabaseConnection, DatabaseTransaction, ExprTrait, FromQueryResult,
-    TransactionTrait,
+    ConnectionTrait, DatabaseConnection, DatabaseTransaction, DbBackend, ExprTrait,
+    FromQueryResult, Statement, TransactionTrait,
     sea_query::{Alias, Expr, Query},
 };
-use std::{marker::PhantomData, sync::Arc};
+use std::{cmp::max, marker::PhantomData, sync::Arc};
 use sync::causal::{self, Context};
 use sync::protocol::{self, ModelId, StoreIdentity, SyncModel};
 use uuid::Uuid;
+
+const WRITER_RESERVATION_SIZE: i64 = 1_000_000_000;
+
+async fn ensure_writer_columns_on<C: ConnectionTrait>(db: &C) -> Result<()> {
+    let statement = Statement::from_string(DbBackend::Sqlite, "PRAGMA table_info(sync_meta)");
+    let columns = db
+        .query_all_raw(statement)
+        .await?
+        .into_iter()
+        .map(|row| row.try_get_by_index::<String>(1))
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    for (name, sql_type) in [
+        ("writer_incarnation", "BLOB"),
+        ("writer_author", "BLOB"),
+        ("writer_reserved_counter", "BIGINT"),
+        ("writer_file_token", "BLOB"),
+    ] {
+        if !columns.iter().any(|column| column == name) {
+            db.execute_unprepared(&format!(
+                "ALTER TABLE sync_meta ADD COLUMN {name} {sql_type}"
+            ))
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+async fn reserve_writer_on<C: ConnectionTrait>(
+    db: &C,
+    namespace: Uuid,
+    author: Uuid,
+    expected_file_token: Option<Uuid>,
+) -> Result<WriterIncarnation> {
+    ensure_writer_columns_on(db).await?;
+    let query = Query::select()
+        .columns(
+            [
+                "writer_incarnation",
+                "writer_author",
+                "writer_reserved_counter",
+                "writer_file_token",
+            ]
+            .map(Alias::new),
+        )
+        .from(Alias::new("sync_meta"))
+        .and_where(Expr::col(Alias::new("namespace")).eq(namespace.as_bytes().to_vec()))
+        .to_owned();
+    let row = db
+        .query_one(&query)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("missing causal namespace"))?;
+    let stored_id = row.try_get_by_index::<Option<Vec<u8>>>(0)?;
+    let stored_author = row.try_get_by_index::<Option<Vec<u8>>>(1)?;
+    let stored_end = row.try_get_by_index::<Option<i64>>(2)?;
+    let stored_file_token = row.try_get_by_index::<Option<Vec<u8>>>(3)?;
+    let parsed_id = stored_id
+        .as_deref()
+        .and_then(|bytes| Uuid::from_slice(bytes).ok())
+        .filter(|id| !id.is_nil());
+    let parsed_author = stored_author
+        .as_deref()
+        .and_then(|bytes| Uuid::from_slice(bytes).ok())
+        .filter(|id| !id.is_nil());
+    let mut incarnation = parsed_id.unwrap_or_else(Uuid::new_v4);
+    let mut start = stored_end.filter(|end| *end >= 0).unwrap_or(0);
+    let mismatched_owner = parsed_author.is_some_and(|owner| owner != author);
+    let invalid_metadata = parsed_id.is_none() || parsed_author.is_none() || stored_end.is_none();
+    let maximum_candidate_dot = match db
+        .query_one(
+            &Query::select()
+                .expr(Expr::col(Alias::new("counter")).max())
+                .from(Alias::new("sync_candidates"))
+                .and_where(Expr::col(Alias::new("namespace")).eq(namespace.as_bytes().to_vec()))
+                .and_where(Expr::col(Alias::new("writer")).eq(incarnation.as_bytes().to_vec()))
+                .to_owned(),
+        )
+        .await?
+    {
+        Some(row) => row.try_get_by_index::<Option<i64>>(0)?.unwrap_or(0),
+        None => 0,
+    };
+    let maximum_observed_dot = match db
+        .query_one(
+            &Query::select()
+                .expr(Expr::col(Alias::new("last")).max())
+                .from(Alias::new("sync_observed"))
+                .and_where(Expr::col(Alias::new("namespace")).eq(namespace.as_bytes().to_vec()))
+                .and_where(Expr::col(Alias::new("writer")).eq(incarnation.as_bytes().to_vec()))
+                .to_owned(),
+        )
+        .await?
+    {
+        Some(row) => row.try_get_by_index::<Option<i64>>(0)?.unwrap_or(0),
+        None => 0,
+    };
+    let maximum_dot = max(maximum_candidate_dot, maximum_observed_dot);
+    let inconsistent_reservation = stored_end.is_some_and(|end| end < maximum_dot);
+    let mismatched_file = expected_file_token.is_some_and(|token| {
+        stored_file_token
+            .as_deref()
+            .and_then(|bytes| Uuid::from_slice(bytes).ok())
+            != Some(token)
+    });
+    if mismatched_owner || invalid_metadata || inconsistent_reservation || mismatched_file {
+        incarnation = Uuid::new_v4();
+        start = 0;
+    }
+    let end = start
+        .checked_add(WRITER_RESERVATION_SIZE)
+        .ok_or_else(|| anyhow::anyhow!("writer counter exhausted"))?;
+    let update = Query::update()
+        .table(Alias::new("sync_meta"))
+        .values([
+            (
+                Alias::new("writer_incarnation"),
+                incarnation.as_bytes().to_vec().into(),
+            ),
+            (
+                Alias::new("writer_author"),
+                author.as_bytes().to_vec().into(),
+            ),
+            (Alias::new("writer_reserved_counter"), end.into()),
+            (
+                Alias::new("writer_file_token"),
+                Expr::val(
+                    expected_file_token
+                        .or_else(|| {
+                            stored_file_token
+                                .as_deref()
+                                .and_then(|bytes| Uuid::from_slice(bytes).ok())
+                        })
+                        .map(|token| token.as_bytes().to_vec()),
+                ),
+            ),
+        ])
+        .and_where(Expr::col(Alias::new("namespace")).eq(namespace.as_bytes().to_vec()))
+        .to_owned();
+    ensure!(
+        db.execute(&update).await?.rows_affected() == 1,
+        "missing causal namespace"
+    );
+    WriterIncarnation::with_reservation(author, incarnation, start as u64, end as u64)
+        .map_err(anyhow::Error::msg)
+}
 
 #[derive(Clone, Debug)]
 pub struct ProjectedPage<M: SyncModel> {
@@ -108,12 +252,21 @@ impl<M: SyncModel> CausalReplica<M> {
         namespace: Uuid,
         author: Uuid,
     ) -> Result<Self> {
+        Self::create_empty_with_file_token(db, namespace, author, None).await
+    }
+    pub async fn create_empty_with_file_token(
+        db: DatabaseConnection,
+        namespace: Uuid,
+        author: Uuid,
+        file_token: Option<Uuid>,
+    ) -> Result<Self> {
         ensure!(
             !namespace.is_nil() && !author.is_nil(),
             "nil namespace or author"
         );
         protocol::validate_model::<M>()?;
-        let writer = Arc::new(WriterIncarnation::new(author).map_err(anyhow::Error::msg)?);
+        let writer_id = Uuid::new_v4();
+        let reserved_end = WRITER_RESERVATION_SIZE;
         let identity = StoreIdentity {
             namespace,
             model: ModelId {
@@ -124,7 +277,8 @@ impl<M: SyncModel> CausalReplica<M> {
             generation: Uuid::new_v4(),
         };
         let anchor = protocol::initial_anchor(&identity)?;
-        let tx = crate::causal_leases::begin_write(&db).await?;
+        let tx = begin_write(&db).await?;
+        ensure_writer_columns_on(&tx).await?;
         let q = Query::insert()
             .into_table(Alias::new("sync_meta"))
             .columns(
@@ -143,6 +297,10 @@ impl<M: SyncModel> CausalReplica<M> {
                     "floor_anchor",
                     "floor_state_seq",
                     "retained_bytes",
+                    "writer_incarnation",
+                    "writer_author",
+                    "writer_reserved_counter",
+                    "writer_file_token",
                 ]
                 .map(Alias::new),
             )
@@ -161,10 +319,18 @@ impl<M: SyncModel> CausalReplica<M> {
                 anchor.to_vec().into(),
                 0_i64.into(),
                 0_i64.into(),
+                writer_id.as_bytes().to_vec().into(),
+                author.as_bytes().to_vec().into(),
+                reserved_end.into(),
+                file_token.map(|token| token.as_bytes().to_vec()).into(),
             ])
             .to_owned();
         tx.execute(&q).await?;
         tx.commit().await?;
+        let writer = Arc::new(
+            WriterIncarnation::with_reservation(author, writer_id, 0, reserved_end as u64)
+                .map_err(anyhow::Error::msg)?,
+        );
         Ok(Self {
             db,
             namespace,
@@ -172,21 +338,30 @@ impl<M: SyncModel> CausalReplica<M> {
             model: PhantomData,
         })
     }
-    /// Reopening retains replica/history and creates a distinct writer incarnation.
+    /// Reopening retains replica/history and reserves a disjoint block for its writer.
     pub async fn open(db: DatabaseConnection, namespace: Uuid, author: Uuid) -> Result<Self> {
+        Self::open_with_file_token(db, namespace, author, None).await
+    }
+    pub async fn open_with_file_token(
+        db: DatabaseConnection,
+        namespace: Uuid,
+        author: Uuid,
+        file_token: Option<Uuid>,
+    ) -> Result<Self> {
         ensure!(
             !namespace.is_nil() && !author.is_nil(),
             "nil namespace or author"
         );
         protocol::validate_model::<M>()?;
-        let writer = Arc::new(WriterIncarnation::new(author).map_err(anyhow::Error::msg)?);
+        let tx = begin_write(&db).await?;
+        ensure_writer_columns_on(&tx).await?;
+        let writer = Arc::new(reserve_writer_on(&tx, namespace, author, file_token).await?);
         let replica = Self {
             db,
             namespace,
             writer,
             model: PhantomData,
         };
-        let tx = replica.db.begin().await?;
         replica.meta_on(&tx).await?;
         tx.commit().await?;
         Ok(replica)

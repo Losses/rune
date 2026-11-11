@@ -18,6 +18,7 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     future::Future,
+    io::ErrorKind,
     panic::{AssertUnwindSafe, catch_unwind},
     path::{Path, PathBuf},
     result::Result as StdResult,
@@ -194,9 +195,35 @@ pub async fn initialize_library_replica(
     db: &MainDbConnection,
     device_id: &str,
     library_id: Uuid,
+    config_dir: &Path,
 ) -> Result<LibrarySyncStore> {
     let device_id = Uuid::parse_str(device_id)?;
-    let library = LibrarySyncStore::open(db.clone(), device_id, Some(library_id)).await?;
+    let token_dir = config_dir.join("causal-writer-identities");
+    std::fs::create_dir_all(&token_dir).context("Create causal writer identity directory")?;
+    let token_path = token_dir.join(format!("{library_id}.token"));
+    let file_token = match std::fs::read_to_string(&token_path) {
+        Ok(value) => Uuid::parse_str(value.trim()).context("Read causal writer identity")?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            let token = Uuid::new_v4();
+            let temporary = token_dir.join(format!("{library_id}.{}.tmp", Uuid::new_v4()));
+            std::fs::write(&temporary, token.to_string())
+                .context("Write causal writer identity")?;
+            std::fs::rename(&temporary, &token_path).context("Install causal writer identity")?;
+            Uuid::parse_str(
+                std::fs::read_to_string(&token_path)
+                    .context("Read installed causal writer identity")?
+                    .trim(),
+            )?
+        }
+        Err(error) => return Err(error).context("Read causal writer identity"),
+    };
+    let library = LibrarySyncStore::open_with_file_token(
+        db.clone(),
+        device_id,
+        Some(library_id),
+        Some(file_token),
+    )
+    .await?;
     library.import_existing(device_id).await?;
     Ok(library)
 }

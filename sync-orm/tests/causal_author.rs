@@ -3,7 +3,7 @@ mod fixtures;
 
 use anyhow::Result;
 use sea_orm::{
-    ConnectionTrait, Database, TransactionTrait,
+    ConnectionTrait, Database, ExprTrait, TransactionTrait,
     sea_query::{Alias, ColumnDef, Expr, Query, Table},
 };
 use serde::{Deserialize, Serialize};
@@ -64,7 +64,13 @@ async fn author_and_projection_rollback_and_reveal_lower_survivor() -> Result<()
     let actor = Uuid::new_v4();
     let replica = CausalReplica::<Notes>::create_empty(db.clone(), namespace, actor).await?;
     let reopened = CausalReplica::<Notes>::open(db.clone(), namespace, actor).await?;
-    assert_ne!(replica.writer_incarnation(), reopened.writer_incarnation());
+    assert_eq!(replica.writer_incarnation(), reopened.writer_incarnation());
+    let mut incarnation = reopened.writer_incarnation();
+    for _ in 0..9 {
+        let reopened = CausalReplica::<Notes>::open(db.clone(), namespace, actor).await?;
+        assert_eq!(incarnation, reopened.writer_incarnation());
+        incarnation = reopened.writer_incarnation();
+    }
     let key = ObjectKey {
         collection: Collection::Notes,
         id: Uuid::new_v4(),
@@ -182,6 +188,261 @@ async fn author_and_projection_rollback_and_reveal_lower_survivor() -> Result<()
     assert_eq!(page.records.len(), 1);
     assert_eq!(page.records[0].key, key);
     tx.rollback().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn ten_reopens_author_with_one_writer_context() -> Result<()> {
+    let db = fixtures::fresh_database().await?;
+    let namespace = Uuid::new_v4();
+    let actor = Uuid::new_v4();
+    let mut replica = CausalReplica::<Notes>::create_empty(db.clone(), namespace, actor).await?;
+    for index in 0..10 {
+        if index != 0 {
+            replica = CausalReplica::<Notes>::open(db.clone(), namespace, actor).await?;
+        }
+        let tx = db.begin().await?;
+        replica
+            .write_observed_on(
+                &tx,
+                ObjectKey {
+                    collection: Collection::Notes,
+                    id: Uuid::new_v4(),
+                },
+                Some(Note {
+                    text: format!("note {index}"),
+                }),
+                Observed::AllCurrent,
+            )
+            .await?;
+        tx.commit().await?;
+    }
+    let rows = db
+        .query_all(
+            &Query::select()
+                .column(Alias::new("writer"))
+                .from(Alias::new("sync_candidates"))
+                .to_owned(),
+        )
+        .await?;
+    let writers = rows
+        .into_iter()
+        .map(|row| row.try_get_by_index::<Vec<u8>>(0))
+        .collect::<std::result::Result<std::collections::BTreeSet<_>, _>>()?;
+    assert_eq!(writers.len(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn abandoned_reservation_is_skipped_after_reopen() -> Result<()> {
+    let db = fixtures::fresh_database().await?;
+    let namespace = Uuid::new_v4();
+    let actor = Uuid::new_v4();
+    let initial = CausalReplica::<Notes>::create_empty(db.clone(), namespace, actor).await?;
+    let incarnation = initial.writer_incarnation();
+    drop(initial);
+    let crashed = CausalReplica::<Notes>::open(db.clone(), namespace, actor).await?;
+    assert_eq!(crashed.writer_incarnation(), incarnation);
+    drop(crashed);
+    let recovered = CausalReplica::<Notes>::open(db.clone(), namespace, actor).await?;
+    let tx = db.begin().await?;
+    recovered
+        .write_observed_on(
+            &tx,
+            ObjectKey {
+                collection: Collection::Notes,
+                id: Uuid::new_v4(),
+            },
+            Some(Note {
+                text: "after crash".into(),
+            }),
+            Observed::AllCurrent,
+        )
+        .await?;
+    tx.commit().await?;
+    let row = db
+        .query_one(
+            &Query::select()
+                .columns(["writer", "counter"].map(Alias::new))
+                .from(Alias::new("sync_candidates"))
+                .to_owned(),
+        )
+        .await?
+        .expect("authored candidate exists");
+    assert_eq!(
+        Uuid::from_slice(&row.try_get_by_index::<Vec<u8>>(0)?)?,
+        incarnation
+    );
+    assert!(row.try_get_by_index::<i64>(1)? > 1_000_000_000);
+    Ok(())
+}
+
+#[tokio::test]
+async fn copied_store_rotates_for_another_author_and_both_continue() -> Result<()> {
+    let original_path =
+        std::env::temp_dir().join(format!("sync-writer-original-{}.sqlite", Uuid::new_v4()));
+    let copy_path =
+        std::env::temp_dir().join(format!("sync-writer-copy-{}.sqlite", Uuid::new_v4()));
+    let original_url = format!("sqlite://{}?mode=rwc", original_path.display());
+    let copy_url = format!("sqlite://{}?mode=rwc", copy_path.display());
+    let original_db = Database::connect(&original_url).await?;
+    causal_schema::install_fresh(&original_db).await?;
+    let namespace = Uuid::new_v4();
+    let author_a = Uuid::new_v4();
+    let author_b = Uuid::new_v4();
+    let created =
+        CausalReplica::<Notes>::create_empty(original_db.clone(), namespace, author_a).await?;
+    let original_incarnation = created.writer_incarnation();
+    drop(created);
+    original_db.close().await?;
+    std::fs::copy(&original_path, &copy_path)?;
+    let original_db = Database::connect(&original_url).await?;
+    let copy_db = Database::connect(&copy_url).await?;
+    let original = CausalReplica::<Notes>::open(original_db.clone(), namespace, author_a).await?;
+    let copied = CausalReplica::<Notes>::open(copy_db.clone(), namespace, author_b).await?;
+    assert_eq!(original.writer_incarnation(), original_incarnation);
+    assert_ne!(copied.writer_incarnation(), original.writer_incarnation());
+    for (replica, db, note) in [
+        (&original, &original_db, "original"),
+        (&copied, &copy_db, "copy"),
+    ] {
+        let tx = db.begin().await?;
+        replica
+            .write_observed_on(
+                &tx,
+                ObjectKey {
+                    collection: Collection::Notes,
+                    id: Uuid::new_v4(),
+                },
+                Some(Note { text: note.into() }),
+                Observed::AllCurrent,
+            )
+            .await?;
+        tx.commit().await?;
+    }
+    original_db.close().await?;
+    copy_db.close().await?;
+    let _ = std::fs::remove_file(original_path);
+    let _ = std::fs::remove_file(copy_path);
+    Ok(())
+}
+
+#[tokio::test]
+async fn legacy_store_adopts_and_retains_writer_incarnation() -> Result<()> {
+    let db = fixtures::fresh_database().await?;
+    let namespace = Uuid::new_v4();
+    let actor = Uuid::new_v4();
+    CausalReplica::<Notes>::create_empty(db.clone(), namespace, actor).await?;
+    db.execute_unprepared("ALTER TABLE sync_meta DROP COLUMN writer_incarnation")
+        .await?;
+    db.execute_unprepared("ALTER TABLE sync_meta DROP COLUMN writer_author")
+        .await?;
+    db.execute_unprepared("ALTER TABLE sync_meta DROP COLUMN writer_reserved_counter")
+        .await?;
+    let first = CausalReplica::<Notes>::open(db.clone(), namespace, actor).await?;
+    let adopted = first.writer_incarnation();
+    drop(first);
+    let second = CausalReplica::<Notes>::open(db.clone(), namespace, actor).await?;
+    assert_eq!(second.writer_incarnation(), adopted);
+    Ok(())
+}
+
+#[tokio::test]
+async fn restored_store_rotates_when_config_sidecar_token_changes() -> Result<()> {
+    let db = fixtures::fresh_database().await?;
+    let namespace = Uuid::new_v4();
+    let actor = Uuid::new_v4();
+    let file_token = Uuid::new_v4();
+    let original = CausalReplica::<Notes>::create_empty_with_file_token(
+        db.clone(),
+        namespace,
+        actor,
+        Some(file_token),
+    )
+    .await?;
+    let original_incarnation = original.writer_incarnation();
+    let tx = db.begin().await?;
+    original
+        .write_observed_on(
+            &tx,
+            ObjectKey {
+                collection: Collection::Notes,
+                id: Uuid::new_v4(),
+            },
+            Some(Note {
+                text: "before restore".into(),
+            }),
+            Observed::AllCurrent,
+        )
+        .await?;
+    tx.commit().await?;
+    let restored = CausalReplica::<Notes>::open_with_file_token(
+        db.clone(),
+        namespace,
+        actor,
+        Some(Uuid::new_v4()),
+    )
+    .await?;
+    assert_ne!(restored.writer_incarnation(), original_incarnation);
+    let old_dot = db
+        .query_one(
+            &Query::select()
+                .column(Alias::new("writer"))
+                .from(Alias::new("sync_candidates"))
+                .to_owned(),
+        )
+        .await?
+        .expect("pre-restore causal dot remains stored")
+        .try_get_by_index::<Vec<u8>>(0)?;
+    assert_eq!(Uuid::from_slice(&old_dot)?, original_incarnation);
+    Ok(())
+}
+
+#[tokio::test]
+async fn inconsistent_counter_reservation_rotates_even_after_candidate_reclamation() -> Result<()> {
+    let db = fixtures::fresh_database().await?;
+    let namespace = Uuid::new_v4();
+    let actor = Uuid::new_v4();
+    let replica = CausalReplica::<Notes>::create_empty(db.clone(), namespace, actor).await?;
+    let incarnation = replica.writer_incarnation();
+    let key = ObjectKey {
+        collection: Collection::Notes,
+        id: Uuid::new_v4(),
+    };
+    let tx = db.begin().await?;
+    replica
+        .write_observed_on(
+            &tx,
+            key.clone(),
+            Some(Note {
+                text: "value".into(),
+            }),
+            Observed::AllCurrent,
+        )
+        .await?;
+    tx.commit().await?;
+    let tx = db.begin().await?;
+    replica
+        .write_observed_on(&tx, key, None, Observed::AllCurrent)
+        .await?;
+    tx.commit().await?;
+    db.execute(
+        &Query::delete()
+            .from_table(Alias::new("sync_candidates"))
+            .and_where(Expr::col(Alias::new("namespace")).eq(namespace.as_bytes().to_vec()))
+            .to_owned(),
+    )
+    .await?;
+    db.execute(
+        &Query::update()
+            .table(Alias::new("sync_meta"))
+            .value(Alias::new("writer_reserved_counter"), 0_i64)
+            .and_where(Expr::col(Alias::new("namespace")).eq(namespace.as_bytes().to_vec()))
+            .to_owned(),
+    )
+    .await?;
+    let reopened = CausalReplica::<Notes>::open(db, namespace, actor).await?;
+    assert_ne!(reopened.writer_incarnation(), incarnation);
     Ok(())
 }
 

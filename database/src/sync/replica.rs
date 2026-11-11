@@ -70,6 +70,14 @@ impl LibrarySyncStore {
         node_id: Uuid,
         library_id: Option<Uuid>,
     ) -> Result<Self> {
+        Self::open_with_file_token(db, node_id, library_id, None).await
+    }
+    pub async fn open_with_file_token(
+        db: DatabaseConnection,
+        node_id: Uuid,
+        library_id: Option<Uuid>,
+        file_token: Option<Uuid>,
+    ) -> Result<Self> {
         ensure!(!node_id.is_nil(), "actor identity cannot be nil");
         ensure!(
             library_id.is_none_or(|id| !id.is_nil()),
@@ -109,9 +117,10 @@ impl LibrarySyncStore {
             rebuild_encoding = true;
         }
         let inner = if existing.is_empty() || rebuild_encoding {
-            SeaOrmSyncStore::create_empty(db.clone(), actual, node_id).await?
+            SeaOrmSyncStore::create_empty_with_file_token(db.clone(), actual, node_id, file_token)
+                .await?
         } else {
-            SeaOrmSyncStore::open(db.clone(), actual, node_id).await?
+            SeaOrmSyncStore::open_with_file_token(db.clone(), actual, node_id, file_token).await?
         };
         let endpoint = CausalEndpoint::with_projection(
             inner.clone(),
