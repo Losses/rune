@@ -2,6 +2,7 @@ use super::*;
 use crate::protocol::{
     Candidate, Dot, Event, KeyDelta, ModelId, ObjectKey, Revision, StoreIdentity, SyncModel,
 };
+use crate::share::{base_key, chunk_key, segment_key};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
@@ -170,6 +171,36 @@ fn publication_filters_origins_and_numbers_only_selected_events() {
         vec![8, 9, 10]
     );
     assert_eq!(export_cursor, 5);
+}
+
+#[test]
+fn filtered_relay_only_advances_export_cursor_without_publishing_a_link() {
+    let id = identity();
+    let mut share_origin = identity();
+    share_origin.replica = Uuid::from_u128(21);
+    let entries = [entry(7, Some(share_origin.clone()), "already in share")];
+    let streams = [share_origin.replica].into_iter().collect();
+    let local_replicas = BTreeSet::new();
+    assert_eq!(
+        plan_publish(publish_input(
+            &id,
+            &entries,
+            &streams,
+            &local_replicas,
+            PublishOptions {
+                head: Checkpoint {
+                    seq: 4,
+                    anchor: [4; 32],
+                },
+                newest_base_gzip_bytes: BaseSize::Absent,
+                export_cursor: ExportCursorStatus::Current,
+                max_events_per_segment: 10,
+                existing_segments: &[],
+            },
+        ))
+        .unwrap(),
+        PublishDecision::NothingToPublish { export_cursor: 7 }
+    );
 }
 
 #[test]
@@ -526,14 +557,19 @@ fn keeper_and_base_cut_boundaries_follow_local_observation_time() {
 
 #[test]
 fn gc_obeys_ack_retention_pins_and_rechecks_retirement() {
-    let own_prefix = "devices/mine/";
+    let device_prefix = DevicePrefix {
+        stream: Uuid::from_u128(30),
+        generation: Uuid::from_u128(31),
+    };
     let covered = Checkpoint {
         seq: 40,
         anchor: [4; 32],
     };
     let base = BaseRef {
         base_id: "new".into(),
-        covers: [(own_prefix.into(), covered.clone())].into_iter().collect(),
+        covers: [(device_prefix.to_string(), covered.clone())]
+            .into_iter()
+            .collect(),
     };
     let manifest = RetainedManifest {
         base: base.clone(),
@@ -552,7 +588,7 @@ fn gc_obeys_ack_retention_pins_and_rechecks_retirement() {
                 bytes: 1,
             },
             last_changed_ms: RETIREMENT_MS - OBJECT_UNREFERENCED_MS,
-            key: format!("{own_prefix}seg/a"),
+            key: segment_key(&device_prefix.to_string(), 1, 10, "a000000000000000").unwrap(),
         },
         OwnSegment {
             reference: SegmentRef {
@@ -565,7 +601,7 @@ fn gc_obeys_ack_retention_pins_and_rechecks_retirement() {
                 bytes: 1,
             },
             last_changed_ms: RETIREMENT_MS - OBJECT_UNREFERENCED_MS,
-            key: format!("{own_prefix}seg/b"),
+            key: segment_key(&device_prefix.to_string(), 11, 20, "b000000000000000").unwrap(),
         },
         OwnSegment {
             reference: SegmentRef {
@@ -578,19 +614,19 @@ fn gc_obeys_ack_retention_pins_and_rechecks_retirement() {
                 bytes: 1,
             },
             last_changed_ms: RETIREMENT_MS - SEGMENT_RETENTION_MS,
-            key: format!("{own_prefix}seg/c"),
+            key: segment_key(&device_prefix.to_string(), 21, 30, "c000000000000000").unwrap(),
         },
     ];
     let bases = [OwnBase {
         base_id: "old".into(),
-        key: format!("{own_prefix}base/old"),
+        key: base_key(&device_prefix.to_string(), &"b".repeat(64)).unwrap(),
         superseded_since: SupersededSince::Since(RETIREMENT_MS - SUPERSEDED_BASE_RETENTION_MS),
     }];
     let old_manifest = RetainedManifest {
         base: BaseRef {
             base_id: "old".into(),
             covers: [(
-                own_prefix.into(),
+                device_prefix.to_string(),
                 Checkpoint {
                     seq: 10,
                     anchor: [1; 32],
@@ -610,15 +646,23 @@ fn gc_obeys_ack_retention_pins_and_rechecks_retirement() {
         .iter()
         .map(|name| OwnChunk {
             name: (*name).into(),
-            key: format!("{own_prefix}obj/{name}"),
+            key: chunk_key(
+                &device_prefix.to_string(),
+                blake3::hash(name.as_bytes()).to_hex().as_ref(),
+            )
+            .unwrap(),
             first_unreferenced_ms: 0,
             second_unreferenced_observation: GcObservation::ObservedAt(OBJECT_UNREFERENCED_MS),
         })
         .collect::<Vec<_>>();
-    let retired = RetirementCandidate {
-        prefix: "devices/old/".into(),
-        stream_id: Uuid::from_u128(11),
+    let retired_prefix = DevicePrefix {
+        stream: Uuid::from_u128(11),
         generation: Uuid::from_u128(12),
+    };
+    let retired = RetirementCandidate {
+        prefix: retired_prefix.clone(),
+        stream_id: retired_prefix.stream,
+        generation: retired_prefix.generation,
         head_counter: 4,
         head: Checkpoint {
             seq: 8,
@@ -628,13 +672,13 @@ fn gc_obeys_ack_retention_pins_and_rechecks_retirement() {
         read_status: RetirementReadStatus::ConsistentlyReadable,
     };
     let mut covers = base.covers.clone();
-    covers.insert("devices/old/".into(), retired.head.clone());
+    covers.insert(retired_prefix.to_string(), retired.head.clone());
     let mut current = manifest.clone();
     current.base.covers = covers;
     let manifests = [current, old_manifest];
     let acks = [(Uuid::from_u128(20), 10)].into_iter().collect();
     let decision = plan_gc(GcInput {
-        own_prefix,
+        own_prefix: &device_prefix,
         now_ms: RETIREMENT_MS,
         head: Checkpoint {
             seq: 50,
@@ -651,7 +695,10 @@ fn gc_obeys_ack_retention_pins_and_rechecks_retirement() {
     .unwrap();
     assert_eq!(
         decision.delete_segments,
-        vec![format!("{own_prefix}seg/a"), format!("{own_prefix}seg/c")]
+        vec![
+            segment_key(&device_prefix.to_string(), 1, 10, "a000000000000000").unwrap(),
+            segment_key(&device_prefix.to_string(), 21, 30, "c000000000000000").unwrap(),
+        ]
     );
     assert_eq!(
         decision.floor_base,
@@ -663,7 +710,13 @@ fn gc_obeys_ack_retention_pins_and_rechecks_retirement() {
     assert!(decision.delete_bases.is_empty());
     assert_eq!(
         decision.delete_chunks,
-        vec![format!("{own_prefix}obj/orphan")]
+        vec![
+            chunk_key(
+                &device_prefix.to_string(),
+                blake3::hash(b"orphan").to_hex().as_ref(),
+            )
+            .unwrap()
+        ]
     );
     assert_eq!(decision.retirement_preconditions.len(), 1);
     assert_eq!(decision.retirement_preconditions[0].expected_counter, 4);
@@ -672,7 +725,7 @@ fn gc_obeys_ack_retention_pins_and_rechecks_retirement() {
     pins.pinned_bases.clear();
     let no_acks = [(Uuid::from_u128(20), 0)].into_iter().collect();
     let pinned_decision = plan_gc(GcInput {
-        own_prefix,
+        own_prefix: &device_prefix,
         now_ms: RETIREMENT_MS,
         head: Checkpoint {
             seq: 50,
@@ -688,13 +741,13 @@ fn gc_obeys_ack_retention_pins_and_rechecks_retirement() {
     })
     .unwrap();
     assert!(
-        !pinned_decision
-            .delete_segments
-            .contains(&format!("{own_prefix}seg/b"))
+        !pinned_decision.delete_segments.contains(
+            &segment_key(&device_prefix.to_string(), 11, 20, "b000000000000000").unwrap()
+        )
     );
     assert_eq!(
         pinned_decision.delete_bases,
-        vec![format!("{own_prefix}base/old")]
+        vec![base_key(&device_prefix.to_string(), &"b".repeat(64)).unwrap()]
     );
 }
 
@@ -714,7 +767,10 @@ fn gc_rejects_any_non_owned_object_delete_candidate() {
         key: "devices/someone/seg/x".into(),
     }];
     let result = plan_gc(GcInput {
-        own_prefix: "devices/mine/",
+        own_prefix: &DevicePrefix {
+            stream: Uuid::from_u128(20),
+            generation: Uuid::from_u128(21),
+        },
         now_ms: 0,
         head: Checkpoint {
             seq: 1,

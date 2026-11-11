@@ -1,34 +1,40 @@
 //! Local binding and pull orchestration for a library's share source.
 use anyhow::{Context, Result, ensure};
+use chrono::Utc;
 use sea_orm::{
     ConnectionTrait, DatabaseConnection, ExprTrait, TransactionTrait,
     sea_query::{Alias, ColumnDef, Expr, OnConflict, Query, Table},
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, btree_map::Entry},
     path::PathBuf,
     str::FromStr,
     sync::Arc,
     time::Duration,
 };
 use sync::{
-    Coordinator, ReceiveProgress, SessionAdvance, StoreIdentity, SyncError, SyncModel,
+    Coordinator, Event, ReceiveProgress, SessionAdvance, StoreIdentity, SyncError, SyncModel,
     protocol::{CheckpointKey, Scope},
     share::{
-        BaseManifest, Checkpoint, DevicePrefix, FORMAT_VERSION, FormatError, Head, LibraryFile,
-        ObjectKey, ObjectStore, SelectedBase, SharePeer, StoreError, base_key, decode_head,
-        decode_library, decode_manifest, head_key, library_key, parse_key,
+        BaseManifest, BaseSize, Checkpoint, DevicePrefix, ExportCursorStatus, FORMAT_VERSION,
+        FormatError, Head, JournalEvent, LibraryFile, ObjectKey, ObjectStore, ObjectTag,
+        PublishDecision, PublishInput, RollupInput, Segment, SegmentLink, SegmentRef, SelectedBase,
+        SharePeer, StoreError, base_key, decode_head, decode_library, decode_manifest,
+        decode_segment, encode_head, encode_segment, head_key, library_key, parse_key,
+        plan_publish, segment_key,
     },
 };
+use sync_orm::causal_export_cursors::{advance_on, create_on, read_on};
 use sync_orm::causal_progress::adopt_checkpoint_on;
+use tokio::sync::{Mutex, MutexGuard};
 use uuid::Uuid;
 
 const STATE_TABLE: &str = "device_share_state";
 const LIBRARY_BINDINGS_TABLE: &str = "device_share_bindings";
 
 /// Per-library state lives in local SQLite and is never part of the sync model.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ShareState {
     pub library_id: Uuid,
     pub stream: Uuid,
@@ -36,11 +42,51 @@ pub struct ShareState {
     pub writer_session: Uuid,
     pub head_counter: u64,
     pub local_cursor: u64,
-    pub etags: BTreeMap<String, String>,
-    pub last_seen_tags: BTreeMap<String, String>,
-    pub first_seen_ms: BTreeMap<String, i64>,
-    pub last_change_ms: BTreeMap<String, i64>,
+    #[serde(with = "observed_object_map")]
+    pub observed_objects: BTreeMap<ObjectKey, ObservedObject>,
     pub chunk_cache_path: PathBuf,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObservedObject {
+    pub tag: ObjectTag,
+    pub first_seen_ms: i64,
+    pub last_change_ms: i64,
+}
+
+mod observed_object_map {
+    use super::{ObjectKey, ObservedObject};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::collections::BTreeMap;
+
+    pub fn serialize<S>(
+        objects: &BTreeMap<ObjectKey, ObservedObject>,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        objects.iter().collect::<Vec<_>>().serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> std::result::Result<BTreeMap<ObjectKey, ObservedObject>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let entries = Vec::<(ObjectKey, ObservedObject)>::deserialize(deserializer)?;
+        Ok(entries.into_iter().collect())
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct ShareWriter(Arc<Mutex<()>>);
+
+impl ShareWriter {
+    async fn lock(&self) -> MutexGuard<'_, ()> {
+        self.0.lock().await
+    }
 }
 
 impl ShareState {
@@ -56,44 +102,40 @@ impl ShareState {
             writer_session: Uuid::new_v4(),
             head_counter: 0,
             local_cursor: 0,
-            etags: BTreeMap::new(),
-            last_seen_tags: BTreeMap::new(),
-            first_seen_ms: BTreeMap::new(),
-            last_change_ms: BTreeMap::new(),
+            observed_objects: BTreeMap::new(),
             chunk_cache_path: cache_path,
         })
     }
 
     /// Starts retention timers from now when the persisted clock began in the future.
     pub fn normalize_future_times(&mut self, now_ms: i64) {
-        for time in self
-            .first_seen_ms
-            .values_mut()
-            .chain(self.last_change_ms.values_mut())
-        {
-            if *time > now_ms {
-                *time = now_ms;
+        for observed in self.observed_objects.values_mut() {
+            if observed.first_seen_ms > now_ms {
+                observed.first_seen_ms = now_ms;
+            }
+            if observed.last_change_ms > now_ms {
+                observed.last_change_ms = now_ms;
             }
         }
     }
 
-    pub fn observe_tag(&mut self, object: &str, tag: &str, now_ms: i64) {
-        self.first_seen_ms
-            .entry(object.to_owned())
-            .or_insert(now_ms);
-        if self
-            .last_seen_tags
-            .get(object)
-            .is_some_and(|previous| previous != tag)
-        {
-            self.last_change_ms.insert(object.to_owned(), now_ms);
-        } else {
-            self.last_change_ms
-                .entry(object.to_owned())
-                .or_insert(now_ms);
+    pub fn observe_tag(&mut self, object: ObjectKey, tag: ObjectTag, now_ms: i64) {
+        match self.observed_objects.entry(object) {
+            Entry::Vacant(entry) => {
+                entry.insert(ObservedObject {
+                    tag,
+                    first_seen_ms: now_ms,
+                    last_change_ms: now_ms,
+                });
+            }
+            Entry::Occupied(mut entry) => {
+                let observed = entry.get_mut();
+                if observed.tag != tag {
+                    observed.tag = tag;
+                    observed.last_change_ms = now_ms;
+                }
+            }
         }
-        self.last_seen_tags
-            .insert(object.to_owned(), tag.to_owned());
     }
 }
 
@@ -150,6 +192,8 @@ pub async fn save_state(db: &DatabaseConnection, state: &ShareState) -> Result<(
 pub struct ShareCapabilities {
     /// Set only after the caller's conditional-create probe succeeds.
     pub conditional_create: bool,
+    /// Set only after the store's conditional overwrite probe succeeds.
+    pub conditional_head_write: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -162,9 +206,46 @@ pub enum SharePullError {
     Invalid(String),
     #[error("share store error: {0}")]
     Store(String),
+    #[error("share is read-only")]
+    ReadOnly,
+    #[error("share pull cancelled")]
+    Cancelled,
 }
 
 pub type SharePullResult<T> = std::result::Result<T, SharePullError>;
+
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum SharePushError {
+    #[error("share needs a base cut before incremental publication")]
+    NeedsBase,
+    #[error("share head changed during publication")]
+    StaleHead,
+    #[error("share is read-only")]
+    ReadOnly,
+    #[error("share binding changed")]
+    ShareChanged,
+    #[error("share push failed: {0}")]
+    Failed(String),
+}
+
+pub type SharePushResult<T> = std::result::Result<T, SharePushError>;
+
+pub struct PublishJournalRequest<'a, M: SyncModel> {
+    pub db: &'a DatabaseConnection,
+    pub state: &'a mut ShareState,
+    pub writer: &'a ShareWriter,
+    pub store: &'a dyn ObjectStore,
+    pub identity: &'a StoreIdentity,
+    pub current_head: &'a Head,
+    pub entries: &'a [JournalEvent<M>],
+    pub acknowledgements: &'a BTreeMap<DevicePrefix, u64>,
+    pub share_stream_ids: &'a BTreeSet<Uuid>,
+    pub share_local_replicas: &'a BTreeSet<Uuid>,
+    pub newest_base: BaseSize,
+    pub cursor_status: ExportCursorStatus,
+    pub capabilities: ShareCapabilities,
+    pub max_events_per_segment: usize,
+}
 
 pub struct SharePullRequest<'a, M: SyncModel> {
     pub db: &'a DatabaseConnection,
@@ -309,7 +390,13 @@ pub async fn pull<M: SyncModel>(
                             ));
                         }
                         validate_head_covers(&head)?;
-                        observed_tags.push((key, value.tag.as_str().to_owned()));
+                        observed_tags.push((
+                            ObjectKey::Head {
+                                prefix: prefix.clone(),
+                                slot,
+                            },
+                            value.tag,
+                        ));
                         valid.push(head);
                     }
                     Err(FormatError::Checksum) => checksum_failure = true,
@@ -355,8 +442,7 @@ pub async fn pull<M: SyncModel>(
     .map_err(internal_error)?;
     let now_ms = chrono::Utc::now().timestamp_millis();
     for (key, tag) in observed_tags {
-        local_state.etags.insert(key.clone(), tag.clone());
-        local_state.observe_tag(&key, &tag, now_ms);
+        local_state.observe_tag(key, tag, now_ms);
     }
 
     let mut progress = Vec::new();
@@ -421,7 +507,7 @@ pub async fn pull<M: SyncModel>(
                 Ok(SessionAdvance::BudgetExhausted) => coordinator.start_pass(),
                 Ok(SessionAdvance::Incomplete) => (),
                 Ok(SessionAdvance::Cancelled) => {
-                    return Err(SharePullError::Store("share pull cancelled".into()));
+                    return Err(SharePullError::Cancelled);
                 }
                 Err(error) => return Err(sync_error(error)),
             }
@@ -438,8 +524,466 @@ pub async fn pull<M: SyncModel>(
     Ok(progress)
 }
 
+/// Publish a prepared local journal range after the caller has completed pull.
+/// The required per-library writer covers prefix writes through head commit and cursor update.
+pub async fn publish_journal<M: SyncModel>(
+    request: PublishJournalRequest<'_, M>,
+) -> SharePushResult<Option<Head>> {
+    let PublishJournalRequest {
+        db,
+        state,
+        writer,
+        store,
+        identity,
+        current_head,
+        entries,
+        acknowledgements,
+        share_stream_ids,
+        share_local_replicas,
+        newest_base,
+        cursor_status,
+        capabilities,
+        max_events_per_segment,
+    } = request;
+    let expected_counter = current_head.counter;
+    let expected_writer_session = current_head.writer_session;
+    let writer_guard = writer.lock().await;
+    validate_share_library_inner::<M>(db, store, state.library_id, capabilities, true)
+        .await
+        .map_err(|error| match error {
+            SharePullError::ShareChanged => SharePushError::ShareChanged,
+            SharePullError::ReadOnly => SharePushError::ReadOnly,
+            other => SharePushError::Failed(other.to_string()),
+        })?;
+    let own_prefix = DevicePrefix {
+        stream: state.stream,
+        generation: state.generation,
+    };
+    let current_head = refresh_own_head(store, &own_prefix).await?;
+    if current_head.counter < expected_counter
+        || current_head.writer_session != expected_writer_session
+    {
+        return Err(SharePushError::StaleHead);
+    }
+    state.head_counter = current_head.counter;
+    state.local_cursor = current_head.local_cursor;
+    let share_identity = StoreIdentity {
+        namespace: identity.namespace,
+        model: identity.model.clone(),
+        replica: own_prefix.stream,
+        generation: own_prefix.generation,
+    };
+    let decision = plan_publish(PublishInput {
+        identity: &share_identity,
+        after_cursor: state.local_cursor,
+        entries,
+        share_stream_ids,
+        share_local_replicas,
+        head: Checkpoint {
+            seq: current_head.head.seq,
+            anchor: current_head.head.anchor,
+        },
+        existing_segments: &current_head.segments,
+        newest_base_gzip_bytes: newest_base,
+        export_cursor: cursor_status,
+        max_events_per_segment,
+    })
+    .map_err(|error| SharePushError::Failed(error.to_string()))?;
+    if let PublishDecision::NothingToPublish { export_cursor } = &decision {
+        let mut ack_head = current_head.clone();
+        for (prefix, sequence) in acknowledgements {
+            let text = prefix.to_string();
+            ack_head
+                .acks
+                .entry(text)
+                .and_modify(|current| *current = Ord::max(*current, *sequence))
+                .or_insert(*sequence);
+        }
+        let cursor_advanced = *export_cursor > current_head.local_cursor;
+        if ack_head.acks == current_head.acks && !cursor_advanced {
+            return Ok(None);
+        }
+        ack_head.local_cursor = Ord::max(current_head.local_cursor, *export_cursor);
+        ack_head.counter = current_head
+            .counter
+            .checked_add(1)
+            .ok_or_else(|| SharePushError::Failed("share head counter exhausted".into()))?;
+        ack_head.updated_ms = Ord::max(Utc::now().timestamp_millis(), 0) as u64;
+        let written = write_head_retry(
+            store,
+            &own_prefix.to_string(),
+            &current_head,
+            &ack_head,
+            &writer_guard,
+            capabilities,
+        )
+        .await?;
+        advance_export_cursor(
+            db,
+            identity.namespace,
+            state.stream.as_bytes(),
+            state.local_cursor,
+            written.local_cursor,
+        )
+        .await?;
+        state.head_counter = written.counter;
+        state.local_cursor = written.local_cursor;
+        save_state(db, state)
+            .await
+            .map_err(|error| SharePushError::Failed(error.to_string()))?;
+        return Ok(Some(written));
+    }
+    let (events, segments, rollups, export_cursor) = match decision {
+        PublishDecision::NothingToPublish { .. } => return Ok(None),
+        PublishDecision::CutBase { .. } => return Err(SharePushError::NeedsBase),
+        PublishDecision::PublishSegments {
+            events,
+            segments,
+            rollups,
+            export_cursor,
+            ..
+        } => (events, segments, rollups, export_cursor),
+    };
+    let prefix = own_prefix.to_string();
+    let mut next_head = current_head.clone();
+    for (device, sequence) in acknowledgements {
+        let text = device.to_string();
+        next_head
+            .acks
+            .entry(text)
+            .and_modify(|current| *current = Ord::max(*current, *sequence))
+            .or_insert(*sequence);
+    }
+    let mut written_segments = BTreeMap::new();
+    for group in segments {
+        let numbered = events
+            .iter()
+            .filter(|event| (group.first..=group.last).contains(&event.share_sequence))
+            .collect::<Vec<_>>();
+        let links = numbered
+            .iter()
+            .map(|event| {
+                let collection = match &event.event {
+                    Event::Key(key) => key.key.collection.clone(),
+                    Event::Merge(merge) => merge.collection.clone(),
+                };
+                SegmentLink {
+                    seq: event.share_sequence,
+                    collection,
+                    event: event.event.clone(),
+                }
+            })
+            .collect::<Vec<_>>();
+        let segment = Segment {
+            format: FORMAT_VERSION,
+            prev_anchor: group.previous_anchor,
+            links,
+            last_anchor: group.last_anchor,
+        };
+        let bytes =
+            encode_segment(&segment).map_err(|error| SharePushError::Failed(error.to_string()))?;
+        let hash = blake3::hash(&bytes).to_hex().to_string();
+        let hash16 = &hash[..16];
+        let key = segment_key(&prefix, group.first, group.last, hash16)
+            .map_err(|error| SharePushError::Failed(error.to_string()))?;
+        match store.create(&key, &bytes).await {
+            Ok(_) => (),
+            Err(StoreError::PreconditionFailed) => {
+                let existing = store.get(&key).await.map_err(push_store_error)?;
+                if existing.bytes != bytes {
+                    return Err(SharePushError::Failed(
+                        "immutable segment name contains different bytes".into(),
+                    ));
+                }
+            }
+            Err(error) => return Err(push_store_error(error)),
+        }
+        let reference = SegmentRef {
+            level: 0,
+            first: group.first,
+            last: group.last,
+            prev_anchor: group.previous_anchor,
+            last_anchor: group.last_anchor,
+            name: hash16.to_owned(),
+            bytes: bytes.len() as u64,
+        };
+        next_head.segments.push(reference.clone());
+        written_segments.insert(
+            (reference.level, reference.first, reference.last),
+            (segment, reference),
+        );
+    }
+    for rollup in rollups {
+        let mut links = Vec::new();
+        for input in &rollup.inputs {
+            let source = match input {
+                RollupInput::Existing(reference) => {
+                    let key =
+                        segment_key(&prefix, reference.first, reference.last, &reference.name)
+                            .map_err(|error| SharePushError::Failed(error.to_string()))?;
+                    let object = store.get(&key).await.map_err(push_store_error)?;
+                    let digest = blake3::hash(&object.bytes).to_hex().to_string();
+                    if object.bytes.len() as u64 != reference.bytes
+                        || !digest.starts_with(&reference.name)
+                    {
+                        return Err(SharePushError::Failed(
+                            "existing segment digest mismatch".into(),
+                        ));
+                    }
+                    decode_segment::<M>(&object.bytes)
+                        .map_err(|error| SharePushError::Failed(error.to_string()))?
+                }
+                RollupInput::Planned {
+                    level, first, last, ..
+                } => written_segments
+                    .get(&(*level, *first, *last))
+                    .map(|(segment, _)| segment.clone())
+                    .ok_or_else(|| {
+                        SharePushError::Failed("planned roll-up input is missing".into())
+                    })?,
+            };
+            links.extend(source.links);
+        }
+        let rolled = Segment {
+            format: FORMAT_VERSION,
+            prev_anchor: rollup.previous_anchor,
+            links,
+            last_anchor: rollup.last_anchor,
+        };
+        let bytes =
+            encode_segment(&rolled).map_err(|error| SharePushError::Failed(error.to_string()))?;
+        let hash = blake3::hash(&bytes).to_hex().to_string();
+        let hash16 = &hash[..16];
+        let key = segment_key(&prefix, rollup.first, rollup.last, hash16)
+            .map_err(|error| SharePushError::Failed(error.to_string()))?;
+        match store.create(&key, &bytes).await {
+            Ok(_) => (),
+            Err(StoreError::PreconditionFailed) => {
+                if store.get(&key).await.map_err(push_store_error)?.bytes != bytes {
+                    return Err(SharePushError::Failed(
+                        "immutable roll-up name collision".into(),
+                    ));
+                }
+            }
+            Err(error) => return Err(push_store_error(error)),
+        }
+        next_head.segments.retain(|reference| {
+            !(reference.level < rollup.level
+                && reference.first >= rollup.first
+                && reference.last <= rollup.last)
+        });
+        let reference = SegmentRef {
+            level: rollup.level,
+            first: rollup.first,
+            last: rollup.last,
+            prev_anchor: rollup.previous_anchor,
+            last_anchor: rollup.last_anchor,
+            name: hash16.to_owned(),
+            bytes: bytes.len() as u64,
+        };
+        next_head.segments.push(reference.clone());
+        written_segments.insert(
+            (reference.level, reference.first, reference.last),
+            (rolled, reference),
+        );
+    }
+    next_head.counter = current_head
+        .counter
+        .checked_add(1)
+        .ok_or_else(|| SharePushError::Failed("share head counter exhausted".into()))?;
+    next_head.head = Checkpoint {
+        seq: events
+            .last()
+            .map_or(current_head.head.seq, |event| event.share_sequence),
+        anchor: events
+            .last()
+            .map_or(current_head.head.anchor, |event| event.anchor),
+    };
+    next_head.local_cursor = export_cursor;
+    next_head.updated_ms = Ord::max(Utc::now().timestamp_millis(), 0) as u64;
+
+    let written_head = write_head_retry(
+        store,
+        &prefix,
+        &current_head,
+        &next_head,
+        &writer_guard,
+        capabilities,
+    )
+    .await?;
+    advance_export_cursor(
+        db,
+        identity.namespace,
+        state.stream.as_bytes(),
+        state.local_cursor,
+        export_cursor,
+    )
+    .await?;
+    state.local_cursor = export_cursor;
+    state.head_counter = written_head.counter;
+    save_state(db, state)
+        .await
+        .map_err(|error| SharePushError::Failed(error.to_string()))?;
+    Ok(Some(written_head))
+}
+
+async fn advance_export_cursor(
+    db: &DatabaseConnection,
+    namespace: Uuid,
+    export_id: &[u8],
+    current_cursor: u64,
+    export_cursor: u64,
+) -> SharePushResult<()> {
+    let tx = db
+        .begin()
+        .await
+        .map_err(|error| SharePushError::Failed(error.to_string()))?;
+    if read_on(&tx, namespace, export_id)
+        .await
+        .map_err(|error| SharePushError::Failed(error.to_string()))?
+        .is_none()
+    {
+        create_on(
+            &tx,
+            namespace,
+            export_id,
+            i64::try_from(current_cursor)
+                .map_err(|error| SharePushError::Failed(error.to_string()))?,
+            Ord::max(Utc::now().timestamp_millis(), 0),
+        )
+        .await
+        .map_err(|error| SharePushError::Failed(error.to_string()))?;
+    }
+    advance_on(
+        &tx,
+        namespace,
+        export_id,
+        i64::try_from(export_cursor).map_err(|error| SharePushError::Failed(error.to_string()))?,
+        Ord::max(Utc::now().timestamp_millis(), 0),
+    )
+    .await
+    .map_err(|error| SharePushError::Failed(error.to_string()))?;
+    tx.commit()
+        .await
+        .map_err(|error| SharePushError::Failed(error.to_string()))?;
+    Ok(())
+}
+
+async fn write_head_retry(
+    store: &dyn ObjectStore,
+    prefix: &str,
+    expected: &Head,
+    next: &Head,
+    _writer: &MutexGuard<'_, ()>,
+    capabilities: ShareCapabilities,
+) -> SharePushResult<Head> {
+    let mut current_slot = None;
+    for slot in 0..=1 {
+        let key =
+            head_key(prefix, slot).map_err(|error| SharePushError::Failed(error.to_string()))?;
+        match store.get(&key).await {
+            Ok(value) => match decode_head(&value.bytes) {
+                Ok(head) if head == *expected => current_slot = Some(slot),
+                Ok(_) | Err(FormatError::Checksum) => (),
+                Err(error) => return Err(SharePushError::Failed(error.to_string())),
+            },
+            Err(StoreError::NotFound) => (),
+            Err(error) => return Err(push_store_error(error)),
+        }
+    }
+    let slot = current_slot
+        .map(|slot| 1 - slot)
+        .ok_or(SharePushError::StaleHead)?;
+    let key = head_key(prefix, slot).map_err(|error| SharePushError::Failed(error.to_string()))?;
+    let bytes = encode_head(next).map_err(|error| SharePushError::Failed(error.to_string()))?;
+    for _ in 0..3 {
+        let current = match store.get(&key).await {
+            Ok(value) => Some(value),
+            Err(StoreError::NotFound) => None,
+            Err(error) => return Err(push_store_error(error)),
+        };
+        if let Some(value) = &current {
+            match decode_head(&value.bytes) {
+                Ok(head) if head == *next => return Ok(head),
+                Ok(_) | Err(FormatError::Checksum) => (),
+                Err(error) => return Err(SharePushError::Failed(error.to_string())),
+            }
+        }
+        let mut observed = Vec::new();
+        for candidate_slot in 0..=1 {
+            let candidate_key = head_key(prefix, candidate_slot)
+                .map_err(|error| SharePushError::Failed(error.to_string()))?;
+            match store.get(&candidate_key).await {
+                Ok(value) => match decode_head(&value.bytes) {
+                    Ok(head) => observed.push(head),
+                    Err(FormatError::Checksum) => (),
+                    Err(error) => return Err(SharePushError::Failed(error.to_string())),
+                },
+                Err(StoreError::NotFound) => (),
+                Err(error) => return Err(push_store_error(error)),
+            }
+        }
+        let latest = observed.into_iter().max_by_key(|head| head.counter);
+        if latest.as_ref().is_none_or(|head| {
+            head.counter != expected.counter || head.writer_session != expected.writer_session
+        }) {
+            return Err(SharePushError::StaleHead);
+        }
+        let result = match current {
+            Some(value) if capabilities.conditional_head_write => {
+                store.put_if_match(&key, &value.tag, &bytes).await
+            }
+            None if capabilities.conditional_head_write => store.create(&key, &bytes).await,
+            _ => store.put(&key, &bytes).await,
+        };
+        match result {
+            Ok(_) => return Ok(next.clone()),
+            Err(StoreError::PreconditionFailed) => continue,
+            Err(error) => return Err(push_store_error(error)),
+        }
+    }
+    Err(SharePushError::StaleHead)
+}
+
+async fn refresh_own_head(store: &dyn ObjectStore, prefix: &DevicePrefix) -> SharePushResult<Head> {
+    let mut latest = None;
+    for slot in 0..=1 {
+        let key = head_key(&prefix.to_string(), slot)
+            .map_err(|error| SharePushError::Failed(error.to_string()))?;
+        match store.get(&key).await {
+            Ok(value) => match decode_head(&value.bytes) {
+                Ok(head) => {
+                    if head.stream != prefix.stream || head.generation != prefix.generation {
+                        return Err(SharePushError::ShareChanged);
+                    }
+                    if latest
+                        .as_ref()
+                        .is_none_or(|current: &Head| head.counter > current.counter)
+                    {
+                        latest = Some(head);
+                    }
+                }
+                Err(FormatError::Checksum) => (),
+                Err(error) => return Err(SharePushError::Failed(error.to_string())),
+            },
+            Err(StoreError::NotFound) => (),
+            Err(error) => return Err(push_store_error(error)),
+        }
+    }
+    latest.ok_or(SharePushError::StaleHead)
+}
+
+pub(super) fn push_store_error(error: StoreError) -> SharePushError {
+    match error {
+        StoreError::PermissionDenied => SharePushError::ReadOnly,
+        StoreError::Transient(message) => SharePushError::Failed(format!("transient: {message}")),
+        StoreError::NotFound => SharePushError::Failed("share object disappeared".into()),
+        other => SharePushError::Failed(format!("{other:?}")),
+    }
+}
+
 struct BaseCandidate {
-    owner_prefix: String,
+    owner_prefix: DevicePrefix,
     base_id: String,
     covers: BTreeMap<String, Checkpoint>,
 }
@@ -457,9 +1001,9 @@ fn validate_head_covers(head: &Head) -> SharePullResult<()> {
 }
 
 fn base_candidates(peers: &[(DevicePrefix, Head)]) -> SharePullResult<Vec<BaseCandidate>> {
-    let mut candidates = BTreeMap::<(String, String), BaseCandidate>::new();
+    let mut candidates = BTreeMap::<(DevicePrefix, String), BaseCandidate>::new();
     for (device, head) in peers {
-        let owner = device.to_string();
+        let owner = device.clone();
         for reference in &head.bases {
             let candidate = candidates
                 .entry((owner.clone(), reference.base_id.clone()))
@@ -482,13 +1026,12 @@ fn base_candidates(peers: &[(DevicePrefix, Head)]) -> SharePullResult<Vec<BaseCa
         }
         DevicePrefix::from_str(&head.floor_base.owner_prefix)
             .map_err(|error| SharePullError::Invalid(error.to_string()))?;
+        let floor_owner = DevicePrefix::from_str(&head.floor_base.owner_prefix)
+            .map_err(|error| SharePullError::Invalid(error.to_string()))?;
         let candidate = candidates
-            .entry((
-                head.floor_base.owner_prefix.clone(),
-                head.floor_base.base_id.clone(),
-            ))
+            .entry((floor_owner.clone(), head.floor_base.base_id.clone()))
             .or_insert_with(|| BaseCandidate {
-                owner_prefix: head.floor_base.owner_prefix.clone(),
+                owner_prefix: floor_owner,
                 base_id: head.floor_base.base_id.clone(),
                 covers: BTreeMap::new(),
             });
@@ -530,7 +1073,7 @@ async fn choose_live_base<M: SyncModel>(
     }
     ordered.sort_by_key(|(_, coverage)| std::cmp::Reverse(*coverage));
     for (candidate, _) in ordered {
-        let key = base_key(&candidate.owner_prefix, &candidate.base_id)
+        let key = base_key(&candidate.owner_prefix.to_string(), &candidate.base_id)
             .map_err(|error| SharePullError::Invalid(error.to_string()))?;
         let object = match store.get(&key).await {
             Ok(object) => object,
@@ -551,7 +1094,7 @@ async fn choose_live_base<M: SyncModel>(
             .covers
             .get(&target_prefix)
             .ok_or_else(|| SharePullError::Invalid("selected base omits target cover".into()))?;
-        if candidate.owner_prefix == head.floor_base.owner_prefix
+        if candidate.owner_prefix.to_string() == head.floor_base.owner_prefix
             && candidate.base_id == head.floor_base.base_id
             && (cover.seq != head.floor_base.covers_seq
                 || cover.anchor != head.floor_base.covers_anchor)
@@ -657,6 +1200,7 @@ fn store_error(error: StoreError) -> SharePullError {
     match error {
         StoreError::Transient(message) => SharePullError::Transient(message),
         StoreError::NotFound => SharePullError::Invalid("required share object is missing".into()),
+        StoreError::PermissionDenied => SharePullError::ReadOnly,
         other => SharePullError::Store(format!("{other:?}")),
     }
 }
@@ -684,6 +1228,7 @@ mod tests {
             id,
             ShareCapabilities {
                 conditional_create: true,
+                conditional_head_write: false,
             },
         )
         .await
@@ -721,6 +1266,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn permission_denied_library_create_is_typed_as_read_only() -> Result<()> {
+        let db = Database::connect("sqlite::memory:").await?;
+        Migrator::up(&db, None).await?;
+        let store = MemoryObjectStore::default();
+        store.inject_error(StoreOperation::Create, StoreError::PermissionDenied);
+        let result = validate_share_library::<RuneModel>(
+            &db,
+            &store,
+            Uuid::new_v4(),
+            ShareCapabilities {
+                conditional_create: true,
+                conditional_head_write: false,
+            },
+        )
+        .await;
+        assert_eq!(result.unwrap_err(), SharePullError::ReadOnly);
+        assert_eq!(
+            store.list_prefix("devices/").await.unwrap(),
+            Vec::<String>::new()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn local_share_state_is_durable_and_future_retention_starts_reset() -> Result<()> {
         let db = Database::connect("sqlite::memory:").await?;
         Migrator::up(&db, None).await?;
@@ -730,19 +1299,28 @@ mod tests {
         let mut state =
             load_or_create_state(&db, replica, library, cache_path.clone(), 100).await?;
         assert_eq!(state.stream, Uuid::new_v5(&replica, b"rune-share"));
-        state
-            .first_seen_ms
-            .insert("devices/x/head.0.json".into(), 500);
-        state
-            .last_change_ms
-            .insert("devices/x/head.0.json".into(), 600);
-        state.observe_tag("devices/x/head.0.json", "etag-1", 800);
+        let key = ObjectKey::Head {
+            prefix: DevicePrefix {
+                stream: Uuid::from_u128(1),
+                generation: Uuid::from_u128(2),
+            },
+            slot: 0,
+        };
+        state.observe_tag(key.clone(), ObjectTag::new("etag-1"), 800);
+        state.observe_tag(key.clone(), ObjectTag::new("etag-2"), 900);
+        let observed = state.observed_objects.get_mut(&key).unwrap();
+        assert_eq!(observed.tag, ObjectTag::new("etag-2"));
+        assert_eq!(observed.first_seen_ms, 800);
+        assert_eq!(observed.last_change_ms, 900);
+        observed.first_seen_ms = 500;
+        observed.last_change_ms = 600;
         save_state(&db, &state).await?;
         let reopened = load_or_create_state(&db, replica, library, PathBuf::new(), 200).await?;
         assert_eq!(reopened.chunk_cache_path, cache_path);
-        assert_eq!(reopened.first_seen_ms["devices/x/head.0.json"], 200);
-        assert_eq!(reopened.last_change_ms["devices/x/head.0.json"], 200);
-        assert_eq!(reopened.last_seen_tags["devices/x/head.0.json"], "etag-1");
+        let observed = &reopened.observed_objects[&key];
+        assert_eq!(observed.first_seen_ms, 200);
+        assert_eq!(observed.last_change_ms, 200);
+        assert_eq!(observed.tag, ObjectTag::new("etag-2"));
         Ok(())
     }
 
@@ -758,6 +1336,7 @@ mod tests {
             id,
             ShareCapabilities {
                 conditional_create: true,
+                conditional_head_write: false,
             },
         )
         .await?;

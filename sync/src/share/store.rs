@@ -9,13 +9,16 @@ pub use memory::{MemoryObjectStore, MemoryStoreConfig};
 pub enum StoreError {
     NotFound,
     PreconditionFailed,
+    PermissionDenied,
     ClockSkew,
     Transient(String),
     Permanent(String),
 }
 pub type StoreResult<T> = StdResult<T, StoreError>;
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct ObjectTag(String);
 
 impl ObjectTag {

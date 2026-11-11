@@ -3,12 +3,15 @@ mod support;
 
 use anyhow::{Context, Result, ensure};
 use database::sync::model::{Collection, ObjectKey, RuneModel};
-use database::sync::share::SharePullError;
+use database::sync::share::{
+    PublishJournalRequest, ShareCapabilities, SharePullError, SharePushError, SharePushResult,
+    ShareState, ShareWriter, publish_journal,
+};
 use sea_orm::{
-    ConnectionTrait, ExprTrait,
+    ConnectionTrait, ExprTrait, TransactionTrait,
     sea_query::{Alias, Expr, Query},
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -17,7 +20,7 @@ use support::SqlLibrary;
 use sync::share::{
     BaseRef, Checkpoint, ConditionalGet, FloorBase, Head, LibraryFile, MemoryObjectStore,
     ObjectKey as ShareObjectKey, ObjectStore, ObjectTag, ObjectValue, Segment, SegmentLink,
-    SegmentRef, StoreError, parse_key,
+    SegmentRef, StoreError, StoreOperation, parse_key,
 };
 use sync::{self as p, SyncModel, SyncPeer, SyncStore, share};
 use sync_orm::base_exporter::{BaseExportOptions, export_base};
@@ -242,6 +245,59 @@ struct FailAtRead {
     reads: AtomicUsize,
 }
 
+struct StaleConditionalPutOnce {
+    inner: Arc<MemoryObjectStore>,
+    calls: AtomicUsize,
+}
+
+impl ObjectStore for StaleConditionalPutOnce {
+    fn get<'a>(&'a self, key: &'a str) -> p::BoxFuture<'a, ObjectValue, StoreError> {
+        Box::pin(async move { self.inner.get(key).await })
+    }
+
+    fn get_if_none_match<'a>(
+        &'a self,
+        key: &'a str,
+        tag: &'a ObjectTag,
+    ) -> p::BoxFuture<'a, ConditionalGet, StoreError> {
+        Box::pin(async move { self.inner.get_if_none_match(key, tag).await })
+    }
+
+    fn put<'a>(&'a self, key: &'a str, bytes: &'a [u8]) -> p::BoxFuture<'a, ObjectTag, StoreError> {
+        Box::pin(async move { self.inner.put(key, bytes).await })
+    }
+
+    fn create<'a>(
+        &'a self,
+        key: &'a str,
+        bytes: &'a [u8],
+    ) -> p::BoxFuture<'a, ObjectTag, StoreError> {
+        Box::pin(async move { self.inner.create(key, bytes).await })
+    }
+
+    fn put_if_match<'a>(
+        &'a self,
+        key: &'a str,
+        tag: &'a ObjectTag,
+        bytes: &'a [u8],
+    ) -> p::BoxFuture<'a, ObjectTag, StoreError> {
+        Box::pin(async move {
+            if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                return Err(StoreError::PreconditionFailed);
+            }
+            self.inner.put_if_match(key, tag, bytes).await
+        })
+    }
+
+    fn delete<'a>(&'a self, key: &'a str) -> p::BoxFuture<'a, (), StoreError> {
+        Box::pin(async move { self.inner.delete(key).await })
+    }
+
+    fn list_prefix<'a>(&'a self, prefix: &'a str) -> p::BoxFuture<'a, Vec<String>, StoreError> {
+        Box::pin(async move { self.inner.list_prefix(prefix).await })
+    }
+}
+
 impl FailAtRead {
     fn should_fail(&self) -> bool {
         self.reads.fetch_add(1, Ordering::SeqCst) == self.fail_at
@@ -320,6 +376,582 @@ async fn pull(published: &Published, target: &SqlLibrary) -> Result<()> {
         )
         .await
         .map_err(|error| anyhow::anyhow!("share pull: {error}"))?;
+    Ok(())
+}
+
+async fn journal_events_since(
+    endpoint: &CausalEndpoint<RuneModel>,
+    after: &Head,
+) -> Result<Vec<share::JournalEvent<RuneModel>>> {
+    let identity = SyncPeer::identity(endpoint).await?;
+    let through = SyncPeer::head(endpoint).await?;
+    let page_read = endpoint
+        .store()
+        .read_page_with_origins(p::PageRequest {
+            source: identity.clone(),
+            scope: full_scope(),
+            after: p::ReceiveProgress {
+                sequence: after.head.seq,
+                anchor: after.head.anchor,
+            },
+            through: through.clone(),
+            limits: support::limits().pages,
+        })
+        .await?;
+    let p::PageRead::Page(page) = page_read.read else {
+        anyhow::bail!("small share change unexpectedly required a fragment");
+    };
+    page.links
+        .into_iter()
+        .zip(page_read.origins)
+        .map(|(link, origin)| {
+            let event = match link.event.context("local journal link omitted event")? {
+                p::EventRef::Inline(event) => event,
+                p::EventRef::Fragmented(_) => {
+                    anyhow::bail!("small event unexpectedly required a fragment")
+                }
+            };
+            let origin = origin.origin.map(|origin| p::StoreIdentity {
+                namespace: identity.namespace,
+                model: identity.model.clone(),
+                replica: origin.replica,
+                generation: origin.generation,
+            });
+            Ok(share::JournalEvent {
+                local_sequence: link.sequence,
+                event,
+                origin,
+            })
+        })
+        .collect()
+}
+
+fn state_for(published: &Published, identity: &p::StoreIdentity) -> Result<ShareState> {
+    let mut state = ShareState::new(identity.replica, identity.namespace, cache_path())?;
+    state.generation = published.head.generation;
+    state.writer_session = published.head.writer_session;
+    state.head_counter = published.head.counter;
+    state.local_cursor = published.head.local_cursor;
+    Ok(state)
+}
+
+async fn export_cursor_sequence(
+    source: &SqlLibrary,
+    namespace: Uuid,
+    stream: Uuid,
+) -> Result<Option<u64>> {
+    let tx = source.db.begin().await?;
+    let cursor =
+        sync_orm::causal_export_cursors::read_on(&tx, namespace, stream.as_bytes()).await?;
+    tx.commit().await?;
+    cursor
+        .map(|cursor| u64::try_from(cursor.sequence))
+        .transpose()
+        .map_err(Into::into)
+}
+
+#[tokio::test]
+async fn local_journal_pushes_a_segment_then_another_device_pulls_it() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let target = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    source
+        .library
+        .write_local(
+            ObjectKey {
+                collection: Collection::Playlists,
+                id: Uuid::from_u128(43),
+            },
+            support::playlist("included in the base"),
+        )
+        .await
+        .map_err(|error| anyhow::anyhow!("put valid alternate head: {error:?}"))?;
+    let store = Arc::new(MemoryObjectStore::default());
+    let mut published = publish_base(&source, store.clone(), Default::default()).await?;
+    source
+        .library
+        .write_local(
+            ObjectKey {
+                collection: Collection::Playlists,
+                id: Uuid::from_u128(44),
+            },
+            support::playlist("published by the local journal"),
+        )
+        .await?;
+    let identity = SyncPeer::identity(&published.endpoint).await?;
+    let events = journal_events_since(&published.endpoint, &published.head).await?;
+    let mut state = state_for(&published, &identity)?;
+    let writer = ShareWriter::default();
+    store
+        .put(
+            &share::head_key(&published.prefix, 1)?,
+            &share::encode_head(&published.head)?,
+        )
+        .await
+        .map_err(|error| anyhow::anyhow!("seed alternate head slot: {error:?}"))?;
+    store.inject_error(StoreOperation::Create, StoreError::PermissionDenied);
+    assert_eq!(
+        push_entries(
+            &source,
+            &mut state,
+            &writer,
+            &*store,
+            &identity,
+            &published.head,
+            &events,
+        )
+        .await
+        .unwrap_err(),
+        SharePushError::ReadOnly
+    );
+    assert_eq!(state.local_cursor, published.head.local_cursor);
+    assert_eq!(
+        export_cursor_sequence(&source, namespace, state.stream).await?,
+        None
+    );
+    assert_eq!(
+        export_cursor_sequence(&source, namespace, state.stream).await?,
+        None
+    );
+    assert!(
+        store
+            .list_prefix("devices/")
+            .await
+            .unwrap()
+            .into_iter()
+            .all(|key| !matches!(parse_key(&key), Ok(ShareObjectKey::Segment { .. })))
+    );
+    store.clear_error(StoreOperation::Create);
+    store.inject_error(
+        StoreOperation::ConditionalPut,
+        StoreError::Transient("head write interrupted".into()),
+    );
+    assert!(
+        push_entries(
+            &source,
+            &mut state,
+            &writer,
+            &*store,
+            &identity,
+            &published.head,
+            &events
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(state.local_cursor, published.head.local_cursor);
+    let segment_keys = store
+        .list_prefix("devices/")
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|key| matches!(parse_key(key), Ok(ShareObjectKey::Segment { .. })))
+        .collect::<Vec<_>>();
+    assert_eq!(segment_keys.len(), 1);
+    assert_eq!(
+        share::decode_head(
+            &store
+                .get(&share::head_key(&published.prefix, 0)?)
+                .await
+                .unwrap()
+                .bytes
+        )?,
+        published.head
+    );
+    pull(&published, &target).await?;
+    store.clear_error(StoreOperation::ConditionalPut);
+    let retry_store = StaleConditionalPutOnce {
+        inner: store.clone(),
+        calls: AtomicUsize::new(0),
+    };
+    let result = push_entries(
+        &source,
+        &mut state,
+        &writer,
+        &retry_store,
+        &identity,
+        &published.head,
+        &events,
+    )
+    .await?;
+    assert_eq!(retry_store.calls.load(Ordering::SeqCst), 2);
+    published.head = result.context("local journal had no publishable event")?;
+    assert_eq!(
+        export_cursor_sequence(&source, namespace, state.stream).await?,
+        Some(published.head.local_cursor)
+    );
+    let tail = published
+        .head
+        .segments
+        .last()
+        .context("published segment missing")?;
+    assert_eq!(tail.prev_anchor, published.head.floor.anchor);
+    pull(&published, &target).await?;
+    let key = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(44),
+    };
+    assert_eq!(
+        target.library.get(&key).await?,
+        source.library.get(&key).await?
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn push_pass_pulls_before_reading_and_publishing_the_local_tail() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let remote = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let target = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    source
+        .library
+        .write_local(
+            ObjectKey {
+                collection: Collection::Playlists,
+                id: Uuid::from_u128(147),
+            },
+            support::playlist("push pass baseline"),
+        )
+        .await?;
+    let store = Arc::new(MemoryObjectStore::default());
+    let published = publish_base(&source, store.clone(), Default::default()).await?;
+    let remote_key = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(149),
+    };
+    remote
+        .library
+        .write_local(remote_key.clone(), support::playlist("remote stream"))
+        .await?;
+    let _published_remote = publish_base(&remote, store.clone(), Default::default()).await?;
+    let key = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(148),
+    };
+    source
+        .library
+        .write_local(key.clone(), support::playlist("push pass local tail"))
+        .await?;
+    let head = source
+        .library
+        .push_share(
+            store.clone(),
+            namespace,
+            cache_path(),
+            ShareCapabilities {
+                conditional_create: true,
+                conditional_head_write: true,
+            },
+        )
+        .await
+        .map_err(|error| anyhow::anyhow!("share push: {error}"))?
+        .context("push pass did not publish the local journal")?;
+    assert_eq!(head.head.seq, published.head.head.seq + 1);
+    assert_eq!(
+        source.library.get(&remote_key).await?,
+        remote.library.get(&remote_key).await?
+    );
+    let target_result = target
+        .library
+        .pull_share(store, namespace, cache_path(), Default::default())
+        .await;
+    target_result.map_err(|error| anyhow::anyhow!("target pull: {error}"))?;
+    assert_eq!(
+        target.library.get(&key).await?,
+        source.library.get(&key).await?
+    );
+    assert_eq!(
+        target.library.get(&remote_key).await?,
+        remote.library.get(&remote_key).await?
+    );
+    Ok(())
+}
+
+async fn push_entries(
+    source: &SqlLibrary,
+    state: &mut ShareState,
+    writer: &ShareWriter,
+    store: &dyn ObjectStore,
+    identity: &p::StoreIdentity,
+    head: &Head,
+    entries: &[share::JournalEvent<RuneModel>],
+) -> SharePushResult<Option<Head>> {
+    let mut streams = BTreeSet::new();
+    let mut local_replicas = BTreeSet::new();
+    for key in store
+        .list_prefix("devices/")
+        .await
+        .map_err(|error| SharePushError::Failed(format!("list share heads: {error:?}")))?
+    {
+        let ShareObjectKey::Head { prefix, slot } =
+            parse_key(&key).map_err(|error| SharePushError::Failed(error.to_string()))?
+        else {
+            continue;
+        };
+        let key = share::head_key(&prefix.to_string(), slot)
+            .map_err(|error| SharePushError::Failed(error.to_string()))?;
+        if let Ok(value) = store.get(&key).await
+            && let Ok(other_head) = share::decode_head(&value.bytes)
+        {
+            streams.insert(other_head.stream);
+            local_replicas.insert(other_head.local_replica);
+        }
+    }
+    streams.insert(head.stream);
+    local_replicas.insert(identity.replica);
+    publish_journal(PublishJournalRequest {
+        db: &source.db,
+        state,
+        writer,
+        store,
+        identity,
+        current_head: head,
+        entries,
+        acknowledgements: &BTreeMap::new(),
+        share_stream_ids: &streams,
+        share_local_replicas: &local_replicas,
+        newest_base: share::BaseSize::Absent,
+        cursor_status: share::ExportCursorStatus::Current,
+        capabilities: ShareCapabilities {
+            conditional_create: true,
+            conditional_head_write: true,
+        },
+        max_events_per_segment: 100,
+    })
+    .await
+}
+
+#[tokio::test]
+async fn concurrent_devices_publish_distinct_streams_and_a_third_device_converges() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let a = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let b = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let c = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let store = Arc::new(MemoryObjectStore::default());
+    let mut published_a = publish_base(&a, store.clone(), Default::default()).await?;
+    let mut published_b = publish_base(&b, store.clone(), Default::default()).await?;
+    let key_a = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(140),
+    };
+    let key_b = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(141),
+    };
+    a.library
+        .write_local(key_a.clone(), support::playlist("authored on A"))
+        .await?;
+    b.library
+        .write_local(key_b.clone(), support::playlist("authored on B"))
+        .await?;
+    let identity_a = SyncPeer::identity(&published_a.endpoint).await?;
+    let identity_b = SyncPeer::identity(&published_b.endpoint).await?;
+    let entries_a = journal_events_since(&published_a.endpoint, &published_a.head).await?;
+    let entries_b = journal_events_since(&published_b.endpoint, &published_b.head).await?;
+    let mut state_a = state_for(&published_a, &identity_a)?;
+    let mut state_b = state_for(&published_b, &identity_b)?;
+    let writer_a = ShareWriter::default();
+    let writer_b = ShareWriter::default();
+    let (result_a, result_b) = tokio::join!(
+        push_entries(
+            &a,
+            &mut state_a,
+            &writer_a,
+            &*store,
+            &identity_a,
+            &published_a.head,
+            &entries_a,
+        ),
+        push_entries(
+            &b,
+            &mut state_b,
+            &writer_b,
+            &*store,
+            &identity_b,
+            &published_b.head,
+            &entries_b,
+        )
+    );
+    published_a.head = result_a?.context("A had no local event to publish")?;
+    published_b.head = result_b?.context("B had no local event to publish")?;
+    pull(&published_a, &c).await?;
+    assert_eq!(c.library.get(&key_a).await?, a.library.get(&key_a).await?);
+    assert_eq!(c.library.get(&key_b).await?, b.library.get(&key_b).await?);
+    Ok(())
+}
+
+#[tokio::test]
+async fn relayed_event_is_filtered_from_the_receiving_devices_own_stream() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let a = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let b = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    for (library, id) in [(&a, 144), (&b, 145)] {
+        library
+            .library
+            .write_local(
+                ObjectKey {
+                    collection: Collection::Playlists,
+                    id: Uuid::from_u128(id),
+                },
+                support::playlist("base record"),
+            )
+            .await?;
+    }
+    let store = Arc::new(MemoryObjectStore::default());
+    let mut published_a = publish_base(&a, store.clone(), Default::default()).await?;
+    let published_b = publish_base(&b, store.clone(), Default::default()).await?;
+    let key = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(142),
+    };
+    a.library
+        .write_local(key.clone(), support::playlist("relay once"))
+        .await?;
+    let identity_a = SyncPeer::identity(&published_a.endpoint).await?;
+    let events_a = journal_events_since(&published_a.endpoint, &published_a.head).await?;
+    let mut state_a = state_for(&published_a, &identity_a)?;
+    let writer_a = ShareWriter::default();
+    published_a.head = push_entries(
+        &a,
+        &mut state_a,
+        &writer_a,
+        &*store,
+        &identity_a,
+        &published_a.head,
+        &events_a,
+    )
+    .await?
+    .context("A had no local event to publish")?;
+    pull(&published_a, &b).await?;
+
+    let identity_b = SyncPeer::identity(&published_b.endpoint).await?;
+    let relayed = journal_events_since(&published_b.endpoint, &published_b.head).await?;
+    ensure!(
+        !relayed.is_empty() && relayed.iter().all(|event| event.origin.is_some()),
+        "unexpected relayed journal entries: {relayed:?}"
+    );
+    let mut state_b = state_for(&published_b, &identity_b)?;
+    let writer_b = ShareWriter::default();
+    let result_b = push_entries(
+        &b,
+        &mut state_b,
+        &writer_b,
+        &*store,
+        &identity_b,
+        &published_b.head,
+        &relayed,
+    )
+    .await?;
+    let head_b = result_b.context("ack-only publication should record the scanned cursor")?;
+    assert_eq!(head_b.head.seq, published_b.head.head.seq);
+    assert!(head_b.segments.is_empty());
+    assert!(head_b.local_cursor > published_b.head.local_cursor);
+    assert_eq!(
+        export_cursor_sequence(&b, namespace, state_b.stream).await?,
+        Some(head_b.local_cursor)
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn publication_survives_a_torn_alternate_head_slot() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let store = Arc::new(MemoryObjectStore::default());
+    let mut published = publish_base(&source, store.clone(), Default::default()).await?;
+    let next_slot = 1;
+    store
+        .put(
+            &share::head_key(&published.prefix, 0)?,
+            &share::encode_head(&published.head)?,
+        )
+        .await
+        .map_err(|error| anyhow::anyhow!("put valid current head: {error:?}"))?;
+    store
+        .put(&share::head_key(&published.prefix, next_slot)?, b"torn")
+        .await
+        .map_err(|error| anyhow::anyhow!("corrupt alternate head: {error:?}"))?;
+    let key = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(143),
+    };
+    source
+        .library
+        .write_local(key, support::playlist("survive torn slot"))
+        .await?;
+    let identity = SyncPeer::identity(&published.endpoint).await?;
+    let events = journal_events_since(&published.endpoint, &published.head).await?;
+    let mut state = state_for(&published, &identity)?;
+    let writer = ShareWriter::default();
+    published.head = push_entries(
+        &source,
+        &mut state,
+        &writer,
+        &*store,
+        &identity,
+        &published.head,
+        &events,
+    )
+    .await?
+    .context("local journal had no publishable event")?;
+    assert_eq!(published.head.counter, 2);
+    assert_eq!(
+        share::decode_head(
+            &store
+                .get(&share::head_key(&published.prefix, next_slot)?)
+                .await
+                .map_err(|error| anyhow::anyhow!("read repaired head: {error:?}"))?
+                .bytes
+        )?,
+        published.head
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn changed_library_file_is_typed_and_never_recreated() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let target = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    source
+        .library
+        .write_local(
+            ObjectKey {
+                collection: Collection::Playlists,
+                id: Uuid::from_u128(146),
+            },
+            support::playlist("library binding baseline"),
+        )
+        .await?;
+    let store = Arc::new(MemoryObjectStore::default());
+    let published = publish_base(&source, store.clone(), Default::default()).await?;
+    pull(&published, &target).await?;
+    let changed = LibraryFile {
+        format: share::FORMAT_VERSION,
+        library_id: Uuid::new_v4(),
+        model: RuneModel::model_id().to_owned(),
+        schema: RuneModel::schema_id().to_owned(),
+    };
+    let changed_bytes = share::encode_library(&changed)?;
+    store
+        .put(&share::library_key(), &changed_bytes)
+        .await
+        .map_err(|error| anyhow::anyhow!("replace library.json: {error:?}"))?;
+    let error = target
+        .library
+        .pull_share(store.clone(), namespace, cache_path(), Default::default())
+        .await
+        .unwrap_err();
+    assert_eq!(error, SharePullError::ShareChanged);
+    assert_eq!(
+        store
+            .get(&share::library_key())
+            .await
+            .map_err(|error| anyhow::anyhow!("read changed library.json: {error:?}"))?
+            .bytes,
+        changed_bytes
+    );
     Ok(())
 }
 

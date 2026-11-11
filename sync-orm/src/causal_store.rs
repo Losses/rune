@@ -1414,6 +1414,15 @@ impl<M: SyncModel> CausalReplica<M> {
         Ok(self.read_page_with_origins(request).await?.read)
     }
 
+    /// Return the journal checkpoint at a retained sequence for export readers.
+    pub async fn progress_at(&self, sequence: u64) -> Result<protocol::ReceiveProgress> {
+        let tx = self.db.begin().await?;
+        let (_, meta) = self.meta_on(&tx).await?;
+        let anchor = self.anchor_at_on(&tx, &meta, sequence).await?;
+        tx.commit().await?;
+        Ok(protocol::ReceiveProgress { sequence, anchor })
+    }
+
     /// Read a peer page with local-only journal origin metadata. Origins are
     /// keyed by sequence and are never serialized into `ChangePage`.
     pub async fn read_page_with_origins(

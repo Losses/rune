@@ -61,7 +61,7 @@ impl<M: SyncModel> SharePeer<M> {
                 .get(&self.prefix)
                 .ok_or(SyncError::SnapshotSourceUnavailable)?;
             return Ok((
-                selected.owner_prefix.clone(),
+                selected.owner_prefix.to_string(),
                 selected.manifest.clone(),
                 ReceiveProgress {
                     sequence: covers.seq,
@@ -724,6 +724,7 @@ fn object_store_error(error: StoreError) -> SyncError {
         StoreError::PreconditionFailed => {
             SyncError::Storage("unexpected object precondition".into())
         }
+        StoreError::PermissionDenied => SyncError::Storage("share is read-only".into()),
     }
 }
 

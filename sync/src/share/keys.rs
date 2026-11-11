@@ -3,7 +3,9 @@ use super::verification::{FormatError, valid_hash};
 use std::{fmt, str::FromStr};
 use uuid::Uuid;
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct DevicePrefix {
     pub stream: Uuid,
     pub generation: Uuid,
@@ -37,7 +39,7 @@ impl fmt::Display for DevicePrefix {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum ObjectKey {
     Library,
     Head {

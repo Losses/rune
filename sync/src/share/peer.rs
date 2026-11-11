@@ -36,7 +36,7 @@ pub struct SharePeer<M: SyncModel> {
 
 #[derive(Clone)]
 pub struct SelectedBase<M: SyncModel> {
-    pub owner_prefix: String,
+    pub owner_prefix: DevicePrefix,
     pub base_id: String,
     pub manifest: BaseManifest<M>,
 }
@@ -79,8 +79,6 @@ impl<M: SyncModel> SharePeer<M> {
         selected_base: SelectedBase<M>,
     ) -> ProtocolResult<Self> {
         let mut peer = Self::new(store, library_id, prefix, cache_dir)?;
-        DevicePrefix::from_str(&selected_base.owner_prefix)
-            .map_err(|error| SyncError::Invalid(error.to_string()))?;
         let (manifest_id, _) =
             super::encode_manifest(&selected_base.manifest).map_err(permanent_format)?;
         if manifest_id != selected_base.base_id {
@@ -567,6 +565,7 @@ fn store_error(error: StoreError) -> SyncError {
         StoreError::PreconditionFailed => {
             SyncError::Storage("share object precondition failed".into())
         }
+        StoreError::PermissionDenied => SyncError::Storage("share is read-only".into()),
     }
 }
 

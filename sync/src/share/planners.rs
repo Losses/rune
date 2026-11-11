@@ -1,10 +1,37 @@
 //! Pure planning for share publication, base cuts, and own-prefix collection.
-use super::{BaseRef, Checkpoint, SegmentRef};
+use super::{BaseRef, Checkpoint, DevicePrefix, ObjectKey, SegmentRef, parse_key};
 use crate::protocol::{
     Event, MAX_NUMBER, StoreIdentity, SyncModel, event_digest, initial_anchor, next_anchor,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PlannerError {
+    Invalid(String),
+}
+
+impl std::fmt::Display for PlannerError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Invalid(message) => write!(formatter, "share planning failed: {message}"),
+        }
+    }
+}
+
+impl std::error::Error for PlannerError {}
+
+impl From<String> for PlannerError {
+    fn from(value: String) -> Self {
+        Self::Invalid(value)
+    }
+}
+
+impl From<&str> for PlannerError {
+    fn from(value: &str) -> Self {
+        Self::Invalid(value.to_owned())
+    }
+}
 
 pub const BULK_GZIP_LIMIT: u64 = 16 * 1024 * 1024;
 pub const KEEPER_ACTIVE_MS: u64 = 7 * 24 * 60 * 60 * 1000;
@@ -124,7 +151,9 @@ pub enum BulkReason {
 #[derive(Clone, Debug, PartialEq, Eq)]
 /// Complete result of evaluating the next share publication.
 pub enum PublishDecision<M: SyncModel> {
-    NothingToPublish,
+    NothingToPublish {
+        export_cursor: u64,
+    },
     CutBase {
         reason: BulkReason,
         covers_seq: u64,
@@ -144,7 +173,7 @@ pub enum PublishDecision<M: SyncModel> {
 /// the planned head update has committed.
 pub fn plan_publish<M: SyncModel>(
     input: PublishInput<'_, M>,
-) -> Result<PublishDecision<M>, String> {
+) -> Result<PublishDecision<M>, PlannerError> {
     if input.max_events_per_segment == 0 {
         return Err("segment event limit must be positive".into());
     }
@@ -174,7 +203,7 @@ pub fn plan_publish<M: SyncModel>(
                 covers_seq: next_base_sequence(input.head.seq)?,
             })
         } else {
-            Ok(PublishDecision::NothingToPublish)
+            Ok(PublishDecision::NothingToPublish { export_cursor })
         };
     }
 
@@ -582,7 +611,7 @@ pub enum RetirementReadStatus {
 #[derive(Clone, Debug, PartialEq, Eq)]
 /// A foreign stream considered for the design's narrow retirement rule.
 pub struct RetirementCandidate {
-    pub prefix: String,
+    pub prefix: DevicePrefix,
     pub stream_id: Uuid,
     pub generation: Uuid,
     pub head_counter: u64,
@@ -596,7 +625,7 @@ pub struct RetirementCandidate {
 #[derive(Clone, Debug, PartialEq, Eq)]
 /// Exact remote-head state the deleter must re-read before deleting a retired prefix.
 pub struct RetirementPrecondition {
-    pub prefix: String,
+    pub prefix: DevicePrefix,
     pub stream_id: Uuid,
     pub generation: Uuid,
     pub expected_counter: u64,
@@ -606,7 +635,7 @@ pub struct RetirementPrecondition {
 #[derive(Clone, Debug, PartialEq, Eq)]
 /// Read-only state required to plan own-prefix collection.
 pub struct GcInput<'a> {
-    pub own_prefix: &'a str,
+    pub own_prefix: &'a DevicePrefix,
     pub now_ms: u64,
     pub head: Checkpoint,
     pub segments: &'a [OwnSegment],
@@ -642,11 +671,8 @@ pub enum FloorBaseSelection {
 ///
 /// Every returned object deletion is checked against `own_prefix`. A foreign prefix
 /// can only appear as a retirement precondition for a separate re-read step.
-pub fn plan_gc(input: GcInput<'_>) -> Result<GcDecision, String> {
-    if !input.own_prefix.ends_with('/') {
-        return Err("own prefix must end with a slash".into());
-    }
-    let own = |key: &str| key.starts_with(input.own_prefix);
+pub fn plan_gc(input: GcInput<'_>) -> Result<GcDecision, PlannerError> {
+    let own_stream = input.own_prefix.to_string();
     let floor_manifest = input
         .manifests
         .iter()
@@ -655,7 +681,7 @@ pub fn plan_gc(input: GcInput<'_>) -> Result<GcDecision, String> {
             manifest
                 .base
                 .covers
-                .get(input.own_prefix)
+                .get(&own_stream)
                 .map(|cover| (manifest, cover))
         })
         .max_by_key(|(_, cover)| cover.seq);
@@ -670,7 +696,8 @@ pub fn plan_gc(input: GcInput<'_>) -> Result<GcDecision, String> {
     let mut delete_segments = Vec::new();
     let mut retained = Vec::new();
     for segment in input.segments {
-        if !own(&segment.key) {
+        if !matches!(parse_key(&segment.key), Ok(ObjectKey::Segment { prefix, .. }) if prefix == *input.own_prefix)
+        {
             return Err("segment outside own prefix".into());
         }
         let covered = segment.reference.last <= floor_cover;
@@ -709,7 +736,8 @@ pub fn plan_gc(input: GcInput<'_>) -> Result<GcDecision, String> {
         .collect();
     let mut delete_bases = Vec::new();
     for base in input.bases {
-        if !own(&base.key) {
+        if !matches!(parse_key(&base.key), Ok(ObjectKey::Base { prefix, .. }) if prefix == *input.own_prefix)
+        {
             return Err("base outside own prefix".into());
         }
         let superseded = live_bases.iter().any(|manifest| {
@@ -736,7 +764,8 @@ pub fn plan_gc(input: GcInput<'_>) -> Result<GcDecision, String> {
         .collect();
     let mut delete_chunks = Vec::new();
     for chunk in input.chunks {
-        if !own(&chunk.key) {
+        if !matches!(parse_key(&chunk.key), Ok(ObjectKey::Chunk { prefix, .. }) if prefix == *input.own_prefix)
+        {
             return Err("chunk outside own prefix".into());
         }
         if !referenced.contains(&chunk.name)
@@ -755,12 +784,12 @@ pub fn plan_gc(input: GcInput<'_>) -> Result<GcDecision, String> {
         {
             continue;
         }
-        if !own(&retired.prefix)
+        if retired.prefix != *input.own_prefix
             && live_bases.iter().any(|manifest| {
                 manifest
                     .base
                     .covers
-                    .get(&retired.prefix)
+                    .get(&retired.prefix.to_string())
                     .is_some_and(|cover| cover.seq >= retired.head.seq)
             })
         {
