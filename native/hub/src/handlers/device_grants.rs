@@ -1,4 +1,4 @@
-use std::{path::Path, sync::Arc};
+use std::{collections::BTreeMap, path::Path, sync::Arc};
 
 use anyhow::{Context, Result, ensure};
 use database::library_registry::{LibraryAccess, LibraryConnectionAccess, LibraryRegistry};
@@ -7,14 +7,14 @@ use uuid::Uuid;
 
 use crate::{
     Session, Signal,
-    access_policy::{ConnectionLevel, DeviceGrants, SyncLevel},
+    access_policy::{ConnectionLevel, DeviceGrants, LibraryGrants, SyncLevel},
     messages::{
-        DeviceConnectionLevel, DeviceGrantsInfo, DeviceLibraryAccess, DeviceLibraryGrant,
-        DevicePreset, DeviceSyncLevel, GetDeviceGrantsRequest, GetDeviceGrantsResponse,
-        SetDeviceGrantsRequest, SetDeviceGrantsResponse,
+        DeviceConnectionLevel, DeviceGrantsChange, DeviceGrantsInfo, DeviceLibraryAccess,
+        DeviceLibraryGrant, DevicePreset, DeviceSyncLevel, GetDeviceGrantsRequest,
+        GetDeviceGrantsResponse, SetDeviceGrantsRequest, SetDeviceGrantsResponse,
     },
     node::NodeContext,
-    request_error::{ExpectedRequestError, classify},
+    request_error::ExpectedRequestError,
     utils::{GlobalParams, ParamsExtractor},
 };
 
@@ -98,6 +98,34 @@ impl DevicePreset {
         }
     }
 }
+
+impl DeviceGrantsInfo {
+    fn into_grants(self, registry: &LibraryRegistry) -> Result<DeviceGrants> {
+        let mut connection_libraries = BTreeMap::new();
+        let mut sync_libraries = BTreeMap::new();
+        for entry in self.libraries {
+            let id = Uuid::parse_str(&entry.library_id)
+                .map_err(|error| ExpectedRequestError::invalid_input(error.to_string()))?;
+            registry
+                .catalog(id)
+                .context(ExpectedRequestError::invalid_input("Unknown library"))?;
+            connection_libraries.insert(id, entry.connection.into());
+            sync_libraries.insert(id, entry.sync.into());
+        }
+        Ok(DeviceGrants {
+            control: self.control,
+            connection: LibraryGrants {
+                all_libraries: self.all_connection.map(Into::into),
+                libraries: connection_libraries,
+            },
+            sync: LibraryGrants {
+                all_libraries: self.all_sync.map(Into::into),
+                libraries: sync_libraries,
+            },
+            administer: self.administer,
+        })
+    }
+}
 impl ParamsExtractor for GetDeviceGrantsRequest {
     type Params = Arc<NodeContext>;
     fn extract_params(&self, params: &GlobalParams) -> Self::Params {
@@ -178,55 +206,20 @@ impl Signal for SetDeviceGrantsRequest {
         _: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
-        let result = async {
-            let permissions = node.permission_manager.write().await;
-            ensure!(
-                permissions
-                    .verify_by_fingerprint(&request.fingerprint)
-                    .await
-                    .is_some_and(|user| user.status == UserStatus::Approved),
-                ExpectedRequestError::invalid_input("Device is not approved")
-            );
-            let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
-            let mut grants = match request.preset {
-                Some(preset) => preset.grants(),
-                None => node.access_policy.grants(&request.fingerprint)?,
-            };
-            if let Some(control) = request.control {
-                grants.control = control;
-            }
-            if let Some(level) = request.all_connection {
-                grants.connection.all_libraries = Some(level.into());
-            }
-            if let Some(level) = request.all_sync {
-                grants.sync.all_libraries = Some(level.into());
-            }
-            for entry in &request.library_grants {
-                let id = Uuid::parse_str(&entry.library_id)
-                    .map_err(|error| ExpectedRequestError::invalid_input(error.to_string()))?;
-                registry
-                    .catalog(id)
-                    .context(ExpectedRequestError::invalid_input("Unknown library"))?;
-                grants
-                    .connection
-                    .libraries
-                    .insert(id, entry.connection.into());
-                grants.sync.libraries.insert(id, entry.sync.into());
-            }
-            node.access_policy.set(&request.fingerprint, grants)
-        }
-        .await;
-        Ok(Some(match result {
-            Ok(()) => SetDeviceGrantsResponse {
-                call_id: None,
-                error_kind: None,
-                error: None,
-            },
-            Err(error) => SetDeviceGrantsResponse {
-                call_id: None,
-                error_kind: Some(classify(&error)),
-                error: Some(format!("{error:#}")),
-            },
-        }))
+        let permissions = node.permission_manager.write().await;
+        ensure!(
+            permissions
+                .verify_by_fingerprint(&request.fingerprint)
+                .await
+                .is_some_and(|user| user.status == UserStatus::Approved),
+            ExpectedRequestError::invalid_input("Device is not approved")
+        );
+        let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
+        let grants = match &request.grants {
+            DeviceGrantsChange::Preset(preset) => preset.grants(),
+            DeviceGrantsChange::Set(value) => value.clone().into_grants(&registry)?,
+        };
+        node.access_policy.set(&request.fingerprint, grants)?;
+        Ok(Some(SetDeviceGrantsResponse { call_id: None }))
     }
 }

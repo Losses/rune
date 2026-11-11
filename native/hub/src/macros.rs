@@ -554,11 +554,7 @@ mod node_request_loop_tests {
         set_device_grants_tx.send(DartSignalPack {
             message: SetDeviceGrantsRequest {
                 fingerprint: String::new(),
-                preset: None,
-                control: None,
-                all_connection: None,
-                all_sync: None,
-                library_grants: Vec::new(),
+                grants: DeviceGrantsChange::Preset(DevicePreset::Guest),
                 call_id: None,
             },
             binary: Vec::new(),

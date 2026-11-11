@@ -1,8 +1,6 @@
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
-use super::RequestErrorKind;
-
 #[derive(Clone, Copy, Serialize, Deserialize, SignalPiece)]
 pub enum DevicePreset {
     MyDevice,
@@ -22,16 +20,18 @@ pub enum DeviceSyncLevel {
     Pull,
     PullPush,
 }
-#[derive(Serialize, Deserialize, SignalPiece)]
+#[derive(Clone, Serialize, Deserialize, SignalPiece)]
 pub struct DeviceLibraryGrant {
     pub library_id: String,
     pub connection: DeviceConnectionLevel,
     pub sync: DeviceSyncLevel,
 }
-#[derive(Serialize, Deserialize, SignalPiece)]
+#[derive(Clone, Serialize, Deserialize, SignalPiece)]
 pub struct DeviceGrantsInfo {
     pub control: bool,
+    /// A wildcard level used by every library without a per-library override.
     pub all_connection: Option<DeviceConnectionLevel>,
+    /// A wildcard level used by every library without a per-library override.
     pub all_sync: Option<DeviceSyncLevel>,
     pub libraries: Vec<DeviceLibraryGrant>,
     pub administer: bool,
@@ -56,21 +56,22 @@ pub struct GetDeviceGrantsResponse {
     #[serde(default)]
     pub call_id: Option<u64>,
 }
+
+#[derive(Serialize, Deserialize, SignalPiece)]
+pub enum DeviceGrantsChange {
+    Preset(DevicePreset),
+    Set(DeviceGrantsInfo),
+}
+
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct SetDeviceGrantsRequest {
     pub fingerprint: String,
-    pub preset: Option<DevicePreset>,
-    pub control: Option<bool>,
-    pub all_connection: Option<DeviceConnectionLevel>,
-    pub all_sync: Option<DeviceSyncLevel>,
-    pub library_grants: Vec<DeviceLibraryGrant>,
+    pub grants: DeviceGrantsChange,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct SetDeviceGrantsResponse {
-    pub error_kind: Option<RequestErrorKind>,
-    pub error: Option<String>,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

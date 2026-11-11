@@ -20,17 +20,9 @@ Future<GetDeviceGrantsResponse> _getDeviceGrants(String fingerprint) async {
 }
 
 Future<void> setDeviceGrants(SetDeviceGrantsRequest request) async {
-  final signal = await awaitResponse(
+  await awaitResponse(
     'SetDeviceGrantsRequest',
     SetDeviceGrantsResponse.rustSignalStream,
     send: request.sendSignalToRust,
   );
-  final response = signal.message;
-  if (response.errorKind != null || response.error != null) {
-    throw RequestFailure(
-      'SetDeviceGrantsRequest',
-      response.errorKind ?? RequestErrorKind.internal,
-      response.error ?? '',
-    );
-  }
 }

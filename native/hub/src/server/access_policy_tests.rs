@@ -7,7 +7,10 @@ mod access_policy_tests {
     use crate::macros::{
         RequestAccess, request_access, request_scope,
     };
-    use crate::messages::RemoveTrustedClientRequest;
+    use crate::messages::{
+        DeviceGrantsChange, DeviceGrantsInfo, RemoveTrustedClientRequest,
+    };
+    use crate::request_error::ExpectedRequestError;
     use crate::messages::{CastLibraryState, RendererAvailability};
     use crate::server::libraries::{
         cast_library_state, list_peer_libraries, list_renderer_candidates,
@@ -55,6 +58,17 @@ mod access_policy_tests {
         if record.catalog == CatalogPlacement::None { record.catalog = CatalogPlacement::ConfigReplica; }
         Ok(())
     }
+
+    fn set_grants(libraries: Vec<DeviceLibraryGrant>) -> DeviceGrantsChange {
+        DeviceGrantsChange::Set(DeviceGrantsInfo {
+            control: false,
+            all_connection: None,
+            all_sync: None,
+            libraries,
+            administer: false,
+        })
+    }
+
     impl PolicyPair {
         async fn new_replica() -> Result<Self> {
             let first = tempfile::tempdir()?;
@@ -136,25 +150,19 @@ mod access_policy_tests {
             let request = SetDeviceGrantsRequest {
             call_id: None,
                 fingerprint: info(peer).await?.fingerprint,
-                preset: Some(DevicePreset::Guest),
-                control: Some(false),
-                all_connection: None,
-                all_sync: None,
-                library_grants: vec![DeviceLibraryGrant {
-                    library_id: self.id.to_string(),
-                    connection: match level {
-                        DeviceSyncLevel::None => DeviceConnectionLevel::None,
-                        DeviceSyncLevel::Pull => DeviceConnectionLevel::View,
-                        DeviceSyncLevel::PullPush => DeviceConnectionLevel::ViewEdit,
-                    },
-                    sync: level,
-                }],
+                grants: set_grants(vec![DeviceLibraryGrant {
+                        library_id: self.id.to_string(),
+                        connection: match level {
+                            DeviceSyncLevel::None => DeviceConnectionLevel::None,
+                            DeviceSyncLevel::Pull => DeviceConnectionLevel::View,
+                            DeviceSyncLevel::PullPush => DeviceConnectionLevel::ViewEdit,
+                        },
+                        sync: level,
+                    }]),
             };
-            let response = request
+            request
                 .handle(request.extract_params(&local.global_params), None, &request)
-                .await?
-                .context("grants response")?;
-            assert!(response.error.is_none(), "{:?}", response.error);
+                .await?;
             Ok(())
         }
         async fn pass(&self, owner: bool) -> Result<PeerPass> {
@@ -725,21 +733,15 @@ mod access_policy_tests {
         let request = SetDeviceGrantsRequest {
             call_id: None,
             fingerprint: info(&pair.b).await?.fingerprint,
-            preset: Some(DevicePreset::Guest),
-            control: Some(true),
-            all_connection: None,
-            all_sync: None,
-            library_grants: Vec::new(),
+            grants: DeviceGrantsChange::Preset(DevicePreset::Guest),
         };
-        let response = request
+        request
             .handle(
                 request.extract_params(&pair.a.global_params),
                 None,
                 &request,
             )
-            .await?
-            .context("grants response")?;
-        assert!(response.error.is_none(), "{:?}", response.error);
+            .await?;
         let mut socket = connect_remote(
             "127.0.0.1",
             pair.addr.port(),
@@ -802,6 +804,124 @@ mod access_policy_tests {
             reqwest::StatusCode::FORBIDDEN
         );
         socket.close(None).await?;
+        pair.close().await
+    }
+
+    #[tokio::test]
+    async fn set_device_grants_preset_applies_the_preset_grants() -> Result<()> {
+        let pair = PolicyPair::new().await?;
+        let fingerprint = info(&pair.b).await?.fingerprint;
+        let request = SetDeviceGrantsRequest {
+            call_id: None,
+            fingerprint: fingerprint.clone(),
+            grants: DeviceGrantsChange::Preset(DevicePreset::MyDevice),
+        };
+        request
+            .handle(
+                request.extract_params(&pair.a.global_params),
+                None,
+                &request,
+            )
+            .await?;
+        assert_eq!(
+            pair.a
+                .global_params
+                .node
+                .access_policy
+                .grants(&fingerprint)?,
+            DeviceGrants::my_device()
+        );
+        pair.close().await
+    }
+
+    #[tokio::test]
+    async fn set_device_grants_replaces_previous_library_grants() -> Result<()> {
+        let pair = PolicyPair::new().await?;
+        let fingerprint = info(&pair.b).await?.fingerprint;
+        let mut existing = DeviceGrants::guest();
+        existing.connection.libraries.insert(pair.id, ConnectionLevel::View);
+        existing.sync.libraries.insert(pair.id, SyncLevel::Pull);
+        pair.a
+            .global_params
+            .node
+            .access_policy
+            .set(&fingerprint, existing)?;
+
+        let request = SetDeviceGrantsRequest {
+            call_id: None,
+            fingerprint: fingerprint.clone(),
+            grants: set_grants(Vec::new()),
+        };
+        let result = request
+            .handle(
+                request.extract_params(&pair.a.global_params),
+                None,
+                &request,
+            )
+            .await;
+        assert!(result.is_ok());
+        let actual = pair
+            .a
+            .global_params
+            .node
+            .access_policy
+            .grants(&fingerprint)?;
+        assert_eq!(actual.connection_level(pair.id), ConnectionLevel::None);
+        assert_eq!(actual.sync_level(pair.id), SyncLevel::None);
+        pair.close().await
+    }
+
+    #[tokio::test]
+    async fn set_device_grants_returns_unknown_library_as_typed_error() -> Result<()> {
+        let pair = PolicyPair::new().await?;
+        let request = SetDeviceGrantsRequest {
+            call_id: None,
+            fingerprint: info(&pair.b).await?.fingerprint,
+            grants: set_grants(vec![DeviceLibraryGrant {
+                    library_id: Uuid::new_v4().to_string(),
+                    connection: DeviceConnectionLevel::View,
+                    sync: DeviceSyncLevel::None,
+                }]),
+        };
+        let result = request
+            .handle(
+                request.extract_params(&pair.a.global_params),
+                None,
+                &request,
+            )
+            .await;
+        let error = result
+            .err()
+            .unwrap_or_else(|| panic!("unknown library must fail"));
+        assert!(matches!(
+            error.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::InvalidInput { .. })
+        ));
+        pair.close().await
+    }
+
+    #[tokio::test]
+    async fn set_device_grants_returns_unapproved_device_as_typed_error() -> Result<()> {
+        let pair = PolicyPair::new().await?;
+        let request = SetDeviceGrantsRequest {
+            call_id: None,
+            fingerprint: "unapproved-device".into(),
+            grants: set_grants(Vec::new()),
+        };
+        let result = request
+            .handle(
+                request.extract_params(&pair.a.global_params),
+                None,
+                &request,
+            )
+            .await;
+        let error = result
+            .err()
+            .unwrap_or_else(|| panic!("unapproved device must fail"));
+        assert!(matches!(
+            error.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::InvalidInput { .. })
+        ));
         pair.close().await
     }
 

@@ -52,13 +52,27 @@ class _SettingsDeviceAccessPageState extends State<SettingsDeviceAccessPage> {
   }
 
   Future<void> _save({bool? control, DeviceLibraryGrant? library}) async {
+    final current = data;
+    if (current == null) return;
+    final libraries = [
+      for (final grant in current.grants.libraries)
+        if (library == null || grant.libraryId != library.libraryId) grant,
+      if (library != null) library,
+    ];
     setState(() => saving = true);
     try {
       await (widget.saveGrants ?? setDeviceGrants)(
         SetDeviceGrantsRequest(
           fingerprint: widget.client.fingerprint,
-          control: control,
-          libraryGrants: library == null ? [] : [library],
+          grants: DeviceGrantsChangeSet(
+            value: DeviceGrantsInfo(
+              control: control ?? current.grants.control,
+              allConnection: current.grants.allConnection,
+              allSync: current.grants.allSync,
+              libraries: libraries,
+              administer: current.grants.administer,
+            ),
+          ),
         ),
       );
       await _load();

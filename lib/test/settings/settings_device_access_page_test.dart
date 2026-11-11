@@ -27,13 +27,17 @@ DeviceLibraryAccess _library({
 GetDeviceGrantsResponse _response({
   DeviceConnectionLevel connection = DeviceConnectionLevel.view,
   DeviceSyncLevel sync = DeviceSyncLevel.none,
+  DeviceConnectionLevel? allConnection,
+  DeviceSyncLevel? allSync,
+  List<DeviceLibraryGrant> overrides = const [],
+  bool administer = false,
 }) => GetDeviceGrantsResponse(
-  grants: const DeviceGrantsInfo(
+  grants: DeviceGrantsInfo(
     control: true,
-    allConnection: null,
-    allSync: null,
-    libraries: [],
-    administer: false,
+    allConnection: allConnection,
+    allSync: allSync,
+    libraries: overrides,
+    administer: administer,
   ),
   libraries: [_library(connection: connection, sync: sync)],
 );
@@ -68,7 +72,24 @@ void main() {
       _app(
         SettingsDeviceAccessPage(
           client: _client,
-          loadGrants: (_) async => _response(sync: DeviceSyncLevel.pull),
+          loadGrants: (_) async => _response(
+            sync: DeviceSyncLevel.pull,
+            allConnection: DeviceConnectionLevel.view,
+            allSync: DeviceSyncLevel.pullPush,
+            overrides: const [
+              DeviceLibraryGrant(
+                libraryId: 'archive-id',
+                connection: DeviceConnectionLevel.viewEdit,
+                sync: DeviceSyncLevel.pullPush,
+              ),
+              DeviceLibraryGrant(
+                libraryId: 'music-id',
+                connection: DeviceConnectionLevel.view,
+                sync: DeviceSyncLevel.pull,
+              ),
+            ],
+            administer: true,
+          ),
           saveGrants: (request) async => saved = request,
         ),
       ),
@@ -81,11 +102,26 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      saved!.libraryGrants.single,
-      const DeviceLibraryGrant(
-        libraryId: 'music-id',
-        connection: DeviceConnectionLevel.viewEdit,
-        sync: DeviceSyncLevel.pull,
+      saved!.grants,
+      const DeviceGrantsChangeSet(
+        value: DeviceGrantsInfo(
+          control: true,
+          allConnection: DeviceConnectionLevel.view,
+          allSync: DeviceSyncLevel.pullPush,
+          libraries: [
+            DeviceLibraryGrant(
+              libraryId: 'archive-id',
+              connection: DeviceConnectionLevel.viewEdit,
+              sync: DeviceSyncLevel.pullPush,
+            ),
+            DeviceLibraryGrant(
+              libraryId: 'music-id',
+              connection: DeviceConnectionLevel.viewEdit,
+              sync: DeviceSyncLevel.pull,
+            ),
+          ],
+          administer: true,
+        ),
       ),
     );
   });
@@ -115,11 +151,21 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      saved!.libraryGrants.single,
-      const DeviceLibraryGrant(
-        libraryId: 'music-id',
-        connection: DeviceConnectionLevel.viewEdit,
-        sync: DeviceSyncLevel.pullPush,
+      saved!.grants,
+      const DeviceGrantsChangeSet(
+        value: DeviceGrantsInfo(
+          control: true,
+          allConnection: null,
+          allSync: null,
+          libraries: [
+            DeviceLibraryGrant(
+              libraryId: 'music-id',
+              connection: DeviceConnectionLevel.viewEdit,
+              sync: DeviceSyncLevel.pullPush,
+            ),
+          ],
+          administer: false,
+        ),
       ),
     );
   });
