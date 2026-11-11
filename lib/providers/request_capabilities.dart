@@ -44,6 +44,8 @@ class RequestCapabilitiesProvider extends ChangeNotifier {
       _snapshot?.setPlaybackModeRequest ?? const RequestCapabilityAvailable();
   RequestCapability get movePlaylistItemRequest =>
       _snapshot?.movePlaylistItemRequest ?? const RequestCapabilityAvailable();
+  RequestCapability get setLikedRequest =>
+      _snapshot?.setLikedRequest ?? const RequestCapabilityAvailable();
 
   void _update(RequestCapabilities snapshot) {
     _snapshot = snapshot;

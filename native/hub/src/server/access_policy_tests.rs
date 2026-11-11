@@ -2,16 +2,13 @@ use crate::macros::non_local_request_names;
 mod access_policy_tests {
     use super::player_session_tests::replicate_host_library_at;
     use super::*;
-    use crate::access_policy::{ConnectionLevel, DeviceGrants, SyncLevel};
+    use crate::Session;
+    use crate::access_policy::{Action, ConnectionLevel, Denial, DeviceGrants, SyncLevel};
     use crate::backends::remote::connect_remote;
-    use crate::macros::{
-        RequestAccess, request_access, request_scope,
-    };
-    use crate::messages::{
-        DeviceGrantsChange, DeviceGrantsInfo, RemoveTrustedClientRequest,
-    };
-    use crate::request_error::ExpectedRequestError;
+    use crate::macros::{RequestAccess, request_access, request_scope};
     use crate::messages::{CastLibraryState, RendererAvailability};
+    use crate::messages::{DeviceGrantsChange, DeviceGrantsInfo, RemoveTrustedClientRequest};
+    use crate::request_error::ExpectedRequestError;
     use crate::server::libraries::{
         cast_library_state, list_peer_libraries, list_renderer_candidates,
     };
@@ -34,6 +31,55 @@ mod access_policy_tests {
         task::yield_now,
         time::{sleep, timeout},
     };
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn guest_set_liked_request_returns_typed_connection_edit_denial() -> Result<()> {
+        let pair = PolicyPair::new().await?;
+        let peer = info(&pair.b).await?;
+        pair.a
+            .global_params
+            .node
+            .access_policy
+            .set(&peer.fingerprint, DeviceGrants::guest())?;
+        let user = pair
+            .a
+            .global_params
+            .node
+            .permission_manager
+            .read()
+            .await
+            .verify_by_fingerprint(&peer.fingerprint)
+            .await
+            .context("approved guest controller")?;
+        let session = Session {
+            fingerprint: user.fingerprint,
+            public_key: user.public_key,
+            host: "127.0.0.1".into(),
+        };
+
+        let node = Arc::clone(&pair.a.global_params.node);
+        let (_, result) = node
+            .websocket_service
+            .handle_addressed_message(
+                "SetLikedRequest",
+                Vec::new(),
+                Some(session),
+                Some(pair.id),
+                &node,
+            )
+            .await
+            .context("SetLikedRequest route")?;
+        let error = result.expect_err("guest must not be allowed to set liked state");
+        assert_eq!(classify(&error), RequestErrorKind::PermissionDenied);
+        assert!(matches!(
+            error.downcast_ref::<Denial>(),
+            Some(Denial::Action {
+                action: Action::ConnectionEdit { library_id }
+            }) if *library_id == pair.id
+        ));
+        pair.close().await?;
+        Ok(())
+    }
 
     struct PolicyPair {
         _first: TempDir,
@@ -175,14 +221,14 @@ mod access_policy_tests {
                 call_id: None,
                 fingerprint: info(peer).await?.fingerprint,
                 grants: set_grants(vec![DeviceLibraryGrant {
-                        library_id: self.id.to_string(),
-                        connection: match level {
-                            DeviceSyncLevel::None => DeviceConnectionLevel::None,
-                            DeviceSyncLevel::Pull => DeviceConnectionLevel::View,
-                            DeviceSyncLevel::PullPush => DeviceConnectionLevel::ViewEdit,
-                        },
-                        sync: level,
-                    }]),
+                    library_id: self.id.to_string(),
+                    connection: match level {
+                        DeviceSyncLevel::None => DeviceConnectionLevel::None,
+                        DeviceSyncLevel::Pull => DeviceConnectionLevel::View,
+                        DeviceSyncLevel::PullPush => DeviceConnectionLevel::ViewEdit,
+                    },
+                    sync: level,
+                }]),
             };
             request
                 .handle(request.extract_params(&local.global_params), None, &request)
@@ -854,7 +900,10 @@ mod access_policy_tests {
         let pair = PolicyPair::new().await?;
         let fingerprint = info(&pair.b).await?.fingerprint;
         let mut existing = DeviceGrants::guest();
-        existing.connection.libraries.insert(pair.id, ConnectionLevel::View);
+        existing
+            .connection
+            .libraries
+            .insert(pair.id, ConnectionLevel::View);
         existing.sync.libraries.insert(pair.id, SyncLevel::Pull);
         pair.a
             .global_params
@@ -893,10 +942,10 @@ mod access_policy_tests {
             call_id: None,
             fingerprint: info(&pair.b).await?.fingerprint,
             grants: set_grants(vec![DeviceLibraryGrant {
-                    library_id: Uuid::new_v4().to_string(),
-                    connection: DeviceConnectionLevel::View,
-                    sync: DeviceSyncLevel::None,
-                }]),
+                library_id: Uuid::new_v4().to_string(),
+                connection: DeviceConnectionLevel::View,
+                sync: DeviceSyncLevel::None,
+            }]),
         };
         let result = request
             .handle(

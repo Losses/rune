@@ -49,11 +49,11 @@ use crate::{Session, session::PlayerSession};
 use crate::{
     library_pool::{LibraryHandle, LibraryPool},
     messages::{
-        AttachedRenderer, ClientStatus, ClientSummary, IncommingClientPermissionNotification,
-        InitializeNodeRequest, InitializeNodeResponse, PauseRequest, ProtocolUpdateSide,
-        RefreshSessionRequest, RemoteLibraryReconnecting, RemoteLossKind,
-        RendererAttachmentChanged, RendererLinkLost, RequestCapabilities, TrustListUpdated,
-        TrustedClientsChanged, TrustedServerCertificate,
+        AttachedRenderer, CapabilityReason, ClientStatus, ClientSummary,
+        IncommingClientPermissionNotification, InitializeNodeRequest, InitializeNodeResponse,
+        PauseRequest, ProtocolUpdateSide, RefreshSessionRequest, RemoteLibraryReconnecting,
+        RemoteLossKind, RendererAttachmentChanged, RendererLinkLost, RequestCapabilities,
+        RequestCapability, TrustListUpdated, TrustedClientsChanged, TrustedServerCertificate,
     },
     request_error::classify,
     server::{ServerManager, WebSocketService, utils::device::load_device_info},
@@ -780,6 +780,39 @@ impl NodeContext {
 
     pub(crate) fn request_slot<R: TargetRequest>(&self) -> Result<Slot> {
         Ok(R::slot(&self.implementation_for_scope::<R>()?.slots()))
+    }
+
+    pub(crate) fn capabilities_for_peer(
+        &self,
+        mut capabilities: RequestCapabilities,
+        peer: &PeerIdentity,
+        library_id: Option<Uuid>,
+    ) -> RequestCapabilities {
+        capabilities.for_each_capability_mut(|access, capability| {
+            let allowed = match access {
+                RequestAccess::NodeLocal => false,
+                RequestAccess::Control => self.access_policy.check(peer, &Action::Control).is_ok(),
+                RequestAccess::ConnectionView => library_id.is_some_and(|library_id| {
+                    self.access_policy
+                        .check(peer, &Action::ConnectionView { library_id })
+                        .is_ok()
+                }),
+                RequestAccess::ConnectionEdit => library_id.is_some_and(|library_id| {
+                    self.access_policy
+                        .check(peer, &Action::ConnectionEdit { library_id })
+                        .is_ok()
+                }),
+                RequestAccess::Administer => {
+                    self.access_policy.check(peer, &Action::Administer).is_ok()
+                }
+            };
+            if !allowed {
+                *capability = RequestCapability::Disabled {
+                    reason: CapabilityReason::OwnerOnly,
+                };
+            }
+        });
+        capabilities
     }
 
     pub(crate) fn implementation_for_scope<R: TargetRequest>(&self) -> Result<Implementation> {

@@ -1424,6 +1424,20 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         .map(|entry| format_ident!("{}", entry.request))
         .collect();
     let capability_slot_fields: Vec<_> = slot_fields.iter().collect();
+    let capability_access_fields =
+        types
+            .iter()
+            .zip(&capability_slot_fields)
+            .map(|(entry, field)| {
+                let access = match entry.access {
+                    RequestAccess::NodeLocal => quote! { RequestAccess::NodeLocal },
+                    RequestAccess::Control => quote! { RequestAccess::Control },
+                    RequestAccess::ConnectionView => quote! { RequestAccess::ConnectionView },
+                    RequestAccess::ConnectionEdit => quote! { RequestAccess::ConnectionEdit },
+                    RequestAccess::Administer => quote! { RequestAccess::Administer },
+                };
+                quote! { visit(#access, &mut self.#field); }
+            });
     let capability_snapshot_fields = types.iter().zip(&slot_fields).map(|(entry, field)| {
         let request = format_ident!("{}", entry.request);
         quote! { #field: node.request_slot::<#request>()?.into(), }
@@ -1697,6 +1711,15 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         pub(crate) fn capability_snapshot(node: &NodeContext) -> Result<RequestCapabilities> {
             let (record_id, generation) = node.capability_library_identity()?;
             Ok(RequestCapabilities { record_id, generation, #(#capability_snapshot_fields)* })
+        }
+
+        impl RequestCapabilities {
+            pub(crate) fn for_each_capability_mut(
+                &mut self,
+                mut visit: impl FnMut(RequestAccess, &mut RequestCapability),
+            ) {
+                #(#capability_access_fields)*
+            }
         }
 
         #[cfg(test)]

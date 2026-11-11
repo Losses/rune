@@ -1,6 +1,6 @@
 use super::gui_listener_tests::start;
 use crate::Session;
-use crate::macros::{RequestScope, RequestSlots, capability_snapshot, request_scope};
+use crate::macros::{RequestAccess, RequestScope, RequestSlots, capability_snapshot, request_scope};
 use crate::messages::{
     CapabilityReason, CloseLibraryRequest, CloseLibraryResponse, CreatePlaylistRequest,
     FetchAllPlaylistsRequest, FetchAllPlaylistsResponse, GetPlaylistByIdRequest,
@@ -47,7 +47,7 @@ use url::Url;
 
 use crate::{
     Signal,
-    access_policy::{ConnectionLevel, SyncLevel},
+    access_policy::{ConnectionLevel, DeviceGrants, SyncLevel},
     backends::remote::{RendererLink, RendererLinkUse},
     handlers::playback::{
         playing_item_from_request, playing_item_requests, session_snapshot_from_status,
@@ -76,6 +76,7 @@ use database::credentials::{Credential, Secret};
 use database::entities::media_cover_art;
 use database::entities::media_file_stats;
 use database::entities::media_files;
+use discovery::access_policy::PeerIdentity;
 use database::entities::media_metadata;
 use database::playing_item::MediaFileHandle;
 use migration::catalog_identity::artwork;
@@ -1193,9 +1194,7 @@ fn recorded_handoff_order(
         .filter_map(|(index, (_, payload))| {
             rinf::deserialize::<PlaybackStatus>(payload)
                 .ok()
-                .filter(|status| {
-                    status.session_id == source_session_id && status.state == "Paused"
-                })
+                .filter(|status| status.session_id == source_session_id && status.state == "Paused")
                 .map(|_| index)
         })
         .next()
@@ -5492,7 +5491,13 @@ async fn handoff_pause_failure_leaves_destination_unchanged() -> Result<()> {
     controller.global_params.node.fail_next_handoff_pauses(1);
     assert!(hand_off(&controller, None).await.is_err());
     assert_eq!(
-        controller.global_params.node.renderer_link()?.as_ref().unwrap().fingerprint(),
+        controller
+            .global_params
+            .node
+            .renderer_link()?
+            .as_ref()
+            .unwrap()
+            .fingerprint(),
         super::info(&source).await?.fingerprint
     );
     wait_player(&source, |status| status.state == PlaybackState::Playing).await?;
@@ -5765,10 +5770,12 @@ async fn failed_handoff_load_restores_source_playback_state() -> Result<()> {
         source.global_params.player.lock().await.get_status().state,
         PlaybackState::Paused
     );
-    assert!(signals
-        .decoded::<PlaybackStatus>("PlaybackStatus")
-        .iter()
-        .all(|status| status.state != "Playing"));
+    assert!(
+        signals
+            .decoded::<PlaybackStatus>("PlaybackStatus")
+            .iter()
+            .all(|status| status.state != "Playing")
+    );
     controller.global_params.node.shutdown().await?;
     source.global_params.node.shutdown().await?;
     Ok(())
@@ -7215,6 +7222,9 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
             record_id: "declared-library".into(),
             total: 2,
         });
+    b.global_params
+        .broadcaster
+        .broadcast(&capability_snapshot(&b.global_params.node)?);
     timeout(Duration::from_secs(10), async {
         loop {
             let decoded_all = {
@@ -9179,6 +9189,60 @@ async fn local_capability_snapshot_marks_every_request_available() -> Result<()>
         1
     );
     fixture.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn controller_capabilities_follow_catalogue_access_grants() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = &fixture.global_params.node;
+    let library_id = fixture
+        .global_params
+        .library_id
+        .context("fixture library identity")?;
+    let peer = PeerIdentity {
+        fingerprint: "guest-controller".into(),
+        public_key: "guest-key".into(),
+    };
+
+    node.access_policy
+        .set(&peer.fingerprint, DeviceGrants::guest())?;
+    let mut guest = node.capabilities_for_peer(capability_snapshot(node)?, &peer, Some(library_id));
+    let mut guest_connection_edit_count = 0;
+    let mut guest_control_count = 0;
+    guest.for_each_capability_mut(|access, capability| match access {
+        RequestAccess::ConnectionEdit => {
+            guest_connection_edit_count += 1;
+            assert_eq!(
+                *capability,
+                RequestCapability::Disabled {
+                    reason: CapabilityReason::OwnerOnly,
+                }
+            );
+        }
+        RequestAccess::Control => {
+            guest_control_count += 1;
+            assert_eq!(*capability, RequestCapability::Available);
+        }
+        _ => {}
+    });
+    assert!(guest_connection_edit_count > 0);
+    assert!(guest_control_count > 0);
+
+    node.access_policy
+        .set(&peer.fingerprint, DeviceGrants::my_device())?;
+    let mut my_device =
+        node.capabilities_for_peer(capability_snapshot(node)?, &peer, Some(library_id));
+    let mut my_device_count = 0;
+    my_device.for_each_capability_mut(|access, capability| {
+        if matches!(access, RequestAccess::ConnectionEdit | RequestAccess::Control) {
+            my_device_count += 1;
+            assert_eq!(*capability, RequestCapability::Available);
+        }
+    });
+    assert!(my_device_count > 0);
+    node.shutdown().await?;
     Ok(())
 }
 

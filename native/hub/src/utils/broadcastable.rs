@@ -29,6 +29,7 @@ implement_rinf_rust_signal_trait!(TrustedClientsChanged);
 implement_rinf_rust_signal_trait!(RequestFailedResponse);
 
 crate::declare_remote_events!(
+    RequestCapabilities => Library,
     PlaybackStatus => Session,
     PlaylistUpdate => Session,
     RealtimeFFT => Session,

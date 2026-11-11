@@ -2468,13 +2468,18 @@ mod lifecycle_tests {
                 encode_message(name, payload, Some(id)).into(),
             ))
             .await?;
-        let frame = tokio::time::timeout(Duration::from_secs(2), socket.next())
-            .await?
-            .context("socket closed")??;
-        let (response_name, payload, response_id) =
-            decode_message(&frame.into_data()).context("invalid frame")?;
-        assert_eq!(response_id, id);
-        Ok((response_name, payload))
+        loop {
+            let frame = tokio::time::timeout(Duration::from_secs(2), socket.next())
+                .await?
+                .context("socket closed")??;
+            let (response_name, payload, response_id) =
+                decode_message(&frame.into_data()).context("invalid frame")?;
+            if response_name == "RequestCapabilities" {
+                continue;
+            }
+            assert_eq!(response_id, id);
+            return Ok((response_name, payload));
+        }
     }
 
     async fn socket_request_for_library(
@@ -2493,13 +2498,18 @@ mod lifecycle_tests {
                 encode_request(name, payload, id, library_id).into(),
             ))
             .await?;
-        let frame = tokio::time::timeout(Duration::from_secs(2), socket.next())
-            .await?
-            .context("socket closed")??;
-        let (response_name, payload, response_id) =
-            decode_message(&frame.into_data()).context("invalid frame")?;
-        assert_eq!(response_id, id);
-        Ok((response_name, payload))
+        loop {
+            let frame = tokio::time::timeout(Duration::from_secs(2), socket.next())
+                .await?
+                .context("socket closed")??;
+            let (response_name, payload, response_id) =
+                decode_message(&frame.into_data()).context("invalid frame")?;
+            if response_name == "RequestCapabilities" {
+                continue;
+            }
+            assert_eq!(response_id, id);
+            return Ok((response_name, payload));
+        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

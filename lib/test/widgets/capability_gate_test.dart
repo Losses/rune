@@ -1,13 +1,19 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
 import '../../bindings/bindings.dart';
 import '../../l10n/app_localizations.dart';
 import '../../providers/request_capabilities.dart';
+import '../../providers/library_open_state.dart';
 import '../../providers/status.dart';
 import '../../utils/l10n.dart';
+import '../../utils/playing_item.dart';
 import '../../widgets/capability_gate.dart';
+import '../../widgets/playback_controller/like_button.dart';
 import '../../widgets/playback_controller/next_button.dart';
 import '../../widgets/playback_controller/play_pause_button.dart';
 import '../../widgets/playback_controller/previous_button.dart';
@@ -17,6 +23,7 @@ RequestCapabilities snapshot({
   RequestCapability pause = const RequestCapabilityAvailable(),
   RequestCapability next = const RequestCapabilityAvailable(),
   RequestCapability previous = const RequestCapabilityAvailable(),
+  RequestCapability setLiked = const RequestCapabilityAvailable(),
 }) {
   const capability = RequestCapabilityAvailable();
   return RequestCapabilities(
@@ -173,7 +180,20 @@ RequestCapabilities snapshot({
     pauseRequest: pause,
     nextRequest: next,
     previousRequest: previous,
+    setLikedRequest: setLiked,
   );
+}
+
+class _LibraryOpenStateProvider extends ChangeNotifier
+    implements LibraryOpenStateProvider {
+  @override
+  bool get isReadOnlyReplica => false;
+
+  @override
+  LibraryRecordSummary? get openRecord => null;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 Widget playbackControls(RequestCapabilitiesProvider provider) => MultiProvider(
@@ -284,5 +304,43 @@ void main() {
       ),
       findsNothing,
     );
+  });
+
+  testWidgets('like action follows the set-liked capability', (tester) async {
+    final changes = StreamController<RequestCapabilities>();
+    final provider = RequestCapabilitiesProvider(
+      changes: changes.stream,
+      initial: snapshot(
+        setLiked: const RequestCapabilityDisabled(
+          reason: CapabilityReason.ownerOnly,
+        ),
+      ),
+    );
+    addTearDown(provider.dispose);
+    addTearDown(changes.close);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<RequestCapabilitiesProvider>.value(
+            value: provider,
+          ),
+          ChangeNotifierProvider<LibraryOpenStateProvider>(
+            create: (_) => _LibraryOpenStateProvider(),
+          ),
+        ],
+        child: FluentApp(
+          home: LikeButton(
+            item: const PlayingItem.inLibrary(1),
+            fetchLikedStatus: (_) async => false,
+          ),
+        ),
+      ),
+    );
+    expect(find.byIcon(Symbols.favorite), findsNothing);
+
+    changes.add(snapshot(setLiked: const RequestCapabilityAvailable()));
+    await tester.pump();
+    expect(find.byIcon(Symbols.favorite), findsOneWidget);
   });
 }

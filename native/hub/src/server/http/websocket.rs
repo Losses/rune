@@ -16,15 +16,17 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, error, info, warn};
 use tokio::{
-    sync::{Mutex, broadcast::Receiver, mpsc},
+    sync::{Mutex, broadcast::Receiver, broadcast::error::RecvError, mpsc},
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
 
 use crate::{
     Session,
-    backends::remote::{decode_message_with_library_id, encode_message},
-    messages::RemoteRequestFailed,
+    backends::remote::{decode_message, decode_message_with_library_id, encode_message},
+    macros::capability_snapshot,
+    messages::{RemoteRequestFailed, RequestCapabilities, RequestCapability},
+    node::NodeContext,
     request_error::{FailedCall, classify, request_failure_cause},
     server::{ServerState, sync_auth::AuthenticatedFingerprint},
 };
@@ -33,6 +35,45 @@ use discovery::protocol_version::{
     compatibility,
 };
 use discovery::server::{User, UserStatus};
+
+async fn capabilities_for_peer(
+    node: &NodeContext,
+    peer: &PeerIdentity,
+) -> Option<RequestCapabilities> {
+    let capabilities = capability_snapshot(node).ok()?;
+    let library_id = node
+        .current_ui()
+        .await
+        .ok()
+        .and_then(|params| params.library_id);
+    Some(node.capabilities_for_peer(capabilities, peer, library_id))
+}
+
+fn tailor_capability_message(
+    message: Vec<u8>,
+    capabilities: Option<&RequestCapabilities>,
+) -> Vec<u8> {
+    let Some(capabilities) = capabilities else {
+        return message;
+    };
+    let Some((name, _, request_id)) = decode_message(&message) else {
+        return message;
+    };
+    if name != "RequestCapabilities" {
+        return message;
+    }
+    match rinf::serialize(capabilities) {
+        Ok(payload) => encode_message(&name, &payload, Some(request_id)),
+        Err(error) => {
+            error!("Could not encode controller capabilities: {error}");
+            message
+        }
+    }
+}
+
+fn is_capability_message(message: &[u8]) -> bool {
+    decode_message(message).is_some_and(|(name, _, _)| name == "RequestCapabilities")
+}
 
 pub async fn websocket_handler(
     ws: WebSocketUpgrade,
@@ -128,6 +169,7 @@ pub async fn handle_socket(
     let controller_cancel = controller_guard
         .as_ref()
         .map(|guard| guard.cancellation_token());
+    let is_controller = controller_cancel.is_some();
     drop(node);
     let peer = PeerIdentity {
         fingerprint: user.fingerprint.clone(),
@@ -183,6 +225,7 @@ pub async fn handle_socket(
     let incoming_alias = alias.clone();
     let incoming_public_key = peer.public_key.clone();
     let incoming_receiver = receiver.clone();
+    let outgoing_node = state.node.clone();
     enum IncomingEnd {
         PeerClose(Option<CloseFrame>),
         Ended,
@@ -268,15 +311,68 @@ pub async fn handle_socket(
     let outgoing_policy = policy.clone();
     let outgoing_peer = peer.clone();
     let outgoing = async move {
-        while let Ok(msg) = broadcast_rx.recv().await {
+        let mut grant_changes = outgoing_policy.changes();
+        if is_controller
+            && let Some(node) = outgoing_node.upgrade()
+            && let Some(capabilities) = capabilities_for_peer(&node, &outgoing_peer).await
+            && capabilities.set_liked_request != RequestCapability::Available
+            && let Ok(payload) = rinf::serialize(&capabilities)
+        {
+            let message = encode_message("RequestCapabilities", &payload, None);
+            if broadcast_tx
+                .send(WsMessage::Binary(message.into()))
+                .await
+                .is_err()
+            {
+                return;
+            }
+        }
+        loop {
+            let message = tokio::select! {
+                message = broadcast_rx.recv() => match message {
+                    Ok(message) => Some(message),
+                    Err(RecvError::Lagged(_)) => continue,
+                    Err(RecvError::Closed) => break,
+                },
+                changed = grant_changes.changed() => {
+                    if changed.is_err() {
+                        break;
+                    }
+                    let Some(node) = outgoing_node.upgrade() else {
+                        break;
+                    };
+                    if let Some(capabilities) = capabilities_for_peer(&node, &outgoing_peer).await
+                        && let Ok(payload) = rinf::serialize(&capabilities)
+                    {
+                        Some(encode_message("RequestCapabilities", &payload, None))
+                    } else {
+                        None
+                    }
+                }
+            };
+            let Some(message) = message else {
+                continue;
+            };
             if outgoing_policy
                 .check(&outgoing_peer, &Action::Control)
                 .is_err()
             {
                 continue;
             }
-            if let Err(e) = broadcast_tx.send(WsMessage::Binary(msg.into())).await {
-                error!("[{outgoing_alias}] Failed to queue broadcast: {e}");
+            let is_capability = is_capability_message(&message);
+            let Some(node) = outgoing_node.upgrade() else {
+                break;
+            };
+            let message = if is_capability {
+                let Some(capabilities) = capabilities_for_peer(&node, &outgoing_peer).await else {
+                    continue;
+                };
+                tailor_capability_message(message, Some(&capabilities))
+            } else {
+                message
+            };
+            if let Err(error) = broadcast_tx.send(WsMessage::Binary(message.into())).await {
+                error!("[{outgoing_alias}] Failed to queue broadcast: {error}");
                 break;
             }
         }

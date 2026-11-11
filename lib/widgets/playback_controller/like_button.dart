@@ -3,6 +3,8 @@ import '../../utils/api/request_failure.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
 import '../../providers/library_open_state.dart';
+import '../../providers/request_capabilities.dart';
+import '../capability_gate.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/playing_item.dart';
@@ -13,8 +15,9 @@ import '../rune_clickable.dart';
 
 class LikeButton extends StatefulWidget {
   final PlayingItem? item;
+  final Future<bool> Function(PlayingItem item)? fetchLikedStatus;
 
-  const LikeButton({required this.item, super.key});
+  const LikeButton({required this.item, this.fetchLikedStatus, super.key});
 
   @override
   State<LikeButton> createState() => _LikeButtonState();
@@ -44,7 +47,8 @@ class _LikeButtonState extends State<LikeButton> {
     if (item == null || !item!.hasLocalFileId) return;
 
     try {
-      final isLiked = await getLiked(item!);
+      final isLiked =
+          await (widget.fetchLikedStatus?.call(item!) ?? getLiked(item!));
       if (mounted) {
         setState(() {
           liked = isLiked;
@@ -78,18 +82,21 @@ class _LikeButtonState extends State<LikeButton> {
         context.watch<LibraryOpenStateProvider>().isReadOnlyReplica) {
       return const SizedBox.shrink();
     }
-    return RuneClickable(
-      onPressed: item == null
-          ? null
-          : () {
-              _toggleLikedStatus();
-            },
-      iconSize: 13,
-      padding: 0,
-      isTiny: true,
-      child: Icon(
-        Symbols.favorite,
-        fill: liked ? 1 : 0,
+    return CapabilityGate(
+      capability: capabilityForRequest(
+        context,
+        (capabilities) => capabilities.setLikedRequest,
+      ),
+      child: RuneClickable(
+        onPressed: item == null
+            ? null
+            : () {
+                _toggleLikedStatus();
+              },
+        iconSize: 13,
+        padding: 0,
+        isTiny: true,
+        child: Icon(Symbols.favorite, fill: liked ? 1 : 0),
       ),
     );
   }
