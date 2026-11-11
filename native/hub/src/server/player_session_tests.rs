@@ -54,6 +54,7 @@ use crate::{
         ListControllersRequest, ListRenderersRequest, PlayingItemRef,
         PlaylistUpdate, RendererAvailability, RendererCandidate, RequestErrorKind,
         RequestFailureCause, SwitchRequest, VolumeRequest,
+        SessionSnapshotRequest,
     },
     request_error::{ExpectedRequestError, classify},
     utils::{GlobalParams, subsonic_binding_for_playback},
@@ -4620,6 +4621,7 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
         session_audio(&renderer, "request-no-switch.ogg").await?,
         session_audio(&renderer, "request-append-play.ogg").await?,
         session_audio(&renderer, "request-play-next.ogg").await?,
+        session_audio(&renderer, "request-handoff-last.ogg").await?,
     ];
     let items = futures::future::join_all(ids.iter().map(|id| library_track_for_id(&renderer, *id)))
         .await
@@ -4818,6 +4820,123 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
             .unwrap()
             .iter()
             .any(|(name, _)| name == "RemoteRequestFailed")
+    );
+
+    let target_snapshot = link
+        .call(&SessionSnapshotRequest { call_id: None })
+        .await?;
+    assert_eq!(target_snapshot.items.len(), 4);
+    let target_before_handoff = renderer.global_params.player.lock().await.get_status();
+    let changed_index = target_before_handoff
+        .index
+        .map_or(0, |index| (index + 1) % target_before_handoff.playlist.len());
+    renderer.global_params.player.lock().await.switch(changed_index);
+    let target_after_switch = wait_player(&renderer, |status| status.index == Some(changed_index))
+        .await?;
+    let insertion = target_after_switch
+        .index
+        .map_or(target_after_switch.playlist.len(), |index| index + 1);
+    let mut expected_merged = target_after_switch.playlist.clone();
+    expected_merged.splice(
+        insertion..insertion,
+        [PlayingItem::from(items[2]), PlayingItem::from(items[3])],
+    );
+    let handoff = LoadResolvedItemsRequest {
+        call_id: None,
+        items: vec![items[2].into(), items[3].into()],
+        start_index: Some(1),
+        mode: PlaylistOperateMode::PlayNext,
+        expected_revision: Some(revision_before_invalid),
+        playback_mode: Some(3),
+        position_seconds: Some(1.25),
+        play: Some(true),
+    };
+    link.call(&handoff).await?;
+    let merged = wait_player(&renderer, |status| {
+        status.playlist == expected_merged
+            && status.index == Some(insertion + 1)
+            && status.item == Some(PlayingItem::from(items[3]))
+            && status.state == PlaybackState::Playing
+            && status.playback_mode == PlaybackMode::Shuffle
+    })
+    .await?;
+    assert_eq!(merged.playlist, expected_merged);
+    assert!(merged.position.abs_diff(Duration::from_millis(1250)) <= Duration::from_millis(1500));
+
+    renderer.global_params.player.lock().await.pause();
+    renderer.global_params.player.lock().await.clear_playlist();
+    wait_player(&renderer, |status| status.playlist.is_empty()).await?;
+    renderer
+        .global_params
+        .node
+        .session()?
+        .edit_queue(None, |player| {
+            player.add_to_playlist_with_sources(
+                [items[0], items[1]]
+                    .into_iter()
+                    .map(|item| (PlayingItem::from(item), PlaybackSource::LibraryStream))
+                    .collect(),
+                AddMode::AppendToEnd,
+            );
+            true
+        })
+        .await?;
+    let idle_queue = wait_player(&renderer, |status| {
+        status.playlist.len() == 2 && status.index.is_none()
+    })
+    .await?
+    .playlist;
+    let idle_handoff = LoadResolvedItemsRequest {
+        call_id: None,
+        items: vec![items[2].into(), items[3].into()],
+        start_index: Some(1),
+        mode: PlaylistOperateMode::PlayNext,
+        expected_revision: None,
+        playback_mode: None,
+        position_seconds: Some(0.9),
+        play: Some(true),
+    };
+    link.call(&idle_handoff).await?;
+    let idle_merged = wait_player(&renderer, |status| {
+        status.playlist.len() == 4
+            && status.index == Some(3)
+            && status.item == Some(PlayingItem::from(items[3]))
+            && status.state == PlaybackState::Playing
+    })
+    .await?;
+    assert_eq!(idle_merged.playlist[..2], idle_queue);
+    assert_eq!(idle_merged.playlist[2..], [PlayingItem::from(items[2]), PlayingItem::from(items[3])]);
+
+    renderer.global_params.player.lock().await.pause();
+    renderer.global_params.player.lock().await.clear_playlist();
+    wait_player(&renderer, |status| status.playlist.is_empty()).await?;
+    let empty_handoff = LoadResolvedItemsRequest {
+        call_id: None,
+        items: vec![
+            items[0].into(),
+            items[1].into(),
+            items[2].into(),
+            items[3].into(),
+            items[4].into(),
+        ],
+        start_index: Some(2),
+        mode: PlaylistOperateMode::PlayNext,
+        expected_revision: None,
+        playback_mode: None,
+        position_seconds: Some(0.7),
+        play: Some(true),
+    };
+    link.call(&empty_handoff).await?;
+    let empty_loaded = wait_player(&renderer, |status| {
+        status.playlist.len() == 5
+            && status.index == Some(2)
+            && status.item == Some(PlayingItem::from(items[2]))
+            && status.state == PlaybackState::Playing
+    })
+    .await?;
+    assert_eq!(
+        empty_loaded.playlist,
+        items.iter().copied().map(PlayingItem::from).collect::<Vec<_>>()
     );
 
     renderer.global_params.node.shutdown().await?;
@@ -5396,6 +5515,120 @@ async fn handoff_pause_retries_after_destination_started() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
+async fn handoff_dispatch_appends_to_idle_renderer_queue_and_starts_source_cursor() -> Result<()> {
+    use crate::messages::HandoffRequest;
+
+    let source_dir = tempfile::tempdir()?;
+    let target_dir = tempfile::tempdir()?;
+    let source = fixture(source_dir.path()).await?;
+    let target = fixture(target_dir.path()).await?;
+    let ids = [
+        session_audio(&source, "handoff-merge-1.ogg").await?,
+        session_audio(&source, "handoff-merge-2.ogg").await?,
+        session_audio(&source, "handoff-merge-3.ogg").await?,
+        session_audio(&source, "handoff-merge-4.ogg").await?,
+        session_audio(&source, "handoff-merge-5.ogg").await?,
+    ];
+    let items = futures::future::join_all(ids.iter().map(|id| library_track_for_id(&source, *id)))
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?;
+    let (_, target_replica) = replicate_host_library(&source, &target).await?;
+    let target_address = paired_full(&target, &source).await?;
+    let target_fingerprint = info(&target).await?.fingerprint;
+    source
+        .global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(
+            &target_fingerprint,
+            vec![format!("127.0.0.1:{}", target_address.port())],
+        )
+        .await?;
+
+    let source_queue = items.iter().copied().map(PlayingItem::from).collect::<Vec<_>>();
+    source
+        .global_params
+        .node
+        .session()?
+        .edit_queue(None, |player| {
+            player.add_to_playlist_with_sources(
+                source_queue
+                    .iter()
+                    .cloned()
+                    .map(|item| (item, PlaybackSource::LibraryStream))
+                    .collect(),
+                AddMode::AppendToEnd,
+            );
+            true
+        })
+        .await?;
+    wait_player(&source, |status| status.playlist.len() == 5).await?;
+    source
+        .global_params
+        .player
+        .lock()
+        .await
+        .set_playback_mode(PlaybackMode::Shuffle);
+    source.global_params.player.lock().await.switch(2);
+    wait_player(&source, |status| status.index == Some(2)).await?;
+    source.global_params.player.lock().await.play();
+    let source_before = wait_player(&source, |status| {
+        status.state == PlaybackState::Playing && status.index == Some(2)
+    })
+    .await?;
+
+    let target_queue = items[..3]
+        .iter()
+        .copied()
+        .map(PlayingItem::from)
+        .collect::<Vec<_>>();
+    let expected_target_queue = target_queue.clone();
+    target_replica
+        .global_params
+        .node
+        .session()?
+        .edit_queue(None, move |player| {
+            player.add_to_playlist_with_sources(
+                target_queue
+                    .into_iter()
+                    .map(|item| (item, PlaybackSource::LibraryStream))
+                    .collect(),
+                AddMode::AppendToEnd,
+            );
+            true
+        })
+        .await?;
+    wait_player(&target, |status| status.playlist.len() == 3 && status.index.is_none()).await?;
+
+    let handoff = HandoffRequest {
+        call_id: None,
+        target: Some(target_fingerprint),
+    };
+    dispatch_gui_request(&source.global_params, &handoff).await?;
+
+    let mut expected_queue = expected_target_queue;
+    expected_queue.extend(source_queue.iter().cloned());
+    let merged = wait_player(&target, |status| {
+        status.playlist == expected_queue
+            && status.index == Some(3 + 2)
+            && status.item == source_before.item
+            && status.state == PlaybackState::Playing
+            && status.playback_mode == PlaybackMode::Shuffle
+    })
+    .await?;
+    assert!(merged.position.abs_diff(source_before.position) <= Duration::from_millis(1500));
+    let source_paused = wait_player(&source, |status| status.state == PlaybackState::Paused).await?;
+    assert_eq!(source_paused.playlist, source_queue);
+    assert_eq!(source_paused.item, source_before.item);
+
+    source.global_params.node.shutdown().await?;
+    target.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn new_handoff_cancels_old_source_pause_retry() -> Result<()> {
     let (_dirs, controller, source, source_fingerprint) = attached_handoff_source(true).await?;
     controller.global_params.node.fail_next_handoff_pauses(1);
@@ -5429,7 +5662,6 @@ async fn failed_handoff_load_does_not_pause_source() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Result<()> {
-    use crate::Signal;
     use crate::messages::{HandoffRequest, SetPlaybackModeRequest};
     use crate::request_error::request_failure_cause;
     use crate::utils::ParamsExtractor;
@@ -5563,13 +5795,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
         target: Some(b_fingerprint.clone()),
     };
     a_signals.0.lock().unwrap().clear();
-    handoff
-        .handle(
-            handoff.extract_params(&controller.global_params),
-            None,
-            &handoff,
-        )
-        .await?;
+    dispatch_gui_request(&controller.global_params, &handoff).await?;
     let b_status = wait_player(&b, |status| {
         status.index == Some(source_index)
             && status.item == source_before.item
@@ -5631,8 +5857,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     let b_index = b_before_return.index.context("shuffle return index")?;
     let back = HandoffRequest {
             call_id: None, target: None };
-    back.handle(back.extract_params(&controller.global_params), None, &back)
-        .await?;
+    dispatch_gui_request(&controller.global_params, &back).await?;
     let a_returned = wait_player(controller, |status| {
         status.index == Some(b_index)
             && status.item == b_before_return.item
@@ -5657,12 +5882,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
             call_id: None,
         target: Some(c_fingerprint),
     };
-    let error = refused
-        .handle(
-            refused.extract_params(&controller.global_params),
-            None,
-            &refused,
-        )
+    let error = dispatch_gui_request(&controller.global_params, &refused)
         .await
         .unwrap_err();
     let g_library_id = g

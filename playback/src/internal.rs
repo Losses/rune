@@ -28,7 +28,8 @@ use crate::output_stream::{RuneOutputStream, RuneOutputStreamHandle};
 use crate::pcm_tap::PcmTap;
 use crate::player::{
     AudioPlaybackNote, AudioSourceMode, LibraryTrackKey, PlaybackSource, PlaybackSourceResolver,
-    PlayerStatus, PlayingItem, RemoteAudioError, SubsonicItem, UnavailableReason,
+    PlayerStatus, PlayingItem, PlaylistEdit, PlaylistPlacement, RemoteAudioError, SubsonicItem,
+    UnavailableReason,
 };
 use crate::realtime_fft::RealTimeFFT;
 use crate::shared_source::SharedSource;
@@ -422,6 +423,7 @@ pub enum PlayerCommand {
         tracks: Vec<(PlayingItem, PlaybackSource)>,
         mode: AddMode,
     },
+    EditPlaylist(PlaylistEdit),
     RemoveFromPlaylist {
         index: usize,
     },
@@ -824,6 +826,43 @@ impl PlayerInternal {
                         PlayerCommand::Seek(position) => self.seek(position)?,
                         PlayerCommand::AddToPlaylist { tracks, mode } => {
                             self.add_to_playlist(tracks, mode);
+                        },
+                        PlayerCommand::EditPlaylist(edit) => {
+                            let add_mode = match edit.placement {
+                                PlaylistPlacement::Replace | PlaylistPlacement::AppendToEnd => {
+                                    AddMode::AppendToEnd
+                                }
+                                PlaylistPlacement::PlayNext => AddMode::PlayNext,
+                            };
+                            let insertion = match edit.placement {
+                                PlaylistPlacement::Replace => {
+                                    self.clear_playlist()?;
+                                    0
+                                }
+                                PlaylistPlacement::AppendToEnd => self.playlist.len(),
+                                PlaylistPlacement::PlayNext => self.current_queue_edit_index()
+                                    .map_or(self.playlist.len(), |index| index + 1),
+                            };
+                            let added = !edit.tracks.is_empty();
+                            if added {
+                                self.add_to_playlist(edit.tracks, add_mode);
+                            }
+                            if let Some(mode) = edit.playback_mode {
+                                self.set_playback_mode(mode)?;
+                            }
+                            if let Some(load) = edit.load {
+                                self.load_at(
+                                    Some(insertion + load.start_index),
+                                    load.play,
+                                    false,
+                                    Some(load.position),
+                                )?;
+                            } else if added
+                                && edit.placement == PlaylistPlacement::PlayNext
+                                && self.current_queue_edit_index().is_none()
+                            {
+                                self.load_at(Some(insertion), true, false, Some(Duration::ZERO))?;
+                            }
                         },
                         PlayerCommand::RemoveFromPlaylist { index } => self.remove_from_playlist(index)?,
                         PlayerCommand::ClearPlaylist => self.clear_playlist()?,
@@ -1793,9 +1832,10 @@ impl PlayerInternal {
 
     fn add_to_playlist(&mut self, tracks: Vec<(PlayingItem, PlaybackSource)>, mode: AddMode) {
         debug!("Adding tracks to playlist with mode: {:?}", { mode });
+        let count = tracks.len();
         let insert_index = match mode {
             AddMode::PlayNext => {
-                if let Some(current_index) = self.current_track_index {
+                if let Some(current_index) = self.current_queue_edit_index() {
                     Some(current_index + 1)
                 } else {
                     Some(self.playlist.len())
@@ -1827,9 +1867,16 @@ impl PlayerInternal {
             UpdateReason::AddToPlaylist {
                 mode,
                 index: insert_index,
+                count,
             },
         );
         self.schedule_playlist_update();
+    }
+
+    fn current_queue_edit_index(&self) -> Option<usize> {
+        (self.state != InternalPlaybackState::Stopped)
+            .then_some(self.current_track_index)
+            .flatten()
     }
 
     fn remove_from_playlist(&mut self, index: usize) -> Result<()> {
@@ -2722,6 +2769,7 @@ mod playback_state_tests {
         DelayedResolver, delayed_resolver_fixture, delayed_resolver_fixture_with_samples,
     };
     use super::*;
+    use crate::player::PlaylistLoad;
     use std::sync::atomic::Ordering;
     use std::sync::mpsc::channel;
     use tokio::runtime::Builder;
@@ -2894,6 +2942,102 @@ mod playback_state_tests {
         tokio::time::sleep(Duration::from_millis(400)).await;
         while events.try_recv().is_ok() {}
         Ok(track)
+    }
+
+    #[tokio::test]
+    async fn playlist_edit_uses_current_index_when_the_command_runs() -> Result<()> {
+        let file_uuids = (0..8).map(|_| Uuid::new_v4()).collect::<Vec<_>>();
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&file_uuids);
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    let original = library_tracks(library_id, &file_uuids[..5]);
+                    commands_sender.send(PlayerCommand::AddToPlaylist {
+                        tracks: original,
+                        mode: AddMode::AppendToEnd,
+                    })?;
+                    commands_sender.send(PlayerCommand::Switch(2))?;
+                    let target_c = library_item(library_id, file_uuids[2]);
+                    expect_playing(&mut events, &target_c).await?;
+                    let snapshot_index = 2;
+
+                    commands_sender.send(PlayerCommand::Switch(3))?;
+                    let target_d = library_item(library_id, file_uuids[3]);
+                    expect_playing(&mut events, &target_d).await?;
+                    assert_ne!(snapshot_index, 3);
+
+                    commands_sender.send(PlayerCommand::EditPlaylist(PlaylistEdit {
+                        tracks: library_tracks(library_id, &file_uuids[5..8]),
+                        placement: PlaylistPlacement::PlayNext,
+                        playback_mode: None,
+                        load: Some(PlaylistLoad {
+                            start_index: 1,
+                            position: Duration::from_secs(1),
+                            play: false,
+                        }),
+                    }))?;
+                    let loaded = next_track_state(&mut events).await?;
+                    assert!(
+                        matches!(
+                            loaded,
+                        PlayerEvent::Loaded { ref item, index: 5, .. }
+                            if *item == library_item(library_id, file_uuids[6])
+                        ),
+                        "{loaded:?}"
+                    );
+
+                    runner.abort();
+                    let _ = std::fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn play_next_edit_appends_and_starts_when_stopped_with_a_stale_index() -> Result<()> {
+        let file_uuids = (0..4).map(|_| Uuid::new_v4()).collect::<Vec<_>>();
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&file_uuids);
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    commands_sender.send(PlayerCommand::AddToPlaylist {
+                        tracks: library_tracks(library_id, &file_uuids[..3]),
+                        mode: AddMode::AppendToEnd,
+                    })?;
+                    commands_sender.send(PlayerCommand::Switch(1))?;
+                    expect_playing(&mut events, &library_item(library_id, file_uuids[1])).await?;
+                    commands_sender.send(PlayerCommand::Stop)?;
+
+                    commands_sender.send(PlayerCommand::EditPlaylist(PlaylistEdit {
+                        tracks: library_tracks(library_id, &file_uuids[3..]),
+                        placement: PlaylistPlacement::PlayNext,
+                        playback_mode: None,
+                        load: None,
+                    }))?;
+                    let started = next_track_state(&mut events).await?;
+                    assert!(
+                        matches!(started, PlayerEvent::Playing { ref item, index: 3, .. }
+                            if *item == library_item(library_id, file_uuids[3])),
+                        "{started:?}"
+                    );
+
+                    runner.abort();
+                    let _ = std::fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
     }
 
     async fn assert_nothing_plays(events: &mut mpsc::UnboundedReceiver<PlayerEvent>) {

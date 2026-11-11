@@ -20,9 +20,9 @@ use ::database::{
     library_registry::{LibraryRegistry, ProtocolAdapter},
     playing_item::{MediaFileHandle, dispatcher::PlayingItemActionDispatcher},
 };
-use ::playback::{
-    player::{LibraryItem, Playable, PlaybackSource, PlaybackState, PlayerStatus, PlayingItem},
-    strategies::AddMode,
+use ::playback::player::{
+    LibraryItem, Playable, PlaybackSource, PlaybackState, PlayerStatus, PlayingItem, PlaylistEdit,
+    PlaylistLoad, PlaylistPlacement,
 };
 
 use crate::backends::remote::{RendererLink, RendererLinkUse};
@@ -118,51 +118,31 @@ fn edit_playlist(
         position,
         play,
     } = options;
-    let queue_changed = mode == PlaylistOperateMode::Replace && !player.get_playlist().is_empty();
-    if mode == PlaylistOperateMode::Replace {
-        player.clear_playlist();
-    }
-    let offset = match mode {
-        PlaylistOperateMode::Replace => 0,
-        PlaylistOperateMode::AppendToEnd => player.get_playlist().len(),
-        PlaylistOperateMode::PlayNext => player.get_status().index.map_or_else(
-            || player.get_playlist().len(),
-            |index| index.saturating_add(1),
-        ),
+    let placement = match mode {
+        PlaylistOperateMode::PlayNext => PlaylistPlacement::PlayNext,
+        PlaylistOperateMode::AppendToEnd => PlaylistPlacement::AppendToEnd,
+        PlaylistOperateMode::Replace => PlaylistPlacement::Replace,
     };
-    let add_mode = if mode == PlaylistOperateMode::PlayNext {
-        AddMode::PlayNext
-    } else {
-        AddMode::AppendToEnd
-    };
-    if !prepared.is_empty() {
-        player.add_to_playlist_with_sources(prepared.to_vec(), add_mode);
-    }
-    if let Some(playback_mode) = playback_mode
-        && playback_mode != 99
-    {
-        player.set_playback_mode(playback_mode.into());
-    }
-    if let Some(start_index) = start_index.filter(|_| !prepared.is_empty()) {
-        let index = start_index + offset;
-        if position.is_some() || play.is_some() {
-            player.load_at_position(
-                index,
-                position.unwrap_or_default(),
-                play.unwrap_or(playback_mode.is_some()),
-            );
-        } else {
-            player.switch(index);
-            player.play();
-        }
-    } else if mode == PlaylistOperateMode::PlayNext
-        && !prepared.is_empty()
-        && player.get_status().index.is_none()
-    {
-        player.switch(offset);
-        player.play();
-    }
-    queue_changed || !prepared.is_empty()
+    let load = start_index
+        .filter(|_| !prepared.is_empty())
+        .map(|start_index| PlaylistLoad {
+            start_index,
+            position: position.unwrap_or_default(),
+            play: if position.is_some() || play.is_some() {
+                play.unwrap_or(playback_mode.is_some())
+            } else {
+                true
+            },
+        });
+    let changed = (mode == PlaylistOperateMode::Replace && !player.get_playlist().is_empty())
+        || !prepared.is_empty();
+    player.edit_playlist(PlaylistEdit {
+        tracks: prepared.to_vec(),
+        placement,
+        playback_mode: playback_mode.filter(|mode| *mode != 99).map(Into::into),
+        load,
+    });
+    changed
 }
 
 /// Convert many items to requests, acquiring each library and querying it once.
@@ -796,7 +776,7 @@ impl Signal for LoadResolvedItemsRequest {
                             })?;
                         if matches!(
                             &item_library.descriptor.protocol,
-                            database::library_registry::ProtocolAdapter::SubsonicTranslate { .. }
+                            ProtocolAdapter::SubsonicTranslate { .. }
                         ) {
                             prepared_by_item.insert(
                                 item.clone(),
@@ -1382,7 +1362,15 @@ impl Signal for HandoffRequest {
         if already_there {
             return Ok(Some(HandoffResponse { call_id: None }));
         }
-        let load = handoff_load(snapshot_handoff_source(&node, attached.as_deref()).await?);
+        let load_mode = if target.is_none() && attached.is_some() {
+            PlaylistOperateMode::Replace
+        } else {
+            PlaylistOperateMode::PlayNext
+        };
+        let load = handoff_load(
+            snapshot_handoff_source(&node, attached.as_deref()).await?,
+            load_mode,
+        );
         match target {
             Some(target) => {
                 hand_off_to_renderer(&node, attached.clone(), target, load, generation).await?
@@ -1406,12 +1394,15 @@ async fn snapshot_handoff_source(
 }
 
 /// Step 2: the load that recreates the snapshot on the target.
-fn handoff_load(snapshot: SessionSnapshotResponse) -> LoadResolvedItemsRequest {
+fn handoff_load(
+    snapshot: SessionSnapshotResponse,
+    mode: PlaylistOperateMode,
+) -> LoadResolvedItemsRequest {
     LoadResolvedItemsRequest {
         call_id: None,
         items: snapshot.items.into_iter().collect(),
         start_index: snapshot.index,
-        mode: PlaylistOperateMode::Replace,
+        mode,
         expected_revision: None,
         playback_mode: Some(snapshot.playback_mode),
         position_seconds: Some(snapshot.position_seconds),

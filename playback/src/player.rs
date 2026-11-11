@@ -339,6 +339,31 @@ pub trait Playable: Send {
             mode,
         );
     }
+    fn edit_playlist(&mut self, edit: PlaylistEdit) {
+        let added_count = edit.tracks.len();
+        let add_mode = match edit.placement {
+            PlaylistPlacement::Replace | PlaylistPlacement::AppendToEnd => AddMode::AppendToEnd,
+            PlaylistPlacement::PlayNext => AddMode::PlayNext,
+        };
+        if edit.placement == PlaylistPlacement::Replace {
+            self.clear_playlist();
+        }
+        self.add_to_playlist_with_sources(edit.tracks, add_mode);
+        if let Some(mode) = edit.playback_mode {
+            self.set_playback_mode(mode);
+        }
+        if let Some(load) = edit.load {
+            let insertion = match edit.placement {
+                PlaylistPlacement::Replace => 0,
+                PlaylistPlacement::AppendToEnd => self.get_playlist().len() - added_count,
+                PlaylistPlacement::PlayNext => self
+                    .get_status()
+                    .index
+                    .map_or(self.get_playlist().len() - added_count, |index| index + 1),
+            };
+            self.load_at_position(insertion + load.start_index, load.position, load.play);
+        }
+    }
     fn restore(
         &self,
         tracks: Vec<(PlayingItem, PlaybackSource)>,
@@ -376,6 +401,28 @@ pub trait Playable: Send {
     fn subscribe_realtime_fft(&self) -> SimpleReceiver<Vec<f32>>;
     fn subscribe_crash(&self) -> SimpleReceiver<String>;
     fn subscribe_log(&self) -> SimpleReceiver<InternalLog>;
+}
+
+#[derive(Debug)]
+pub struct PlaylistEdit {
+    pub tracks: Vec<(PlayingItem, PlaybackSource)>,
+    pub placement: PlaylistPlacement,
+    pub playback_mode: Option<PlaybackMode>,
+    pub load: Option<PlaylistLoad>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaylistPlacement {
+    Replace,
+    AppendToEnd,
+    PlayNext,
+}
+
+#[derive(Debug)]
+pub struct PlaylistLoad {
+    pub start_index: usize,
+    pub position: Duration,
+    pub play: bool,
 }
 
 // Define the Player struct, which includes a channel sender for sending commands
@@ -715,6 +762,9 @@ impl Playable for Player {
         mode: AddMode,
     ) {
         self.command(PlayerCommand::AddToPlaylist { tracks, mode });
+    }
+    fn edit_playlist(&mut self, edit: PlaylistEdit) {
+        self.command(PlayerCommand::EditPlaylist(edit));
     }
     fn restore(
         &self,

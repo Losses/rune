@@ -8,10 +8,19 @@ pub enum AddMode {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum UpdateReason {
-    AddToPlaylist { mode: AddMode, index: Option<usize> },
-    RemoveFromPlaylist { index: usize },
+    AddToPlaylist {
+        mode: AddMode,
+        index: Option<usize>,
+        count: usize,
+    },
+    RemoveFromPlaylist {
+        index: usize,
+    },
     ClearPlaylist,
-    MovePlaylistItem { old_index: usize, new_index: usize },
+    MovePlaylistItem {
+        old_index: usize,
+        new_index: usize,
+    },
 }
 
 pub trait PlaybackStrategy {
@@ -178,17 +187,17 @@ impl PlaybackStrategy for ShuffleStrategy {
 
     fn on_playlist_updated(&mut self, playlist_len: usize, reason: UpdateReason) {
         match reason {
-            UpdateReason::AddToPlaylist { mode, index } => match mode {
+            UpdateReason::AddToPlaylist { mode, index, count } => match mode {
                 AddMode::PlayNext => {
                     if let Some(insert_index) = index {
                         // Shift existing indices
                         for i in 0..self.random_map.len() {
                             if self.random_map[i] >= insert_index {
-                                self.random_map[i] += 1;
+                                self.random_map[i] += count;
                             }
                         }
                         // Insert new randomized tracks
-                        self.insert_randomized(insert_index, 1);
+                        self.insert_randomized(insert_index, count);
                     }
                 }
                 AddMode::AppendToEnd => {
@@ -204,5 +213,27 @@ impl PlaybackStrategy for ShuffleStrategy {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AddMode, PlaybackStrategy, ShuffleStrategy, UpdateReason};
+
+    #[test]
+    fn shuffle_play_next_tracks_all_inserted_items() {
+        let mut strategy = ShuffleStrategy::new(2);
+        strategy.on_playlist_updated(
+            5,
+            UpdateReason::AddToPlaylist {
+                mode: AddMode::PlayNext,
+                index: Some(1),
+                count: 3,
+            },
+        );
+
+        let mut mapped = strategy.random_map.clone();
+        mapped.sort_unstable();
+        assert_eq!(mapped, vec![0, 1, 2, 3, 4]);
     }
 }
