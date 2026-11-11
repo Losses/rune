@@ -250,6 +250,8 @@ fn response_status(detail: &str) -> Option<u16> {
 fn map_http_status(status: u16, detail: &str, temporary: bool) -> StoreError {
     match status {
         404 => StoreError::NotFound,
+        401 => StoreError::Unauthorized,
+        403 => StoreError::PermissionDenied,
         412 => StoreError::PreconditionFailed,
         409 | 423 | 500..=599 => StoreError::Transient(detail.to_owned()),
         408 => StoreError::Transient(detail.to_owned()),
@@ -288,14 +290,14 @@ impl ObjectStore for OpenDalObjectStore {
             {
                 Ok(reader) => reader,
                 Err(error) if error.kind() == ErrorKind::ConditionNotMatch => {
-                    return Ok(ConditionalGet::NotModified)
+                    return Ok(ConditionalGet::NotModified);
                 }
                 Err(error) => return Err(map_error(error)),
             };
             let bytes = match reader.read(..).await {
                 Ok(bytes) => bytes.to_vec(),
                 Err(error) if error.kind() == ErrorKind::ConditionNotMatch => {
-                    return Ok(ConditionalGet::NotModified)
+                    return Ok(ConditionalGet::NotModified);
                 }
                 Err(error) => return Err(map_error(error)),
             };

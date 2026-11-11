@@ -4,6 +4,25 @@ use serde::{Deserialize, Serialize};
 
 use super::MixQuery;
 
+/// Typed failures reported by the background share worker.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, SignalPiece)]
+pub enum ShareSyncFailure {
+    ReadOnlyShare,
+    ProbeFailed,
+    ShareChanged,
+    ObjectMissing,
+    StoreUnavailable,
+    CredentialsRejected,
+}
+
+#[derive(Serialize, Deserialize, RustSignal)]
+pub struct LibrarySyncStatusUpdated {
+    pub library_id: String,
+    pub share_failure: Option<ShareSyncFailure>,
+}
+
+crate::implement_rinf_rust_signal_trait!(LibrarySyncStatusUpdated);
+
 /// A device-local selection for persistent audio downloads.
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct SetDownloadRuleRequest {

@@ -8,6 +8,7 @@ use super::sync_auth::{Authorization, Challenge, TOKEN_TTL, Token, message};
 #[cfg(test)]
 use super::utils::device::load_device_info;
 use crate::access_policy::{Action, ConnectionLevel, SyncLevel};
+use crate::messages::{LibrarySyncStatusUpdated, ShareSyncFailure};
 #[cfg(test)]
 use crate::utils::GlobalParams;
 use crate::utils::subsonic_binding_for_playback;
@@ -16,15 +17,19 @@ use anyhow::{Context, Result, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use database::actions::file::{ManagedAudioVerifier, file_ids_by_uuid, materialized_path};
 use database::actions::library::clean_local_orphans;
+use database::credentials::CredentialStore;
 use database::library_registry::{
-    LibraryAccess, LibraryConnectionAccess, LibraryRecordId, LibraryRegistry, ProtocolAdapter,
-    RuneForwardMode,
+    CatalogPlacement, FsAdapter, LibraryAccess, LibraryConnectionAccess, LibraryRecord,
+    LibraryRecordId, LibraryRegistry, ProtocolAdapter, RuneForwardMode,
 };
 use database::sync::Maintenance;
 use database::sync::model::RuneModel;
+use database::sync::share::{ShareCapabilities, SharePullError, SharePushError};
+use database::sync::{LibrarySyncStore, replica::PendingShareChange};
 use discovery::access_policy::{AccessPolicy, PeerIdentity};
 use discovery::endpoint::endpoint_host_port;
 use discovery::server::UserStatus;
+use fsio::{OpenDalConfig, OpenDalObjectStore};
 use futures::future::BoxFuture;
 use futures::future::{AbortHandle, Abortable, Aborted};
 use http_request::sync::PageCursor;
@@ -41,7 +46,7 @@ use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::time as std_time;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::Entry},
     future::Future,
     hash::Hash,
     path::Path,
@@ -52,9 +57,11 @@ use std::{
 };
 use sync::SyncPeer;
 use sync::protocol::SyncError;
+use sync::share::{ObjectStore, StoreError};
 use tokio::time as tokio_time;
 use tokio::time::{Instant, MissedTickBehavior};
 use tokio::{sync::Mutex, task::JoinSet};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 const DEFAULT_PEER_PORT: u16 = 7863;
@@ -62,6 +69,198 @@ const PEER_CONCURRENCY: usize = 4;
 const PEER_RETRY_START: Duration = Duration::from_secs(1);
 const PEER_RETRY_CAP: Duration = Duration::from_secs(30);
 const TOKEN_SAFETY_MARGIN: Duration = Duration::from_secs(30);
+const SHARE_PULL_INTERVAL: Duration = Duration::from_secs(60);
+const SHARE_BACKGROUND_PULL_INTERVAL: Duration = Duration::from_secs(15 * 60);
+const SHARE_PUSH_DEBOUNCE: Duration = Duration::from_secs(10);
+const SHARE_STATISTICS_INTERVAL: Duration = Duration::from_secs(30 * 60);
+const SHARE_GC_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+const SHARE_RETRY_START: Duration = Duration::from_secs(1);
+const SHARE_RETRY_CAP: Duration = Duration::from_secs(30);
+
+#[derive(Clone)]
+struct ShareStoreSession {
+    store: Arc<dyn ObjectStore>,
+    capabilities: ShareCapabilities,
+}
+
+trait ShareStoreFactory: Send + Sync {
+    fn open<'a>(
+        &'a self,
+        record: &'a LibraryRecord,
+        prefix: &'a str,
+        credentials: &'a CredentialStore,
+    ) -> futures::future::BoxFuture<'a, Result<ShareStoreSession, ShareSyncFailure>>;
+}
+
+struct OpenDalShareStoreFactory;
+
+impl ShareStoreFactory for OpenDalShareStoreFactory {
+    fn open<'a>(
+        &'a self,
+        record: &'a LibraryRecord,
+        prefix: &'a str,
+        credentials: &'a CredentialStore,
+    ) -> futures::future::BoxFuture<'a, Result<ShareStoreSession, ShareSyncFailure>> {
+        Box::pin(async move {
+            let config = match record.fs.as_slice() {
+                [
+                    FsAdapter::WebDav {
+                        endpoint,
+                        root,
+                        username,
+                        credential,
+                    },
+                ] => {
+                    let credential = credentials
+                        .get(*credential)
+                        .await
+                        .map_err(|_| ShareSyncFailure::CredentialsRejected)?;
+                    if credential.username != *username {
+                        return Err(ShareSyncFailure::CredentialsRejected);
+                    }
+                    let password = String::from_utf8(credential.secret.as_bytes().to_vec())
+                        .map_err(|_| ShareSyncFailure::CredentialsRejected)?;
+                    OpenDalConfig::WebDav {
+                        endpoint: endpoint.clone(),
+                        root: root.clone(),
+                        username: username.clone(),
+                        password,
+                    }
+                }
+                [
+                    FsAdapter::S3 {
+                        endpoint,
+                        bucket,
+                        region,
+                        root,
+                        access_key_id,
+                        credential,
+                    },
+                ] => {
+                    let credential = credentials
+                        .get(*credential)
+                        .await
+                        .map_err(|_| ShareSyncFailure::CredentialsRejected)?;
+                    if credential.username != *access_key_id {
+                        return Err(ShareSyncFailure::CredentialsRejected);
+                    }
+                    let secret_access_key =
+                        String::from_utf8(credential.secret.as_bytes().to_vec())
+                            .map_err(|_| ShareSyncFailure::CredentialsRejected)?;
+                    OpenDalConfig::S3 {
+                        endpoint: endpoint.clone(),
+                        bucket: bucket.clone(),
+                        region: region.clone(),
+                        root: root.clone(),
+                        access_key_id: access_key_id.clone(),
+                        secret_access_key,
+                    }
+                }
+                _ => return Err(ShareSyncFailure::ProbeFailed),
+            };
+            let store =
+                OpenDalObjectStore::new(config).map_err(|_| ShareSyncFailure::ProbeFailed)?;
+            let probed = store
+                .probe(prefix)
+                .await
+                .map_err(classify_share_store_error)?;
+            Ok(ShareStoreSession {
+                store: Arc::new(store),
+                capabilities: ShareCapabilities {
+                    conditional_create: probed.conditional_create,
+                    conditional_head_write: probed.conditional_put,
+                },
+            })
+        })
+    }
+}
+
+async fn share_sync_pass(
+    library_sync: &LibrarySyncStore,
+    library_id: Uuid,
+    cache_path: PathBuf,
+    session: &ShareStoreSession,
+    pass: SharePass,
+    notify: impl Fn(),
+) -> Result<bool, ShareSyncFailure> {
+    let pulled = library_sync
+        .pull_share(
+            session.store.clone(),
+            library_id,
+            cache_path.clone(),
+            session.capabilities,
+        )
+        .await
+        .map_err(share_pull_failure)?;
+    if !pulled.is_empty() {
+        notify();
+    }
+    if pass == SharePass::PullAndPush {
+        library_sync
+            .push_share(
+                session.store.clone(),
+                library_id,
+                cache_path,
+                session.capabilities,
+            )
+            .await
+            .map_err(share_push_failure)?;
+    }
+    Ok(!pulled.is_empty())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SharePass {
+    PullOnly,
+    PullAndPush,
+}
+
+struct ShareSchedule {
+    last_pull: Option<Instant>,
+    observed_head: Option<u64>,
+    last_change: Option<Instant>,
+    last_push: Instant,
+    pending_change: Option<PendingShareChange>,
+}
+
+impl Default for ShareSchedule {
+    fn default() -> Self {
+        Self {
+            last_pull: None,
+            observed_head: None,
+            last_change: None,
+            last_push: Instant::now(),
+            pending_change: None,
+        }
+    }
+}
+
+async fn select_share_cancellation<T>(
+    cancel: CancellationToken,
+    operation: impl Future<Output = T>,
+) -> Option<T> {
+    tokio::select! {
+        _ = cancel.cancelled() => None,
+        result = operation => Some(result),
+    }
+}
+
+fn next_share_backoff(previous: Option<Duration>) -> (Duration, Duration) {
+    let wait = previous.unwrap_or(SHARE_RETRY_START);
+    (wait, wait.saturating_mul(2).min(SHARE_RETRY_CAP))
+}
+
+fn classify_share_store_error(error: StoreError) -> ShareSyncFailure {
+    match error {
+        StoreError::PermissionDenied => ShareSyncFailure::ReadOnlyShare,
+        StoreError::Unauthorized => ShareSyncFailure::CredentialsRejected,
+        StoreError::NotFound => ShareSyncFailure::ObjectMissing,
+        StoreError::Transient(_) => ShareSyncFailure::StoreUnavailable,
+        StoreError::Permanent(_) | StoreError::ClockSkew | StoreError::PreconditionFailed => {
+            ShareSyncFailure::ProbeFailed
+        }
+    }
+}
 
 /// A peer endpoint: its fingerprint and base URL.
 type PeerKey = (String, String);
@@ -256,7 +455,7 @@ pub async fn run(
     notify: Arc<dyn Fn() + Send + Sync>,
     own_fingerprint: String,
     private_key: String,
-    cancel: tokio_util::sync::CancellationToken,
+    cancel: CancellationToken,
 ) {
     let locks: ReplicaLocks = Arc::default();
     let credentials = LocalCredentials {
@@ -281,10 +480,241 @@ pub async fn run(
     );
     tokio::join!(
         join_workers(metadata, audio),
-        verify_managed_audio(global.clone(), notify, cancel.clone()),
-        maintain_metadata(global, cancel)
+        verify_managed_audio(global.clone(), notify.clone(), cancel.clone()),
+        maintain_metadata(global.clone(), cancel.clone()),
+        run_share_worker(global, notify, cancel, Arc::new(OpenDalShareStoreFactory))
     );
 }
+
+async fn run_share_worker(
+    global: Weak<NodeContext>,
+    notify: Arc<dyn Fn() + Send + Sync>,
+    cancel: CancellationToken,
+    factory: Arc<dyn ShareStoreFactory>,
+) {
+    let mut sessions = HashMap::<Uuid, ShareStoreSession>::new();
+    let mut retry = HashMap::<Uuid, (Duration, Instant)>::new();
+    let mut schedules = HashMap::<Uuid, ShareSchedule>::new();
+    let mut interval = tokio::time::interval(Duration::from_secs(1));
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => {
+                flush_share_worker(&global, &sessions, &notify).await;
+                return;
+            },
+            _ = interval.tick() => (),
+        }
+        let Some(global) = global.upgrade() else {
+            return;
+        };
+        let ids = match global.library_pool.served_library_ids().await {
+            Ok(ids) => ids,
+            Err(error) => {
+                log::warn!("Could not discover share libraries: {error:#}");
+                continue;
+            }
+        };
+        sessions.retain(|id, _| ids.contains(id));
+        retry.retain(|id, _| ids.contains(id));
+        schedules.retain(|id, _| ids.contains(id));
+        for id in ids {
+            if retry.get(&id).is_some_and(|(_, due)| *due > Instant::now()) {
+                continue;
+            }
+            let operation = async {
+                let Some(library) = global
+                    .library_pool
+                    .acquire_served(id)
+                    .await
+                    .map_err(|_| ShareSyncFailure::StoreUnavailable)?
+                else {
+                    sessions.remove(&id);
+                    retry.remove(&id);
+                    schedules.remove(&id);
+                    return Ok::<_, ShareSyncFailure>(false);
+                };
+                if !matches!(library.descriptor.catalog, CatalogPlacement::InShare(_)) {
+                    sessions.remove(&id);
+                    retry.remove(&id);
+                    schedules.remove(&id);
+                    return Ok(false);
+                }
+                let cache_path = PathBuf::from(global.config_path.as_str())
+                    .join("share-cache")
+                    .join(id.to_string());
+                let prefix = library
+                    .library_sync
+                    .share_prefix(cache_path.clone())
+                    .await
+                    .map_err(|_| ShareSyncFailure::ProbeFailed)?;
+                if let Entry::Vacant(entry) = sessions.entry(id) {
+                    let session = factory
+                        .open(&library.descriptor, &prefix, &global.credentials)
+                        .await?;
+                    entry.insert(session);
+                }
+                let session = sessions
+                    .get(&id)
+                    .cloned()
+                    .ok_or(ShareSyncFailure::ProbeFailed)?;
+                let pending = library
+                    .library_sync
+                    .share_pending_changes(cache_path.clone())
+                    .await
+                    .map_err(|_| ShareSyncFailure::StoreUnavailable)?;
+                let schedule = schedules.entry(id).or_default();
+                let now = Instant::now();
+                if let Some(pending) = pending {
+                    if schedule.observed_head != Some(pending.journal_head) {
+                        schedule.observed_head = Some(pending.journal_head);
+                        schedule.last_change = Some(now);
+                    }
+                    schedule.pending_change = Some(pending.change);
+                }
+                let foreground = global
+                    .current_ui()
+                    .await
+                    .ok()
+                    .and_then(|params| params.library_id)
+                    == Some(id);
+                let poll_interval = if foreground {
+                    SHARE_PULL_INTERVAL
+                } else {
+                    SHARE_BACKGROUND_PULL_INTERVAL
+                };
+                let pull_due = schedule
+                    .last_pull
+                    .is_none_or(|last| last.elapsed() >= poll_interval);
+                let push_due = schedule.last_pull.is_none()
+                    || schedule.last_push.elapsed() >= SHARE_GC_INTERVAL
+                    || pending.is_some_and(|_| match schedule.pending_change {
+                        Some(PendingShareChange::StatisticsOnly) => {
+                            schedule.last_push.elapsed() >= SHARE_STATISTICS_INTERVAL
+                        }
+                        Some(PendingShareChange::Content) => schedule
+                            .last_change
+                            .is_some_and(|last| last.elapsed() >= SHARE_PUSH_DEBOUNCE),
+                        None => false,
+                    });
+                if !pull_due && !push_due {
+                    return Ok(false);
+                }
+                let pass_notify = pass_notification(&global, &library, &notify).await;
+                let pulled = share_sync_pass(
+                    &library.library_sync,
+                    library.library_id,
+                    cache_path,
+                    &session,
+                    if push_due {
+                        SharePass::PullAndPush
+                    } else {
+                        SharePass::PullOnly
+                    },
+                    || pass_notify(),
+                )
+                .await?;
+                schedule.last_pull = Some(now);
+                if push_due {
+                    schedule.last_push = now;
+                }
+                Ok(pulled || push_due)
+            };
+            let Some(result) = select_share_cancellation(cancel.clone(), operation).await else {
+                return;
+            };
+            match result {
+                Ok(did_work) => {
+                    retry.remove(&id);
+                    if did_work {
+                        global.gui_broadcaster.broadcast(&LibrarySyncStatusUpdated {
+                            library_id: id.to_string(),
+                            share_failure: None,
+                        });
+                    }
+                }
+                Err(failure) => {
+                    let previous = retry.get(&id).map(|(delay, _)| *delay);
+                    let (wait, next_delay) = next_share_backoff(previous);
+                    retry.insert(id, (next_delay, Instant::now() + wait));
+                    global.gui_broadcaster.broadcast(&LibrarySyncStatusUpdated {
+                        library_id: id.to_string(),
+                        share_failure: Some(failure),
+                    });
+                }
+            }
+        }
+    }
+}
+
+async fn flush_share_worker(
+    global: &Weak<NodeContext>,
+    sessions: &HashMap<Uuid, ShareStoreSession>,
+    notify: &Arc<dyn Fn() + Send + Sync>,
+) {
+    let Some(global) = global.upgrade() else {
+        return;
+    };
+    let Ok(ids) = global.library_pool.served_library_ids().await else {
+        return;
+    };
+    for id in ids {
+        let Some(session) = sessions.get(&id) else {
+            continue;
+        };
+        let Ok(Some(library)) = global.library_pool.acquire_served(id).await else {
+            continue;
+        };
+        if !matches!(library.descriptor.catalog, CatalogPlacement::InShare(_)) {
+            continue;
+        }
+        let cache_path = PathBuf::from(global.config_path.as_str())
+            .join("share-cache")
+            .join(id.to_string());
+        let pass_notify = pass_notification(&global, &library, notify).await;
+        if let Err(error) = share_sync_pass(
+            &library.library_sync,
+            library.library_id,
+            cache_path,
+            session,
+            SharePass::PullAndPush,
+            || pass_notify(),
+        )
+        .await
+        {
+            log::warn!("Final share publication failed: {error:?}");
+        }
+    }
+}
+
+fn share_pull_failure(error: SharePullError) -> ShareSyncFailure {
+    match error {
+        SharePullError::ShareChanged => ShareSyncFailure::ShareChanged,
+        SharePullError::ReadOnly => ShareSyncFailure::ReadOnlyShare,
+        SharePullError::CredentialsRejected => ShareSyncFailure::CredentialsRejected,
+        SharePullError::MissingObject(_) => ShareSyncFailure::ObjectMissing,
+        SharePullError::Transient(_) | SharePullError::Store(_) => {
+            ShareSyncFailure::StoreUnavailable
+        }
+        SharePullError::Invalid(_) | SharePullError::Cancelled => ShareSyncFailure::ProbeFailed,
+    }
+}
+
+fn share_push_failure(error: SharePushError) -> ShareSyncFailure {
+    match error {
+        SharePushError::ShareChanged => ShareSyncFailure::ShareChanged,
+        SharePushError::ReadOnly => ShareSyncFailure::ReadOnlyShare,
+        SharePushError::CredentialsRejected => ShareSyncFailure::CredentialsRejected,
+        SharePushError::MissingObject => ShareSyncFailure::ObjectMissing,
+        SharePushError::Failed(_) | SharePushError::NeedsBase | SharePushError::StaleHead => {
+            ShareSyncFailure::StoreUnavailable
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "sync_worker_tests.rs"]
+mod share_worker_tests;
 
 async fn eligible_libraries(global: &NodeContext) -> Vec<Uuid> {
     match global.library_pool.served_library_ids().await {

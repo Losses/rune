@@ -725,6 +725,7 @@ fn object_store_error(error: StoreError) -> SyncError {
             SyncError::Storage("unexpected object precondition".into())
         }
         StoreError::PermissionDenied => SyncError::Storage("share is read-only".into()),
+        StoreError::Unauthorized => SyncError::Storage("share credentials rejected".into()),
     }
 }
 

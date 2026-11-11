@@ -41,7 +41,97 @@ pub struct LibrarySyncStore {
     endpoint: CausalEndpoint<RuneModel>,
     share_writer: ShareWriter,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PendingShareChange {
+    Content,
+    StatisticsOnly,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SharePendingChanges {
+    pub journal_head: u64,
+    pub change: PendingShareChange,
+}
+
 impl LibrarySyncStore {
+    /// Return this library's persisted share prefix, creating local share state if needed.
+    pub async fn share_prefix(&self, cache_path: PathBuf) -> Result<String> {
+        let identity = SyncPeer::identity(&self.endpoint).await?;
+        let state = load_or_create_state(
+            &self.db,
+            identity.replica,
+            identity.namespace,
+            cache_path,
+            chrono::Utc::now().timestamp_millis(),
+        )
+        .await?;
+        Ok(format!("{}.{}", state.stream, state.generation))
+    }
+    /// Classify the local journal tail after the share export cursor for timer selection.
+    pub async fn share_pending_changes(
+        &self,
+        cache_path: PathBuf,
+    ) -> Result<Option<SharePendingChanges>> {
+        let identity = SyncPeer::identity(&self.endpoint).await?;
+        let state = load_or_create_state(
+            &self.db,
+            identity.replica,
+            identity.namespace,
+            cache_path,
+            chrono::Utc::now().timestamp_millis(),
+        )
+        .await?;
+        let journal = self.inner.clone();
+        let through = SyncPeer::head(&self.endpoint).await?;
+        if state.local_cursor >= through.sequence {
+            return Ok(None);
+        }
+        let scope = sync::Scope {
+            collections: RuneModel::collections().into_iter().collect(),
+        };
+        let mut after = journal.progress_at(state.local_cursor).await?;
+        let mut change = PendingShareChange::StatisticsOnly;
+        while after.sequence < through.sequence {
+            let page_read = journal
+                .read_page_with_origins(sync::PageRequest {
+                    source: identity.clone(),
+                    scope: scope.clone(),
+                    after: after.clone(),
+                    through: through.clone(),
+                    limits: sync::PageLimits {
+                        max_scanned: sync::MAX_PAGE_ITEMS,
+                        max_bytes: sync::MAX_PAGE_BYTES,
+                    },
+                })
+                .await?;
+            match page_read.read {
+                PageRead::Page(page) => {
+                    if page
+                        .links
+                        .iter()
+                        .any(|link| link.collection != Collection::PlaybackStatistics)
+                    {
+                        change = PendingShareChange::Content;
+                    }
+                    after = page.next;
+                    if page.done {
+                        break;
+                    }
+                }
+                PageRead::FragmentNeeded { collection, .. } => {
+                    if collection != Collection::PlaybackStatistics {
+                        change = PendingShareChange::Content;
+                    }
+                    break;
+                }
+            }
+        }
+        Ok(Some(SharePendingChanges {
+            journal_head: through.sequence,
+            change,
+        }))
+    }
     pub fn record_store(&self) -> SeaOrmSyncStore {
         self.inner.clone()
     }
@@ -210,6 +300,8 @@ impl LibrarySyncStore {
             .map_err(|error| match error {
                 SharePullError::ShareChanged => SharePushError::ShareChanged,
                 SharePullError::ReadOnly => SharePushError::ReadOnly,
+                SharePullError::CredentialsRejected => SharePushError::CredentialsRejected,
+                SharePullError::MissingObject(_) => SharePushError::MissingObject,
                 other => SharePushError::Failed(other.to_string()),
             })?;
 

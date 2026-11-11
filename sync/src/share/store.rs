@@ -10,6 +10,7 @@ pub enum StoreError {
     NotFound,
     PreconditionFailed,
     PermissionDenied,
+    Unauthorized,
     ClockSkew,
     Transient(String),
     Permanent(String),

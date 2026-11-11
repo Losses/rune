@@ -92,6 +92,7 @@ pub enum CatalogPlacement {
     None,
     InMediaRoot,
     Redirected(Uuid),
+    InShare(Uuid),
     ConfigReplica,
 }
 
@@ -154,7 +155,7 @@ impl LibraryRecord {
             (CatalogPlacement::ConfigReplica, _) => {
                 self.library_id.map(|id| replica_root(config_dir, id))
             }
-            (CatalogPlacement::Redirected(_), None)
+            (CatalogPlacement::Redirected(_) | CatalogPlacement::InShare(_), None)
                 if self.fs.iter().any(|adapter| {
                     matches!(adapter, FsAdapter::WebDav { .. } | FsAdapter::S3 { .. })
                 }) =>
@@ -233,7 +234,7 @@ impl LibraryRecord {
             CatalogPlacement::InMediaRoot | CatalogPlacement::ConfigReplica => {
                 Some(DbPlacement::Portable)
             }
-            CatalogPlacement::Redirected(storage_key) => {
+            CatalogPlacement::Redirected(storage_key) | CatalogPlacement::InShare(storage_key) => {
                 Some(DbPlacement::Redirected { storage_key })
             }
             CatalogPlacement::None => None,
@@ -253,7 +254,10 @@ impl LibraryRecord {
                 if open_dal_count > 0
                     && (open_dal_count != 1
                         || self.fs.len() != 1
-                        || !matches!(self.catalog, CatalogPlacement::Redirected(_)))
+                        || !matches!(
+                            self.catalog,
+                            CatalogPlacement::Redirected(_) | CatalogPlacement::InShare(_)
+                        ))
                 {
                     return Err(InvalidRecord::OpenDalInvalid);
                 }
@@ -265,10 +269,17 @@ impl LibraryRecord {
                         .any(|adapter| matches!(adapter, FsAdapter::RunePeer { .. }))
                     || !matches!(
                         self.catalog,
-                        CatalogPlacement::InMediaRoot | CatalogPlacement::Redirected(_)
+                        CatalogPlacement::InMediaRoot
+                            | CatalogPlacement::Redirected(_)
+                            | CatalogPlacement::InShare(_)
                     )
                 {
                     return Err(InvalidRecord::NativeInvalid);
+                }
+                if matches!(self.catalog, CatalogPlacement::InShare(_))
+                    && (open_dal_count != 1 || self.fs.len() != 1)
+                {
+                    return Err(InvalidRecord::OpenDalInvalid);
                 }
             }
             ProtocolAdapter::RuneForward {
@@ -1989,6 +2000,21 @@ mod tests {
         };
         assert_eq!(opendal.validate(), Ok(()));
         assert_eq!(opendal.root(Path::new("/config")), Some(PathBuf::new()));
+        let mut in_share = opendal.clone();
+        in_share.catalog = CatalogPlacement::InShare(Uuid::new_v4());
+        assert_eq!(in_share.validate(), Ok(()));
+        assert!(matches!(
+            in_share.db_placement(),
+            Some(DbPlacement::Redirected { .. })
+        ));
+        let mut local_in_share = in_share.clone();
+        local_in_share.fs = vec![FsAdapter::Local {
+            path: "/music".into(),
+        }];
+        assert_eq!(
+            local_in_share.validate(),
+            Err(InvalidRecord::OpenDalInvalid)
+        );
         let mut opendal_in_media_root = opendal.clone();
         opendal_in_media_root.catalog = CatalogPlacement::InMediaRoot;
         assert_eq!(

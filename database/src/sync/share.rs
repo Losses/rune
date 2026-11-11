@@ -244,6 +244,8 @@ pub enum SharePullError {
     Store(String),
     #[error("share is read-only")]
     ReadOnly,
+    #[error("share credentials rejected")]
+    CredentialsRejected,
     #[error("share pull cancelled")]
     Cancelled,
 }
@@ -258,6 +260,10 @@ pub enum SharePushError {
     StaleHead,
     #[error("share is read-only")]
     ReadOnly,
+    #[error("share credentials rejected")]
+    CredentialsRejected,
+    #[error("required share object is missing")]
+    MissingObject,
     #[error("share binding changed")]
     ShareChanged,
     #[error("share push failed: {0}")]
@@ -1652,8 +1658,9 @@ async fn refresh_own_head(store: &dyn ObjectStore, prefix: &DevicePrefix) -> Sha
 pub(super) fn push_store_error(error: StoreError) -> SharePushError {
     match error {
         StoreError::PermissionDenied => SharePushError::ReadOnly,
+        StoreError::Unauthorized => SharePushError::CredentialsRejected,
         StoreError::Transient(message) => SharePushError::Failed(format!("transient: {message}")),
-        StoreError::NotFound => SharePushError::Failed("share object disappeared".into()),
+        StoreError::NotFound => SharePushError::MissingObject,
         other => SharePushError::Failed(format!("{other:?}")),
     }
 }
@@ -1877,8 +1884,11 @@ async fn binding_exists(db: &DatabaseConnection, library_id: Uuid) -> Result<boo
 fn store_error(error: StoreError) -> SharePullError {
     match error {
         StoreError::Transient(message) => SharePullError::Transient(message),
-        StoreError::NotFound => SharePullError::Invalid("required share object is missing".into()),
+        StoreError::NotFound => {
+            SharePullError::MissingObject("required share object is missing".into())
+        }
         StoreError::PermissionDenied => SharePullError::ReadOnly,
+        StoreError::Unauthorized => SharePullError::CredentialsRejected,
         other => SharePullError::Store(format!("{other:?}")),
     }
 }
