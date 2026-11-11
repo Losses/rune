@@ -26,6 +26,8 @@ RequestCapabilities snapshot({
     detachRendererRequest: capability,
     listRenderersRequest: capability,
     handoffRequest: capability,
+    handoffLoadRequest: capability,
+    takeBackHandoffBlockRequest: capability,
     getDeviceGrantsRequest: capability,
     setDeviceGrantsRequest: capability,
     listControllersRequest: capability,

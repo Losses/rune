@@ -1,3 +1,4 @@
+use crate::request_error::ExpectedRequestError;
 use playback::player::{HandoffBlockId as PlaybackHandoffBlockId, UnavailableReason};
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
@@ -345,20 +346,28 @@ pub struct LoadResolvedItemsResponse {
     pub call_id: Option<u64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct HandoffBlockId(pub Uuid);
-
-impl SignalPiece for HandoffBlockId {}
+/// The id of a handed-off queue block on the wire: a UUID in text form, like the
+/// other ids that cross the Dart boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, SignalPiece)]
+pub struct HandoffBlockId {
+    pub uuid: String,
+}
 
 impl From<PlaybackHandoffBlockId> for HandoffBlockId {
     fn from(block: PlaybackHandoffBlockId) -> Self {
-        Self(block.0)
+        Self {
+            uuid: block.0.to_string(),
+        }
     }
 }
 
-impl From<HandoffBlockId> for PlaybackHandoffBlockId {
-    fn from(block: HandoffBlockId) -> Self {
-        Self(block.0)
+impl TryFrom<&HandoffBlockId> for PlaybackHandoffBlockId {
+    type Error = ExpectedRequestError;
+
+    fn try_from(block: &HandoffBlockId) -> Result<Self, Self::Error> {
+        Uuid::parse_str(&block.uuid).map(Self).map_err(|error| {
+            ExpectedRequestError::invalid_input(format!("Invalid handoff block id: {error}"))
+        })
     }
 }
 
@@ -370,7 +379,7 @@ pub struct HandoffLoadRequest {
     pub call_id: Option<u64>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, DartSignal)]
+#[derive(Debug, Clone, Serialize, Deserialize, DartSignal)]
 pub struct TakeBackHandoffBlockRequest {
     pub block: HandoffBlockId,
     #[serde(default)]

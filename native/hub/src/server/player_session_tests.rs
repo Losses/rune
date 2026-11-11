@@ -5903,7 +5903,9 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     );
 
     let unknown_block = TakeBackHandoffBlockRequest {
-        block: HandoffBlockId(Uuid::new_v4()),
+        block: HandoffBlockId {
+            uuid: Uuid::new_v4().to_string(),
+        },
         call_id: None,
     };
     let b_link = controller

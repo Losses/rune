@@ -32,7 +32,7 @@ use crate::subsonic_binding::SubsonicBinding;
 use crate::{
     Session, Signal,
     library_pool::{LibraryHandle, LibraryPool},
-    messages::{HandoffBlockId, *},
+    messages::*,
     node::NodeContext,
     session::{HandoffLoadParams, PlayerSession},
     utils::{
@@ -734,7 +734,12 @@ impl Signal for HandoffLoadRequest {
             }
             .into());
         }
-        apply_handoff_load(&node, request.block, &request.load).await?;
+        apply_handoff_load(
+            &node,
+            PlayerHandoffBlockId::try_from(&request.block)?,
+            &request.load,
+        )
+        .await?;
         Ok(Some(LoadResolvedItemsResponse { call_id: None }))
     }
 }
@@ -765,7 +770,7 @@ impl Signal for TakeBackHandoffBlockRequest {
         }
         let (result, revision) = node
             .session()?
-            .take_back_handoff_block(request.block.into())
+            .take_back_handoff_block(PlayerHandoffBlockId::try_from(&request.block)?)
             .await?;
         let items = result
             .items
@@ -1040,7 +1045,7 @@ async fn apply_cast_load(node: &NodeContext, request: &LoadResolvedItemsRequest)
 
 async fn apply_handoff_load(
     node: &NodeContext,
-    block: HandoffBlockId,
+    block: PlayerHandoffBlockId,
     request: &LoadResolvedItemsRequest,
 ) -> Result<()> {
     if request.mode != PlaylistOperateMode::PlayNext {
@@ -1052,7 +1057,7 @@ async fn apply_handoff_load(
 async fn apply_resolved_items_load(
     node: &NodeContext,
     request: &LoadResolvedItemsRequest,
-    block: Option<HandoffBlockId>,
+    block: Option<PlayerHandoffBlockId>,
 ) -> Result<()> {
     let position = request
         .position_seconds
@@ -1176,7 +1181,7 @@ async fn apply_resolved_items_load(
             .handoff_load_queue(HandoffLoadParams {
                 expected_revision: request.expected_revision,
                 tracks: prepared,
-                block: block.into(),
+                block,
                 start_index,
                 position,
                 play,
