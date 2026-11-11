@@ -1504,6 +1504,17 @@
       }
     }
   },
+  "castTracksLeftOut": "{count, plural, one{{count} piste n’est pas encore sur {alias} et n’a pas été ajoutée.} other{{count} pistes ne sont pas encore sur {alias} et n’ont pas été ajoutées.}}",
+  "@castTracksLeftOut": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "thisDevice": "Cet appareil",
   "devicesThatCanConnect": "Appareils connectables",
   "otherDevices": "Autres appareils",

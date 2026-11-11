@@ -18,6 +18,7 @@ Future<List<PlayingItem>> operatePlaybackWithMixQuery({
   required PlaylistOperateMode operateMode,
   required List<PlayingItem> fallbackPlayingItems,
   CastTarget? castTo,
+  void Function(ResolvedItemsLoadResult result)? onCastResult,
 }) async {
   final requestItems = await playingItemRefs([
     PlayingItem.inLibrary(initialPlaybackId),
@@ -70,7 +71,7 @@ Future<List<PlayingItem>> operatePlaybackWithMixQuery({
             send: () => PlaylistRevisionRequest().sendSignalToRust(),
           )).message.revision;
     if (castTo != null && !castTo.attach) {
-      await awaitResponse(
+      final response = await awaitResponse(
         'CastResolvedItemsRequest',
         CastResolvedItemsResponse.rustSignalStream,
         send: () => CastResolvedItemsRequest(
@@ -84,8 +85,9 @@ Future<List<PlayingItem>> operatePlaybackWithMixQuery({
           play: null,
         ).sendSignalToRust(),
       );
+      onCastResult?.call(response.message.result);
     } else {
-      await awaitResponse(
+      final response = await awaitResponse(
         'LoadResolvedItemsRequest',
         LoadResolvedItemsResponse.rustSignalStream,
         send: () => LoadResolvedItemsRequest(
@@ -98,6 +100,7 @@ Future<List<PlayingItem>> operatePlaybackWithMixQuery({
           play: null,
         ).sendSignalToRust(),
       );
+      onCastResult?.call(response.message.result);
     }
   } catch (_) {
     if (attachedForLoad) {

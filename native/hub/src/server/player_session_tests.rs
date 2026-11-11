@@ -3688,10 +3688,9 @@ async fn deleted_queued_uuid_is_unreadable_and_playback_advances() -> Result<()>
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
-    use crate::backends::remote::{connect_remote, decode_message};
+    use crate::backends::remote::connect_remote;
     use crate::messages::{PlaylistUnavailableReason, PlaylistUpdate};
     use crate::server::{sync, sync_worker};
-    use futures::StreamExt;
 
     let a_dir = tempfile::tempdir()?;
     let b_dir = tempfile::tempdir()?;
@@ -4059,12 +4058,12 @@ async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() -> Result<()> {
-    use crate::backends::remote::{connect_remote, decode_message};
+    use crate::backends::remote::connect_remote;
     use crate::messages::{
-        CastLibraryState, CastPreflightResponse, LoadResolvedItemsRequest,
-        LoadResolvedItemsResponse, PlaylistOperateMode, RemoteRequestFailed,
+        CastLibraryState, CastPreflightResponse, CastResolvedItemsResponse, HandoffBlockId, HandoffLoadRequest,
+        LoadResolvedItemsRequest,
+        PlaylistOperateMode, RemoteRequestFailed,
     };
-    use futures::StreamExt;
 
     let host_dir = tempfile::tempdir()?;
     let renderer_dir = tempfile::tempdir()?;
@@ -4082,18 +4081,47 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
 
     let host_ids = [
         session_audio(&host, "cast-first.ogg").await?,
-        session_audio(&host, "cast-second.ogg").await?,
+        session_audio(&host, "cast-missing.ogg").await?,
+        session_audio(&host, "cast-third.ogg").await?,
     ];
     let host_items =
         futures::future::join_all(host_ids.iter().map(|id| library_track_for_id(&host, *id)))
             .await
             .into_iter()
             .collect::<Result<Vec<_>>>()?;
-    let (_, _renderer_replica) = replicate_host_library(&host, &renderer).await?;
+    let (_, renderer_replica) = replicate_host_library(&host, &renderer).await?;
+    let renderer_library = renderer_replica
+        .global_params
+        .node
+        .library_pool
+        .acquire_for_request(host.global_params.library_id.context("host library id")?)
+        .await?;
+    let target_file_ids = file_ids_by_uuid(
+        &renderer_library.main_db,
+        &[host_items[1].file_uuid],
+    )
+    .await?;
+    let target_file_id = target_file_ids
+        .get(&host_items[1].file_uuid)
+        .copied()
+        .context("middle cast item missing from replica fixture")?;
+    media_files::Entity::delete_by_id(target_file_id)
+        .exec(renderer_library.main_db.as_ref())
+        .await?;
     let renderer_info = info(&renderer).await?;
     let host_library_id = host.global_params.library_id.context("host library id")?;
 
     let controller_addr = paired_full(&renderer, &controller).await?;
+    controller
+        .global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(
+            &renderer_info.fingerprint,
+            vec![format!("127.0.0.1:{}", controller_addr.port())],
+        )
+        .await?;
     let mut socket = connect_remote(
         "127.0.0.1",
         controller_addr.port(),
@@ -4121,54 +4149,32 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         .iter()
         .map(|item| (*item).into())
         .collect::<Vec<_>>();
-    let load = LoadResolvedItemsRequest {
+    let cast_request = CastResolvedItemsRequest {
         call_id: None,
+        fingerprint: renderer_info.fingerprint.clone(),
         items: cast_items.clone(),
-        start_index: Some(0),
+        start_index: Some(1),
         mode: PlaylistOperateMode::Replace,
         expected_revision: None,
         playback_mode: None,
         position_seconds: None,
         play: None,
     };
-    let (name, payload, updates) = controller_request(
-        &mut socket,
-        "LoadResolvedItemsRequest",
-        rinf::serialize(&load)?,
+    let response: CastResolvedItemsResponse = dispatch_gui_request(
+        &controller.global_params,
+        &cast_request,
     )
-    .await?;
-    assert_eq!(name, "LoadResolvedItemsResponse");
-    let _: LoadResolvedItemsResponse = rinf::deserialize(&payload)?;
+    .await?
+    .context("cast result")?;
+    assert_eq!(response.result.left_out_items.len(), 1);
+    assert_eq!(response.result.left_out_items, vec![host_items[1].into()]);
     wait_player(&renderer, |status| {
-        status.item == Some(PlayingItem::from(host_items[0]))
+        status.state == PlaybackState::Playing
+            && status.item == Some(PlayingItem::from(host_items[2]))
+            && status.playlist
+                == vec![PlayingItem::from(host_items[0]), PlayingItem::from(host_items[2])]
     })
     .await?;
-    renderer.global_params.player.lock().await.pause();
-    let mut updates = updates;
-    tokio::time::timeout(Duration::from_secs(8), async {
-        while !updates.iter().any(|update| update.items.len() == 2) {
-            let frame = socket.next().await.context("controller socket closed")??;
-            if let Some((name, payload, _)) = decode_message(&frame.into_data())
-                && name == "PlaylistUpdate"
-            {
-                updates.push(rinf::deserialize(&payload)?);
-            }
-        }
-        Ok::<_, anyhow::Error>(())
-    })
-    .await
-    .context("controller did not receive the cast queue")??;
-    let update = updates
-        .into_iter()
-        .find(|update| update.items.len() == 2)
-        .context("controller did not receive the cast queue")?;
-    assert!(
-        update
-            .items
-            .iter()
-            .all(|item| matches!(item.item, PlayingItemRef::LibraryTrack { .. }))
-    );
-    assert_eq!(update.revision, 1);
     renderer.stop_worker().await?;
     host.stop_worker().await?;
     let revision = renderer
@@ -4177,6 +4183,100 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         .session()?
         .queue_revision()
         .await;
+    let queue_before_unavailable_cast = renderer
+        .global_params
+        .player
+        .lock()
+        .await
+        .get_status()
+        .playlist;
+    let (name, payload, _) = controller_request(
+        &mut socket,
+        "LoadResolvedItemsRequest",
+        rinf::serialize(&LoadResolvedItemsRequest {
+            call_id: None,
+            items: vec![host_items[1].into()],
+            start_index: Some(0),
+            mode: PlaylistOperateMode::Replace,
+            expected_revision: Some(revision),
+            playback_mode: None,
+            position_seconds: None,
+            play: None,
+        })?,
+    )
+    .await?;
+    assert_eq!(name, "RemoteRequestFailed");
+    assert_eq!(
+        rinf::deserialize::<RemoteRequestFailed>(&payload)?.kind,
+        RequestErrorKind::Unavailable
+    );
+    assert_eq!(
+        renderer
+            .global_params
+            .player
+            .lock()
+            .await
+            .get_status()
+            .playlist,
+        queue_before_unavailable_cast
+    );
+    assert_eq!(
+        renderer
+            .global_params
+            .node
+            .session()?
+            .queue_revision()
+            .await,
+        revision
+    );
+
+    let handoff = HandoffLoadRequest {
+        block: HandoffBlockId {
+            uuid: Uuid::new_v4().to_string(),
+        },
+        load: LoadResolvedItemsRequest {
+            call_id: None,
+            items: vec![host_items[0].into(), host_items[1].into()],
+            start_index: Some(0),
+            mode: PlaylistOperateMode::PlayNext,
+            expected_revision: Some(revision),
+            playback_mode: None,
+            position_seconds: None,
+            play: None,
+        },
+        call_id: None,
+    };
+    let (name, payload, _) = controller_request(
+        &mut socket,
+        "HandoffLoadRequest",
+        rinf::serialize(&handoff)?,
+    )
+    .await?;
+    assert_eq!(name, "RemoteRequestFailed");
+    assert_eq!(
+        rinf::deserialize::<RemoteRequestFailed>(&payload)?.kind,
+        RequestErrorKind::NotFound
+    );
+    assert_eq!(
+        renderer
+            .global_params
+            .player
+            .lock()
+            .await
+            .get_status()
+            .playlist,
+        queue_before_unavailable_cast
+    );
+    assert_eq!(
+        renderer
+            .global_params
+            .node
+            .session()?
+            .queue_revision()
+            .await,
+        revision
+    );
+
     let local_cast_id = session_audio(&renderer, "cast-local.ogg").await?;
     let local_cast_item = library_track_for_id(&renderer, local_cast_id).await?;
     let stale_load = LoadResolvedItemsRequest {

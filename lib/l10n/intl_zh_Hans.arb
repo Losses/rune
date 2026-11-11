@@ -1583,6 +1583,17 @@
       }
     }
   },
+  "castTracksLeftOut": "{count, plural, other{{alias}尚未保存的{count}首曲目未加入。}}",
+  "@castTracksLeftOut": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "thisDevice": "此设备",
   "devicesThatCanConnect": "可以连接到此设备的设备",
   "otherDevices": "其他设备",

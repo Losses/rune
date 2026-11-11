@@ -1439,6 +1439,17 @@
       }
     }
   },
+  "castTracksLeftOut": "{count, plural, other{{alias}猶未有的{count}首曲目無加入。}}",
+  "@castTracksLeftOut": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "thisDevice": "這个裝置",
   "devicesThatCanConnect": "會當連線這个裝置的裝置",
   "otherDevices": "別个裝置",

@@ -176,6 +176,7 @@ void main() {
       castLibraryIds: const ['library-h'],
       cast: (candidate) async {
         castTarget = castTargetFor(candidate.fingerprint, true);
+        return 0;
       },
     );
 
@@ -187,6 +188,27 @@ void main() {
     await tester.pumpAndSettle();
     expect(castTarget, const CastTarget(fingerprint: 'fp-b', attach: true));
     expect(find.text('Play On'), findsNothing);
+  });
+
+  testWidgets('partial cast shows the number of tracks left out', (
+    tester,
+  ) async {
+    await _open(
+      tester,
+      candidates: [_candidate('Bedroom', RendererAvailability.available)],
+      castLibraryIds: const ['blocked-library'],
+      cast: (_) async => 2,
+    );
+
+    await tester.tap(find.text('Bedroom'));
+    await tester.pumpAndSettle();
+    await _tapPlayAction(tester);
+    await tester.pumpAndSettle();
+    expect(
+      find.text('2 tracks are not on Bedroom yet and were not added.'),
+      findsOneWidget,
+    );
+    expect(find.text('Play On'), findsNWidgets(2));
   });
 
   testWidgets('typed cast failures name the renderer and blocked library', (

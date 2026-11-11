@@ -1502,6 +1502,17 @@
       }
     }
   },
+  "castTracksLeftOut": "{count, plural, one{{count} Track ist auf {alias} noch nicht vorhanden und wurde nicht hinzugefügt.} other{{count} Tracks sind auf {alias} noch nicht vorhanden und wurden nicht hinzugefügt.}}",
+  "@castTracksLeftOut": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "thisDevice": "Dieses Gerät",
   "devicesThatCanConnect": "Verbindbare Geräte",
   "otherDevices": "Andere Geräte",

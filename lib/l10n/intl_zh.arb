@@ -1573,6 +1573,17 @@
       }
     }
   },
+  "castTracksLeftOut": "{count, plural, other{{alias}尚未保存的{count}首曲目未加入。}}",
+  "@castTracksLeftOut": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "thisDevice": "此裝置",
   "devicesThatCanConnect": "可連接的設備",
   "otherDevices": "其他裝置",

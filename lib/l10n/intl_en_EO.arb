@@ -1439,6 +1439,17 @@
       }
     }
   },
+  "castTracksLeftOut": "{count, plural, one{{count} trako ankoraŭ ne estas ĉe {alias} kaj ne estis aldonita.} other{{count} trakoj ankoraŭ ne estas ĉe {alias} kaj ne estis aldonitaj.}}",
+  "@castTracksLeftOut": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "thisDevice": "Ĉi tiu aparato",
   "devicesThatCanConnect": "Aparatoj kiuj povas konektiĝi al ĉi tiu",
   "otherDevices": "Aliaj aparatoj",

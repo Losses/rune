@@ -1502,6 +1502,17 @@
       }
     }
   },
+  "castTracksLeftOut": "{count, plural, one{На {alias} ще немає {count} треку, його не додано.} few{На {alias} ще немає {count} треків, їх не додано.} many{На {alias} ще немає {count} треків, їх не додано.} other{На {alias} ще немає {count} треку, його не додано.}}",
+  "@castTracksLeftOut": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "thisDevice": "Цей пристрій",
   "devicesThatCanConnect": "Доступні для підключення пристрої",
   "otherDevices": "Інші пристрої",

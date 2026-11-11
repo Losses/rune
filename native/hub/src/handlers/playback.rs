@@ -734,13 +734,16 @@ impl Signal for HandoffLoadRequest {
             }
             .into());
         }
-        apply_handoff_load(
+        let result = apply_handoff_load(
             &node,
             PlayerHandoffBlockId::try_from(&request.block)?,
             &request.load,
         )
         .await?;
-        Ok(Some(LoadResolvedItemsResponse { call_id: None }))
+        Ok(Some(LoadResolvedItemsResponse {
+            call_id: None,
+            result,
+        }))
     }
 }
 
@@ -819,7 +822,11 @@ impl Signal for LoadResolvedItemsRequest {
         request: &Self,
     ) -> Result<Option<Self::Response>> {
         if session.is_some() {
-            apply_cast_load(&node, request).await?;
+            let result = apply_cast_load(&node, request).await?;
+            return Ok(Some(LoadResolvedItemsResponse {
+                call_id: None,
+                result,
+            }));
         } else {
             if let Some(binding) = node.open_subsonic_binding()?
                 && binding.play_on_this_device
@@ -853,7 +860,10 @@ impl Signal for LoadResolvedItemsRequest {
                         )
                     })
                     .await?;
-                return Ok(Some(LoadResolvedItemsResponse { call_id: None }));
+                return Ok(Some(LoadResolvedItemsResponse {
+                    call_id: None,
+                    result: ResolvedItemsLoadResult::default(),
+                }));
             }
             let library = require_library(library)?;
             let items = playing_items_from_requests(&request.items, Some(&library)).await?;
@@ -963,7 +973,10 @@ impl Signal for LoadResolvedItemsRequest {
                 })
                 .await?;
         }
-        Ok(Some(LoadResolvedItemsResponse { call_id: None }))
+        Ok(Some(LoadResolvedItemsResponse {
+            call_id: None,
+            result: ResolvedItemsLoadResult::default(),
+        }))
     }
 }
 
@@ -1000,8 +1013,11 @@ impl Signal for CastResolvedItemsRequest {
         };
         let result = link.call(&forwarded).await;
         link.close();
-        result?;
-        Ok(Some(CastResolvedItemsResponse { call_id: None }))
+        let response = result?;
+        Ok(Some(CastResolvedItemsResponse {
+            call_id: None,
+            result: response.result,
+        }))
     }
 }
 
@@ -1039,7 +1055,10 @@ impl Signal for CastPreflightRequest {
     }
 }
 
-async fn apply_cast_load(node: &NodeContext, request: &LoadResolvedItemsRequest) -> Result<()> {
+async fn apply_cast_load(
+    node: &NodeContext,
+    request: &LoadResolvedItemsRequest,
+) -> Result<ResolvedItemsLoadResult> {
     apply_resolved_items_load(node, request, None).await
 }
 
@@ -1047,7 +1066,7 @@ async fn apply_handoff_load(
     node: &NodeContext,
     block: PlayerHandoffBlockId,
     request: &LoadResolvedItemsRequest,
-) -> Result<()> {
+) -> Result<ResolvedItemsLoadResult> {
     if request.mode != PlaylistOperateMode::PlayNext {
         return Err(ExpectedRequestError::invalid_input("Handoff load must use PlayNext").into());
     }
@@ -1058,7 +1077,7 @@ async fn apply_resolved_items_load(
     node: &NodeContext,
     request: &LoadResolvedItemsRequest,
     block: Option<PlayerHandoffBlockId>,
-) -> Result<()> {
+) -> Result<ResolvedItemsLoadResult> {
     let position = request
         .position_seconds
         .map(Duration::try_from_secs_f64)
@@ -1129,9 +1148,9 @@ async fn apply_resolved_items_load(
         let rows_by_uuid = files_by_uuid(&library.main_db, &file_uuids).await?;
         let mut handles = Vec::new();
         for item in items.iter().filter(|item| item.library_id == library_id) {
-            let row = rows_by_uuid
-                .get(&item.file_uuid)
-                .ok_or(ExpectedError::NotFound { what: "cast file" })?;
+            let Some(row) = rows_by_uuid.get(&item.file_uuid) else {
+                continue;
+            };
             let mut handle = MediaFileHandle::from(row.clone());
             handle.item = PlayingItem::LibraryTrack {
                 library_id: item.library_id,
@@ -1173,7 +1192,34 @@ async fn apply_resolved_items_load(
         .map_err(|error| {
             ExpectedRequestError::invalid_input(format!("Invalid cast start index: {error}"))
         })?;
-    let start_index = remap_cast_start_index(&items, &prepared_by_item, requested_start_index)?;
+    let left_out = items
+        .iter()
+        .filter(|item| !prepared_by_item.contains_key(item))
+        .copied()
+        .collect::<Vec<_>>();
+    if block.is_some() && !left_out.is_empty() {
+        return Err(ExpectedError::NotFound { what: "cast file" }.into());
+    }
+    if !items.is_empty() && prepared_by_item.is_empty() {
+        return Err(ExpectedRequestError::Unavailable {
+            what: "no cast items are available on destination",
+        }
+        .into());
+    }
+    let start_policy = if block.is_some() {
+        CastStartItemPolicy::Required
+    } else {
+        CastStartItemPolicy::NextThenPrevious
+    };
+    let start_index = remap_cast_start_index(
+        &items,
+        &prepared_by_item,
+        requested_start_index,
+        start_policy,
+    )?;
+    let result = ResolvedItemsLoadResult {
+        left_out_items: left_out.into_iter().map(Into::into).collect(),
+    };
     if let Some(block) = block {
         let position = position.unwrap_or_default();
         let play = request.play.unwrap_or(true);
@@ -1208,13 +1254,20 @@ async fn apply_resolved_items_load(
             })
             .await?;
     }
-    Ok(())
+    Ok(result)
+}
+
+#[derive(Debug, Clone, Copy)]
+enum CastStartItemPolicy {
+    Required,
+    NextThenPrevious,
 }
 
 fn remap_cast_start_index(
     items: &[LibraryItem],
     prepared_by_item: &HashMap<LibraryItem, (PlayingItem, PlaybackSource)>,
     requested_start_index: Option<usize>,
+    policy: CastStartItemPolicy,
 ) -> Result<Option<usize>> {
     if !items.is_empty() && prepared_by_item.is_empty() {
         return Err(ExpectedRequestError::Unavailable {
@@ -1231,14 +1284,30 @@ fn remap_cast_start_index(
         );
     }
     let current_item = items[index];
-    if !prepared_by_item.contains_key(&current_item) {
-        return Err(ExpectedRequestError::Unavailable {
-            what: "current cast item is unavailable on destination",
+    let selected_index = if prepared_by_item.contains_key(&current_item) {
+        index
+    } else {
+        match policy {
+            CastStartItemPolicy::Required => {
+                return Err(ExpectedRequestError::Unavailable {
+                    what: "current cast item is unavailable on destination",
+                }
+                .into());
+            }
+            CastStartItemPolicy::NextThenPrevious => (index + 1..items.len())
+                .find(|candidate| prepared_by_item.contains_key(&items[*candidate]))
+                .or_else(|| {
+                    (0..index)
+                        .rev()
+                        .find(|candidate| prepared_by_item.contains_key(&items[*candidate]))
+                })
+                .ok_or(ExpectedRequestError::Unavailable {
+                    what: "no cast items are available on destination",
+                })?,
         }
-        .into());
-    }
+    };
     Ok(Some(
-        items[..index]
+        items[..selected_index]
             .iter()
             .filter(|item| prepared_by_item.contains_key(item))
             .count(),
@@ -1300,7 +1369,8 @@ mod cast_index_tests {
     use uuid::Uuid;
 
     use crate::{
-        handlers::playback::remap_cast_start_index, messages::RequestErrorKind,
+        handlers::playback::{CastStartItemPolicy, remap_cast_start_index},
+        messages::RequestErrorKind,
         request_error::classify,
     };
 
@@ -1319,21 +1389,50 @@ mod cast_index_tests {
         ]);
 
         assert_eq!(
-            remap_cast_start_index(&items, &prepared, Some(2)).unwrap(),
+            remap_cast_start_index(
+                &items,
+                &prepared,
+                Some(2),
+                CastStartItemPolicy::NextThenPrevious,
+            )
+            .unwrap(),
             Some(1)
         );
     }
 
     #[test]
-    fn unavailable_selected_item_rejects_the_cast_load() {
-        let items = [identity(), identity()];
+    fn missing_selected_item_starts_at_the_next_then_previous_available_item() {
+        let items = [identity(), identity(), identity()];
         let prepared = HashMap::from([(
+            items[2],
+            (PlayingItem::from(items[2]), PlaybackSource::LibraryStream),
+        )]);
+
+        assert_eq!(
+            remap_cast_start_index(
+                &items,
+                &prepared,
+                Some(1),
+                CastStartItemPolicy::NextThenPrevious,
+            )
+            .unwrap(),
+            Some(0)
+        );
+
+        let previous = HashMap::from([(
             items[0],
             (PlayingItem::from(items[0]), PlaybackSource::LibraryStream),
         )]);
-
-        let error = remap_cast_start_index(&items, &prepared, Some(1)).unwrap_err();
-        assert_eq!(classify(&error), RequestErrorKind::Unavailable);
+        assert_eq!(
+            remap_cast_start_index(
+                &items,
+                &previous,
+                Some(1),
+                CastStartItemPolicy::NextThenPrevious,
+            )
+            .unwrap(),
+            Some(0)
+        );
     }
 
     #[test]
@@ -1341,7 +1440,13 @@ mod cast_index_tests {
         let items = [identity(), identity()];
         let prepared = HashMap::new();
 
-        let error = remap_cast_start_index(&items, &prepared, None).unwrap_err();
+        let error = remap_cast_start_index(
+            &items,
+            &prepared,
+            None,
+            CastStartItemPolicy::NextThenPrevious,
+        )
+        .unwrap_err();
         assert_eq!(classify(&error), RequestErrorKind::Unavailable);
     }
 

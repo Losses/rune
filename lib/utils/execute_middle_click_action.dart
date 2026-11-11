@@ -73,7 +73,7 @@ Future<QueryList> _buildCollectionQueries(
   int id,
 ) async => QueryList(await buildQuery(collectionType, id));
 
-Future<void> castCollection(
+Future<int> castCollection(
   CollectionType collectionType,
   int id,
   List<int> fallbackFileIds,
@@ -81,6 +81,7 @@ Future<void> castCollection(
 ) async {
   final behavior = castCollectionBehavior();
   final queries = await _buildCollectionQueries(collectionType, id);
+  var leftOutCount = 0;
   await operatePlaybackWithMixQuery(
     queries: queries,
     playbackMode: 99,
@@ -90,7 +91,9 @@ Future<void> castCollection(
     operateMode: behavior.operateMode,
     fallbackPlayingItems: fallbackFileIds.map(PlayingItem.inLibrary).toList(),
     castTo: castTo,
+    onCastResult: (result) => leftOutCount = result.leftOutItems.length,
   );
+  return leftOutCount;
 }
 
 ({PlaylistOperateMode operateMode, bool instantlyPlay})
@@ -104,13 +107,13 @@ Future<bool> _castAttaches() async =>
     await $settingsManager.getValue<bool>(kCastControlRendererKey) ?? false;
 
 /// Casts a track to [fingerprint] as the cast settings say.
-Future<void> castTrackWithSettings(int id, String fingerprint) async {
+Future<int> castTrackWithSettings(int id, String fingerprint) async {
   final playNext =
       castTrackBehaviorForSetting(
         await $settingsManager.getValue<String>(kCastTrackModeKey),
       ).operateMode ==
       PlaylistOperateMode.playNext;
-  await castTrack(
+  return castTrack(
     id,
     castTargetFor(fingerprint, await _castAttaches()),
     playNext,
@@ -118,7 +121,7 @@ Future<void> castTrackWithSettings(int id, String fingerprint) async {
 }
 
 /// Casts a collection to [fingerprint] as the cast settings say.
-Future<void> castCollectionWithSettings(
+Future<int> castCollectionWithSettings(
   CollectionType collectionType,
   int id,
   List<int> fallbackFileIds,
@@ -140,8 +143,9 @@ Future<void> castCollectionWithSettings(
 castTrackBehaviorForSetting(String? value) =>
     castTrackBehavior(value == 'playNext');
 
-Future<void> castTrack(int id, CastTarget castTo, bool playNext) async {
+Future<int> castTrack(int id, CastTarget castTo, bool playNext) async {
   final behavior = castTrackBehavior(playNext);
+  var leftOutCount = 0;
   await operatePlaybackWithMixQuery(
     queries: await _buildCollectionQueries(CollectionType.track, id),
     playbackMode: 99,
@@ -151,7 +155,9 @@ Future<void> castTrack(int id, CastTarget castTo, bool playNext) async {
     operateMode: behavior.operateMode,
     fallbackPlayingItems: const [],
     castTo: castTo,
+    onCastResult: (result) => leftOutCount = result.leftOutItems.length,
   );
+  return leftOutCount;
 }
 
 Future<void> addToQueue(

@@ -1603,6 +1603,17 @@
       }
     }
   },
+  "castTracksLeftOut": "{count, plural, one{{count} track is not on {alias} yet and was not added.} other{{count} tracks are not on {alias} yet and were not added.}}",
+  "@castTracksLeftOut": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "thisDevice": "This Device",
   "devicesThatCanConnect": "Devices That Can Connect",
   "otherDevices": "Other Devices",

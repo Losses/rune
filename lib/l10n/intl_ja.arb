@@ -1502,6 +1502,17 @@
       }
     }
   },
+  "castTracksLeftOut": "{count, plural, other{{alias}にはまだ{count}曲なく、追加されませんでした。}}",
+  "@castTracksLeftOut": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "thisDevice": "このデバイス",
   "devicesThatCanConnect": "接続できるデバイス",
   "otherDevices": "その他のデバイス",

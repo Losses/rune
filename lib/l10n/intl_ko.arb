@@ -1504,6 +1504,17 @@
       }
     }
   },
+  "castTracksLeftOut": "{count, plural, other{{alias}에 아직 없는 트랙 {count}개는 추가되지 않았습니다.}}",
+  "@castTracksLeftOut": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "thisDevice": "이 기기",
   "devicesThatCanConnect": "연결 가능한 기기",
   "otherDevices": "다른 기기",

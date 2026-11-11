@@ -1437,6 +1437,17 @@
       }
     }
   },
+  "castTracksLeftOut": "{count, plural, other{{alias}仲未有嘅{count}首歌無加入。}}",
+  "@castTracksLeftOut": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "thisDevice": "呢部裝置",
   "devicesThatCanConnect": "可以連線呢部裝置嘅裝置",
   "otherDevices": "其他裝置",

@@ -1437,6 +1437,17 @@
       }
     }
   },
+  "castTracksLeftOut": "{count, plural, other{{alias}尚未保存的{count}首曲目未加入。}}",
+  "@castTracksLeftOut": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "thisDevice": "此器",
   "devicesThatCanConnect": "可連此器之諸器",
   "otherDevices": "他器",

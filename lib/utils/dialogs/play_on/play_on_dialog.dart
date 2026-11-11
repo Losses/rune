@@ -19,7 +19,7 @@ import '../../../widgets/settings/settings_tile_title.dart';
 typedef RendererLoader =
     Future<List<RendererCandidate>> Function(List<String> libraryIds);
 typedef RendererHandoff = Future<void> Function(String? target);
-typedef RendererCast = Future<void> Function(RendererCandidate candidate);
+typedef RendererCast = Future<int> Function(RendererCandidate candidate);
 typedef LibraryNamesLoader = Future<Map<String, String>> Function();
 
 Future<Map<String, String>> _loadLibraryNames() async {
@@ -119,6 +119,7 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
   String? _working;
   Object? _error;
   String? _errorAlias;
+  String? _successText;
   String? _selectedFingerprint;
   bool _loadFailed = false;
 
@@ -138,17 +139,27 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
 
   Future<void> _select(
     String key,
-    Future<void> Function() action, {
+    Future<int?> Function() action, {
     String? alias,
   }) async {
     setState(() {
       _working = key;
       _error = null;
       _errorAlias = null;
+      _successText = null;
     });
     try {
-      await action();
-      if (mounted) Navigator.of(context).pop();
+      final leftOutCount = await action();
+      if (mounted && leftOutCount != null && leftOutCount > 0) {
+        setState(() {
+          _successText = S.of(context).castTracksLeftOut(
+            leftOutCount,
+            alias ?? '',
+          );
+        });
+      } else if (mounted) {
+        Navigator.of(context).pop();
+      }
     } on RequestFailure catch (error) {
       if (mounted) {
         setState(() {
@@ -218,6 +229,10 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
                           ),
                           const SizedBox(height: 8),
                         ],
+                        if (_successText case final message?) ...[
+                          Text(message),
+                          const SizedBox(height: 8),
+                        ],
                         if (!widget.castMode)
                           _row(
                             fingerprint: 'this-device',
@@ -229,7 +244,10 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
                             working: _working == 'this-device',
                             onAction: () => _select(
                               'this-device',
-                              () => widget.handoff(null),
+                              () async {
+                                await widget.handoff(null);
+                                return null;
+                              },
                             ),
                           ),
                         for (final candidate in snapshot.data!)
@@ -253,9 +271,13 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
                             working: _working == candidate.fingerprint,
                             onAction: () => _select(
                               candidate.fingerprint,
-                              () => widget.castMode
-                                  ? widget.cast!(candidate)
-                                  : widget.handoff(candidate.fingerprint),
+                              () async {
+                                if (widget.castMode) {
+                                  return widget.cast!(candidate);
+                                }
+                                await widget.handoff(candidate.fingerprint);
+                                return null;
+                              },
                               alias: candidate.alias,
                             ),
                           ),

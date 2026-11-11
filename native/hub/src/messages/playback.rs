@@ -353,12 +353,19 @@ pub struct CastResolvedItemsRequest {
 pub struct CastResolvedItemsResponse {
     #[serde(default)]
     pub call_id: Option<u64>,
+    pub result: ResolvedItemsLoadResult,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct LoadResolvedItemsResponse {
     #[serde(default)]
     pub call_id: Option<u64>,
+    pub result: ResolvedItemsLoadResult,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, SignalPiece)]
+pub struct ResolvedItemsLoadResult {
+    pub left_out_items: Vec<PlayingItemRef>,
 }
 
 /// The id of a handed-off queue block on the wire: a UUID in text form, like the

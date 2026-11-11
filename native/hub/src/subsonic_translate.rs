@@ -980,6 +980,7 @@ async fn jukebox_load_resolved_items_request(
     result.map_err(|error| jukebox_error(error, LoadResolvedItemsRequest::wire_name()))?;
     Ok(Some(LoadResolvedItemsResponse {
         call_id: request.call_id,
+        result: Default::default(),
     }))
 }
 

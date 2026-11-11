@@ -1437,6 +1437,17 @@
       }
     }
   },
+  "castTracksLeftOut": "{count, plural, other{{alias}ニハマダ{count}キョクナク、ツイカサレマセンデシタ。}}",
+  "@castTracksLeftOut": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
   "thisDevice": "此器",
   "devicesThatCanConnect": "可連線的器",
   "otherDevices": "他器",
