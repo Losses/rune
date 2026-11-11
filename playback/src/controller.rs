@@ -191,7 +191,7 @@ mod windows {
         IsDialogMessageW, MSG, PM_REMOVE, PeekMessageW, RegisterClassExW, TranslateMessage,
         WINDOW_EX_STYLE, WINDOW_STYLE, WM_QUIT, WNDCLASSEXW,
     };
-    use windows::core::{PCWSTR, w};
+    use windows::core::w;
 
     pub struct DummyWindow {
         pub handle: HWND,
@@ -208,7 +208,7 @@ mod windows {
                 let wnd_class = WNDCLASSEXW {
                     cbSize: mem::size_of::<WNDCLASSEXW>() as u32,
                     hInstance: instance,
-                    lpszClassName: PCWSTR::from(class_name),
+                    lpszClassName: class_name,
                     lpfnWndProc: Some(Self::wnd_proc),
                     ..Default::default()
                 };

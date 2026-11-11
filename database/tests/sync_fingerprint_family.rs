@@ -1,4 +1,3 @@
-use std::path::Path;
 use support::fixtures;
 #[path = "support/causal_library.rs"]
 mod support;
@@ -603,6 +602,8 @@ async fn duplicate_filter_uses_supported_current_identity_once() -> Result<()> {
 #[cfg(unix)]
 #[tokio::test]
 async fn attach_download_accepts_symlinked_root() -> Result<()> {
+    use std::path::Path;
+
     use database::actions::{downloads::prepare_download, file::attach_download};
     use database::sync::model::BlobRef;
     use fsio::FsIo;

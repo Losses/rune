@@ -14,7 +14,6 @@ use ::fsio::FsIo;
 use anyhow::Result;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection, EntityTrait, QueryOrder, Statement};
-use std::fs::Permissions;
 use std::path::Path;
 use std::time::Instant;
 
@@ -137,6 +136,7 @@ async fn connect_loads_vectors_and_deletes_the_legacy_file() -> Result<()> {
 #[cfg(unix)]
 #[tokio::test]
 async fn connect_does_not_fail_when_the_legacy_file_cannot_be_deleted() -> Result<()> {
+    use std::fs::Permissions;
     use std::os::unix::fs::PermissionsExt;
 
     let db = setup_db().await?;

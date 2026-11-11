@@ -312,7 +312,7 @@ mod tests {
         let file = scenes.join("file.txt");
         fs::write(&file, "x").unwrap();
 
-        let mut refused = vec![
+        let refused = vec![
             scenes.join(".."),
             scenes.join("."),
             scenes.clone(),
@@ -321,11 +321,13 @@ mod tests {
         ];
         // A link to a folder elsewhere (made where a test can make one without rights).
         #[cfg(unix)]
-        {
+        let refused = {
+            let mut refused = refused;
             let link = scenes.join("Link");
             symlink(&outside, &link).unwrap();
             refused.push(link);
-        }
+            refused
+        };
         for refused in refused {
             assert!(remove(&refused, &scenes).is_err(), "{}", refused.display());
         }

@@ -1291,7 +1291,7 @@ impl PlayerInternal {
             self.output_opens.fetch_add(1, Ordering::SeqCst);
             if self
                 .failing_opens
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
                 .is_ok()
             {
                 bail!("the test output refused to open");
@@ -1700,7 +1700,7 @@ impl PlayerInternal {
             self.output_resumes.fetch_add(1, Ordering::SeqCst);
             if self
                 .failing_resumes
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
                 .is_ok()
             {
                 bail!("the test output refused to start again");

@@ -34,7 +34,11 @@ void main() {
             const MethodChannel('plugins.flutter.io/path_provider'),
             (call) async => directory.path,
           );
-      addTearDown(() => directory.delete(recursive: true));
+      addTearDown(() async {
+        // GetStorage retains an open file handle until process exit on Windows.
+        // The Windows test runner removes the reported directory after exit.
+        if (!Platform.isWindows) await directory.delete(recursive: true);
+      });
       StorageKeyManager.initialize(null);
       settings = SettingsManager();
     });

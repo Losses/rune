@@ -8,14 +8,14 @@ use std::{
     collections::HashMap,
     fmt::{Debug, Formatter, Result as FmtResult},
     fs,
-    io::Error,
-    mem::MaybeUninit,
     path::Path,
     sync::{
         Arc, Mutex as StdMutex, OnceLock, Weak,
         atomic::{AtomicU64, Ordering},
     },
 };
+#[cfg(unix)]
+use std::{io::Error, mem::MaybeUninit};
 use uuid::Uuid;
 
 use anyhow::{Context, Result, ensure};
@@ -485,7 +485,7 @@ impl NodeContext {
         #[cfg(test)]
         if self
             .handoff_pause_failures
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |remaining| {
                 remaining.checked_sub(1)
             })
             .is_ok()
