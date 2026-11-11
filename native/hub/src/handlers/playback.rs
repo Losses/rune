@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     path::Path,
     sync::Arc,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use anyhow::{Context, Result};
@@ -1292,6 +1292,7 @@ impl Signal for SessionSnapshotRequest {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod cast_index_tests {
     use std::collections::HashMap;
 
@@ -1499,20 +1500,47 @@ impl Signal for HandoffRequest {
         if already_there {
             return Ok(Some(HandoffResponse { call_id: None }));
         }
+        let paused = pause_handoff_source(&node, attached.clone(), generation).await?;
         if target.is_none()
-            && let Some(source) = attached.as_ref()
+            && let PausedSource::Renderer(source) = &paused.source
             && let Some(block) = node.take_handoff_block(source.fingerprint()).await
         {
-            match source
+            let take_back = source
                 .call(&TakeBackHandoffBlockRequest {
                     block: block.into(),
                     call_id: None,
                 })
-                .await
-            {
+                .await;
+            match take_back {
                 Ok(snapshot) => {
+                    let resume_renderer = paused.was_playing
+                        && snapshot.index.is_none()
+                        && paused
+                            .snapshot
+                            .items
+                            .iter()
+                            .any(|item| !snapshot.items.contains(item));
+                    let mut snapshot = snapshot;
+                    let restore_snapshot = copy_session_snapshot(&snapshot);
+                    snapshot.playing = paused.was_playing;
                     let load = handoff_load(snapshot, PlaylistOperateMode::Replace);
-                    apply_cast_load(&node, &load).await?;
+                    if let Err(error) = apply_cast_load(&node, &load).await {
+                        let restore = handoff_load(restore_snapshot, PlaylistOperateMode::PlayNext);
+                        source
+                            .call(&HandoffLoadRequest {
+                                block: block.into(),
+                                load: restore,
+                                call_id: None,
+                            })
+                            .await?;
+                        node.remember_handoff_block(source.fingerprint().to_owned(), block)
+                            .await;
+                        resume_handoff_source(paused).await?;
+                        return Err(error);
+                    }
+                    if resume_renderer {
+                        source.call(&PlayRequest { call_id: None }).await?;
+                    }
                     node.detach_renderer().await?;
                     return Ok(Some(HandoffResponse { call_id: None }));
                 }
@@ -1532,9 +1560,16 @@ impl Signal for HandoffRequest {
                             })
                     }) =>
                 {
+                    node.remember_handoff_block(source.fingerprint().to_owned(), block)
+                        .await;
                     log::info!("Handoff block is unavailable; using the existing return path");
                 }
-                Err(error) => return Err(error),
+                Err(error) => {
+                    node.remember_handoff_block(source.fingerprint().to_owned(), block)
+                        .await;
+                    resume_handoff_source(paused).await?;
+                    return Err(error);
+                }
             }
         }
         let load_mode = if target.is_none() && attached.is_some() {
@@ -1542,32 +1577,134 @@ impl Signal for HandoffRequest {
         } else {
             PlaylistOperateMode::PlayNext
         };
-        let load = handoff_load(
-            snapshot_handoff_source(&node, attached.as_deref()).await?,
-            load_mode,
-        );
-        match target {
-            Some(target) => {
-                let block = PlayerHandoffBlockId(Uuid::new_v4());
-                hand_off_to_renderer(&node, attached.clone(), target, block, load, generation)
-                    .await?
+        let result = async {
+            let mut snapshot = copy_session_snapshot(&paused.snapshot);
+            snapshot.playing = paused.was_playing;
+            let load = handoff_load(snapshot, load_mode);
+            match target {
+                Some(target) => {
+                    let block = PlayerHandoffBlockId(Uuid::new_v4());
+                    hand_off_to_renderer(&node, target, block, load).await?;
+                }
+                None => hand_off_to_this_device(&node, attached.clone(), &load).await?,
             }
-            None => hand_off_to_this_device(&node, attached, &load, generation).await?,
+            Ok::<(), anyhow::Error>(())
+        }
+        .await;
+        if let Err(error) = result {
+            resume_handoff_source(paused).await?;
+            return Err(error);
         }
         Ok(Some(HandoffResponse { call_id: None }))
     }
 }
 
-/// Step 1: what this device controls now, from the attached renderer or the local session.
-async fn snapshot_handoff_source(
-    node: &NodeContext,
-    attached: Option<&RendererLink>,
-) -> Result<SessionSnapshotResponse> {
-    let Some(link) = attached else {
+struct PausedHandoffSource {
+    snapshot: SessionSnapshotResponse,
+    source: PausedSource,
+    was_playing: bool,
+}
+
+enum PausedSource {
+    Renderer(Arc<RendererLink>),
+    Local(Arc<PlayerSession>),
+}
+
+async fn pause_handoff_source(
+    node: &Arc<NodeContext>,
+    attached: Option<Arc<RendererLink>>,
+    generation: u64,
+) -> Result<PausedHandoffSource> {
+    if let Some(source) = attached {
+        let before = source
+            .call(&SessionSnapshotRequest { call_id: None })
+            .await?;
+        let paused = match node
+            .pause_handoff_source(source.fingerprint(), &source, generation)
+            .await
+        {
+            Ok(paused) => paused,
+            Err(error) => {
+                if before.playing {
+                    source.call(&PlayRequest { call_id: None }).await?;
+                }
+                return Err(error);
+            }
+        };
+        if !paused {
+            return Err(ExpectedRequestError::HandoffSuperseded.into());
+        }
+        let snapshot = source.call(&SessionSnapshotRequest { call_id: None }).await;
+        let snapshot = match snapshot {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                if before.playing {
+                    source.call(&PlayRequest { call_id: None }).await?;
+                }
+                return Err(error);
+            }
+        };
+        if snapshot.playing {
+            if before.playing {
+                source.call(&PlayRequest { call_id: None }).await?;
+            }
+            // Something resumed the source while it was being handed off.
+            return Err(ExpectedRequestError::HandoffSuperseded.into());
+        }
+        Ok(PausedHandoffSource {
+            snapshot,
+            source: PausedSource::Renderer(source),
+            was_playing: before.playing,
+        })
+    } else {
         let session = node.session()?;
-        return session_snapshot(node, &session).await;
-    };
-    link.call(&SessionSnapshotRequest { call_id: None }).await
+        let was_playing = session.player.lock().await.get_status().state == PlaybackState::Playing;
+        session.player.lock().await.pause();
+        let snapshot = match session_snapshot(node, &session).await {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                if was_playing {
+                    session.player.lock().await.play();
+                }
+                return Err(error);
+            }
+        };
+        if snapshot.playing {
+            if was_playing {
+                session.player.lock().await.play();
+            }
+            // Something resumed the source while it was being handed off.
+            return Err(ExpectedRequestError::HandoffSuperseded.into());
+        }
+        Ok(PausedHandoffSource {
+            snapshot,
+            source: PausedSource::Local(session),
+            was_playing,
+        })
+    }
+}
+
+async fn resume_handoff_source(paused: PausedHandoffSource) -> Result<()> {
+    if !paused.was_playing {
+        return Ok(());
+    }
+    match paused.source {
+        PausedSource::Renderer(source) => source.call(&PlayRequest { call_id: None }).await?,
+        PausedSource::Local(session) => session.player.lock().await.play(),
+    }
+    Ok(())
+}
+
+fn copy_session_snapshot(snapshot: &SessionSnapshotResponse) -> SessionSnapshotResponse {
+    SessionSnapshotResponse {
+        call_id: snapshot.call_id,
+        items: snapshot.items.clone(),
+        index: snapshot.index,
+        position_seconds: snapshot.position_seconds,
+        playback_mode: snapshot.playback_mode,
+        playing: snapshot.playing,
+        revision: snapshot.revision,
+    }
 }
 
 /// Step 2: the load that recreates the snapshot on the target.
@@ -1587,21 +1724,12 @@ fn handoff_load(
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum HandoffOutcome {
-    SourcePaused,
-    PausePending,
-    ResumeWon,
-}
-
-/// Steps 2 and 3 for a renderer target: load it over a new link, then pause the source.
+/// Load the paused snapshot onto a renderer target.
 async fn hand_off_to_renderer(
     node: &Arc<NodeContext>,
-    attached: Option<Arc<RendererLink>>,
     target: &str,
     block: PlayerHandoffBlockId,
     load: LoadResolvedItemsRequest,
-    generation: u64,
 ) -> Result<()> {
     let (link, alias) = node
         .connect_renderer(target, RendererLinkUse::Control)
@@ -1615,25 +1743,6 @@ async fn hand_off_to_renderer(
         link.close();
         return Err(error);
     }
-    let outcome = if let Some(source) = attached {
-        match node
-            .pause_handoff_source(source.fingerprint(), &source, generation)
-            .await
-        {
-            Ok(true) => HandoffOutcome::SourcePaused,
-            Ok(false) => HandoffOutcome::ResumeWon,
-            Err(error) => {
-                log::warn!("Handoff destination started; source pause pending: {error:#}");
-                schedule_handoff_pause_retry(node, source, generation).await;
-                HandoffOutcome::PausePending
-            }
-        }
-    } else {
-        let session = node.session()?;
-        session.clear_handoff_blocks().await?;
-        session.player.lock().await.pause();
-        HandoffOutcome::SourcePaused
-    };
     node.install_renderer_link(link, alias)?;
     node.remember_handoff_block(target.to_owned(), block).await;
     node.publish_capabilities()?;
@@ -1642,76 +1751,20 @@ async fn hand_off_to_renderer(
     {
         warn!("Handoff succeeded, but renderer state refresh failed: {error:#}");
     }
-    log::info!("Handoff outcome: {outcome:?}");
     Ok(())
 }
 
-/// Steps 2 to 4 for this device as the target: load locally, pause the renderer that was
-/// playing, then detach from it.
+/// Load the paused snapshot locally, then detach from its renderer source.
 async fn hand_off_to_this_device(
     node: &Arc<NodeContext>,
     attached: Option<Arc<RendererLink>>,
     load: &LoadResolvedItemsRequest,
-    generation: u64,
 ) -> Result<()> {
     apply_cast_load(node, load).await?;
-    if let Some(source) = attached {
-        let outcome = match node
-            .pause_handoff_source(source.fingerprint(), &source, generation)
-            .await
-        {
-            Ok(true) => HandoffOutcome::SourcePaused,
-            Ok(false) => HandoffOutcome::ResumeWon,
-            Err(error) => {
-                log::warn!("Handoff destination started; source pause pending: {error:#}");
-                schedule_handoff_pause_retry(node, source.clone(), generation).await;
-                HandoffOutcome::PausePending
-            }
-        };
+    if attached.is_some() {
         node.detach_renderer().await?;
-        log::info!("Handoff outcome: {outcome:?}");
+    } else {
+        node.session()?.clear_handoff_blocks().await?;
     }
     Ok(())
-}
-
-async fn schedule_handoff_pause_retry(
-    node: &Arc<NodeContext>,
-    source: Arc<RendererLink>,
-    generation: u64,
-) {
-    let weak_node = Arc::downgrade(node);
-    let cancel = node.handoff_retry_cancellation_token();
-    let fingerprint = source.fingerprint().to_owned();
-    let task = tokio::spawn(async move {
-        let started = Instant::now();
-        let mut delay = Duration::from_secs(1);
-        loop {
-            tokio::select! {
-                _ = cancel.cancelled() => return,
-                _ = tokio::time::sleep(delay) => {}
-            }
-            let Some(node) = weak_node.upgrade() else {
-                return;
-            };
-            if node.handoff_generation() != generation
-                || started.elapsed() >= Duration::from_secs(120)
-            {
-                return;
-            }
-            match node
-                .pause_handoff_source(&fingerprint, &source, generation)
-                .await
-            {
-                Ok(true) | Ok(false) => return,
-                Err(error) => log::warn!("Retrying handoff pause for {fingerprint}: {error:#}"),
-            }
-            delay = match delay.as_secs() {
-                1 => Duration::from_secs(2),
-                2 => Duration::from_secs(4),
-                4 => Duration::from_secs(8),
-                _ => Duration::from_secs(10),
-            };
-        }
-    });
-    node.register_handoff_retry(task).await;
 }

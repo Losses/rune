@@ -1177,6 +1177,41 @@ impl RecordedSignals {
     }
 }
 
+fn recorded_handoff_order(
+    signals: &RecordedSignals,
+    source_session_id: &str,
+    target_session_id: &str,
+) -> Result<(usize, usize)> {
+    let recorded = signals.0.lock().unwrap();
+    let source_paused_at = recorded
+        .iter()
+        .enumerate()
+        .filter(|(_, (name, _))| name == "PlaybackStatus")
+        .filter_map(|(index, (_, payload))| {
+            rinf::deserialize::<PlaybackStatus>(payload)
+                .ok()
+                .filter(|status| {
+                    status.session_id == source_session_id && status.state == "Paused"
+                })
+                .map(|_| index)
+        })
+        .next()
+        .context("source pause status during handoff")?;
+    let target_loaded_at = recorded
+        .iter()
+        .enumerate()
+        .filter(|(_, (name, _))| name == "PlaylistUpdate")
+        .filter_map(|(index, (_, payload))| {
+            rinf::deserialize::<PlaylistUpdate>(payload)
+                .ok()
+                .filter(|update| update.session_id == target_session_id)
+                .map(|_| index)
+        })
+        .next()
+        .context("target load queue update during handoff")?;
+    Ok((source_paused_at, target_loaded_at))
+}
+
 async fn session_audio(f: &Fixture, name: &str) -> Result<i32> {
     let library = f.global_params.test_library();
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg");
@@ -5376,10 +5411,27 @@ async fn materialize_replica_file(
 async fn attached_handoff_source(
     hold_source_library: bool,
 ) -> Result<(Vec<TempDir>, Fixture, Fixture, String)> {
+    attached_handoff_source_recorded(hold_source_library, None).await
+}
+
+async fn attached_handoff_source_recorded(
+    hold_source_library: bool,
+    source_signals: Option<Arc<RecordedSignals>>,
+) -> Result<(Vec<TempDir>, Fixture, Fixture, String)> {
     let controller_dir = tempfile::tempdir()?;
     let source_dir = tempfile::tempdir()?;
     let controller = fixture(controller_dir.path()).await?;
-    let source = fixture(source_dir.path()).await?;
+    let source = if let Some(signals) = source_signals {
+        fixture_with_broadcaster(
+            source_dir.path(),
+            Uuid::new_v4(),
+            Duration::from_secs(300),
+            signals,
+        )
+        .await?
+    } else {
+        fixture(source_dir.path()).await?
+    };
     let source_id = session_audio(&source, "handoff-retry-source.ogg").await?;
     queue_session(&source, &[source_id]).await?;
     // The fixture track lasts a few seconds; repeat it so a slow run never sees it end.
@@ -5440,14 +5492,15 @@ async fn hand_off(controller: &Fixture, target: Option<String>) -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
-async fn handoff_pause_retries_after_destination_started() -> Result<()> {
+async fn handoff_pause_failure_leaves_destination_unchanged() -> Result<()> {
     let (_dirs, controller, source, _) = attached_handoff_source(true).await?;
     controller.global_params.node.fail_next_handoff_pauses(1);
-    hand_off(&controller, None).await?;
-    wait_player(&controller, |status| status.state == PlaybackState::Playing).await?;
-    let source_paused =
-        wait_player(&source, |status| status.state == PlaybackState::Paused).await?;
-    assert!(!source_paused.playlist.is_empty());
+    assert!(hand_off(&controller, None).await.is_err());
+    assert_eq!(
+        controller.global_params.node.renderer_link()?.as_ref().unwrap().fingerprint(),
+        super::info(&source).await?.fingerprint
+    );
+    wait_player(&source, |status| status.state == PlaybackState::Playing).await?;
     controller.global_params.node.shutdown().await?;
     source.global_params.node.shutdown().await?;
     Ok(())
@@ -5459,8 +5512,21 @@ async fn handoff_dispatch_appends_to_idle_renderer_queue_and_starts_source_curso
 
     let source_dir = tempfile::tempdir()?;
     let target_dir = tempfile::tempdir()?;
-    let source = fixture(source_dir.path()).await?;
-    let target = fixture(target_dir.path()).await?;
+    let signals = Arc::new(RecordedSignals::default());
+    let source = fixture_with_broadcaster(
+        source_dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+    let target = fixture_with_broadcaster(
+        target_dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
     let ids = [
         session_audio(&source, "handoff-merge-1.ogg").await?,
         session_audio(&source, "handoff-merge-2.ogg").await?,
@@ -5552,7 +5618,28 @@ async fn handoff_dispatch_appends_to_idle_renderer_queue_and_starts_source_curso
         call_id: None,
         target: Some(target_fingerprint.clone()),
     };
+    signals.clear();
     dispatch_gui_request(&source.global_params, &handoff).await?;
+    let source_session_id = source
+        .global_params
+        .node
+        .session()?
+        .session_id()
+        .await
+        .to_string();
+    let target_session_id = target
+        .global_params
+        .node
+        .session()?
+        .session_id()
+        .await
+        .to_string();
+    let (source_paused_at, target_loaded_at) =
+        recorded_handoff_order(&signals, &source_session_id, &target_session_id)?;
+    assert!(
+        source_paused_at < target_loaded_at,
+        "source paused at {source_paused_at}, target loaded at {target_loaded_at}"
+    );
 
     let mut expected_queue = expected_target_queue.clone();
     expected_queue.extend(source_queue.iter().cloned());
@@ -5564,9 +5651,9 @@ async fn handoff_dispatch_appends_to_idle_renderer_queue_and_starts_source_curso
             && status.playback_mode == PlaybackMode::Shuffle
     })
     .await?;
-    assert!(merged.position.abs_diff(source_before.position) <= Duration::from_millis(1500));
     let source_paused =
         wait_player(&source, |status| status.state == PlaybackState::Paused).await?;
+    assert!(merged.position.abs_diff(source_paused.position) <= Duration::from_millis(300));
     assert_eq!(source_paused.playlist, source_queue);
     assert_eq!(source_paused.item, source_before.item);
 
@@ -5615,32 +5702,78 @@ async fn handoff_dispatch_appends_to_idle_renderer_queue_and_starts_source_curso
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
-async fn new_handoff_cancels_old_source_pause_retry() -> Result<()> {
+async fn failed_pause_does_not_block_a_later_handoff() -> Result<()> {
     let (_dirs, controller, source, source_fingerprint) = attached_handoff_source(true).await?;
     controller.global_params.node.fail_next_handoff_pauses(1);
-    hand_off(&controller, None).await?;
-    wait_player(&controller, |status| status.state == PlaybackState::Playing).await?;
-
+    assert!(hand_off(&controller, None).await.is_err());
     hand_off(&controller, Some(source_fingerprint)).await?;
     wait_player(&source, |status| status.state == PlaybackState::Playing).await?;
-    sleep(Duration::from_millis(1300)).await;
-    assert_eq!(
-        source.global_params.player.lock().await.get_status().state,
-        PlaybackState::Playing
-    );
     controller.global_params.node.shutdown().await?;
     source.global_params.node.shutdown().await?;
     Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
-async fn failed_handoff_load_does_not_pause_source() -> Result<()> {
-    let (_dirs, controller, source, _) = attached_handoff_source(false).await?;
+async fn failed_handoff_load_restores_source_playback_state() -> Result<()> {
+    let signals = Arc::new(RecordedSignals::default());
+    let (_dirs, controller, source, _) =
+        attached_handoff_source_recorded(false, Some(signals.clone())).await?;
+    signals.clear();
+    let target_before = controller.global_params.player.lock().await.get_status();
     assert!(hand_off(&controller, None).await.is_err());
+    let target_after = controller.global_params.player.lock().await.get_status();
+    assert_eq!(target_after.playlist, target_before.playlist);
+    assert_eq!(target_after.index, target_before.index);
+    assert_eq!(target_after.item, target_before.item);
+    assert_eq!(target_after.state, target_before.state);
     assert_eq!(
         source.global_params.player.lock().await.get_status().state,
         PlaybackState::Playing
     );
+    let failed_handoff_states = timeout(Duration::from_secs(5), async {
+        loop {
+            let states = signals
+                .decoded::<PlaybackStatus>("PlaybackStatus")
+                .into_iter()
+                .map(|status| status.state)
+                .collect::<Vec<_>>();
+            let has_pause_then_resume = states.iter().enumerate().any(|(index, state)| {
+                state == "Paused" && states[index + 1..].iter().any(|later| later == "Playing")
+            });
+            if has_pause_then_resume {
+                return states;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .context("source pause and resume statuses after failed load")?;
+    let paused_at = failed_handoff_states
+        .iter()
+        .position(|state| state == "Paused")
+        .context("source pause before failed target load")?;
+    let resumed_at = failed_handoff_states
+        .iter()
+        .skip(paused_at + 1)
+        .position(|state| state == "Playing")
+        .map(|index| index + paused_at + 1)
+        .context("source resume after failed target load")?;
+    assert!(
+        paused_at < resumed_at,
+        "source statuses after failed load: {failed_handoff_states:?}"
+    );
+    source.global_params.player.lock().await.pause();
+    wait_player(&source, |status| status.state == PlaybackState::Paused).await?;
+    signals.clear();
+    assert!(hand_off(&controller, None).await.is_err());
+    assert_eq!(
+        source.global_params.player.lock().await.get_status().state,
+        PlaybackState::Paused
+    );
+    assert!(signals
+        .decoded::<PlaybackStatus>("PlaybackStatus")
+        .iter()
+        .all(|status| status.state != "Playing"));
     controller.global_params.node.shutdown().await?;
     source.global_params.node.shutdown().await?;
     Ok(())
@@ -5670,7 +5803,14 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
         a_signals.clone(),
     )
     .await?;
-    let b = fixture(b_dir.path()).await?;
+    let b_signals = Arc::new(RecordedSignals::default());
+    let b = fixture_with_broadcaster(
+        b_dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        b_signals.clone(),
+    )
+    .await?;
     let c = fixture(c_dir.path()).await?;
 
     let h_ids = [
@@ -5890,6 +6030,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
         status.state == PlaybackState::Paused && status.playlist == source_queue
     })
     .await?;
+    assert!(b_status.position.abs_diff(a_paused.position) <= Duration::from_millis(300));
     assert_eq!(a_paused.playlist, source_queue);
     assert_eq!(a_paused.index, Some(source_index));
     assert_eq!(
@@ -6058,6 +6199,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
         .filter(|entry| entry.block.is_some())
         .count();
     assert_eq!(block_items, expected_block);
+    b_signals.clear();
     let back = HandoffRequest {
         call_id: None,
         target: None,
@@ -6072,7 +6214,24 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     })
     .await?;
     assert_eq!(a_returned.playlist, block_items);
-    assert!(a_returned.position.abs_diff(b_before_return.position) <= Duration::from_millis(1500));
+    let b_session_id = b
+        .global_params
+        .node
+        .session()?
+        .session_id()
+        .await
+        .to_string();
+    let b_paused_source_position = b_signals
+        .decoded::<PlaybackStatus>("PlaybackStatus")
+        .into_iter()
+        .find(|status| {
+            status.state == "Paused"
+                && status.index == Some(current_index as i32)
+                && status.session_id == b_session_id
+        })
+        .map(|status| Duration::from_secs_f64(status.progress_seconds.max(0.0) as f64))
+        .context("paused renderer position before taking its handoff block")?;
+    assert!(a_returned.position.abs_diff(b_paused_source_position) <= Duration::from_millis(300));
     assert!(controller.global_params.node.renderer_link()?.is_none());
     let b_paused = wait_player(&b, |status| {
         status.state == PlaybackState::Paused && status.playlist == expected_target_queue
@@ -6107,16 +6266,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
         })
     );
     assert!(controller.global_params.node.renderer_link()?.is_none());
-    assert_eq!(
-        controller
-            .global_params
-            .player
-            .lock()
-            .await
-            .get_status()
-            .state,
-        PlaybackState::Playing
-    );
+    wait_player(controller, |status| status.state == PlaybackState::Playing).await?;
     assert_eq!(
         controller
             .global_params

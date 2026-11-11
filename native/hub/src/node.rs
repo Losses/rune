@@ -141,7 +141,6 @@ pub struct NodeContext {
     #[cfg(test)]
     reconnect_attempts: AtomicUsize,
     pub token: Arc<CancellationToken>,
-    handoff_retry_token: CancellationToken,
     pub(crate) sync_tokens: SyncTokenStore,
     sync_library_tokens: Mutex<HashMap<Uuid, CancellationToken>>,
     pub server_manager: OnceLock<Arc<ServerManager>>,
@@ -151,7 +150,6 @@ pub struct NodeContext {
     event_handles: Mutex<Vec<JoinHandle<()>>>,
     handoff_generation: AtomicU64,
     handoff_gate: Mutex<()>,
-    handoff_retry_handles: Mutex<Vec<JoinHandle<()>>>,
     handoff_blocks: Mutex<HashMap<String, PlayerHandoffBlockId>>,
     #[cfg(test)]
     handoff_pause_failures: AtomicUsize,
@@ -305,7 +303,6 @@ impl NodeContext {
             #[cfg(test)]
             reconnect_attempts: AtomicUsize::new(0),
             token: Arc::new(CancellationToken::new()),
-            handoff_retry_token: CancellationToken::new(),
             sync_tokens,
             sync_library_tokens: Mutex::new(HashMap::new()),
             server_manager: OnceLock::new(),
@@ -315,7 +312,6 @@ impl NodeContext {
             event_handles: Mutex::new(Vec::new()),
             handoff_generation: AtomicU64::new(0),
             handoff_gate: Mutex::new(()),
-            handoff_retry_handles: Mutex::new(Vec::new()),
             handoff_blocks: Mutex::new(HashMap::new()),
             #[cfg(test)]
             handoff_pause_failures: AtomicUsize::new(0),
@@ -473,16 +469,6 @@ impl NodeContext {
 
     pub(crate) fn handoff_generation(&self) -> u64 {
         self.handoff_generation.load(Ordering::Acquire)
-    }
-
-    pub(crate) async fn register_handoff_retry(&self, handle: JoinHandle<()>) {
-        let mut handles = self.handoff_retry_handles.lock().await;
-        handles.retain(|handle| !handle.is_finished());
-        handles.push(handle);
-    }
-
-    pub(crate) fn handoff_retry_cancellation_token(&self) -> CancellationToken {
-        self.handoff_retry_token.child_token()
     }
 
     pub(crate) async fn pause_handoff_source(
@@ -1143,7 +1129,6 @@ impl NodeContext {
     }
 
     pub async fn shutdown(&self) -> Result<()> {
-        self.handoff_retry_token.cancel();
         self.leave_remote_ui().await;
         let session_result = if let Some(session) = self.local_session.get() {
             session.shutdown().await
@@ -1151,9 +1136,6 @@ impl NodeContext {
             Ok(())
         };
         self.token.cancel();
-        for handle in self.handoff_retry_handles.lock().await.drain(..) {
-            let _ = handle.await;
-        }
         if let Some(params) = self
             .current_ui
             .lock()
@@ -1242,7 +1224,6 @@ mod nofile_tests {
 
 impl Drop for NodeContext {
     fn drop(&mut self) {
-        self.handoff_retry_token.cancel();
         self.token.cancel();
     }
 }

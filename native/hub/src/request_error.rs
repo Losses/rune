@@ -50,6 +50,8 @@ pub enum ExpectedRequestError {
     UnexpectedResponse { expected: String, actual: String },
     #[error("Queue changed: expected revision {expected}, current revision {current}")]
     StaleQueueRevision { expected: u64, current: u64 },
+    #[error("Handoff was superseded by a newer request")]
+    HandoffSuperseded,
     #[error("Cast is not possible for library {library_id}: {state:?}")]
     CastNotPossible {
         library_id: String,
@@ -108,6 +110,7 @@ pub fn classify(error: &Error) -> RequestErrorKind {
                 ExpectedRequestError::Remote { kind, .. } => *kind,
                 ExpectedRequestError::UnexpectedResponse { .. } => RequestErrorKind::Internal,
                 ExpectedRequestError::StaleQueueRevision { .. } => RequestErrorKind::Conflict,
+                ExpectedRequestError::HandoffSuperseded => RequestErrorKind::Conflict,
                 ExpectedRequestError::CastNotPossible { state, .. } => match state {
                     CastLibraryState::NotHeld | CastLibraryState::AccessRevoked => {
                         RequestErrorKind::PermissionDenied
@@ -232,6 +235,12 @@ mod tests {
             current: 8,
         })
         .context("move playlist item");
+        assert_eq!(classify(&error), RequestErrorKind::Conflict);
+    }
+
+    #[test]
+    fn superseded_handoff_is_a_conflict_after_context() {
+        let error = Error::new(ExpectedRequestError::HandoffSuperseded).context("handoff");
         assert_eq!(classify(&error), RequestErrorKind::Conflict);
     }
 
