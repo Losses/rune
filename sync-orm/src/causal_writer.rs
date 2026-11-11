@@ -54,6 +54,9 @@ impl WriterIncarnation {
     pub fn id(&self) -> Uuid {
         self.inner.incarnation
     }
+    pub fn last_allocated_counter(&self) -> u64 {
+        self.inner.counter.load(Ordering::SeqCst)
+    }
     /// Allocating consumes a dot even when its subsequent transaction rolls back.
     pub fn allocate(&self) -> Result<AllocatedDot, &'static str> {
         let previous = self

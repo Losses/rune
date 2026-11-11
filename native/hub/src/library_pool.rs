@@ -531,7 +531,7 @@ impl LibraryPool {
         }
     }
 
-    async fn close_idle(&self) -> Result<()> {
+    pub(crate) async fn close_idle(&self) -> Result<()> {
         let mut entries = self.entries.lock().await;
         let idle: Vec<_> = entries
             .iter()
@@ -549,6 +549,12 @@ impl LibraryPool {
             .collect();
         for id in idle {
             if let Some(entry) = entries.get(&id) {
+                entry
+                    .resources
+                    .library_sync
+                    .clean_close()
+                    .await
+                    .context("Failed to persist writer counter before closing library")?;
                 // Leave nothing only in -wal when the library is closed. A failure here is
                 // logged and must not keep the other idle libraries open.
                 if let Err(error) = checkpoint_wal(&entry.resources.main_db).await {

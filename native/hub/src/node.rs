@@ -1189,6 +1189,7 @@ impl NodeContext {
         for handle in self.event_handles.lock().await.drain(..) {
             result = result.and(handle.await.context("Node event listener failed"));
         }
+        result = result.and(self.library_pool.close_idle().await);
         result
     }
 }

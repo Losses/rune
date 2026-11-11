@@ -30,6 +30,7 @@ async fn ensure_writer_columns_on<C: ConnectionTrait>(db: &C) -> Result<()> {
         ("writer_author", "BLOB"),
         ("writer_reserved_counter", "BIGINT"),
         ("writer_file_token", "BLOB"),
+        ("writer_clean_counter", "BIGINT"),
     ] {
         if !columns.iter().any(|column| column == name) {
             db.execute_unprepared(&format!(
@@ -55,6 +56,7 @@ async fn reserve_writer_on<C: ConnectionTrait>(
                 "writer_author",
                 "writer_reserved_counter",
                 "writer_file_token",
+                "writer_clean_counter",
             ]
             .map(Alias::new),
         )
@@ -69,6 +71,7 @@ async fn reserve_writer_on<C: ConnectionTrait>(
     let stored_author = row.try_get_by_index::<Option<Vec<u8>>>(1)?;
     let stored_end = row.try_get_by_index::<Option<i64>>(2)?;
     let stored_file_token = row.try_get_by_index::<Option<Vec<u8>>>(3)?;
+    let clean_counter = row.try_get_by_index::<Option<i64>>(4)?;
     let parsed_id = stored_id
         .as_deref()
         .and_then(|bytes| Uuid::from_slice(bytes).ok())
@@ -111,6 +114,9 @@ async fn reserve_writer_on<C: ConnectionTrait>(
     };
     let maximum_dot = max(maximum_candidate_dot, maximum_observed_dot);
     let inconsistent_reservation = stored_end.is_some_and(|end| end < maximum_dot);
+    let valid_clean_counter = clean_counter.filter(|counter| {
+        *counter >= maximum_dot && *counter >= 0 && stored_end.is_some_and(|end| *counter <= end)
+    });
     let mismatched_file = expected_file_token.is_some_and(|token| {
         stored_file_token
             .as_deref()
@@ -120,6 +126,8 @@ async fn reserve_writer_on<C: ConnectionTrait>(
     if mismatched_owner || invalid_metadata || inconsistent_reservation || mismatched_file {
         incarnation = Uuid::new_v4();
         start = 0;
+    } else if let Some(counter) = valid_clean_counter {
+        start = counter;
     }
     let end = start
         .checked_add(WRITER_RESERVATION_SIZE)
@@ -136,6 +144,7 @@ async fn reserve_writer_on<C: ConnectionTrait>(
                 author.as_bytes().to_vec().into(),
             ),
             (Alias::new("writer_reserved_counter"), end.into()),
+            (Alias::new("writer_clean_counter"), Expr::val(None::<i64>)),
             (
                 Alias::new("writer_file_token"),
                 Expr::val(
@@ -333,6 +342,7 @@ impl<M: SyncModel> CausalReplica<M> {
                     "writer_author",
                     "writer_reserved_counter",
                     "writer_file_token",
+                    "writer_clean_counter",
                 ]
                 .map(Alias::new),
             )
@@ -355,6 +365,7 @@ impl<M: SyncModel> CausalReplica<M> {
                 author.as_bytes().to_vec().into(),
                 reserved_end.into(),
                 file_token.map(|token| token.as_bytes().to_vec()).into(),
+                Option::<i64>::None.into(),
             ])
             .to_owned();
         tx.execute(&q).await?;
@@ -420,6 +431,30 @@ impl<M: SyncModel> CausalReplica<M> {
     }
     pub fn writer_incarnation(&self) -> Uuid {
         self.writer.id()
+    }
+    /// Record the last consumed counter before the owner closes this database.
+    pub async fn clean_close(&self) -> Result<()> {
+        let counter = i64::try_from(self.writer.last_allocated_counter())
+            .map_err(|_| anyhow::anyhow!("writer counter exceeds database range"))?;
+        let tx = begin_write(&self.db).await?;
+        let update = Query::update()
+            .table(Alias::new("sync_meta"))
+            .value(Alias::new("writer_clean_counter"), counter)
+            .and_where(Expr::col(Alias::new("namespace")).eq(self.namespace.as_bytes().to_vec()))
+            .and_where(
+                Expr::col(Alias::new("writer_incarnation")).eq(self
+                    .writer
+                    .id()
+                    .as_bytes()
+                    .to_vec()),
+            )
+            .to_owned();
+        ensure!(
+            tx.execute(&update).await?.rows_affected() == 1,
+            "writer incarnation changed before clean close"
+        );
+        tx.commit().await?;
+        Ok(())
     }
     async fn meta_on<C: ConnectionTrait>(&self, tx: &C) -> Result<(StoreIdentity, MetaRow)> {
         let q = Query::select()

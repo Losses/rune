@@ -44,6 +44,7 @@ const TABLES: &[Layout] = &[
             Field("writer_author", B, true),
             Field("writer_reserved_counter", I, true),
             Field("writer_file_token", B, true),
+            Field("writer_clean_counter", I, true),
         ],
         &["namespace"],
     ),

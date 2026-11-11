@@ -135,6 +135,10 @@ impl LibrarySyncStore {
     pub fn record_store(&self) -> SeaOrmSyncStore {
         self.inner.clone()
     }
+    /// Persist the writer counter before the owning library database is closed.
+    pub async fn clean_close(&self) -> Result<()> {
+        self.inner.clean_close().await
+    }
     /// Explicitly traverse the registry; reads never initiate source import.
     async fn import_collections(&self, collections: &[Collection]) -> Result<()> {
         if sync_orm::causal_progress::initialization_complete_on(&self.db, self.inner.namespace())
