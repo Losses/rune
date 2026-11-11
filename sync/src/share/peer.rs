@@ -520,6 +520,9 @@ fn store_error(error: StoreError) -> SyncError {
         StoreError::NotFound => SyncError::Storage("referenced share object is missing".into()),
         StoreError::Transient(message) => SyncError::Transport(message),
         StoreError::Permanent(message) => SyncError::Storage(message),
+        StoreError::ClockSkew => SyncError::Transport(
+            "S3 rejected the request because this device clock is skewed".into(),
+        ),
         StoreError::PreconditionFailed => {
             SyncError::Storage("share object precondition failed".into())
         }

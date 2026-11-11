@@ -1,9 +1,9 @@
-//! In-process read-only WebDAV fixture shared by filesystem and hub tests.
+//! In-process WebDAV and S3 fixtures shared by filesystem and hub tests.
 use std::{
     collections::{BTreeSet, HashMap},
     io::{Error, ErrorKind},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
         Arc, Mutex,
     },
 };
@@ -20,6 +20,8 @@ pub struct WebDavFixture {
     writes: Arc<Mutex<Vec<String>>>,
     #[allow(dead_code)]
     reject_reads: Arc<AtomicBool>,
+    #[allow(dead_code)]
+    conditional_mode: Arc<AtomicU8>,
     task: Arc<JoinHandle<()>>,
 }
 
@@ -27,12 +29,14 @@ impl WebDavFixture {
     pub async fn start(files: Vec<(String, Vec<u8>)>) -> std::io::Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let address = listener.local_addr()?;
-        let files = Arc::new(files.into_iter().collect::<HashMap<_, _>>());
+        let files = Arc::new(Mutex::new(files.into_iter().collect::<HashMap<_, _>>()));
         let writes = Arc::new(Mutex::new(Vec::new()));
         let reject_reads = Arc::new(AtomicBool::new(false));
+        let conditional_mode = Arc::new(AtomicU8::new(0));
         let server_files = files.clone();
         let server_writes = writes.clone();
         let server_reject_reads = reject_reads.clone();
+        let server_conditional_mode = conditional_mode.clone();
         let task = tokio::spawn(async move {
             let mut connections = JoinSet::new();
             loop {
@@ -44,8 +48,9 @@ impl WebDavFixture {
                         let files = server_files.clone();
                         let writes = server_writes.clone();
                         let reject_reads = server_reject_reads.clone();
+                        let conditional_mode = server_conditional_mode.clone();
                         connections.spawn(async move {
-                            serve_webdav(stream, files, writes, reject_reads).await;
+                            serve_webdav(stream, files, writes, reject_reads, conditional_mode).await;
                         });
                     }
                     Some(_) = connections.join_next(), if !connections.is_empty() => {}
@@ -56,6 +61,7 @@ impl WebDavFixture {
             endpoint: format!("http://{address}"),
             writes,
             reject_reads,
+            conditional_mode,
             task: Arc::new(task),
         })
     }
@@ -70,6 +76,16 @@ impl WebDavFixture {
     #[allow(dead_code)]
     pub fn reject_reads(&self) {
         self.reject_reads.store(true, Ordering::SeqCst);
+    }
+
+    #[allow(dead_code)]
+    pub fn ignore_if_match(&self) {
+        self.conditional_mode.store(1, Ordering::SeqCst);
+    }
+
+    #[allow(dead_code)]
+    pub fn reject_if_match_with_bad_request(&self) {
+        self.conditional_mode.store(2, Ordering::SeqCst);
     }
 }
 
@@ -91,7 +107,7 @@ impl S3Fixture {
     pub async fn start(files: Vec<(String, Vec<u8>)>) -> std::io::Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let address = listener.local_addr()?;
-        let files = Arc::new(files.into_iter().collect::<HashMap<_, _>>());
+        let files = Arc::new(Mutex::new(files.into_iter().collect::<HashMap<_, _>>()));
         let task = tokio::spawn(async move {
             let mut connections = JoinSet::new();
             loop {
@@ -124,15 +140,59 @@ impl Drop for S3Fixture {
     }
 }
 
-async fn serve_s3(stream: TcpStream, files: Arc<HashMap<String, Vec<u8>>>) {
+async fn serve_s3(stream: TcpStream, files: Arc<Mutex<HashMap<String, Vec<u8>>>>) {
     let mut reader = BufReader::new(stream);
     loop {
-        let (method, path, headers) = match read_request(&mut reader).await {
+        let (method, path, headers, request_body) = match read_request(&mut reader).await {
             Ok(Some(request)) => request,
             Ok(None) | Err(_) => return,
         };
-        let (status, content_type, extra, body) = if method == "GET" && path.contains("list-type=2")
-        {
+        let files_snapshot = files
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        let (status, content_type, extra, body) = if method == "PUT" || method == "DELETE" {
+            let name = path.rsplit("/library/").next().unwrap_or_default();
+            let current = files_snapshot.get(name);
+            let condition_failed = headers
+                .get("if-none-match")
+                .is_some_and(|value| value == "*")
+                && current.is_some()
+                || headers.get("if-match").is_some_and(|value| {
+                    current.map(|bytes| fixture_etag(bytes)) != Some(value.clone())
+                });
+            if condition_failed {
+                (
+                    412,
+                    "application/xml",
+                    String::new(),
+                    b"<Error><Code>PreconditionFailed</Code></Error>".to_vec(),
+                )
+            } else if method == "PUT" {
+                let tag = fixture_etag(&request_body);
+                files
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .insert(name.to_owned(), request_body);
+                (
+                    200,
+                    "application/xml",
+                    format!("ETag: {tag}\r\n"),
+                    format!("<PutObjectResult><ETag>{tag}</ETag></PutObjectResult>").into_bytes(),
+                )
+            } else {
+                if files
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .remove(name)
+                    .is_some()
+                {
+                    (204, "text/plain", String::new(), Vec::new())
+                } else {
+                    (404, "text/plain", String::new(), Vec::new())
+                }
+            }
+        } else if method == "GET" && path.contains("list-type=2") {
             let requested_prefix = path
                 .split("prefix=")
                 .nth(1)
@@ -142,7 +202,7 @@ async fn serve_s3(stream: TcpStream, files: Arc<HashMap<String, Vec<u8>>>) {
             let prefix = prefix.trim_start_matches('/');
             let mut contents = String::new();
             let mut prefixes = BTreeSet::new();
-            for (name, bytes) in files.iter() {
+            for (name, bytes) in files_snapshot.iter() {
                 let key = format!("library/{name}");
                 let Some(remainder) = key.strip_prefix(prefix) else {
                     continue;
@@ -163,13 +223,29 @@ async fn serve_s3(stream: TcpStream, files: Arc<HashMap<String, Vec<u8>>>) {
             (200, "application/xml", String::new(), xml.into_bytes())
         } else {
             let name = path.rsplit("/library/").next().unwrap_or_default();
-            match files.get(name) {
+            match files_snapshot.get(name) {
                 Some(_bytes) if method == "HEAD" => (
                     200,
                     "application/octet-stream",
-                    "Last-Modified: Wed, 01 Jan 2025 00:00:00 GMT\r\n".to_owned(),
+                    format!(
+                        "Last-Modified: Wed, 01 Jan 2025 00:00:00 GMT\r\nETag: {}\r\n",
+                        fixture_etag(_bytes)
+                    ),
                     Vec::new(),
                 ),
+                Some(bytes)
+                    if method == "GET"
+                        && headers
+                            .get("if-none-match")
+                            .is_some_and(|tag| tag == &fixture_etag(bytes)) =>
+                {
+                    (
+                        304,
+                        "application/octet-stream",
+                        format!("ETag: {}\r\n", fixture_etag(bytes)),
+                        Vec::new(),
+                    )
+                }
                 Some(bytes) if method == "GET" => {
                     let range = headers
                         .get("range")
@@ -193,7 +269,10 @@ async fn serve_s3(stream: TcpStream, files: Arc<HashMap<String, Vec<u8>>>) {
                     } else {
                         (bytes.clone(), None)
                     };
-                    let mut extra = "Last-Modified: Wed, 01 Jan 2025 00:00:00 GMT\r\n".to_owned();
+                    let mut extra = format!(
+                        "Last-Modified: Wed, 01 Jan 2025 00:00:00 GMT\r\nETag: {}\r\n",
+                        fixture_etag(bytes)
+                    );
                     if let Some((start, end)) = range_header {
                         extra.push_str(&format!(
                             "Content-Range: bytes {start}-{end}/{}\r\n",
@@ -213,10 +292,13 @@ async fn serve_s3(stream: TcpStream, files: Arc<HashMap<String, Vec<u8>>>) {
         let reason = match status {
             200 => "OK",
             206 => "Partial Content",
+            204 => "No Content",
+            304 => "Not Modified",
+            412 => "Precondition Failed",
             _ => "Not Found",
         };
         let length = if method == "HEAD" {
-            files
+            files_snapshot
                 .get(path.rsplit("/library/").next().unwrap_or_default())
                 .map_or(0, Vec::len)
         } else {
@@ -242,16 +324,21 @@ async fn serve_s3(stream: TcpStream, files: Arc<HashMap<String, Vec<u8>>>) {
 
 async fn serve_webdav(
     stream: TcpStream,
-    files: Arc<HashMap<String, Vec<u8>>>,
+    files: Arc<Mutex<HashMap<String, Vec<u8>>>>,
     writes: Arc<Mutex<Vec<String>>>,
     reject_reads: Arc<AtomicBool>,
+    conditional_mode: Arc<AtomicU8>,
 ) {
     let mut reader = BufReader::new(stream);
     loop {
-        let (method, path, headers) = match read_request(&mut reader).await {
+        let (method, path, headers, request_body) = match read_request(&mut reader).await {
             Ok(Some(request)) => request,
             Ok(None) | Err(_) => return,
         };
+        let files_snapshot = files
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
         if matches!(
             method.as_str(),
             "PUT" | "MKCOL" | "DELETE" | "MOVE" | "COPY" | "PROPPATCH"
@@ -267,6 +354,39 @@ async fn serve_webdav(
             || (method == "GET" && reject_reads.load(Ordering::SeqCst))
         {
             (401, "text/plain", String::new(), Vec::new())
+        } else if method == "PUT" || method == "DELETE" {
+            let name = path.trim_start_matches("/dav/library/");
+            let current = files_snapshot.get(name);
+            let mode = conditional_mode.load(Ordering::SeqCst);
+            let condition_failed = headers
+                .get("if-none-match")
+                .is_some_and(|value| value == "*")
+                && current.is_some()
+                || (mode != 1
+                    && headers.get("if-match").is_some_and(|value| {
+                        current.map(|bytes| fixture_etag(bytes)) != Some(value.clone())
+                    }));
+            if mode == 2 && headers.contains_key("if-match") {
+                (400, "text/plain", String::new(), Vec::new())
+            } else if condition_failed {
+                (412, "text/plain", String::new(), Vec::new())
+            } else if method == "PUT" {
+                let tag = fixture_etag(&request_body);
+                files
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .insert(name.to_owned(), request_body);
+                (201, "text/plain", format!("ETag: {tag}\r\n"), Vec::new())
+            } else if files
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .remove(name)
+                .is_some()
+            {
+                (204, "text/plain", String::new(), Vec::new())
+            } else {
+                (404, "text/plain", String::new(), Vec::new())
+            }
         } else if method == "PROPFIND" {
             let directory = path
                 .trim_start_matches("/dav/library/")
@@ -277,15 +397,15 @@ async fn serve_webdav(
                 format!("{directory}/")
             };
             let entries =
-                if files.contains_key(directory) {
-                    files
+                if files_snapshot.contains_key(directory) {
+                    files_snapshot
                         .get(directory)
                         .map(|bytes| vec![dav_entry(&path, false, bytes.len())])
                         .unwrap_or_default()
                 } else {
                     let mut entries = vec![dav_entry(&path, true, 0)];
                     let mut directories = BTreeSet::new();
-                    for (name, bytes) in files.iter() {
+                    for (name, bytes) in files_snapshot.iter() {
                         let Some(remainder) = name.strip_prefix(&prefix) else {
                             continue;
                         };
@@ -311,9 +431,25 @@ async fn serve_webdav(
             (207, "application/xml", String::new(), xml.into_bytes())
         } else if method == "GET" || method == "HEAD" {
             let name = path.trim_start_matches("/dav/library/");
-            match files.get(name) {
-                Some(_bytes) if method == "HEAD" => {
-                    (200, "application/octet-stream", String::new(), Vec::new())
+            match files_snapshot.get(name) {
+                Some(_bytes) if method == "HEAD" => (
+                    200,
+                    "application/octet-stream",
+                    format!("ETag: {}\r\n", fixture_etag(_bytes)),
+                    Vec::new(),
+                ),
+                Some(bytes)
+                    if method == "GET"
+                        && headers
+                            .get("if-none-match")
+                            .is_some_and(|tag| tag == &fixture_etag(bytes)) =>
+                {
+                    (
+                        304,
+                        "application/octet-stream",
+                        format!("ETag: {}\r\n", fixture_etag(bytes)),
+                        Vec::new(),
+                    )
                 }
                 Some(bytes) => {
                     let range = headers
@@ -338,9 +474,13 @@ async fn serve_webdav(
                     } else {
                         (bytes.clone(), None)
                     };
-                    let extra = bounds.map_or_else(String::new, |(start, end)| {
-                        format!("Content-Range: bytes {start}-{end}/{}\r\n", bytes.len())
-                    });
+                    let mut extra = format!("ETag: {}\r\n", fixture_etag(bytes));
+                    if let Some((start, end)) = bounds {
+                        extra.push_str(&format!(
+                            "Content-Range: bytes {start}-{end}/{}\r\n",
+                            bytes.len()
+                        ));
+                    }
                     (
                         if bounds.is_some() { 206 } else { 200 },
                         "application/octet-stream",
@@ -357,12 +497,17 @@ async fn serve_webdav(
             200 => "OK",
             206 => "Partial Content",
             207 => "Multi-Status",
+            201 => "Created",
+            204 => "No Content",
+            304 => "Not Modified",
             401 => "Unauthorized",
+            400 => "Bad Request",
             404 => "Not Found",
+            412 => "Precondition Failed",
             _ => "Method Not Allowed",
         };
         let length = if method == "HEAD" {
-            files
+            files_snapshot
                 .get(path.trim_start_matches("/dav/library/"))
                 .map_or(0, Vec::len)
         } else {
@@ -388,7 +533,7 @@ async fn serve_webdav(
 
 async fn read_request(
     reader: &mut BufReader<TcpStream>,
-) -> std::io::Result<Option<(String, String, HashMap<String, String>)>> {
+) -> std::io::Result<Option<(String, String, HashMap<String, String>, Vec<u8>)>> {
     let mut line = String::new();
     if reader.read_line(&mut line).await? == 0 {
         return Ok(None);
@@ -412,28 +557,27 @@ async fn read_request(
             .split(',')
             .any(|encoding| encoding.trim().eq_ignore_ascii_case("chunked"))
     });
-    if is_chunked {
-        read_chunked_body(reader).await?;
+    let body = if is_chunked {
+        read_chunked_body(reader).await?
     } else if let Some(length) = headers
         .get("content-length")
         .map(|value| value.parse::<usize>())
         .transpose()
         .map_err(|error| Error::new(ErrorKind::InvalidData, error))?
     {
-        let mut remaining = length;
-        let mut buffer = [0; 8192];
-        while remaining > 0 {
-            let count = remaining.min(buffer.len());
-            reader.read_exact(&mut buffer[..count]).await?;
-            remaining -= count;
-        }
-    }
+        let mut body = vec![0; length];
+        reader.read_exact(&mut body).await?;
+        body
+    } else {
+        Vec::new()
+    };
 
-    Ok(Some((method, path, headers)))
+    Ok(Some((method, path, headers, body)))
 }
 
-async fn read_chunked_body(reader: &mut BufReader<TcpStream>) -> std::io::Result<()> {
+async fn read_chunked_body(reader: &mut BufReader<TcpStream>) -> std::io::Result<Vec<u8>> {
     let mut buffer = [0; 8192];
+    let mut body = Vec::new();
     loop {
         let mut line = String::new();
         if reader.read_line(&mut line).await? == 0 {
@@ -451,7 +595,7 @@ async fn read_chunked_body(reader: &mut BufReader<TcpStream>) -> std::io::Result
             loop {
                 line.clear();
                 if reader.read_line(&mut line).await? == 0 || line == "\r\n" {
-                    return Ok(());
+                    return Ok(body);
                 }
             }
         }
@@ -460,6 +604,7 @@ async fn read_chunked_body(reader: &mut BufReader<TcpStream>) -> std::io::Result
         while remaining > 0 {
             let count = remaining.min(buffer.len());
             reader.read_exact(&mut buffer[..count]).await?;
+            body.extend_from_slice(&buffer[..count]);
             remaining -= count;
         }
         line.clear();
@@ -489,6 +634,10 @@ fn request_wants_close(headers: &HashMap<String, String>) -> bool {
             .split(',')
             .any(|directive| directive.trim().eq_ignore_ascii_case("close"))
     })
+}
+
+fn fixture_etag(bytes: &[u8]) -> String {
+    format!("\"{}\"", blake3::hash(bytes).to_hex())
 }
 
 fn dav_entry(path: &str, directory: bool, size: usize) -> String {

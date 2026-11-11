@@ -2683,6 +2683,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "blake3",
  "dunce",
  "futures",
  "jni 0.21.1",
@@ -2694,9 +2695,11 @@ dependencies = [
  "rusqlite",
  "rustls",
  "serde",
+ "sync",
  "tempfile",
  "thiserror 1.0.65",
  "tokio",
+ "uuid",
  "walkdir",
  "webpki-roots 0.26.8",
 ]

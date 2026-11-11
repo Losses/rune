@@ -707,6 +707,9 @@ fn object_store_error(error: StoreError) -> SyncError {
         StoreError::NotFound => SyncError::SnapshotSourceUnavailable,
         StoreError::Transient(message) => SyncError::Transport(message),
         StoreError::Permanent(message) => SyncError::Storage(message),
+        StoreError::ClockSkew => SyncError::Transport(
+            "S3 rejected the request because this device clock is skewed".into(),
+        ),
         StoreError::PreconditionFailed => {
             SyncError::Storage("unexpected object precondition".into())
         }

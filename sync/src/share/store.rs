@@ -9,6 +9,7 @@ pub use memory::{MemoryObjectStore, MemoryStoreConfig};
 pub enum StoreError {
     NotFound,
     PreconditionFailed,
+    ClockSkew,
     Transient(String),
     Permanent(String),
 }
@@ -18,6 +19,10 @@ pub type StoreResult<T> = StdResult<T, StoreError>;
 pub struct ObjectTag(String);
 
 impl ObjectTag {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }

@@ -6,8 +6,17 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use sync::share::StoreError;
 
 use super::{FileIoError, FsIo};
+
+/// Probe share-object write and conditional capabilities under the caller's device prefix.
+pub async fn probe_share_object_store(
+    store: &super::OpenDalObjectStore,
+    own_prefix: &str,
+) -> Result<super::ObjectStoreCapabilities, StoreError> {
+    store.probe(own_prefix).await
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct FsSelfTestLayerResult {
