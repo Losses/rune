@@ -16,7 +16,9 @@ registerDeviceOnServer(List<String> hosts, String fingerprint) async {
   final rustSignal = await awaitResponse(
     'RegisterDeviceOnServerRequest',
     RegisterDeviceOnServerResponse.rustSignalStream,
-    send: () => registerRequest.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        registerRequest.copyWith(callId: () => callId).sendSignalToRust(),
   );
   final response = rustSignal.message;
 

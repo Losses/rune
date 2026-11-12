@@ -11,8 +11,11 @@ Future<int?> getPrimaryColor(PlayingItem playingItem) async {
       GetPrimaryColorByTrackIdResponse.rustSignalStream.where(
         (event) => PlayingItem.fromRequest(event.message.item) == playingItem,
       ),
-      send: () =>
-          GetPrimaryColorByTrackIdRequest(item: itemRef).sendSignalToRust(),
+      responseCallId: (response) => response.message.callId?.toInt(),
+      send: (callId) => GetPrimaryColorByTrackIdRequest(
+        item: itemRef,
+        callId: callId,
+      ).sendSignalToRust(),
     );
 
     final newItem = PlayingItem.fromRequest(rustSignal.message.item);

@@ -55,8 +55,9 @@ Future<FsSelfTestResult> runFsSelfTest(
   void Function(FsSelfTestProgress progress)? onProgress,
 }) async {
   final dbPath = await getSettingsPath();
-  final progressSubscription =
-      FsSelfTestProgress.rustSignalStream.listen((rustSignal) {
+  final progressSubscription = FsSelfTestProgress.rustSignalStream.listen((
+    rustSignal,
+  ) {
     onProgress?.call(rustSignal.message);
   });
 
@@ -64,7 +65,12 @@ Future<FsSelfTestResult> runFsSelfTest(
     final rustSignal = await awaitResponse(
       'RunFsSelfTestRequest',
       RunFsSelfTestResponse.rustSignalStream,
-      send: () => RunFsSelfTestRequest(path: path, dbPath: dbPath).sendSignalToRust(),
+      responseCallId: (response) => response.message.callId?.toInt(),
+      send: (callId) => RunFsSelfTestRequest(
+        path: path,
+        dbPath: dbPath,
+        callId: callId,
+      ).sendSignalToRust(),
       timeout: const Duration(seconds: 120),
     );
     final response = rustSignal.message;

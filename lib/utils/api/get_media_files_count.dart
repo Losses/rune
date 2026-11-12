@@ -8,7 +8,9 @@ Future<int> getMediaFilesCount() async {
     final rustSignal = await awaitResponse(
       'GetMediaFilesCountRequest',
       GetMediaFilesCountResponse.rustSignalStream,
-      send: () => request.sendSignalToRust(),
+      responseCallId: (response) => response.message.callId?.toInt(),
+      send: (callId) =>
+          request.copyWith(callId: () => callId).sendSignalToRust(),
       timeout: const Duration(seconds: 5),
     );
     final response = rustSignal.message;

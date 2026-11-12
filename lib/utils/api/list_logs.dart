@@ -6,7 +6,9 @@ Future<List<LogDetail>> listLogs(int cursor, int pageSize) async {
   final rustSignal = await awaitResponse(
     'ListLogRequest',
     ListLogResponse.rustSignalStream,
-    send: () => listRequest.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        listRequest.copyWith(callId: () => callId).sendSignalToRust(),
   );
   final response = rustSignal.message;
 

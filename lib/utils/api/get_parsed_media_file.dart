@@ -7,7 +7,9 @@ Future<FetchParsedMediaFileResponse> getParsedMediaFile(int fileId) async {
   final rustSignal = await awaitResponse(
     'FetchParsedMediaFileRequest',
     FetchParsedMediaFileResponse.rustSignalStream,
-    send: () => fetchRequest.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        fetchRequest.copyWith(callId: () => callId).sendSignalToRust(),
   );
   final response = rustSignal.message;
 

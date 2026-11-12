@@ -18,7 +18,8 @@ Future<List<InternalMediaFile>> queryMixTracks(
   final response = (await awaitResponse(
     'MixQueryRequest',
     MixQueryResponse.rustSignalStream,
-    send: () => request.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) => request.copyWith(callId: () => callId).sendSignalToRust(),
   )).message;
 
   return response.files

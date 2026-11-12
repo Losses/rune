@@ -38,6 +38,7 @@ class _LibraryManager extends ChangeNotifier implements LibraryManagerProvider {
     String recordId, {
     bool isInitializeTask = false,
     bool force = false,
+    Uint64? callId,
   }) async {
     scanStarts++;
   }

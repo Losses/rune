@@ -13,6 +13,7 @@ Future<List<CollectionGroupSummary>> fetchCollectionGroupSummary(
   return (await awaitResponse(
     'FetchCollectionGroupSummaryRequest',
     CollectionGroupSummaryResponse.rustSignalStream,
-    send: () => request.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) => request.copyWith(callId: () => callId).sendSignalToRust(),
   )).message.groups;
 }

@@ -5,7 +5,11 @@ Future<List<RendererCandidate>> listRenderers(List<String> libraryIds) async {
   final response = await awaitResponse(
     'ListRenderersRequest',
     ListRenderersResponse.rustSignalStream,
-    send: () => ListRenderersRequest(libraryIds: libraryIds).sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) => ListRenderersRequest(
+      libraryIds: libraryIds,
+      callId: callId,
+    ).sendSignalToRust(),
   );
   return response.message.renderers;
 }
@@ -16,6 +20,8 @@ Future<void> handoffRenderer(String? target) async {
   await awaitResponse(
     'HandoffRequest',
     HandoffResponse.rustSignalStream,
-    send: () => HandoffRequest(target: target).sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        HandoffRequest(target: target, callId: callId).sendSignalToRust(),
   );
 }

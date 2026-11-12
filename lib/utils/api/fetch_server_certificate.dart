@@ -9,7 +9,9 @@ Future<String> fetchServerCertificate(String host) async {
   final rustSignal = await awaitResponse(
     'FetchServerCertificateRequest',
     FetchServerCertificateResponse.rustSignalStream,
-    send: () => removeTrustRequest.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        removeTrustRequest.copyWith(callId: () => callId).sendSignalToRust(),
   );
   final response = rustSignal.message;
 

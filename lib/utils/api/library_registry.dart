@@ -12,10 +12,12 @@ Future<ReplaceSubsonicCredentialResponse> replaceSubsonicCredential(
     'ReplaceSubsonicCredentialRequest',
     ReplaceSubsonicCredentialResponse.rustSignalStream,
     timeout: _timeout,
-    send: () => ReplaceSubsonicCredentialRequest(
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) => ReplaceSubsonicCredentialRequest(
       recordId: recordId,
       username: username,
       password: password,
+      callId: callId,
     ).sendSignalToRust(),
   );
   return response.message;
@@ -26,8 +28,11 @@ Future<ListPeerLibrariesResponse> listPeerLibraries(String fingerprint) async {
     'ListPeerLibrariesRequest',
     ListPeerLibrariesResponse.rustSignalStream,
     timeout: _timeout,
-    send: () =>
-        ListPeerLibrariesRequest(fingerprint: fingerprint).sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) => ListPeerLibrariesRequest(
+      fingerprint: fingerprint,
+      callId: callId,
+    ).sendSignalToRust(),
   );
   return (await response).message;
 }
@@ -41,10 +46,12 @@ Future<RegisterLibraryResponse> registerOpenDalLibrary(
     'RegisterOpenDalLibraryRequest',
     RegisterLibraryResponse.rustSignalStream,
     timeout: _timeout,
-    send: () => RegisterOpenDalLibraryRequest(
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) => RegisterOpenDalLibraryRequest(
       service: service,
       alias: alias,
       shareDataChoice: shareDataChoice,
+      callId: callId,
     ).sendSignalToRust(),
   );
   return (await response).message;
@@ -57,8 +64,11 @@ Future<DetectOpenDalShareDataResponse> detectOpenDalShareData(
     'DetectOpenDalShareDataRequest',
     DetectOpenDalShareDataResponse.rustSignalStream,
     timeout: _timeout,
-    send: () =>
-        DetectOpenDalShareDataRequest(service: service).sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) => DetectOpenDalShareDataRequest(
+      service: service,
+      callId: callId,
+    ).sendSignalToRust(),
   );
   return response.message;
 }
@@ -74,12 +84,14 @@ Future<RegisterLibraryResponse> registerSubsonicLibrary(
     'RegisterSubsonicLibraryRequest',
     RegisterLibraryResponse.rustSignalStream,
     timeout: _timeout,
-    send: () => RegisterSubsonicLibraryRequest(
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) => RegisterSubsonicLibraryRequest(
       endpoint: endpoint,
       username: username,
       password: password,
       alias: alias,
       mode: mode,
+      callId: callId,
     ).sendSignalToRust(),
   );
   return (await response).message;
@@ -93,12 +105,14 @@ Future<AddRemoteLibraryResponse> addRemoteLibrary(
     'AddRemoteLibraryRequest',
     AddRemoteLibraryResponse.rustSignalStream,
     timeout: _timeout,
-    send: () => AddRemoteLibraryRequest(
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) => AddRemoteLibraryRequest(
       fingerprint: fingerprint,
       libraryId: library.libraryId,
       alias: library.alias,
       connection: library.connection,
       sync: library.sync,
+      callId: callId,
     ).sendSignalToRust(),
   );
   return (await response).message;
@@ -109,7 +123,9 @@ Future<ListLocalLibrariesResponse> listLocalLibraries() async {
     'ListLocalLibrariesRequest',
     ListLocalLibrariesResponse.rustSignalStream,
     timeout: _timeout,
-    send: () => const ListLocalLibrariesRequest().sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        ListLocalLibrariesRequest(callId: callId).sendSignalToRust(),
   );
   return (await response).message;
 }
@@ -122,9 +138,11 @@ Future<SetLibraryBackgroundSyncResponse> setLibraryBackgroundSync(
     'SetLibraryBackgroundSyncRequest',
     SetLibraryBackgroundSyncResponse.rustSignalStream,
     timeout: _timeout,
-    send: () => SetLibraryBackgroundSyncRequest(
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) => SetLibraryBackgroundSyncRequest(
       libraryId: libraryId,
       enabled: enabled,
+      callId: callId,
     ).sendSignalToRust(),
   );
   return (await response).message;

@@ -13,8 +13,11 @@ Future<GetDeviceGrantsResponse> _getDeviceGrants(String fingerprint) async {
   final signal = await awaitResponse(
     'GetDeviceGrantsRequest',
     GetDeviceGrantsResponse.rustSignalStream,
-    send: () =>
-        GetDeviceGrantsRequest(fingerprint: fingerprint).sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) => GetDeviceGrantsRequest(
+      fingerprint: fingerprint,
+      callId: callId,
+    ).sendSignalToRust(),
   );
   return signal.message;
 }
@@ -23,6 +26,7 @@ Future<void> setDeviceGrants(SetDeviceGrantsRequest request) async {
   await awaitResponse(
     'SetDeviceGrantsRequest',
     SetDeviceGrantsResponse.rustSignalStream,
-    send: request.sendSignalToRust,
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) => request.copyWith(callId: () => callId).sendSignalToRust(),
   );
 }

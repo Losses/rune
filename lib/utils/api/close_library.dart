@@ -12,7 +12,8 @@ Future<void> closeLibrary(BuildContext context) async {
     await awaitResponse(
       'CloseLibraryRequest',
       CloseLibraryResponse.rustSignalStream,
-      send: () => CloseLibraryRequest().sendSignalToRust(),
+      responseCallId: (response) => response.message.callId?.toInt(),
+      send: (callId) => CloseLibraryRequest(callId: callId).sendSignalToRust(),
     );
 
     library.onClosed();

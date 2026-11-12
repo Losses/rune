@@ -5,7 +5,9 @@ Future<RegisterLicenseResponse> registerLicense(String path) async {
   final rustSignal = await awaitResponse(
     'RegisterLicenseRequest',
     RegisterLicenseResponse.rustSignalStream,
-    send: () => RegisterLicenseRequest(path: path).sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        RegisterLicenseRequest(path: path, callId: callId).sendSignalToRust(),
   );
 
   return rustSignal.message;

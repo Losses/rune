@@ -27,13 +27,15 @@ Future<List<PlayingItem>> operatePlaybackWithMixQuery({
   final resolvedSignal = await awaitResponse(
     'ResolveMixQueryRequest',
     ResolveMixQueryResponse.rustSignalStream,
-    send: () => ResolveMixQueryRequest(
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) => ResolveMixQueryRequest(
       queries: queries.toQueryList(),
       hintPosition: hintPosition,
       initialPlaybackItem: requestItems.first,
       instantlyPlay: instantlyPlay,
       fallbackPlayingItems: requestItems.skip(1).toList(),
       excludeCurrentQueue: castTo == null,
+      callId: callId,
     ).sendSignalToRust(),
   );
   final resolved = resolvedSignal.message;
@@ -49,8 +51,10 @@ Future<List<PlayingItem>> operatePlaybackWithMixQuery({
     await awaitResponse(
       'AttachRendererRequest',
       AttachRendererResponse.rustSignalStream,
-      send: () => AttachRendererRequest(
+      responseCallId: (response) => response.message.callId?.toInt(),
+      send: (callId) => AttachRendererRequest(
         fingerprint: castTo.fingerprint,
+        callId: callId,
       ).sendSignalToRust(),
     );
     attachedForLoad = true;
@@ -61,14 +65,18 @@ Future<List<PlayingItem>> operatePlaybackWithMixQuery({
         ? (await awaitResponse(
             'RemotePlaylistRevisionRequest',
             RemotePlaylistRevisionResponse.rustSignalStream,
-            send: () => RemotePlaylistRevisionRequest(
+            responseCallId: (response) => response.message.callId?.toInt(),
+            send: (callId) => RemotePlaylistRevisionRequest(
               fingerprint: castTo.fingerprint,
+              callId: callId,
             ).sendSignalToRust(),
           )).message.revision
         : (await awaitResponse(
             'PlaylistRevisionRequest',
             PlaylistRevisionResponse.rustSignalStream,
-            send: () => PlaylistRevisionRequest().sendSignalToRust(),
+            responseCallId: (response) => response.message.callId?.toInt(),
+            send: (callId) =>
+                PlaylistRevisionRequest(callId: callId).sendSignalToRust(),
           )).message.revision;
     final load = LoadResolvedItemsRequest(
       items: items,
@@ -83,9 +91,11 @@ Future<List<PlayingItem>> operatePlaybackWithMixQuery({
       final response = await awaitResponse(
         'CastResolvedItemsRequest',
         CastResolvedItemsResponse.rustSignalStream,
-        send: () => CastResolvedItemsRequest(
+        responseCallId: (response) => response.message.callId?.toInt(),
+        send: (callId) => CastResolvedItemsRequest(
           fingerprint: castTo.fingerprint,
           load: load,
+          callId: callId,
         ).sendSignalToRust(),
       );
       onCastResult?.call(response.message.result);
@@ -93,7 +103,9 @@ Future<List<PlayingItem>> operatePlaybackWithMixQuery({
       final response = await awaitResponse(
         'LoadResolvedItemsRequest',
         LoadResolvedItemsResponse.rustSignalStream,
-        send: () => load.sendSignalToRust(),
+        responseCallId: (response) => response.message.callId?.toInt(),
+        send: (callId) =>
+            load.copyWith(callId: () => callId).sendSignalToRust(),
       );
       onCastResult?.call(response.message.result);
     }
@@ -106,8 +118,10 @@ Future<List<PlayingItem>> operatePlaybackWithMixQuery({
           await awaitResponse(
             'AttachRendererRequest',
             AttachRendererResponse.rustSignalStream,
-            send: () => AttachRendererRequest(
+            responseCallId: (response) => response.message.callId?.toInt(),
+            send: (callId) => AttachRendererRequest(
               fingerprint: fingerprint,
+              callId: callId,
             ).sendSignalToRust(),
           );
         },

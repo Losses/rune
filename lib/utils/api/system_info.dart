@@ -7,7 +7,9 @@ Future<SystemInfoResponse> systemInfo() async {
   final rustSignal = await awaitResponse(
     'SystemInfoRequest',
     SystemInfoResponse.rustSignalStream,
-    send: () => updateRequest.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        updateRequest.copyWith(callId: () => callId).sendSignalToRust(),
   );
   final response = rustSignal.message;
 

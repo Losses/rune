@@ -5,7 +5,9 @@ Future<String> fetchRemoteFile(String url) async {
   final rustSignal = await awaitResponse(
     'FetchRemoteFileRequest',
     FetchRemoteFileResponse.rustSignalStream,
-    send: () => FetchRemoteFileRequest(url: url).sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        FetchRemoteFileRequest(url: url, callId: callId).sendSignalToRust(),
   );
   final response = rustSignal.message;
 

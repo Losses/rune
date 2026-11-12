@@ -14,7 +14,11 @@ Future<List<LyricContentLine>> getLyricByTrackId(PlayingItem? item) async {
         (event) => PlayingItem.fromRequest(event.message.item) == item,
       ),
       timeout: const Duration(seconds: 10),
-      send: () => GetLyricByTrackIdRequest(item: itemRef!).sendSignalToRust(),
+      responseCallId: (response) => response.message.callId?.toInt(),
+      send: (callId) => GetLyricByTrackIdRequest(
+        item: itemRef!,
+        callId: callId,
+      ).sendSignalToRust(),
     );
     return response.message.lines;
   } on TimeoutException {

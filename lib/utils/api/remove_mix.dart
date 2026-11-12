@@ -7,7 +7,9 @@ Future<bool> removeMix(int mixId) async {
   final rustSignal = await awaitResponse(
     'RemoveMixRequest',
     RemoveMixResponse.rustSignalStream,
-    send: () => updateRequest.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        updateRequest.copyWith(callId: () => callId).sendSignalToRust(),
   );
   final response = rustSignal.message;
 

@@ -30,12 +30,14 @@ Future<void> setDownloadRule(
     SetDownloadRuleResponse.rustSignalStream.where(
       (event) => event.message.requestId == requestId,
     ),
-    send: () => SetDownloadRuleRequest(
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) => SetDownloadRuleRequest(
       requestId: requestId,
       queries: queries,
       mixId: mixId,
       enabled: enabled,
       deleteUnselectedFiles: deleteUnselectedFiles,
+      callId: callId,
     ).sendSignalToRust(),
     timeout: const Duration(seconds: 15),
   );

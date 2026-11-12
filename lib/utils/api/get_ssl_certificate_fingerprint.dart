@@ -5,7 +5,9 @@ Future<String> getSSLCertificateFingerprint() async {
   final rustSignal = await awaitResponse(
     'GetSslCertificateFingerprintRequest',
     GetSslCertificateFingerprintResponse.rustSignalStream,
-    send: () => GetSslCertificateFingerprintRequest().sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        GetSslCertificateFingerprintRequest(callId: callId).sendSignalToRust(),
   );
 
   return rustSignal.message.fingerprint;

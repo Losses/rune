@@ -10,7 +10,11 @@ Future<GetSyncSettingsResponse> getSyncSettings() async {
     GetSyncSettingsResponse.rustSignalStream.where(
       (event) => event.message.requestId == id,
     ),
-    send: () => GetSyncSettingsRequest(requestId: id).sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) => GetSyncSettingsRequest(
+      requestId: id,
+      callId: callId,
+    ).sendSignalToRust(),
     timeout: const Duration(seconds: 15),
   );
   final result = (await response).message;

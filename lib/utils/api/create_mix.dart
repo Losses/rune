@@ -13,15 +13,18 @@ Future<Mix> createMix(
     group: group.isEmpty ? 'Favorite' : group,
     scriptletMode: scriptletMode,
     mode: mode,
-    queries:
-        queries.map((x) => MixQuery(operator: x.$1, parameter: x.$2)).toList(),
+    queries: queries
+        .map((x) => MixQuery(operator: x.$1, parameter: x.$2))
+        .toList(),
   );
 
   // Listen for the response from Rust
   final rustSignal = await awaitResponse(
     'CreateMixRequest',
     CreateMixResponse.rustSignalStream,
-    send: () => createRequest.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        createRequest.copyWith(callId: () => callId).sendSignalToRust(),
   );
   final response = rustSignal.message;
 

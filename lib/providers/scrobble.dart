@@ -10,6 +10,7 @@ import 'package:pointycastle/export.dart' as pc;
 import '../l10n/app_localizations.dart';
 import '../utils/settings_manager.dart';
 import '../bindings/bindings.dart';
+import '../utils/api/request_failure.dart';
 
 extension LoginRequestItemJson on LoginRequestItem {
   String? get credentialRef => secretInput is ScrobbleSecretInputSaved
@@ -164,11 +165,15 @@ class ScrobbleProvider with ChangeNotifier {
         credentialRef: stored.credentialRef!,
       ),
     );
-    AuthenticateSingleServiceRequest(request: request).sendSignalToRust();
-
-    // Wait for the response
-    final rustSignal =
-        await AuthenticateSingleServiceResponse.rustSignalStream.first;
+    final rustSignal = await awaitResponse(
+      'AuthenticateSingleServiceRequest',
+      AuthenticateSingleServiceResponse.rustSignalStream,
+      responseCallId: (response) => response.message.callId?.toInt(),
+      send: (callId) => AuthenticateSingleServiceRequest(
+        request: request,
+        callId: callId,
+      ).sendSignalToRust(),
+    );
     final response = rustSignal.message;
 
     // Handle the response
@@ -196,10 +201,15 @@ class ScrobbleProvider with ChangeNotifier {
         _ => credentials.secretInput,
       },
     );
-    AuthenticateSingleServiceRequest(request: loginRequest).sendSignalToRust();
-
-    final rustSignal =
-        await AuthenticateSingleServiceResponse.rustSignalStream.first;
+    final rustSignal = await awaitResponse(
+      'AuthenticateSingleServiceRequest',
+      AuthenticateSingleServiceResponse.rustSignalStream,
+      responseCallId: (response) => response.message.callId?.toInt(),
+      send: (callId) => AuthenticateSingleServiceRequest(
+        request: loginRequest,
+        callId: callId,
+      ).sendSignalToRust(),
+    );
     final response = rustSignal.message;
 
     final result = response.result;

@@ -8,6 +8,7 @@ import '../../providers/library_open_state.dart';
 import '../../providers/library_manager.dart';
 import '../../bindings/bindings.dart';
 import '../../utils/l10n.dart';
+import '../../utils/api/request_failure.dart';
 import '../../utils/router/navigation.dart';
 import '../../widgets/status_bar_style.dart';
 
@@ -69,7 +70,14 @@ class _ScanningPageState extends State<ScanningPage>
               children: [
                 if (progress?.status == TaskStatus.failed ||
                     progress?.status == TaskStatus.cancelled) ...[
-                  Text(S.of(context).error(progress?.error ?? '')),
+                  Text(
+                    progress?.failure != null
+                        ? requestFailureMessage(
+                            S.of(context),
+                            progress!.failure!,
+                          )
+                        : S.of(context).error(progress?.error ?? ''),
+                  ),
                   const SizedBox(height: 12),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,

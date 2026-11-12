@@ -14,7 +14,8 @@ Future<List<InternalMediaFile>> fetchMediaFileByIds(
   final response = (await awaitResponse(
     'FetchMediaFileByIdsRequest',
     FetchMediaFileByIdsResponse.rustSignalStream,
-    send: () => request.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) => request.copyWith(callId: () => callId).sendSignalToRust(),
   )).message;
 
   return orderByIds(ids, response.mediaFiles, (x) => x.id)

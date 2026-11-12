@@ -9,6 +9,8 @@ import '../bindings/bindings.dart';
 import '../constants/configurations.dart';
 import '../constants/settings_manager.dart';
 import '../utils/visualizer_supported.dart';
+import '../utils/api/request_failure.dart';
+import '../utils/rune_log.dart';
 import '../widgets/visualizer/lab/lab_data.dart';
 import '../widgets/visualizer/lab/lab_pip_layout.dart';
 import '../widgets/visualizer/lab/lab_plan_data.dart';
@@ -466,13 +468,16 @@ class VisualizerLabProvider extends ChangeNotifier {
     if (!_enabled || _disposed || _polling) return;
     _polling = true;
     try {
-      VisualizerLabRequest(
-        columnsVersion: Uint64(BigInt.from(_series.version)),
-      ).sendSignalToRust();
-      final response =
-          (await VisualizerLabResponse.rustSignalStream.first.timeout(
-            const Duration(seconds: 1),
-          )).message;
+      final response = (await awaitResponse(
+        'VisualizerLabRequest',
+        VisualizerLabResponse.rustSignalStream,
+        timeout: const Duration(seconds: 1),
+        responseCallId: (response) => response.message.callId?.toInt(),
+        send: (callId) => VisualizerLabRequest(
+          columnsVersion: Uint64(BigInt.from(_series.version)),
+          callId: callId,
+        ).sendSignalToRust(),
+      )).message;
       if (!_enabled || _disposed) return;
       _take(response);
       if (_planVersion != response.planVersion.toInt()) {
@@ -482,6 +487,8 @@ class VisualizerLabProvider extends ChangeNotifier {
       _publish();
     } on TimeoutException {
       // The next tick asks again.
+    } on RequestFailure catch (failure) {
+      error$('Could not update the visualizer lab: ${failure.detail}');
     } finally {
       _polling = false;
       if (_enabled && !_disposed && _timer == null) _schedule();
@@ -576,12 +583,15 @@ class VisualizerLabProvider extends ChangeNotifier {
   }
 
   Future<void> _fetchPlan() async {
-    VisualizerPlanRequest().sendSignalToRust();
     try {
-      final response =
-          (await VisualizerPlanResponse.rustSignalStream.first.timeout(
-            const Duration(seconds: 1),
-          )).message;
+      final response = (await awaitResponse(
+        'VisualizerPlanRequest',
+        VisualizerPlanResponse.rustSignalStream,
+        timeout: const Duration(seconds: 1),
+        responseCallId: (response) => response.message.callId?.toInt(),
+        send: (callId) =>
+            VisualizerPlanRequest(callId: callId).sendSignalToRust(),
+      )).message;
       if (!_enabled || _disposed) return;
       // None is a plan too: the song has no chart yet, or its plan is being
       // made. The version changes when one comes.
@@ -606,6 +616,8 @@ class VisualizerLabProvider extends ChangeNotifier {
       _baseDirty = true;
     } on TimeoutException {
       // The version stays: the next poll asks again.
+    } on RequestFailure catch (failure) {
+      error$('Could not update the visualizer plan: ${failure.detail}');
     }
   }
 

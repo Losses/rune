@@ -8,7 +8,9 @@ Future<Mix> getMixById(int mixId) async {
   final rustSignal = await awaitResponse(
     'GetMixByIdRequest',
     GetMixByIdResponse.rustSignalStream,
-    send: () => fetchMediaFiles.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        fetchMediaFiles.copyWith(callId: () => callId).sendSignalToRust(),
   );
   final mix = rustSignal.message.mix;
 

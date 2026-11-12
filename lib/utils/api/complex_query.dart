@@ -9,7 +9,9 @@ Future<ComplexQueryResponse?> complexQuery(List<ComplexQuery> queries) async {
   final rustSignal = await awaitResponse(
     'ComplexQueryRequest',
     ComplexQueryResponse.rustSignalStream,
-    send: () => fetchLibrarySummary.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        fetchLibrarySummary.copyWith(callId: () => callId).sendSignalToRust(),
   );
   final result = rustSignal.message;
 

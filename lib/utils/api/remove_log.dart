@@ -8,7 +8,9 @@ Future<bool> removeLog(int id) async {
   final rustSignal = await awaitResponse(
     'RemoveLogRequest',
     RemoveLogResponse.rustSignalStream,
-    send: () => removeRequest.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        removeRequest.copyWith(callId: () => callId).sendSignalToRust(),
   );
   final response = rustSignal.message;
 

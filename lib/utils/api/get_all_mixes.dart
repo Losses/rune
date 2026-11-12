@@ -8,7 +8,9 @@ Future<List<Mix>> getAllMixes() async {
   final rustSignal = await awaitResponse(
     'FetchAllMixesRequest',
     FetchAllMixesResponse.rustSignalStream,
-    send: () => fetchRequest.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        fetchRequest.copyWith(callId: () => callId).sendSignalToRust(),
   );
   final response = rustSignal.message;
 

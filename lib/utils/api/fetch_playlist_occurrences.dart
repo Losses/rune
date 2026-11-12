@@ -21,12 +21,14 @@ Future<PlaylistOccurrencePage> fetchPlaylistOccurrences(
     FetchPlaylistOccurrencesResponse.rustSignalStream.where(
       (event) => event.message.requestId == requestId,
     ),
-    send: () => FetchPlaylistOccurrencesRequest(
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) => FetchPlaylistOccurrencesRequest(
       requestId: requestId,
       playlistId: playlistId,
       after: after,
       pageSize: pageSize,
       bakeCoverArts: true,
+      callId: callId,
     ).sendSignalToRust(),
   );
   final page = (await response).message;

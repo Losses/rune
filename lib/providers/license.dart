@@ -5,6 +5,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../utils/settings_manager.dart';
 import '../bindings/bindings.dart';
+import '../utils/api/request_failure.dart';
 
 class LicenseProvider with ChangeNotifier {
   static const licenseKey = 'license';
@@ -24,8 +25,9 @@ class LicenseProvider with ChangeNotifier {
   bool get isPro => _isPro;
 
   Future<void> _loadCachedLicense() async {
-    final cachedResult =
-        await _settingsManager.getValue<String?>(licenseValidationKey);
+    final cachedResult = await _settingsManager.getValue<String?>(
+      licenseValidationKey,
+    );
 
     if (cachedResult != null) {
       final decodedResult = jsonDecode(cachedResult) as Map<String, dynamic>;
@@ -57,7 +59,15 @@ class LicenseProvider with ChangeNotifier {
   }
 
   Future<ValidateLicenseResponse?> _fetchLicenseFromApi(String? license) async {
-    ValidateLicenseRequest(license: license).sendSignalToRust();
-    return (await ValidateLicenseResponse.rustSignalStream.first).message;
+    final response = await awaitResponse(
+      'ValidateLicenseRequest',
+      ValidateLicenseResponse.rustSignalStream,
+      responseCallId: (response) => response.message.callId?.toInt(),
+      send: (callId) => ValidateLicenseRequest(
+        license: license,
+        callId: callId,
+      ).sendSignalToRust(),
+    );
+    return response.message;
   }
 }

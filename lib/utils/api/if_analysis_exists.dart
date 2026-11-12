@@ -8,7 +8,9 @@ Future<bool> ifAnalyzeExists(int fileId) async {
   final rustSignal = await awaitResponse(
     'IfAnalyzeExistsRequest',
     IfAnalyzeExistsResponse.rustSignalStream,
-    send: () => fetchRequest.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        fetchRequest.copyWith(callId: () => callId).sendSignalToRust(),
   );
   final response = rustSignal.message;
 

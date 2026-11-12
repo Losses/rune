@@ -20,7 +20,9 @@ Future<List<StoredMixQuery>> fetchStoredMixQueriesByMixId(int mixId) async {
   final response = awaitResponse(
     'FetchMixQueriesRequest',
     FetchMixQueriesResponse.rustSignalStream,
-    send: () => FetchMixQueriesRequest(mixId: mixId).sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        FetchMixQueriesRequest(mixId: mixId, callId: callId).sendSignalToRust(),
   );
   return (await response).message.result;
 }

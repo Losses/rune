@@ -16,7 +16,9 @@ Future<List<InternalMediaFile>> fetchMediaFiles(
   final rustSignal = await awaitResponse(
     'FetchMediaFilesRequest',
     FetchMediaFilesResponse.rustSignalStream,
-    send: () => fetchMediaFiles.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        fetchMediaFiles.copyWith(callId: () => callId).sendSignalToRust(),
   );
   final response = rustSignal.message;
 

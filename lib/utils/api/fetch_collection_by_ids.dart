@@ -17,7 +17,8 @@ Future<List<Collection>> fetchCollectionByIds(
   final response = (await awaitResponse(
     'FetchCollectionByIdsRequest',
     FetchCollectionByIdsResponse.rustSignalStream,
-    send: () => request.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) => request.copyWith(callId: () => callId).sendSignalToRust(),
   )).message;
 
   return orderByIds(ids, response.result, (x) => x.id);

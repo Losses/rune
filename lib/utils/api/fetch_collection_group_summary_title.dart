@@ -12,7 +12,9 @@ Future<List<String>> fetchCollectionGroupSummaryTitle(
   final rustSignal = await awaitResponse(
     'FetchCollectionGroupSummaryRequest',
     CollectionGroupSummaryResponse.rustSignalStream,
-    send: () => fetchGroupsRequest.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        fetchGroupsRequest.copyWith(callId: () => callId).sendSignalToRust(),
   );
   final groups = rustSignal.message.groups
       .map((group) => group.groupTitle)

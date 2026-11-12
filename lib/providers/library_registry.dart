@@ -6,6 +6,7 @@ import 'package:rinf/rinf.dart';
 
 import '../bindings/bindings.dart';
 import '../utils/api/request_failure.dart';
+import '../utils/api/call_id.dart';
 import '../utils/api/library_registry.dart' as library_api;
 import '../utils/rune_log.dart';
 import '../utils/dialogs/select_library_mode/show_select_library_mode_dialog.dart';
@@ -62,7 +63,8 @@ class LibraryRegistryProvider extends ChangeNotifier {
       String recordId,
       String username,
       String password,
-    )? replaceCredential,
+    )?
+    replaceCredential,
     Future<RegisterLibraryResponse> Function(
       String path,
       String alias,
@@ -97,13 +99,16 @@ class LibraryRegistryProvider extends ChangeNotifier {
   String? _openRecordId;
   int? _openGeneration;
   String? _lastOpenRecordId;
-  int _nextCallId = DateTime.now().microsecondsSinceEpoch;
   bool _disposed = false;
   StreamSubscription<dynamic>? _recordsSubscription;
   late final Future<void> ready;
   final Future<ListLibraryRecordsResponse> Function()? _loadRecords;
   final Future<OpenLibraryResponse> Function(String, int)? _openRecord;
-  final Future<ReplaceSubsonicCredentialResponse> Function(String, String, String)?
+  final Future<ReplaceSubsonicCredentialResponse> Function(
+    String,
+    String,
+    String,
+  )?
   _replaceCredential;
   final Future<RegisterLibraryResponse> Function(
     String,
@@ -154,7 +159,9 @@ class LibraryRegistryProvider extends ChangeNotifier {
         ? (await awaitResponse(
             'ListLibraryRecordsRequest',
             ListLibraryRecordsResponse.rustSignalStream,
-            send: () => const ListLibraryRecordsRequest().sendSignalToRust(),
+            responseCallId: (response) => response.message.callId?.toInt(),
+            send: (callId) =>
+                ListLibraryRecordsRequest(callId: callId).sendSignalToRust(),
           )).message
         : await _loadRecords();
     _setRecords(response.records, response.invalidRecords, response.open);
@@ -163,19 +170,17 @@ class LibraryRegistryProvider extends ChangeNotifier {
   }
 
   Future<OpenLibraryResponse> open(String recordId) async {
-    final callId = Uint64.fromBigInt(BigInt.from(_nextCallId++));
     final response = _openRecord == null
         ? (await awaitResponse(
             'OpenLibraryRequest',
             OpenLibraryResponse.rustSignalStream,
-            callId: callId.toInt(),
             responseCallId: (response) => response.message.callId?.toInt(),
-            send: () => OpenLibraryRequest(
+            send: (callId) => OpenLibraryRequest(
               callId: callId,
               recordId: recordId,
             ).sendSignalToRust(),
           )).message
-        : await _openRecord(recordId, callId.toInt());
+        : await _openRecord(recordId, nextCallId().toInt());
     if (response.result case OpenLibraryResultFailed(:final value)) {
       final failure = value;
       error$('Could not open library record: ${failure.detail}');
@@ -192,10 +197,9 @@ class LibraryRegistryProvider extends ChangeNotifier {
     String recordId,
     String username,
     String password,
-  ) =>
-      _replaceCredential == null
-          ? library_api.replaceSubsonicCredential(recordId, username, password)
-          : _replaceCredential(recordId, username, password);
+  ) => _replaceCredential == null
+      ? library_api.replaceSubsonicCredential(recordId, username, password)
+      : _replaceCredential(recordId, username, password);
 
   Future<RegisterLibraryResponse> registerLocalFolder(
     String path,
@@ -206,10 +210,11 @@ class LibraryRegistryProvider extends ChangeNotifier {
         ? await _register(
             'RegisterLocalLibraryRequest',
             RegisterLibraryResponse.rustSignalStream,
-            () => RegisterLocalLibraryRequest(
+            (callId) => RegisterLocalLibraryRequest(
               path: path,
               alias: alias,
               mode: mode,
+              callId: callId,
             ).sendSignalToRust(),
           )
         : await _registerLocal(path, alias, mode);
@@ -224,9 +229,10 @@ class LibraryRegistryProvider extends ChangeNotifier {
         ? await _register(
             'RegisterRemoteControlRequest',
             RegisterLibraryResponse.rustSignalStream,
-            () => RegisterRemoteControlRequest(
+            (callId) => RegisterRemoteControlRequest(
               fingerprint: fingerprint,
               alias: alias,
+              callId: callId,
             ).sendSignalToRust(),
           )
         : await _registerRemote(fingerprint, alias);
@@ -235,11 +241,16 @@ class LibraryRegistryProvider extends ChangeNotifier {
 
   Future<RegisterLibraryResponse> _register(
     String request,
-    Stream<dynamic> responses,
-    void Function() send,
+    Stream<RustSignalPack<RegisterLibraryResponse>> responses,
+    void Function(Uint64 callId) send,
   ) async {
-    final signal = await awaitResponse(request, responses, send: send);
-    return signal.message as RegisterLibraryResponse;
+    final signal = await awaitResponse(
+      request,
+      responses,
+      responseCallId: (response) => response.message.callId?.toInt(),
+      send: send,
+    );
+    return signal.message;
   }
 
   RegisterLibraryResponse _acceptRegisterResponse(
@@ -268,7 +279,9 @@ class LibraryRegistryProvider extends ChangeNotifier {
         await awaitResponse(
           'CloseLibraryRequest',
           CloseLibraryResponse.rustSignalStream,
-          send: () => CloseLibraryRequest().sendSignalToRust(),
+          responseCallId: (response) => response.message.callId?.toInt(),
+          send: (callId) =>
+              CloseLibraryRequest(callId: callId).sendSignalToRust(),
         );
       }
       _openRecordId = null;
@@ -278,8 +291,10 @@ class LibraryRegistryProvider extends ChangeNotifier {
         ? (await awaitResponse(
             'RemoveLibraryRecordRequest',
             RemoveLibraryRecordResponse.rustSignalStream,
-            send: () => RemoveLibraryRecordRequest(
+            responseCallId: (response) => response.message.callId?.toInt(),
+            send: (callId) => RemoveLibraryRecordRequest(
               recordId: recordId,
+              callId: callId,
             ).sendSignalToRust(),
           )).message
         : await _removeRecord(recordId);

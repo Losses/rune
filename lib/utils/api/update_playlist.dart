@@ -16,7 +16,9 @@ Future<Playlist> updatePlaylist(
   final rustSignal = await awaitResponse(
     'UpdatePlaylistRequest',
     UpdatePlaylistResponse.rustSignalStream,
-    send: () => updateRequest.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        updateRequest.copyWith(callId: () => callId).sendSignalToRust(),
   );
   final response = rustSignal.message;
 

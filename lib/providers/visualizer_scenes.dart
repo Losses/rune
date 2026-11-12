@@ -11,6 +11,7 @@ import '../constants/settings_manager.dart';
 import '../utils/rune_log.dart';
 import '../utils/scene_files.dart';
 import '../utils/visualizer_supported.dart';
+import '../utils/api/request_failure.dart';
 
 /// The cover art wall as a scene. Rust lists it with the others and draws
 /// nothing while it is the scene on screen; the app shows the wall instead.
@@ -40,14 +41,15 @@ class VisualizerScene {
   /// A scene the user imported from a scene file, which can be deleted.
   bool get imported => !builtin && !isCoverWall;
 
-  VisualizerScene copyWith({bool? enabled, VisualizerSceneInputs? inputs}) => VisualizerScene(
-    path: path,
-    name: name,
-    group: group,
-    builtin: builtin,
-    enabled: enabled ?? this.enabled,
-    inputs: inputs ?? this.inputs,
-  );
+  VisualizerScene copyWith({bool? enabled, VisualizerSceneInputs? inputs}) =>
+      VisualizerScene(
+        path: path,
+        name: name,
+        group: group,
+        builtin: builtin,
+        enabled: enabled ?? this.enabled,
+        inputs: inputs ?? this.inputs,
+      );
 }
 
 /// The scenes of the visualizer in the order the user arranged them, which
@@ -197,16 +199,19 @@ class VisualizerScenesProvider extends ChangeNotifier {
   /// is replaced) and lists it, checked, at the end of the order.
   Future<VisualizerImport> importScene(String file) async {
     final name = p.basenameWithoutExtension(file);
-    final response = ImportVisualizerSceneResponse.rustSignalStream
-        .where((signal) => signal.message.file == file)
-        .first
-        .timeout(const Duration(seconds: 30));
-    ImportVisualizerSceneRequest(
-      file: file,
-      dir: await sceneDir(),
-    ).sendSignalToRust();
+    final directory = await sceneDir();
     try {
-      final message = (await response).message;
+      final message = (await awaitResponse(
+        'ImportVisualizerSceneRequest',
+        ImportVisualizerSceneResponse.rustSignalStream,
+        timeout: const Duration(seconds: 30),
+        responseCallId: (response) => response.message.callId?.toInt(),
+        send: (callId) => ImportVisualizerSceneRequest(
+          file: file,
+          dir: directory,
+          callId: callId,
+        ).sendSignalToRust(),
+      )).message;
       if (message.error != null) {
         return VisualizerImport(name, error: message.error);
       }
@@ -234,16 +239,19 @@ class VisualizerScenesProvider extends ChangeNotifier {
   /// Deletes an imported scene.
   Future<String?> removeScene(VisualizerScene scene) async {
     if (!scene.imported) return null;
-    final response = RemoveVisualizerSceneResponse.rustSignalStream
-        .where((signal) => signal.message.path == scene.path)
-        .first
-        .timeout(const Duration(seconds: 10));
-    RemoveVisualizerSceneRequest(
-      path: scene.path,
-      dir: await sceneDir(),
-    ).sendSignalToRust();
+    final directory = await sceneDir();
     try {
-      final error = (await response).message.error;
+      final error = (await awaitResponse(
+        'RemoveVisualizerSceneRequest',
+        RemoveVisualizerSceneResponse.rustSignalStream,
+        timeout: const Duration(seconds: 10),
+        responseCallId: (response) => response.message.callId?.toInt(),
+        send: (callId) => RemoveVisualizerSceneRequest(
+          path: scene.path,
+          dir: directory,
+          callId: callId,
+        ).sendSignalToRust(),
+      )).message.error;
       if (error != null) return error;
     } on TimeoutException {
       return 'No answer from the visualizer';
@@ -257,12 +265,15 @@ class VisualizerScenesProvider extends ChangeNotifier {
 
   Future<void> _probeGpu() async {
     // Looking for a GPU can take a few seconds the first time.
-    final response = VisualizerSupportResponse.rustSignalStream.first.timeout(
-      const Duration(seconds: 20),
-    );
-    VisualizerSupportRequest().sendSignalToRust();
     try {
-      final support = (await response).message;
+      final support = (await awaitResponse(
+        'VisualizerSupportRequest',
+        VisualizerSupportResponse.rustSignalStream,
+        timeout: const Duration(seconds: 20),
+        responseCallId: (response) => response.message.callId?.toInt(),
+        send: (callId) =>
+            VisualizerSupportRequest(callId: callId).sendSignalToRust(),
+      )).message;
       _gpu = support.supported;
       setInputs(support.inputs);
     } on TimeoutException {
@@ -299,12 +310,16 @@ class VisualizerScenesProvider extends ChangeNotifier {
   }
 
   Future<void> _refreshOnce() async {
-    final response = ListVisualizerPresetsResponse.rustSignalStream.first
-        .timeout(const Duration(seconds: 2));
-    ListVisualizerPresetsRequest().sendSignalToRust();
     final List<VisualizerPresetEntry> listed;
     try {
-      listed = (await response).message.presets;
+      listed = (await awaitResponse(
+        'ListVisualizerPresetsRequest',
+        ListVisualizerPresetsResponse.rustSignalStream,
+        timeout: const Duration(seconds: 2),
+        responseCallId: (response) => response.message.callId?.toInt(),
+        send: (callId) =>
+            ListVisualizerPresetsRequest(callId: callId).sendSignalToRust(),
+      )).message.presets;
     } on TimeoutException {
       return;
     }
@@ -375,10 +390,7 @@ class VisualizerScenesProvider extends ChangeNotifier {
   }
 
   void _placeListed() {
-    _order = placeArranged(
-      _order,
-      _scenes.map((scene) => scene.path).toList(),
-    );
+    _order = placeArranged(_order, _scenes.map((scene) => scene.path).toList());
   }
 
   /// Moves a scene, with the semantics of `ReorderableColumn.onReorder`.

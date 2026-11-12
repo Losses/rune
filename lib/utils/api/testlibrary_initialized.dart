@@ -8,7 +8,11 @@ Future<(bool, bool, String?)> testLibraryInitialized(String path) async {
       TestLibraryInitializedResponse.rustSignalStream.where(
         (event) => event.message.path == path,
       ),
-      send: () => TestLibraryInitializedRequest(path: path).sendSignalToRust(),
+      responseCallId: (response) => response.message.callId?.toInt(),
+      send: (callId) => TestLibraryInitializedRequest(
+        path: path,
+        callId: callId,
+      ).sendSignalToRust(),
     );
     final response = rustSignal.message;
 

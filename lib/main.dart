@@ -144,17 +144,24 @@ void main(List<String> arguments) async {
   await initializeRust(assignRustSignal);
   // Start device-level sharing and sync before any library is open. A
   // failure here is not fatal: opening a library retries and reports it.
-  final nodeInitialized = InitializeNodeResponse.rustSignalStream.first;
-  InitializeNodeRequest(configPath: await getSettingsPath()).sendSignalToRust();
   try {
-    final nodeResponse = (await nodeInitialized.timeout(
-      const Duration(seconds: 30),
+    final configPath = await getSettingsPath();
+    final nodeResponse = (await awaitResponse(
+      'InitializeNodeRequest',
+      InitializeNodeResponse.rustSignalStream,
+      responseCallId: (response) => response.message.callId?.toInt(),
+      send: (callId) => InitializeNodeRequest(
+        configPath: configPath,
+        callId: callId,
+      ).sendSignalToRust(),
     )).message;
     if (!nodeResponse.success) {
       error$('Could not initialize this device: ${nodeResponse.error}');
     }
   } on TimeoutException {
     error$('Device initialization did not answer within 30 seconds');
+  } on RequestFailure catch (failure) {
+    error$('Could not initialize this device: ${failure.detail}');
   }
   // Scene files the app was opened with, or is asked to open later.
   SceneFiles.start(arguments);
@@ -600,22 +607,49 @@ class RuneLifecycleState extends State<RuneLifecycle> {
     final registry = context.read<LibraryRegistryProvider>();
     _requestFailureSubscription = RequestFailedResponse.rustSignalStream.listen(
       (signal) {
-        if (signal.message.cause
-                is! RequestFailureCauseSubsonicNotAuthorized ||
-            _subsonicReloginOpen) {
+        final failure = signal.message;
+        if (failure.cause is RequestFailureCauseSubsonicNotAuthorized) {
+          if (_subsonicReloginOpen) return;
+          final recordId = registry.openRecordId;
+          final dialogContext = rootNavigatorKey.currentState?.overlay?.context;
+          if (recordId == null ||
+              dialogContext == null ||
+              !mounted ||
+              !dialogContext.mounted) {
+            return;
+          }
+          _subsonicReloginOpen = true;
+          showSubsonicReloginDialog(
+            dialogContext,
+            registry,
+            recordId,
+          ).whenComplete(() => _subsonicReloginOpen = false);
           return;
         }
-        final recordId = registry.openRecordId;
-        final dialogContext = rootNavigatorKey.currentState?.overlay?.context;
-        if (recordId == null ||
-            dialogContext == null ||
-            !mounted ||
-            !dialogContext.mounted) {
+        if (failure.callId != null ||
+            failure.kind == RequestErrorKind.internal) {
           return;
         }
-        _subsonicReloginOpen = true;
-        showSubsonicReloginDialog(dialogContext, registry, recordId)
-            .whenComplete(() => _subsonicReloginOpen = false);
+        final noticeContext = rootNavigatorKey.currentState?.overlay?.context;
+        if (noticeContext == null || !mounted || !noticeContext.mounted) return;
+        displayInfoBar(
+          noticeContext,
+          builder: (_, close) => InfoBar(
+            title: Text(
+              requestFailureMessage(
+                S.of(noticeContext),
+                RequestFailure(
+                  failure.request,
+                  failure.kind,
+                  failure.detail,
+                  failure.cause,
+                ),
+              ),
+            ),
+            severity: InfoBarSeverity.error,
+            onClose: close,
+          ),
+        );
       },
     );
 

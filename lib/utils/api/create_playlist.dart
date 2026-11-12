@@ -11,7 +11,9 @@ Future<Playlist> createPlaylist(String name, String group) async {
   final rustSignal = await awaitResponse(
     'CreatePlaylistRequest',
     CreatePlaylistResponse.rustSignalStream,
-    send: () => createRequest.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        createRequest.copyWith(callId: () => callId).sendSignalToRust(),
   );
   final response = rustSignal.message;
 

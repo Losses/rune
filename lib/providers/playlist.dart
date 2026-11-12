@@ -4,6 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../bindings/bindings.dart';
 import '../utils/api/request_failure.dart';
+import '../utils/api/call_id.dart';
 import '../utils/playing_item.dart';
 
 final class PlaylistEntry {
@@ -25,7 +26,7 @@ class PlaylistProvider with ChangeNotifier {
   Uint64? _revision;
   List<PlaylistEntry>? _pendingReorder;
   Uint64? _pendingReorderCallId;
-  int _nextCallId = DateTime.now().microsecondsSinceEpoch;
+  final Set<int> _pendingCallIds = {};
 
   List<PlaylistEntry> get items => _items;
 
@@ -82,6 +83,8 @@ class PlaylistProvider with ChangeNotifier {
   }
 
   void _handleRequestFailure(RequestFailedResponse response) {
+    final callId = response.callId?.toInt();
+    if (callId == null || !_pendingCallIds.remove(callId)) return;
     if (response.kind == RequestErrorKind.conflict &&
         _pendingReorder != null &&
         response.callId == _pendingReorderCallId) {
@@ -90,18 +93,15 @@ class PlaylistProvider with ChangeNotifier {
       _pendingReorderCallId = null;
       notifyListeners();
     }
-    if (response.request == 'MovePlaylistItemRequest' ||
-        response.request == 'RemoveRequest' ||
-        response.request == 'SwitchRequest') {
-      _failureFeedback.add(
-        RequestFailure(
-          response.request,
-          response.kind,
-          response.detail,
-          response.cause,
-        ),
-      );
-    }
+    _failureFeedback.add(
+      RequestFailure(
+        response.request,
+        response.kind,
+        response.detail,
+        response.cause,
+        callId,
+      ),
+    );
   }
 
   void _updatePlaylist(PlaylistUpdate playlistUpdate) {
@@ -122,7 +122,8 @@ class PlaylistProvider with ChangeNotifier {
       newIndex -= 1;
     }
     _pendingReorder = List<PlaylistEntry>.of(_items);
-    final callId = Uint64.fromBigInt(BigInt.from(_nextCallId++));
+    final callId = nextCallId();
+    _pendingCallIds.add(callId.toInt());
     _pendingReorderCallId = callId;
     final item = items.removeAt(oldIndex);
     items.insert(newIndex, item);
@@ -139,14 +140,18 @@ class PlaylistProvider with ChangeNotifier {
   }
 
   void removeItem(int index) {
+    final callId = nextCallId();
+    _pendingCallIds.add(callId.toInt());
     _sendRemoveRequest(
-      RemoveRequest(index: index, expectedRevision: _revision),
+      RemoveRequest(index: index, expectedRevision: _revision, callId: callId),
     );
   }
 
   void playItem(int index) {
+    final callId = nextCallId();
+    _pendingCallIds.add(callId.toInt());
     _sendSwitchRequest(
-      SwitchRequest(index: index, expectedRevision: _revision),
+      SwitchRequest(index: index, expectedRevision: _revision, callId: callId),
     );
   }
 }

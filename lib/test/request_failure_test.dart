@@ -1,14 +1,18 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:rinf/rinf.dart';
 
 import '../bindings/bindings.dart';
 import '../l10n/app_localizations_en.dart';
 import '../utils/api/request_failure.dart';
+import '../utils/api/search_for.dart';
+import '../utils/api/remove_item_from_playlist.dart';
 
 void main() {
-  const failure = RequestFailedResponse(
+  RequestFailedResponse failure(int callId) => RequestFailedResponse(
     request: 'Wanted',
+    callId: Uint64.fromBigInt(BigInt.from(callId)),
     kind: RequestErrorKind.notFound,
     detail: 'gone',
   );
@@ -16,13 +20,17 @@ void main() {
   test('response wins and both subscriptions are cancelled', () async {
     final responses = StreamController<int>();
     final failures = StreamController<RequestFailedResponse>();
+    late Uint64 sentCallId;
     final result = awaitResponse(
       'Wanted',
       responses.stream,
       failures: failures.stream,
+      responseCallId: (value) => value,
+      send: (callId) => sentCallId = callId,
     );
     responses.add(42);
-    expect(await result, 42);
+    responses.add(sentCallId.toInt());
+    expect(await result, sentCallId.toInt());
     expect(responses.hasListener, false);
     expect(failures.hasListener, false);
     await responses.close();
@@ -32,12 +40,15 @@ void main() {
   test('matching failure preserves kind and detail', () async {
     final responses = StreamController<int>();
     final failures = StreamController<RequestFailedResponse>();
+    late Uint64 sentCallId;
     final result = awaitResponse(
       'Wanted',
       responses.stream,
       failures: failures.stream,
+      responseCallId: (_) => null,
+      send: (callId) => sentCallId = callId,
     );
-    failures.add(failure);
+    failures.add(failure(sentCallId.toInt()));
     await expectLater(
       result,
       throwsA(
@@ -52,45 +63,58 @@ void main() {
     await failures.close();
   });
 
-  test('playlist request failure shows the existing localized message', () async {
-    final responses = StreamController<int>();
-    final failures = StreamController<RequestFailedResponse>();
-    final result = awaitResponse(
-      'RemoveItemFromPlaylistRequest',
-      responses.stream,
-      failures: failures.stream,
-    );
-    failures.add(
-      const RequestFailedResponse(
-        request: 'RemoveItemFromPlaylistRequest',
-        kind: RequestErrorKind.notFound,
-        detail: 'playlist',
-      ),
-    );
-    final failure = await result.then<RequestFailure>(
-      (_) => fail('expected a playlist request failure'),
-      onError: (Object error) => error as RequestFailure,
-    );
-    expect(
-      requestFailureMessage(AppLocalizationsEn(), failure),
-      AppLocalizationsEn().requestItemMissing,
-    );
-    await responses.close();
-    await failures.close();
-  });
+  test(
+    'playlist request failure shows the existing localized message',
+    () async {
+      final responses = StreamController<int>();
+      final failures = StreamController<RequestFailedResponse>();
+      late Uint64 sentCallId;
+      final result = awaitResponse(
+        'RemoveItemFromPlaylistRequest',
+        responses.stream,
+        failures: failures.stream,
+        responseCallId: (_) => null,
+        send: (callId) => sentCallId = callId,
+      );
+      failures.add(
+        RequestFailedResponse(
+          request: 'diagnostic name is ignored',
+          callId: sentCallId,
+          kind: RequestErrorKind.notFound,
+          detail: 'playlist',
+        ),
+      );
+      final failure = await result.then<RequestFailure>(
+        (_) => fail('expected a playlist request failure'),
+        onError: (Object error) => error as RequestFailure,
+      );
+      expect(
+        requestFailureMessage(AppLocalizationsEn(), failure),
+        AppLocalizationsEn().requestItemMissing,
+      );
+      await responses.close();
+      await failures.close();
+    },
+  );
 
   test('unrelated failure is ignored', () async {
     final responses = StreamController<int>();
     final failures = StreamController<RequestFailedResponse>();
+    late Uint64 sentCallId;
     final result = awaitResponse(
       'Other',
       responses.stream,
       failures: failures.stream,
+      responseCallId: (_) => sentCallId.toInt(),
+      send: (callId) => sentCallId = callId,
     );
-    failures.add(failure);
-    await Future<void>.delayed(Duration.zero);
-    responses.add(7);
-    expect(await result, 7);
+    failures.add(
+      failure(sentCallId.toInt() + 1).copyWith(
+        callId: () => Uint64.fromBigInt(BigInt.from(sentCallId.toInt() + 1)),
+      ),
+    );
+    responses.add(sentCallId.toInt());
+    expect(await result, sentCallId.toInt());
     await responses.close();
     await failures.close();
   });
@@ -104,6 +128,8 @@ void main() {
         responses.stream,
         failures: failures.stream,
         timeout: const Duration(milliseconds: 10),
+        responseCallId: (_) => null,
+        send: (_) {},
       ),
       throwsA(isA<TimeoutException>()),
     );
@@ -112,6 +138,80 @@ void main() {
     await responses.close();
     await failures.close();
   });
+
+  test(
+    'query and change API helpers surface failures by sent call id',
+    () async {
+      final queryResponses =
+          StreamController<RustSignalPack<SearchForResponse>>();
+      final queryFailures = StreamController<RequestFailedResponse>.broadcast(
+        sync: true,
+      );
+      final queryTimer = Stopwatch()..start();
+      final query = searchForWithStreams(
+        'song',
+        fields: const ['tracks'],
+        responses: queryResponses.stream,
+        failures: queryFailures.stream,
+        timeout: const Duration(seconds: 2),
+        sendRequest: (request) => queryFailures.add(
+          RequestFailedResponse(
+            request: 'diagnostic only',
+            callId: request.callId!,
+            kind: RequestErrorKind.unavailable,
+            detail: 'query refused',
+          ),
+        ),
+      );
+      await expectLater(
+        query,
+        throwsA(
+          isA<RequestFailure>()
+              .having(
+                (error) => error.kind,
+                'kind',
+                RequestErrorKind.unavailable,
+              )
+              .having((error) => error.detail, 'detail', 'query refused'),
+        ),
+      );
+      expect(queryTimer.elapsed, lessThan(const Duration(seconds: 1)));
+      await queryResponses.close();
+      await queryFailures.close();
+
+      final changeResponses =
+          StreamController<RustSignalPack<RemoveItemFromPlaylistResponse>>();
+      final changeFailures = StreamController<RequestFailedResponse>.broadcast(
+        sync: true,
+      );
+      final changeTimer = Stopwatch()..start();
+      final change = removeItemFromPlaylistWithStreams(
+        7,
+        'occurrence-1',
+        responses: changeResponses.stream,
+        failures: changeFailures.stream,
+        sendRequest: (request) => changeFailures.add(
+          RequestFailedResponse(
+            request: 'diagnostic only',
+            callId: request.callId!,
+            kind: RequestErrorKind.conflict,
+            detail: 'change refused',
+          ),
+        ),
+      );
+      await expectLater(
+        change,
+        throwsA(
+          isA<RequestFailure>()
+              .having((error) => error.kind, 'kind', RequestErrorKind.conflict)
+              .having((error) => error.detail, 'detail', 'change refused'),
+        ),
+      );
+      expect(changeTimer.elapsed, lessThan(const Duration(seconds: 1)));
+      await changeResponses.close();
+      await changeFailures.close();
+    },
+  );
 
   test('failure messages cover all kinds', () {
     final s = AppLocalizationsEn();
@@ -123,7 +223,10 @@ void main() {
       message(RequestErrorKind.unavailable),
       "This is not available right now.",
     );
-    expect(message(RequestErrorKind.permissionDenied), "This device is not allowed to do that.");
+    expect(
+      message(RequestErrorKind.permissionDenied),
+      "This device is not allowed to do that.",
+    );
     expect(message(RequestErrorKind.conflict), 'The queue changed. Try again.');
     expect(
       message(RequestErrorKind.peerNeedsUpdate),
@@ -288,5 +391,4 @@ void main() {
       'Error: Bad state: broken',
     );
   });
-
 }

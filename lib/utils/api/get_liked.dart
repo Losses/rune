@@ -10,7 +10,9 @@ Future<bool> getLiked(PlayingItem item) async {
   final rustSignal = await awaitResponse(
     'GetLikedRequest',
     GetLikedResponse.rustSignalStream,
-    send: () => updateRequest.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        updateRequest.copyWith(callId: () => callId).sendSignalToRust(),
   );
   final response = rustSignal.message;
 

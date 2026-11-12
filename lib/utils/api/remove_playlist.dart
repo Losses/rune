@@ -7,7 +7,9 @@ Future<bool> removePlaylist(int playlistId) async {
   final rustSignal = await awaitResponse(
     'RemovePlaylistRequest',
     RemovePlaylistResponse.rustSignalStream,
-    send: () => updateRequest.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        updateRequest.copyWith(callId: () => callId).sendSignalToRust(),
   );
   final response = rustSignal.message;
 

@@ -13,10 +13,12 @@ Future<void> setSyncSettings(
     SetSyncSettingsResponse.rustSignalStream.where(
       (event) => event.message.requestId == id,
     ),
-    send: () => SetSyncSettingsRequest(
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) => SetSyncSettingsRequest(
       requestId: id,
       listen: listen,
       missingHostFile: missingHostFile,
+      callId: callId,
     ).sendSignalToRust(),
     timeout: const Duration(seconds: 15),
   );

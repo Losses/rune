@@ -11,6 +11,7 @@ Future<void> addItemToMix(int mixId, String operator, String parameter) async {
   await awaitResponse(
     'AddItemToMixRequest',
     AddItemToMixResponse.rustSignalStream,
-    send: () => request.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) => request.copyWith(callId: () => callId).sendSignalToRust(),
   );
 }

@@ -45,20 +45,22 @@ void main() {
           ),
         ),
         openRecord: (recordId, callId) async {
-          final request = OpenLibraryRequest(
-            callId: Uint64.fromBigInt(BigInt.from(callId)),
-            recordId: recordId,
-          );
           final response = await awaitResponse(
             'OpenLibraryRequest',
             openResponses.stream,
-            callId: callId,
             responseCallId: (signal) => signal.message.callId?.toInt(),
-            send: () {
+            send: (requestCallId) {
+              final request = OpenLibraryRequest(
+                callId: requestCallId,
+                recordId: recordId,
+              );
               requests.add(request);
               scheduleMicrotask(
                 () => openResponses.add(
-                  RustSignalPack(_opened(recordId, callId), Uint8List(0)),
+                  RustSignalPack(
+                    _opened(recordId, requestCallId.toInt()),
+                    Uint8List(0),
+                  ),
                 ),
               );
             },

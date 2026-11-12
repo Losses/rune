@@ -9,7 +9,9 @@ Future<bool> removeTrustedClient(String fingerprint) async {
   final rustSignal = await awaitResponse(
     'RemoveTrustedClientRequest',
     RemoveTrustedClientResponse.rustSignalStream,
-    send: () => removeTrustRequest.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        removeTrustRequest.copyWith(callId: () => callId).sendSignalToRust(),
   );
   final response = rustSignal.message;
 

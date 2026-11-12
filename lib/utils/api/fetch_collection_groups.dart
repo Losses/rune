@@ -15,7 +15,9 @@ Future<List<CollectionGroup>> fetchCollectionGroups(
   final rustSignal = await awaitResponse(
     'FetchCollectionGroupsRequest',
     FetchCollectionGroupsResponse.rustSignalStream,
-    send: () => fetchGroupsRequest.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        fetchGroupsRequest.copyWith(callId: () => callId).sendSignalToRust(),
   );
   final groups = rustSignal.message.groups;
 

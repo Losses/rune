@@ -5,7 +5,9 @@ import '../../constants/configurations.dart';
 import '../settings_manager.dart';
 
 Future<CheckDeviceOnServerResponse> checkDeviceOnServer(
-    List<String> hosts, String fingerprint) async {
+  List<String> hosts,
+  String fingerprint,
+) async {
   final settingsManager = SettingsManager();
 
   final registerRequest = CheckDeviceOnServerRequest(
@@ -17,7 +19,9 @@ Future<CheckDeviceOnServerResponse> checkDeviceOnServer(
   final rustSignal = await awaitResponse(
     'CheckDeviceOnServerRequest',
     CheckDeviceOnServerResponse.rustSignalStream,
-    send: () => registerRequest.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        registerRequest.copyWith(callId: () => callId).sendSignalToRust(),
   );
   final response = rustSignal.message;
 

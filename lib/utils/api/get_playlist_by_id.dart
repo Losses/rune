@@ -8,7 +8,9 @@ Future<Playlist> getPlaylistById(int playlistId) async {
   final rustSignal = await awaitResponse(
     'GetPlaylistByIdRequest',
     GetPlaylistByIdResponse.rustSignalStream,
-    send: () => fetchMediaFiles.sendSignalToRust(),
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        fetchMediaFiles.copyWith(callId: () => callId).sendSignalToRust(),
   );
   final playlist = rustSignal.message.playlist;
 
