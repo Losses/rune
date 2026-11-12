@@ -328,22 +328,25 @@ Scan, analysis and deduplication keep one state per library on the node: a run i
 Permissions are granted per remote device and checked on every request, not only when a connection opens. Pairing trust (`Pending`, `Approved`, `Blocked`) is a precondition: only an approved device is checked against grants.
 
 - **Control** allows attaching as a controller: commands, status and queue edits. It includes **browse** on the libraries the player plays from, because a controller has to browse and search to add songs to the queue. Browse covers queries, cover art and metadata through the control connection. It never lets the device pull a replica, list the library or download audio.
-- **Library access** per library, as one ordered level: Not shared; Read (catalog and media: browsing, searching, streaming and pulling a replica); Read and write (the device's changes to likes, playlists, mixes and statistics are accepted; two-way sync needs it).
+- **Library access** per library, as two independent ordered levels:
+    - connection: Not shared; View (browsing, searching, cover art, metadata and streaming through the device's connection); View and edit (also the device's changes to likes, playlists, mixes and statistics through that connection);
+    - sync: None; Pull (pulling a one-way replica); Pull and push (two-way sync: the device's replica changes are accepted).
+- The UI keeps this simple: one choice per library, Not shared (connection Not shared, sync None), Read only (View, Pull) or Read and write (View and edit, Pull and push). Any other combination is set through the API or the grants file in the config directory, and the UI shows it without changing it until the user picks one of the three.
 - **Administer** covers pairing approval, connection settings and library maintenance. It exists in the API; the UI never grants it to another device.
 - There is no temporary or per-cast access. Every grant is set beforehand on the Devices page and stays until changed.
 - There is no separate permission for offline copies: streaming and downloading read the same bytes.
-- Sync is a transport, not a permission. A device with Read pulls a one-way replica; its local changes are not accepted back, so the client hides write actions on a read-only replica. Liking while controlling writes the player's library, so a Guest without write sees no like action.
+- A device with sync Pull pulls a one-way replica; its local changes are not accepted back, so the client hides write actions on a read-only replica. Liking while controlling writes the player's library through the connection, so a Guest without View and edit sees no like action.
 
 Presets:
 
 - **My device**: Control, plus Read and write on every library, including libraries created later.
 - **Guest**: Control only.
 
-Casting to B is controlling B, so this device needs Control on B. When the cast items come from this device's library, B also needs Read on that library, set on this device's Devices page.
+Casting to B is controlling B, so this device needs Control on B. When the cast items come from this device's library, B also needs View on that library, set on this device's Devices page.
 
 ### Cast preflight
 
-Before a cast the controller checks the player (reachable, accepts any granted library, supports load), access (Control on the player, Read for the player on every library in the selection) and reachability (the player checks that it can reach each library's owner, because its network view can differ). The picker shows unusable players dimmed with the reason before the user picks one; a prompt appears only when access disappears between listing and loading. The load repeats every check.
+Before a cast the controller checks the player (reachable, accepts any granted library, supports load), access (Control on the player, View for the player on every library in the selection) and reachability (the player checks that it can reach each library's owner, because its network view can differ). The picker shows unusable players dimmed with the reason before the user picks one; a prompt appears only when access disappears between listing and loading. The load repeats every check.
 
 ### Enforcement
 
@@ -420,7 +423,7 @@ In every locale: "Sharing" instead of "Server"; "Allow other devices to connect"
 Each scenario is covered by an automated test that drives the real components across their real boundaries and asserts what the user sees. A test counts only if it fails when the behaviour it covers is broken.
 
 - A controls B while B plays a library hosted by C; revoking B's grant on C stops playback cleanly, and the item is marked unavailable with a typed reason.
-- A casts an item from A's library to B, which holds Read on that library; without that grant B is dimmed in A's device list and the load is refused.
+- A casts an item from A's library to B, which holds View on that library; without that grant B is dimmed in A's device list and the load is refused.
 - Preflight reports "not possible" with the reason for a library B cannot read; the load still fails if a grant is revoked after preflight.
 - A controller renders the visualizer for a player on another Rune device, with the clock running while the player plays, and the chart and spectrum received through the feed.
 - A Subsonic server that lists `runeVisualizerFeed` enables the visualizer for its jukebox; one that does not, or lacks `openSubsonic: true`, keeps it disabled.
@@ -438,8 +441,9 @@ Each scenario is covered by an automated test that drives the real components ac
 - A remote controller receives live status updates from a headless server.
 - A portable library opened on a second device is recognised by `library_id`.
 - An idle library DB is released and reopened by an authorised sync request without losing worker state.
-- A device with Read on a library pulls a replica; its local likes are not accepted back, and the UI hides them.
+- A device with sync Pull on a library pulls a replica; its local likes are not accepted back, and the UI hides them.
 - A Guest controlling a player can queue songs but sees no like action.
+- The device page offers one Not shared / Read only / Read and write choice per library and sets both levels from it; a combination set through the API is shown unchanged.
 - A forwarded `UpdateClientStatusRequest` from another device is refused.
 - An endpoint URL with an unknown parameter is rejected with that parameter named; an unknown `opt-` parameter is ignored; a newer `v` asks for a newer version.
 - While a scan runs, starting analysis on the same library from any device is refused with the running task named, and every device shows the scan's progress.
