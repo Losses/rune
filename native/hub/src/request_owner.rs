@@ -3,7 +3,10 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use database::{
-    actions::{file::file_ids_by_uuid, stats::increase_played_through},
+    actions::{
+        cover_art::bake_cover_art_by_media_files, file::file_ids_by_uuid,
+        mixes::query_mix_media_files, stats::increase_played_through,
+    },
     playing_item::{PlayingItemMetadataSummary, dispatcher::PlayingItemActionDispatcher},
 };
 use playback::player::PlayingItem;
@@ -15,10 +18,12 @@ use crate::{
     backends::remote::RendererLink,
     library_pool::LibraryHandle,
     macros::{RequestScope, RequestSlots},
+    node::NodeContext,
     request_error::ExpectedRequestError,
     rpc::{Slot, TargetRequest},
     subsonic_binding::SubsonicBinding,
     utils::{GlobalParams, ParamsExtractor},
+    visualizer::RANDOM_COVERS,
 };
 
 /// The implementation currently connected to the UI as its library.
@@ -62,6 +67,47 @@ pub(crate) enum Implementation {
 }
 
 impl Implementation {
+    pub(crate) async fn visualizer_covers(
+        &self,
+        item: &PlayingItem,
+        node: &NodeContext,
+    ) -> Result<(Option<String>, Vec<String>)> {
+        match self.execution_implementation() {
+            Self::Subsonic(binding) => binding.visualizer_covers(item).await,
+            _ => {
+                let PlayingItem::LibraryTrack { library_id, .. } = item else {
+                    anyhow::bail!("Visualizer item does not belong to a library");
+                };
+                let library = node.library_pool.acquire(*library_id).await?;
+                let (_, playing) = self.item_metadata(item, true, &library).await?;
+                let queue = node.session_queue_for_library(*library_id).await?;
+                let files = query_mix_media_files(
+                    &library.main_db,
+                    &library.recommend_db,
+                    vec![
+                        ("lib::random".to_owned(), RANDOM_COVERS.to_string()),
+                        ("filter::with_cover_art".to_owned(), "true".to_owned()),
+                    ],
+                    0,
+                    RANDOM_COVERS,
+                    &queue,
+                )
+                .await?;
+                let ids = files.iter().map(|file| file.id).collect::<Vec<_>>();
+                let paths =
+                    bake_cover_art_by_media_files(&library.fsio, &library.main_db, files).await?;
+                Ok((
+                    playing,
+                    ids.into_iter()
+                        .filter_map(|id| paths.get(&id))
+                        .filter(|path| !path.is_empty())
+                        .cloned()
+                        .collect(),
+                ))
+            }
+        }
+    }
+
     pub(crate) async fn item_metadata(
         &self,
         item: &PlayingItem,

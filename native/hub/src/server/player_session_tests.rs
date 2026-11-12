@@ -8,7 +8,7 @@ use crate::messages::{
     PlaybackStatus, PlaylistOperateMode, RegisterLibraryFailureKind, RegisterLibraryOutcome, RemoteConnectionLost,
     RemoteLibraryReconnected, RemoteLibraryReconnecting, RemoteLossKind, RequestCapabilities,
     RequestCapability, RequestFailedResponse, ScanAudioLibraryProgress, ScanTaskType,
-    SetLikedRequest,
+    SetLikedRequest, OpenLibraryRequest, OpenLibraryResult,
 };
 use crate::messages::{
     OpenDalLibraryService, RegisterOpenDalLibraryRequest, RegisterSubsonicLibraryRequest,
@@ -19,7 +19,7 @@ use crate::node::{NodeContext, ReconnectConfig};
 use crate::request_owner::{CurrentPlayer, OpenLibrary};
 use crate::utils::{
     files_to_playback_request, open_library_by_record_on_node, register_local_library_on_node,
-    register_opendal_library_on_node, register_remote_control_on_node,
+    playback_implementation_for_item, register_opendal_library_on_node, register_remote_control_on_node,
     register_subsonic_library_on_node, register_subsonic_library_with_node,
     replace_subsonic_credential_on_node,
 };
@@ -102,6 +102,7 @@ use playback::{
     strategies::AddMode,
 };
 use rust_decimal::prelude::ToPrimitive;
+use scrobbling::manager::ScrobblingManager;
 use sea_orm::sea_query::Expr;
 use sea_orm::{ActiveModelTrait, EntityTrait, IntoActiveModel, Set};
 use serde::de::DeserializeOwned;
@@ -109,6 +110,7 @@ use tokio::net::TcpListener as TokioTcpListener;
 #[cfg(target_os = "linux")]
 use tokio::runtime::Builder;
 use tokio::task::JoinHandle;
+use tokio::sync::Mutex;
 use tokio::time::{Instant, sleep, timeout};
 use tokio_tungstenite::{accept_async, connect_async};
 
@@ -119,10 +121,25 @@ struct SubsonicHubMock {
     reject_stream: Arc<AtomicBool>,
     supports_ranges: Arc<AtomicBool>,
     reject_credentials: bool,
+    visualizer_covers: bool,
 }
 
 async fn subsonic_hub_mock(
     reject_credentials: bool,
+) -> (
+    String,
+    Arc<StdMutex<Vec<String>>>,
+    Arc<StdMutex<Vec<Option<String>>>>,
+    Arc<AtomicBool>,
+    Arc<AtomicBool>,
+    JoinHandle<()>,
+) {
+    subsonic_hub_mock_with_covers(reject_credentials, false).await
+}
+
+async fn subsonic_hub_mock_with_covers(
+    reject_credentials: bool,
+    visualizer_covers: bool,
 ) -> (
     String,
     Arc<StdMutex<Vec<String>>>,
@@ -141,6 +158,7 @@ async fn subsonic_hub_mock(
         reject_stream: reject_stream.clone(),
         supports_ranges: supports_ranges.clone(),
         reject_credentials,
+        visualizer_covers,
     };
     let app = Router::new()
         .route("/rest/{*action}", get(subsonic_hub_response))
@@ -221,6 +239,9 @@ async fn subsonic_hub_response(
             (StatusCode::OK, bytes.to_vec()).into_response()
         };
     }
+    if action == "getCoverArt" {
+        return (StatusCode::OK, b"mock-cover-bytes".to_vec()).into_response();
+    }
     let body = match action.as_str() {
         "ping" => {
             json!({ "subsonic-response": { "status": "ok", "version": "1.16.1", "openSubsonic": false } })
@@ -255,7 +276,7 @@ async fn subsonic_hub_response(
                         } else {
                             format!("Album {index:03}")
                         };
-                        json!({ "id": id, "name": name, "artist": "Artist", "artistId": "artist-opaque" })
+                        json!({ "id": id, "name": name, "artist": "Artist", "artistId": "artist-opaque", "coverArt": state.visualizer_covers.then(|| if index == 0 { "cover-playing".to_owned() } else { format!("cover-wall-{index}") }) })
                     })
                     .collect()
             } else {
@@ -266,7 +287,7 @@ async fn subsonic_hub_response(
             json!({ "subsonic-response": { "status": "ok", "albumList2": { "album": albums } } })
         }
         "getSong" => {
-            json!({ "subsonic-response": { "status": "ok", "song": { "id": "song-opaque", "title": "Song title", "artist": "Artist", "album": "Album", "artistId": "artist-opaque", "albumId": "album-opaque", "duration": 90, "track": 4 } } })
+            json!({ "subsonic-response": { "status": "ok", "song": { "id": "song-opaque", "title": "Song title", "artist": "Artist", "album": "Album", "artistId": "artist-opaque", "albumId": "album-opaque", "coverArt": state.visualizer_covers.then(|| "cover-playing".to_owned()), "duration": 90, "track": 4 } } })
         }
         "getArtist" => {
             json!({ "subsonic-response": { "status": "ok", "artist": { "id": "artist-opaque", "name": "Artist", "albumCount": 1, "album": { "id": "album-opaque", "name": "Album", "artist": "Artist", "artistId": "artist-opaque" } } } })
@@ -8649,6 +8670,107 @@ async fn subsonic_registration_resolves_mode_stores_secret_and_deduplicates() ->
         1
     );
     server.task.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn subsonic_visualizer_covers_use_the_bounded_server_cover_cache() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+
+    let local_id = session_audio(&fixture, "visualizer-local-cover.ogg").await?;
+    attach_test_cover(&fixture, local_id, b"local-visualizer-cover").await?;
+    let local_item: PlayingItem = library_track_for_id(&fixture, local_id).await?.into();
+    let (local_playing, local_wall) = Implementation::Local
+        .visualizer_covers(&local_item, &node)
+        .await?;
+    assert!(local_playing.is_some(), "local playing cover was not read from the DB");
+    assert!(!local_wall.is_empty(), "local cover wall did not use the DB selection");
+
+    let (endpoint, calls, _, _, _, server) = subsonic_hub_mock_with_covers(false, true).await;
+    let registration = register_subsonic_library_on_node(
+        &subsonic_registration_request(
+            endpoint,
+            "test-secret",
+            Some(SubsonicOpenModeMessage::PlayOnThisDevice),
+        ),
+        &node,
+    )
+    .await;
+    let record = registration.record.context("registered Subsonic library")?;
+    let opened = open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: None,
+            record_id: record.record_id.clone(),
+        },
+        node.clone(),
+        Arc::new(Mutex::new(ScrobblingManager::new(
+            10,
+            Duration::from_secs(5),
+        ))),
+    )
+    .await;
+    anyhow::ensure!(matches!(opened.result, OpenLibraryResult::Opened));
+    let library_id = match node.current_library()? {
+        OpenLibrary::Subsonic(binding) => binding.library_id,
+        _ => anyhow::bail!("registered Subsonic library was not opened"),
+    };
+    let implementation = playback_implementation_for_item(&node, library_id).await?;
+    let item = PlayingItem::LibraryTrack {
+        library_id,
+        track: "song-opaque".into(),
+    };
+    let load = LoadResolvedItemsRequest {
+        call_id: None,
+        items: vec![PlayingItemRef::LibraryTrack {
+            library_id: library_id.to_string(),
+            track: "song-opaque".into(),
+        }],
+        start_index: Some(0),
+        mode: PlaylistOperateMode::Replace,
+        expected_revision: None,
+        playback_mode: Some(0),
+        position_seconds: Some(0.0),
+        play: Some(true),
+    };
+    dispatch_gui_request(&fixture.global_params, &load).await?;
+    wait_player(&fixture, |status| {
+        status.state == PlaybackState::Playing && status.item.as_ref() == Some(&item)
+    })
+    .await?;
+
+    let (playing, wall) = implementation
+        .visualizer_covers(&item, &node)
+        .await?;
+    assert!(playing.is_some(), "playing cover was not returned");
+    assert_eq!(wall.len(), 62, "wall selection included the playing cover or exceeded its bound");
+    let cover_requests = calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|action| action.as_str() == "getCoverArt")
+        .count();
+    assert_eq!(cover_requests, 63, "covers were not fetched once per cache key");
+
+    let (cached_playing, cached_wall) = implementation
+        .visualizer_covers(&item, &node)
+        .await?;
+    assert_eq!(cached_playing, playing);
+    assert_eq!(cached_wall, wall);
+    assert_eq!(
+        calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|action| action.as_str() == "getCoverArt")
+            .count(),
+        cover_requests,
+        "cached covers were fetched again"
+    );
+
+    server.abort();
     node.shutdown().await?;
     Ok(())
 }

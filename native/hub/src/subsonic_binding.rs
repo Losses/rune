@@ -4,6 +4,7 @@ use crate::{
         RequestErrorKind, RequestFailedResponse, RequestFailureCause, SetRealtimeFFTEnabledRequest,
     },
     utils::Broadcaster,
+    visualizer::RANDOM_COVERS,
 };
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -210,60 +211,69 @@ impl SubsonicCoverCache {
     }
 
     pub(crate) fn schedule(self: &Arc<Self>, client: Arc<SubsonicClient>, cover_id: String) {
-        if self.path_for(&cover_id).is_file() {
-            return;
-        }
-        let Ok(mut pending) = self.pending.lock() else {
-            return;
-        };
-        if !pending.insert(cover_id.clone()) {
-            return;
-        }
-        drop(pending);
         let cache = Arc::clone(self);
         tokio::spawn(async move {
-            let permit = cache.concurrency.acquire().await;
-            if permit.is_err() {
-                if let Ok(mut pending) = cache.pending.lock() {
-                    pending.remove(&cover_id);
-                }
-                return;
-            }
-            let path = cache.path_for(&cover_id);
-            let fetched = tokio::select! {
-                _ = cache.cancellation.cancelled() => None,
-                result = client.cover_art(&cover_id, None) => Some(result),
-            };
-            let Some(fetched) = fetched else {
-                if let Ok(mut pending) = cache.pending.lock() {
-                    pending.remove(&cover_id);
-                }
-                drop(permit);
-                return;
-            };
-            if let Ok(bytes) = fetched
-                && !bytes.is_empty()
-                && bytes.len() <= 8 * 1024 * 1024
-            {
-                let result = (|| -> std::io::Result<()> {
-                    fs::create_dir_all(&cache.root)?;
-                    let temporary = path.with_extension("tmp");
-                    fs::write(&temporary, bytes)?;
-                    fs::rename(&temporary, &path)?;
-                    evict_cover_cache(&cache.root, &path, COVER_CACHE_LIMITS)
-                })();
-                if result.is_ok() {
-                    let notification = LibraryContentChanged {
-                        path: String::new(),
-                    };
-                    cache.broadcaster.broadcast(&notification);
-                }
-            }
-            if let Ok(mut pending) = cache.pending.lock() {
-                pending.remove(&cover_id);
-            }
-            drop(permit);
+            let _ = cache.ensure_cached(client, &cover_id).await;
         });
+    }
+
+    async fn ensure_cached(
+        &self,
+        client: Arc<SubsonicClient>,
+        cover_id: &str,
+    ) -> Result<Option<String>> {
+        if let Some(path) = self.cached_path(cover_id) {
+            return Ok(Some(path));
+        }
+        let owner = {
+            let mut pending = self
+                .pending
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Subsonic cover cache lock poisoned"))?;
+            pending.insert(cover_id.to_owned())
+        };
+        if !owner {
+            loop {
+                if let Some(path) = self.cached_path(cover_id) {
+                    return Ok(Some(path));
+                }
+                let still_pending = self
+                    .pending
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("Subsonic cover cache lock poisoned"))?
+                    .contains(cover_id);
+                if !still_pending {
+                    return Ok(None);
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }
+        let result = async {
+            let permit = self.concurrency.acquire().await?;
+            let bytes = tokio::select! {
+                _ = self.cancellation.cancelled() => return Ok(None),
+                result = client.cover_art(cover_id, None) => result?,
+            };
+            if bytes.is_empty() || bytes.len() > 8 * 1024 * 1024 {
+                return Ok(None);
+            }
+            let path = self.path_for(cover_id);
+            fs::create_dir_all(&self.root)?;
+            let temporary = path.with_extension("tmp");
+            fs::write(&temporary, bytes)?;
+            fs::rename(&temporary, &path)?;
+            evict_cover_cache(&self.root, &path, COVER_CACHE_LIMITS)?;
+            self.broadcaster.broadcast(&LibraryContentChanged {
+                path: String::new(),
+            });
+            drop(permit);
+            Ok(self.cached_path(cover_id))
+        }
+        .await;
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.remove(cover_id);
+        }
+        result
     }
 }
 
@@ -566,6 +576,42 @@ impl SubsonicBinding {
             .then(|| self.cover_path(song.cover_art.as_deref()))
             .flatten();
         Ok((summary, cover))
+    }
+
+    pub(crate) async fn visualizer_covers(
+        &self,
+        item: &PlayingItem,
+    ) -> Result<(Option<String>, Vec<String>)> {
+        let PlayingItem::LibraryTrack { track, .. } = item else {
+            anyhow::bail!("Subsonic visualizer item is not a library track");
+        };
+        let wall_covers = RANDOM_COVERS;
+        let song = self.song(track).await?;
+        let playing = match song.cover_art.as_deref() {
+            Some(id) => {
+                self.covers
+                    .ensure_cached(Arc::clone(&self.client), id)
+                    .await?
+            }
+            None => None,
+        };
+        let albums = self.client.album_list(wall_covers as u32, 0).await?;
+        let mut wall = Vec::with_capacity(wall_covers);
+        let mut seen = HashSet::new();
+        for album in albums.into_iter().take(wall_covers) {
+            let Some(id) = album.cover_art else { continue };
+            if song.cover_art.as_ref() == Some(&id) || !seen.insert(id.clone()) {
+                continue;
+            }
+            if let Some(path) = self
+                .covers
+                .ensure_cached(Arc::clone(&self.client), &id)
+                .await?
+            {
+                wall.push(path);
+            }
+        }
+        Ok((playing, wall))
     }
 
     async fn report_scrobble(&self, track_id: &str, time: Option<u64>, submission: bool) {

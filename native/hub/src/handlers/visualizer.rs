@@ -75,6 +75,7 @@ impl Signal for StartVisualizerRequest {
             Arc::clone(&library.recommend_db),
             node,
             library.library_id,
+            player.lock().await.get_status().item,
         );
         let tap = player.lock().await.pcm_tap();
         // A restart: take the audio back from the running visualizer first.

@@ -3,7 +3,7 @@
 //! Its frames reach the screen through [`crate::flutter_bridge`], which registers a texture with
 //! the engine from Rust, so the pixels never travel through Dart.
 
-use crate::node::NodeContext;
+use crate::{node::NodeContext, utils::playback_implementation_for_item};
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock, Mutex};
 use tokio::runtime::Handle;
@@ -14,6 +14,7 @@ use ::database::{
     connection::{MainDbConnection, RecommendationDbConnection},
 };
 use ::fsio::FsIo;
+use ::playback::player::PlayingItem;
 pub use ::visualizer::ChartItem;
 use anyhow::Result;
 use log::warn;
@@ -30,7 +31,7 @@ pub static VISUALIZER: LazyLock<Visualizer> = LazyLock::new(|| {
 });
 
 /// How many random covers a scene that reads covers gets besides the one of the track playing.
-const RANDOM_COVERS: usize = 63;
+pub(crate) const RANDOM_COVERS: usize = 63;
 const MAX_FEED_COVER_BYTES: usize = 4 * 1024 * 1024;
 const MAX_FEED_BYTES: usize = 16 * 1024 * 1024;
 
@@ -42,6 +43,7 @@ struct CoverSource {
     recommend_db: Arc<RecommendationDbConnection>,
     node: Arc<NodeContext>,
     library_id: Uuid,
+    item: Arc<Mutex<Option<PlayingItem>>>,
 }
 
 static COVER_SOURCE: Mutex<Option<Arc<CoverSource>>> = Mutex::new(None);
@@ -57,6 +59,7 @@ pub fn provide_covers(
     recommend_db: Arc<RecommendationDbConnection>,
     node: Arc<NodeContext>,
     library_id: Uuid,
+    item: Option<PlayingItem>,
 ) {
     *COVER_SOURCE.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(CoverSource {
         runtime: Handle::current(),
@@ -65,22 +68,33 @@ pub fn provide_covers(
         recommend_db,
         node,
         library_id,
+        item: Arc::new(Mutex::new(item)),
     }));
     VISUALIZER.set_covers_requester(refresh_covers);
 }
 
 /// The player moved to another track, whose cover file is `cover` (none if it has none): a scene
 /// that reads covers gets it in cell 0, the random covers stay.
-pub fn playing_cover_changed(cover: Option<&str>) {
+pub fn playing_cover_changed(item: Option<&PlayingItem>, cover: Option<&str>) {
     let cover = cover.filter(|path| !path.is_empty()).map(PathBuf::from);
+    let refresh = item.is_some() && cover.is_none();
     *PLAYING_COVER.lock().unwrap_or_else(|e| e.into_inner()) = cover.clone();
+    if let Some(source) = COVER_SOURCE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+    {
+        *source.item.lock().unwrap_or_else(|e| e.into_inner()) = item.cloned();
+    }
     if VISUALIZER.wants_covers() {
         VISUALIZER.set_playing_cover(cover);
+        if refresh {
+            refresh_covers();
+        }
     }
 }
 
-/// Find 63 random covers in the background and give them to the visualizer with the playing
-/// track's.
+/// Ask the playing item's owning library for covers and give them to the visualizer.
 fn refresh_covers() {
     // The cell of the track playing too: it may have changed while no such scene was on screen,
     // and the one the visualizer kept would cover the new atlas's.
@@ -99,13 +113,43 @@ fn refresh_covers() {
     };
     let runtime = source.runtime.clone();
     runtime.spawn(async move {
-        match random_covers(&source).await {
-            Ok(random) => {
-                let current = PLAYING_COVER
+        let item = source
+            .item
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let Some(item) = item else {
+            VISUALIZER.set_covers(None, Vec::new());
+            return;
+        };
+        let library_id = match &item {
+            PlayingItem::LibraryTrack { library_id, .. } => *library_id,
+            _ => source.library_id,
+        };
+        let node = Arc::clone(&source.node);
+        match async {
+            let implementation = playback_implementation_for_item(&node, library_id).await?;
+            implementation.visualizer_covers(&item, &node).await
+        }
+        .await
+        {
+            Ok((playing, random)) => {
+                if source
+                    .item
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
-                    .clone();
-                VISUALIZER.set_covers(current, random);
+                    .as_ref()
+                    != Some(&item)
+                {
+                    return;
+                }
+                let playing = playing.map(PathBuf::from).or_else(|| {
+                    PLAYING_COVER
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone()
+                });
+                VISUALIZER.set_covers(playing, random.into_iter().map(PathBuf::from).collect());
             }
             Err(e) => warn!("Failed to find covers for the visualizer: {e:#}"),
         }
@@ -156,6 +200,7 @@ pub async fn feed_cover_bytes(
         recommend_db,
         node,
         library_id,
+        item: Arc::new(Mutex::new(None)),
     };
     let playing = read_cover_bytes(playing_path.as_deref()).await?;
     let mut used_bytes = playing.as_ref().map_or(0, Vec::len);

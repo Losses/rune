@@ -2190,6 +2190,25 @@ pub(crate) async fn playback_implementation_for_library(
     }
 }
 
+pub(crate) async fn playback_implementation_for_item(
+    node: &NodeContext,
+    library_id: Uuid,
+) -> Result<Implementation> {
+    if let Some(binding) = node.subsonic_binding(library_id)? {
+        return Ok(Implementation::Subsonic(binding));
+    }
+    let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
+    if let Ok(record) = registry.record(LibraryRecordId(library_id))
+        && matches!(&record.protocol, ProtocolAdapter::SubsonicTranslate { .. })
+    {
+        return Ok(Implementation::Subsonic(
+            subsonic_binding_for_playback(node, library_id).await?,
+        ));
+    }
+    let library = node.library_pool.acquire(library_id).await?;
+    playback_implementation_for_library(node, &library).await
+}
+
 pub(crate) async fn library_item_metadata(
     node: &NodeContext,
     item: &PlayingItem,

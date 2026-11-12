@@ -748,7 +748,7 @@ async fn handle_status_event(
                 }
             }
         }
-        playing_cover_changed(item_state.cover.as_deref());
+        playing_cover_changed(value.item.as_ref(), item_state.cover.as_deref());
         item_state.last_item = value.item.clone();
     }
     if value.state == PlaybackState::Playing && !item_state.track_started {
