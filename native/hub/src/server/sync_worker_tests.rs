@@ -34,6 +34,9 @@ use uuid::Uuid;
 #[path = "share_worker_tests/support.rs"]
 mod support;
 
+#[path = "share_worker_tests/pre_head_write.rs"]
+mod pre_head_write;
+
 struct MemoryShareFactory {
     store: Arc<MemoryObjectStore>,
 }
@@ -264,10 +267,18 @@ async fn hubs_on_share(namespace: Uuid, count: usize) -> Vec<support::SqlLibrary
 #[derive(Default)]
 struct QuietBroadcaster {
     messages: std::sync::Mutex<Vec<String>>,
+    successful_share_passes: AtomicUsize,
 }
 
 impl Broadcaster for QuietBroadcaster {
     fn broadcast(&self, message: &dyn RinfRustSignal) {
+        if message
+            .as_any()
+            .downcast_ref::<LibrarySyncStatusUpdated>()
+            .is_some_and(|status| status.share_failure.is_none())
+        {
+            self.successful_share_passes.fetch_add(1, Ordering::SeqCst);
+        }
         let status = if message.name() == "LibrarySyncStatusUpdated" {
             format!(
                 " status_tail={:?}",
@@ -301,6 +312,19 @@ struct WorkerHub {
 }
 
 impl WorkerHub {
+    fn start_worker(&mut self) {
+        let worker_cancel = self.cancel.clone();
+        let worker_node = Arc::downgrade(&self.node);
+        let notify: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
+        self.task = Some(tokio::spawn(run_share_worker(
+            worker_node,
+            notify,
+            worker_cancel,
+            self.factory.clone(),
+            self.timers,
+        )));
+    }
+
     async fn stop_worker(&mut self) -> Result<()> {
         self.cancel.cancel();
         if let Some(task) = self.task.take() {
@@ -394,6 +418,16 @@ async fn worker_hub_on_share(
     session: ShareStoreSession,
     library: support::SqlLibrary,
 ) -> Result<WorkerHub> {
+    let mut hub = worker_hub_on_share_prepared(namespace, session, library).await?;
+    hub.start_worker();
+    Ok(hub)
+}
+
+async fn worker_hub_on_share_prepared(
+    namespace: Uuid,
+    session: ShareStoreSession,
+    library: support::SqlLibrary,
+) -> Result<WorkerHub> {
     let timers = ShareWorkerTimers {
         tick: Duration::from_millis(25),
         foreground_pull: Duration::from_millis(50),
@@ -407,16 +441,6 @@ async fn worker_hub_on_share(
     let (node, broadcaster, handle) =
         register_worker_library(&directory, namespace, &library).await?;
     let cancel = CancellationToken::new();
-    let worker_cancel = cancel.clone();
-    let worker_node = Arc::downgrade(&node);
-    let notify: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
-    let task = tokio::spawn(run_share_worker(
-        worker_node,
-        notify,
-        worker_cancel,
-        factory.clone(),
-        timers,
-    ));
     Ok(WorkerHub {
         _directory: directory,
         node,
@@ -425,7 +449,7 @@ async fn worker_hub_on_share(
         broadcaster,
         handle: Some(handle),
         cancel,
-        task: Some(task),
+        task: None,
         factory,
         timers,
     })
