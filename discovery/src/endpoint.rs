@@ -8,24 +8,135 @@ use thiserror::Error;
 use url::{Url, form_urlencoded};
 use uuid::Uuid;
 
-/// Splits a trusted host entry (`host`, `host:port`, `ip`, `ip:port`, `[v6]:port`) into
-/// its host and optional port. Returns `None` for an entry with port 0 or no host.
-pub fn endpoint_host_port(value: &str) -> Option<(String, Option<u16>)> {
-    if let Ok(addr) = value.parse::<SocketAddr>() {
-        return (addr.port() != 0).then(|| (addr.ip().to_string(), Some(addr.port())));
+/// The default port used for Rune device connections and device addresses.
+pub const DEFAULT_DEVICE_PORT: u16 = 7863;
+
+/// A host and port for a Rune device. Parsing a host without a port applies the
+/// Rune device port.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeviceAddress {
+    host: String,
+    port: u16,
+}
+
+impl FromStr for DeviceAddress {
+    type Err = EndpointUrlError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let invalid = || EndpointUrlError::InvalidAddress(value.to_owned());
+        if value.is_empty() || value.trim() != value || value.contains('/') || value.contains('@') {
+            return Err(invalid());
+        }
+        if let Ok(addr) = value.parse::<SocketAddr>() {
+            if addr.port() == 0 {
+                return Err(invalid());
+            }
+            return Ok(Self {
+                host: addr.ip().to_string(),
+                port: addr.port(),
+            });
+        }
+        let (host, port) = if value.starts_with('[') {
+            let (host, suffix) = value.split_once(']').ok_or_else(invalid)?;
+            let ip = host
+                .trim_start_matches('[')
+                .parse::<IpAddr>()
+                .map_err(|_| invalid())?;
+            if !ip.is_ipv6() {
+                return Err(invalid());
+            }
+            if suffix.is_empty() {
+                (ip.to_string(), DEFAULT_DEVICE_PORT)
+            } else {
+                let port = suffix.strip_prefix(':').ok_or_else(invalid)?;
+                (ip.to_string(), parse_device_port(port).ok_or_else(invalid)?)
+            }
+        } else if let Ok(ip) = value.parse::<IpAddr>() {
+            (ip.to_string(), DEFAULT_DEVICE_PORT)
+        } else if let Some((host, port)) = value.rsplit_once(':') {
+            if host.is_empty() || host.contains(':') || !valid_device_hostname(host) {
+                return Err(invalid());
+            }
+            (
+                host.to_owned(),
+                parse_device_port(port).ok_or_else(invalid)?,
+            )
+        } else {
+            if !valid_device_hostname(value) {
+                return Err(invalid());
+            }
+            (value.to_owned(), DEFAULT_DEVICE_PORT)
+        };
+        Ok(Self { host, port })
     }
-    let host = value.trim_matches(|c| c == '[' || c == ']');
-    if host.parse::<IpAddr>().is_ok() {
-        return Some((host.to_owned(), None));
+}
+
+impl Display for DeviceAddress {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        if self.host.parse::<IpAddr>().is_ok_and(|ip| ip.is_ipv6()) {
+            write!(f, "[{}]:{}", self.host, self.port)
+        } else {
+            write!(f, "{}:{}", self.host, self.port)
+        }
     }
-    if let Some((name, port)) = value.rsplit_once(':')
-        && !name.is_empty()
-        && !name.contains(':')
-        && let Ok(port) = port.parse::<u16>()
-    {
-        return (port != 0).then(|| (name.to_owned(), Some(port)));
+}
+
+impl DeviceAddress {
+    /// Hostname or IP address without port punctuation.
+    pub fn host(&self) -> &str {
+        &self.host
     }
-    (!value.is_empty() && !value.contains(':')).then(|| (value.to_owned(), None))
+
+    /// Effective port, including the Rune default when the input omitted one.
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    /// Construct an address from separately supplied host and port values.
+    pub fn new(host: impl Into<String>, port: u16) -> Result<Self, EndpointUrlError> {
+        let host = host.into();
+        let value = if host.parse::<IpAddr>().is_ok_and(|ip| ip.is_ipv6()) {
+            format!("[{host}]:{port}")
+        } else {
+            format!("{host}:{port}")
+        };
+        value.parse()
+    }
+
+    /// Build an HTTPS or WSS URL for this device.
+    pub fn url(&self, scheme: &str, path: &str) -> Result<Url, EndpointUrlError> {
+        if !matches!(scheme, "https" | "wss") || !path.starts_with('/') {
+            return Err(EndpointUrlError::Malformed("invalid device URL".into()));
+        }
+        let host = if self.host.parse::<IpAddr>().is_ok_and(|ip| ip.is_ipv6()) {
+            format!("[{}]", self.host)
+        } else {
+            self.host.clone()
+        };
+        Url::parse(&format!("{scheme}://{host}:{}{path}", self.port))
+            .map_err(|error| EndpointUrlError::Malformed(error.to_string()))
+    }
+}
+
+/// Build a URL for a Rune device using its canonical address formatting.
+pub fn device_url(
+    host: &str,
+    port: u16,
+    scheme: &str,
+    path: &str,
+) -> Result<Url, EndpointUrlError> {
+    DeviceAddress::new(host, port)?.url(scheme, path)
+}
+
+fn parse_device_port(value: &str) -> Option<u16> {
+    value.parse::<u16>().ok().filter(|port| *port != 0)
+}
+
+fn valid_device_hostname(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
 }
 
 /// Current version of the endpoint exchange format.
@@ -79,7 +190,7 @@ pub enum HttpTransport {
 pub enum EndpointUrl {
     Rune {
         fingerprint: Fingerprint,
-        addrs: Vec<SocketAddr>,
+        addrs: Vec<DeviceAddress>,
         target: Option<EndpointTarget>,
     },
     Subsonic {
@@ -217,11 +328,7 @@ impl FromStr for EndpointUrl {
                         .map_err(|_| EndpointUrlError::Malformed("invalid version".into()))?,
                 );
             } else if scheme == "rune" && key == "addr" {
-                addrs.push(
-                    value
-                        .parse()
-                        .map_err(|_| EndpointUrlError::InvalidAddress(value))?,
-                );
+                addrs.push(value.parse()?);
             } else if scheme.starts_with("subsonic+") && key == "user" {
                 if user.replace(value).is_some() {
                     return Err(EndpointUrlError::Malformed("duplicate user".into()));
@@ -352,6 +459,38 @@ mod tests {
     const FP: &str = "abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrst";
 
     #[test]
+    fn device_address_round_trips_and_defaults_port() {
+        for (input, expected) in [
+            ("peer.example", "peer.example:7863"),
+            ("192.0.2.1:9000", "192.0.2.1:9000"),
+            ("[::1]:7863", "[::1]:7863"),
+        ] {
+            let address: DeviceAddress = input.parse().unwrap();
+            assert_eq!(address.to_string(), expected);
+            assert_eq!(expected.parse::<DeviceAddress>().unwrap(), address);
+        }
+        assert_eq!(DEFAULT_DEVICE_PORT, 7863);
+    }
+
+    #[test]
+    fn device_address_rejects_malformed_values() {
+        for input in ["", "peer.example:0", "peer.example:65536", "bad:port"] {
+            assert!(input.parse::<DeviceAddress>().is_err(), "{input}");
+        }
+    }
+
+    #[test]
+    fn rune_endpoint_accepts_hostname_address() {
+        let input = format!("rune://{FP}?v=1&addr=peer.example");
+        let parsed: EndpointUrl = input.parse().unwrap();
+        assert_eq!(
+            parsed.to_string(),
+            format!("rune://{FP}?v=1&addr=peer.example%3A7863")
+        );
+        assert_eq!(parsed.to_string().parse::<EndpointUrl>().unwrap(), parsed);
+    }
+
+    #[test]
     fn endpoint_round_trips() {
         let cases = [
             format!(
@@ -413,8 +552,8 @@ mod tests {
                 EndpointUrlError::InvalidFingerprint,
             ),
             (
-                format!("rune://{FP}?v=1&addr=bad"),
-                EndpointUrlError::InvalidAddress("bad".into()),
+                format!("rune://{FP}?v=1&addr=bad%3Aport"),
+                EndpointUrlError::InvalidAddress("bad:port".into()),
             ),
             (
                 format!("rune://{FP}/other?v=1"),

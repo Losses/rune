@@ -1089,10 +1089,6 @@
   "@port": {
     "description": "Частина URL з портом."
   },
-  "secured": "Захищене",
-  "@secured": {
-    "description": "Чи є з'єднання захищеним."
-  },
   "addConnection": "Додати з'єднання",
   "@addConnection": {
     "description": "Кнопка дії діалогу."

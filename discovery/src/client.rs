@@ -35,7 +35,7 @@ use webpki_roots::TLS_SERVER_ROOTS;
 use x509_parser::parse_x509_certificate;
 
 use crate::{
-    endpoint::endpoint_host_port,
+    endpoint::{DEFAULT_DEVICE_PORT, DeviceAddress},
     persistent::{PersistenceError, PersistentDataManager},
     ssl::calculate_base85_fingerprint,
     utils::server_name_to_string,
@@ -50,7 +50,9 @@ type CertInfo = Option<(String, String)>;
 
 /// A trusted entry may carry a port (`host:port`); TLS only sees the host name.
 fn trusted_host_matches(candidate: &str, host: &str) -> bool {
-    candidate == host || endpoint_host_port(candidate).is_some_and(|(name, _)| name == host)
+    candidate
+        .parse::<DeviceAddress>()
+        .is_ok_and(|address| address.host() == host)
 }
 
 /// Defines errors that can occur during certificate validation and management.
@@ -563,7 +565,8 @@ pub async fn fetch_server_certificate(url: &str) -> Result<ServerCert, CertValid
         .host()
         .ok_or(CertValidatorError::InvalidServerName)? // Extract host from Uri
         .to_string();
-    let port = uri.port_u16().unwrap_or(7863); // Extract port from Uri, default to 7863 if not specified
+    let address = DeviceAddress::new(host.clone(), uri.port_u16().unwrap_or(DEFAULT_DEVICE_PORT))
+        .map_err(|_| CertValidatorError::InvalidServerName)?;
 
     let cert_info = Arc::new(Mutex::new(None)); // Arc Mutex to share certificate info across threads
     let verifier = TempCertVerifier {
@@ -577,7 +580,7 @@ pub async fn fetch_server_certificate(url: &str) -> Result<ServerCert, CertValid
 
     let connector = TlsConnector::from(Arc::new(config)); // Create TLS connector with custom config
 
-    let tcp_stream = TcpStream::connect((host.clone(), port)).await?; // Connect to server via TCP
+    let tcp_stream = TcpStream::connect((address.host(), address.port())).await?;
 
     let server_name =
         ServerName::try_from(host).map_err(|_| CertValidatorError::InvalidServerName)?; // Create ServerName from host
@@ -798,7 +801,8 @@ pub async fn try_connect(host: &str, config: ClientConfig) -> Result<String> {
     let sni = ServerName::try_from(host_str.clone())?; // Create ServerName for SNI
 
     let connector = TlsConnector::from(Arc::new(config)); // Create TLS connector from ClientConfig
-    let tcp = TcpStream::connect((host_str.as_str(), uri.port_u16().unwrap_or(7863))).await?; // Connect to host via TCP
+    let address = DeviceAddress::new(host_str, uri.port_u16().unwrap_or(DEFAULT_DEVICE_PORT))?;
+    let tcp = TcpStream::connect((address.host(), address.port())).await?;
     let _ = connector.connect(sni, tcp).await?; // Establish TLS connection
 
     Ok(host.to_string()) // Return host string on successful connection

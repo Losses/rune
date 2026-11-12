@@ -1119,10 +1119,6 @@
   "@port": {
     "description": "URL 的端口部分。"
   },
-  "secured": "已加密",
-  "@secured": {
-    "description": "是否为加密连接。"
-  },
   "addConnection": "添加连接",
   "@addConnection": {
     "description": "对话框中的操作按钮。"

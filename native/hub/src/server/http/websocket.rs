@@ -30,6 +30,7 @@ use crate::{
     request_error::{FailedCall, classify, request_failure_cause},
     server::{ServerState, sync_auth::AuthenticatedFingerprint},
 };
+use discovery::endpoint::{DEFAULT_DEVICE_PORT, device_url};
 use discovery::protocol_version::{
     Compatibility, DEVICE_ALIAS_HEADER, PROTOCOL_VERSION, PROTOCOL_VERSION_HEADER, ProtocolVersion,
     compatibility,
@@ -126,7 +127,10 @@ pub async fn websocket_handler(
                 return (StatusCode::UPGRADE_REQUIRED, response_headers).into_response();
             }
             info!("Connection authorized for {} @ {}", user.alias, addr);
-            let host = format!("https://{host}:7863");
+            let Ok(host) = device_url(&host, DEFAULT_DEVICE_PORT, "https", "/") else {
+                return StatusCode::BAD_REQUEST.into_response();
+            };
+            let host = host.to_string();
             let broadcast_rx = state.websocket_service.broadcast_tx.subscribe();
             (
                 response_headers,

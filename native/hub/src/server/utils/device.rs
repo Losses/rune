@@ -4,6 +4,7 @@ use anyhow::Result;
 
 use discovery::{
     capabilities::Capabilities,
+    endpoint::DEFAULT_DEVICE_PORT,
     protocol_version::{PROTOCOL_VERSION, ProtocolVersion},
     utils::{DeviceInfo, DeviceType},
 };
@@ -21,7 +22,7 @@ pub async fn load_device_info(config_path: &Path) -> Result<DeviceInfo> {
         version: "Technical Preview".to_owned(),
         device_type: Some(DeviceType::Desktop),
         fingerprint: fingerprint.clone(),
-        api_port: 7863,
+        api_port: DEFAULT_DEVICE_PORT,
         protocol: "http".to_owned(),
         protocol_version: Some(PROTOCOL_VERSION),
         capabilities: None,

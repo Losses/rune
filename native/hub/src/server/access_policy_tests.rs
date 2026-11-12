@@ -196,7 +196,7 @@ mod access_policy_tests {
                 &peer_fingerprint,
                 "127.0.0.1",
                 addr.port(),
-            );
+            )?;
             let (_, client) = authenticated_client(
                 &b.global_params.node,
                 &info(b).await?.fingerprint,
@@ -472,7 +472,7 @@ mod access_policy_tests {
         let a_fingerprint = info(&a).await?.fingerprint;
         let b_fingerprint = info(&b).await?.fingerprint;
         let store = &b.global_params.node.sync_tokens;
-        let base = sync_worker::peer_base("127.0.0.1", a_addr.port());
+        let base = sync_worker::peer_base("127.0.0.1", a_addr.port())?;
 
         store.insert_stale_for_test(&a_fingerprint, &base);
         let candidates = list_renderer_candidates(b.global_params.node.clone(), vec![id]).await?;

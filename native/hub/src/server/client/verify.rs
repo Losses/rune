@@ -11,6 +11,7 @@ use ::discovery::{
     config::get_config_dir,
 };
 
+use discovery::endpoint::DeviceAddress;
 use hub::server::{
     api::{fetch_device_info, register_device},
     generate_or_load_certificates, get_or_generate_alias,
@@ -34,7 +35,14 @@ impl fmt::Display for VerificationResult {
 }
 
 async fn verify_single_host(host: String, expected_fp: String) -> (String, VerificationResult) {
-    let url = format!("https://{host}:7863/ping");
+    let address = match host.parse::<DeviceAddress>() {
+        Ok(address) => address,
+        Err(error) => return (host, VerificationResult::Error(error.to_string())),
+    };
+    let url = match address.url("https", "/ping") {
+        Ok(url) => url.to_string(),
+        Err(error) => return (host, VerificationResult::Error(error.to_string())),
+    };
     info!("Connecting to {url}");
 
     let result =

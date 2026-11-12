@@ -58,7 +58,7 @@ use ::discovery::protocol_version::{
 };
 use ::discovery::{
     client::{CertValidator, select_best_host},
-    endpoint::endpoint_host_port,
+    endpoint::{DEFAULT_DEVICE_PORT, DeviceAddress, device_url},
 };
 use ::visualizer::VisualizerInputs as EngineInputs;
 
@@ -246,9 +246,15 @@ impl RendererLink {
         }
         let hosts = hosts
             .into_iter()
-            .filter_map(|value| endpoint_host_port(&value))
-            .map(|(host, port)| format!("https://{host}:{}", port.unwrap_or(7863)))
-            .collect::<Vec<_>>();
+            .map(|value| {
+                value
+                    .parse::<DeviceAddress>()
+                    .map_err(protocol)?
+                    .url("https", "/")
+                    .map(|url| url.to_string())
+                    .map_err(protocol)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         if hosts.is_empty() {
             return Err(RemoteConnectError::UntrustedEndpoint);
         }
@@ -257,9 +263,12 @@ impl RendererLink {
         let host = parsed
             .host_str()
             .ok_or_else(|| protocol("invalid renderer host"))?;
-        let port = parsed.port().unwrap_or(7863);
+        let address = DeviceAddress::new(host, parsed.port().unwrap_or(DEFAULT_DEVICE_PORT))
+            .map_err(protocol)?;
+        let host = address.host().to_owned();
+        let port = address.port();
         let stream = connect_remote_with_version(
-            host,
+            &host,
             port,
             &node.config_path,
             validator.clone(),
@@ -268,7 +277,7 @@ impl RendererLink {
         )
         .await?;
         let device_info = fetch_device_info_at_port(
-            host,
+            &host,
             port,
             Arc::new(Arc::new(validator.clone()).into_client_config()),
         )
@@ -758,9 +767,9 @@ async fn connect_remote_with_version(
         let entries = validator.clone_trusted_entries().await;
         if !entries.iter().any(|(_, hosts)| {
             hosts.iter().any(|candidate| {
-                endpoint_host_port(candidate).is_some_and(|(name, trusted_port)| {
-                    name == host && trusted_port.is_none_or(|p| p == port)
-                })
+                candidate
+                    .parse::<DeviceAddress>()
+                    .is_ok_and(|address| address.host() == host && address.port() == port)
             })
         }) {
             return Err(RemoteConnectError::UntrustedEndpoint);
@@ -784,7 +793,7 @@ async fn connect_remote_with_version(
             .redirect(Policy::none())
             .build()
             .map_err(protocol)?;
-        let base = peer_base(host, port);
+        let base = peer_base(host, port).map_err(protocol)?;
         let token = obtain_or_reuse_token(
             sync_tokens,
             &client,
@@ -798,7 +807,9 @@ async fn connect_remote_with_version(
             error!("Could not obtain renderer token at {host}:{port}: {error:#}");
             token_error(error)
         })?;
-        let url = format!("wss://{host}:{port}/ws?host={}", encode(host));
+        let url = device_url(host, port, "wss", &format!("/ws?host={}", encode(host)))
+            .map_err(protocol)?
+            .to_string();
         let mut request = url.as_str().into_client_request().map_err(protocol)?;
         request.headers_mut().insert(
             reqwest::header::AUTHORIZATION,
@@ -964,14 +975,18 @@ pub(crate) async fn select_renderer_host(
     let client_config = Arc::new(validator).into_client_config();
     let hosts = hosts
         .into_iter()
-        .map(|host| {
+        .map(|host| -> std::result::Result<String, RemoteConnectError> {
             if host.contains("://") {
-                host
+                Ok(host)
             } else {
-                format!("https://{host}:7863")
+                let address = host.parse::<DeviceAddress>().map_err(protocol)?;
+                address
+                    .url("https", "/")
+                    .map(|url| url.to_string())
+                    .map_err(protocol)
             }
         })
-        .collect();
+        .collect::<std::result::Result<Vec<_>, _>>()?;
     select_best_host(hosts, Arc::new(client_config))
         .await
         .map_err(|error| {

@@ -1119,10 +1119,6 @@
   "@port": {
     "description": "The port part of an URL."
   },
-  "secured": "Secured",
-  "@secured": {
-    "description": "If the connection is secured."
-  },
   "addConnection": "Add Connection",
   "@addConnection": {
     "description": "The action button of the dialog."

@@ -56,7 +56,7 @@ pub struct DiscoveredDeviceMessage {
     pub device_type: String,
     pub fingerprint: String,
     pub last_seen_unix_epoch: i64,
-    pub ips: Vec<String>,
+    pub addresses: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]

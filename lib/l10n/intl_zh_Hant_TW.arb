@@ -822,10 +822,6 @@
   "@port": {
     "description": "URL 的埠部分。"
   },
-  "secured": "已加密",
-  "@secured": {
-    "description": "是否為加密連接。"
-  },
   "addConnection": "新增連線",
   "@addConnection": {
     "description": "對話框中的操作按鈕。"

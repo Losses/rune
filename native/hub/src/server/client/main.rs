@@ -11,10 +11,9 @@ pub mod verify;
 
 use std::{process::exit, sync::Arc};
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, bail};
 use clap::Parser;
 use log::{error, info};
-use regex::Regex;
 use rustls::crypto::ring::default_provider;
 use tokio::{
     signal::ctrl_c,
@@ -24,7 +23,10 @@ use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
 use ::discovery::{
-    client::CertValidator, config::get_config_dir, protocol::DiscoveryService,
+    client::CertValidator,
+    config::get_config_dir,
+    endpoint::{DEFAULT_DEVICE_PORT, DeviceAddress, device_url},
+    protocol::DiscoveryService,
     server::PermissionManager,
 };
 
@@ -208,13 +210,24 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<()> {
             let rt = DiscoveryService::with_store(config_dir.clone()).await?;
             let devices = rt.get_all_devices();
             let dev = devices.get(index - 1).context("Invalid index")?;
-            let hosts = domains
-                .map(|d| {
-                    d.split(',')
-                        .map(|s| s.trim().to_string())
-                        .collect::<Vec<String>>()
-                })
-                .unwrap_or_else(|| dev.ips.iter().map(|ip| ip.to_string()).collect());
+            let hosts = match domains {
+                Some(domains) => domains
+                    .split(',')
+                    .map(|host| host.trim().to_string())
+                    .collect(),
+                None => dev
+                    .ips
+                    .iter()
+                    .map(|ip| {
+                        DeviceAddress::new(
+                            ip.to_string(),
+                            dev.api_port.unwrap_or(DEFAULT_DEVICE_PORT),
+                        )
+                        .map(|address| address.to_string())
+                        .map_err(anyhow::Error::from)
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+            };
 
             let validator = CertValidator::new(config_dir).await?;
             trust_discovered_server(&validator, dev.fingerprint.clone(), hosts.clone()).await?;
@@ -304,30 +317,8 @@ fn setup_logging() -> Result<()> {
 }
 
 fn validate_and_format_url(input: &str) -> Result<String> {
-    let re = Regex::new(r"^(?P<host>[^:]+)(:(?P<port>\d+))?$").unwrap();
-
-    if let Some(caps) = re.captures(input) {
-        let host = caps.name("host").unwrap().as_str();
-        let port = caps.name("port").map_or("7863", |m| m.as_str());
-
-        if !is_valid_host(host) {
-            return Err(anyhow!(
-                "Invalid host: must be a valid domain or IP address"
-            ));
-        }
-
-        Ok(format!("ws://{host}:{port}/ws"))
-    } else {
-        Err(anyhow!("Invalid URL format"))
-    }
-}
-
-fn is_valid_host(host: &str) -> bool {
-    // Simple validation for domain or IP
-    let domain_re = Regex::new(r"^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$").unwrap();
-    let ip_re = Regex::new(r"^\d{1,3}(\.\d{1,3}){3}$").unwrap();
-
-    domain_re.is_match(host) || ip_re.is_match(host)
+    let address: DeviceAddress = input.parse().map_err(anyhow::Error::msg)?;
+    Ok(device_url(address.host(), address.port(), "wss", "/ws")?.to_string())
 }
 
 #[cfg(test)]

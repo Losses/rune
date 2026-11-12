@@ -87,7 +87,7 @@ Future<void> pairRuneDevice(
   }
 
   try {
-    await (trustDevice ?? addTrustedServer)(device.fingerprint, device.ips);
+    await (trustDevice ?? addTrustedServer)(device.fingerprint, device.addresses);
   } catch (error) {
     if (!context.mounted) return;
     showErrorDialog(
@@ -100,7 +100,7 @@ Future<void> pairRuneDevice(
 
   try {
     await (registerDevice ?? registerDeviceOnServer)(
-      device.ips,
+      device.addresses,
       device.fingerprint,
     );
   } catch (error) {

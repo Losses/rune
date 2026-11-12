@@ -22,6 +22,7 @@ use hub::{
 
 use ::database::connection::check_storage_mode;
 use ::database::library_registry::{LibraryRegistry, resolve_library};
+use ::discovery::endpoint::DEFAULT_DEVICE_PORT;
 use ::fsio::FsIo;
 use ::playback::sfx_player::SfxPlayer;
 
@@ -36,7 +37,7 @@ struct Cli {
 enum Commands {
     /// Start the server
     Server {
-        #[arg(short, long, default_value = "127.0.0.1:7863")]
+        #[arg(short, long, default_value_t = default_server_addr())]
         addr: String,
         #[arg(required = true, index = 1)]
         lib_path: String,
@@ -50,6 +51,10 @@ enum Commands {
         #[command(subcommand)]
         action: PermissionAction,
     },
+}
+
+fn default_server_addr() -> String {
+    format!("127.0.0.1:{DEFAULT_DEVICE_PORT}")
 }
 
 #[derive(Subcommand)]

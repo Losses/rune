@@ -1,5 +1,6 @@
 use crate::access_policy::{Action, ConnectionLevel, LibraryGrants, SyncLevel};
 use discovery::access_policy::{AccessPolicy, PeerIdentity};
+use discovery::endpoint::{DEFAULT_DEVICE_PORT, DeviceAddress, device_url};
 use std::path::Path;
 use std::{
     collections::{BTreeMap, HashSet},
@@ -211,14 +212,18 @@ async fn probe_renderer(
 ) -> Result<Option<RendererCandidate>> {
     let hosts = endpoints
         .iter()
-        .map(|endpoint| format!("https://{}:{}", endpoint.host, endpoint.port))
-        .collect();
+        .map(|endpoint| {
+            device_url(&endpoint.host, endpoint.port, "https", "/").map(|url| url.to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let selected = select_renderer_host(&node, hosts).await?;
     let url = url::Url::parse(&selected)?;
-    let host = url
-        .host_str()
-        .ok_or_else(|| anyhow::anyhow!("invalid peer host"))?;
-    let port = url.port().unwrap_or(7863);
+    let address = DeviceAddress::new(
+        url.host_str().context("Invalid peer host")?,
+        url.port().unwrap_or(DEFAULT_DEVICE_PORT),
+    )?;
+    let host = address.host();
+    let port = address.port();
     let validator = node.cert_validator.read().await.clone();
     let info = fetch_device_info_at_port(
         host,

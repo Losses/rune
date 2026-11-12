@@ -66,6 +66,7 @@ use crate::{
 use database::library_registry::LibraryRecordId;
 use discovery::DiscoveryParams;
 use discovery::access_policy::{AccessPolicy, PeerIdentity};
+use discovery::endpoint::DEFAULT_DEVICE_PORT;
 use discovery::protocol_version::{PROTOCOL_VERSION, ProtocolVersion};
 
 static NODE: NodeSlot = NodeSlot::new();
@@ -395,7 +396,10 @@ impl NodeContext {
             let result = async {
                 let device_info = load_device_info(Path::new(config_path)).await?;
                 manager
-                    .start_sync(([0, 0, 0, 0], 7863).into(), DiscoveryParams { device_info })
+                    .start_sync(
+                        ([0, 0, 0, 0], DEFAULT_DEVICE_PORT).into(),
+                        DiscoveryParams { device_info },
+                    )
                     .await
             }
             .await;

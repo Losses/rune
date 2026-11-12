@@ -15,6 +15,7 @@ use crate::{
 use database::actions::downloads::{
     cleanup_unselected_downloads, remove_download_rule, set_download_rule,
 };
+use discovery::endpoint::DEFAULT_DEVICE_PORT;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -203,7 +204,7 @@ impl Signal for crate::messages::SetSyncSettingsRequest {
                         let info = load_device_info(Path::new(&**config)).await?;
                         manager
                             .start_sync(
-                                ([0, 0, 0, 0], 7863).into(),
+                                ([0, 0, 0, 0], DEFAULT_DEVICE_PORT).into(),
                                 discovery::DiscoveryParams { device_info: info },
                             )
                             .await?;

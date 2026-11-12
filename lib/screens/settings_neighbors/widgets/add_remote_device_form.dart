@@ -28,12 +28,6 @@ class AddRemoteDeviceForm extends StatelessWidget {
           label: s.port,
           child: TextBox(controller: controller.portController),
         ),
-        const SizedBox(height: 20),
-        ToggleSwitch(
-          checked: controller.securedController.isChecked,
-          onChanged: (v) => controller.securedController.isChecked = v,
-          content: Text(s.secured),
-        )
       ],
     );
   }

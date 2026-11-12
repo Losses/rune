@@ -1091,10 +1091,6 @@
   "@port": {
     "description": "URL 的埠號部分。"
   },
-  "secured": "已加密",
-  "@secured": {
-    "description": "敢是加密連線。"
-  },
   "addConnection": "增加連線",
   "@addConnection": {
     "description": "對話框內底的動作按鈕。"

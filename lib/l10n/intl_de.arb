@@ -1089,10 +1089,6 @@
   "@port": {
     "description": "Der Port-Teil einer URL."
   },
-  "secured": "Gesichert",
-  "@secured": {
-    "description": "Ob die Verbindung gesichert ist."
-  },
   "addConnection": "Verbindung hinzufügen",
   "@addConnection": {
     "description": "Der Aktions-Button des Dialogs."

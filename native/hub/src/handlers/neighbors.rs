@@ -33,7 +33,7 @@ use ::discovery::{
     client::{
         CertValidator, CertValidatorError, fetch_server_certificate, select_best_host, try_connect,
     },
-    endpoint::endpoint_host_port,
+    endpoint::{DEFAULT_DEVICE_PORT, DeviceAddress},
     protocol::DiscoveryService,
     server::{PermissionManager, UserStatus},
     utils::{DeviceInfo, DeviceType},
@@ -47,17 +47,35 @@ pub(crate) async fn select_pinned_pair_host(
     validator: &CertValidator,
     fingerprint: &str,
 ) -> Result<String> {
+    let addresses = hosts
+        .iter()
+        .map(|host| {
+            host.parse::<DeviceAddress>()
+                .map_err(|_| ExpectedRequestError::invalid_input("Device address is malformed"))
+                .map_err(anyhow::Error::from)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let urls = addresses
+        .iter()
+        .map(|address| address.url("https", "/").map(|url| url.to_string()))
+        .collect::<std::result::Result<Vec<_>, _>>()?;
     match select_best_host(
-        hosts.clone(),
+        urls.clone(),
         Arc::new(tls_config(validator.clone(), fingerprint)),
     )
     .await
     {
-        Ok(host) => Ok(host),
+        Ok(url) => {
+            let parsed = Url::parse(&url).context("Invalid selected device URL")?;
+            let host = parsed
+                .host_str()
+                .context("Selected device URL has no host")?;
+            let port = parsed.port().unwrap_or(DEFAULT_DEVICE_PORT);
+            Ok(DeviceAddress::new(host, port)?.to_string())
+        }
         Err(_) => {
-            for host in &hosts {
-                if let Ok(certificate) =
-                    fetch_server_certificate(&certificate_fetch_url(host)).await
+            for url in &urls {
+                if let Ok(certificate) = fetch_server_certificate(url).await
                     && certificate.fingerprint != fingerprint
                 {
                     return Err(ExpectedRequestError::CertificateMismatch.into());
@@ -68,14 +86,6 @@ pub(crate) async fn select_pinned_pair_host(
             }
             .into())
         }
-    }
-}
-
-fn certificate_fetch_url(host: &str) -> String {
-    if matches!(host.parse::<IpAddr>(), Ok(IpAddr::V6(_))) {
-        format!("https://[{host}]/ping")
-    } else {
-        format!("https://{host}/ping")
     }
 }
 
@@ -117,7 +127,7 @@ impl Signal for StartBroadcastRequest {
                     version: "Technical Preview".to_owned(),
                     device_type: Some(DeviceType::Desktop),
                     fingerprint: fingerprint.clone(),
-                    api_port: 7863,
+                    api_port: DEFAULT_DEVICE_PORT,
                     protocol: "http".to_owned(),
                     protocol_version: Some(discovery::protocol_version::PROTOCOL_VERSION),
                     capabilities: None,
@@ -230,21 +240,31 @@ impl Signal for GetDiscoveredDeviceRequest {
 
         let devices_message = devices
             .into_iter()
-            .map(|x| DiscoveredDeviceMessage {
-                alias: x.alias,
-                fingerprint: x.fingerprint,
-                device_model: x.device_model,
-                device_type: x.device_type.to_string(),
-                last_seen_unix_epoch: x.last_seen.timestamp(),
-                ips: x.ips.into_iter().map(|ip| ip.to_string()).collect(),
+            .map(|x| {
+                let addresses = announced_device_addresses(&x.ips, x.api_port)?;
+                Ok(DiscoveredDeviceMessage {
+                    alias: x.alias,
+                    fingerprint: x.fingerprint,
+                    device_model: x.device_model,
+                    device_type: x.device_type.to_string(),
+                    last_seen_unix_epoch: x.last_seen.timestamp(),
+                    addresses,
+                })
             })
-            .collect();
+            .collect::<Result<Vec<_>>>()?;
 
         Ok(Some(GetDiscoveredDeviceResponse {
             call_id: None,
             devices: devices_message,
         }))
     }
+}
+
+fn announced_device_addresses(ips: &[IpAddr], api_port: Option<u16>) -> Result<Vec<String>> {
+    let port = api_port.unwrap_or(DEFAULT_DEVICE_PORT);
+    ips.iter()
+        .map(|ip| Ok(DeviceAddress::new(ip.to_string(), port)?.to_string()))
+        .collect()
 }
 
 impl ParamsExtractor for StartServerRequest {
@@ -282,7 +302,7 @@ impl Signal for StartServerRequest {
                     request.interface, e
                 ))
             })?;
-            let addr = SocketAddr::new(ip, 7863);
+            let addr = SocketAddr::new(ip, DEFAULT_DEVICE_PORT);
 
             let device_info = DeviceInfo {
                 alias: request.alias.clone(),
@@ -295,7 +315,7 @@ impl Signal for StartServerRequest {
                 )
                 .await?
                 .0,
-                api_port: 7863,
+                api_port: DEFAULT_DEVICE_PORT,
                 protocol: "http".to_owned(),
                 protocol_version: Some(discovery::protocol_version::PROTOCOL_VERSION),
                 capabilities: None,
@@ -514,10 +534,9 @@ impl Signal for ServerAvailabilityTestRequest {
 
         let hosts = &req.hosts;
         if hosts.is_empty()
-            || hosts.iter().any(|host| {
-                endpoint_host_port(host).is_none_or(|(_, port)| port.is_none())
-                    || Url::parse(&format!("https://{host}")).is_err()
-            })
+            || hosts
+                .iter()
+                .any(|host| host.parse::<DeviceAddress>().is_err())
         {
             return Ok(Some(ServerAvailabilityTestResponse {
                 call_id: None,
@@ -528,9 +547,28 @@ impl Signal for ServerAvailabilityTestRequest {
         }
 
         let client_config = Arc::new(validator.clone().into_client_config());
+        let device_urls = match hosts
+            .iter()
+            .map(|host| {
+                host.parse::<DeviceAddress>()
+                    .and_then(|address| address.url("https", "/"))
+                    .map(|url| url.to_string())
+            })
+            .collect::<std::result::Result<Vec<_>, _>>()
+        {
+            Ok(urls) => urls,
+            Err(_) => {
+                return Ok(Some(ServerAvailabilityTestResponse {
+                    call_id: None,
+                    outcome: ServerAvailabilityTestOutcome::Failed(
+                        ServerAvailabilityTestFailure::AddressMalformed,
+                    ),
+                }));
+            }
+        };
         let outcome = match timeout(
             Duration::from_secs(5),
-            select_best_host(hosts.clone(), client_config),
+            select_best_host(device_urls, client_config),
         )
         .await
         {
@@ -564,9 +602,17 @@ fn availability_outcome(
 
 async fn has_fingerprint_mismatch(hosts: &[String], validator: &CertValidator) -> bool {
     for host in hosts {
-        let url = format!("https://{host}/ping");
-        let Ok(Ok(server_certificate)) =
-            timeout(Duration::from_secs(5), fetch_server_certificate(&url)).await
+        let Ok(address) = host.parse::<DeviceAddress>() else {
+            continue;
+        };
+        let Ok(url) = address.url("https", "/ping") else {
+            continue;
+        };
+        let Ok(Ok(server_certificate)) = timeout(
+            Duration::from_secs(5),
+            fetch_server_certificate(url.as_str()),
+        )
+        .await
         else {
             continue;
         };
@@ -976,7 +1022,7 @@ pub(crate) async fn authorized_get(
         .use_preconfigured_tls(tls_config(validator, &server_fingerprint))
         .redirect(Policy::none())
         .build()?;
-    let base = peer_base(host, port);
+    let base = peer_base(host, port)?;
     let token = obtain_or_reuse_token(
         sync_tokens,
         &client,
@@ -1047,7 +1093,7 @@ impl Signal for FetchRemoteFileRequest {
         let validator = params.validator.read().await.clone();
 
         // Parse the URL to extract host, port, and path
-        let mut url = match Url::parse(&req.url) {
+        let url = match Url::parse(&req.url) {
             Ok(url) => url,
             Err(e) => {
                 return Ok(Some(FetchRemoteFileResponse {
@@ -1072,15 +1118,22 @@ impl Signal for FetchRemoteFileRequest {
             }
         };
 
-        let port = url.port().unwrap_or(7863);
-        if url.scheme() != "https" || url.set_port(Some(port)).is_err() {
+        let address = (url.scheme() == "https")
+            .then(|| {
+                url.host_str().and_then(|host| {
+                    DeviceAddress::new(host, url.port().unwrap_or(DEFAULT_DEVICE_PORT)).ok()
+                })
+            })
+            .flatten();
+        let Some(address) = address else {
             return Ok(Some(FetchRemoteFileResponse {
                 call_id: None,
                 success: false,
                 local_path: String::new(),
                 error: "Remote file URL must be an HTTPS URL with a valid port".to_string(),
             }));
-        }
+        };
+        let port = address.port();
 
         let library_id = url
             .query_pairs()
@@ -1221,6 +1274,21 @@ impl Signal for FetchRemoteFileRequest {
             local_path: published_path.to_string_lossy().into_owned(),
             error: String::new(),
         }))
+    }
+}
+
+#[cfg(test)]
+mod discovered_device_address_tests {
+    use super::announced_device_addresses;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    #[test]
+    fn announced_api_port_is_kept_in_discovered_addresses() {
+        let ips = [IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1))];
+        assert_eq!(
+            announced_device_addresses(&ips, Some(9999)).unwrap(),
+            ["192.0.2.1:9999"],
+        );
     }
 }
 

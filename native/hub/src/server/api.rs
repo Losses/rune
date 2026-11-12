@@ -2,7 +2,6 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
-use url::Url;
 use urlencoding::encode;
 
 use ::http_request::{
@@ -12,8 +11,11 @@ use ::http_request::{
 
 use super::utils::device::SanitizedDeviceInfo;
 use crate::{messages::TrustedServerCertificate, request_error::ExpectedRequestError};
-use ::discovery::client::{CertValidator, fetch_server_certificate};
 use ::discovery::server::PermissionManager;
+use ::discovery::{
+    client::{CertValidator, fetch_server_certificate},
+    endpoint::{DeviceAddress, device_url},
+};
 
 /// Remove a paired device from both trust directions.
 pub async fn remove_trusted_device(
@@ -39,12 +41,18 @@ pub async fn remove_trusted_device(
     Ok(())
 }
 
-async fn verify_hosts_for_fingerprint(hosts: &[String], expected_fingerprint: &str) -> Result<()> {
+async fn verify_hosts_for_fingerprint(
+    hosts: &[String],
+    expected_fingerprint: &str,
+) -> Result<Vec<String>> {
     let mut matched = false;
+    let mut canonical_hosts = Vec::with_capacity(hosts.len());
     for host in hosts {
-        let Ok(url) = certificate_url(host) else {
-            continue;
-        };
+        let address: DeviceAddress = host
+            .parse()
+            .map_err(|_| ExpectedRequestError::invalid_input("Device address is malformed"))?;
+        let url = address.url("https", "/ping")?;
+        canonical_hosts.push(address.to_string());
         let certificate = tokio::time::timeout(
             Duration::from_secs(5),
             fetch_server_certificate(url.as_str()),
@@ -59,26 +67,13 @@ async fn verify_hosts_for_fingerprint(hosts: &[String], expected_fingerprint: &s
         }
     }
     if matched {
-        Ok(())
+        Ok(canonical_hosts)
     } else {
         Err(ExpectedRequestError::Unavailable {
             what: "certificate host",
         }
         .into())
     }
-}
-
-fn certificate_url(host: &str) -> Result<Url> {
-    let url = if host.contains("://") {
-        Url::parse(host).context("Invalid certificate host URL")?
-    } else {
-        Url::parse(&format!("https://{host}")).context("Invalid certificate host")?
-    };
-    let mut url = url;
-    url.set_scheme("https")
-        .map_err(|()| anyhow!("Invalid certificate host scheme"))?;
-    url.set_path("/ping");
-    Ok(url)
 }
 
 pub async fn add_trusted_server(
@@ -88,9 +83,9 @@ pub async fn add_trusted_server(
     let certificate = certificate.ok_or_else(|| {
         ExpectedRequestError::invalid_input("A certificate is required to trust a server")
     })?;
-    verify_hosts_for_fingerprint(&certificate.hosts, &certificate.fingerprint).await?;
+    let hosts = verify_hosts_for_fingerprint(&certificate.hosts, &certificate.fingerprint).await?;
     validator
-        .add_trusted_domains(&certificate.hosts, &certificate.fingerprint)
+        .add_trusted_domains(&hosts, &certificate.fingerprint)
         .await?;
     Ok(())
 }
@@ -111,7 +106,7 @@ pub async fn edit_trusted_hosts(
         )
         .into());
     }
-    verify_hosts_for_fingerprint(&hosts, fingerprint).await?;
+    let hosts = verify_hosts_for_fingerprint(&hosts, fingerprint).await?;
     validator
         .replace_hosts_for_fingerprint(fingerprint, hosts)
         .await?;
@@ -122,7 +117,10 @@ pub async fn fetch_device_info(
     host: &str,
     config: Arc<ClientConfig>,
 ) -> Result<SanitizedDeviceInfo> {
-    fetch_device_info_at_port(host, 7863, config).await
+    let address: DeviceAddress = host
+        .parse()
+        .map_err(|_| ExpectedRequestError::invalid_input("Device address is malformed"))?;
+    fetch_device_info_at_port(address.host(), address.port(), config).await
 }
 
 pub async fn fetch_device_info_at_port(
@@ -130,11 +128,9 @@ pub async fn fetch_device_info_at_port(
     port: u16,
     config: Arc<ClientConfig>,
 ) -> Result<SanitizedDeviceInfo> {
-    let uri = Uri::builder()
-        .scheme("https")
-        .authority(format!("{host}:{port}"))
-        .path_and_query("/device-info")
-        .build()
+    let uri: Uri = device_url(host, port, "https", "/device-info")?
+        .as_str()
+        .parse()
         .context("Invalid URL format")?;
 
     let mut sender = create_https_client(host.to_owned(), port, config)
@@ -187,14 +183,16 @@ pub async fn register_device(
     device_model: String,
     device_type: String,
 ) -> Result<()> {
-    let uri = Uri::builder()
-        .scheme("https")
-        .authority(format!("{host}:7863"))
-        .path_and_query("/register")
-        .build()
+    let address: DeviceAddress = host
+        .parse()
+        .map_err(|_| ExpectedRequestError::invalid_input("Device address is malformed"))?;
+    let uri: Uri = address
+        .url("https", "/register")?
+        .as_str()
+        .parse()
         .context("Invalid URL format")?;
 
-    let mut sender = create_https_client(host.to_owned(), 7863, config)
+    let mut sender = create_https_client(address.host().to_owned(), address.port(), config)
         .await
         .context("Failed to create HTTPS client")?;
 
@@ -258,17 +256,19 @@ pub async fn check_fingerprint(
     config: Arc<ClientConfig>,
     fingerprint: &str,
 ) -> Result<CheckFingerprintResponse> {
-    let uri = Uri::builder()
-        .scheme("https")
-        .authority(format!("{host}:7863"))
-        .path_and_query(format!(
-            "/check-fingerprint?fingerprint={}",
-            encode(fingerprint)
-        ))
-        .build()
+    let address: DeviceAddress = host
+        .parse()
+        .map_err(|_| ExpectedRequestError::invalid_input("Device address is malformed"))?;
+    let uri: Uri = address
+        .url(
+            "https",
+            &format!("/check-fingerprint?fingerprint={}", encode(fingerprint)),
+        )?
+        .as_str()
+        .parse()
         .context("Invalid URL format")?;
 
-    let mut sender = create_https_client(host.to_owned(), 7863, config)
+    let mut sender = create_https_client(address.host().to_owned(), address.port(), config)
         .await
         .context("Failed to create HTTPS client")?;
 

@@ -12,7 +12,11 @@ use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use ::discovery::{client::CertValidator, config::get_config_dir};
+use ::discovery::{
+    client::CertValidator,
+    config::get_config_dir,
+    endpoint::{DEFAULT_DEVICE_PORT, device_url},
+};
 use ::fsio::FsIo;
 use ::http_request::{
     BodyExt, Empty, Request, StatusCode, Uri, create_https_client, send_http_request,
@@ -74,14 +78,18 @@ pub async fn get_media_metadata(
     config: Arc<ClientConfig>,
     file_id: i64,
 ) -> Result<MediaMetadataResponse> {
-    let uri = Uri::builder()
-        .scheme("https")
-        .authority(format!("{host}:7863"))
-        .path_and_query(format!("/media/{file_id}/metadata"))
-        .build()
-        .context("Invalid URL format")?;
+    let uri: Uri = device_url(
+        host,
+        DEFAULT_DEVICE_PORT,
+        "https",
+        &format!("/media/{file_id}/metadata"),
+    )
+    .map_err(anyhow::Error::msg)?
+    .as_str()
+    .parse()
+    .context("Invalid URL format")?;
 
-    let mut sender = create_https_client(host.to_owned(), 7863, config)
+    let mut sender = create_https_client(host.to_owned(), DEFAULT_DEVICE_PORT, config)
         .await
         .context("Failed to create HTTPS client")?;
 
@@ -119,14 +127,18 @@ pub async fn get_media_metadata(
 }
 
 pub async fn get_cover_art(host: &str, config: Arc<ClientConfig>, file_id: i64) -> Result<Bytes> {
-    let uri = Uri::builder()
-        .scheme("https")
-        .authority(format!("{host}:7863"))
-        .path_and_query(format!("/media/{file_id}/cover"))
-        .build()
-        .context("Invalid URL format")?;
+    let uri: Uri = device_url(
+        host,
+        DEFAULT_DEVICE_PORT,
+        "https",
+        &format!("/media/{file_id}/cover"),
+    )
+    .map_err(anyhow::Error::msg)?
+    .as_str()
+    .parse()
+    .context("Invalid URL format")?;
 
-    let mut sender = create_https_client(host.to_owned(), 7863, config)
+    let mut sender = create_https_client(host.to_owned(), DEFAULT_DEVICE_PORT, config)
         .await
         .context("Failed to create HTTPS client")?;
 

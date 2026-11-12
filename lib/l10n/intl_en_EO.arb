@@ -1091,10 +1091,6 @@
   "@port": {
     "description": "La porda parto de URL."
   },
-  "secured": "Sekurigita",
-  "@secured": {
-    "description": "Ĉu la konekto estas sekurigita."
-  },
   "addConnection": "Aldoni Konekton",
   "@addConnection": {
     "description": "La ago-butono de la dialogo."

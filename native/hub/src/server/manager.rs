@@ -2040,6 +2040,17 @@ mod lifecycle_tests {
             .await
             .add_trusted_domains(["127.0.0.1"], &a_info.fingerprint)
             .await?;
+        if let Some(address) = a.manager.get_address().await {
+            b.global_params
+                .cert_validator
+                .read()
+                .await
+                .replace_hosts_for_fingerprint(
+                    &a_info.fingerprint,
+                    vec![format!("127.0.0.1:{}", address.port())],
+                )
+                .await?;
+        }
         Ok(())
     }
 
@@ -2111,7 +2122,17 @@ mod lifecycle_tests {
                 },
             )
             .await?;
-        a.get_address().await.context("missing listener address")
+        let address = a.get_address().await.context("missing listener address")?;
+        b.global_params
+            .cert_validator
+            .read()
+            .await
+            .replace_hosts_for_fingerprint(
+                &a_fingerprint,
+                vec![format!("127.0.0.1:{}", address.port())],
+            )
+            .await?;
+        Ok(address)
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -3304,7 +3325,7 @@ mod lifecycle_tests {
             &endpoint.fingerprint,
             &endpoint.host,
             endpoint.port,
-        );
+        )?;
         let (_, fresh_client) = authenticated_client(
             &client.global_params.node,
             &own,
@@ -4179,10 +4200,11 @@ mod lifecycle_tests {
         let b_info = peer_step("read second peer identity", info(&b)).await?;
         peer_step("pair library peers", pair(&a, &b)).await?;
         peer_step("pair library peers in reverse", pair(&b, &a)).await?;
-        let a_reserve = TcpListener::bind("127.0.0.1:0")?;
+        let a_reserve = TcpListener::bind("127.0.0.1:9999")?;
         let b_reserve = TcpListener::bind("127.0.0.1:0")?;
         let a_addr = a_reserve.local_addr()?;
         let b_addr = SocketAddr::from(([127, 0, 0, 1], b_reserve.local_addr()?.port()));
+        assert_eq!(a_addr.port(), 9999);
         assert_ne!(a_addr.port(), b_addr.port());
         drop((a_reserve, b_reserve));
         std::fs::copy(
@@ -4320,6 +4342,49 @@ mod lifecycle_tests {
         })
         .await
         .context("peers did not learn advertised ports")?;
+        for (receiver, fingerprint, expected_address) in [
+            (
+                &a,
+                &b_info.fingerprint,
+                format!("127.0.0.1:{}", b_addr.port()),
+            ),
+            (
+                &b,
+                &a_info.fingerprint,
+                format!("127.0.0.1:{}", a_addr.port()),
+            ),
+        ] {
+            receiver
+                .global_params
+                .cert_validator
+                .read()
+                .await
+                .remove_fingerprint(fingerprint)
+                .await?;
+            let request = GetDiscoveredDeviceRequest { call_id: None };
+            let response = request
+                .handle(
+                    Arc::clone(&receiver.global_params.device_scanner),
+                    None,
+                    &request,
+                )
+                .await?
+                .context("discovered device response")?;
+            let device = response
+                .devices
+                .iter()
+                .find(|device| device.fingerprint == *fingerprint)
+                .context("announced peer missing from discovered devices")?;
+            assert_eq!(device.addresses, [expected_address]);
+            add_trusted_server(
+                &*receiver.global_params.cert_validator.read().await,
+                Some(&TrustedServerCertificate {
+                    fingerprint: fingerprint.clone(),
+                    hosts: device.addresses.clone(),
+                }),
+            )
+            .await?;
+        }
         let pinned = peer_step(
             "build pinned anonymous client",
             pinned_anonymous_client(&b.global_params, None),
@@ -4397,7 +4462,13 @@ mod lifecycle_tests {
                 .cert_validator
                 .read()
                 .await
-                .add_trusted_domains(["127.0.0.1", "localhost"], &b_info.fingerprint)
+                .replace_hosts_for_fingerprint(
+                    &b_info.fingerprint,
+                    vec![
+                        format!("127.0.0.1:{}", b_addr.port()),
+                        format!("localhost:{}", b_addr.port()),
+                    ],
+                )
                 .await?;
             Ok(())
         })
@@ -4472,7 +4543,7 @@ mod lifecycle_tests {
             &b_info.fingerprint,
             "127.0.0.2",
             b_addr.port(),
-        );
+        )?;
         let renewed_ranges = tokio::join!(
             peer_step("first concurrent renewed ranged audio GET", async {
                 let response = source.request.get(Some((0, Some(15)))).await?;

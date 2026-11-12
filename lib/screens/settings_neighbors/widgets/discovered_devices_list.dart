@@ -120,9 +120,9 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
   }
 
   void _handlePairDevice(DiscoveredDeviceMessage device) async {
-    if (device.ips.isNotEmpty) {
+    if (device.addresses.isNotEmpty) {
       widget.onPaired();
-      final answer = await showFingerprintQuizDialog(context, device.ips.first);
+      final answer = await showFingerprintQuizDialog(context, device.addresses.first);
 
       // The certificate the user checked must be the one the device announced.
       widget.onAnswered(

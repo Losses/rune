@@ -27,15 +27,15 @@ use database::sync::model::RuneModel;
 use database::sync::share::{ShareCapabilities, SharePullError, SharePushError};
 use database::sync::{LibrarySyncStore, replica::PendingShareChange};
 use discovery::access_policy::{AccessPolicy, PeerIdentity};
-use discovery::endpoint::endpoint_host_port;
+use discovery::endpoint::{DeviceAddress, device_url};
 use discovery::server::UserStatus;
 use fsio::{OpenDalConfig, OpenDalObjectStore};
 use futures::future::BoxFuture;
 use futures::future::{AbortHandle, Abortable, Aborted};
 use http_request::sync::PageCursor;
 use playback::player::{
-    LibraryPlaybackSource, PlaybackSourceResolver, RemoteAudioError, RemoteAudioSource,
-    SubsonicItem,
+    LibraryPlaybackSource, LibraryTrackKey, PlaybackSourceResolver, RemoteAudioError,
+    RemoteAudioSource, SubsonicItem,
 };
 use rand::rngs::OsRng;
 use reqwest::header::HeaderMap;
@@ -64,7 +64,6 @@ use tokio::{sync::Mutex, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-const DEFAULT_PEER_PORT: u16 = 7863;
 const PEER_CONCURRENCY: usize = 4;
 const PEER_RETRY_START: Duration = Duration::from_secs(1);
 const PEER_RETRY_CAP: Duration = Duration::from_secs(30);
@@ -368,9 +367,9 @@ pub(crate) async fn trusted_fingerprint(
         hosts
             .iter()
             .any(|candidate| {
-                endpoint_host_port(candidate).is_some_and(|(name, trusted_port)| {
-                    name == host && trusted_port.is_none_or(|p| p == port)
-                })
+                candidate
+                    .parse::<DeviceAddress>()
+                    .is_ok_and(|address| address.host() == host && address.port() == port)
             })
             .then_some(fingerprint)
     });
@@ -391,7 +390,6 @@ pub(super) async fn peer_endpoints(global: &NodeContext, own: &str) -> Vec<Vec<P
         .await
         .clone_trusted_entries()
         .await;
-    let discovered = global.device_scanner.get_all_devices();
     let mut peers = Vec::new();
     for (fingerprint, hosts) in trusted {
         if fingerprint == own {
@@ -407,19 +405,15 @@ pub(super) async fn peer_endpoints(global: &NodeContext, own: &str) -> Vec<Vec<P
         if !outbound_eligible(status) {
             continue;
         }
-        let advertised = discovered
-            .iter()
-            .find(|device| device.fingerprint == fingerprint)
-            .and_then(|device| device.api_port);
         let endpoints: Vec<_> = hosts
             .into_iter()
             .filter_map(|trusted_host| {
-                let (host, explicit) = endpoint_host_port(&trusted_host)?;
+                let address = trusted_host.parse::<DeviceAddress>().ok()?;
                 Some(PeerEndpoint {
                     fingerprint: fingerprint.clone(),
                     trusted_host,
-                    host,
-                    port: explicit.or(advertised).unwrap_or(DEFAULT_PEER_PORT),
+                    host: address.host().to_owned(),
+                    port: address.port(),
                 })
             })
             .collect();
@@ -1262,7 +1256,7 @@ async fn sync_one(
         };
         let mut state = lock.lock().await;
         state.last_used = std_time::Instant::now();
-        let expected_base = peer_base(&endpoint.host, endpoint.port);
+        let expected_base = peer_base(&endpoint.host, endpoint.port)?;
         if state
             .client
             .as_ref()
@@ -1333,7 +1327,12 @@ async fn sync_one(
                 result = operation => result,
             };
             if result.as_ref().err().is_some_and(metadata_unauthorized) {
-                invalidate_sync_token(global, &endpoint.fingerprint, &endpoint.host, endpoint.port);
+                invalidate_sync_token(
+                    global,
+                    &endpoint.fingerprint,
+                    &endpoint.host,
+                    endpoint.port,
+                )?;
                 state.client = None;
                 if attempt == 0 {
                     continue;
@@ -1381,7 +1380,12 @@ async fn sync_one(
             }
             .await;
             if result.as_ref().err().is_some_and(metadata_unauthorized) {
-                invalidate_sync_token(global, &endpoint.fingerprint, &endpoint.host, endpoint.port);
+                invalidate_sync_token(
+                    global,
+                    &endpoint.fingerprint,
+                    &endpoint.host,
+                    endpoint.port,
+                )?;
                 if attempt == 0 {
                     continue;
                 }
@@ -1617,13 +1621,15 @@ pub(super) async fn authenticated_client(
     let validator = global.cert_validator.read().await.clone();
     let trusted = validator.get_hosts_for_fingerprint(fingerprint).await;
     ensure!(
-        trusted.iter().any(|candidate| endpoint_host_port(candidate)
-            .is_some_and(|(trusted_host, trusted_port)| trusted_host == host
-                && trusted_port.is_none_or(|port| port == peer_port))),
+        trusted.iter().any(|candidate| {
+            candidate
+                .parse::<DeviceAddress>()
+                .is_ok_and(|address| address.host() == host && address.port() == peer_port)
+        }),
         "peer endpoint is not trusted"
     );
     let tls = tls_config(validator, fingerprint);
-    let base = peer_base(host, peer_port);
+    let base = peer_base(host, peer_port)?;
     let client = reqwest::Client::builder()
         .use_preconfigured_tls(tls)
         .connect_timeout(Duration::from_secs(10))
@@ -1676,7 +1682,7 @@ where
         return Ok(response);
     }
 
-    invalidate_sync_token(global, fingerprint, host, peer_port);
+    invalidate_sync_token(global, fingerprint, host, peer_port)?;
     let (base, client) =
         authenticated_client(global, own, private_key, fingerprint, host, peer_port).await?;
     Ok(request(&base, &client).send().await?)
@@ -1713,19 +1719,16 @@ pub(crate) fn invalidate_sync_token(
     fingerprint: &str,
     host: &str,
     port: u16,
-) {
-    global
-        .sync_tokens
-        .invalidate(fingerprint, &peer_base(host, port));
+) -> Result<()> {
+    let base = peer_base(host, port)?;
+    global.sync_tokens.invalidate(fingerprint, &base);
+    Ok(())
 }
 
 /// The base URL of a peer's HTTPS server, bracketing IPv6 hosts.
-pub(crate) fn peer_base(host: &str, port: u16) -> String {
-    if host.contains(':') {
-        format!("https://[{host}]:{port}")
-    } else {
-        format!("https://{host}:{port}")
-    }
+pub(crate) fn peer_base(host: &str, port: u16) -> Result<String> {
+    let url = device_url(host, port, "https", "/").map_err(anyhow::Error::msg)?;
+    Ok(url.as_str().trim_end_matches('/').to_owned())
 }
 
 pub(crate) async fn obtain_token(
@@ -1905,7 +1908,7 @@ impl RenewableAudio {
             &self.endpoint.fingerprint,
             &self.endpoint.host,
             self.endpoint.port,
-        );
+        )?;
         let result = tokio::select! {
             _ = self.cancel.cancelled() => anyhow::bail!(RemoteAudioError::AccessRevoked),
             result = authenticated_client(&global, &self.own, &self.private_key, &self.endpoint.fingerprint, &self.endpoint.host, self.endpoint.port) => result,
@@ -2243,21 +2246,19 @@ mod tests {
     }
 
     #[test]
-    fn explicit_and_advertised_endpoint_hosts_preserve_ports() {
-        assert_eq!(
-            endpoint_host_port("127.0.0.1:4321"),
-            Some(("127.0.0.1".into(), Some(4321)))
-        );
-        assert_eq!(
-            endpoint_host_port("[::1]:5432"),
-            Some(("::1".into(), Some(5432)))
-        );
-        assert_eq!(endpoint_host_port("::1"), Some(("::1".into(), None)));
-        assert_eq!(
-            endpoint_host_port("peer.example:7654"),
-            Some(("peer.example".into(), Some(7654)))
-        );
-        assert_eq!(endpoint_host_port("peer.example:0"), None);
+    fn trusted_endpoint_addresses_resolve_hosts_and_ports() {
+        for (input, host, port) in [
+            ("127.0.0.1:4321", "127.0.0.1", 4321),
+            ("[::1]:5432", "::1", 5432),
+            ("::1", "::1", 7863),
+            ("peer.example:7654", "peer.example", 7654),
+            ("peer.example", "peer.example", 7863),
+        ] {
+            let address = input.parse::<DeviceAddress>().unwrap();
+            assert_eq!(address.host(), host);
+            assert_eq!(address.port(), port);
+        }
+        assert!("peer.example:0".parse::<DeviceAddress>().is_err());
     }
 
     #[tokio::test]
@@ -2458,7 +2459,7 @@ impl PlaybackSourceResolver for PairedAudioResolver {
         &self,
         library_id: String,
         track: String,
-    ) -> BoxFuture<'static, Result<playback::player::LibraryTrackKey>> {
+    ) -> BoxFuture<'static, Result<LibraryTrackKey>> {
         let node = self.0.clone();
         Box::pin(async move {
             let owner = node.upgrade().context("Node stopped")?;
@@ -2469,9 +2470,9 @@ impl PlaybackSourceResolver for PairedAudioResolver {
                 .or_else(|_| registry.catalog(library_id))
                 .map_err(|_| anyhow::Error::new(RemoteAudioError::LibraryUnavailable))?;
             if matches!(&record.protocol, ProtocolAdapter::SubsonicTranslate { .. }) {
-                Ok(playback::player::LibraryTrackKey::Subsonic(track))
+                Ok(LibraryTrackKey::Subsonic(track))
             } else {
-                Ok(playback::player::LibraryTrackKey::Rune(
+                Ok(LibraryTrackKey::Rune(
                     Uuid::parse_str(&track).context("Invalid Rune library track UUID")?,
                 ))
             }

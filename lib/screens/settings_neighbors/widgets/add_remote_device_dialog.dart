@@ -43,8 +43,7 @@ class AddRemoteDeviceDialogState extends State<AddRemoteDeviceDialog> {
   }
 
   _addConnection() async {
-    final url = Uri.parse(controller.toWebSocketUrl());
-    final host = '${url.host}:${url.port}';
+    final host = controller.toDeviceAddress();
     final answer = await showFingerprintQuizDialog(context, host);
     if (answer == null || !answer.correct || !mounted) return;
     try {

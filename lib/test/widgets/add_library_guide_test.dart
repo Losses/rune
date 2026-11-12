@@ -699,7 +699,7 @@ void main() {
                   deviceType: 'Desktop',
                   fingerprint: 'peer',
                   lastSeenUnixEpoch: 0,
-                  ips: ['192.0.2.1:9000'],
+                  addresses: ['192.0.2.1:9999'],
                 ),
                 true,
               ),
@@ -716,7 +716,7 @@ void main() {
     await tester.tap(find.text('Pair only'));
     await tester.pumpAndSettle();
 
-    expect(events, ['trust:peer:192.0.2.1:9000', 'pair:peer:192.0.2.1:9000']);
+    expect(events, ['trust:peer:192.0.2.1:9999', 'pair:peer:192.0.2.1:9999']);
     expect(registryCalls, isEmpty);
     await tester.pump(const Duration(seconds: 1));
   });
