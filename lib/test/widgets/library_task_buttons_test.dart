@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -14,9 +15,36 @@ import 'package:rune/widgets/library_task_button.dart';
 class _LibraryManager extends ChangeNotifier implements LibraryManagerProvider {
   final StreamController<RequestFailure> _failures =
       StreamController<RequestFailure>.broadcast();
+  int scanStarts = 0;
+  bool analysisRunning = false;
 
   @override
   Stream<RequestFailure> get failureFeedback => _failures.stream;
+
+  @override
+  ScanTaskProgress? getScanTaskProgress(String? recordId) => null;
+
+  @override
+  AnalyzeTaskProgress? getAnalyzeTaskProgress(String recordId) =>
+      analysisRunning
+      ? AnalyzeTaskProgress(recordId: recordId, status: TaskStatus.working)
+      : null;
+
+  @override
+  DeduplicateTaskProgress? getDeduplicateTaskProgress(String recordId) => null;
+
+  @override
+  Future<void> scanLibrary(
+    String recordId, {
+    bool isInitializeTask = false,
+    bool force = false,
+  }) async {
+    scanStarts++;
+  }
+
+  @override
+  Future<TaskStatus> waitForScanToComplete(String recordId) async =>
+      TaskStatus.finished;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
@@ -85,6 +113,48 @@ Future<void> _expectTaskButtons(
 }
 
 void main() {
+  testWidgets('force-rescan context menu is ignored while analysis runs', (
+    tester,
+  ) async {
+    final record = const LibraryRecordSummary(
+      recordId: 'replica-record',
+      alias: 'Replica',
+      kind: LibraryRecordKindSummaryReplica(
+        libraryId: 'replica-library',
+        ownerFingerprint: 'owner',
+      ),
+      syncAccess: LibraryAccessSummary.read,
+    );
+    final (openState, registry) = await _openState(record);
+    final manager = _LibraryManager()..analysisRunning = true;
+    addTearDown(openState.dispose);
+    addTearDown(registry.dispose);
+    addTearDown(manager.dispose);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<LibraryOpenStateProvider>.value(
+            value: openState,
+          ),
+          ChangeNotifierProvider<LibraryManagerProvider>.value(value: manager),
+        ],
+        child: const FluentApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ScanLibraryButton(title: 'Scan'),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('Scan'), buttons: kSecondaryMouseButton);
+    await tester.pump();
+
+    expect(manager.scanStarts, 0);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('catalog task buttons appear for replicas, not remote control', (
     tester,
   ) async {

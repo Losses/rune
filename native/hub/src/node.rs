@@ -61,7 +61,7 @@ use crate::{
     server::{ServerManager, WebSocketService, utils::device::load_device_info},
     utils::{
         Broadcaster, GlobalParams, LibraryTaskOwner, LocalGuiBroadcaster, RemoteEventScope,
-        RinfRustSignal, TaskTokens, nid::get_or_create_node_id, sync_settings::SyncSettings,
+        RinfRustSignal, nid::get_or_create_node_id, sync_settings::SyncSettings,
     },
 };
 use database::library_registry::LibraryRecordId;
@@ -147,7 +147,6 @@ pub struct NodeContext {
     reconnect_attempts: AtomicUsize,
     pub token: Arc<CancellationToken>,
     pub(crate) sync_tokens: SyncTokenStore,
-    pub task_tokens: Arc<Mutex<TaskTokens>>,
     pub library_tasks: Arc<StdMutex<LibraryTaskOwner>>,
     sync_library_tokens: Mutex<HashMap<Uuid, CancellationToken>>,
     pub server_manager: OnceLock<Arc<ServerManager>>,
@@ -342,7 +341,6 @@ impl NodeContext {
             reconnect_attempts: AtomicUsize::new(0),
             token: Arc::new(CancellationToken::new()),
             sync_tokens,
-            task_tokens: Arc::new(Mutex::new(TaskTokens::default())),
             library_tasks: Arc::new(StdMutex::new(LibraryTaskOwner::default())),
             sync_library_tokens: Mutex::new(HashMap::new()),
             server_manager: OnceLock::new(),
@@ -1107,7 +1105,6 @@ impl NodeContext {
             sync_settings: self.sync_settings.clone(),
             node_id: self.node_id.clone(),
             main_token: token.clone(),
-            task_tokens: self.task_tokens.clone(),
             library_tasks: self.library_tasks.clone(),
             player: session.player.clone(),
             sfx_player: Arc::new(Mutex::new(SfxPlayer::new(Some((*token).clone())))),
@@ -1143,10 +1140,11 @@ impl NodeContext {
     async fn release_ui(params: &GlobalParams) {
         if let Some(library) = params.ui_library.lock().await.take() {
             let record_id = library.descriptor.record_id.0.to_string();
-            if let Some(scan) = params.task_tokens.lock().await.scans.remove(&record_id) {
-                scan.token.cancel();
-            }
-            for task in [LibraryTaskKind::Analyze, LibraryTaskKind::Deduplicate] {
+            for task in [
+                LibraryTaskKind::Scan,
+                LibraryTaskKind::Analyze,
+                LibraryTaskKind::Deduplicate,
+            ] {
                 if let Some(state) =
                     LibraryTaskOwner::cancel(&params.library_tasks, &record_id, task).await
                 {

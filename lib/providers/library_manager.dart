@@ -34,23 +34,25 @@ class AnalyzeTaskProgress {
 
 class ScanTaskProgress {
   final String recordId;
-  ScanTaskType type;
   int progress;
+  int total;
+  ScanTaskPhase phase;
   TaskStatus status;
   bool initialize;
   String? error;
 
   ScanTaskProgress({
     required this.recordId,
-    required this.type,
     this.progress = 0,
+    this.total = 0,
+    this.phase = ScanTaskPhase.indexFiles,
     this.status = TaskStatus.working,
     this.initialize = false,
   });
 
   @override
   String toString() {
-    return 'ScanTaskProgress(recordId: $recordId, progress: $progress, status: $status, type: $type, initialize: $initialize)';
+    return 'ScanTaskProgress(recordId: $recordId, progress: $progress, total: $total, status: $status, initialize: $initialize)';
   }
 }
 
@@ -79,19 +81,16 @@ class LibraryManagerProvider with ChangeNotifier {
   final Map<String, DeduplicateTaskProgress> _deduplicateTasks = {};
 
   StreamSubscription? _libraryContentSubscription;
-  StreamSubscription? _scanProgressSubscription;
-  StreamSubscription? _scanResultSubscription;
   StreamSubscription? _libraryTaskSubscription;
   StreamSubscription? _requestFailureSubscription;
   final StreamController<RequestFailure> _failureFeedback =
       StreamController<RequestFailure>.broadcast();
 
   final Map<String, Completer<TaskStatus>> _scanCompleters = {};
-  final Map<String, String> _scanIds = {};
-  int _nextScanId = 0;
   final Map<String, Completer<void>> _analyzeCompleters = {};
   final Map<String, Completer<void>> _deduplicateCompleters = {};
   final Map<String, bool> _analysisInitializeIntent = {};
+  final Map<String, bool> _scanInitializeUsesLibraryNavigator = {};
 
   final void Function(ScanAudioLibraryRequest)? _sendScanRequest;
   final void Function(String)? _navigate;
@@ -118,62 +117,6 @@ class LibraryManagerProvider with ChangeNotifier {
         CollectionCache().clearAll();
       },
     );
-    _scanProgressSubscription = ScanAudioLibraryProgress.rustSignalStream
-        .listen((event) {
-          final scanProgress = event.message;
-          if (_scanIds[scanProgress.recordId] != scanProgress.scanId ||
-              getScanTaskProgress(scanProgress.recordId)?.status !=
-                  TaskStatus.working) {
-            return;
-          }
-          _updateScanProgress(
-            scanProgress.recordId,
-            scanProgress.task,
-            scanProgress.progress,
-            scanProgress.total,
-            TaskStatus.working,
-            getScanTaskProgress(scanProgress.recordId)?.initialize ?? false,
-          );
-          CollectionCache().clearAll();
-        });
-
-    _scanResultSubscription = ScanAudioLibraryResponse.rustSignalStream.listen((
-      event,
-    ) {
-      final scanResult = event.message;
-      if (_scanIds[scanResult.recordId] != scanResult.scanId) return;
-      final status = switch (scanResult.status) {
-        "success" => TaskStatus.finished,
-        "cancelled" => TaskStatus.cancelled,
-        _ => TaskStatus.failed,
-      };
-      final initialize =
-          getScanTaskProgress(scanResult.recordId)?.initialize ?? false;
-      _updateScanProgress(
-        scanResult.recordId,
-        ScanTaskType.scanCoverArts,
-        scanResult.progress,
-        0,
-        status,
-        initialize,
-      );
-
-      getScanTaskProgress(scanResult.recordId)?.error = scanResult.error;
-      notifyListeners();
-      if (initialize && status == TaskStatus.finished) {
-        if (_navigate case final navigate?) {
-          navigate("/library");
-        } else {
-          $$replace("/library");
-        }
-      }
-
-      // Complete the scan task
-      _scanCompleters[scanResult.recordId]?.complete(status);
-      _scanCompleters.remove(scanResult.recordId);
-      CollectionCache().clearAll();
-    });
-
     _libraryTaskSubscription = _libraryTaskStates.listen((event) {
       _applyLibraryTaskState(event.state);
     });
@@ -196,7 +139,7 @@ class LibraryManagerProvider with ChangeNotifier {
   Stream<RequestFailure> get failureFeedback => _failureFeedback.stream;
 
   void _applyLibraryTaskState(LibraryTaskState state) {
-    if (state case LibraryTaskStateRunning(:final recordId, :final task, :final progress, :final total)) {
+    if (state case LibraryTaskStateRunning(:final recordId, :final task, :final progress, :final total, :final scanPhase)) {
       switch (task) {
         case LibraryTaskKind.analyze:
           _updateAnalyzeProgress(recordId, progress, total, TaskStatus.working,
@@ -205,11 +148,19 @@ class LibraryManagerProvider with ChangeNotifier {
         case LibraryTaskKind.deduplicate:
           _updateDeduplicateProgress(recordId, progress, total, TaskStatus.working);
         case LibraryTaskKind.scan:
-          return;
+          _updateScanProgress(
+            recordId,
+            progress,
+            total,
+            scanPhase ?? ScanTaskPhase.indexFiles,
+            TaskStatus.working,
+            getScanTaskProgress(recordId)?.initialize ?? false,
+          );
+          CollectionCache().clearAll();
       }
       return;
     }
-    if (state case LibraryTaskStateEnded(:final recordId, :final task, :final progress, :final total, :final outcome)) {
+    if (state case LibraryTaskStateEnded(:final recordId, :final task, :final progress, :final total, :final scanPhase, :final outcome)) {
       final status = switch (outcome) {
         LibraryTaskOutcomeFinished() => TaskStatus.finished,
         LibraryTaskOutcomeCancelled() => TaskStatus.cancelled,
@@ -225,30 +176,59 @@ class LibraryManagerProvider with ChangeNotifier {
           _updateDeduplicateProgress(recordId, progress, total, status);
           _deduplicateCompleters.remove(recordId)?.complete();
         case LibraryTaskKind.scan:
-          return;
+          _updateScanProgress(
+            recordId,
+            progress,
+            total,
+            scanPhase ?? ScanTaskPhase.indexFiles,
+            status,
+            getScanTaskProgress(recordId)?.initialize ?? false,
+          );
+          if (outcome is LibraryTaskOutcomeFailed) {
+            getScanTaskProgress(recordId)?.error = 'Scan failed';
+          }
+          if (status == TaskStatus.finished &&
+              getScanTaskProgress(recordId)?.initialize == true) {
+            final nestedNavigator = _scanInitializeUsesLibraryNavigator.remove(
+              recordId,
+            );
+            if (nestedNavigator != null) {
+              if (_navigate case final navigate?) {
+                navigate('/library');
+              } else if (nestedNavigator) {
+                $replace('/library');
+              } else {
+                $$replace('/library');
+              }
+            }
+          }
+          _scanCompleters.remove(recordId)?.complete(status);
+          CollectionCache().clearAll();
       }
     }
   }
 
   void _updateScanProgress(
     String recordId,
-    ScanTaskType taskType,
     int progress,
     int total,
+    ScanTaskPhase phase,
     TaskStatus status,
     bool initialize,
   ) {
     if (_scanTasks.containsKey(recordId)) {
       _scanTasks[recordId]!.progress = progress;
+      _scanTasks[recordId]!.total = total;
+      _scanTasks[recordId]!.phase = phase;
       _scanTasks[recordId]!.status = status;
-      _scanTasks[recordId]!.type = taskType;
       _scanTasks[recordId]!.initialize = initialize;
       if (status == TaskStatus.working) _scanTasks[recordId]!.error = null;
     } else {
       _scanTasks[recordId] = ScanTaskProgress(
         recordId: recordId,
-        type: taskType,
         progress: progress,
+        total: total,
+        phase: phase,
         status: status,
         initialize: initialize,
       );
@@ -303,6 +283,7 @@ class LibraryManagerProvider with ChangeNotifier {
   void clearAll(String recordId) {
     _settleScanWaiters();
     _scanTasks.clear();
+    _scanInitializeUsesLibraryNavigator.clear();
     _analyzeTasks.clear();
     _deduplicateTasks.clear();
     notifyListeners();
@@ -314,27 +295,25 @@ class LibraryManagerProvider with ChangeNotifier {
     bool force = false,
   }) async {
     if (isInitializeTask) {
+      _scanInitializeUsesLibraryNavigator[recordId] = $hasLibraryNavigator;
       if (_navigate case final navigate?) {
         navigate('/scanning');
+      } else if ($hasLibraryNavigator) {
+        $replace('/scanning');
       } else {
         $$replace('/scanning');
       }
     }
-    _scanCompleters.remove(recordId)?.complete(TaskStatus.cancelled);
-    final scanId = '${DateTime.now().microsecondsSinceEpoch}-${++_nextScanId}';
-    _scanIds[recordId] = scanId;
+    _scanCompleters.putIfAbsent(recordId, Completer<TaskStatus>.new);
     _updateScanProgress(
       recordId,
-      ScanTaskType.indexFiles,
       0,
       0,
+      ScanTaskPhase.indexFiles,
       TaskStatus.working,
       isInitializeTask,
     );
-    final request = ScanAudioLibraryRequest(
-      force: force,
-      scanId: scanId,
-    );
+    final request = ScanAudioLibraryRequest(force: force);
     if (_sendScanRequest case final send?) {
       send(request);
     } else {
@@ -444,7 +423,6 @@ class LibraryManagerProvider with ChangeNotifier {
     CancelTaskRequest(
       recordId: recordId,
       rType: type,
-      scanId: _scanIds[recordId],
     ).sendSignalToRust();
   }
 
@@ -453,15 +431,12 @@ class LibraryManagerProvider with ChangeNotifier {
       completer.complete(TaskStatus.cancelled);
     }
     _scanCompleters.clear();
-    _scanIds.clear();
   }
 
   @override
   void dispose() {
     _settleScanWaiters();
     _libraryContentSubscription?.cancel();
-    _scanProgressSubscription?.cancel();
-    _scanResultSubscription?.cancel();
     _libraryTaskSubscription?.cancel();
     _requestFailureSubscription?.cancel();
     _failureFeedback.close();

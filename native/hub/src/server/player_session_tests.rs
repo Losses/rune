@@ -8,7 +8,7 @@ use crate::messages::{
     LibraryContentChanged, LibraryInitializeMode, ListLocalLibrariesRequest, MixQuery,
     PlaybackStatus, PlaylistOperateMode, RegisterLibraryFailureKind, RegisterLibraryOutcome, RemoteConnectionLost,
     RemoteLibraryReconnected, RemoteLibraryReconnecting, RemoteLossKind, RequestCapabilities,
-    RequestCapability, RequestFailedResponse, ScanAudioLibraryProgress, ScanTaskType,
+    RequestCapability, RequestFailedResponse,
     SetLikedRequest, OpenLibraryRequest, OpenLibraryResult,
 };
 use crate::messages::{
@@ -8042,8 +8042,9 @@ async fn rpc_target_blacklisted_request_returns_typed_failure_without_sending() 
 async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -> Result<()> {
     use crate::backends::remote::update_visualizer_feed;
     use crate::messages::{
-        LibraryTaskOutcome, LibraryTaskState, LibraryTaskStateChanged, LibraryTaskKind, PlayingItemRef, PlaylistItem,
-        RealtimeFFT, ScanAudioLibraryResponse, VisualizerFeedChart, VisualizerFeedCovers,
+        LibraryTaskOutcome, LibraryTaskState, LibraryTaskStateChanged, LibraryTaskKind,
+        PlaylistItem, PlayingItemRef, ScanTaskPhase,
+        RealtimeFFT, VisualizerFeedChart, VisualizerFeedCovers,
     };
     use crate::utils::broadcastable::REMOTE_EVENT_DECLARATIONS;
     use crate::visualizer::{ChartItem, VISUALIZER};
@@ -8146,24 +8147,6 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
         .broadcast(&LibraryContentChanged {
             path: "declared-library".into(),
         });
-    b.global_params
-        .broadcaster
-        .broadcast(&ScanAudioLibraryProgress {
-            scan_id: "declared-scan".into(),
-            record_id: "declared-library".into(),
-            progress: 1,
-            total: 2,
-            task: ScanTaskType::IndexFiles,
-        });
-    b.global_params
-        .broadcaster
-        .broadcast(&ScanAudioLibraryResponse {
-            scan_id: "declared-scan".into(),
-            status: "complete".into(),
-            error: String::new(),
-            record_id: "declared-library".into(),
-            progress: 2,
-        });
     b.global_params.broadcaster.broadcast(&LibraryTaskStateChanged {
         state: LibraryTaskState::Running {
             record_id: "declared-library".into(),
@@ -8171,6 +8154,7 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
             run_id: "declared-run".into(),
             progress: 1,
             total: 2,
+            scan_phase: None,
         },
     });
     b.global_params.broadcaster.broadcast(&LibraryTaskStateChanged {
@@ -8180,6 +8164,7 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
             run_id: "declared-run".into(),
             progress: 2,
             total: 2,
+            scan_phase: None,
             outcome: LibraryTaskOutcome::Finished,
         },
     });
@@ -8492,15 +8477,16 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
         a.global_params.player.lock().await.get_playlist(),
         local_queue
     );
-    b.global_params
-        .broadcaster
-        .broadcast(&ScanAudioLibraryProgress {
-            scan_id: "rr-scan".into(),
+    b.global_params.broadcaster.broadcast(&LibraryTaskStateChanged {
+        state: LibraryTaskState::Running {
             record_id: "B".into(),
+            task: LibraryTaskKind::Scan,
+            run_id: "rr-scan".into(),
             progress: 3,
             total: 10,
-            task: ScanTaskType::IndexFiles,
-        });
+            scan_phase: Some(ScanTaskPhase::IndexFiles),
+        },
+    });
     timeout(Duration::from_secs(10), async {
         loop {
             let ready = {
@@ -8516,9 +8502,9 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
                             .is_ok_and(|s| s.path == b.global_params.test_library().media_root)
                 });
                 let scan = events.iter().any(|(name, body)| {
-                    name == "ScanAudioLibraryProgress"
-                        && rinf::deserialize::<ScanAudioLibraryProgress>(body)
-                            .is_ok_and(|s| s.scan_id == "rr-scan")
+                    name == "LibraryTaskStateChanged"
+                        && rinf::deserialize::<LibraryTaskStateChanged>(body)
+                            .is_ok_and(|s| matches!(s.state, LibraryTaskState::Running { task: LibraryTaskKind::Scan, ref run_id, .. } if run_id == "rr-scan"))
                 });
                 status && content && scan
             };

@@ -31,34 +31,9 @@ pub struct CloseLibraryResponse {
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct ScanAudioLibraryRequest {
-    pub scan_id: String,
     pub force: bool,
     #[serde(default)]
     pub call_id: Option<u64>,
-}
-
-#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ScanTaskType {
-    IndexFiles,
-    ScanCoverArts,
-}
-
-#[derive(Deserialize, Serialize, RustSignal)]
-pub struct ScanAudioLibraryProgress {
-    pub scan_id: String,
-    pub record_id: String,
-    pub progress: i32,
-    pub total: i32,
-    pub task: ScanTaskType,
-}
-
-#[derive(Deserialize, Serialize, RustSignal)]
-pub struct ScanAudioLibraryResponse {
-    pub scan_id: String,
-    pub status: String,
-    pub error: String,
-    pub record_id: String,
-    pub progress: i32,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
@@ -92,25 +67,17 @@ pub enum CancelTaskType {
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct CancelTaskRequest {
-    pub scan_id: Option<String>,
     pub record_id: String,
     pub r#type: CancelTaskType,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
-pub enum CancelTaskResult {
-    Library(super::LibraryTaskState),
-    ScanCancelled,
-    ScanUnchanged,
-}
-
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct CancelTaskResponse {
     pub record_id: String,
     pub r#type: CancelTaskType,
-    pub result: CancelTaskResult,
+    pub state: super::LibraryTaskState,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

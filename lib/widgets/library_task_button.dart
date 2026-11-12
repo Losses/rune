@@ -127,17 +127,15 @@ class _LibraryTaskButtonState extends State<LibraryTaskButton> {
             filled: false,
           )
         : GestureDetector(
-            onSecondaryTapUp: (details) {
-              if (widget.onContextMenu != null) {
-                widget.onContextMenu!(libraryManager, recordId);
-              }
-            },
-            onLongPressEnd: isDesktop
+            onSecondaryTapUp: isWorking || widget.onContextMenu == null
                 ? null
                 : (details) {
-                    if (widget.onContextMenu != null) {
-                      widget.onContextMenu!(libraryManager, recordId);
-                    }
+                    widget.onContextMenu!(libraryManager, recordId);
+                  },
+            onLongPressEnd: isWorking || isDesktop
+                ? null
+                : (details) {
+                    widget.onContextMenu!(libraryManager, recordId);
                   },
             child: Button(
               onPressed: isWorking

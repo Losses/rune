@@ -1,5 +1,5 @@
 use crate::node::NodeContext;
-use crate::utils::{GlobalParams, TaskTokens};
+use crate::utils::GlobalParams;
 #[macro_use]
 pub(crate) mod gui_request;
 
@@ -29,7 +29,6 @@ pub async fn local_player_loop(
     let node_id = node.node_id.clone();
     let broadcaster = node.broadcaster.clone();
     let main_cancel_token = node.token.child_token();
-    let task_tokens: Arc<Mutex<TaskTokens>> = node.task_tokens.clone();
 
     info!("Initializing player");
     let session = node.session()?;
@@ -55,7 +54,6 @@ pub async fn local_player_loop(
         config_path,
         node_id,
         main_token: Arc::clone(&main_cancel_token),
-        task_tokens,
         library_tasks: node.library_tasks.clone(),
         player,
         sfx_player,

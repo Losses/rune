@@ -11,8 +11,6 @@ implement_rinf_rust_signal_trait!(
     VisualizerFeedChart,
     VisualizerFeedCovers,
     LibraryContentChanged,
-    ScanAudioLibraryProgress,
-    ScanAudioLibraryResponse,
     LibraryTaskStateChanged,
     ScrobbleServiceStatusUpdated,
     CrashResponse
@@ -32,8 +30,6 @@ crate::declare_remote_events!(
     VisualizerFeedChart => Session,
     VisualizerFeedCovers => Session,
     LibraryContentChanged => Library,
-    ScanAudioLibraryProgress => Library,
-    ScanAudioLibraryResponse => Library,
     LibraryTaskStateChanged => Library,
     RequestCapabilities => Session,
 );

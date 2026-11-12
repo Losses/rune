@@ -11,7 +11,10 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::{
-    messages::{LibraryTaskKind, LibraryTaskOutcome, LibraryTaskState, LibraryTaskStateChanged},
+    messages::{
+        LibraryTaskKind, LibraryTaskOutcome, LibraryTaskState, LibraryTaskStateChanged,
+        ScanTaskPhase,
+    },
     request_error::ExpectedRequestError,
     utils::Broadcaster,
 };
@@ -37,9 +40,8 @@ impl LibraryTaskOwner {
         &mut self,
         record_id: &str,
         task: LibraryTaskKind,
-        scan_token: Option<&CancellationToken>,
     ) -> Result<(LibraryTaskState, CancellationToken), ExpectedRequestError> {
-        self.ensure_can_start(record_id, task, scan_token)?;
+        self.ensure_can_start(record_id)?;
         let key = (record_id.to_owned(), task);
         let run_id = Uuid::new_v4().to_string();
         let token = CancellationToken::new();
@@ -57,6 +59,7 @@ impl LibraryTaskOwner {
             run_id,
             progress: 0,
             total: 0,
+            scan_phase: (task == LibraryTaskKind::Scan).then_some(ScanTaskPhase::IndexFiles),
         };
         self.tasks.insert(
             key,
@@ -72,20 +75,12 @@ impl LibraryTaskOwner {
         Ok((state, token))
     }
 
-    pub fn ensure_can_start(
-        &self,
-        record_id: &str,
-        requested: LibraryTaskKind,
-        scan_token: Option<&CancellationToken>,
-    ) -> Result<(), ExpectedRequestError> {
-        if requested != LibraryTaskKind::Scan
-            && scan_token.is_some_and(|token| !token.is_cancelled())
-        {
-            return Err(ExpectedRequestError::LibraryTaskAlreadyRunning {
-                task: LibraryTaskKind::Scan,
-            });
-        }
-        for task in [LibraryTaskKind::Analyze, LibraryTaskKind::Deduplicate] {
+    pub fn ensure_can_start(&self, record_id: &str) -> Result<(), ExpectedRequestError> {
+        for task in [
+            LibraryTaskKind::Scan,
+            LibraryTaskKind::Analyze,
+            LibraryTaskKind::Deduplicate,
+        ] {
             if let Some(entry) = self.tasks.get(&(record_id.to_owned(), task))
                 && (matches!(entry.state, LibraryTaskState::Running { .. })
                     || !*entry.worker.done.borrow())
@@ -125,13 +120,50 @@ impl LibraryTaskOwner {
         {
             return None;
         }
+        let scan_phase = state_scan_phase(&entry.state);
         entry.state = LibraryTaskState::Running {
             record_id: record_id.to_owned(),
             task,
             run_id: run_id.to_owned(),
             progress,
             total,
+            scan_phase,
         };
+        Some(entry.state.clone())
+    }
+
+    pub fn set_scan_phase(
+        &mut self,
+        record_id: &str,
+        run_id: &str,
+        scan_phase: ScanTaskPhase,
+    ) -> Option<LibraryTaskState> {
+        let entry = self
+            .tasks
+            .get_mut(&(record_id.to_owned(), LibraryTaskKind::Scan))?;
+        if state_run_id(&entry.state) != Some(run_id)
+            || !matches!(entry.state, LibraryTaskState::Running { .. })
+        {
+            return None;
+        }
+        if let LibraryTaskState::Running {
+            record_id,
+            task,
+            run_id,
+            progress,
+            total,
+            ..
+        } = entry.state.clone()
+        {
+            entry.state = LibraryTaskState::Running {
+                record_id,
+                task,
+                run_id,
+                progress,
+                total,
+                scan_phase: Some(scan_phase),
+            };
+        }
         Some(entry.state.clone())
     }
 
@@ -150,12 +182,14 @@ impl LibraryTaskOwner {
         {
             return None;
         }
+        let scan_phase = state_scan_phase(&entry.state);
         entry.state = LibraryTaskState::Ended {
             record_id: record_id.to_owned(),
             task,
             run_id: run_id.to_owned(),
             progress,
             total,
+            scan_phase,
             outcome,
         };
         Some(entry.state.clone())
@@ -175,6 +209,7 @@ impl LibraryTaskOwner {
                 run_id,
                 progress,
                 total,
+                scan_phase,
             } = entry.state.clone()
             {
                 entry.worker.token.cancel();
@@ -184,6 +219,7 @@ impl LibraryTaskOwner {
                     run_id,
                     progress,
                     total,
+                    scan_phase,
                     outcome: LibraryTaskOutcome::Cancelled,
                 };
                 entry.state = state.clone();
@@ -220,6 +256,7 @@ impl LibraryTaskOwner {
                         run_id,
                         progress,
                         total,
+                        scan_phase,
                     } = entry.state.clone()
                     {
                         entry.state = LibraryTaskState::Ended {
@@ -228,6 +265,7 @@ impl LibraryTaskOwner {
                             run_id,
                             progress,
                             total,
+                            scan_phase,
                             outcome: LibraryTaskOutcome::Cancelled,
                         };
                         states.push(entry.state.clone());
@@ -265,12 +303,25 @@ fn state_run_id(state: &LibraryTaskState) -> Option<&str> {
     }
 }
 
+fn state_scan_phase(state: &LibraryTaskState) -> Option<ScanTaskPhase> {
+    match state {
+        LibraryTaskState::Running { scan_phase, .. }
+        | LibraryTaskState::Ended { scan_phase, .. } => *scan_phase,
+        LibraryTaskState::NotRunning { .. } => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::messages::LibraryTaskError;
+    use crate::test_wait::TEST_DEADLINE;
     use crate::utils::RinfRustSignal;
     use std::sync::Arc;
-    use tokio::sync::{mpsc::unbounded_channel, oneshot};
+    use tokio::{
+        sync::{mpsc::unbounded_channel, oneshot},
+        time::timeout,
+    };
 
     fn running(state: LibraryTaskState) -> (String, String) {
         match state {
@@ -287,12 +338,12 @@ mod tests {
         let (first, _first_token) = owner
             .lock()
             .unwrap()
-            .start("library", LibraryTaskKind::Analyze, None)
+            .start("library", LibraryTaskKind::Analyze)
             .unwrap();
         let error = owner
             .lock()
             .unwrap()
-            .start("library", LibraryTaskKind::Analyze, None)
+            .start("library", LibraryTaskKind::Analyze)
             .unwrap_err();
         assert!(matches!(
             error,
@@ -310,12 +361,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn analysis_start_is_refused_while_a_scan_is_running() {
-        let owner = LibraryTaskOwner::default();
-        let scan_token = CancellationToken::new();
-        let error = owner
-            .ensure_can_start("library", LibraryTaskKind::Analyze, Some(&scan_token))
-            .unwrap_err();
+    async fn scan_lifecycle_analysis_start_is_refused_while_a_scan_is_running() {
+        let mut owner = LibraryTaskOwner::default();
+        owner.start("library", LibraryTaskKind::Scan).unwrap();
+        let error = owner.ensure_can_start("library").unwrap_err();
         assert!(matches!(
             error,
             ExpectedRequestError::LibraryTaskAlreadyRunning {
@@ -325,14 +374,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn scan_start_is_refused_while_deduplication_is_running() {
+    async fn scan_lifecycle_scan_start_is_refused_while_deduplication_is_running() {
         let mut owner = LibraryTaskOwner::default();
         owner
-            .start("library", LibraryTaskKind::Deduplicate, None)
+            .start("library", LibraryTaskKind::Deduplicate)
             .unwrap();
-        let error = owner
-            .ensure_can_start("library", LibraryTaskKind::Scan, None)
-            .unwrap_err();
+        let error = owner.ensure_can_start("library").unwrap_err();
         assert!(matches!(
             error,
             ExpectedRequestError::LibraryTaskAlreadyRunning {
@@ -342,14 +389,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn scan_lifecycle_second_scan_start_is_refused_and_keeps_the_running_state() {
+        let mut owner = LibraryTaskOwner::default();
+        let (first, _first_token) = owner.start("library", LibraryTaskKind::Scan).unwrap();
+        let error = owner.start("library", LibraryTaskKind::Scan).unwrap_err();
+        assert!(matches!(
+            error,
+            ExpectedRequestError::LibraryTaskAlreadyRunning {
+                task: LibraryTaskKind::Scan
+            }
+        ));
+        assert_eq!(owner.current("library", LibraryTaskKind::Scan), first);
+    }
+
+    #[tokio::test]
+    async fn scan_lifecycle_worker_failure_ends_with_a_typed_outcome() {
+        let mut owner = LibraryTaskOwner::default();
+        let (state, _) = owner.start("library", LibraryTaskKind::Scan).unwrap();
+        let (_, run_id) = running(state);
+        let ended = owner
+            .end(
+                "library",
+                LibraryTaskKind::Scan,
+                &run_id,
+                LibraryTaskOutcome::Failed(LibraryTaskError::ScanFailed),
+                2,
+                4,
+            )
+            .unwrap();
+        assert!(matches!(
+            ended,
+            LibraryTaskState::Ended {
+                outcome: LibraryTaskOutcome::Failed(LibraryTaskError::ScanFailed),
+                progress: 2,
+                total: 4,
+                ..
+            }
+        ));
+        assert!(
+            owner
+                .progress("library", LibraryTaskKind::Scan, &run_id, 4, 4)
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn scan_lifecycle_reports_the_current_scan_phase() {
+        let mut owner = LibraryTaskOwner::default();
+        let (state, _) = owner.start("library", LibraryTaskKind::Scan).unwrap();
+        let (_, run_id) = running(state);
+        let state = owner
+            .set_scan_phase("library", &run_id, ScanTaskPhase::ScanCoverArts)
+            .unwrap();
+        assert!(matches!(
+            state,
+            LibraryTaskState::Running {
+                scan_phase: Some(ScanTaskPhase::ScanCoverArts),
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
     async fn deduplicate_start_is_refused_while_analysis_is_running() {
         let mut owner = LibraryTaskOwner::default();
-        owner
-            .start("library", LibraryTaskKind::Analyze, None)
-            .unwrap();
-        let error = owner
-            .ensure_can_start("library", LibraryTaskKind::Deduplicate, None)
-            .unwrap_err();
+        owner.start("library", LibraryTaskKind::Analyze).unwrap();
+        let error = owner.ensure_can_start("library").unwrap_err();
         assert!(matches!(
             error,
             ExpectedRequestError::LibraryTaskAlreadyRunning {
@@ -359,12 +464,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cancel_returns_only_after_the_worker_stops() {
+    async fn scan_lifecycle_cancelling_a_scan_answers_after_its_worker_stops() {
         let owner = Arc::new(Mutex::new(LibraryTaskOwner::default()));
         let (state, token) = owner
             .lock()
             .unwrap()
-            .start("library", LibraryTaskKind::Analyze, None)
+            .start("library", LibraryTaskKind::Scan)
             .unwrap();
         let (record_id, run_id) = running(state);
         let (stopped_tx, stopped_rx) = oneshot::channel();
@@ -377,20 +482,21 @@ mod tests {
         owner
             .lock()
             .unwrap()
-            .attach_worker(&record_id, LibraryTaskKind::Analyze, &run_id, worker);
+            .attach_worker(&record_id, LibraryTaskKind::Scan, &run_id, worker);
         let (response_tx, mut response_rx) = unbounded_channel();
         let cancel_owner = owner.clone();
         let cancel = tokio::spawn(async move {
             let state =
-                LibraryTaskOwner::cancel(&cancel_owner, "library", LibraryTaskKind::Analyze).await;
+                LibraryTaskOwner::cancel(&cancel_owner, "library", LibraryTaskKind::Scan).await;
             let _ = response_tx.send(state.unwrap());
         });
-        stopped_rx.await.unwrap();
+        timeout(TEST_DEADLINE, stopped_rx).await.unwrap().unwrap();
         assert!(response_rx.try_recv().is_err());
         let _ = release_tx.send(());
         assert!(matches!(
             response_rx.recv().await.unwrap(),
             LibraryTaskState::Ended {
+                task: LibraryTaskKind::Scan,
                 outcome: LibraryTaskOutcome::Cancelled,
                 ..
             }
@@ -404,7 +510,7 @@ mod tests {
         let (state, _) = owner
             .lock()
             .unwrap()
-            .start("library", LibraryTaskKind::Analyze, None)
+            .start("library", LibraryTaskKind::Analyze)
             .unwrap();
         let (_, run_id) = running(state);
         let worker = tokio::spawn(async {});
@@ -436,7 +542,7 @@ mod tests {
         let (first, _) = owner
             .lock()
             .unwrap()
-            .start("library", LibraryTaskKind::Analyze, None)
+            .start("library", LibraryTaskKind::Analyze)
             .unwrap();
         let (_, first_run) = running(first);
         let worker = tokio::spawn(async {});
@@ -460,7 +566,7 @@ mod tests {
         let (second, _) = owner
             .lock()
             .unwrap()
-            .start("library", LibraryTaskKind::Analyze, None)
+            .start("library", LibraryTaskKind::Analyze)
             .unwrap();
         let (_, second_run) = running(second.clone());
         assert_ne!(first_run, second_run);
@@ -486,7 +592,7 @@ mod tests {
         let (state, token) = owner
             .lock()
             .unwrap()
-            .start("library", LibraryTaskKind::Deduplicate, None)
+            .start("library", LibraryTaskKind::Deduplicate)
             .unwrap();
         let (record_id, run_id) = running(state);
         let (stopped_tx, stopped_rx) = oneshot::channel();
@@ -508,10 +614,13 @@ mod tests {
             LibraryTaskOwner::shutdown(&shutdown_owner, &NoopBroadcaster).await;
             let _ = done_tx.send(());
         });
-        stopped_rx.await.unwrap();
+        timeout(TEST_DEADLINE, stopped_rx).await.unwrap().unwrap();
         assert!(done_rx.try_recv().is_err());
         let _ = release_tx.send(());
-        done_rx.recv().await.unwrap();
+        timeout(TEST_DEADLINE, done_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
         shutdown.await.unwrap();
         assert!(matches!(
             owner

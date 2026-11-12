@@ -8,6 +8,12 @@ pub enum LibraryTaskKind {
     Deduplicate,
 }
 
+#[derive(Deserialize, Serialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ScanTaskPhase {
+    IndexFiles,
+    ScanCoverArts,
+}
+
 impl std::fmt::Display for LibraryTaskKind {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(match self {
@@ -20,6 +26,7 @@ impl std::fmt::Display for LibraryTaskKind {
 
 #[derive(Deserialize, Serialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
 pub enum LibraryTaskError {
+    ScanFailed,
     AnalysisFailed,
     RecommendationSyncFailed,
     FingerprintingFailed,
@@ -47,6 +54,7 @@ pub enum LibraryTaskState {
         run_id: String,
         progress: i32,
         total: i32,
+        scan_phase: Option<ScanTaskPhase>,
     },
     Ended {
         record_id: String,
@@ -54,6 +62,7 @@ pub enum LibraryTaskState {
         run_id: String,
         progress: i32,
         total: i32,
+        scan_phase: Option<ScanTaskPhase>,
         outcome: LibraryTaskOutcome,
     },
 }

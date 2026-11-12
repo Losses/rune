@@ -14,11 +14,7 @@ use cli::{
     broadcast::handle_broadcast, chpwd::handle_chpwd, permission::handle_permission,
     server::handle_server,
 };
-use hub::{
-    node::initialize_node,
-    server::WebSocketService,
-    utils::{GlobalParams, TaskTokens},
-};
+use hub::{node::initialize_node, server::WebSocketService, utils::GlobalParams};
 
 use ::database::connection::check_storage_mode;
 use ::database::library_registry::{LibraryRegistry, resolve_library};
@@ -128,7 +124,6 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
     let config_path = node.config_path.clone();
 
     let main_cancel_token = node.token.child_token();
-    let task_tokens: Arc<Mutex<TaskTokens>> = node.task_tokens.clone();
 
     info!("Initializing player");
     let session = node.session()?;
@@ -155,7 +150,6 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
         config_path,
         node_id,
         main_token: main_cancel_token,
-        task_tokens,
         library_tasks: node.library_tasks.clone(),
         player,
         sfx_player,

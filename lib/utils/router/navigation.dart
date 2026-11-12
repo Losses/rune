@@ -18,6 +18,9 @@ BuildContext $context() {
   return runeWithNavigationBarAndPlaybackControllorNavigatorKey.currentContext!;
 }
 
+bool get $hasLibraryNavigator =>
+    runeWithNavigationBarAndPlaybackControllorNavigatorKey.currentState != null;
+
 Object? $arguments() {
   return $router.parameter;
 }

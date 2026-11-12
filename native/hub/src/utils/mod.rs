@@ -129,17 +129,6 @@ pub async fn initialize_opendal_databases(
     })
 }
 
-#[derive(Debug, Default)]
-pub struct TaskTokens {
-    pub scans: HashMap<String, ScanTask>,
-}
-
-#[derive(Debug)]
-pub struct ScanTask {
-    pub token: CancellationToken,
-    pub scan_id: String,
-}
-
 /// The current UI library for a request, or the expected `Unavailable` error
 /// when this process has none open (for example in remote-control mode).
 pub fn require_library(library: Option<LibraryHandle>) -> Result<LibraryHandle> {
@@ -164,7 +153,6 @@ pub struct GlobalParams {
     pub sync_settings: Arc<RwLock<sync_settings::SyncSettings>>,
     pub node_id: Arc<String>,
     pub main_token: Arc<CancellationToken>,
-    pub task_tokens: Arc<Mutex<TaskTokens>>,
     pub library_tasks: Arc<std::sync::Mutex<LibraryTaskOwner>>,
     pub player: Arc<Mutex<dyn Playable>>,
     pub sfx_player: Arc<Mutex<SfxPlayer>>,

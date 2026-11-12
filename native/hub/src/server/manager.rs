@@ -1211,7 +1211,6 @@ mod lifecycle_tests {
             library: Some(library.clone()),
             ui_library: Arc::new(Mutex::new(Some(library))),
             main_token: token.clone(),
-            task_tokens: node_context.task_tokens.clone(),
             library_tasks: node_context.library_tasks.clone(),
             player: node_context.session()?.player.clone(),
             sfx_player: Arc::new(Mutex::new(SfxPlayer::new(Some((*token).clone())))),
@@ -2869,7 +2868,6 @@ mod lifecycle_tests {
                 "ScanAudioLibraryRequest",
                 rinf::serialize(&ScanAudioLibraryRequest {
                     call_id: None,
-                    scan_id: "forbidden".into(),
                     force: false,
                 })?,
             ),
