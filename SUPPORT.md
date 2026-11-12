@@ -19,7 +19,7 @@ Our tiered support model addresses these challenges while keeping Rune freely av
 
 ### 1. Paid Members ($10+)
 
-Users who have purchased Rune through official channels (Steam, Microsoft Store, App Store) or made direct financial contributions.
+Users who have purchased Rune through an [official channel](TRADEMARK.md#3-official-channels) or made direct financial contributions.
 
 **Benefits include:**
 
@@ -36,9 +36,9 @@ Users who obtain official binary packages from our CI system or contribute non-f
 - Submit bug reports addressed by severity and community impact
 - Participate in community-driven feature discussions
 
-### 3. Self-Build Users
+### 3. Self-Build and Community Package Users
 
-Users who compile Rune from source code for personal use.
+Users who compile Rune from source code, or who install a community-maintained package (for example from Flathub, the AUR, a Linux distribution's repository, Homebrew or Scoop).
 
 **Benefits include:**
 
@@ -47,11 +47,11 @@ Users who compile Rune from source code for personal use.
 
 **Limitations:**
 
-- No official support for compilation issues or custom builds
+- No official support for compilation issues, custom builds or community-maintained packages
 - No guaranteed compatibility with future updates
 - May not receive security patches automatically
 
-**Note:** Due to Rune's complex build dependencies and environment requirements, we cannot troubleshoot self-built installations. Community forums may provide unofficial assistance.
+**Note:** Due to Rune's complex build dependencies and environment requirements, we cannot troubleshoot self-built installations or community-maintained packages. Community forums may provide unofficial assistance.
 
 ## Common Questions
 
@@ -62,6 +62,10 @@ A: While Rune remains free, sustained development requires resources. This model
 **Q: What happens if I compile Rune myself?**
 
 A: You're welcome to compile and modify Rune for your own use under the terms of the MPL License. However, we can't provide official support for self-built versions due to the variability in build environments.
+
+**Q: I installed Rune from Flathub, the AUR or my distribution. Where do I get help?**
+
+A: Community-maintained packages are built by their maintainers, not by us. Please report problems to the package maintainer first. If you can reproduce the problem with an official build, you're welcome to report it to us.
 
 **Q: How are supporter funds used?**
 
