@@ -150,7 +150,7 @@ void main() {
       final queryTimer = Stopwatch()..start();
       final query = searchForWithStreams(
         'song',
-        fields: const ['tracks'],
+        fields: const [SearchField.track],
         responses: queryResponses.stream,
         failures: queryFailures.stream,
         timeout: const Duration(seconds: 2),

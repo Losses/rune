@@ -16,14 +16,14 @@ void main() {
     final requests = <SearchForRequest>[];
     final searchA = searchForWithStreams(
       'ab',
-      fields: const ['tracks'],
+      fields: const [SearchField.track],
       responses: responses.stream,
       failures: failures.stream,
       sendRequest: requests.add,
     );
     final searchB = searchForWithStreams(
       'abc',
-      fields: const ['albums'],
+      fields: const [SearchField.album],
       responses: responses.stream,
       failures: failures.stream,
       sendRequest: requests.add,
@@ -45,14 +45,18 @@ void main() {
     final requests = <SearchForRequest>[];
     final search = searchForWithStreams(
       'new query',
-      fields: const ['tracks'],
+      fields: const [SearchField.track],
       responses: responses.stream,
       failures: failures.stream,
       sendRequest: requests.add,
     );
 
-    responses.add(_response(requests.single.callId!.toInt() - 1, tracks: const [1]));
-    responses.add(_response(requests.single.callId!.toInt(), tracks: const [2]));
+    responses.add(
+      _response(requests.single.callId!.toInt() - 1, tracks: const [1]),
+    );
+    responses.add(
+      _response(requests.single.callId!.toInt(), tracks: const [2]),
+    );
 
     expect((await search).tracks, [2]);
     await responses.close();
@@ -67,7 +71,7 @@ void main() {
     var searchACompleted = false;
     final searchA = searchForWithStreams(
       'a',
-      fields: const ['tracks'],
+      fields: const [SearchField.track],
       responses: responses.stream,
       failures: failures.stream,
       sendRequest: requests.add,
@@ -80,7 +84,7 @@ void main() {
     );
     final searchB = searchForWithStreams(
       'b',
-      fields: const ['tracks'],
+      fields: const [SearchField.track],
       responses: responses.stream,
       failures: failures.stream,
       sendRequest: requests.add,
@@ -109,6 +113,8 @@ RustSignalPack<SearchForResponse> _response(
     playlists: const [],
     tracks: tracks,
     genres: const [],
+    directories: const [],
+    mixes: const [],
   ),
   Uint8List(0),
 );

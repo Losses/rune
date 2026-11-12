@@ -1,12 +1,10 @@
 use crate::node::NodeContext;
-use crate::request_error::ExpectedRequestError;
 use crate::utils::CollectionCoverOptions;
-use std::{marker::PhantomData, str::FromStr, sync::Arc};
+use std::{marker::PhantomData, sync::Arc};
 
 use anyhow::{Error, Result};
 use async_trait::async_trait;
 use futures::future::try_join_all;
-use log::warn;
 
 use crate::{
     Session, Signal,
@@ -89,7 +87,6 @@ struct NaiveTrackComplexQuery {
 
 struct MixTrackComplexQuery {
     query: Vec<(String, String)>,
-    enabled: bool,
 }
 
 async fn build_track_collections(
@@ -158,10 +155,6 @@ impl ComplexQuery for MixTrackComplexQuery {
         recommend_db: &RecommendationDbConnection,
         queue: &[i32],
     ) -> Result<Vec<UnifiedCollection>> {
-        if !self.enabled {
-            return Ok(vec![]);
-        }
-
         let tracks =
             query_mix_media_files(main_db, recommend_db, self.query.clone(), 0, 25, queue).await?;
 
@@ -169,58 +162,44 @@ impl ComplexQuery for MixTrackComplexQuery {
     }
 }
 
-fn create_query(domain: &str, parameter: &str) -> Result<Box<dyn ComplexQuery>> {
-    let parse_mode = || {
-        CollectionQueryListMode::from_str(parameter).map_err(|error| {
-            ExpectedRequestError::invalid_input(format!("Invalid collection list mode: {error}"))
-        })
+fn create_query(query: LibraryHomeQuery) -> Result<Box<dyn ComplexQuery>> {
+    let mode = |mode| match mode {
+        LibraryHomeListMode::Name => CollectionQueryListMode::Name,
+        LibraryHomeListMode::Forward => CollectionQueryListMode::Forward,
+        LibraryHomeListMode::Reverse => CollectionQueryListMode::Reverse,
+        LibraryHomeListMode::Random => CollectionQueryListMode::Random,
     };
-    match domain {
-        "artists" => Ok(Box::new(CollectionComplexQuery::<artists::Model>::new(
-            25,
-            parse_mode()?,
-        ))),
-        "albums" => Ok(Box::new(CollectionComplexQuery::<albums::Model>::new(
-            25,
-            parse_mode()?,
-        ))),
-        "genres" => Ok(Box::new(CollectionComplexQuery::<genres::Model>::new(
-            25,
-            parse_mode()?,
-        ))),
-        "playlists" => Ok(Box::new(CollectionComplexQuery::<playlists::Model>::new(
-            25,
-            parse_mode()?,
-        ))),
-        "mixes" => Ok(Box::new(CollectionComplexQuery::<mixes::Model>::new(
-            25,
-            parse_mode()?,
-        ))),
-        "tracks" => Ok(Box::new(NaiveTrackComplexQuery {
-            mode: parse_mode()?,
+    match query {
+        LibraryHomeQuery::Artists(list_mode) => Ok(Box::new(CollectionComplexQuery::<
+            artists::Model,
+        >::new(25, mode(list_mode)))),
+        LibraryHomeQuery::Albums(list_mode) => Ok(Box::new(
+            CollectionComplexQuery::<albums::Model>::new(25, mode(list_mode)),
+        )),
+        LibraryHomeQuery::Genres(list_mode) => Ok(Box::new(
+            CollectionComplexQuery::<genres::Model>::new(25, mode(list_mode)),
+        )),
+        LibraryHomeQuery::Playlists(list_mode) => Ok(Box::new(CollectionComplexQuery::<
+            playlists::Model,
+        >::new(25, mode(list_mode)))),
+        LibraryHomeQuery::Mixes(list_mode) => Ok(Box::new(
+            CollectionComplexQuery::<mixes::Model>::new(25, mode(list_mode)),
+        )),
+        LibraryHomeQuery::Tracks(list_mode) => Ok(Box::new(NaiveTrackComplexQuery {
+            mode: mode(list_mode),
         })),
-        "liked" => Ok(Box::new(MixTrackComplexQuery {
+        LibraryHomeQuery::Liked => Ok(Box::new(MixTrackComplexQuery {
             query: vec![
                 ("lib::directory.deep".to_owned(), "/".to_owned()),
                 ("filter::liked".to_owned(), "true".to_owned()),
             ],
-            enabled: parameter == "enable",
         })),
-        "most" => Ok(Box::new(MixTrackComplexQuery {
+        LibraryHomeQuery::Most => Ok(Box::new(MixTrackComplexQuery {
             query: vec![
                 ("lib::directory.deep".to_owned(), "/".to_owned()),
                 ("sort::playedthrough".to_owned(), "false".to_owned()),
             ],
-            enabled: parameter == "enable",
         })),
-        unknown => {
-            warn!("Unknown complex query operator: {unknown}");
-
-            Ok(Box::new(MixTrackComplexQuery {
-                query: vec![],
-                enabled: false,
-            }))
-        }
     }
 }
 
@@ -261,7 +240,7 @@ impl Signal for ComplexQueryRequest {
                 let request_session = session;
                 async move {
                     let fsio = Arc::clone(&fsio);
-                    let query_executor = create_query(&query.domain, &query.parameter)?;
+                    let query_executor = create_query(query.query)?;
                     let unified_collections = query_executor
                         .execute(&main_db, &recommend_db, &queue)
                         .await?;
@@ -306,7 +285,7 @@ impl Signal for ComplexQueryRequest {
                     let entries = try_join_all(entries_futures).await?;
 
                     Ok::<ComplexQueryGroup, Error>(ComplexQueryGroup {
-                        id: query.id.clone(),
+                        domain: query.query.domain(),
                         title: query.title.clone(),
                         entries,
                     })
@@ -320,5 +299,30 @@ impl Signal for ComplexQueryRequest {
             call_id: None,
             result,
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::create_query;
+    use crate::messages::{LibraryHomeListMode as Mode, LibraryHomeQuery as Query};
+
+    #[test]
+    fn every_home_domain_builds_its_query() {
+        for mode in [Mode::Name, Mode::Forward, Mode::Reverse, Mode::Random] {
+            for query in [
+                Query::Artists(mode),
+                Query::Albums(mode),
+                Query::Genres(mode),
+                Query::Playlists(mode),
+                Query::Mixes(mode),
+                Query::Tracks(mode),
+            ] {
+                assert!(create_query(query).is_ok(), "{query:?}");
+            }
+        }
+        for query in [Query::Liked, Query::Most] {
+            assert!(create_query(query).is_ok(), "{query:?}");
+        }
     }
 }

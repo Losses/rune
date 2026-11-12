@@ -2,7 +2,7 @@ use crate::request_error::ExpectedRequestError;
 
 use anyhow::{Context, Result};
 
-use ::database::actions::logging::{clear_logs, delete_log, list_log};
+use ::database::actions::logging::{LogLevel, clear_logs, delete_log, list_log};
 
 use crate::{
     Session, Signal,
@@ -53,14 +53,16 @@ impl Signal for ListLogRequest {
             call_id: None,
             result: result
                 .into_iter()
-                .map(|x| LogDetail {
-                    id: x.id,
-                    level: x.level,
-                    detail: x.detail,
-                    domain: x.domain,
-                    date: x.date.timestamp(),
+                .map(|x| {
+                    Ok(LogDetail {
+                        id: x.id,
+                        level: x.level.parse::<LogLevel>()?.into(),
+                        detail: x.detail,
+                        domain: x.domain,
+                        date: x.date.timestamp(),
+                    })
                 })
-                .collect(),
+                .collect::<Result<Vec<_>>>()?,
         }))
     }
 }

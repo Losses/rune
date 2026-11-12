@@ -23,14 +23,15 @@ import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../bindings/bindings.dart';
 import '../../providers/library_home.dart';
+import '../settings_library_home/constants/library_home_items.dart';
 
 import './constants/first_column.dart';
 
-const groupTitleLinks = {
-  "artists": "artists",
-  "albums": "albums",
-  "playlists": "playlists",
-  "tracks": "tracks",
+const groupTitleLinks = <LibraryHomeDomain, String>{
+  LibraryHomeDomain.artists: "artists",
+  LibraryHomeDomain.albums: "albums",
+  LibraryHomeDomain.playlists: "playlists",
+  LibraryHomeDomain.tracks: "tracks",
 };
 
 class LargeScreenLibraryHomeListView extends StatefulWidget {
@@ -127,15 +128,14 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
     widget.layoutManager.resetAnimations();
     final librarySummary = await complexQuery(
       libraryHome.entries
-          .where((x) => x.value != null && x.value != 'disable')
-          .map(
-            (x) => ComplexQuery(
-              id: x.id,
+          .where((x) => x.setting is LibraryHomeSettingQuery)
+          .map((x) {
+            final setting = x.setting as LibraryHomeSettingQuery;
+            return ComplexQuery(
               title: x.definition.titleBuilder(context),
-              domain: x.definition.id,
-              parameter: x.value!,
-            ),
-          )
+              query: setting.query,
+            );
+          })
           .toList(),
     );
 
@@ -146,7 +146,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
         .map(
           (x) => Group<InternalCollection>(
             groupTitle: x.title,
-            groupLink: groupTitleLinks[x.id],
+            groupLink: groupTitleLinks[x.domain],
             items: x.entries
                 .map(InternalCollection.fromComplexQueryEntry)
                 .toList(),

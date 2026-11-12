@@ -1,10 +1,30 @@
+use database::actions::logging::LogLevel;
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, SignalPiece)]
+pub enum LogDetailLevel {
+    Info,
+    Warning,
+    Error,
+    Debug,
+}
+
+impl From<LogLevel> for LogDetailLevel {
+    fn from(value: LogLevel) -> Self {
+        match value {
+            LogLevel::Info => Self::Info,
+            LogLevel::Warning => Self::Warning,
+            LogLevel::Error => Self::Error,
+            LogLevel::Debug => Self::Debug,
+        }
+    }
+}
 
 #[derive(Clone, Serialize, Deserialize, SignalPiece)]
 pub struct LogDetail {
     pub id: i32,
-    pub level: String,
+    pub level: LogDetailLevel,
     pub domain: String,
     pub detail: String,
     pub date: i64,

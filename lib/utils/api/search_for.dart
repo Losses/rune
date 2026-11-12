@@ -8,7 +8,7 @@ import 'request_failure.dart';
 
 Future<SearchForResponse> searchFor(
   String query, {
-  List<String> fields = const [],
+  List<SearchField> fields = const [],
 }) {
   return _searchFor(
     query,
@@ -21,7 +21,7 @@ Future<SearchForResponse> searchFor(
 @visibleForTesting
 Future<SearchForResponse> searchForWithStreams(
   String query, {
-  required List<String> fields,
+  required List<SearchField> fields,
   required Stream<RustSignalPack<SearchForResponse>> responses,
   required Stream<RequestFailedResponse> failures,
   required void Function(SearchForRequest) sendRequest,
@@ -37,7 +37,7 @@ Future<SearchForResponse> searchForWithStreams(
 
 Future<SearchForResponse> _searchFor(
   String query,
-  List<String> fields, {
+  List<SearchField> fields, {
   required Stream<RustSignalPack<SearchForResponse>> responses,
   Stream<RequestFailedResponse>? failures,
   required void Function(SearchForRequest) sendRequest,

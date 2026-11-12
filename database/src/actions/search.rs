@@ -14,13 +14,6 @@ use crate::entities::search_index;
 
 use super::{collection::CollectionQueryType, utils::DatabaseExecutor};
 
-pub fn convert_to_collection_types(input: Vec<String>) -> Vec<CollectionQueryType> {
-    input
-        .into_iter()
-        .filter_map(|s| s.parse::<CollectionQueryType>().ok())
-        .collect()
-}
-
 impl From<CollectionQueryType> for i64 {
     fn from(collection_type: CollectionQueryType) -> Self {
         match collection_type {
@@ -133,6 +126,7 @@ pub async fn search_for(
         CollectionQueryType::Artist,
         CollectionQueryType::Album,
         CollectionQueryType::Playlist,
+        CollectionQueryType::Mix,
         CollectionQueryType::Genre,
     ] {
         if let Some(ref search_fields) = search_fields

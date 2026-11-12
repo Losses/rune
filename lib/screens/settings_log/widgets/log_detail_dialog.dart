@@ -42,7 +42,7 @@ class _LogDetailDialogState extends State<LogDetailDialog> {
     final log = widget.logs[currentIndex];
 
     return ContentDialog(
-      title: Text(log.level),
+      title: Text(log.level.name.toUpperCase()),
       constraints: const BoxConstraints(maxHeight: 320, maxWidth: 520),
       content: Column(
         key: ValueKey(currentIndex),
@@ -51,8 +51,9 @@ class _LogDetailDialogState extends State<LogDetailDialog> {
           Text(log.domain),
           const SizedBox(height: 4),
           Text(
-            DateTime.fromMillisecondsSinceEpoch(log.date.toInt() * 1000)
-                .toString(),
+            DateTime.fromMillisecondsSinceEpoch(
+              log.date.toInt() * 1000,
+            ).toString(),
           ),
           const SizedBox(height: 8),
           Expanded(

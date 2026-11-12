@@ -35,17 +35,13 @@ class LogItemState extends State<LogItem> {
     contextController.dispose();
   }
 
-  IconData _getLogLevelIcon(String level) {
-    switch (level.toLowerCase()) {
-      case 'error':
-        return Symbols.error;
-      case 'warning':
-        return Symbols.warning;
-      case 'info':
-        return Symbols.info;
-      default:
-        return Symbols.description;
-    }
+  IconData _getLogLevelIcon(LogDetailLevel level) {
+    return switch (level) {
+      LogDetailLevel.error => Symbols.error,
+      LogDetailLevel.warning => Symbols.warning,
+      LogDetailLevel.info => Symbols.info,
+      LogDetailLevel.debug => Symbols.bug_report,
+    };
   }
 
   @override

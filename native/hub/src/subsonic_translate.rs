@@ -1,6 +1,6 @@
 use anyhow::{Result, anyhow};
+use database::actions::collection::CollectionQueryType;
 use database::actions::utils::generate_group_name;
-use database::actions::{collection::CollectionQueryType, search::convert_to_collection_types};
 use database::error::ExpectedError;
 use lyric::lrc::parse_lrc;
 use std::{
@@ -479,7 +479,7 @@ pub(crate) async fn search_for_request(
     binding: &SubsonicBinding,
     request: &SearchForRequest,
 ) -> Result<Option<SearchForResponse>> {
-    let fields = convert_to_collection_types(request.fields.clone());
+    let fields: Vec<CollectionQueryType> = request.fields.iter().copied().map(Into::into).collect();
     let all = fields.is_empty();
     let count = u32::try_from(request.n.max(0)).unwrap_or(u32::MAX);
     let limits = SearchLimits {
@@ -545,6 +545,8 @@ pub(crate) async fn search_for_request(
         playlists: Vec::new(),
         tracks,
         genres: Vec::new(),
+        directories: Vec::new(),
+        mixes: Vec::new(),
     }))
 }
 
@@ -1913,7 +1915,7 @@ mod tests {
         utils::{Broadcaster, RinfRustSignal},
     };
 
-    use crate::messages::RequestErrorKind;
+    use crate::messages::{RequestErrorKind, SearchField};
 
     #[derive(Clone)]
     struct MockState {
@@ -2395,7 +2397,7 @@ mod tests {
             &SearchForRequest {
                 call_id: Some(1),
                 query_str: "song".into(),
-                fields: vec!["track".into()],
+                fields: vec![SearchField::Track],
                 n: 10,
             },
         )
@@ -2472,7 +2474,7 @@ mod tests {
             &SearchForRequest {
                 call_id: None,
                 query_str: "song".into(),
-                fields: vec!["track".into()],
+                fields: vec![SearchField::Track],
                 n: 10,
             },
         )

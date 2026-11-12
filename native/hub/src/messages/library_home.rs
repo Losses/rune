@@ -6,12 +6,57 @@ use serde::{Deserialize, Serialize};
 use super::collection::CollectionType;
 use super::mix::MixQuery;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, SignalPiece)]
+pub enum LibraryHomeDomain {
+    Artists,
+    Albums,
+    Genres,
+    Playlists,
+    Mixes,
+    Tracks,
+    Liked,
+    Most,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, SignalPiece)]
+pub enum LibraryHomeListMode {
+    Name,
+    Forward,
+    Reverse,
+    Random,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, SignalPiece)]
+pub enum LibraryHomeQuery {
+    Artists(LibraryHomeListMode),
+    Albums(LibraryHomeListMode),
+    Genres(LibraryHomeListMode),
+    Playlists(LibraryHomeListMode),
+    Mixes(LibraryHomeListMode),
+    Tracks(LibraryHomeListMode),
+    Liked,
+    Most,
+}
+
+impl LibraryHomeQuery {
+    pub fn domain(self) -> LibraryHomeDomain {
+        match self {
+            Self::Artists(_) => LibraryHomeDomain::Artists,
+            Self::Albums(_) => LibraryHomeDomain::Albums,
+            Self::Genres(_) => LibraryHomeDomain::Genres,
+            Self::Playlists(_) => LibraryHomeDomain::Playlists,
+            Self::Mixes(_) => LibraryHomeDomain::Mixes,
+            Self::Tracks(_) => LibraryHomeDomain::Tracks,
+            Self::Liked => LibraryHomeDomain::Liked,
+            Self::Most => LibraryHomeDomain::Most,
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, SignalPiece)]
 pub struct ComplexQuery {
-    pub id: String,
     pub title: String,
-    pub domain: String,
-    pub parameter: String,
+    pub query: LibraryHomeQuery,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
@@ -33,7 +78,7 @@ pub struct ComplexQueryEntry {
 
 #[derive(Clone, Serialize, Deserialize, SignalPiece)]
 pub struct ComplexQueryGroup {
-    pub id: String,
+    pub domain: LibraryHomeDomain,
     pub title: String,
     pub entries: Vec<ComplexQueryEntry>,
 }

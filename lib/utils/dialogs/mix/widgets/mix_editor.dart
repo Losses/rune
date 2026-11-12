@@ -108,7 +108,7 @@ class _MixEditorState extends State<MixEditor> {
                       CollectionType.artist,
                     ),
                 searchForItems: (query) =>
-                    _searchItems(query, 'artists', (x) async {
+                    _searchItems(query, SearchField.artist, (x) async {
                       return (await fetchCollectionByIds(
                         CollectionType.artist,
                         x,
@@ -123,7 +123,7 @@ class _MixEditorState extends State<MixEditor> {
                       CollectionType.album,
                     ),
                 searchForItems: (query) =>
-                    _searchItems(query, 'albums', (x) async {
+                    _searchItems(query, SearchField.album, (x) async {
                       return (await fetchCollectionByIds(
                         CollectionType.album,
                         x,
@@ -138,7 +138,7 @@ class _MixEditorState extends State<MixEditor> {
                       CollectionType.genre,
                     ),
                 searchForItems: (query) =>
-                    _searchItems(query, 'genres', (x) async {
+                    _searchItems(query, SearchField.genre, (x) async {
                       return (await fetchCollectionByIds(
                         CollectionType.genre,
                         x,
@@ -153,7 +153,7 @@ class _MixEditorState extends State<MixEditor> {
                       CollectionType.playlist,
                     ),
                 searchForItems: (query) =>
-                    _searchItems(query, 'playlists', (x) async {
+                    _searchItems(query, SearchField.playlist, (x) async {
                       return (await fetchCollectionByIds(
                         CollectionType.playlist,
                         x,
@@ -175,7 +175,7 @@ class _MixEditorState extends State<MixEditor> {
                       .toList();
                 },
                 searchForItems: (query) =>
-                    _searchItems(query, 'tracks', (x) async {
+                    _searchItems(query, SearchField.track, (x) async {
                       final files = await fetchMediaFileByIds(x, false);
                       if (!context.mounted) return <(int, String)>[];
                       return files.map((x) => (x.id, x.title)).toList();
@@ -241,20 +241,19 @@ Future<List<AutoSuggestBoxItem<int>>> getInitResult(
 
 Future<List<AutoSuggestBoxItem<int>>> _searchItems<T>(
   String query,
-  String field,
+  SearchField field,
   Future<List<(int, String)>> Function(List<int>) fetchByIds,
 ) async {
   final response = await searchFor(query, fields: [field]);
   final ids = switch (field) {
-    'artists' => response.artists,
-    'albums' => response.albums,
-    'playlists' => response.playlists,
-    'tracks' => response.tracks,
-    'genres' => response.genres,
-    _ => null,
+    SearchField.artist => response.artists,
+    SearchField.album => response.albums,
+    SearchField.playlist => response.playlists,
+    SearchField.track => response.tracks,
+    SearchField.genre => response.genres,
+    SearchField.directory => response.directories,
+    SearchField.mix => response.mixes,
   };
-
-  if (ids == null) return [];
 
   final items = await fetchByIds(ids);
   return items

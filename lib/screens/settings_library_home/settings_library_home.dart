@@ -12,6 +12,7 @@ import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/settings/settings_box_combo_box.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../providers/library_home.dart';
+import 'constants/library_home_items.dart';
 
 class SettingsLibraryHome extends StatefulWidget {
   const SettingsLibraryHome({super.key});
@@ -47,28 +48,33 @@ class _SettingsLibraryHomeState extends State<SettingsLibraryHome> {
                           children: libraryHome.entries
                               .map(
                                 (item) => SettingsBoxComboBox(
-                                  key: ValueKey(item.id),
+                                  key: ValueKey(item.domain),
                                   icon: item.definition.icon(context),
-                                  iconColor: item.value == 'disable'
+                                  iconColor:
+                                      item.setting is LibraryHomeSettingDisabled
                                       ? theme.resources.textFillColorDisabled
                                       : null,
                                   title: item.definition.titleBuilder(context),
-                                  subtitle:
-                                      item.definition.subtitleBuilder(context),
-                                  value: item.value ??
-                                      item.definition.defaultValue,
+                                  subtitle: item.definition.subtitleBuilder(
+                                    context,
+                                  ),
+                                  value: item.setting,
                                   items: item.definition
                                       .optionBuilder(context)
-                                      .map((x) => SettingsBoxComboBoxItem(
-                                            value: x.$2,
-                                            title: x.$1,
-                                          ))
+                                      .map(
+                                        (x) => SettingsBoxComboBoxItem(
+                                          value: x.$2,
+                                          title: x.$1,
+                                        ),
+                                      )
                                       .toList(),
                                   onChanged: (newValue) {
-                                    libraryHome.updateEntryValue(
-                                      item.id,
-                                      newValue,
-                                    );
+                                    if (newValue != null) {
+                                      libraryHome.updateEntryValue(
+                                        item.domain,
+                                        newValue,
+                                      );
+                                    }
                                   },
                                 ),
                               )
