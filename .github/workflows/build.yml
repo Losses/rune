@@ -574,7 +574,7 @@ jobs:
           # decode and check every secret, so one run names all the bad ones
           failed=0
           scripts/apple/ci_decode_secret.sh DEVELOPER_ID_APPLICATION_P12_BASE64_MAC "$DEVELOPER_ID_APPLICATION_CERTIFICATE_PATH" P12_PASSWORD || failed=1
-          scripts/apple/ci_decode_secret.sh BUILD_NOTARIZED_PROVISION_PROFILE "$PP_PATH" || failed=1
+          scripts/apple/ci_decode_secret.sh BUILD_NOTARIZED_PROVISION_PROFILE "$PP_PATH" "Rune Notarized" || failed=1
           [ "$failed" = 0 ]
 
           # create temporary keychain
@@ -720,7 +720,7 @@ jobs:
           failed=0
           scripts/apple/ci_decode_secret.sh APPLE_DISTRIBUTION_CERTIFICATE "$APPLE_DISTRIBUTION_CERTIFICATE_PATH" APPLE_DISTRIBUTION_PASSWORD || failed=1
           scripts/apple/ci_decode_secret.sh MAC_DEVELOPER_INSTALLER_CERTIFICATE "$MAC_DEVELOPER_INSTALLER_CERTIFICATE_PATH" MAC_DEVELOPER_INSTALLER_PASSWORD || failed=1
-          scripts/apple/ci_decode_secret.sh BUILD_APP_STORE_PROVISION_PROFILE "$PP_PATH" || failed=1
+          scripts/apple/ci_decode_secret.sh BUILD_APP_STORE_PROVISION_PROFILE "$PP_PATH" "Rune App Store" || failed=1
           scripts/apple/ci_decode_secret.sh APP_STORE_CONNECT_API_KEY "$RUNNER_TEMP/AuthKey_$APP_STORE_CONNECT_KEYID.p8" || failed=1
           [ "$failed" = 0 ]
 
@@ -815,7 +815,7 @@ jobs:
           # decode and check every secret, so one run names all the bad ones
           failed=0
           scripts/apple/ci_decode_secret.sh APPLE_DISTRIBUTION_CERTIFICATE "$APPLE_DISTRIBUTION_CERTIFICATE_PATH" APPLE_DISTRIBUTION_PASSWORD || failed=1
-          scripts/apple/ci_decode_secret.sh BUILD_IOS_APP_STORE_PROVISION_PROFILE "$PP_PATH" || failed=1
+          scripts/apple/ci_decode_secret.sh BUILD_IOS_APP_STORE_PROVISION_PROFILE "$PP_PATH" "Rune iOS App Store" || failed=1
           scripts/apple/ci_decode_secret.sh APP_STORE_CONNECT_API_KEY "$RUNNER_TEMP/AuthKey_$APP_STORE_CONNECT_KEYID.p8" || failed=1
           [ "$failed" = 0 ]
 
@@ -953,11 +953,11 @@ jobs:
           failed=0
           check() { scripts/apple/ci_decode_secret.sh "$@" || failed=1; }
           check DEVELOPER_ID_APPLICATION_P12_BASE64_MAC "$RUNNER_TEMP/check_developer_id_application.p12" P12_PASSWORD
-          check BUILD_NOTARIZED_PROVISION_PROFILE "$RUNNER_TEMP/check_notarized.provisionprofile"
+          check BUILD_NOTARIZED_PROVISION_PROFILE "$RUNNER_TEMP/check_notarized.provisionprofile" "Rune Notarized"
           check APPLE_DISTRIBUTION_CERTIFICATE "$RUNNER_TEMP/check_apple_distribution.p12" APPLE_DISTRIBUTION_PASSWORD
           check MAC_DEVELOPER_INSTALLER_CERTIFICATE "$RUNNER_TEMP/check_mac_developer_installer.p12" MAC_DEVELOPER_INSTALLER_PASSWORD
-          check BUILD_APP_STORE_PROVISION_PROFILE "$RUNNER_TEMP/check_app_store.provisionprofile"
-          check BUILD_IOS_APP_STORE_PROVISION_PROFILE "$RUNNER_TEMP/check_ios_app_store.mobileprovision"
+          check BUILD_APP_STORE_PROVISION_PROFILE "$RUNNER_TEMP/check_app_store.provisionprofile" "Rune App Store"
+          check BUILD_IOS_APP_STORE_PROVISION_PROFILE "$RUNNER_TEMP/check_ios_app_store.mobileprovision" "Rune iOS App Store"
           check APP_STORE_CONNECT_API_KEY "$RUNNER_TEMP/check_AuthKey.p8"
           [ "$failed" = 0 ]
 

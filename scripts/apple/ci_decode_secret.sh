@@ -2,13 +2,14 @@
 # Decodes a base64 signing secret into a file and checks it before it is used,
 # so a bad secret fails with its name instead of a bare base64 or import error.
 #
-# Usage: ci_decode_secret.sh SECRET_NAME OUTPUT_PATH [PASSWORD_NAME]
+# Usage: ci_decode_secret.sh SECRET_NAME OUTPUT_PATH [PASSWORD_NAME | PROFILE_NAME]
 #   SECRET_NAME    environment variable holding the base64 text
 #   OUTPUT_PATH    file to write; its extension says what is checked:
 #                    .p12                                 certificate with its private key, not expired
 #                    .provisionprofile, .mobileprovision  provisioning profile, not expired
 #                    .p8                                  App Store Connect API key
-#   PASSWORD_NAME  environment variable holding the .p12 password
+#   PASSWORD_NAME  for a .p12, the environment variable holding its password
+#   PROFILE_NAME   for a profile, the name the build selects it by
 #
 # Secret values are read from the environment by name and never printed.
 
@@ -17,6 +18,7 @@ set -euo pipefail
 name="$1"
 out="$2"
 password_name="${3:-}"
+profile_name="${3:-}"
 
 fail() {
   echo "::error title=$name::$1"
@@ -53,12 +55,15 @@ case "$out" in
     profile="$(plutil -extract Name raw -o - - <<<"$plist")" || fail "$name is a profile without a name."
     expiry="$(plutil -extract ExpirationDate raw -o - - <<<"$plist")" ||
       fail "$name is a profile without an expiration date."
+    # Xcode picks the profile by this name, so another profile would fail later as missing.
+    [[ -z "$profile_name" || "$profile" == "$profile_name" ]] ||
+      fail "$name holds the profile \"$profile\", but the build needs \"$profile_name\"."
     [[ "$expiry" > "$(date -u +%Y-%m-%dT%H:%M:%SZ)" ]] ||
       fail "$name holds the profile \"$profile\", which expired on $expiry."
     echo "$name: profile \"$profile\" valid until $expiry"
     ;;
   *.p8)
-    grep -q 'BEGIN PRIVATE KEY' "$out" || fail "$name is not an App Store Connect API key (.p8)."
+    openssl pkey -in "$out" -noout 2>/dev/null || fail "$name is not an App Store Connect API key (.p8)."
     echo "$name: API key decoded"
     ;;
 esac
