@@ -5,8 +5,9 @@ set -e
 cd "$(dirname "$0")"
 cd ..
 
-# Create backup of project.pbxproj
-cp macos/Runner.xcodeproj/project.pbxproj macos/Runner.xcodeproj/project.pbxproj.backup
+# Create backup of project.pbxproj. Not project.pbxproj.backup: Flutter's Swift Package Manager
+# migration writes and then deletes a file of that name during the build.
+cp macos/Runner.xcodeproj/project.pbxproj macos/Runner.xcodeproj/project.pbxproj.appstore-backup
 
 # Patch macos/Runner.xcodeproj/project.pbxproj and macos/Runner/Release.entitlements to replace bundle ID and provisioning profile
 sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = ci.not.rune;/PRODUCT_BUNDLE_IDENTIFIER = ci.not.rune.appstore;/g' macos/Runner.xcodeproj/project.pbxproj
@@ -24,4 +25,4 @@ chmod -R +x build/macos/Build/Products/Release/Rune.app
 xattr -cr build/macos/Build/Products/Release/Rune.app
 
 # Restore original project.pbxproj
-mv macos/Runner.xcodeproj/project.pbxproj.backup macos/Runner.xcodeproj/project.pbxproj
+mv macos/Runner.xcodeproj/project.pbxproj.appstore-backup macos/Runner.xcodeproj/project.pbxproj
