@@ -10,6 +10,8 @@ import 'package:system_theme/system_theme.dart';
 import 'package:local_notifier/local_notifier.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:bitsdojo_window/bitsdojo_window.dart';
+import 'package:macos_window_utils/macos_window_utils.dart'
+    show WindowManipulator;
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 
@@ -242,6 +244,13 @@ void main(List<String> arguments) async {
   if (isDesktop && !Platform.isLinux) {
     try {
       await Window.initialize();
+      if (Platform.isMacOS) {
+        // Window.initialize() turns the full-size content view off, and bitsdojo_window turns it
+        // back on when it shows the window. Turning it on before the first frame keeps the
+        // content one size while the window first shows: a change there can make Flutter's macOS
+        // compositor hand Impeller a surface of the old size, which crashes the raster thread.
+        await WindowManipulator.enableFullSizeContentView();
+      }
       await appTheme.setEffect();
     } catch (error) {
       warn$('Window effect initialization failed: $error');
