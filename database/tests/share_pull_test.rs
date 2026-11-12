@@ -95,8 +95,16 @@ async fn publish_base(
 ) -> Result<Published> {
     let endpoint = source.library.endpoint();
     let identity = SyncPeer::identity(&endpoint).await?;
-    let stream = Uuid::new_v5(&identity.replica, b"rune-share");
-    let generation = Uuid::new_v4();
+    let mut state = load_or_create_state(
+        &source.db,
+        identity.replica,
+        identity.namespace,
+        cache_path(),
+        chrono::Utc::now().timestamp_millis(),
+    )
+    .await?;
+    let stream = state.stream;
+    let generation = state.generation;
     let prefix = format!("{stream}.{generation}");
     let export = export_base(
         &endpoint,
@@ -147,7 +155,7 @@ async fn publish_base(
         stream,
         generation,
         local_replica: identity.replica,
-        writer_session: Uuid::new_v4(),
+        writer_session: state.writer_session,
         counter: 1,
         head: cover.clone(),
         floor: cover.clone(),
@@ -171,6 +179,9 @@ async fn publish_base(
         .put(&share::head_key(&prefix, 0)?, &share::encode_head(&head)?)
         .await
         .map_err(|error| anyhow::anyhow!("put initial head: {error:?}"))?;
+    state.head_counter = head.counter;
+    state.local_cursor = head.local_cursor;
+    save_state(&source.db, &state).await?;
     Ok(Published {
         endpoint,
         prefix,
@@ -1023,7 +1034,7 @@ async fn interrupted_base_cut_leaves_orphans_for_delayed_own_gc() -> Result<()> 
         "interrupted cut fixture has no chunks"
     );
     store.inject_error_for_kind(
-        StoreOperation::Create,
+        StoreOperation::Put,
         StoreObjectKind::Base,
         StoreError::Transient("injected manifest failure".into()),
     );
@@ -1058,7 +1069,7 @@ async fn interrupted_base_cut_leaves_orphans_for_delayed_own_gc() -> Result<()> 
             .map_err(|error| anyhow::anyhow!("partial base chunk missing: {error:?}"))?;
     }
 
-    store.clear_error_for_kind(StoreOperation::Create, StoreObjectKind::Base);
+    store.clear_error_for_kind(StoreOperation::Put, StoreObjectKind::Base);
     source
         .library
         .write_local(key, support::playlist("replacement snapshot"))

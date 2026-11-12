@@ -173,7 +173,7 @@ impl ObjectStore for MemoryObjectStore {
 
     fn put<'a>(&'a self, key: &'a str, bytes: &'a [u8]) -> BoxFuture<'a, ObjectTag, StoreError> {
         Box::pin(async move {
-            self.before(StoreOperation::Put).await?;
+            self.before_key(StoreOperation::Put, key).await?;
             let config = recover_lock(&self.config).clone();
             let stored = config.partial_write_bytes.map_or_else(
                 || bytes.to_vec(),

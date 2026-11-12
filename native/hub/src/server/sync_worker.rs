@@ -69,13 +69,31 @@ const PEER_CONCURRENCY: usize = 4;
 const PEER_RETRY_START: Duration = Duration::from_secs(1);
 const PEER_RETRY_CAP: Duration = Duration::from_secs(30);
 const TOKEN_SAFETY_MARGIN: Duration = Duration::from_secs(30);
-const SHARE_PULL_INTERVAL: Duration = Duration::from_secs(60);
-const SHARE_BACKGROUND_PULL_INTERVAL: Duration = Duration::from_secs(15 * 60);
-const SHARE_PUSH_DEBOUNCE: Duration = Duration::from_secs(10);
-const SHARE_STATISTICS_INTERVAL: Duration = Duration::from_secs(30 * 60);
-const SHARE_GC_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 const SHARE_RETRY_START: Duration = Duration::from_secs(1);
 const SHARE_RETRY_CAP: Duration = Duration::from_secs(30);
+
+#[derive(Clone, Copy, Debug)]
+struct ShareWorkerTimers {
+    tick: Duration,
+    foreground_pull: Duration,
+    background_pull: Duration,
+    push_debounce: Duration,
+    statistics_push: Duration,
+    idle_push: Duration,
+}
+
+impl Default for ShareWorkerTimers {
+    fn default() -> Self {
+        Self {
+            tick: Duration::from_secs(1),
+            foreground_pull: Duration::from_secs(60),
+            background_pull: Duration::from_secs(15 * 60),
+            push_debounce: Duration::from_secs(10),
+            statistics_push: Duration::from_secs(30 * 60),
+            idle_push: Duration::from_secs(24 * 60 * 60),
+        }
+    }
+}
 
 #[derive(Clone)]
 struct ShareStoreSession {
@@ -482,7 +500,13 @@ pub async fn run(
         join_workers(metadata, audio),
         verify_managed_audio(global.clone(), notify.clone(), cancel.clone()),
         maintain_metadata(global.clone(), cancel.clone()),
-        run_share_worker(global, notify, cancel, Arc::new(OpenDalShareStoreFactory))
+        run_share_worker(
+            global,
+            notify,
+            cancel,
+            Arc::new(OpenDalShareStoreFactory),
+            ShareWorkerTimers::default(),
+        )
     );
 }
 
@@ -491,11 +515,12 @@ async fn run_share_worker(
     notify: Arc<dyn Fn() + Send + Sync>,
     cancel: CancellationToken,
     factory: Arc<dyn ShareStoreFactory>,
+    timers: ShareWorkerTimers,
 ) {
     let mut sessions = HashMap::<Uuid, ShareStoreSession>::new();
     let mut retry = HashMap::<Uuid, (Duration, Instant)>::new();
     let mut schedules = HashMap::<Uuid, ShareSchedule>::new();
-    let mut interval = tokio::time::interval(Duration::from_secs(1));
+    let mut interval = tokio::time::interval(timers.tick);
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
         tokio::select! {
@@ -579,22 +604,22 @@ async fn run_share_worker(
                     .and_then(|params| params.library_id)
                     == Some(id);
                 let poll_interval = if foreground {
-                    SHARE_PULL_INTERVAL
+                    timers.foreground_pull
                 } else {
-                    SHARE_BACKGROUND_PULL_INTERVAL
+                    timers.background_pull
                 };
                 let pull_due = schedule
                     .last_pull
                     .is_none_or(|last| last.elapsed() >= poll_interval);
                 let push_due = schedule.last_pull.is_none()
-                    || schedule.last_push.elapsed() >= SHARE_GC_INTERVAL
+                    || schedule.last_push.elapsed() >= timers.idle_push
                     || pending.is_some_and(|_| match schedule.pending_change {
                         Some(PendingShareChange::StatisticsOnly) => {
-                            schedule.last_push.elapsed() >= SHARE_STATISTICS_INTERVAL
+                            schedule.last_push.elapsed() >= timers.statistics_push
                         }
                         Some(PendingShareChange::Content) => schedule
                             .last_change
-                            .is_some_and(|last| last.elapsed() >= SHARE_PUSH_DEBOUNCE),
+                            .is_some_and(|last| last.elapsed() >= timers.push_debounce),
                         None => false,
                     });
                 if !pull_due && !push_due {

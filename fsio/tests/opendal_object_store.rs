@@ -63,6 +63,8 @@ async fn webdav_probe_and_tag_roundtrip() {
         .await
         .unwrap();
     assert!(caps.write_probe);
+    assert!(!caps.conditional_create);
+    assert!(!caps.conditional_put);
     assert_probed_conditional_effects(&store, caps).await;
     let tag = store
         .put("devices/test.generation/value", b"value")
@@ -81,6 +83,20 @@ async fn webdav_probe_and_tag_roundtrip() {
     }
     store.delete("devices/test.generation/value").await.unwrap();
     store.delete("devices/test.generation/value").await.unwrap();
+}
+
+#[tokio::test]
+async fn webdav_listing_returns_objects_without_collection_entries() {
+    let server = WebDavFixture::start(Vec::new()).await.unwrap();
+    let store = OpenDalObjectStore::new(webdav_config(&server)).unwrap();
+    store
+        .put("devices/owner.generation/seg/value.gz", b"segment")
+        .await
+        .unwrap();
+    assert_eq!(
+        store.list_prefix("devices").await.unwrap(),
+        ["devices/owner.generation/seg/value.gz"]
+    );
 }
 
 #[tokio::test]
@@ -112,25 +128,50 @@ async fn s3_probe_and_tag_roundtrip() {
 }
 
 #[tokio::test]
-async fn conditional_if_match_probe_disables_ignored_and_rejected_headers() {
-    for mode in ["ignored", "rejected"] {
-        let server = WebDavFixture::start(Vec::new()).await.unwrap();
-        if mode == "ignored" {
-            server.ignore_if_match();
-        } else {
-            server.reject_if_match_with_bad_request();
-        }
-        let store = OpenDalObjectStore::new(webdav_config(&server)).unwrap();
-        let caps = fsio::self_test::probe_share_object_store(&store, "devices/test.generation")
+async fn s3_fixture_models_conflicts_paginated_listing_and_latest_overwrite() {
+    let server = S3Fixture::start(Vec::new()).await.unwrap();
+    server.enable_versioned_overwrites();
+    let store = OpenDalObjectStore::new(s3_config(&server)).unwrap();
+    let key = "devices/fixture/conditional";
+    server.conflict_next_put();
+    assert!(matches!(
+        store.put(key, b"first").await,
+        Err(StoreError::PreconditionFailed)
+    ));
+    let tag = store.put(key, b"first").await.unwrap();
+    server.conflict_next_conditional_put();
+    assert!(matches!(
+        store.put_if_match(key, &tag, b"conflicted").await,
+        Err(StoreError::PreconditionFailed)
+    ));
+    store.put(key, b"latest").await.unwrap();
+    assert_eq!(store.get(key).await.unwrap().bytes, b"latest");
+    assert_eq!(
+        server.version_count(".rune/sync/devices/fixture/conditional"),
+        1
+    );
+
+    for index in 0..1001 {
+        store
+            .put(&format!("devices/paged/{index:04}"), b"item")
             .await
             .unwrap();
-        assert!(
-            caps.write_probe,
-            "{mode} conditional behavior must not disable sync writes"
-        );
-        assert!(!caps.conditional_put, "{mode} If-Match must be disabled");
-        assert!(server.write_requests().contains(&"PUT".to_string()));
     }
+    let listed = store.list_prefix("devices/paged").await.unwrap();
+    assert_eq!(listed.len(), 1001);
+}
+
+#[tokio::test]
+async fn webdav_probe_reports_no_conditional_write_capabilities() {
+    let server = WebDavFixture::start(Vec::new()).await.unwrap();
+    let store = OpenDalObjectStore::new(webdav_config(&server)).unwrap();
+    let caps = fsio::self_test::probe_share_object_store(&store, "devices/test.generation")
+        .await
+        .unwrap();
+    assert!(caps.write_probe);
+    assert!(!caps.conditional_create);
+    assert!(!caps.conditional_put);
+    assert!(server.write_requests().contains(&"PUT".to_string()));
 }
 
 #[tokio::test]

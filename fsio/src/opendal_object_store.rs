@@ -1,5 +1,5 @@
 //! OpenDAL-backed object storage for the library's `.rune/sync/` namespace.
-use std::{fmt, time::Duration};
+use std::{collections::BTreeSet, fmt, time::Duration};
 
 use opendal::{services, ErrorKind, HttpTransporter, OperationContext, Operator as AsyncOperator};
 use opendal_http_transport_reqwest::ReqwestTransport;
@@ -220,7 +220,8 @@ fn map_error(error: opendal::Error) -> StoreError {
         ErrorKind::NotFound => StoreError::NotFound,
         ErrorKind::PermissionDenied => StoreError::PermissionDenied,
         ErrorKind::ConditionNotMatch => StoreError::PreconditionFailed,
-        ErrorKind::Conflict | ErrorKind::RateLimited | ErrorKind::AlreadyExists => {
+        ErrorKind::Conflict => StoreError::PreconditionFailed,
+        ErrorKind::RateLimited | ErrorKind::AlreadyExists => {
             StoreError::Transient(error.to_string())
         }
         ErrorKind::Unexpected
@@ -233,6 +234,18 @@ fn map_error(error: opendal::Error) -> StoreError {
             StoreError::Transient(error.to_string())
         }
         _ => StoreError::Permanent(error.to_string()),
+    }
+}
+
+fn operation_error(operation: &str, key: &str, error: opendal::Error) -> StoreError {
+    match map_error(error) {
+        StoreError::Transient(message) => {
+            StoreError::Transient(format!("{operation} {key}: {message}"))
+        }
+        StoreError::Permanent(message) => {
+            StoreError::Permanent(format!("{operation} {key}: {message}"))
+        }
+        other => other,
     }
 }
 
@@ -254,7 +267,8 @@ fn map_http_status(status: u16, detail: &str, temporary: bool) -> StoreError {
         401 => StoreError::Unauthorized,
         403 => StoreError::PermissionDenied,
         412 => StoreError::PreconditionFailed,
-        409 | 423 | 500..=599 => StoreError::Transient(detail.to_owned()),
+        409 => StoreError::PreconditionFailed,
+        423 | 500..=599 => StoreError::Transient(detail.to_owned()),
         408 => StoreError::Transient(detail.to_owned()),
         400..=499 => StoreError::Permanent(detail.to_owned()),
         _ if temporary => StoreError::Transient(detail.to_owned()),
@@ -266,8 +280,16 @@ impl ObjectStore for OpenDalObjectStore {
     fn get<'a>(&'a self, key: &'a str) -> sync::protocol::BoxFuture<'a, ObjectValue, StoreError> {
         Box::pin(async move {
             let key = object_key(key)?;
-            let reader = self.operator.reader(&key).await.map_err(map_error)?;
-            let bytes = reader.read(..).await.map_err(map_error)?.to_vec();
+            let reader = self
+                .operator
+                .reader(&key)
+                .await
+                .map_err(|error| operation_error("GET", &key, error))?;
+            let bytes = reader
+                .read(..)
+                .await
+                .map_err(|error| operation_error("read GET", &key, error))?
+                .to_vec();
             let metadata = reader.metadata().cloned().ok_or_else(|| {
                 StoreError::Permanent("OpenDAL GET response omitted metadata".into())
             })?;
@@ -293,14 +315,14 @@ impl ObjectStore for OpenDalObjectStore {
                 Err(error) if error.kind() == ErrorKind::ConditionNotMatch => {
                     return Ok(ConditionalGet::NotModified);
                 }
-                Err(error) => return Err(map_error(error)),
+                Err(error) => return Err(operation_error("conditional GET", &key, error)),
             };
             let bytes = match reader.read(..).await {
                 Ok(bytes) => bytes.to_vec(),
                 Err(error) if error.kind() == ErrorKind::ConditionNotMatch => {
                     return Ok(ConditionalGet::NotModified);
                 }
-                Err(error) => return Err(map_error(error)),
+                Err(error) => return Err(operation_error("read conditional GET", &key, error)),
             };
             let metadata = reader.metadata().cloned().ok_or_else(|| {
                 StoreError::Permanent("OpenDAL GET response omitted metadata".into())
@@ -383,16 +405,26 @@ impl ObjectStore for OpenDalObjectStore {
             } else {
                 format!("{}/", object_key(prefix.trim_end_matches('/'))?)
             };
-            self.operator
-                .list(&prefix)
-                .await
-                .map(|entries| {
-                    entries
-                        .into_iter()
-                        .map(|entry| entry.path().to_owned())
-                        .collect()
-                })
-                .map_err(map_error)
+            let mut pending = vec![prefix.clone()];
+            let mut visited = BTreeSet::from([prefix]);
+            let mut objects = BTreeSet::new();
+            while let Some(path) = pending.pop() {
+                let entries = self
+                    .operator
+                    .list(&path)
+                    .await
+                    .map_err(|error| operation_error("LIST", &path, error))?;
+                for entry in entries {
+                    if entry.metadata().mode().is_file() {
+                        objects.insert(entry.path().to_owned());
+                    } else if entry.metadata().mode().is_dir()
+                        && visited.insert(entry.path().to_owned())
+                    {
+                        pending.push(entry.path().to_owned());
+                    }
+                }
+            }
+            Ok(objects.into_iter().collect())
         })
     }
 }
@@ -410,7 +442,11 @@ mod tests {
             map_http_status(412, "412", false),
             StoreError::PreconditionFailed
         );
-        for status in [409, 423, 500, 503, 599, 408] {
+        assert_eq!(
+            map_http_status(409, "conditional conflict", false),
+            StoreError::PreconditionFailed
+        );
+        for status in [423, 500, 503, 599, 408] {
             assert!(matches!(
                 map_http_status(status, "temporary", false),
                 StoreError::Transient(_)
@@ -441,6 +477,10 @@ mod tests {
         assert_eq!(
             map_error(Error::new(ErrorKind::NotFound, "missing")),
             StoreError::NotFound
+        );
+        assert_eq!(
+            map_error(Error::new(ErrorKind::PermissionDenied, "read-only share")),
+            StoreError::PermissionDenied
         );
         assert_eq!(
             map_error(Error::new(ErrorKind::ConditionNotMatch, "condition")),

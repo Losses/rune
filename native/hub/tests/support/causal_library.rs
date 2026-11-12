@@ -67,6 +67,21 @@ impl SqlLibrary {
         let options = fixtures::single_connection_options();
         let db = Database::connect(options).await?;
         Migrator::up(&db, None).await?;
+        Self::from_database(root, namespace, actor, db).await
+    }
+
+    pub async fn new_persistent(namespace: Uuid, actor: Uuid) -> Result<Self> {
+        let root = tempfile::tempdir()?;
+        let db = fixtures::disk_database(&root.path().join("library.sqlite"), actor).await?;
+        Self::from_database(root, namespace, actor, db).await
+    }
+
+    async fn from_database(
+        root: tempfile::TempDir,
+        namespace: Uuid,
+        actor: Uuid,
+        db: DatabaseConnection,
+    ) -> Result<Self> {
         let library = fixtures::open_library(db.clone(), actor, Some(namespace)).await?;
         let peer = Arc::new(library.endpoint());
         Ok(Self {

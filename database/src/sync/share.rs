@@ -171,6 +171,15 @@ impl ShareState {
             }
         }
     }
+
+    fn rotate_generation(&mut self) {
+        self.generation = Uuid::new_v4();
+        self.writer_session = Uuid::new_v4();
+        self.head_counter = 0;
+        self.local_cursor = 0;
+        self.observed_objects.clear();
+        self.unavailable_bases.clear();
+    }
 }
 
 /// Load the local share state or create its first generation for this library binding.
@@ -405,17 +414,14 @@ pub async fn cut_base<M: SyncModel>(request: BaseCutRequest<'_, M>) -> SharePush
             chunk_key(&prefix.to_string(), &object.name)
         }
         .map_err(|error| SharePushError::Failed(error.to_string()))?;
-        match store.create(&key, &object.bytes).await {
-            Ok(_) => (),
-            Err(StoreError::PreconditionFailed) => {
-                if store.get(&key).await.map_err(push_store_error)?.bytes != object.bytes {
-                    return Err(SharePushError::Failed(
-                        "immutable base object name collision".into(),
-                    ));
-                }
-            }
-            Err(error) => return Err(push_store_error(error)),
-        }
+        write_immutable_object(
+            store,
+            &key,
+            &object.bytes,
+            capabilities,
+            "immutable base object name collision",
+        )
+        .await?;
     }
     let cover = export
         .manifest
@@ -482,7 +488,12 @@ pub async fn cut_base<M: SyncModel>(request: BaseCutRequest<'_, M>) -> SharePush
             .map_err(|error| SharePushError::Failed(error.to_string()))?;
         let bytes =
             encode_head(&next).map_err(|error| SharePushError::Failed(error.to_string()))?;
-        store.create(&key, &bytes).await.map_err(push_store_error)?;
+        let result = if capabilities.conditional_head_write {
+            store.create(&key, &bytes).await
+        } else {
+            store.put(&key, &bytes).await
+        };
+        result.map_err(push_store_error)?;
         next
     };
     advance_export_cursor(
@@ -1103,6 +1114,16 @@ pub async fn pull<M: SyncModel>(
     )
     .await
     .map_err(internal_error)?;
+    let own_prefix = DevicePrefix {
+        stream: local_state.stream,
+        generation: local_state.generation,
+    };
+    if peers
+        .iter()
+        .any(|(_, head)| head.retired.contains(&own_prefix.to_string()))
+    {
+        local_state.rotate_generation();
+    }
     let now_ms = chrono::Utc::now().timestamp_millis();
     for (key, tag) in observed_tags {
         local_state.observe_tag(key, tag, now_ms);
@@ -1120,6 +1141,16 @@ pub async fn pull<M: SyncModel>(
             .checkpoint(&checkpoint)
             .await
             .map_err(|error| SharePullError::Store(error.to_string()))?;
+        if head.stream == local_state.stream {
+            if head.generation == local_state.generation {
+                if head.writer_session != local_state.writer_session {
+                    local_state.rotate_generation();
+                }
+            } else if head.writer_session != local_state.writer_session {
+                local_state.rotate_generation();
+            }
+            continue;
+        }
         let needs_base = applied.is_none_or(|received| received.sequence < head.floor.seq);
         let selected_base = if needs_base {
             Some(
@@ -1135,12 +1166,6 @@ pub async fn pull<M: SyncModel>(
         } else {
             None
         };
-        if head.stream == local_state.stream {
-            local_state.generation = head.generation;
-            local_state.writer_session = head.writer_session;
-            local_state.head_counter = head.counter;
-            local_state.local_cursor = head.local_cursor;
-        }
         let peer = match selected_base.clone() {
             Some(base) => SharePeer::<M>::new_with_base(
                 store.clone(),
@@ -1368,18 +1393,14 @@ pub async fn publish_journal<M: SyncModel>(
         let hash16 = &hash[..16];
         let key = segment_key(&prefix, group.first, group.last, hash16)
             .map_err(|error| SharePushError::Failed(error.to_string()))?;
-        match store.create(&key, &bytes).await {
-            Ok(_) => (),
-            Err(StoreError::PreconditionFailed) => {
-                let existing = store.get(&key).await.map_err(push_store_error)?;
-                if existing.bytes != bytes {
-                    return Err(SharePushError::Failed(
-                        "immutable segment name contains different bytes".into(),
-                    ));
-                }
-            }
-            Err(error) => return Err(push_store_error(error)),
-        }
+        write_immutable_object(
+            store,
+            &key,
+            &bytes,
+            capabilities,
+            "immutable segment name contains different bytes",
+        )
+        .await?;
         let reference = SegmentRef {
             level: 0,
             first: group.first,
@@ -1438,17 +1459,14 @@ pub async fn publish_journal<M: SyncModel>(
         let hash16 = &hash[..16];
         let key = segment_key(&prefix, rollup.first, rollup.last, hash16)
             .map_err(|error| SharePushError::Failed(error.to_string()))?;
-        match store.create(&key, &bytes).await {
-            Ok(_) => (),
-            Err(StoreError::PreconditionFailed) => {
-                if store.get(&key).await.map_err(push_store_error)?.bytes != bytes {
-                    return Err(SharePushError::Failed(
-                        "immutable roll-up name collision".into(),
-                    ));
-                }
-            }
-            Err(error) => return Err(push_store_error(error)),
-        }
+        write_immutable_object(
+            store,
+            &key,
+            &bytes,
+            capabilities,
+            "immutable roll-up name collision",
+        )
+        .await?;
         next_head.segments.retain(|reference| {
             !(reference.level < rollup.level
                 && reference.first >= rollup.first
@@ -1662,6 +1680,39 @@ pub(super) fn push_store_error(error: StoreError) -> SharePushError {
         StoreError::Transient(message) => SharePushError::Failed(format!("transient: {message}")),
         StoreError::NotFound => SharePushError::MissingObject,
         other => SharePushError::Failed(format!("{other:?}")),
+    }
+}
+
+async fn write_immutable_object(
+    store: &dyn ObjectStore,
+    key: &str,
+    bytes: &[u8],
+    capabilities: ShareCapabilities,
+    collision_message: &'static str,
+) -> SharePushResult<()> {
+    if capabilities.conditional_create {
+        match store.create(key, bytes).await {
+            Ok(_) => Ok(()),
+            Err(StoreError::PreconditionFailed) => {
+                if store.get(key).await.map_err(push_store_error)?.bytes == bytes {
+                    Ok(())
+                } else {
+                    Err(SharePushError::Failed(collision_message.into()))
+                }
+            }
+            Err(error) => Err(push_store_error(error)),
+        }
+    } else {
+        match store.get(key).await {
+            Ok(existing) if existing.bytes == bytes => Ok(()),
+            Ok(_) => Err(SharePushError::Failed(collision_message.into())),
+            Err(StoreError::NotFound) => store
+                .put(key, bytes)
+                .await
+                .map(|_| ())
+                .map_err(push_store_error),
+            Err(error) => Err(push_store_error(error)),
+        }
     }
 }
 
