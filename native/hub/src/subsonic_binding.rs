@@ -5,7 +5,9 @@ use crate::{
     },
     utils::Broadcaster,
     visualizer::RANDOM_COVERS,
+    visualizer::VISUALIZER,
 };
+use ::visualizer::VisualizerInputs as EngineInputs;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::ErrorKind;
@@ -365,7 +367,17 @@ impl SubsonicBinding {
     }
 
     pub(crate) fn start_jukebox_polling(self: &Arc<Self>) {
-        if self.play_on_this_device || !self.probe.roles.jukebox_role {
+        if self.play_on_this_device {
+            return;
+        }
+        VISUALIZER.set_inputs(
+            if self.probe.roles.jukebox_role && self.probe.supports_rune_visualizer_feed() {
+                EngineInputs::Full
+            } else {
+                EngineInputs::None
+            },
+        );
+        if !self.probe.roles.jukebox_role {
             return;
         }
         let Ok(mut poll) = self.jukebox_poll.lock() else {
@@ -431,6 +443,9 @@ impl SubsonicBinding {
             && let Some(token) = feed.take()
         {
             token.cancel();
+        }
+        if !self.play_on_this_device {
+            VISUALIZER.set_inputs(EngineInputs::None);
         }
     }
 

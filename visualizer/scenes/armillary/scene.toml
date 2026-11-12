@@ -1,5 +1,6 @@
 format = 1
 name = "Armillary"
+inputs_required = "spectrum_and_chart"
 license = "MPL-2.0"
 description = "An armillary sphere hung in space, its rings strings of dots and crosses hung as pendulums, pushed to swing out and turn over; a planet in character art at its heart, swelling with the music; polygons drawn in lines round it, lit by the accents"
 

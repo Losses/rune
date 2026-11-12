@@ -1,10 +1,38 @@
 //! The scenes the visualizer can show, in the user's order, with a history of what was loaded.
 
 use std::collections::VecDeque;
+use std::fmt;
 use std::path::{Path, PathBuf};
 
+use crate::scene::{SceneInputs, Source};
 use anyhow::{Context, Result, bail};
 use rand::Rng;
+
+/// Inputs the current source can provide.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum VisualizerInputs {
+    #[default]
+    None,
+    SpectrumOnly,
+    Full,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PresetLoadError {
+    InputsUnavailable,
+}
+
+impl fmt::Display for PresetLoadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InputsUnavailable => {
+                f.write_str("The source does not provide this scene's inputs")
+            }
+        }
+    }
+}
+
+impl std::error::Error for PresetLoadError {}
 
 /// Where a scene is: a folder, or the program (a built-in scene, by name). The app's cover wall
 /// takes part in the choice like a scene, but the app draws it: the visualizer draws nothing while
@@ -83,6 +111,7 @@ const HISTORY_LEN: usize = 64;
 
 struct Entry {
     preset: Preset,
+    inputs: SceneInputs,
     /// The folder the scene is in, relative to the folder it was found under.
     group: String,
 }
@@ -94,6 +123,7 @@ pub struct PresetInfo {
     pub location: Location,
     /// Empty for a built-in scene.
     pub group: String,
+    pub inputs: SceneInputs,
 }
 
 /// The folder of `path` relative to `root`, with `/` between the folders; the name of `root`
@@ -133,6 +163,9 @@ fn collect(dir: &Path, entries: &mut Vec<Entry>) -> Result<()> {
             if crate::scene::is_scene(&path) {
                 found.push(Entry {
                     group: group_of(dir, &path),
+                    inputs: Source::Dir(path.clone())
+                        .required_inputs()
+                        .unwrap_or_default(),
                     preset: Preset::from_path(&path),
                 });
             } else {
@@ -152,7 +185,7 @@ fn collect(dir: &Path, entries: &mut Vec<Entry>) -> Result<()> {
 #[derive(Default)]
 pub struct PresetList {
     /// The names of the built-in scenes.
-    builtins: Vec<String>,
+    builtins: Vec<(String, SceneInputs)>,
     /// Whether the app's cover wall is one of the scenes.
     cover_wall: bool,
     entries: Vec<Entry>,
@@ -165,11 +198,12 @@ pub struct PresetList {
     history: VecDeque<Preset>,
     /// Index into `history` of the preset that is loaded. Meaningless while it is empty.
     cursor: usize,
+    inputs: VisualizerInputs,
 }
 
 impl PresetList {
     /// A list with these built-in scenes, which are all it holds until folders are scanned.
-    pub fn with_builtins(names: Vec<String>) -> Self {
+    pub fn with_builtins(names: Vec<(String, SceneInputs)>) -> Self {
         let mut list = Self {
             builtins: names,
             ..Self::default()
@@ -225,6 +259,37 @@ impl PresetList {
         !self.disabled.contains(location) || self.enabled().next().is_none()
     }
 
+    pub fn set_inputs(&mut self, inputs: VisualizerInputs) -> bool {
+        let changed = self.inputs != inputs;
+        self.inputs = inputs;
+        changed
+    }
+
+    pub fn source_inputs(&self) -> VisualizerInputs {
+        self.inputs
+    }
+
+    pub fn supports_source_inputs(&self, location: &Location) -> bool {
+        self.supports_inputs(location, self.inputs)
+    }
+
+    /// Inputs the installed visualizer scenes can use; the app's cover wall is not a shader scene.
+    pub fn available_inputs(&self) -> VisualizerInputs {
+        if self.entries.iter().any(|entry| {
+            entry.preset.location != Location::CoverWall
+                && self.supports(&entry.preset.location, self.inputs)
+        }) {
+            self.inputs
+        } else {
+            VisualizerInputs::None
+        }
+    }
+
+    /// Whether an entry can draw with the currently available inputs.
+    pub fn supports_inputs(&self, location: &Location, inputs: VisualizerInputs) -> bool {
+        self.supports(location, inputs)
+    }
+
     /// The scenes random picks choose from: those not turned off.
     fn enabled(&self) -> impl Iterator<Item = &Entry> {
         self.entries
@@ -235,11 +300,22 @@ impl PresetList {
     /// The scenes picks choose from (every scene when all are off).
     fn choices(&self) -> Vec<&Entry> {
         let enabled: Vec<&Entry> = self.enabled().collect();
-        if enabled.is_empty() {
+        let enabled = if enabled.is_empty() {
             self.entries.iter().collect()
         } else {
             enabled
-        }
+        };
+        enabled
+            .into_iter()
+            .filter(|entry| match self.inputs {
+                VisualizerInputs::None => false,
+                VisualizerInputs::SpectrumOnly => {
+                    entry.preset.location != Location::CoverWall
+                        && entry.inputs == SceneInputs::Spectrum
+                }
+                VisualizerInputs::Full => true,
+            })
+            .collect()
     }
 
     /// Every scene in the user's order.
@@ -276,6 +352,7 @@ impl PresetList {
     pub fn resume(&mut self) -> Option<Preset> {
         let last = self.history.get(self.cursor).map(|p| p.location.clone());
         if let Some(last) = &last
+            && self.supports(last, self.inputs)
             && self.is_enabled(last)
             && self.contains(last)
         {
@@ -286,7 +363,10 @@ impl PresetList {
             None => self
                 .ordered()
                 .into_iter()
-                .find(|e| self.is_enabled(&e.preset.location))?
+                .find(|entry| {
+                    self.is_enabled(&entry.preset.location)
+                        && self.supports(&entry.preset.location, self.inputs)
+                })?
                 .preset
                 .clone(),
         };
@@ -294,15 +374,17 @@ impl PresetList {
     }
 
     fn replace(&mut self, mut entries: Vec<Entry>) -> usize {
-        for name in &self.builtins {
+        for (name, inputs) in &self.builtins {
             entries.push(Entry {
                 preset: Preset::builtin(name),
+                inputs: *inputs,
                 group: String::new(),
             });
         }
         if self.cover_wall {
             entries.push(Entry {
                 preset: Preset::cover_wall(),
+                inputs: SceneInputs::Spectrum,
                 group: String::new(),
             });
         }
@@ -362,6 +444,7 @@ impl PresetList {
                 name: entry.preset.name.clone(),
                 location: entry.preset.location.clone(),
                 group: entry.group.clone(),
+                inputs: entry.inputs,
             })
             .collect();
         infos.sort_by_cached_key(|i| {
@@ -380,8 +463,14 @@ impl PresetList {
         if self.cursor == 0 || self.history.is_empty() {
             return Ok(None);
         }
-        self.cursor -= 1;
-        Ok(Some(self.history[self.cursor].clone()))
+        let Some(cursor) = (0..self.cursor)
+            .rev()
+            .find(|&index| self.supports(&self.history[index].location, self.inputs))
+        else {
+            return Ok(None);
+        };
+        self.cursor = cursor;
+        Ok(Some(self.history[cursor].clone()))
     }
 
     /// The scene for a switch, while `current` is on screen: the next one in the order that is
@@ -389,7 +478,9 @@ impl PresetList {
     /// history is dropped.
     pub fn next_other(&mut self, current: &Location) -> Result<Preset> {
         self.check_not_empty()?;
-        let preset = self.after(current).context("No scene to switch to")?;
+        let preset = self
+            .after(current)
+            .context("No available scene to switch to")?;
         self.remember(preset)
     }
 
@@ -397,6 +488,10 @@ impl PresetList {
     pub fn random(&mut self, rng: &mut impl Rng) -> Result<Preset> {
         self.check_not_empty()?;
         let choices = self.choices();
+        anyhow::ensure!(
+            !choices.is_empty(),
+            "No scene supports the available inputs"
+        );
         let preset = choices[rng.gen_range(0..choices.len())].preset.clone();
         self.remember(preset)
     }
@@ -420,6 +515,16 @@ impl PresetList {
         }
         Ok(())
     }
+
+    fn supports(&self, location: &Location, inputs: VisualizerInputs) -> bool {
+        self.entries.iter().any(|entry| {
+            entry.preset.location == *location
+                && (location == &Location::CoverWall
+                    || (inputs != VisualizerInputs::None
+                        && (inputs == VisualizerInputs::Full
+                            || entry.inputs == SceneInputs::Spectrum)))
+        })
+    }
 }
 
 #[cfg(test)]
@@ -441,10 +546,12 @@ mod tests {
             .iter()
             .map(|name| Entry {
                 preset: Preset::from_path(Path::new(name)),
+                inputs: SceneInputs::SpectrumAndChart,
                 group: String::new(),
             })
             .collect();
         let mut list = PresetList::default();
+        list.set_inputs(VisualizerInputs::Full);
         list.replace(entries);
         list
     }
@@ -519,6 +626,7 @@ mod tests {
         std::fs::write(dir.join("ignored.milk"), "").unwrap();
         std::fs::write(dir.join("Fractal/also.milk"), "").unwrap();
         let mut list = PresetList::default();
+        list.set_inputs(VisualizerInputs::Full);
         #[cfg(unix)]
         {
             symlink(&dir, dir.join("loop")).unwrap();
@@ -589,8 +697,11 @@ mod tests {
 
     #[test]
     fn builtins_are_listed_and_a_folder_scene_of_the_same_name_is_listed_beside_one() {
-        let names = ["Alpha", "Beta"].map(String::from).to_vec();
+        let names = ["Alpha", "Beta"]
+            .map(|name| (name.to_string(), SceneInputs::SpectrumAndChart))
+            .to_vec();
         let mut list = PresetList::with_builtins(names);
+        list.set_inputs(VisualizerInputs::Full);
         // Before any scan the built-in scenes are there.
         assert_eq!((list.len(), list.folder_len()), (2, 0));
         let dir = std::env::temp_dir().join(format!("rune-presets-builtin-{}", std::process::id()));
@@ -615,6 +726,7 @@ mod tests {
             name: "Alpha".into(),
             location: Location::Builtin("Alpha".into()),
             group: String::new(),
+            inputs: SceneInputs::SpectrumAndChart,
         }));
         // Every scene takes part in random picks and the history.
         let mut rng = rng();
@@ -674,8 +786,9 @@ mod tests {
 
     #[test]
     fn the_cover_wall_is_a_scene_only_when_the_app_has_one() {
-        let names = ["Alpha"].map(String::from).to_vec();
+        let names = [("Alpha".to_string(), SceneInputs::SpectrumAndChart)].to_vec();
         let mut list = PresetList::with_builtins(names);
+        list.set_inputs(VisualizerInputs::Full);
         assert_eq!(list.len(), 1);
         list.set_cover_wall(true);
         assert_eq!((list.len(), list.folder_len()), (2, 0));
@@ -683,6 +796,7 @@ mod tests {
             name: "Cover Wall".into(),
             location: Location::CoverWall,
             group: String::new(),
+            inputs: SceneInputs::Spectrum,
         }));
         // A scan keeps it.
         assert_eq!(list.scan_all(&[]).0, 2);
@@ -693,6 +807,39 @@ mod tests {
         );
         list.set_cover_wall(false);
         assert_eq!(list.len(), 1);
+    }
+
+    #[test]
+    fn spectrum_only_selection_skips_chart_scenes_for_next_random_and_previous() {
+        let at = |name: &str| Preset::from_path(Path::new(name)).location;
+        let mut list = listed(&["chart-a", "spectrum", "chart-b"]);
+        list.entries
+            .iter_mut()
+            .find(|entry| entry.preset.location == at("spectrum"))
+            .unwrap()
+            .inputs = SceneInputs::Spectrum;
+        list.set_inputs(VisualizerInputs::SpectrumOnly);
+        list.set_order(vec![at("chart-a"), at("spectrum"), at("chart-b")]);
+        list.remember_at(&at("spectrum"));
+        assert!(list.supports_inputs(&at("spectrum"), VisualizerInputs::SpectrumOnly));
+        assert!(!list.supports_inputs(&at("chart-a"), VisualizerInputs::SpectrumOnly));
+        assert_eq!(
+            list.next_other(&at("chart-a")).unwrap().location,
+            at("spectrum")
+        );
+        assert_eq!(list.previous().unwrap().unwrap().location, at("spectrum"));
+        assert_eq!(list.random(&mut rng()).unwrap().location, at("spectrum"));
+    }
+
+    #[test]
+    fn source_inputs_have_three_typed_states() {
+        let mut list = listed(&["chart", "spectrum"]);
+        list.set_inputs(VisualizerInputs::None);
+        assert_eq!(list.source_inputs(), VisualizerInputs::None);
+        list.set_inputs(VisualizerInputs::SpectrumOnly);
+        assert_eq!(list.source_inputs(), VisualizerInputs::SpectrumOnly);
+        list.set_inputs(VisualizerInputs::Full);
+        assert_eq!(list.source_inputs(), VisualizerInputs::Full);
     }
 
     #[test]

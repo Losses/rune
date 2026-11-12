@@ -1,5 +1,6 @@
 format = 1
 name = "CRT Wall"
+inputs_required = "spectrum_and_chart"
 license = "MPL-2.0"
 description = "An endless wall of old television sets piled every which way, each changing channel on its own beat"
 

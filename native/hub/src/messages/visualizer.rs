@@ -1,6 +1,24 @@
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
+/// Inputs available from the current source to installed scenes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, SignalPiece)]
+#[serde(rename_all = "snake_case")]
+pub enum VisualizerInputs {
+    #[default]
+    None,
+    SpectrumOnly,
+    Full,
+}
+
+/// Inputs required by a scene to produce the picture it was designed for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, SignalPiece)]
+#[serde(rename_all = "snake_case")]
+pub enum VisualizerSceneInputs {
+    Spectrum,
+    SpectrumAndChart,
+}
+
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct StartVisualizerRequest {
     pub width: u32,
@@ -156,6 +174,7 @@ pub struct VisualizerSupportResponse {
     pub supported: bool,
     pub adapter: String,
     pub problem: Option<String>,
+    pub inputs: VisualizerInputs,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -178,6 +197,7 @@ pub struct VisualizerStatusResponse {
     /// `app:cover-wall` while the cover wall is on and nothing is drawn.
     pub preset_path: String,
     pub preset_count: u32,
+    pub inputs: VisualizerInputs,
     pub adapter: String,
     /// How frames reach the screen: "iosurface" (no copies, macOS), "dxgi-shared" (no copies,
     /// Windows), "vulkan-shared" (no copies, Linux), "surface" (no copies, Android: presented
@@ -241,6 +261,8 @@ pub struct VisualizerPresetEntry {
     pub group: String,
     /// Whether the scene is compiled into the program (its `path` is `builtin:<name>`).
     pub builtin: bool,
+    /// Inputs required by the scene: chart-dependent scenes are unavailable with spectrum alone.
+    pub inputs: VisualizerSceneInputs,
 }
 
 /// Every scene, the built-in ones, the cover wall (path `app:cover-wall`, which the app draws and

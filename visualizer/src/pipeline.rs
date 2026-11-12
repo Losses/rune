@@ -1091,6 +1091,14 @@ impl Pipeline {
         self.scene.push_pcm(interleaved, channels);
     }
 
+    pub fn set_feed_spectrum(&mut self, values: &[f32]) {
+        self.scene.set_feed_spectrum(values);
+    }
+
+    pub fn clear_feed_spectrum(&mut self) {
+        self.scene.clear_feed_spectrum();
+    }
+
     /// Show the scene in the folder `dir`, waiting until it is built. The render loop builds
     /// scenes on another thread instead (see [`Pipeline::scene_build_dir`]); tests wait.
     #[cfg(test)]

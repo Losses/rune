@@ -201,6 +201,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
       if (_disposed || !mounted) return;
       final status = signal.message;
 
+      _scenes.setInputs(status.inputs);
       _updateLabel(status);
       // No path yet: the scene the visualizer begins with is still being
       // built, and the page stays as it is until it shows.

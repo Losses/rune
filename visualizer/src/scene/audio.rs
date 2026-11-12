@@ -176,6 +176,7 @@ pub struct Analyzer {
     level: [f32; 3],
     average: [f32; 3],
     feel: FeelMeter,
+    feed_spectrum: Option<Vec<f32>>,
 }
 
 impl Analyzer {
@@ -197,6 +198,7 @@ impl Analyzer {
             level: [0.0; 3],
             average: [0.0; 3],
             feel: FeelMeter::new(),
+            feed_spectrum: None,
         }
     }
 
@@ -219,6 +221,26 @@ impl Analyzer {
             }
             self.recent.push_back([left, right]);
         }
+    }
+
+    /// Use the renderer feed's normalized FFT bins for the newest spectrum row.
+    pub fn set_feed_spectrum(&mut self, values: &[f32]) {
+        self.feed_spectrum = Some(
+            values
+                .iter()
+                .map(|value| {
+                    if value.is_finite() {
+                        value.clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    }
+                })
+                .collect(),
+        );
+    }
+
+    pub fn clear_feed_spectrum(&mut self) {
+        self.feed_spectrum = None;
     }
 
     /// One frame `dt` seconds after the last: a new spectrum row, the waveform and the levels.
@@ -272,6 +294,17 @@ impl Analyzer {
         let floor = self.peak_db - RANGE_DB;
         for (cell, db) in self.spectrum[..SPECTRUM_WIDTH].iter_mut().zip(row) {
             *cell = ((db - floor) / RANGE_DB).clamp(0.0, 1.0);
+        }
+        if let Some(feed) = &self.feed_spectrum
+            && !feed.is_empty()
+        {
+            for (index, value) in self.spectrum[..SPECTRUM_WIDTH].iter_mut().enumerate() {
+                let at = index as f32 * (feed.len().saturating_sub(1)) as f32
+                    / SPECTRUM_WIDTH.saturating_sub(1) as f32;
+                let lower = at.floor() as usize;
+                let upper = (lower + 1).min(feed.len() - 1);
+                *value = feed[lower] + (feed[upper] - feed[lower]) * at.fract();
+            }
         }
 
         let start = self.recent.len().saturating_sub(WAVEFORM_WIDTH);
@@ -352,6 +385,17 @@ mod tests {
             a.waveform[WAVEFORM_WIDTH - 1][0],
             a.waveform[WAVEFORM_WIDTH - 1][1]
         );
+    }
+
+    #[test]
+    fn a_renderer_feed_spectrum_reaches_the_spectrum_texture_row() {
+        let mut analyzer = Analyzer::new(44_100);
+        analyzer.set_feed_spectrum(&[0.0, 0.2, 1.0]);
+        analyzer.update(1.0 / 60.0);
+        let row = &analyzer.spectrum[..SPECTRUM_WIDTH];
+        assert!(row[0] < 0.01);
+        assert!(row[SPECTRUM_WIDTH / 2] > 0.2);
+        assert!(row[SPECTRUM_WIDTH - 1] > 0.99);
     }
 
     /// Clicks of noise every `period` seconds, with a little noise between.

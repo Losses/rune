@@ -6,7 +6,9 @@ use std::sync::{Arc, Mutex, MutexGuard, atomic::AtomicU32};
 use std::time::{Duration, Instant};
 
 use rtrb::{Producer, RingBuffer};
-use visualizer::{Frame, LabCommand, Location, PcmInput, RUNTIME_TOML, Visualizer};
+use visualizer::{
+    Frame, LabCommand, Location, PcmInput, RUNTIME_TOML, Visualizer, VisualizerInputs,
+};
 
 const SAMPLE_RATE: u32 = 48_000;
 
@@ -81,6 +83,7 @@ fn start_with(width: u32, height: u32, readback: bool) -> Option<(Visualizer, Fe
     };
     let visualizer = Visualizer::new();
     visualizer.prefer_readback(readback);
+    visualizer.set_inputs(VisualizerInputs::Full);
     visualizer.start(input, width, height, 60).unwrap();
     let feeder = Feeder {
         producer,
@@ -143,6 +146,18 @@ fn collect(visualizer: &Visualizer, feeder: &mut Feeder, count: usize) -> (Vec<C
     }
     let fps = (frames.last().unwrap().id - frames[0].id) as f64 / started.elapsed().as_secs_f64();
     (frames, fps)
+}
+
+fn wait_for_frame_after(visualizer: &Visualizer, feeder: &mut Feeder, id: u64) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while visualizer.latest_frame().is_none_or(|frame| frame.id <= id) {
+        assert!(
+            Instant::now() < deadline,
+            "frame stopped after source change"
+        );
+        feeder.pump();
+        std::thread::sleep(Duration::from_millis(2));
+    }
 }
 
 fn is_black(pixels: &[u8]) -> bool {
@@ -359,6 +374,22 @@ fn commands_before_start_are_errors() {
     assert!(visualizer.resize(10, 10).is_err());
     assert!(visualizer.next_preset().is_err());
     assert!(visualizer.latest_frame().is_none());
+}
+
+#[test]
+fn local_track_changes_keep_the_chart_scene_visible_without_chart_arrival() {
+    let Some((visualizer, mut feeder)) = start(320, 180) else {
+        return;
+    };
+    for path in ["/music/a.flac", "/music/b.flac"] {
+        let before = visualizer.latest_frame().unwrap().id;
+        visualizer.set_playback(Some(Path::new(path)), Duration::ZERO, true, None);
+        let status = visualizer.status();
+        assert_eq!(status.inputs, VisualizerInputs::Full);
+        assert_ne!(status.preset_path, "app:cover-wall");
+        wait_for_frame_after(&visualizer, &mut feeder, before);
+    }
+    visualizer.stop();
 }
 
 /// A folder adds scenes to the built-in ones; an empty list of folders brings the first built-in

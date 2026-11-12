@@ -543,6 +543,7 @@ void main() {
         group: '',
         builtin: true,
         enabled: true,
+        inputs: VisualizerSceneInputs.spectrum,
       ),
       VisualizerScene(
         path: 'builtin:torii-sea',
@@ -550,6 +551,7 @@ void main() {
         group: '',
         builtin: true,
         enabled: true,
+        inputs: VisualizerSceneInputs.spectrumAndChart,
       ),
       VisualizerScene(
         path: 'builtin:neon-street',
@@ -557,6 +559,7 @@ void main() {
         group: '',
         builtin: true,
         enabled: false,
+        inputs: VisualizerSceneInputs.spectrumAndChart,
       ),
     ];
 

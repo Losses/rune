@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use ::visualizer::VisualizerInputs as EngineInputs;
 use anyhow::Result;
 
 use crate::{
@@ -11,6 +12,7 @@ use crate::{
     node::NodeContext,
     server::libraries::{list_renderer_candidates, parse_library_ids},
     utils::{GlobalParams, ParamsExtractor},
+    visualizer::VISUALIZER,
 };
 
 impl ParamsExtractor for AttachRendererRequest {
@@ -32,6 +34,7 @@ impl Signal for AttachRendererRequest {
         request: &Self,
     ) -> Result<Option<Self::Response>> {
         node.attach_renderer(&request.fingerprint).await?;
+        VISUALIZER.set_inputs(EngineInputs::Full);
         Ok(Some(AttachRendererResponse { call_id: None }))
     }
 }

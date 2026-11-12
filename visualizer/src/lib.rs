@@ -78,10 +78,11 @@ pub use moments::{Chances, EffectLevel};
 pub use pipeline::{DEFAULT_PRESET_NAME, Transport, probe_gpu};
 use pipeline::{Pipeline, Rendered, SceneBuild};
 pub use plan::{PlanCut, PlanLook, PlanMoment, PlanSection, SongPlan};
-pub use presets::{Location, PresetInfo};
+pub use presets::{Location, PresetInfo, PresetLoadError, VisualizerInputs};
 use presets::{Preset, PresetList};
 pub use rhythm::{BeatTracker, Rhythm};
 use scene::Scene;
+pub use scene::SceneInputs;
 #[cfg(target_os = "linux")]
 pub use shared_vulkan::SharedFrame;
 pub use transition::CutInStyle;
@@ -242,6 +243,8 @@ pub struct Status {
     pub preset_path: String,
     /// Scenes to choose from: the built-in ones and those of the chosen folders.
     pub preset_count: usize,
+    /// Inputs available to installed scenes; `None` also means no installed scene can use them.
+    pub inputs: VisualizerInputs,
     pub adapter: String,
     /// How frames leave the GPU, once the render thread runs.
     pub transport: Option<Transport>,
@@ -270,7 +273,13 @@ struct Library {
 
 impl Default for Library {
     fn default() -> Self {
-        let names = builtin::scenes().into_iter().map(|s| s.name).collect();
+        let names = builtin::scenes()
+            .into_iter()
+            .map(|scene| {
+                let inputs = scene.source.required_inputs().unwrap_or_default();
+                (scene.name, inputs)
+            })
+            .collect();
         Self {
             folder: PresetList::with_builtins(names),
         }
@@ -352,6 +361,8 @@ struct Shared {
     /// The app could not show a shared frame: the render thread reads frames back from its next
     /// frame on.
     fall_back: AtomicBool,
+    /// Latest realtime spectrum from the renderer feed, retained between display frames.
+    feed_spectrum: Mutex<Option<Vec<f32>>>,
     /// Android: the window the next render thread presents into, which it takes.
     #[cfg(target_os = "android")]
     window: Mutex<Option<Window>>,
@@ -513,6 +524,7 @@ impl Visualizer {
                 adapter_luid: AtomicU64::new(0),
                 device_uuids: Mutex::new(None),
                 fall_back: AtomicBool::new(false),
+                feed_spectrum: Mutex::new(None),
                 #[cfg(target_os = "android")]
                 window: Mutex::new(None),
             }),
@@ -692,8 +704,10 @@ impl Visualizer {
             ChartSource::LocalFile { path, .. } => Some(path.as_path()),
             ChartSource::None | ChartSource::Remote { .. } | ChartSource::RemoteWithoutItem => None,
         };
-        if previous_path != path {
+        let track_changed = previous_path != path;
+        if track_changed {
             playback.generation += 1;
+            *lock(&self.shared.feed_spectrum) = None;
         }
         playback.source = match path {
             Some(path) => ChartSource::LocalFile {
@@ -749,6 +763,9 @@ impl Visualizer {
             chart,
         });
         let track_changed = !playback.source.same_item(&source);
+        if track_changed {
+            *lock(&self.shared.feed_spectrum) = None;
+        }
         playback.source = source;
         playback.position = position;
         playback.playing = playing;
@@ -783,6 +800,29 @@ impl Visualizer {
             *lock(&self.shared.feed_covers) = None;
         }
         self.shared.playing.store(playing, Ordering::Relaxed);
+    }
+
+    /// A realtime spectrum frame reached this visualizer from the player feed.
+    pub fn set_feed_spectrum(&self, values: &[f32]) {
+        if values.is_empty() || values.len() > 4096 {
+            return;
+        }
+        *lock(&self.shared.feed_spectrum) = Some(values.to_vec());
+    }
+
+    /// Record what the current source can provide and replace an unsupported scene.
+    pub fn set_inputs(&self, inputs: VisualizerInputs) {
+        let mut library = lock(&self.library);
+        let replacement = update_inputs(
+            &self.shared,
+            &mut library.folder,
+            inputs,
+            InputUpdateCause::SourceChanged,
+        );
+        if let Some(preset) = replacement {
+            drop(library);
+            let _ = self.load_entry(&preset);
+        }
     }
 
     /// Give the visualizer a chart from the remote renderer for its current item.
@@ -973,15 +1013,17 @@ impl Visualizer {
         if worker.is_some() {
             bail!("The visualizer is already started");
         }
+        let preset_count = self.shared.status().preset_count;
+        let inputs = lock(&self.library).folder.available_inputs();
         {
             let mut status = self.shared.status();
-            let preset_count = status.preset_count;
             *status = Status {
                 running: true,
                 width,
                 height,
                 target_fps: fps,
                 preset_count,
+                inputs,
                 ..Status::default()
             };
         }
@@ -1024,7 +1066,13 @@ impl Visualizer {
     /// background like [`Visualizer::load_preset_path`]; a newer request replaces one that is
     /// still being built.
     pub fn load_preset(&self, location: Location) -> Result<()> {
-        lock(&self.library).folder.remember_at(&location);
+        let mut library = lock(&self.library);
+        anyhow::ensure!(
+            library.folder.supports_source_inputs(&location),
+            PresetLoadError::InputsUnavailable
+        );
+        library.folder.remember_at(&location);
+        drop(library);
         self.send(Command::LoadScene(location))
     }
 
@@ -1047,10 +1095,26 @@ impl Visualizer {
             let message: Vec<String> = errors.iter().map(|e| format!("{e:#}")).collect();
             self.shared.set_error("scan_scenes", message.join("; "));
         }
+        let inputs = library.folder.source_inputs();
+        let replacement = update_inputs(
+            &self.shared,
+            &mut library.folder,
+            inputs,
+            InputUpdateCause::SceneListChanged,
+        );
         // Not running: `start` begins with a scene that is listed.
         let current = Location::parse(&self.shared.status().preset_path);
-        if matches!(current, Location::Folder(_)) && !library.folder.contains(&current) {
+        let not_running = !self.shared.status().running;
+        if replacement.is_none()
+            && not_running
+            && matches!(current, Location::Folder(_))
+            && !library.folder.contains(&current)
+        {
             let _ = self.send(Command::LoadDefaultScene);
+        }
+        if let Some(preset) = replacement {
+            drop(library);
+            let _ = self.load_entry(&preset);
         }
         Ok(count)
     }
@@ -1190,6 +1254,53 @@ impl Visualizer {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum InputUpdateCause {
+    SourceChanged,
+    SceneListChanged,
+}
+
+fn update_inputs(
+    shared: &Shared,
+    folder: &mut PresetList,
+    inputs: VisualizerInputs,
+    cause: InputUpdateCause,
+) -> Option<Preset> {
+    let inputs_changed = folder.set_inputs(inputs);
+    let available = folder.available_inputs();
+    let (status_changed, running, current) = {
+        let mut status = shared.status();
+        let changed = status.inputs != available;
+        status.inputs = available;
+        (
+            changed,
+            status.running,
+            Location::parse(&status.preset_path),
+        )
+    };
+    if !running
+        || !(inputs_changed || status_changed || cause == InputUpdateCause::SceneListChanged)
+    {
+        return None;
+    }
+    if !folder.supports_source_inputs(&current) {
+        return Some(
+            folder
+                .next_other(&current)
+                .unwrap_or_else(|_| Preset::cover_wall()),
+        );
+    }
+    if current == Location::CoverWall && available != VisualizerInputs::None {
+        let previous = if inputs == VisualizerInputs::Full {
+            folder.previous().ok().flatten()
+        } else {
+            None
+        };
+        return previous.or_else(|| folder.next_other(&current).ok());
+    }
+    None
+}
+
 /// A DXGI LUID as one number: the high part (as its bits) above the low part.
 fn adapter_luid(low: u32, high: i32) -> u64 {
     (u64::from(high as u32) << 32) | u64::from(low)
@@ -1292,6 +1403,7 @@ fn run(
     // The folder of the scene on screen, reloaded when it is saved (live editing).
     let mut watched: Option<Watched> = None;
     let mut tracker = BeatTracker::new(sample_rate);
+    let mut feed_spectrum_active = false;
     let mut charts = ChartFollower::new(Arc::clone(&shared.kept_chart));
     let mut planner = Planner::default();
     // The version of the atlas of covers the pipeline has.
@@ -1309,10 +1421,18 @@ fn run(
     // scene for the one it resumes.
     let begin = Location::Builtin(pipeline.preset_name().to_string());
     if bench.is_none() {
-        let first = lock(library).folder.resume();
+        let (first, begin_supported) = {
+            let mut library = lock(library);
+            let first = library.folder.resume();
+            let begin_supported = library.folder.supports_source_inputs(&begin);
+            (first, begin_supported)
+        };
         if let Some(preset) = first.filter(|preset| preset.location != begin) {
             hidden = true;
             start_scene_load(shared, &pipeline, &mut loads, preset.location, AT_ONCE);
+        } else if !begin_supported {
+            hidden = true;
+            start_scene_load(shared, &pipeline, &mut loads, Location::CoverWall, AT_ONCE);
         }
     }
     if !hidden {
@@ -1323,7 +1443,14 @@ fn run(
         loop {
             match commands.try_recv() {
                 Ok(Command::Stop) | Err(TryRecvError::Disconnected) => return Ok(()),
-                Ok(command) => apply(shared, library, &mut pipeline, &mut loads, command),
+                Ok(command) => apply(
+                    shared,
+                    library,
+                    &mut pipeline,
+                    &mut loads,
+                    &mut hidden,
+                    command,
+                ),
                 Err(TryRecvError::Empty) => break,
             }
         }
@@ -1342,6 +1469,17 @@ fn run(
         }
         tracker.push(&pcm, channels);
         keep_recent(&mut pcm, channels, sample_rate);
+        match lock(&shared.feed_spectrum).clone() {
+            Some(spectrum) => {
+                pipeline.set_feed_spectrum(&spectrum);
+                feed_spectrum_active = true;
+            }
+            None if feed_spectrum_active => {
+                pipeline.clear_feed_spectrum();
+                feed_spectrum_active = false;
+            }
+            None => {}
+        }
 
         // A scene that finished building replaces the one on screen, also while paused: then at
         // once, without a transition.
@@ -1385,6 +1523,9 @@ fn run(
             }
         }
 
+        // A chart takes over the tracker's clock and musical signals when it is ready.
+        let chart = charts.tick(&lock(&shared.playback), Instant::now());
+
         // The benchmark draws with the music paused or the window out of sight too.
         let paused = bench.is_none()
             && (!shared.playing.load(Ordering::Relaxed) || !shared.visible.load(Ordering::Relaxed));
@@ -1398,7 +1539,14 @@ fn run(
             match commands.recv_timeout(PAUSED_POLL) {
                 Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
                 Ok(command) => {
-                    apply(shared, library, &mut pipeline, &mut loads, command);
+                    apply(
+                        shared,
+                        library,
+                        &mut pipeline,
+                        &mut loads,
+                        &mut hidden,
+                        command,
+                    );
                     still_drawn = false;
                 }
                 Err(RecvTimeoutError::Timeout) => {}
@@ -1429,7 +1577,14 @@ fn run(
             let since = Instant::now();
             match commands.recv_timeout(PAUSED_POLL) {
                 Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
-                Ok(command) => apply(shared, library, &mut pipeline, &mut loads, command),
+                Ok(command) => apply(
+                    shared,
+                    library,
+                    &mut pipeline,
+                    &mut loads,
+                    &mut hidden,
+                    command,
+                ),
                 Err(RecvTimeoutError::Timeout) => {}
             }
             frozen += since.elapsed();
@@ -1439,9 +1594,6 @@ fn run(
             continue;
         }
 
-        // A chart knows the beats of the whole song, or that it has none: it replaces the
-        // tracker's guess either way.
-        let chart = charts.tick(&lock(&shared.playback), Instant::now());
         // A lab may hold the music at a lower fallback level than the song has.
         let chart = bind::forced_chart(pipeline.lab().level, chart);
         let rhythm = chart::trusted_rhythm(tracker.rhythm(), chart.as_ref());
@@ -1544,7 +1696,14 @@ fn run(
         if deadline > now {
             match commands.recv_timeout(deadline - now) {
                 Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
-                Ok(command) => apply(shared, library, &mut pipeline, &mut loads, command),
+                Ok(command) => apply(
+                    shared,
+                    library,
+                    &mut pipeline,
+                    &mut loads,
+                    &mut hidden,
+                    command,
+                ),
                 Err(RecvTimeoutError::Timeout) => {}
             }
         } else if now - deadline >= interval {
@@ -1732,6 +1891,7 @@ fn apply(
     library: &Mutex<Library>,
     pipeline: &mut Pipeline,
     loads: &mut Loads<Loaded>,
+    hidden: &mut bool,
     command: Command,
 ) {
     let switch = MANUAL_SWITCH;
@@ -1744,6 +1904,9 @@ fn apply(
         }),
         // Scenes are built on another thread; the loop shows them when they are done.
         Command::LoadScene(location) => {
+            if location == Location::CoverWall {
+                *hidden = true;
+            }
             start_scene_load(shared, pipeline, loads, location, switch);
             return;
         }
@@ -2129,6 +2292,112 @@ fn publish(shared: &Shared, width: u32, height: u32, data: FrameData) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spectrum_only_with_only_chart_scenes_is_hidden() {
+        let visualizer = Visualizer::new();
+        visualizer.offer_cover_wall();
+        visualizer.set_inputs(VisualizerInputs::SpectrumOnly);
+        assert_eq!(visualizer.status().inputs, VisualizerInputs::None);
+    }
+
+    #[test]
+    fn a_source_without_inputs_hides_the_visualizer() {
+        let visualizer = Visualizer::new();
+        visualizer.offer_cover_wall();
+        visualizer.set_inputs(VisualizerInputs::None);
+        assert_eq!(visualizer.status().inputs, VisualizerInputs::None);
+        assert_eq!(
+            visualizer.library.lock().unwrap().folder.available_inputs(),
+            VisualizerInputs::None
+        );
+    }
+
+    #[test]
+    fn a_full_source_makes_chart_scenes_available_before_the_chart_arrives() {
+        let visualizer = Visualizer::new();
+        visualizer.set_inputs(VisualizerInputs::Full);
+        assert_eq!(visualizer.status().inputs, VisualizerInputs::Full);
+        assert!(
+            visualizer
+                .library
+                .lock()
+                .unwrap()
+                .folder
+                .supports_source_inputs(&Location::Builtin("Armillary".into()))
+        );
+    }
+
+    #[test]
+    fn spectrum_only_with_an_imported_scene_is_available_and_selects_only_it() {
+        let visualizer = Visualizer::new();
+        visualizer.offer_cover_wall();
+        visualizer.set_inputs(VisualizerInputs::SpectrumOnly);
+        assert_eq!(visualizer.status().inputs, VisualizerInputs::None);
+
+        let root =
+            std::env::temp_dir().join(format!("rune-visualizer-inputs-{}", std::process::id()));
+        let scene = root.join("spectrum-only");
+        std::fs::create_dir_all(&scene).unwrap();
+        std::fs::write(
+            scene.join("scene.toml"),
+            r#"format = 1
+name = "Spectrum Only"
+inputs_required = "spectrum"
+license = "MPL-2.0"
+
+[[pass]]
+shader = "view.wgsl"
+target = "out"
+"#,
+        )
+        .unwrap();
+
+        visualizer
+            .set_preset_dirs(std::slice::from_ref(&root))
+            .unwrap();
+        assert_eq!(visualizer.status().inputs, VisualizerInputs::SpectrumOnly);
+
+        let mut library = lock(&visualizer.library);
+        let selected = library
+            .folder
+            .next_other(&Location::Builtin("Armillary".into()))
+            .unwrap();
+        assert_eq!(selected.location, Location::Folder(scene.clone()));
+        assert!(
+            library
+                .folder
+                .supports_inputs(&selected.location, VisualizerInputs::SpectrumOnly)
+        );
+        assert!(!library.folder.supports_inputs(
+            &Location::Builtin("Armillary".into()),
+            VisualizerInputs::SpectrumOnly
+        ));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn loading_a_chart_scene_is_rejected_when_source_lacks_chart() {
+        let visualizer = Visualizer::new();
+        visualizer.set_inputs(VisualizerInputs::SpectrumOnly);
+        let error = visualizer
+            .load_preset(Location::Builtin("Armillary".into()))
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<PresetLoadError>(),
+            Some(&PresetLoadError::InputsUnavailable)
+        );
+    }
+
+    #[test]
+    fn local_track_changes_keep_the_source_inputs_full() {
+        let visualizer = Visualizer::new();
+        visualizer.set_inputs(VisualizerInputs::Full);
+        visualizer.set_playback(Some(Path::new("/music/a.flac")), Duration::ZERO, true, None);
+        assert_eq!(visualizer.status().inputs, VisualizerInputs::Full);
+        visualizer.set_playback(Some(Path::new("/music/b.flac")), Duration::ZERO, true, None);
+        assert_eq!(visualizer.status().inputs, VisualizerInputs::Full);
+    }
 
     fn plan_key(columns: u64) -> PlanKey {
         PlanKey {

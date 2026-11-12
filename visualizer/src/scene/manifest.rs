@@ -1,6 +1,6 @@
 //! `scene.toml`: what a scene is made of. See `docs/scenes.md` for every key.
 
-use crate::bind::Evaluator;
+use crate::bind::{Evaluator, Level, find};
 use std::collections::{BTreeMap, HashSet};
 use std::f32::consts::FRAC_PI_2;
 use std::path::{Component, Path};
@@ -48,6 +48,9 @@ impl Text {
 pub struct Manifest {
     pub format: u32,
     pub name: String,
+    /// Inputs this scene reads. `spectrum` scenes remain usable without a whole-track chart.
+    #[serde(default)]
+    pub inputs_required: SceneInputs,
     #[serde(default)]
     pub author: Option<String>,
     pub license: String,
@@ -97,6 +100,15 @@ pub struct Manifest {
     /// The transitions and lens effects the scene takes (see [`Effects`]).
     #[serde(default)]
     pub effects: Effects,
+}
+
+/// The inputs a scene requires to produce the picture it was designed for.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SceneInputs {
+    #[default]
+    SpectrumAndChart,
+    Spectrum,
 }
 
 /// The `[camera]` table: what the director may do with the scene's shots.
@@ -771,6 +783,10 @@ impl Manifest {
         ensure!(!self.name.trim().is_empty(), "the scene has no name");
         ensure!(!self.license.trim().is_empty(), "the scene has no license");
         ensure!(
+            self.inputs_required != SceneInputs::Spectrum || !self.requires_chart(),
+            "inputs_required = \"spectrum\" cannot be used by a scene bound to chart-only sources"
+        );
+        ensure!(
             self.render.scale > 0.0 && self.render.scale <= 2.0,
             "render.scale must be above 0 and at most 2"
         );
@@ -1007,6 +1023,14 @@ impl Manifest {
             param.default = toml::Value::Boolean(false);
         }
         copy
+    }
+
+    fn requires_chart(&self) -> bool {
+        self.covers
+            || self.binds.iter().any(|bind| {
+                find(&bind.source).is_some_and(|source| !source.meaningful_at(Level::C))
+                    && bind.fallback.is_none()
+            })
     }
 }
 

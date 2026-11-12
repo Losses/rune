@@ -41,6 +41,7 @@ pub use director::DirectorView;
 use inputs::{EventCounter, WallClock};
 pub use lens::LensView;
 pub use looks::LooksView;
+pub use manifest::SceneInputs;
 pub use manifest::{Bind, Effects, FallbackDecl, InputDecl, Pace, Param, ParamKind};
 use manifest::{Format, Manifest, OUT, PREV, ShotMove, ShotSize, Value};
 pub use stepper::{SongChart, song_seed};
@@ -123,6 +124,12 @@ impl Source {
     pub fn scene_name(&self) -> Result<String> {
         let (_, text) = self.read_text(MANIFEST)?;
         Ok(Manifest::parse(&text).context(MANIFEST)?.name)
+    }
+
+    /// The declared inputs of this scene, read from its manifest.
+    pub fn required_inputs(&self) -> Result<SceneInputs> {
+        let (_, text) = self.read_text(MANIFEST)?;
+        Ok(Manifest::parse(&text).context(MANIFEST)?.inputs_required)
     }
 
     /// The `source` of each of the scene's `[[asset]]`s that says where it comes from.
@@ -2031,6 +2038,14 @@ impl Scene {
 
     pub fn push_pcm(&mut self, interleaved: &[f32], channels: usize) {
         self.analyzer.push(interleaved, channels);
+    }
+
+    pub fn set_feed_spectrum(&mut self, values: &[f32]) {
+        self.analyzer.set_feed_spectrum(values);
+    }
+
+    pub fn clear_feed_spectrum(&mut self) {
+        self.analyzer.clear_feed_spectrum();
     }
 
     /// Draw a frame into `target` (the output format and size). With `timestamps`, the first pass

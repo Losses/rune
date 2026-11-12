@@ -25,6 +25,7 @@ class VisualizerScene {
     required this.group,
     required this.builtin,
     required this.enabled,
+    required this.inputs,
   });
 
   final String path;
@@ -32,18 +33,20 @@ class VisualizerScene {
   final String group;
   final bool builtin;
   final bool enabled;
+  final VisualizerSceneInputs inputs;
 
   bool get isCoverWall => path == kCoverWallScenePath;
 
   /// A scene the user imported from a scene file, which can be deleted.
   bool get imported => !builtin && !isCoverWall;
 
-  VisualizerScene copyWith({bool? enabled}) => VisualizerScene(
+  VisualizerScene copyWith({bool? enabled, VisualizerSceneInputs? inputs}) => VisualizerScene(
     path: path,
     name: name,
     group: group,
     builtin: builtin,
     enabled: enabled ?? this.enabled,
+    inputs: inputs ?? this.inputs,
   );
 }
 
@@ -62,14 +65,39 @@ class VisualizerScenesProvider extends ChangeNotifier {
   bool? _gpu;
   bool _loaded = false;
   bool _sceneShowing = false;
+  VisualizerInputs _inputs = VisualizerInputs.none;
   Future<void>? _refreshing;
   bool _refreshAgain = false;
 
   VisualizerScenesProvider() {
-    if (isVisualizerSupported) _load();
+    if (isVisualizerSupported) {
+      _load();
+    }
   }
 
-  List<VisualizerScene> get scenes => _scenes;
+  @visibleForTesting
+  VisualizerScenesProvider.forTest({
+    required List<VisualizerScene> scenes,
+    bool gpu = true,
+  }) : _scenes = scenes,
+       _gpu = gpu,
+       _loaded = true;
+
+  List<VisualizerScene> get scenes => _scenes
+      .where(
+        (scene) =>
+            sceneSupportsVisualizerInputs(scene.inputs, _inputs) &&
+            (_inputs != VisualizerInputs.spectrumOnly || !scene.isCoverWall),
+      )
+      .toList();
+
+  VisualizerInputs get inputs => _inputs;
+
+  void setInputs(VisualizerInputs inputs) {
+    if (_inputs == inputs) return;
+    _inputs = inputs;
+    notifyListeners();
+  }
 
   /// Whether the cover wall page runs the visualizer: some checked scene is
   /// not the cover wall. With only the cover wall checked the page shows the
@@ -79,7 +107,7 @@ class VisualizerScenesProvider extends ChangeNotifier {
       isVisualizerSupported &&
       _loaded &&
       _gpu == true &&
-      _scenes.any((scene) => scene.enabled && !scene.isCoverWall);
+      scenes.any((scene) => scene.enabled && !scene.isCoverWall);
 
   /// Whether this machine has a GPU for the scenes: null until Rust has
   /// looked. Without one (no GPU, or only a software renderer that would draw
@@ -236,6 +264,7 @@ class VisualizerScenesProvider extends ChangeNotifier {
     try {
       final support = (await response).message;
       _gpu = support.supported;
+      setInputs(support.inputs);
     } on TimeoutException {
       _gpu = false;
     }
@@ -305,12 +334,19 @@ class VisualizerScenesProvider extends ChangeNotifier {
             group: entry.group,
             builtin: entry.builtin,
             enabled: !disabled.contains(path),
+            inputs: entry.inputs,
           ),
     ];
     _loaded = true;
     await _save();
     notifyListeners();
     _sendChoice();
+  }
+
+  @override
+  void dispose() {
+    _imports.close();
+    super.dispose();
   }
 
   Future<List<String>?> _loadPaths(String key) async {
@@ -378,6 +414,15 @@ class VisualizerScenesProvider extends ChangeNotifier {
     _sendChoice();
   }
 }
+
+bool sceneSupportsVisualizerInputs(
+  VisualizerSceneInputs needs,
+  VisualizerInputs available,
+) => switch (available) {
+  VisualizerInputs.none => false,
+  VisualizerInputs.spectrumOnly => needs == VisualizerSceneInputs.spectrum,
+  VisualizerInputs.full => true,
+};
 
 /// The order of the scenes and the unchecked ones, from what was saved
 /// (`storedOrder` is null on the first run) and the scenes Rust lists now.

@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 use ::playback::player::Playable;
 use ::visualizer::{
     Inspect, LabCommand, LabEvent, LabEventKind, LabTransition, Level, Location, PcmInput,
-    Transport,
+    SceneInputs, Transport, VisualizerInputs as EngineInputs,
 };
 
 use crate::{
@@ -19,6 +19,14 @@ use crate::{
     utils::{GlobalParams, ParamsExtractor, require_library},
     visualizer::{VISUALIZER, provide_covers},
 };
+
+fn message_inputs(inputs: EngineInputs) -> VisualizerInputs {
+    match inputs {
+        EngineInputs::None => VisualizerInputs::None,
+        EngineInputs::SpectrumOnly => VisualizerInputs::SpectrumOnly,
+        EngineInputs::Full => VisualizerInputs::Full,
+    }
+}
 
 /// Errors of the visualizer controls go to the status (`last_error`) and the Log page, under
 /// `operation`, instead of crashing the request loop, since a missing scene or GPU is an ordinary
@@ -332,6 +340,7 @@ impl Signal for VisualizerStatusRequest {
             preset_name: status.preset_name,
             preset_path: status.preset_path,
             preset_count: u32::try_from(status.preset_count).unwrap_or(u32::MAX),
+            inputs: message_inputs(status.inputs),
             adapter: status.adapter,
             transport: match status.transport {
                 Some(Transport::IoSurface) => "iosurface",
@@ -597,12 +606,14 @@ impl Signal for VisualizerSupportRequest {
                 supported: true,
                 adapter: adapter.clone(),
                 problem: None,
+                inputs: message_inputs(VISUALIZER.status().inputs),
             },
             Err(problem) => VisualizerSupportResponse {
                 call_id: None,
                 supported: false,
                 adapter: String::new(),
                 problem: Some(problem.clone()),
+                inputs: message_inputs(VISUALIZER.status().inputs),
             },
         }))
     }
@@ -632,6 +643,10 @@ impl Signal for ListVisualizerPresetsRequest {
                 path: info.location.to_string(),
                 group: info.group,
                 builtin: matches!(info.location, Location::Builtin(_)),
+                inputs: match info.inputs {
+                    SceneInputs::Spectrum => VisualizerSceneInputs::Spectrum,
+                    SceneInputs::SpectrumAndChart => VisualizerSceneInputs::SpectrumAndChart,
+                },
             })
             .collect();
         Ok(Some(ListVisualizerPresetsResponse {

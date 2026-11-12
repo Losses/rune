@@ -1,5 +1,6 @@
 format = 1
 name = "Growth"
+inputs_required = "spectrum_and_chart"
 license = "MPL-2.0"
 description = "A tower of concrete plates growing up, a step on every beat, its light changing with the sections"
 

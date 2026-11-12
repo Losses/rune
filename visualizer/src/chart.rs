@@ -787,6 +787,7 @@ impl Drop for ChartFollower {
 mod tests {
 
     use super::*;
+    use crate::{Visualizer, VisualizerInputs};
     use std::f64::consts::PI;
     use std::path::{Path, PathBuf};
 
@@ -1130,6 +1131,23 @@ mod tests {
         assert!(follower.tick(&playback, Instant::now()).is_none());
         assert!(follower.chart.is_none());
         assert!(follower.loading.is_none());
+    }
+
+    #[test]
+    fn a_feed_chart_does_not_change_source_inputs() {
+        let visualizer = Visualizer::new();
+        visualizer.set_inputs(VisualizerInputs::None);
+        let item = ChartItem::LibraryTrack {
+            library_id: "library".into(),
+            track: "track".into(),
+        };
+        visualizer.set_feed_playback(Some(item.clone()), Duration::ZERO, true);
+        visualizer.set_feed_spectrum(&[0.2, 0.8]);
+        assert_eq!(visualizer.status().inputs, VisualizerInputs::None);
+        visualizer
+            .set_feed_chart(item, &chart().encode().unwrap())
+            .unwrap();
+        assert_eq!(visualizer.status().inputs, VisualizerInputs::None);
     }
 
     #[test]

@@ -29,6 +29,7 @@ The file is TOML. Keys written before the first table header are the top-level k
 |---|---|---|---|
 | `format` | integer | required | The version of this format. `1`. See "Versioning". |
 | `name` | string | required | The scene's name, for people. Not empty or blank. |
+| `inputs_required` | `spectrum` or `spectrum_and_chart` | `spectrum_and_chart` | The inputs a scene needs. A `spectrum` scene may not bind a chart-only source without a fallback, or read covers. |
 | `license` | string | required | The scene's licence, free text (`"MPL-2.0"`). Not empty or blank. |
 | `author` | string | none | Who made it. |
 | `description` | text | none | What the scene shows, for people. A plain string, or a table of one string per language: `{ en = "...", de = "..." }`. A reader takes its language, else `en`, else any. |

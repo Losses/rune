@@ -1,5 +1,6 @@
 format = 1
 name = "Emoji Tunnel"
+inputs_required = "spectrum_and_chart"
 license = "MPL-2.0"
 description = "Flying down a tunnel of light past emoji (or, by a switch, lacquered tortoiseshell badges printed with family crests in gold leaf)"
 

@@ -1,5 +1,6 @@
 format = 1
 name = "Paperclip"
+inputs_required = "spectrum_and_chart"
 license = "MPL-2.0"
 description = "A paperclip dancing on its sheet of paper, a field of them dancing behind"
 
