@@ -1,6 +1,7 @@
 use super::*;
 use crate::library_pool::{LibraryHandle, LibraryResources};
 use crate::node::NodeContext;
+use crate::test_wait::{TEST_DEADLINE, wait_until};
 use crate::utils::{Broadcaster, RinfRustSignal};
 use database::connection::RecommendationDbConnection;
 use database::credentials::{Credential, CredentialRef, CredentialStore, Secret};
@@ -11,6 +12,7 @@ use database::sync::share::{BaseCutRequest, ShareWriter, cut_base};
 use database::sync::share::{load_or_create_state, save_state};
 use fsio::test_fixtures::{S3Fixture, WebDavFixture};
 use fsio::{OpenDalConfig, OpenDalObjectStore};
+use futures::future::try_join_all;
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -395,54 +397,35 @@ async fn worker_hubs_on_share_sessions(
 }
 
 async fn wait_for_key_on_hubs(hubs: &[WorkerHub], key: &ObjectKey) -> Result<()> {
-    wait_for_key_on_hubs_with_timeout(hubs, key, Duration::from_secs(180)).await
-}
-
-async fn wait_for_key_on_hubs_with_timeout(
-    hubs: &[WorkerHub],
-    key: &ObjectKey,
-    timeout: Duration,
-) -> Result<()> {
-    tokio::time::timeout(timeout, async {
-        loop {
-            let mut present = true;
-            for hub in hubs {
-                present &= hub.library.library.get(key).await?.is_some();
-            }
-            if present {
-                return Ok::<_, anyhow::Error>(());
-            }
-            tokio::task::yield_now().await;
-        }
+    wait_until("share key to reach every hub", || async {
+        let records = try_join_all(hubs.iter().map(|hub| hub.library.library.get(key))).await?;
+        let present = records.iter().all(Option::is_some);
+        Ok(present.then_some(()))
     })
-    .await??;
-    Ok(())
+    .await
 }
 
 async fn wait_for_replica_head(store: &dyn ObjectStore, replica: Uuid) -> Result<()> {
-    tokio::time::timeout(Duration::from_secs(60), async {
-        loop {
-            for key in store
-                .list_prefix("devices/")
-                .await
-                .map_err(|error| anyhow::anyhow!("list replica heads: {error:?}"))?
-            {
-                if !key.contains("/head.") {
-                    continue;
-                }
-                let value = store
-                    .get(&key)
-                    .await
-                    .map_err(|error| anyhow::anyhow!("get replica head: {error:?}"))?;
-                if decode_head(&value.bytes)?.local_replica == replica {
-                    return Ok::<_, anyhow::Error>(());
-                }
+    wait_until("share replica head to appear", || async {
+        for key in store
+            .list_prefix("devices/")
+            .await
+            .map_err(|error| anyhow::anyhow!("list replica heads: {error:?}"))?
+        {
+            if !key.contains("/head.") {
+                continue;
             }
-            tokio::task::yield_now().await;
+            let value = store
+                .get(&key)
+                .await
+                .map_err(|error| anyhow::anyhow!("get replica head: {error:?}"))?;
+            if decode_head(&value.bytes)?.local_replica == replica {
+                return Ok(Some(()));
+            }
         }
+        Ok(None)
     })
-    .await??;
-    Ok(())
+    .await
 }
 
 struct CrashBetweenSegmentAndHead {
@@ -881,7 +864,7 @@ async fn sh15_three_hub_concurrent_push_obeys_backend_capabilities() -> Result<(
             .await?;
         detailed_sync_pass(&seed.library, namespace, &session).await?;
         let hubs = worker_hubs_on_share(namespace, 3, session.clone()).await?;
-        wait_for_key_on_hubs_with_timeout(&hubs, &seed_key, Duration::from_secs(300))
+        wait_for_key_on_hubs(&hubs, &seed_key)
             .await
             .map_err(|error| anyhow::anyhow!("waiting for seed catch-up: {error:#}"))?;
 
@@ -932,12 +915,12 @@ async fn sh15_three_hub_concurrent_push_obeys_backend_capabilities() -> Result<(
             );
         } else {
             assert!(session.capabilities.conditional_head_write);
-            wait_for_key_on_hubs_with_timeout(&hubs, &first_key, Duration::from_secs(300))
+            wait_for_key_on_hubs(&hubs, &first_key)
                 .await
                 .map_err(|error| {
                     anyhow::anyhow!("waiting for first S3 writer to converge: {error:#}")
                 })?;
-            wait_for_key_on_hubs_with_timeout(&hubs, &second_key, Duration::from_secs(300))
+            wait_for_key_on_hubs(&hubs, &second_key)
                 .await
                 .map_err(|error| {
                     anyhow::anyhow!("waiting for second S3 writer to converge: {error:#}")
@@ -1027,7 +1010,7 @@ async fn sh15_crash_after_segment_put_recovers_without_a_gap_or_duplicate() -> R
             pending.is_some(),
             "local edit was not visible to share worker"
         );
-        if tokio::time::timeout(Duration::from_secs(20), crash_store.wait_for_head_failure())
+        if tokio::time::timeout(TEST_DEADLINE, crash_store.wait_for_head_failure())
             .await
             .is_err()
         {
@@ -1911,10 +1894,8 @@ async fn cancellation_drops_an_in_flight_share_pass() -> Result<()> {
         )
         .await
     });
-    tokio::time::timeout(Duration::from_secs(3), async {
-        while !store.calls().contains(&StoreOperation::Put) {
-            tokio::task::yield_now().await;
-        }
+    wait_until("share pass to begin its put", || async {
+        Ok(store.calls().contains(&StoreOperation::Put).then_some(()))
     })
     .await?;
     cancel.cancel();

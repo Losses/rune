@@ -14,6 +14,7 @@ mod access_policy_tests {
     };
     use crate::server::sync::client::LibrarySession;
     use crate::server::sync_worker::TestPeerSession;
+    use crate::test_wait::{TEST_DEADLINE, wait_until};
     use database::actions::stats::{get_liked, set_liked};
     use database::entities::media_cover_art;
     use database::library_registry::{
@@ -27,10 +28,7 @@ mod access_policy_tests {
     use std::fs;
     use sync::protocol::SyncError;
     use tempfile::TempDir;
-    use tokio::{
-        task::yield_now,
-        time::{sleep, timeout},
-    };
+    use tokio::{sync::Mutex, time::sleep};
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn guest_set_liked_request_returns_typed_connection_edit_denial() -> Result<()> {
@@ -236,9 +234,7 @@ mod access_policy_tests {
             Ok(())
         }
         async fn pass(&self, owner: bool) -> Result<PeerPass> {
-            self.pass_with_timeout(owner, Duration::from_secs(15)).await
-        }
-        async fn pass_with_timeout(&self, owner: bool, limit: Duration) -> Result<PeerPass> {
+            wait_until("peer sync pass to complete", || async {
             let (local, remote, addr) = if owner {
                 (&self.a, &self.b, self.b_addr)
             } else {
@@ -255,23 +251,20 @@ mod access_policy_tests {
                 host: "127.0.0.1".into(),
                 port: addr.port(),
             };
-            timeout(limit, async {
-                loop {
-                    match session
-                        .pass(
-                            local.global_params.clone(),
-                            &local.private_key,
-                            endpoint.clone(),
-                            true,
-                        )
-                        .await?
-                    {
-                        PeerPass::Incomplete => yield_now().await,
-                        result => return Ok::<_, anyhow::Error>(result),
-                    }
+                match session
+                    .pass(
+                        local.global_params.clone(),
+                        &local.private_key,
+                        endpoint.clone(),
+                        true,
+                    )
+                    .await?
+                {
+                    PeerPass::Incomplete => Ok(None),
+                    result => Ok(Some(result)),
                 }
             })
-            .await?
+            .await
         }
         async fn listings(&self) -> Result<serde_json::Value> {
             Ok(self
@@ -320,37 +313,56 @@ mod access_policy_tests {
         Ok(connection)
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn set_sqlite_busy_timeout(fixture: &Fixture) -> Result<()> {
+        let pool = fixture
+            .global_params
+            .test_library()
+            .main_db
+            .get_sqlite_connection_pool();
+        let mut connections = Vec::new();
+        for _ in 0..pool.options().get_max_connections() {
+            connections.push(pool.acquire().await?);
+        }
+        for connection in &mut connections {
+            sea_orm::sqlx::query("PRAGMA busy_timeout = 100")
+                .execute(&mut **connection)
+                .await?;
+        }
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn sync_recovers_after_replica_write_lock_is_released() -> Result<()> {
         let pair = PolicyPair::new_replica().await?;
         let host = pair.a.global_params.test_library();
         let key = write_album(host, "busy recovery").await?;
         let mut lock = lock_replica_library(&pair.b).await?;
-        let pass = tokio::spawn(async move {
-            let result = pair.pass_with_timeout(false, Duration::from_secs(30)).await;
-            (result, pair)
-        });
+        set_sqlite_busy_timeout(&pair.b).await?;
 
-        // The default SQLite busy timeout is five seconds. The first metadata pass also
-        // performs authenticated HTTP setup before reaching its write; release just after
-        // that first busy result so the retry can complete.
-        sleep(Duration::from_millis(11_250)).await;
+        let error = pair
+            .pass(false)
+            .await
+            .expect_err("held SQLite lock must exhaust the bounded retry sequence");
+        assert_eq!(
+            error.downcast_ref::<SyncError>(),
+            Some(&SyncError::StorageBusy)
+        );
         sea_orm::sqlx::query("ROLLBACK").execute(&mut lock).await?;
-        let (result, pair) = pass.await?;
-        assert_eq!(result?, PeerPass::Complete);
+        assert_eq!(pair.pass(false).await?, PeerPass::Complete);
         let replica = pair.b.global_params.test_library();
         assert!(replica.library_sync.get(&key).await?.is_some());
         pair.close().await
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn sync_reports_storage_busy_after_retry_cap() -> Result<()> {
         let pair = PolicyPair::new_replica().await?;
         let host = pair.a.global_params.test_library();
         write_album(host, "busy cap").await?;
         let mut lock = lock_replica_library(&pair.b).await?;
+        set_sqlite_busy_timeout(&pair.b).await?;
 
-        let result = pair.pass_with_timeout(false, Duration::from_secs(45)).await;
+        let result = pair.pass(false).await;
         sea_orm::sqlx::query("ROLLBACK").execute(&mut lock).await?;
         let error = result.expect_err("held SQLite lock must exhaust the retry cap");
         assert_eq!(
@@ -574,14 +586,28 @@ mod access_policy_tests {
             format!("https://{}/libraries/{}", pair.addr, pair.id),
             pair.client.clone(),
         );
-        let mut session = LibrarySession::new(right.library_sync.clone())?;
-        let result = timeout(Duration::from_secs(10), async {
-            loop {
-                if session.advance(&peer, Arc::new(|| {})).await? {
-                    return Ok::<(), anyhow::Error>(());
+        let session = Arc::new(Mutex::new(LibrarySession::new(
+            right.library_sync.clone(),
+        )?));
+        let peer = Arc::new(peer);
+        let result = wait_until(
+            "read-only sync pass to reject its write",
+            {
+                let session = session.clone();
+                let peer = peer.clone();
+                move || {
+                    let session = session.clone();
+                    let peer = peer.clone();
+                    async move {
+                        match session.lock().await.advance(&peer, Arc::new(|| {})).await {
+                            Ok(true) => Ok(Some(Ok(()))),
+                            Ok(false) => Ok(None),
+                            Err(error) => Ok(Some(Err(error))),
+                        }
+                    }
                 }
-            }
-        })
+            },
+        )
         .await?;
         let error = result.expect_err("read-only push was accepted");
         assert!(matches!(
@@ -589,7 +615,7 @@ mod access_policy_tests {
             Some(SyncError::Forbidden)
         ));
         for _ in 0..3 {
-            sleep(Duration::from_secs(1)).await;
+            tokio::time::timeout(TEST_DEADLINE, sleep(Duration::from_secs(1))).await?;
             assert_eq!(
                 pair.pass(false).await?,
                 PeerPass::Complete,
@@ -713,23 +739,21 @@ mod access_policy_tests {
             port: c_addr.port(),
         };
         let pass = || async {
-            timeout(Duration::from_secs(15), async {
-                loop {
-                    let result = session
-                        .pass(
-                            pair.b.global_params.clone(),
-                            &pair.b.private_key,
-                            endpoint.clone(),
-                            true,
-                        )
-                        .await?;
-                    if result != PeerPass::Incomplete {
-                        return Ok::<_, anyhow::Error>(result);
-                    }
-                    yield_now().await;
+            wait_until("third party sync pass to complete", || async {
+                match session
+                    .pass(
+                        pair.b.global_params.clone(),
+                        &pair.b.private_key,
+                        endpoint.clone(),
+                        true,
+                    )
+                    .await?
+                {
+                    PeerPass::Incomplete => Ok(None),
+                    result => Ok(Some(result)),
                 }
             })
-            .await?
+            .await
         };
         assert_eq!(pass().await?, PeerPass::Complete);
         assert!(replica.library_sync.get(&injected).await?.is_none());
@@ -1203,7 +1227,7 @@ mod access_policy_tests {
         let failure: RemoteRequestFailed = rinf::deserialize(&payload)?;
         assert_eq!(failure.kind, RequestErrorKind::PermissionDenied);
         assert_eq!(
-            timeout(Duration::from_secs(2), request).await??.status(),
+            tokio::time::timeout(TEST_DEADLINE, request).await??.status(),
             reqwest::StatusCode::FORBIDDEN
         );
         drop(connections);

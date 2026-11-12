@@ -2051,6 +2051,7 @@ impl playback::player::AudioRequest for RenewableAudio {
 mod tests {
 
     use super::*;
+    use crate::test_wait::TEST_DEADLINE;
     use axum::http::StatusCode;
     use database::sync::model::RuneModel;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -2136,7 +2137,7 @@ mod tests {
                 .await;
             }
         });
-        let result = tokio_time::timeout(Duration::from_secs(3), async {
+        let result = tokio_time::timeout(TEST_DEADLINE, async {
             state.started.acquire().await.unwrap().forget();
             state.entered.acquire().await.unwrap().forget();
             state.release.add_permits(1);
@@ -2217,7 +2218,7 @@ mod tests {
         });
         started.notified().await;
         available.store(true, Ordering::SeqCst);
-        let result = tokio::time::timeout(Duration::from_secs(2), second.notified()).await;
+        let result = tokio::time::timeout(TEST_DEADLINE, second.notified()).await;
         cancel.cancel();
         worker.await.unwrap();
         assert!(
@@ -2355,14 +2356,14 @@ mod tests {
         };
         let workers = tokio::spawn(join_workers(metadata, audio));
         assert_eq!(
-            tokio::time::timeout(Duration::from_secs(2), done_rx)
+            tokio::time::timeout(TEST_DEADLINE, done_rx)
                 .await
                 .unwrap()
                 .unwrap(),
             *b"ok"
         );
         cancel.cancel();
-        tokio::time::timeout(Duration::from_secs(2), workers)
+        tokio::time::timeout(TEST_DEADLINE, workers)
             .await
             .unwrap()
             .unwrap();

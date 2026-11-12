@@ -1,12 +1,12 @@
 use std::{sync::Arc, time::Duration};
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use rinf::{DartSignal, DartSignalPack, SignalReceiver, SignalSender, signal_channel};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio::{
-    sync::mpsc,
-    task::{JoinHandle, yield_now},
-    time::{pause, resume, sleep, timeout},
+    sync::{Notify, mpsc},
+    task::JoinHandle,
+    time::{pause, resume, sleep},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -23,6 +23,7 @@ use crate::rpc::{
 };
 use crate::utils::{GlobalParams, ParamsExtractor, RinfRustSignal};
 use crate::{RequestCallId, ResponseCallId, Session, Signal, TypedRequest};
+use crate::test_wait::{TEST_DEADLINE, wait_until};
 
 pub(super) struct Listener<R> {
     sender: SignalSender<DartSignalPack<R>>,
@@ -40,7 +41,7 @@ impl<R> Listener<R> {
     }
 
     pub(super) async fn receive<T: DeserializeOwned>(&mut self, name: &str) -> T {
-        let (actual, bytes) = timeout(Duration::from_secs(5), self.output.recv())
+        let (actual, bytes) = tokio::time::timeout(TEST_DEADLINE, self.output.recv())
             .await
             .unwrap()
             .expect("listener closed without a response");
@@ -57,7 +58,7 @@ impl<R> Listener<R> {
 
     pub(super) async fn stop(self) {
         self.cancel.cancel();
-        timeout(Duration::from_secs(5), self.task)
+        tokio::time::timeout(TEST_DEADLINE, self.task)
             .await
             .unwrap()
             .unwrap();
@@ -104,6 +105,8 @@ struct DelayedRequest {
     value: f32,
     delay_ms: u64,
     failure: u8,
+    #[serde(skip)]
+    started: Option<Arc<Notify>>,
 }
 
 impl TypedRequest for DelayedRequest {
@@ -141,6 +144,9 @@ impl Signal for DelayedRequest {
     type Params = ();
     type Response = VolumeResponse;
     async fn handle(&self, _: (), _: Option<Session>, _: &Self) -> Result<Option<VolumeResponse>> {
+        if let Some(started) = &self.started {
+            started.notify_one();
+        }
         sleep(Duration::from_millis(self.delay_ms)).await;
         match self.failure {
             1 => Err(ExpectedRequestError::CertificateMismatch.into()),
@@ -167,6 +173,7 @@ fn delayed(value: f32, delay_ms: u64, failure: u8) -> DelayedRequest {
         value,
         delay_ms,
         failure,
+        started: None,
     }
 }
 
@@ -179,21 +186,16 @@ async fn gui_listener_dispatches_catalogue_request_and_emits_response() -> Resul
             call_id: None, volume: 0.37 });
     let response: VolumeResponse = listener.receive("VolumeResponse").await;
     assert_eq!(response.volume, 0.37);
-    timeout(Duration::from_secs(10), async {
-        loop {
-            if fixture
-                .global_params
-                .player
-                .lock()
-                .await
-                .get_status()
-                .volume
-                == response.volume
-            {
-                break;
-            }
-            sleep(Duration::from_millis(20)).await;
-        }
+    wait_until("player volume to reflect the response", || async {
+        Ok((fixture
+            .global_params
+            .player
+            .lock()
+            .await
+            .get_status()
+            .volume
+            == response.volume)
+            .then_some(()))
     })
     .await?;
     listener.stop().await;
@@ -212,9 +214,13 @@ async fn gui_listener_orders_same_type_without_blocking_other_types() -> Result<
     slow.send(delayed(2.0, 0, 0));
     fast.send(VolumeRequest {
             call_id: None, volume: 0.63 });
-    let response: VolumeResponse =
-        timeout(Duration::from_millis(500), fast.receive("VolumeResponse")).await?;
+    let response: VolumeResponse = tokio::time::timeout(
+        TEST_DEADLINE,
+        fast.receive("VolumeResponse"),
+    )
+    .await?;
     assert_eq!(response.volume, 0.63);
+    tokio::time::advance(Duration::from_secs(1)).await;
     let first: VolumeResponse = slow.receive("VolumeResponse").await;
     let second: VolumeResponse = slow.receive("VolumeResponse").await;
     assert_eq!(
@@ -292,18 +298,26 @@ async fn gui_listener_cancels_idle_pending_and_queued_requests() -> Result<()> {
     let fixture = fixture(dir.path()).await?;
     start::<VolumeRequest>(&fixture.global_params).stop().await;
     let mut listener = start::<DelayedRequest>(&fixture.global_params);
-    listener.send(delayed(1.0, 60_000, 0));
+    let started = Arc::new(Notify::new());
+    listener.send(DelayedRequest {
+        value: 1.0,
+        delay_ms: 60_000,
+        failure: 0,
+        started: Some(started.clone()),
+    });
     listener.send(delayed(2.0, 0, 0));
-    yield_now().await;
+    tokio::time::timeout(TEST_DEADLINE, started.notified())
+        .await
+        .context("first delayed request did not start")?;
     listener.cancel.cancel();
-    timeout(Duration::from_secs(5), &mut listener.task).await??;
+    tokio::time::timeout(TEST_DEADLINE, &mut listener.task).await??;
     assert!(listener.output.try_recv().is_err());
     // Cancellation is biased even when a request is already queued.
     let mut listener = start::<VolumeRequest>(&fixture.global_params);
     listener.send(VolumeRequest {
             call_id: None, volume: 0.12 });
     fixture.global_params.main_token.cancel();
-    timeout(Duration::from_secs(5), &mut listener.task).await??;
+    tokio::time::timeout(TEST_DEADLINE, &mut listener.task).await??;
     assert!(listener.output.try_recv().is_err());
     Ok(())
 }

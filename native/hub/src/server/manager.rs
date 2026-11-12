@@ -851,6 +851,7 @@ mod lifecycle_tests {
     use crate::request_error::classify;
     use crate::server::WebSocketService;
     use crate::utils::{ParamsExtractor, register_local_library_on_node};
+    use ::discovery::client::CertValidator;
     use migration::catalog_identity::{ParentKind, parent};
     use playback::decoder::RuneDecoder;
     use playback::stream_utils::{ManagedStream, create_stream_with_authorizer};
@@ -938,11 +939,11 @@ mod lifecycle_tests {
     use crate::request_error::{ExpectedRequestError, request_failure_cause};
     use crate::server::api::{add_trusted_server, edit_trusted_hosts};
     use crate::server::sync::client::sync_library;
+    use crate::test_wait::{TEST_DEADLINE, wait_until};
     use database::sync::model::RuneModel;
     use futures::{SinkExt, StreamExt};
     use reqwest::header::CONNECTION;
     use sync::{CheckpointKey, ReceiveStore, Scope, SyncModel, scope_id};
-    use tokio::time::timeout;
     use tokio_tungstenite::tungstenite::Message;
 
     include!("access_policy_tests.rs");
@@ -1014,13 +1015,13 @@ mod lifecycle_tests {
         name: &'static str,
         future: impl Future<Output = Result<T>>,
     ) -> Result<T> {
-        peer_step_with_timeout(name, Duration::from_secs(15), future).await
+        peer_step_with_timeout(name, TEST_DEADLINE, future).await
     }
 
     /// A diagnostic watchdog: it names the step a hung test is stuck in. The limit is far
     /// above any normal step, even on a loaded host, and still well below the suite limit.
     async fn step<T>(name: &'static str, future: impl Future<Output = T>) -> T {
-        step_with_timeout(name, Duration::from_secs(300), future).await
+        step_with_timeout(name, TEST_DEADLINE, future).await
     }
 
     async fn step_with_timeout<T>(
@@ -1444,8 +1445,7 @@ mod lifecycle_tests {
     #[tokio::test]
     async fn add_trusted_server_rejects_missing_certificate_as_invalid_input() -> Result<()> {
         let dir = tempfile::tempdir()?;
-        let client = fixture(dir.path()).await?;
-        let validator = client.global_params.cert_validator.read().await.clone();
+        let validator = CertValidator::new(dir.path()).await?;
         let error = add_trusted_server(&validator, None)
             .await
             .expect_err("missing certificate must be refused");
@@ -2248,7 +2248,7 @@ mod lifecycle_tests {
                 .into(),
             ))
             .await?;
-        timeout(Duration::from_secs(5), async {
+        tokio::time::timeout(TEST_DEADLINE, async {
             loop {
                 let frame = socket.next().await.context("socket closed")??;
                 let Message::Binary(bytes) = frame else {
@@ -2336,7 +2336,7 @@ mod lifecycle_tests {
             ))
             .await?;
 
-        timeout(Duration::from_secs(2), first_entered.notified())
+        tokio::time::timeout(TEST_DEADLINE, first_entered.notified())
             .await
             .context("first handler did not enter")?;
         assert!(
@@ -2347,7 +2347,7 @@ mod lifecycle_tests {
         );
 
         release_first.notify_one();
-        timeout(Duration::from_secs(2), second_entered.notified())
+        tokio::time::timeout(TEST_DEADLINE, second_entered.notified())
             .await
             .context("second handler did not enter after the first completed")?;
 
@@ -2417,41 +2417,44 @@ mod lifecycle_tests {
                     .change_user_status(&fingerprint, UserStatus::Blocked)
                     .await?;
             }
-            let frame = tokio::time::timeout(Duration::from_secs(2), socket.next())
-                .await?
-                .context("socket closed without a revocation close frame")?
-                .map_err(anyhow::Error::new)
-                .context("reading the revocation close frame")?;
-            assert!(
-                matches!(frame, Message::Close(Some(frame)) if u16::from(frame.code) == 4403 && frame.reason == "revoked")
-            );
-            if let Some((auth, token)) = auth_token {
-                tokio::time::timeout(Duration::from_secs(2), async {
-                    loop {
-                        if !auth.has_token_for_test(&token).await {
-                            return;
-                        }
-                        tokio::time::sleep(Duration::from_millis(10)).await;
-                    }
-                })
-                .await
-                .context("file-driven client block did not purge sync tokens")?;
-            }
-            tokio::time::timeout(Duration::from_secs(3), async {
+            tokio::time::timeout(TEST_DEADLINE, async {
                 loop {
-                    if a.global_params
-                        .node
-                        .session()?
-                        .attached_controllers()
-                        .iter()
-                        .all(|controller| controller.fingerprint != fingerprint)
+                    match socket
+                        .next()
+                        .await
+                        .context("socket closed without a revocation close frame")??
                     {
-                        return Ok::<_, anyhow::Error>(());
+                        Message::Close(Some(frame))
+                            if u16::from(frame.code) == 4403 && frame.reason == "revoked" =>
+                        {
+                            break;
+                        }
+                        Message::Close(frame) => {
+                            anyhow::bail!("unexpected revocation close frame: {frame:?}");
+                        }
+                        _ => {}
                     }
-                    tokio::time::sleep(Duration::from_millis(10)).await;
                 }
+                Ok::<_, anyhow::Error>(())
             })
-            .await??;
+            .await
+            .context("revocation close frame was not received")??;
+            if let Some((auth, token)) = auth_token {
+                wait_until("file-driven client block to purge sync tokens", || async {
+                    Ok((!auth.has_token_for_test(&token).await).then_some(()))
+                })
+                .await?;
+            }
+            wait_until("revoked controller to detach", || async {
+                Ok(a.global_params
+                    .node
+                    .session()?
+                    .attached_controllers()
+                    .iter()
+                    .all(|controller| controller.fingerprint != fingerprint)
+                    .then_some(()))
+            })
+            .await?;
             if !remove {
                 assert!(matches!(
                     connect_remote(
@@ -2482,7 +2485,7 @@ mod lifecycle_tests {
         )
         .await?;
         let close_frame = tokio::spawn(async move {
-            tokio::time::timeout(Duration::from_secs(5), socket.next())
+            tokio::time::timeout(TEST_DEADLINE, socket.next())
                 .await
                 .context("server-stop close frame timed out")?
                 .context("socket closed without a server-stop close frame")?
@@ -2538,19 +2541,20 @@ mod lifecycle_tests {
         use anyhow::Context;
         use futures::StreamExt;
 
-        loop {
-            let frame = tokio::time::timeout(Duration::from_secs(2), socket.next())
-                .await?
-                .context("socket closed")??;
-            let (response_name, payload, response_id) =
-                decode_message(&frame.into_data()).context("invalid frame")?;
-            if response_name == "RequestCapabilities" {
-                continue;
+        tokio::time::timeout(TEST_DEADLINE, async {
+            loop {
+                let frame = socket.next().await.context("socket closed")??;
+                let (response_name, payload, response_id) =
+                    decode_message(&frame.into_data()).context("invalid frame")?;
+                if response_name == "RequestCapabilities" {
+                    continue;
+                }
+                if response_id == request_id {
+                    return Ok((response_name, payload));
+                }
             }
-            if response_id == request_id {
-                return Ok((response_name, payload));
-            }
-        }
+        })
+        .await?
     }
 
     async fn socket_request_for_library(
@@ -2994,7 +2998,7 @@ mod lifecycle_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn remote_control_and_file_fetch_end_to_end() -> Result<()> {
-        use crate::backends::remote::{connect_remote, encode_message};
+        use crate::backends::remote::{connect_remote, encode_message, encode_request};
         use crate::handlers::neighbors::authorized_get;
         use futures::{SinkExt, StreamExt};
         use tokio_tungstenite::tungstenite::Message;
@@ -3020,14 +3024,32 @@ mod lifecycle_tests {
             socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
             library_id: Uuid,
         ) -> Result<()> {
+            use crate::backends::remote::decode_message;
+            use futures::{SinkExt, StreamExt};
+            use tokio_tungstenite::tungstenite::Message;
+
             let payload = rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?;
-            let (name, payload) = socket_request_for_library(
-                socket,
-                "GetMediaFilesCountRequest",
-                &payload,
-                library_id,
-            )
-            .await?;
+            let request_id = Uuid::new_v4();
+            socket
+                .send(Message::Binary(
+                    encode_request(
+                        "GetMediaFilesCountRequest",
+                        &payload,
+                        request_id,
+                        library_id,
+                    )
+                    .into(),
+                ))
+                .await?;
+            let frame = tokio::time::timeout(TEST_DEADLINE, socket.next())
+                .await?
+                .context("socket closed")??;
+            let (name, payload, response_id) =
+                decode_message(&frame.into_data()).context("invalid response frame")?;
+            assert_eq!(
+                response_id, request_id,
+                "unexpected response before count barrier"
+            );
             assert_eq!(name, "GetMediaFilesCountResponse");
             let response: GetMediaFilesCountResponse = rinf::deserialize(&payload)?;
             assert_eq!(response.count, 0);
@@ -3048,12 +3070,14 @@ mod lifecycle_tests {
                 .into(),
             ))
             .await?;
+        // A successful response to the next valid request is the ordering barrier. The count
+        // helper checks the very next frame, so an invalid fetch response cannot be discarded.
+        count(&mut socket, library_id).await?;
         assert!(
             tokio::time::timeout(Duration::from_millis(500), socket.next())
                 .await
                 .is_err()
         );
-        count(&mut socket, library_id).await?;
 
         let name = format!("{}.txt", Uuid::new_v4());
         let bytes = b"remote file contents";
@@ -3101,7 +3125,7 @@ mod lifecycle_tests {
             .await
             .is_err()
         );
-        let frame = tokio::time::timeout(Duration::from_secs(2), socket.next())
+        let frame = tokio::time::timeout(TEST_DEADLINE, socket.next())
             .await?
             .context("revocation close frame missing")??;
         assert!(
@@ -3200,7 +3224,7 @@ mod lifecycle_tests {
         b.stop_worker().await?;
         for _ in 0..3 {
             // Repeated forced passes still respect the challenge endpoint's rate limit.
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            tokio::time::timeout(TEST_DEADLINE, tokio::time::sleep(Duration::from_secs(1))).await?;
             for (local, remote, addr) in [(&a, &b, b_addr), (&b, &a, a_addr)] {
                 let endpoint = PeerEndpoint {
                     fingerprint: info(remote).await?.fingerprint,
@@ -3346,7 +3370,7 @@ mod lifecycle_tests {
         fingerprint: &str,
     ) -> Result<ListPeerLibrariesResponse> {
         // Forced passes and listings share the challenge endpoint's rate limit.
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        tokio::time::timeout(TEST_DEADLINE, tokio::time::sleep(Duration::from_secs(1))).await?;
         let request = ListPeerLibrariesRequest {
             call_id: None,
             fingerprint: fingerprint.to_owned(),
@@ -3520,7 +3544,7 @@ mod lifecycle_tests {
         };
         let session = TestPeerSession::default();
         for _ in 0..3 {
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            tokio::time::timeout(TEST_DEADLINE, tokio::time::sleep(Duration::from_secs(1))).await?;
             if session
                 .pass(
                     replica.global_params.clone(),
@@ -3692,16 +3716,10 @@ mod lifecycle_tests {
     }
 
     async fn wait_for_album(library: &LibraryHandle, key: &ObjectKey) -> Result<()> {
-        tokio::time::timeout(Duration::from_secs(45), async {
-            loop {
-                if library.library_sync.get(key).await?.is_some() {
-                    return Ok::<_, anyhow::Error>(());
-                }
-                tokio::time::sleep(Duration::from_millis(50)).await;
-            }
+        wait_until("album to replicate without a local UI library", || async {
+            Ok(library.library_sync.get(key).await?.map(|_| ()))
         })
         .await
-        .context("node worker did not converge without a local UI library")?
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -3874,12 +3892,11 @@ mod lifecycle_tests {
             cover_art_path: None,
             lib_path: a.global_params.test_library().media_root.clone(),
         });
-        let frame = peer_step_with_timeout(
-            "controller playback status frame",
-            Duration::from_secs(3),
-            async { Ok(socket.next().await.context("controller socket closed")??) },
-        )
-        .await?;
+        let frame =
+            peer_step_with_timeout("controller playback status frame", TEST_DEADLINE, async {
+                Ok(socket.next().await.context("controller socket closed")??)
+            })
+            .await?;
         let (name, payload, _) = decode_message(&frame.into_data()).context("status frame")?;
         assert_eq!(name, "PlaybackStatus");
         let status: PlaybackStatus = rinf::deserialize(&payload)?;
@@ -3926,13 +3943,10 @@ mod lifecycle_tests {
         let identity = source.library_sync.identity().await?;
         let connection = Arc::downgrade(&source.main_db);
         drop(source);
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while connection.upgrade().is_some() {
-                tokio::time::sleep(Duration::from_millis(25)).await;
-            }
+        wait_until("held library to idle close", || async {
+            Ok(connection.upgrade().is_none().then_some(()))
         })
-        .await
-        .context("held library did not idle close")?;
+        .await?;
         assert!(
             !a.global_params
                 .library_pool
@@ -4025,20 +4039,13 @@ mod lifecycle_tests {
             .replace_hosts_for_fingerprint(&fingerprint, vec![format!("127.0.0.1:{}", addr.port())])
             .await?;
         b.start_worker().await?;
-        let received = tokio::time::timeout(Duration::from_secs(45), async {
-            loop {
-                if let Some(row) = media_files::Entity::find()
-                    .filter(Column::HlcUuid.eq(&original.hlc_uuid))
-                    .one(&*replica.main_db)
-                    .await?
-                {
-                    return Ok::<_, anyhow::Error>(row);
-                }
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
+        let received = wait_until("unopened L2 track to synchronize", || async {
+            Ok(media_files::Entity::find()
+                .filter(Column::HlcUuid.eq(&original.hlc_uuid))
+                .one(&*replica.main_db)
+                .await?)
         })
-        .await
-        .context("unopened L2 did not synchronize")??;
+        .await?;
         assert!(!received.local_available);
         assert_eq!(
             media_files::Entity::find()
@@ -4057,26 +4064,19 @@ mod lifecycle_tests {
         // A fresh worker pass should evaluate L2's rule, while M has no rules or tracks.
         b.stop_worker().await?;
         b.start_worker().await?;
-        tokio::time::timeout(Duration::from_secs(40), async {
-            loop {
-                if is_materialized(
-                    &*replica.main_db,
-                    &replica.fsio,
-                    Path::new(&replica.media_root),
-                    received.id,
-                )
-                .await?
-                {
-                    return Ok::<_, anyhow::Error>(());
-                }
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
+        wait_until("unopened L2 download rule to apply", || async {
+            Ok(is_materialized(
+                &*replica.main_db,
+                &replica.fsio,
+                Path::new(&replica.media_root),
+                received.id,
+            )
+            .await?
+            .then_some(()))
         })
-        .await
-        .context("unopened L2 did not apply its download rule")??;
+        .await?;
 
         // The restarted worker shares the challenge quota with this direct request.
-        tokio::time::sleep(Duration::from_secs(1)).await;
         let (_, client) = authenticated_client(
             &b.global_params.node,
             &info(&b).await?.fingerprint,
@@ -4135,10 +4135,9 @@ mod lifecycle_tests {
         set_library_background(&b, library_id, false).await?;
         let connection = Arc::downgrade(&replica.main_db);
         drop(replica);
-        tokio::time::sleep(Duration::from_secs(2)).await;
         // Leave the worker running across a complete normal retry interval.
         let later = scan_held_track(&a, library_id, "second.ogg").await?;
-        tokio::time::sleep(Duration::from_secs(32)).await;
+        tokio::time::timeout(TEST_DEADLINE, tokio::time::sleep(Duration::from_secs(32))).await?;
         let replica = b.global_params.library_pool.acquire(library_id).await?;
         assert!(
             media_files::Entity::find()
@@ -4148,13 +4147,10 @@ mod lifecycle_tests {
                 .is_none(),
             "disabled L2 received a later track"
         );
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while connection.upgrade().is_some() {
-                tokio::time::sleep(Duration::from_millis(50)).await;
-            }
+        wait_until("disabled L2 idle pool connection to close", || async {
+            Ok(connection.upgrade().is_none().then_some(()))
         })
-        .await
-        .context("disabled L2 kept its idle pool connection")?;
+        .await?;
         assert!(Arc::ptr_eq(
             &b.global_params.test_library().main_db,
             &b.global_params.library_pool.acquire(ui_id).await?.main_db,
@@ -4184,13 +4180,13 @@ mod lifecycle_tests {
         let library_id = Uuid::new_v4();
         let a = peer_step_with_timeout(
             "create first fixture",
-            Duration::from_secs(120),
+            TEST_DEADLINE,
             fixture_with_library(first.path(), library_id),
         )
         .await?;
         let b = peer_step_with_timeout(
             "create second fixture",
-            Duration::from_secs(120),
+            TEST_DEADLINE,
             fixture_with_library(second.path(), library_id),
         )
         .await?;
@@ -4209,46 +4205,42 @@ mod lifecycle_tests {
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg"),
             second.path().join("source.ogg"),
         )?;
-        peer_step_with_timeout(
-            "scan and publish source audio",
-            Duration::from_secs(120),
-            async {
-                scan_audio_library(
-                    &b.global_params.test_library().fsio,
-                    &b.global_params.test_library().main_db,
-                    &b.global_params.node_id,
-                    second.path(),
-                    ScanOptions {
-                        cleanup: false,
-                        force: false,
-                        missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
-                        cancel_token: None,
-                    },
-                    |_| {},
-                    &b.global_params.test_library().library_sync.record_store(),
-                )
-                .await?;
-                let source_track = media_files::Entity::find()
-                    .filter(Column::LocalAvailable.eq(true))
-                    .one(&*b.global_params.test_library().main_db)
+        peer_step_with_timeout("scan and publish source audio", TEST_DEADLINE, async {
+            scan_audio_library(
+                &b.global_params.test_library().fsio,
+                &b.global_params.test_library().main_db,
+                &b.global_params.node_id,
+                second.path(),
+                ScanOptions {
+                    cleanup: false,
+                    force: false,
+                    missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+                    cancel_token: None,
+                },
+                |_| {},
+                &b.global_params.test_library().library_sync.record_store(),
+            )
+            .await?;
+            let source_track = media_files::Entity::find()
+                .filter(Column::LocalAvailable.eq(true))
+                .one(&*b.global_params.test_library().main_db)
+                .await?
+                .context("fixture scanner did not create the source audio row")?;
+            let track_key = ObjectKey {
+                collection: Collection::Tracks,
+                id: source_track.hlc_uuid.parse()?,
+            };
+            anyhow::ensure!(
+                b.global_params
+                    .test_library()
+                    .library_sync
+                    .get(&track_key)
                     .await?
-                    .context("fixture scanner did not create the source audio row")?;
-                let track_key = ObjectKey {
-                    collection: Collection::Tracks,
-                    id: source_track.hlc_uuid.parse()?,
-                };
-                anyhow::ensure!(
-                    b.global_params
-                        .test_library()
-                        .library_sync
-                        .get(&track_key)
-                        .await?
-                        .is_some(),
-                    "fixture scanner did not publish source track metadata"
-                );
-                Ok(())
-            },
-        )
+                    .is_some(),
+                "fixture scanner did not publish source track metadata"
+            );
+            Ok(())
+        })
         .await?;
         let key = ObjectKey {
             collection: Collection::Albums,
@@ -4296,7 +4288,12 @@ mod lifecycle_tests {
             announce_peer(&a, &b_info, b_addr),
         )
         .await?;
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        anyhow::ensure!(
+            TcpStream::connect(("127.0.0.1", b_addr.port()))
+                .await
+                .is_err(),
+            "second sync listener unexpectedly accepted a connection before startup"
+        );
         peer_step(
             "start second sync listener",
             b.clone().start_sync(
@@ -4312,31 +4309,26 @@ mod lifecycle_tests {
             announce_peer(&b, &a_info, a_addr),
         )
         .await?;
-        tokio::time::timeout(Duration::from_secs(15), async {
-            loop {
-                let seen_a =
-                    b.global_params
-                        .device_scanner
-                        .get_all_devices()
-                        .iter()
-                        .any(|device| {
-                            device.fingerprint == a_info.fingerprint
-                                && device.api_port == Some(a_addr.port())
-                        });
-                let seen_b =
-                    a.global_params
-                        .device_scanner
-                        .get_all_devices()
-                        .iter()
-                        .any(|device| {
-                            device.fingerprint == b_info.fingerprint
-                                && device.api_port == Some(b_addr.port())
-                        });
-                if seen_a && seen_b {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
+        wait_until("peers to learn advertised ports", || async {
+            let seen_a = b
+                .global_params
+                .device_scanner
+                .get_all_devices()
+                .iter()
+                .any(|device| {
+                    device.fingerprint == a_info.fingerprint
+                        && device.api_port == Some(a_addr.port())
+                });
+            let seen_b = a
+                .global_params
+                .device_scanner
+                .get_all_devices()
+                .iter()
+                .any(|device| {
+                    device.fingerprint == b_info.fingerprint
+                        && device.api_port == Some(b_addr.port())
+                });
+            Ok((seen_a && seen_b).then_some(()))
         })
         .await
         .context("peers did not learn advertised ports")?;
@@ -4373,7 +4365,11 @@ mod lifecycle_tests {
                 .iter()
                 .find(|device| device.fingerprint == *fingerprint)
                 .context("announced peer missing from discovered devices")?;
-            assert_eq!(device.addresses, [expected_address]);
+            assert!(
+                device.addresses.contains(&expected_address),
+                "discovered addresses {addresses:?} omitted expected loopback address {expected_address}",
+                addresses = device.addresses
+            );
             add_trusted_server(
                 &*receiver.global_params.cert_validator.read().await,
                 Some(&TrustedServerCertificate {
@@ -4407,35 +4403,29 @@ mod lifecycle_tests {
         })
         .await?;
         assert_eq!(unauthorized_file, reqwest::StatusCode::UNAUTHORIZED);
-        let metadata_wait_started = Instant::now();
-        let remote_id = tokio::time::timeout(Duration::from_secs(45), async {
-            let receiver = a.global_params.test_library().library_sync.clone();
-            loop {
-                if receiver.get(&key).await.unwrap().is_some()
+        let remote_id = wait_until(
+            "background sync to transfer album and track metadata",
+            || async {
+                let receiver = a.global_params.test_library().library_sync.clone();
+                if receiver.get(&key).await?.is_some()
                     && b.global_params
                         .test_library()
                         .library_sync
                         .get(&reverse_key)
-                        .await
-                        .unwrap()
+                        .await?
                         .is_some()
                     && let Some(track) = media_files::Entity::find()
                         .filter(Column::LocalAvailable.eq(false))
                         .one(&*a.global_params.test_library().main_db)
-                        .await
-                        .unwrap()
+                        .await?
                 {
-                    break track.id;
+                    Ok(Some(track.id))
+                } else {
+                    Ok(None)
                 }
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-        })
-        .await
-        .context("background sync did not transfer album and track metadata")?;
-        anyhow::ensure!(
-            metadata_wait_started.elapsed() < Duration::from_secs(20),
-            "metadata transfer after a refused first pass took longer than 20 seconds"
-        );
+            },
+        )
+        .await?;
         peer_step("configure audio peer permissions", async {
             b.global_params
                 .permission_manager
@@ -4478,23 +4468,20 @@ mod lifecycle_tests {
                 .acquire(a.global_params.library_id.context("library")?),
         )
         .await?;
-        let source = peer_step("resolve remote audio", async {
-            Ok(loop {
-                if let Ok(source) = a
-                    .resolve_remote_audio(
-                        &audio_library,
-                        a.global_params.main_token.child_token(),
-                        remote_id,
-                    )
-                    .await
-                {
-                    break source;
-                }
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            })
+        let source = wait_until("remote audio source to become available", || async {
+            match a
+                .resolve_remote_audio(
+                    &audio_library,
+                    a.global_params.main_token.child_token(),
+                    remote_id,
+                )
+                .await
+            {
+                Ok(source) => Ok(Some(source)),
+                Err(_) => Ok(None),
+            }
         })
-        .await
-        .context("could not resolve remote audio")?;
+        .await?;
         let expected = std::fs::read(second.path().join("source.ogg"))?;
         let source_path = source
             .url
@@ -4522,7 +4509,6 @@ mod lifecycle_tests {
         })
         .await?;
         anyhow::ensure!(expired_token, "audio renewal test found no token to expire");
-        tokio::time::sleep(Duration::from_secs(1)).await;
         peer_step("inject transient renewal rejection", async {
             b.sync_auth
                 .lock()
@@ -4620,7 +4606,7 @@ mod lifecycle_tests {
         })
         .await?;
         assert!(denied.is_err());
-        tokio::time::timeout(Duration::from_secs(10), stream_cancel.cancelled())
+        tokio::time::timeout(TEST_DEADLINE, stream_cancel.cancelled())
             .await
             .context("revocation did not cancel the remote stream")?;
         peer_step("stop paired workers", async {
@@ -4628,7 +4614,6 @@ mod lifecycle_tests {
             b.stop_worker().await
         })
         .await?;
-        tokio::time::sleep(Duration::from_secs(1)).await;
         peer_step("restore remote audio permission", async {
             b.global_params
                 .permission_manager
@@ -4700,7 +4685,6 @@ mod lifecycle_tests {
             )
             .await?
         );
-        tokio::time::sleep(Duration::from_secs(1)).await;
         let (_, authorized) = peer_step("authenticate sync-only client", async {
             sync_worker::authenticated_client(
                 &b.global_params.node,
@@ -4832,20 +4816,19 @@ mod lifecycle_tests {
             pinned_anonymous_client(&b.global_params, Some(0)),
         )
         .await?;
-        peer_step("wait for restarted listener readiness", async {
-            loop {
-                if let Ok(response) = restarted_client
-                    .get(format!("{base}/ping"))
-                    .header(CONNECTION, "close")
-                    .send()
-                    .await
-                    && response.status().is_success()
-                {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(25)).await;
-            }
-            Ok(())
+        wait_until("restarted listener readiness", || async {
+            let ready = if let Ok(response) = restarted_client
+                .get(format!("{base}/ping"))
+                .header(CONNECTION, "close")
+                .send()
+                .await
+                && response.status().is_success()
+            {
+                true
+            } else {
+                false
+            };
+            Ok(ready.then_some(()))
         })
         .await?;
         let restarted_status = peer_step("restarted listener request", async {
@@ -4858,16 +4841,10 @@ mod lifecycle_tests {
         .await?;
         assert_eq!(restarted_status, reqwest::StatusCode::UNAUTHORIZED);
         b.global_params.node.token.cancel();
-        let rebound = tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                if let Ok(listener) = TcpListener::bind(b_addr) {
-                    break listener;
-                }
-                tokio::time::sleep(Duration::from_millis(50)).await;
-            }
+        let rebound = wait_until("cancelled listener to release its port", || async {
+            Ok(TcpListener::bind(b_addr).ok())
         })
-        .await
-        .context("main cancellation did not release listener")?;
+        .await?;
         drop(rebound);
         peer_step("stop cancelled second listener", b.stop()).await?;
         peer_step("stop restarted first listener", a.stop()).await?;

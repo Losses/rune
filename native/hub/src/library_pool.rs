@@ -594,6 +594,7 @@ async fn checkpoint_wal(db: &sea_orm::DatabaseConnection) -> Result<()> {
 #[cfg(all(test, not(target_os = "android")))]
 mod tests {
     use super::*;
+    use crate::test_wait::{TEST_DEADLINE, wait_until};
     use database::{
         connection::create_redirect,
         library_registry::{create_replica, resolve_library},
@@ -606,7 +607,7 @@ mod tests {
         },
     };
     use tempfile::TempDir;
-    use tokio::time::{sleep, timeout};
+    use tokio::sync::oneshot;
 
     struct Fixture {
         dir: TempDir,
@@ -619,6 +620,10 @@ mod tests {
 
     impl Fixture {
         async fn new(redirected: bool) -> Result<Self> {
+            Self::new_with_idle_timeout(redirected, Duration::from_millis(50)).await
+        }
+
+        async fn new_with_idle_timeout(redirected: bool, idle_timeout: Duration) -> Result<Self> {
             let dir = TempDir::new()?;
             let root = dir.path().join("media").to_string_lossy().into_owned();
             let fsio = Arc::new(FsIo::new());
@@ -629,12 +634,8 @@ mod tests {
             let mut registry = LibraryRegistry::load(dir.path())?;
             let descriptor = resolve_library(&fsio, &mut registry, &root, "Test", mode).await?;
             let node_id = Uuid::new_v4().to_string();
-            let pool = LibraryPool::with_idle_timeout(
-                dir.path(),
-                dir.path(),
-                &node_id,
-                Duration::from_millis(50),
-            )?;
+            let pool =
+                LibraryPool::with_idle_timeout(dir.path(), dir.path(), &node_id, idle_timeout)?;
             Ok(Self {
                 dir,
                 pool,
@@ -679,19 +680,16 @@ mod tests {
         }
 
         async fn wait_closed(&self) -> Result<()> {
-            timeout(Duration::from_secs(3), async {
-                while self
+            wait_until("idle library to close", || async {
+                Ok((!self
                     .pool
                     .entries
                     .lock()
                     .await
-                    .contains_key(&self.descriptor.catalog_library_id().unwrap())
-                {
-                    sleep(Duration::from_millis(10)).await;
-                }
+                    .contains_key(&self.descriptor.catalog_library_id().unwrap()))
+                .then_some(()))
             })
             .await
-            .context("Idle library was not closed")
         }
     }
 
@@ -721,7 +719,10 @@ mod tests {
         let id = f.descriptor.catalog_library_id().unwrap();
         let background = f.pool.acquire(id).await?;
         drop(background);
-        sleep(f.pool.idle_timeout + Duration::from_millis(10)).await;
+        *f.pool.entries.lock().await[&id]
+            .last_released
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Instant::now() - f.pool.idle_timeout;
         f.pool.close_idle().await?;
         // A user moving the folder in the file manager cannot do so while Windows holds its database open.
         let moved = f.dir.path().join("moved").to_string_lossy().into_owned();
@@ -757,7 +758,10 @@ mod tests {
         pool.unregister_ui(id).await;
         drop(first);
         // A reinstall cannot relocate app data while Windows still has the library database open.
-        sleep(pool.idle_timeout + Duration::from_millis(10)).await;
+        *pool.entries.lock().await[&id]
+            .last_released
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Instant::now() - pool.idle_timeout;
         pool.close_idle().await?;
         // A reinstall gives the app a new data directory holding the same files.
         let new = TempDir::new()?;
@@ -782,7 +786,11 @@ mod tests {
         let connection = Arc::downgrade(&resources.main_db);
         let ui = f.pool.register_ui(resources).await?;
         drop(ui);
-        sleep(f.pool.idle_timeout * 3).await;
+        *f.pool.entries.lock().await[&f.descriptor.catalog_library_id().unwrap()]
+            .last_released
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Instant::now() - f.pool.idle_timeout;
+        f.pool.close_idle().await?;
         let acquired = f
             .pool
             .acquire(f.descriptor.catalog_library_id().unwrap())
@@ -794,7 +802,11 @@ mod tests {
         f.pool
             .unregister_ui(f.descriptor.catalog_library_id().unwrap())
             .await;
-        sleep(f.pool.idle_timeout * 3).await;
+        *f.pool.entries.lock().await[&f.descriptor.catalog_library_id().unwrap()]
+            .last_released
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Instant::now() - f.pool.idle_timeout;
+        f.pool.close_idle().await?;
         assert!(
             f.pool
                 .entries
@@ -818,7 +830,11 @@ mod tests {
         let last = first.clone();
         let connection = Arc::downgrade(&first.main_db);
         drop(first);
-        sleep(f.pool.idle_timeout * 3).await;
+        *f.pool.entries.lock().await[&f.descriptor.catalog_library_id().unwrap()]
+            .last_released
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Instant::now() - f.pool.idle_timeout;
+        f.pool.close_idle().await?;
         assert!(connection.upgrade().is_some());
         let held = f
             .pool
@@ -846,7 +862,7 @@ mod tests {
 
     #[tokio::test]
     async fn background_only_activity_does_not_refresh_idle_timeout() -> Result<()> {
-        let f = Fixture::new(false).await?;
+        let f = Fixture::new_with_idle_timeout(false, Duration::from_secs(10)).await?;
         let id = f.descriptor.catalog_library_id().unwrap();
         LibraryRegistry::set_background_sync(f.dir.path(), id, true).await?;
 
@@ -864,10 +880,16 @@ mod tests {
             .execute_unprepared("INSERT INTO idle_release_probe (value) VALUES (42)")
             .await?;
         drop(first);
+        {
+            let entries = f.pool.entries.lock().await;
+            let entry = entries.get(&id).context("open library")?;
+            *entry
+                .last_released
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) = Instant::now() - f.pool.idle_timeout;
+        }
 
         for _ in 0..2 {
-            // Model background passes arriving 10 ms apart; this is cadence, not polling.
-            sleep(Duration::from_millis(10)).await;
             let pass = f
                 .pool
                 .acquire_served_background(id)
@@ -875,10 +897,8 @@ mod tests {
                 .context("served library")?;
             drop(pass);
         }
-
-        // This 40 ms window takes the original acquisition past the 50 ms timeout,
-        // while the old behavior would still be within 50 ms of the final pass.
-        sleep(Duration::from_millis(40)).await;
+        // The old timestamp makes the feature check immediate and leaves ten seconds for
+        // the negative case: request-use activity would refresh it and keep the entry open.
         f.pool.close_idle().await?;
         assert!(
             !f.pool.entries.lock().await.contains_key(&id),
@@ -1021,16 +1041,23 @@ mod tests {
         }
         let pool = f.pool.clone();
         let closing = tokio::spawn(async move { pool.close_idle().await });
-        sleep(Duration::from_millis(30)).await;
+        wait_until("idle close to hold the library entry lock", || async {
+            Ok(f.pool.entries.try_lock().is_err().then_some(()))
+        })
+        .await?;
         assert!(!closing.is_finished());
         let pool = f.pool.clone();
         let id = f.descriptor.catalog_library_id().unwrap();
-        let reopening = tokio::spawn(async move { pool.acquire(id).await });
-        sleep(Duration::from_millis(30)).await;
+        let (started, started_rx) = oneshot::channel();
+        let reopening = tokio::spawn(async move {
+            let _ = started.send(());
+            pool.acquire(id).await
+        });
+        started_rx.await?;
         assert!(!reopening.is_finished());
         transaction.commit().await?;
-        timeout(Duration::from_secs(3), closing).await???;
-        let reopened = timeout(Duration::from_secs(3), reopening).await???;
+        tokio::time::timeout(TEST_DEADLINE, closing).await???;
+        let reopened = tokio::time::timeout(TEST_DEADLINE, reopening).await???;
         assert_eq!(reopened.library_id, id);
         Ok(())
     }
