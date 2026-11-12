@@ -14,24 +14,28 @@ use subsonic::{
 use crate::TypedRequest;
 use crate::macros::{RequestSlots, RequestTranslator};
 use crate::messages::{
-    AddItemToPlaylistRequest, AddItemToPlaylistResponse, AudioAvailability, AudioOrigin,
-    CastPreflightRequest, Collection, CollectionGroup, CollectionGroupSummary,
+    AddItemToPlaylistRequest, AddItemToPlaylistResponse, Album, Artist, AudioAvailability,
+    AudioOrigin, CastPreflightRequest, Collection, CollectionGroup, CollectionGroupSummary,
     CollectionGroupSummaryResponse, CollectionType, CreatePlaylistRequest, CreatePlaylistResponse,
     FetchAllPlaylistsRequest, FetchAllPlaylistsResponse, FetchCollectionByIdsRequest,
     FetchCollectionByIdsResponse, FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
     FetchCollectionGroupsResponse, FetchMediaFileByIdsRequest, FetchMediaFileByIdsResponse,
-    GetLikedRequest, GetLikedResponse, GetLyricByTrackIdRequest, GetLyricByTrackIdResponse,
+    FetchMediaFilesRequest, FetchMediaFilesResponse, FetchParsedMediaFileRequest,
+    FetchParsedMediaFileResponse, GetLikedRequest, GetLikedResponse, GetLyricByTrackIdRequest,
+    GetLyricByTrackIdResponse, GetMediaFilesCountRequest, GetMediaFilesCountResponse,
     GetPlaylistByIdRequest, GetPlaylistByIdResponse, HandoffLoadRequest, LoadRequest,
     LoadResolvedItemsRequest, LoadResolvedItemsResponse, LyricContentLine, LyricContentLineSection,
-    MediaFile, MixQueryRequest, MixQueryResponse, MovePlaylistItemRequest, NextRequest,
-    PauseRequest, PlayRequest, PlayingItemRef, Playlist, PlaylistOperateMode, PreviousRequest,
-    RefreshSessionRequest, RemoveItemFromPlaylistRequest, RemoveItemFromPlaylistResponse,
-    RemovePlaylistRequest, RemovePlaylistResponse, RemoveRequest,
-    ReorderPlaylistItemPositionRequest, ReorderPlaylistItemPositionResponse, SearchForRequest,
-    SearchForResponse, SeekRequest, SessionSnapshotRequest, SetAdaptiveSwitchingEnabledRequest,
-    SetLikedRequest, SetLikedResponse, SetPlaybackModeRequest, SetRealtimeFFTEnabledRequest,
-    SwitchRequest, TakeBackHandoffBlockRequest, UpdatePlaylistRequest, UpdatePlaylistResponse,
-    VolumeRequest, VolumeResponse,
+    MediaFile, MediaFileSummary, MixQueryRequest, MixQueryResponse, MovePlaylistItemRequest,
+    NextRequest, PauseRequest, PlayRequest, PlayingItemRef, Playlist, PlaylistOperateMode,
+    PreviousRequest, RefreshSessionRequest, RemoveItemFromPlaylistRequest,
+    RemoveItemFromPlaylistResponse, RemovePlaylistRequest, RemovePlaylistResponse, RemoveRequest,
+    ReorderPlaylistItemPositionRequest, ReorderPlaylistItemPositionResponse,
+    SearchCollectionSummaryRequest, SearchCollectionSummaryResponse, SearchForRequest,
+    SearchForResponse, SearchMediaFileSummaryRequest, SearchMediaFileSummaryResponse, SeekRequest,
+    SessionSnapshotRequest, SetAdaptiveSwitchingEnabledRequest, SetLikedRequest, SetLikedResponse,
+    SetPlaybackModeRequest, SetRealtimeFFTEnabledRequest, SwitchRequest,
+    TakeBackHandoffBlockRequest, UpdatePlaylistRequest, UpdatePlaylistResponse, VolumeRequest,
+    VolumeResponse,
 };
 use crate::request_error::ExpectedRequestError;
 use crate::rpc::{RequestTranslationFuture, Slot, UnsupportedReason};
@@ -618,6 +622,329 @@ pub(crate) async fn fetch_media_file_by_ids_request(
         call_id: None,
         media_files,
         cover_art_map: subsonic_cover_map(binding, covers),
+    }))
+}
+
+fn empty_search_error(error: SubsonicError, request: &'static str) -> anyhow::Error {
+    match error {
+        SubsonicError::Server {
+            kind: SubsonicServerError::MissingParameter,
+            ..
+        } => ExpectedRequestError::Unsupported {
+            request,
+            reason: UnsupportedReason::NotImplemented,
+        }
+        .into(),
+        error => subsonic_request_error(error),
+    }
+}
+
+fn media_file_from_song(
+    binding: &SubsonicBinding,
+    id: i32,
+    song: &SubsonicSong,
+) -> Result<MediaFile> {
+    let cover_art_id = {
+        let mut catalog = binding
+            .catalog
+            .lock()
+            .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+        song.cover_art
+            .as_deref()
+            .map(|cover| catalog.ids.intern(SubsonicIdKind::CoverArt, cover))
+            .transpose()?
+            .unwrap_or_default()
+    };
+    Ok(MediaFile {
+        id,
+        library_id: binding.library_id.to_string(),
+        track: song.id.clone(),
+        path: String::new(),
+        artist: song.artist.clone().unwrap_or_default(),
+        album: song.album.clone().unwrap_or_default(),
+        title: song.title.clone(),
+        duration: f64::from(song.duration.unwrap_or_default()),
+        cover_art_id,
+        track_number: song
+            .track
+            .and_then(|number| i32::try_from(number).ok())
+            .unwrap_or_default(),
+        audio_availability: AudioAvailability::Unavailable,
+        audio_origin: AudioOrigin::Remote,
+    })
+}
+
+pub(crate) async fn fetch_media_files_request(
+    binding: &SubsonicBinding,
+    request: &FetchMediaFilesRequest,
+) -> Result<Option<FetchMediaFilesResponse>> {
+    let offset = u32::try_from(request.cursor)
+        .map_err(|error| ExpectedRequestError::invalid_input(format!("Invalid cursor: {error}")))?;
+    let count = u32::try_from(request.page_size).map_err(|error| {
+        ExpectedRequestError::invalid_input(format!("Invalid page size: {error}"))
+    })?;
+    let songs = binding
+        .client
+        .search_with_song_offset(
+            "",
+            SearchLimits {
+                songs: count,
+                ..Default::default()
+            },
+            offset,
+        )
+        .await
+        .map_err(|error| empty_search_error(error, FetchMediaFilesRequest::wire_name()))?
+        .songs;
+    let mut media_files = Vec::with_capacity(songs.len());
+    let mut covers = Vec::new();
+    for song in songs {
+        let id = {
+            let mut catalog = binding
+                .catalog
+                .lock()
+                .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+            let id = catalog.ids.intern(SubsonicIdKind::Track, &song.id)?;
+            catalog.songs.insert(id, song.clone());
+            id
+        };
+        if let Some(cover) = song.cover_art.clone() {
+            covers.push((id, cover));
+        }
+        media_files.push(media_file_from_song(binding, id, &song)?);
+    }
+    let cover_art_map = if request.bake_cover_arts {
+        subsonic_cover_map(binding, covers)
+    } else {
+        HashMap::new()
+    };
+    Ok(Some(FetchMediaFilesResponse {
+        media_files,
+        cover_art_map,
+        call_id: request.call_id,
+    }))
+}
+
+pub(crate) async fn get_media_files_count_request(
+    binding: &SubsonicBinding,
+    request: &GetMediaFilesCountRequest,
+) -> Result<Option<GetMediaFilesCountResponse>> {
+    let scan_status = binding
+        .client
+        .scan_status()
+        .await
+        .map_err(subsonic_request_error)?;
+    let count = scan_status
+        .count
+        .ok_or_else(|| ExpectedRequestError::UnexpectedResponse {
+            expected: "Subsonic scan status song count".into(),
+            actual: "scan status omitted count".into(),
+        })?;
+    Ok(Some(GetMediaFilesCountResponse {
+        count: i32::try_from(count).map_err(|error| {
+            ExpectedRequestError::invalid_input(format!("Invalid song count: {error}"))
+        })?,
+        call_id: request.call_id,
+    }))
+}
+
+pub(crate) async fn fetch_parsed_media_file_request(
+    binding: &SubsonicBinding,
+    request: &FetchParsedMediaFileRequest,
+) -> Result<Option<FetchParsedMediaFileResponse>> {
+    let remote_id = {
+        let catalog = binding
+            .catalog
+            .lock()
+            .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+        catalog
+            .ids
+            .resolve(SubsonicIdKind::Track, request.id)?
+            .to_owned()
+    };
+    let song = binding
+        .client
+        .song(&remote_id)
+        .await
+        .map_err(subsonic_request_error)?;
+    let mut catalog = binding
+        .catalog
+        .lock()
+        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+    let id = catalog.ids.intern(SubsonicIdKind::Track, &song.id)?;
+    catalog.songs.insert(id, song.clone());
+    let artists = song
+        .artist
+        .as_ref()
+        .map(|name| -> Result<Artist> {
+            let id = song
+                .artist_id
+                .as_deref()
+                .map(|remote| catalog.ids.intern(SubsonicIdKind::Artist, remote))
+                .transpose()?;
+            Ok(Artist {
+                id: id.unwrap_or_default(),
+                name: name.clone(),
+            })
+        })
+        .transpose()?
+        .into_iter()
+        .collect();
+    let album_id = song
+        .album_id
+        .as_deref()
+        .map(|remote| catalog.ids.intern(SubsonicIdKind::Album, remote))
+        .transpose()?
+        .unwrap_or_default();
+    let album = Album {
+        id: album_id,
+        name: song.album.clone().unwrap_or_default(),
+    };
+    drop(catalog);
+    Ok(Some(FetchParsedMediaFileResponse {
+        file: media_file_from_song(binding, id, &song)?,
+        artists,
+        album,
+        call_id: request.call_id,
+    }))
+}
+
+pub(crate) async fn search_media_file_summary_request(
+    binding: &SubsonicBinding,
+    request: &SearchMediaFileSummaryRequest,
+) -> Result<Option<SearchMediaFileSummaryResponse>> {
+    let count = u32::try_from(request.n)
+        .map_err(|error| ExpectedRequestError::invalid_input(format!("Invalid N: {error}")))?;
+    let songs = binding
+        .client
+        .search(
+            "",
+            SearchLimits {
+                songs: count,
+                ..Default::default()
+            },
+        )
+        .await
+        .map_err(|error| empty_search_error(error, SearchMediaFileSummaryRequest::wire_name()))?
+        .songs;
+    let mut catalog = binding
+        .catalog
+        .lock()
+        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+    let result = songs
+        .into_iter()
+        .map(|song| {
+            let id = catalog.ids.intern(SubsonicIdKind::Track, &song.id)?;
+            let cover_art_id = song
+                .cover_art
+                .as_deref()
+                .map(|cover| catalog.ids.intern(SubsonicIdKind::CoverArt, cover))
+                .transpose()?
+                .unwrap_or_default();
+            catalog.songs.insert(id, song.clone());
+            Ok(MediaFileSummary {
+                id,
+                name: song.title,
+                cover_art_id,
+                audio_availability: AudioAvailability::Unavailable,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(Some(SearchMediaFileSummaryResponse {
+        result,
+        call_id: request.call_id,
+    }))
+}
+
+pub(crate) async fn search_collection_summary_request(
+    binding: &SubsonicBinding,
+    request: &SearchCollectionSummaryRequest,
+) -> Result<Option<SearchCollectionSummaryResponse>> {
+    let collection_type = request.collection_type.ok_or_else(|| {
+        ExpectedRequestError::invalid_input("Subsonic collection summary requires album or artist")
+    })?;
+    let (kind, limits) = match collection_type {
+        CollectionType::Album => (
+            SubsonicIdKind::Album,
+            SearchLimits {
+                albums: u32::try_from(request.n).map_err(|error| {
+                    ExpectedRequestError::invalid_input(format!("Invalid N: {error}"))
+                })?,
+                ..Default::default()
+            },
+        ),
+        CollectionType::Artist => (
+            SubsonicIdKind::Artist,
+            SearchLimits {
+                artists: u32::try_from(request.n).map_err(|error| {
+                    ExpectedRequestError::invalid_input(format!("Invalid N: {error}"))
+                })?,
+                ..Default::default()
+            },
+        ),
+        _ => {
+            return Err(ExpectedRequestError::Unsupported {
+                request: SearchCollectionSummaryRequest::wire_name(),
+                reason: UnsupportedReason::NotImplemented,
+            }
+            .into());
+        }
+    };
+    let results =
+        binding.client.search("", limits).await.map_err(|error| {
+            empty_search_error(error, SearchCollectionSummaryRequest::wire_name())
+        })?;
+    let mut catalog = binding
+        .catalog
+        .lock()
+        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+    let entries = match kind {
+        SubsonicIdKind::Album => results
+            .albums
+            .into_iter()
+            .map(|item| {
+                let id = catalog.ids.intern(kind, &item.id)?;
+                let cover = item.cover_art.clone();
+                catalog.albums.insert(id, item.clone());
+                Ok((id, item.name, cover))
+            })
+            .collect::<Result<Vec<_>>>()?,
+        SubsonicIdKind::Artist => results
+            .artists
+            .into_iter()
+            .map(|item| {
+                let id = catalog.ids.intern(kind, &item.id)?;
+                let cover = item.cover_art.clone();
+                catalog.artists.insert(id, item.clone());
+                Ok((id, item.name, cover))
+            })
+            .collect::<Result<Vec<_>>>()?,
+        _ => Vec::new(),
+    };
+    let collections = entries
+        .iter()
+        .map(|(id, name, cover)| {
+            let cover_art_map = subsonic_cover_map(
+                binding,
+                cover
+                    .clone()
+                    .map(|cover| vec![(*id, cover)])
+                    .unwrap_or_default(),
+            );
+            Collection {
+                id: *id,
+                name: name.clone(),
+                queries: Vec::new(),
+                collection_type,
+                cover_art_map,
+                readonly: true,
+            }
+        })
+        .collect();
+    Ok(Some(SearchCollectionSummaryResponse {
+        collection_type,
+        result: collections,
+        call_id: request.call_id,
     }))
 }
 
@@ -1459,6 +1786,11 @@ subsonic_requests! {
         RemoveItemFromPlaylistRequest => remove_item_from_playlist_request as translate_remove_item_from_playlist_request,
         ReorderPlaylistItemPositionRequest => reorder_playlist_item_position_request as translate_reorder_playlist_item_position_request,
         FetchMediaFileByIdsRequest => fetch_media_file_by_ids_request as translate_fetch_media_file_by_ids_request,
+        FetchMediaFilesRequest => fetch_media_files_request as translate_fetch_media_files_request,
+        GetMediaFilesCountRequest => get_media_files_count_request as translate_get_media_files_count_request,
+        FetchParsedMediaFileRequest => fetch_parsed_media_file_request as translate_fetch_parsed_media_file_request,
+        SearchMediaFileSummaryRequest => search_media_file_summary_request as translate_search_media_file_summary_request,
+        SearchCollectionSummaryRequest => search_collection_summary_request as translate_search_collection_summary_request,
         FetchCollectionGroupSummaryRequest => fetch_collection_group_summary_request as translate_fetch_collection_group_summary_request,
         FetchCollectionGroupsRequest => fetch_collection_groups_request as translate_fetch_collection_groups_request,
         FetchCollectionByIdsRequest => fetch_collection_by_ids_request as translate_fetch_collection_by_ids_request,
@@ -1538,10 +1870,12 @@ mod tests {
     use super::{
         add_item_to_playlist_request, create_playlist_request, fetch_all_playlists_request,
         fetch_collection_group_summary_request, fetch_collection_groups_request,
-        fetch_media_file_by_ids_request, fetch_remote_playlist, get_liked_request,
-        get_lyric_request, get_playlist_by_id_request, jukebox_error,
-        remove_item_from_playlist_request, remove_playlist_request,
-        reorder_playlist_item_position_request, search_for_request, set_liked_request,
+        fetch_media_file_by_ids_request, fetch_media_files_request,
+        fetch_parsed_media_file_request, fetch_remote_playlist, get_liked_request,
+        get_lyric_request, get_media_files_count_request, get_playlist_by_id_request,
+        jukebox_error, remove_item_from_playlist_request, remove_playlist_request,
+        reorder_playlist_item_position_request, search_collection_summary_request,
+        search_for_request, search_media_file_summary_request, set_liked_request,
         subsonic_request_error, update_playlist_request,
     };
     use crate::{
@@ -1551,20 +1885,22 @@ mod tests {
             AddItemToPlaylistRequest, CastPreflightRequest, CollectionType,
             CreateM3u8PlaylistRequest, CreatePlaylistRequest, FetchAllPlaylistsRequest,
             FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
-            FetchMediaFileByIdsRequest, FetchPlaylistOccurrencesRequest, GetLikedRequest,
-            GetLyricByTrackIdRequest, GetPlaylistByIdRequest, HandoffLoadRequest, LoadRequest,
-            LoadResolvedItemsRequest, MovePlaylistItemRequest, NextRequest, PauseRequest,
-            PlayRequest, PlayingItemRef, PlaylistOperateMode, PreviousRequest,
-            RefreshSessionRequest, RemoveItemFromPlaylistRequest, RemovePlaylistRequest,
-            RemoveRequest, ReorderPlaylistItemPositionRequest, SearchForRequest, SeekRequest,
-            SessionSnapshotRequest, SetAdaptiveSwitchingEnabledRequest, SetLikedRequest,
-            SetPlaybackModeRequest, SetRealtimeFFTEnabledRequest, SwitchRequest,
+            FetchDirectoryTreeRequest, FetchMediaFileByIdsRequest, FetchMediaFilesRequest,
+            FetchParsedMediaFileRequest, FetchPlaylistOccurrencesRequest, GetLikedRequest,
+            GetLyricByTrackIdRequest, GetMediaFilesCountRequest, GetPlaylistByIdRequest,
+            HandoffLoadRequest, LoadRequest, LoadResolvedItemsRequest, MovePlaylistItemRequest,
+            NextRequest, PauseRequest, PlayRequest, PlayingItemRef, PlaylistOperateMode,
+            PreviousRequest, RefreshSessionRequest, RemoveItemFromPlaylistRequest,
+            RemovePlaylistRequest, RemoveRequest, ReorderPlaylistItemPositionRequest,
+            SearchCollectionSummaryRequest, SearchForRequest, SearchMediaFileSummaryRequest,
+            SeekRequest, SessionSnapshotRequest, SetAdaptiveSwitchingEnabledRequest,
+            SetLikedRequest, SetPlaybackModeRequest, SetRealtimeFFTEnabledRequest, SwitchRequest,
             TakeBackHandoffBlockRequest, UpdatePlaylistRequest, VolumeRequest,
         },
         request_error::{ExpectedRequestError, classify},
         request_owner::Implementation,
         rpc::{Slot, TargetRequest, UnsupportedReason},
-        subsonic_binding::SubsonicBinding,
+        subsonic_binding::{SubsonicBinding, SubsonicIdKind},
         utils::{Broadcaster, RinfRustSignal},
     };
 
@@ -1581,6 +1917,7 @@ mod tests {
         playlists: Arc<Mutex<Vec<MockPlaylist>>>,
         playlist_calls: MockPlaylistCalls,
         starred: Arc<Mutex<HashSet<String>>>,
+        empty_search_rejected: Arc<AtomicUsize>,
     }
 
     type MockPlaylistCalls = Arc<Mutex<Vec<(String, Vec<(String, String)>)>>>;
@@ -1650,6 +1987,7 @@ mod tests {
             scrobble_calls: Arc::new(Mutex::new(Vec::new())),
             reject_scrobble: Arc::new(AtomicUsize::new(0)),
             starred: Arc::new(Mutex::new(HashSet::new())),
+            empty_search_rejected: Arc::new(AtomicUsize::new(0)),
         };
         let app = Router::new()
             .route("/rest/{*endpoint}", get(mock_endpoint))
@@ -1889,6 +2227,11 @@ mod tests {
             }
             "getSong" => {
                 let id = query.get("id").map(String::as_str).unwrap_or_default();
+                if id == "minimal" {
+                    return mock_response(
+                        serde_json::json!({"song":{"id":"minimal","title":"Minimal"}}),
+                    );
+                }
                 let mut song = mock_song(id);
                 if state.starred.lock().unwrap().contains(id) {
                     song["starred"] = serde_json::json!("2026-01-01T00:00:00Z");
@@ -1907,12 +2250,80 @@ mod tests {
             "getLyricsBySongId" => {
                 serde_json::json!({"lyricsList":{"structuredLyrics":{"lang":"en","synced":true,"line":[{"start":1200,"value":"timed line"}]}}})
             }
-            "search3" => serde_json::json!({"searchResult3": {
-                "song": [
-                    {"id":"song-1","title":"One","coverArt":"cover-1"},
-                    {"id":"song-2","title":"Two","coverArt":"cover-2"}
-                ]
-            }}),
+            "getScanStatus" => serde_json::json!({"scanStatus":{"scanning":false,"count":4}}),
+            "search3"
+                if query.get("query").is_some_and(String::is_empty)
+                    && state.empty_search_rejected.load(Ordering::SeqCst) != 0 =>
+            {
+                return Response::builder()
+                    .status(StatusCode::OK)
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"subsonic-response":{"status":"failed","version":"1.16.1","error":{"code":10,"message":"query is required"}}}"#,
+                    ))
+                    .unwrap();
+            }
+            "search3" => {
+                if query.get("query").is_some_and(|value| !value.is_empty()) {
+                    return mock_response(serde_json::json!({"searchResult3": {
+                        "song": [
+                            {"id":"song-1","title":"One","coverArt":"cover-1"},
+                            {"id":"song-2","title":"Two","coverArt":"cover-2"}
+                        ]
+                    }}));
+                }
+                let songs = ["song-1", "song-2", "song-3", "song-4"];
+                let offset = query
+                    .get("songOffset")
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .unwrap_or_default();
+                let count = query
+                    .get("songCount")
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .unwrap_or_default();
+                let mut search = serde_json::Map::new();
+                if query
+                    .get("songCount")
+                    .and_then(|value| value.parse::<u32>().ok())
+                    .unwrap_or_default()
+                    > 0
+                {
+                    search.insert(
+                        "song".into(),
+                        serde_json::json!(
+                            songs
+                                .iter()
+                                .skip(offset)
+                                .take(count)
+                                .map(|id| mock_song(id))
+                                .collect::<Vec<_>>()
+                        ),
+                    );
+                }
+                if query
+                    .get("albumCount")
+                    .and_then(|value| value.parse::<u32>().ok())
+                    .unwrap_or_default()
+                    > 0
+                {
+                    search.insert(
+                        "album".into(),
+                        serde_json::json!([{"id":"album-1","name":"Album One","artist":"Artist","coverArt":"cover-album"}]),
+                    );
+                }
+                if query
+                    .get("artistCount")
+                    .and_then(|value| value.parse::<u32>().ok())
+                    .unwrap_or_default()
+                    > 0
+                {
+                    search.insert(
+                        "artist".into(),
+                        serde_json::json!([{"id":"artist-1","name":"Artist One","coverArt":"cover-artist"}]),
+                    );
+                }
+                serde_json::json!({"searchResult3":search})
+            }
             "getArtists" => serde_json::json!({"artists":{"index":{
                 "name":"A","artist":[
                     {"id":"artist-1","name":"Artist One","coverArt":"cover-1"},
@@ -1925,7 +2336,7 @@ mod tests {
     }
 
     fn mock_song(id: &str) -> serde_json::Value {
-        serde_json::json!({"id":id,"title":id,"artist":"Artist","album":"Album","duration":180})
+        serde_json::json!({"id":id,"title":id,"artist":"Artist","artistId":"artist-1","album":"Album","albumId":"album-1","duration":180,"track":7})
     }
 
     fn mock_response(inner: serde_json::Value) -> Response<Body> {
@@ -2434,6 +2845,214 @@ mod tests {
         assert_eq!(SetLikedRequest::slot(&slots), Slot::Native);
         assert_eq!(GetLikedRequest::slot(&slots), Slot::Native);
         assert_eq!(GetLyricByTrackIdRequest::slot(&slots), Slot::Translate);
+    }
+
+    #[test]
+    fn subsonic_track_and_summary_capabilities_exclude_directory_tree() {
+        let slots = RequestSlots::subsonic(&SubsonicProbe {
+            api_version: "1.16.1".into(),
+            open_subsonic: false,
+            server_type: None,
+            server_version: None,
+            extensions: Vec::new(),
+            roles: SubsonicRoles::default(),
+            roles_known: true,
+        });
+        for slot in [
+            FetchMediaFilesRequest::slot(&slots),
+            GetMediaFilesCountRequest::slot(&slots),
+            FetchParsedMediaFileRequest::slot(&slots),
+            SearchMediaFileSummaryRequest::slot(&slots),
+            SearchCollectionSummaryRequest::slot(&slots),
+        ] {
+            assert_eq!(slot, Slot::Translate);
+        }
+        assert_eq!(
+            FetchDirectoryTreeRequest::slot(&slots),
+            Slot::Unsupported {
+                reason: UnsupportedReason::NotImplemented
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn subsonic_track_pages_walk_every_song_once_in_order() {
+        let root = TempDir::new().unwrap();
+        let (binding, _) = mock_subsonic(&root, false).await;
+        let mut songs = Vec::new();
+        for cursor in [0, 2, 4] {
+            songs.extend(
+                fetch_media_files_request(
+                    &binding,
+                    &FetchMediaFilesRequest {
+                        cursor,
+                        page_size: 2,
+                        bake_cover_arts: false,
+                        call_id: Some(22),
+                    },
+                )
+                .await
+                .unwrap()
+                .unwrap()
+                .media_files
+                .into_iter()
+                .map(|file| file.track),
+            );
+        }
+        assert_eq!(songs, ["song-1", "song-2", "song-3", "song-4"]);
+    }
+
+    #[tokio::test]
+    async fn subsonic_track_count_matches_scan_status_song_total() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        let count = get_media_files_count_request(
+            &binding,
+            &GetMediaFilesCountRequest { call_id: Some(23) },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(count.count, 4);
+        assert_eq!(count.call_id, Some(23));
+        let requests = server.state.requests.lock().unwrap();
+        assert_eq!(requests.as_slice(), ["getScanStatus"]);
+    }
+
+    #[tokio::test]
+    async fn subsonic_track_details_map_server_fields_and_keep_missing_fields_empty() {
+        let root = TempDir::new().unwrap();
+        let (binding, _) = mock_subsonic(&root, false).await;
+        let page = fetch_media_files_request(
+            &binding,
+            &FetchMediaFilesRequest {
+                cursor: 0,
+                page_size: 1,
+                bake_cover_arts: false,
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let details = fetch_parsed_media_file_request(
+            &binding,
+            &FetchParsedMediaFileRequest {
+                id: page.media_files[0].id,
+                call_id: Some(24),
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(details.file.track, "song-1");
+        assert_eq!(details.file.title, "song-1");
+        assert_eq!(details.file.artist, "Artist");
+        assert_eq!(details.file.album, "Album");
+        assert_eq!(details.file.duration, 180.0);
+        assert_eq!(details.file.track_number, 7);
+        assert_eq!(details.album.name, "Album");
+        assert_eq!(details.artists[0].name, "Artist");
+        assert_eq!(details.call_id, Some(24));
+        let missing_id = binding
+            .catalog
+            .lock()
+            .unwrap()
+            .ids
+            .intern(SubsonicIdKind::Track, "minimal")
+            .unwrap();
+        let missing = fetch_parsed_media_file_request(
+            &binding,
+            &FetchParsedMediaFileRequest {
+                id: missing_id,
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(missing.artists.is_empty());
+        assert_eq!(missing.album.id, 0);
+        assert!(missing.album.name.is_empty());
+    }
+
+    #[tokio::test]
+    async fn subsonic_track_and_collection_summaries_return_requested_kinds() {
+        let root = TempDir::new().unwrap();
+        let (binding, _) = mock_subsonic(&root, false).await;
+        let tracks = search_media_file_summary_request(
+            &binding,
+            &SearchMediaFileSummaryRequest {
+                n: 3,
+                call_id: Some(25),
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(tracks.result.len(), 3);
+        assert_eq!(tracks.result[0].name, "song-1");
+        let albums = search_collection_summary_request(
+            &binding,
+            &SearchCollectionSummaryRequest {
+                collection_type: Some(CollectionType::Album),
+                bake_cover_arts: Some(false),
+                n: 2,
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(albums.collection_type, CollectionType::Album);
+        assert_eq!(albums.result[0].name, "Album One");
+        let artists = search_collection_summary_request(
+            &binding,
+            &SearchCollectionSummaryRequest {
+                collection_type: Some(CollectionType::Artist),
+                bake_cover_arts: Some(false),
+                n: 2,
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(artists.collection_type, CollectionType::Artist);
+        assert_eq!(artists.result[0].name, "Artist One");
+    }
+
+    #[tokio::test]
+    async fn empty_search_rejection_is_typed_unsupported() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        server
+            .state
+            .empty_search_rejected
+            .store(1, Ordering::SeqCst);
+        let error = fetch_media_files_request(
+            &binding,
+            &FetchMediaFilesRequest {
+                cursor: 0,
+                page_size: 10,
+                bake_cover_arts: false,
+                call_id: None,
+            },
+        )
+        .await
+        .err()
+        .expect("empty search should be rejected");
+        assert!(matches!(
+            error.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::Unsupported {
+                reason: UnsupportedReason::NotImplemented,
+                ..
+            })
+        ));
+        assert_eq!(
+            server.state.requests.lock().unwrap().as_slice(),
+            ["search3"]
+        );
     }
 
     fn assert_secret_free(value: &str) {

@@ -328,9 +328,20 @@ impl SubsonicClient {
         query: &str,
         limits: SearchLimits,
     ) -> Result<SubsonicSearchResult, SubsonicError> {
+        self.search_with_song_offset(query, limits, 0).await
+    }
+
+    /// Search the ID3 library, starting the song results at `song_offset`.
+    pub async fn search_with_song_offset(
+        &self,
+        query: &str,
+        limits: SearchLimits,
+        song_offset: u32,
+    ) -> Result<SubsonicSearchResult, SubsonicError> {
         let artist_count = limits.artists.to_string();
         let album_count = limits.albums.to_string();
         let song_count = limits.songs.to_string();
+        let song_offset = song_offset.to_string();
         let response: SearchResponse = self
             .call(
                 "search3",
@@ -339,10 +350,19 @@ impl SubsonicClient {
                     ("artistCount", &artist_count),
                     ("albumCount", &album_count),
                     ("songCount", &song_count),
+                    ("songOffset", &song_offset),
                 ],
             )
             .await?;
         Ok(response.search_result.unwrap_or_default())
+    }
+
+    /// Read the server's current scan status and reported song count.
+    pub async fn scan_status(&self) -> Result<SubsonicScanStatus, SubsonicError> {
+        let response: ScanStatusResponse = self.call("getScanStatus", &[]).await?;
+        response
+            .scan_status
+            .ok_or_else(|| SubsonicError::Malformed("getScanStatus omitted scanStatus".into()))
     }
 
     /// List playlists visible to the authenticated user.
@@ -897,6 +917,12 @@ pub struct SubsonicSearchResult {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct SubsonicScanStatus {
+    pub scanning: bool,
+    pub count: Option<u32>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubsonicPlaylist {
     pub id: String,
@@ -1053,6 +1079,11 @@ impl From<RawLyricsList> for SubsonicLyrics {
 struct SearchResponse {
     #[serde(default, rename = "searchResult3")]
     search_result: Option<SubsonicSearchResult>,
+}
+#[derive(Deserialize)]
+struct ScanStatusResponse {
+    #[serde(default, rename = "scanStatus")]
+    scan_status: Option<SubsonicScanStatus>,
 }
 #[derive(Deserialize)]
 struct PlaylistsResponse {
