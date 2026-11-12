@@ -258,14 +258,27 @@ impl Effects {
 
 /// How near a shot looks at its subject. The order is the order of the numbers `struct Shot`
 /// gives the scene as `size`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ShotSize {
+    #[default]
     Wide,
     Medium,
     Close,
     Detail,
     Top,
+}
+
+impl ShotSize {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Wide => "wide",
+            Self::Medium => "medium",
+            Self::Close => "close",
+            Self::Detail => "detail",
+            Self::Top => "top",
+        }
+    }
 }
 
 /// How a scene gets from one shot to the next.

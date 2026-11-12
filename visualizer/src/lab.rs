@@ -474,8 +474,8 @@ impl LabState {
         frame.fill(f32::NAN);
         if let Some(director) = &inspect.director {
             frame[SHOT] = director.shot_index as f32;
-            frame[SIZE] = place(&SIZES, &director.size);
-            frame[TIER] = place(&TIERS, &director.tier);
+            frame[SIZE] = place(&SIZES, director.size.name());
+            frame[TIER] = place(&TIERS, director.tier.name());
             frame[PACE] = place(&PACES, &director.pace);
             frame[AGE] = director.age;
             frame[HELD] = f32::from(u8::from(director.held));

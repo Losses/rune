@@ -41,8 +41,11 @@ VisualizerLabNow _now({
           shotIndex: 1,
           held: shotHeld,
           shots: [
-            const VisualizerLabShot(name: 'Wide', size: 'wide'),
-            VisualizerLabShot(name: closeName, size: 'close'),
+            const VisualizerLabShot(
+              name: 'Wide',
+              size: VisualizerShotSize.wide,
+            ),
+            VisualizerLabShot(name: closeName, size: VisualizerShotSize.close),
           ],
         )
       : null,

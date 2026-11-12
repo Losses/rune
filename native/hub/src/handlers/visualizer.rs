@@ -767,16 +767,17 @@ fn lab_event(event: LabEvent) -> Option<VisualizerLabEvent> {
             ..
         } => VisualizerLabEventKind::Cut {
             shot,
-            size,
+            size: size.into(),
             fill,
             strong,
             dress,
             first,
         },
         LabEventKind::Look { look } => VisualizerLabEventKind::Look { look },
-        LabEventKind::Moment { strength, effect } => {
-            VisualizerLabEventKind::Moment { strength, effect }
-        }
+        LabEventKind::Moment { strength, effect } => VisualizerLabEventKind::Moment {
+            strength: strength.into(),
+            effect,
+        },
         _ => return None,
     };
     Some(VisualizerLabEvent {
@@ -797,7 +798,7 @@ fn lab_now(inspect: Inspect) -> VisualizerLabNow {
                 .into_iter()
                 .map(|shot| VisualizerLabShot {
                     name: shot.name,
-                    size: shot.size,
+                    size: shot.size.into(),
                 })
                 .collect(),
         }),
@@ -811,6 +812,58 @@ fn lab_now(inspect: Inspect) -> VisualizerLabNow {
             lens: inspect.effects.lens,
         },
         forced_level: overrides.level.map(Into::into),
+    }
+}
+
+fn message_plan(plan: &::visualizer::SongPlan) -> VisualizerPlan {
+    VisualizerPlan {
+        length: plan.length,
+        sections: plan
+            .sections
+            .iter()
+            .map(|section| VisualizerPlanSection {
+                start: section.start,
+                end: section.end,
+                label: section.label.clone(),
+                tier: section.tier.into(),
+            })
+            .collect(),
+        cuts: plan
+            .cuts
+            .iter()
+            .map(|cut| VisualizerPlanCut {
+                time: cut.time,
+                shot: cut.shot.clone(),
+                size: cut.size.into(),
+                fill: cut.fill,
+                strong: cut.strong,
+                dress: cut.dress.clone(),
+                first: cut.first,
+            })
+            .collect(),
+        looks: plan
+            .looks
+            .iter()
+            .map(|look| VisualizerPlanLook {
+                time: look.time,
+                look: look.look.clone(),
+            })
+            .collect(),
+        moments: plan
+            .moments
+            .iter()
+            .map(|moment| VisualizerPlanMoment {
+                time: moment.time,
+                strength: moment.strength.into(),
+                effect: moment.effect.clone(),
+            })
+            .collect(),
+        series: plan.series.as_ref().map(|series| VisualizerPlanSeries {
+            columns_version: series.columns_version,
+            rate: ::visualizer::LAB_RATE,
+            buckets: series.buckets,
+            values: series.values.clone(),
+        }),
     }
 }
 
@@ -846,13 +899,13 @@ impl Signal for VisualizerLabRequest {
                     .map(|column| VisualizerLabColumn {
                         id: column.id.clone(),
                         name: column.name.clone(),
-                        group: column.group.as_str().to_string(),
-                        kind: column.kind.as_str().to_string(),
+                        group: column.group.into(),
+                        kind: column.kind.into(),
                         lo: column.lo,
                         hi: column.hi,
                         unit: column.unit.clone(),
                         categories: column.categories.clone(),
-                        plan: column.plan.as_str().to_string(),
+                        plan: column.plan.into(),
                         binds: column.binds.clone(),
                         rest: column.rest,
                     })
@@ -902,55 +955,7 @@ impl Signal for VisualizerPlanRequest {
     ) -> Result<Option<Self::Response>> {
         // The version first: a plan made in between is then fetched again for its own version.
         let version = VISUALIZER.plan_version();
-        let plan = VISUALIZER.plan().map(|plan| VisualizerPlan {
-            length: plan.length,
-            sections: plan
-                .sections
-                .iter()
-                .map(|section| VisualizerPlanSection {
-                    start: section.start,
-                    end: section.end,
-                    label: section.label.clone(),
-                    tier: section.tier.clone(),
-                })
-                .collect(),
-            cuts: plan
-                .cuts
-                .iter()
-                .map(|cut| VisualizerPlanCut {
-                    time: cut.time,
-                    shot: cut.shot.clone(),
-                    size: cut.size.clone(),
-                    fill: cut.fill,
-                    strong: cut.strong,
-                    dress: cut.dress.clone(),
-                    first: cut.first,
-                })
-                .collect(),
-            looks: plan
-                .looks
-                .iter()
-                .map(|look| VisualizerPlanLook {
-                    time: look.time,
-                    look: look.look.clone(),
-                })
-                .collect(),
-            moments: plan
-                .moments
-                .iter()
-                .map(|moment| VisualizerPlanMoment {
-                    time: moment.time,
-                    strength: moment.strength.clone(),
-                    effect: moment.effect.clone(),
-                })
-                .collect(),
-            series: plan.series.as_ref().map(|series| VisualizerPlanSeries {
-                columns_version: series.columns_version,
-                rate: ::visualizer::LAB_RATE,
-                buckets: series.buckets,
-                values: series.values.clone(),
-            }),
-        });
+        let plan = VISUALIZER.plan().map(|plan| message_plan(&plan));
         Ok(Some(VisualizerPlanResponse {
             call_id: None,
             version,
@@ -962,9 +967,14 @@ impl Signal for VisualizerPlanRequest {
 #[cfg(test)]
 mod tests {
     use visualizer::Transport;
+    use visualizer::{ColumnGroup, ColumnKind, ColumnPlan, ShotSize, Strength, Tier};
 
     use crate::Signal;
-    use crate::messages::{VisualizerRuntimeStatus, VisualizerSupport, VisualizerTransport};
+    use crate::messages::{
+        VisualizerLabColumnGroup, VisualizerLabColumnKind, VisualizerLabColumnPlan,
+        VisualizerMomentStrength, VisualizerRuntimeStatus, VisualizerSectionTier,
+        VisualizerShotSize, VisualizerSupport, VisualizerTransport,
+    };
 
     use super::{VISUALIZER, VisualizerStatusRequest, message_runtime_status, message_support};
 
@@ -982,6 +992,55 @@ mod tests {
                 problem: "No GPU".into()
             }
         );
+    }
+
+    #[test]
+    fn hub_choice_messages_follow_visualizer_enums() {
+        for (source, message) in [
+            (ShotSize::Wide, VisualizerShotSize::Wide),
+            (ShotSize::Medium, VisualizerShotSize::Medium),
+            (ShotSize::Close, VisualizerShotSize::Close),
+            (ShotSize::Detail, VisualizerShotSize::Detail),
+            (ShotSize::Top, VisualizerShotSize::Top),
+        ] {
+            assert_eq!(VisualizerShotSize::from(source), message);
+        }
+        for (source, message) in [
+            (Strength::Medium, VisualizerMomentStrength::Medium),
+            (Strength::Strong, VisualizerMomentStrength::Strong),
+        ] {
+            assert_eq!(VisualizerMomentStrength::from(source), message);
+        }
+        for (source, message) in [
+            (ColumnGroup::Director, VisualizerLabColumnGroup::Director),
+            (ColumnGroup::Looks, VisualizerLabColumnGroup::Looks),
+            (ColumnGroup::Signals, VisualizerLabColumnGroup::Signals),
+            (ColumnGroup::Inputs, VisualizerLabColumnGroup::Inputs),
+        ] {
+            assert_eq!(VisualizerLabColumnGroup::from(source), message);
+        }
+        for (source, message) in [
+            (ColumnKind::Number, VisualizerLabColumnKind::Number),
+            (ColumnKind::Event, VisualizerLabColumnKind::Event),
+            (ColumnKind::Bool, VisualizerLabColumnKind::Bool),
+            (ColumnKind::Category, VisualizerLabColumnKind::Category),
+            (ColumnKind::Phase, VisualizerLabColumnKind::Phase),
+        ] {
+            assert_eq!(VisualizerLabColumnKind::from(source), message);
+        }
+        for (source, message) in [
+            (ColumnPlan::Yes, VisualizerLabColumnPlan::Yes),
+            (ColumnPlan::No, VisualizerLabColumnPlan::No),
+        ] {
+            assert_eq!(VisualizerLabColumnPlan::from(source), message);
+        }
+        for (source, message) in [
+            (Tier::Quiet, VisualizerSectionTier::Quiet),
+            (Tier::Normal, VisualizerSectionTier::Normal),
+            (Tier::High, VisualizerSectionTier::High),
+        ] {
+            assert_eq!(VisualizerSectionTier::from(source), message);
+        }
     }
 
     #[test]

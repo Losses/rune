@@ -37,17 +37,18 @@ use audio::{Analyzer, SPECTRUM_ROWS, SPECTRUM_WIDTH, WAVEFORM_WIDTH};
 pub use decider::STEP;
 pub use decider::Settings as DeciderSettings;
 pub(crate) use decider::{Decider, LabRow};
-pub use director::DirectorView;
+pub use director::{DirectorView, Tier};
 use inputs::{EventCounter, WallClock};
 pub use lens::LensView;
 pub use looks::LooksView;
 pub use manifest::SceneInputs;
 pub use manifest::{Bind, Effects, FallbackDecl, InputDecl, Pace, Param, ParamKind};
-use manifest::{Format, Manifest, OUT, PREV, ShotMove, ShotSize, Value};
+use manifest::{Format, Manifest, OUT, PREV, ShotMove, Value};
 pub use stepper::{SongChart, song_seed};
 use stepper::{Stepped, Stepper};
 use wgsl::{InputLayout, ParamsLayout};
 
+pub use manifest::ShotSize;
 pub use manifest::{MANIFEST, argb_to_linear};
 
 /// A camera cut the director made in a frame, for the transition layer to dress later.
@@ -1522,7 +1523,7 @@ impl Scene {
                 .decider
                 .shots()
                 .into_iter()
-                .map(|(name, size, _)| (name, decider::size_name(size)))
+                .map(|(name, size, _)| (name, size.name()))
                 .collect(),
             looks: self.decider.look_names(),
             inputs: manifest.inputs.clone(),

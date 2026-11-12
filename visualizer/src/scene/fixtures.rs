@@ -79,7 +79,7 @@ fn lab_scene_of(manifest: &Manifest) -> crate::lab::LabScene {
         shots: decider
             .shots()
             .into_iter()
-            .map(|(name, size, _)| (name, super::decider::size_name(size)))
+            .map(|(name, size, _)| (name, size.name()))
             .collect(),
         looks: decider.look_names(),
         inputs: manifest.inputs.clone(),

@@ -5,7 +5,7 @@
 
 use crate::bind::{Level, Report, Used};
 use crate::scene::Pace;
-use crate::scene::{DirectorView, Effects, LensView, LooksView, MusicValues};
+use crate::scene::{DirectorView, Effects, LensView, LooksView, MusicValues, ShotSize, Tier};
 use crate::switching::FOLLOWED;
 use crate::transition::{CutInStyle, Transition};
 
@@ -214,7 +214,7 @@ pub struct InspectDirector {
     pub shot_index: u32,
     pub shot_name: String,
     /// "wide", "medium", "close", "detail" or "top".
-    pub size: String,
+    pub size: ShotSize,
     pub cuts: u32,
     /// 0 normally, else the position in a burst of cuts.
     pub fill: u32,
@@ -227,7 +227,7 @@ pub struct InspectDirector {
     pub length: f32,
     /// How lively the section is, which sets how often the director cuts: "quiet", "normal" or
     /// "high".
-    pub tier: String,
+    pub tier: Tier,
     /// Whether the shot is held (see [`LabCommand::Shot`]).
     pub held: bool,
     /// The scene's shots in order (the numbers of [`LabCommand::Shot`]).
@@ -267,7 +267,7 @@ pub struct InspectShot {
     /// The shot's `name`, empty if it has none.
     pub name: String,
     /// "wide", "medium", "close", "detail" or "top".
-    pub size: String,
+    pub size: ShotSize,
     /// Its place in the burst (1 to 4) for a `[[burst]]` shot; 0 for a `[[shot]]`.
     pub burst: u32,
     /// Whether the song still owes the shot a cut (it says `at_least_once` and has not been on
@@ -426,7 +426,7 @@ pub enum LabEventKind {
     Cut {
         shot: String,
         /// "wide", "medium", "close", "detail" or "top".
-        size: String,
+        size: ShotSize,
         /// 0 for a normal cut, else the position in a burst.
         fill: u32,
         /// The cut lands on a strong transition of the scene's list.
@@ -442,7 +442,7 @@ pub enum LabEventKind {
     /// A moment of the music played an effect. `strength` is "medium" or "strong"; `effect` is
     /// what it did by name, none when the scene lists nothing that suits it.
     Moment {
-        strength: String,
+        strength: crate::moments::Strength,
         effect: Option<String>,
     },
 }
@@ -526,11 +526,17 @@ pub enum LabCommand {
 }
 
 /// The name of a shot size, from the number `struct Shot` has.
-fn size_name(size: u32) -> &'static str {
-    ["wide", "medium", "close", "detail", "top"]
-        .get(size as usize)
-        .copied()
-        .unwrap_or("wide")
+fn shot_size(size: u32) -> ShotSize {
+    [
+        ShotSize::Wide,
+        ShotSize::Medium,
+        ShotSize::Close,
+        ShotSize::Detail,
+        ShotSize::Top,
+    ]
+    .get(size as usize)
+    .copied()
+    .unwrap_or(ShotSize::Wide)
 }
 
 /// The letter of a section label, from the number the music's values have (0 for "A").
@@ -581,14 +587,14 @@ impl InspectDirector {
         Self {
             shot_index: state.index,
             shot_name: view.shot_name,
-            size: size_name(state.size).to_string(),
+            size: shot_size(state.size),
             cuts: state.cuts,
             fill: state.fill,
             hard: state.hard == 1,
             roll: state.roll,
             age: state.age,
             length: state.length,
-            tier: view.tier.to_string(),
+            tier: view.tier,
             held: view.held,
             shots: view
                 .shots
@@ -596,7 +602,7 @@ impl InspectDirector {
                 .zip(view.owed)
                 .map(|((name, size, burst), owed)| InspectShot {
                     name,
-                    size: size_name(size as u32).to_string(),
+                    size,
                     burst,
                     owed,
                 })

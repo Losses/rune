@@ -299,7 +299,10 @@ String labFormatValue(LabColumn column, double value) {
       return value >= 0.5 ? 'yes' : 'no';
     case LabColumnKind.event:
       return value.toInt().toString();
-    default:
+    case LabColumnKind.number:
+    case LabColumnKind.phase:
+    case LabColumnKind.sections:
+    case LabColumnKind.marks:
       return switch (column.unit) {
         'bpm' => '${value.toStringAsFixed(0)} bpm',
         's' => '${value.toStringAsFixed(1)} s',

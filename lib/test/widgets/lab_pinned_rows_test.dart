@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:rune/bindings/bindings.dart';
 import 'package:provider/provider.dart';
 import 'package:rune/providers/responsive_providers.dart';
 import 'package:rune/widgets/ax_reveal/widgets/reveal_effect_context.dart';
@@ -53,16 +54,41 @@ LabSeriesCatalogue _catalogue() => const LabSeriesCatalogue(
   version: 1,
   rate: 20,
   columns: [
-    LabSeriesColumn(id: 'num', name: 'Num', group: 'S', kind: 'number'),
-    LabSeriesColumn(id: 'phase', name: 'Phase', group: 'S', kind: 'phase'),
-    LabSeriesColumn(id: 'event', name: 'Event', group: 'S', kind: 'event'),
-    LabSeriesColumn(id: 'flag', name: 'Flag', group: 'S', kind: 'bool'),
-    LabSeriesColumn(id: 'cat', name: 'Cat', group: 'S', kind: 'category'),
+    LabSeriesColumn(
+      id: 'num',
+      name: 'Num',
+      group: VisualizerLabColumnGroup.signals,
+      kind: VisualizerLabColumnKind.number,
+    ),
+    LabSeriesColumn(
+      id: 'phase',
+      name: 'Phase',
+      group: VisualizerLabColumnGroup.signals,
+      kind: VisualizerLabColumnKind.phase,
+    ),
+    LabSeriesColumn(
+      id: 'event',
+      name: 'Event',
+      group: VisualizerLabColumnGroup.signals,
+      kind: VisualizerLabColumnKind.event,
+    ),
+    LabSeriesColumn(
+      id: 'flag',
+      name: 'Flag',
+      group: VisualizerLabColumnGroup.signals,
+      kind: VisualizerLabColumnKind.bool,
+    ),
+    LabSeriesColumn(
+      id: 'cat',
+      name: 'Cat',
+      group: VisualizerLabColumnGroup.signals,
+      kind: VisualizerLabColumnKind.category,
+    ),
     LabSeriesColumn(
       id: 'input:glow',
       name: 'Glow',
-      group: 'Inputs',
-      kind: 'number',
+      group: VisualizerLabColumnGroup.inputs,
+      kind: VisualizerLabColumnKind.number,
     ),
   ],
 );
@@ -253,16 +279,16 @@ void main() {
               LabSeriesColumn(
                 id: 'tempo',
                 name: 'tempo',
-                group: 'Signals',
-                kind: 'number',
+                group: VisualizerLabColumnGroup.signals,
+                kind: VisualizerLabColumnKind.number,
                 lo: 60,
                 hi: 240,
               ),
               LabSeriesColumn(
                 id: 'drive',
                 name: 'drive',
-                group: 'Signals',
-                kind: 'number',
+                group: VisualizerLabColumnGroup.signals,
+                kind: VisualizerLabColumnKind.number,
               ),
             ],
           ),

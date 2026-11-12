@@ -5,16 +5,7 @@ import 'lab_data.dart';
 /// The sections of a plan.
 List<LabSection> labSectionsOf(VisualizerPlan plan) => List.unmodifiable([
   for (final s in plan.sections)
-    LabSection(
-      start: s.start,
-      end: s.end,
-      label: s.label,
-      tier: switch (s.tier) {
-        'quiet' => LabTier.quiet,
-        'high' => LabTier.high,
-        _ => LabTier.normal,
-      },
-    ),
+    LabSection(start: s.start, end: s.end, label: s.label, tier: s.tier),
 ]);
 
 /// The cuts, looks and moments of a plan as marks, sorted by time.
@@ -34,7 +25,7 @@ List<LabMark> labPlanMarksOf(VisualizerPlan plan) {
     for (final m in plan.moments)
       LabMark.moment(
         time: m.time,
-        strong: m.strength == 'strong',
+        strong: m.strength == VisualizerMomentStrength.strong,
         effect: m.effect,
       ),
   ];

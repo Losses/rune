@@ -6,6 +6,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:rune/bindings/bindings.dart';
 import 'package:rune/widgets/ax_reveal/widgets/reveal_effect_context.dart';
 import 'package:rune/widgets/visualizer/lab/lab_data.dart';
 import 'package:rune/widgets/visualizer/lab/lab_rows.dart';
@@ -116,20 +117,20 @@ LabTimelineData _song({
       const LabMark.cut(
         time: 0,
         shotName: 'street side',
-        size: 'close',
+        size: VisualizerShotSize.close,
         first: true,
       ),
       for (var i = 1; i <= 3; i++)
         LabMark.cut(
           time: 57 + i * _beat,
           shotName: 'alley',
-          size: 'medium',
+          size: VisualizerShotSize.medium,
           fill: i,
         ),
       const LabMark.cut(
         time: 60,
         shotName: 'overhead',
-        size: 'top',
+        size: VisualizerShotSize.top,
         strong: true,
         dress: 'flash',
       ),
@@ -138,7 +139,11 @@ LabTimelineData _song({
       const LabMark.moment(time: 80, strong: false),
     ],
     actualMarks: const [
-      LabMark.cut(time: 0, shotName: 'street side', size: 'close'),
+      LabMark.cut(
+        time: 0,
+        shotName: 'street side',
+        size: VisualizerShotSize.close,
+      ),
       LabMark.manual(time: 12, label: 'Flare'),
       LabMark.jump(time: 30, from: 10),
     ],
@@ -450,7 +455,7 @@ void main() {
                 LabMark.cut(
                   time: 90,
                   shotName: 'alley',
-                  size: 'medium',
+                  size: VisualizerShotSize.medium,
                   dress: dress,
                 ),
               ],

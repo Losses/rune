@@ -12,8 +12,8 @@ use crate::inspect::LabEventKind;
 pub(crate) use crate::lab::PlanLab;
 use crate::lab::{PlanSeries, SeriesRecorder};
 use crate::rhythm::Rhythm;
-use crate::scene::Decider;
 use crate::scene::Levels;
+use crate::scene::{Decider, ShotSize, Tier};
 
 /// The step of the plan, in seconds: the step the scene on screen decides a song with a chart in.
 pub use crate::scene::STEP;
@@ -33,7 +33,7 @@ pub struct PlanSection {
     pub energy: f32,
     /// How lively the director takes it to be, by the runtime's decisions: "quiet", "normal" or
     /// "high".
-    pub tier: String,
+    pub tier: Tier,
 }
 
 /// A cut of the camera.
@@ -44,7 +44,7 @@ pub struct PlanCut {
     pub time: f64,
     pub shot: String,
     /// "wide", "medium", "close", "detail" or "top".
-    pub size: String,
+    pub size: ShotSize,
     /// 0 for a normal cut, else the position in a burst (1 to 4).
     pub fill: u32,
     /// The cut lands on a strong transition.
@@ -71,7 +71,7 @@ pub struct PlanLook {
 pub struct PlanMoment {
     pub time: f64,
     /// "medium" or "strong".
-    pub strength: String,
+    pub strength: crate::moments::Strength,
     /// What it plays, by name: a transition that dresses a cut, or a lens effect; none if the
     /// scene lists nothing that suits the moment.
     pub effect: Option<String>,
@@ -149,7 +149,7 @@ fn play(
                 end: section.end,
                 label: section.label,
                 energy: section.energy,
-                tier: decider.tier_at(level).to_string(),
+                tier: decider.tier_at(level),
             })
             .collect(),
         ..SongPlan::default()
@@ -205,10 +205,11 @@ fn play(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bind::{Bindings, Level, SOURCES};
     use crate::chart::trusted_rhythm;
-    use crate::lab::LabColumns;
-    use crate::scene::{fixtures, song_seed};
-    use std::sync::Arc;
+    use crate::lab::{ColumnKind, ColumnPlan, LabColumns};
+    use crate::scene::{MusicValues, Pace, fixtures, mix_seed, song_seed};
+    use std::{cell::Cell, sync::Arc, time::Instant};
 
     /// A song of a quiet section and a high one, which the director leads to with a burst.
     const SECTIONS: [(f64, f64, f64); 3] =
@@ -244,7 +245,7 @@ mod tests {
     #[test]
     fn a_superseded_plan_stops_early() {
         let chart = fixtures::chart(&SECTIONS);
-        let asked = std::cell::Cell::new(0);
+        let asked = Cell::new(0);
         let plan = plan_song(&chart, fixtures::decider(), 1, None, || {
             asked.set(asked.get() + 1);
             asked.get() < 3
@@ -274,8 +275,12 @@ mod tests {
         let chart = fixtures::chart(&SECTIONS);
         let plan = planned(&chart, fixtures::decider(), 1);
         assert_eq!(plan.length, 100.0);
-        let tiers: Vec<_> = plan.sections.iter().map(|s| s.tier.as_str()).collect();
+        let tiers: Vec<_> = plan.sections.iter().map(|s| s.tier.name()).collect();
         assert_eq!(tiers, ["quiet", "high", "normal"]);
+        assert_eq!(
+            plan.sections.iter().map(|s| s.tier).collect::<Vec<_>>(),
+            [Tier::Quiet, Tier::High, Tier::Normal,]
+        );
         assert_eq!(
             plan.sections
                 .iter()
@@ -285,6 +290,7 @@ mod tests {
         );
         // The scene begins on its first shot, and the looks on their first look.
         assert!(plan.cuts[0].first && plan.cuts[0].time == 0.0);
+        assert_eq!(plan.cuts[0].size, ShotSize::Medium);
         assert!(plan.cuts.iter().skip(1).all(|c| !c.first));
         assert_eq!(plan.looks[0].time, 0.0);
     }
@@ -359,7 +365,7 @@ mod tests {
         let planned: Vec<_> = plan
             .moments
             .iter()
-            .map(|m| (m.time, m.strength.clone(), m.effect.clone()))
+            .map(|m| (m.time, m.strength, m.effect.clone()))
             .collect();
         assert_eq!(moments, planned);
     }
@@ -371,7 +377,7 @@ mod tests {
         let mut lab = fixtures::decider();
         lab.director_mut()
             .unwrap()
-            .set_pace_override(Some(crate::scene::Pace::Sections));
+            .set_pace_override(Some(Pace::Sections));
         let slow = planned(&chart, lab.fresh(&fixtures::manifest()), 1);
         assert!(slow.cuts.len() < plain.cuts.len(), "{slow:?} {plain:?}");
     }
@@ -481,7 +487,7 @@ mod tests {
         ));
         let levels: Vec<f32> = rows
             .iter()
-            .map(|(music, ..)| crate::bind::Level::of(music).index() as f32)
+            .map(|(music, ..)| Level::of(music).index() as f32)
             .collect();
         assert!(same(
             series_of(&plan, &lab, "level"),
@@ -519,8 +525,8 @@ mod tests {
             assert!(series_of(&free, &lab, id).iter().all(|v| *v == 0.0), "{id}");
         }
         let mut decider = fixtures::decider();
-        assert!(decider.hold_shot(1, &crate::scene::MusicValues::default()));
-        assert!(decider.hold_look(1, &crate::scene::MusicValues::default()));
+        assert!(decider.hold_shot(1, &MusicValues::default()));
+        assert!(decider.hold_look(1, &MusicValues::default()));
         let plan = plan_song(&chart, decider, 1, Some(&lab), || true).unwrap();
         for id in ["held", "look_held"] {
             assert!(series_of(&plan, &lab, id).iter().all(|v| *v == 1.0), "{id}");
@@ -536,28 +542,28 @@ mod tests {
         let steps = (plan.length / STEP).ceil() as u32;
         let rows = stepped(&chart, seed, steps);
         let mut checked = 0;
-        for source in crate::bind::SOURCES {
+        for source in SOURCES {
             let column = lab
                 .columns
                 .columns
                 .iter()
-                .find(|c| c.id == source.name && c.plan == crate::lab::ColumnPlan::Yes);
+                .find(|c| c.id == source.name && c.plan == ColumnPlan::Yes);
             let Some(column) = column else { continue };
             let values: Vec<f32> = rows
                 .iter()
                 .map(|(music, _, cut)| {
                     let reading = source.read_in(music, *cut);
                     match (column.kind, source.name) {
-                        (crate::lab::ColumnKind::Event, _) => reading.count as f32,
+                        (ColumnKind::Event, _) => reading.count as f32,
                         (_, "cue_in") if reading.value < 0.0 => f32::NAN,
-                        (crate::lab::ColumnKind::Phase, _) => reading.value.rem_euclid(1.0),
+                        (ColumnKind::Phase, _) => reading.value.rem_euclid(1.0),
                         _ => reading.value,
                     }
                 })
                 .collect();
             let expected = match column.kind {
-                crate::lab::ColumnKind::Number => buckets_of(&values, max),
-                crate::lab::ColumnKind::Event => buckets_of(&values, |v| v.iter().sum()),
+                ColumnKind::Number => buckets_of(&values, max),
+                ColumnKind::Event => buckets_of(&values, |v| v.iter().sum()),
                 _ => buckets_of(&values, |v| *v.last().unwrap()),
             };
             let got = series_of(&plan, &lab, &column.id);
@@ -608,12 +614,12 @@ how = "follow"
         let steps = (plan.length / STEP).ceil() as u32;
         let rows = stepped(&chart, seed, steps);
         let mut bindings =
-            crate::bind::Bindings::with_scope(&scene.inputs, &scene.params, &scene.binds).unwrap();
+            Bindings::with_scope(&scene.inputs, &scene.params, &scene.binds).unwrap();
         let outputs: Vec<Vec<f32>> = rows
             .iter()
             .enumerate()
             .map(|(frame, (music, _, cut))| {
-                let seed = crate::scene::mix_seed(seed, frame as u32);
+                let seed = mix_seed(seed, frame as u32);
                 bindings
                     .tick_cut(STEP as f32, music, &scene.param_values, seed, *cut)
                     .to_vec()
@@ -657,7 +663,7 @@ how = "follow"
     fn a_superseded_plan_with_series_stops_early() {
         let chart = fixtures::chart(&SECTIONS);
         let lab = lab_of(fixtures::lab_scene());
-        let asked = std::cell::Cell::new(0);
+        let asked = Cell::new(0);
         let plan = plan_song(&chart, fixtures::decider(), 1, Some(&lab), || {
             asked.set(asked.get() + 1);
             asked.get() < 3
@@ -673,7 +679,7 @@ how = "follow"
         let chart = fixtures::chart(&[(0.0, 100.0, 0.2), (100.0, 200.0, 0.9), (200.0, 300.0, 0.3)]);
         let lab = lab_of(fixtures::lab_scene());
         let time = |lab: Option<&PlanLab>| {
-            let start = std::time::Instant::now();
+            let start = Instant::now();
             let plan = plan_song(&chart, fixtures::decider(), 1, lab, || true).unwrap();
             (start.elapsed(), plan)
         };

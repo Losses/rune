@@ -44,7 +44,7 @@ String labDescribeMark(LabMark m, {bool onCut = false}) {
       ].join(', ');
       // A mark has no index to number an unnamed shot or look by.
       final shot = m.shotName.isEmpty ? 'unnamed shot' : m.shotName;
-      return 'Cut ${_clock(m.time)}  $shot (${m.size})'
+      return 'Cut ${_clock(m.time)}  $shot (${m.size.name})'
           '${extra.isEmpty ? '' : '  $extra'}';
     case LabMarkKind.look:
       final look = m.lookName.isEmpty ? 'unnamed look' : m.lookName;

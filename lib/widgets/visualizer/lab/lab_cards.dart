@@ -105,7 +105,7 @@ class _PlayState {
       shotHeld: director?.held ?? false,
       shots: [
         for (final s in director?.shots ?? const <VisualizerLabShot>[])
-          (s.name, s.size),
+          (s.name, s.size.name),
       ],
       hasLooks: looks != null,
       lookNames: looks?.names ?? const [],

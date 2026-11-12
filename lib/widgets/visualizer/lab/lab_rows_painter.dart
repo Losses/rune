@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 
+import '../../../bindings/bindings.dart';
 import 'lab_data.dart';
 import 'lab_display.dart';
 import 'lab_draw_style.dart';
@@ -172,7 +173,11 @@ class LabRowsLayout {
         case LabColumnKind.marks:
           type = LabRowType.marks;
           h = n * _markHeight + (n - 1) * _markGap;
-        default:
+        case LabColumnKind.number:
+        case LabColumnKind.event:
+        case LabColumnKind.bool:
+        case LabColumnKind.category:
+        case LabColumnKind.phase:
           type = LabRowType.parameter;
           final strips = _isLane(style) ? 1 : n;
           h = labExpandable(c)
@@ -468,13 +473,12 @@ Color _tierColor(LabTier tier) => switch (tier) {
 /// The color of a tier, as the sections row and the tooltip show it.
 Color labTierColor(LabTier tier) => _tierColor(tier);
 
-double _cutHeight(String size) => switch (size) {
-  'wide' => 1,
-  'top' => 0.9,
-  'medium' => 0.8,
-  'close' => 0.65,
-  'detail' => 0.5,
-  _ => 0.7,
+double _cutHeight(VisualizerShotSize size) => switch (size) {
+  VisualizerShotSize.wide => 1,
+  VisualizerShotSize.top => 0.9,
+  VisualizerShotSize.medium => 0.8,
+  VisualizerShotSize.close => 0.65,
+  VisualizerShotSize.detail => 0.5,
 };
 
 const _burstColor = Color(0xFFE3A34B);

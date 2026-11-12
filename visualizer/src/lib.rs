@@ -74,7 +74,7 @@ pub use inspect::{
 pub use lab::RATE as LAB_RATE;
 pub use lab::{ColumnGroup, ColumnKind, ColumnPlan, LabColumn, LabColumns, LabSample, PlanSeries};
 use loading::Loads;
-pub use moments::{Chances, EffectLevel};
+pub use moments::{Chances, EffectLevel, Strength};
 pub use pipeline::{DEFAULT_PRESET_NAME, Transport, probe_gpu};
 use pipeline::{Pipeline, Rendered, SceneBuild};
 pub use plan::{PlanCut, PlanLook, PlanMoment, PlanSection, SongPlan};
@@ -83,6 +83,7 @@ use presets::{Preset, PresetList};
 pub use rhythm::{BeatTracker, Rhythm};
 use scene::Scene;
 pub use scene::SceneInputs;
+pub use scene::{ShotSize, Tier};
 #[cfg(target_os = "linux")]
 pub use shared_vulkan::SharedFrame;
 pub use transition::CutInStyle;

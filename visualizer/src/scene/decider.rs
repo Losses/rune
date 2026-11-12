@@ -13,6 +13,7 @@
 //! `scene::stepper`).
 
 use super::CutInfo;
+use super::Tier;
 use super::director::Director;
 use super::inputs::{self, EventCounter, Levels, MusicValues};
 use super::lens::{Lens, LensFrame};
@@ -475,12 +476,16 @@ impl Decider {
 
     /// The tier (`quiet`, `normal` or `high`) a section of this level is, by the runtime's
     /// decisions this decider reads.
-    pub fn tier_at(&self, level: f32) -> &'static str {
+    pub fn tier_at(&self, level: f32) -> super::Tier {
         let tier = match &self.runtime {
             Some(runtime) => runtime.director.tier_at(level),
             None => RuntimeBindings::embedded().director.tier_at(level),
         };
-        ["quiet", "normal", "high"][tier.min(2)]
+        match tier.min(2) {
+            0 => Tier::Quiet,
+            1 => Tier::Normal,
+            _ => Tier::High,
+        }
     }
 
     /// What `decision` of a frame at song time `time` is for the event log. `first` is the
@@ -495,7 +500,7 @@ impl Decider {
         let cut_event = |size: ShotSize, fill, strong, hard, dress: Option<Transition>, first| {
             LabEventKind::Cut {
                 shot: shot_of(decision.shot).map_or_else(String::new, |s| s.0.clone()),
-                size: size_name(size).to_string(),
+                size,
                 fill,
                 strong,
                 hard,
@@ -528,7 +533,7 @@ impl Decider {
         }
         if let Some(moment) = &decision.moment {
             events.push(LabEventKind::Moment {
-                strength: strength_name(moment.strength).to_string(),
+                strength: moment.strength,
                 effect: effect_name(moment.effect),
             });
         }
@@ -536,25 +541,6 @@ impl Decider {
             .into_iter()
             .map(|kind| LabEvent { time, kind })
             .collect()
-    }
-}
-
-/// The word for a shot's size in a readout.
-pub fn size_name(size: ShotSize) -> &'static str {
-    match size {
-        ShotSize::Wide => "wide",
-        ShotSize::Medium => "medium",
-        ShotSize::Close => "close",
-        ShotSize::Detail => "detail",
-        ShotSize::Top => "top",
-    }
-}
-
-/// The word for a moment's strength in a readout.
-pub fn strength_name(strength: Strength) -> &'static str {
-    match strength {
-        Strength::Medium => "medium",
-        Strength::Strong => "strong",
     }
 }
 

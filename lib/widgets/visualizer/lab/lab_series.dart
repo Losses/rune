@@ -1,11 +1,11 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import '../../../bindings/bindings.dart';
 import 'lab_data.dart';
 import 'lab_rows.dart';
 
-// The input classes below mirror what the hub sends for the lab's series, as
-// plain Dart, so the store has no generated types in it.
+// The input classes below carry the hub's generated enum types into the store.
 
 /// One column of the catalogue, as the hub describes it.
 class LabSeriesColumn {
@@ -18,7 +18,7 @@ class LabSeriesColumn {
     this.hi = 1,
     this.unit = '',
     this.categories = const [],
-    this.plan = 'yes',
+    this.plan = VisualizerLabColumnPlan.yes,
     this.binds = const [],
     this.rest,
   });
@@ -27,10 +27,10 @@ class LabSeriesColumn {
   final String name;
 
   /// "Director", "Looks & Level", "Signals" or "Inputs".
-  final String group;
+  final VisualizerLabColumnGroup group;
 
   /// "number", "event", "bool", "category" or "phase".
-  final String kind;
+  final VisualizerLabColumnKind kind;
   final double lo;
   final double hi;
 
@@ -39,7 +39,7 @@ class LabSeriesColumn {
   final List<String> categories;
 
   /// "yes" or "no".
-  final String plan;
+  final VisualizerLabColumnPlan plan;
 
   /// For a scene input, the ids of the columns its bindings read.
   final List<String> binds;
@@ -121,20 +121,24 @@ const labMarksColumn = LabColumn(
   kind: LabColumnKind.marks,
 );
 
-/// The kind of a column of the catalogue; an unknown kind is read as a number.
-LabColumnKind labColumnKindOf(String kind) => switch (kind) {
-  'event' => LabColumnKind.event,
-  'bool' => LabColumnKind.bool,
-  'category' => LabColumnKind.category,
-  'phase' => LabColumnKind.phase,
-  _ => LabColumnKind.number,
+/// The kind of a column of the catalogue, as the lab draws it.
+LabColumnKind labColumnKindOf(VisualizerLabColumnKind kind) => switch (kind) {
+  VisualizerLabColumnKind.number => LabColumnKind.number,
+  VisualizerLabColumnKind.event => LabColumnKind.event,
+  VisualizerLabColumnKind.bool => LabColumnKind.bool,
+  VisualizerLabColumnKind.category => LabColumnKind.category,
+  VisualizerLabColumnKind.phase => LabColumnKind.phase,
 };
 
-/// Whether the plan has a series for a column; an unknown word is "no".
-LabPlanAvailability labPlanAvailabilityOf(String plan) => switch (plan) {
-  'yes' => LabPlanAvailability.yes,
-  _ => LabPlanAvailability.no,
+String labColumnGroupName(VisualizerLabColumnGroup group) => switch (group) {
+  VisualizerLabColumnGroup.director => 'Director',
+  VisualizerLabColumnGroup.looks => 'Looks & Level',
+  VisualizerLabColumnGroup.signals => 'Signals',
+  VisualizerLabColumnGroup.inputs => 'Inputs',
 };
+
+/// Whether the plan has a series for a column.
+LabPlanAvailability labPlanAvailabilityOf(VisualizerLabColumnPlan plan) => plan;
 
 // What a column has shown of the song so far, for telling a row with nothing
 // in it. It only grows: a value that a later sample writes over is not taken
@@ -188,7 +192,9 @@ _SeenRule _ruleOf(LabColumn column) {
     LabColumnKind.event || LabColumnKind.bool => _SeenRule.positive,
     LabColumnKind.category => _SeenRule.finite,
     LabColumnKind.number => _SeenRule.level,
-    _ => _SeenRule.range,
+    LabColumnKind.phase ||
+    LabColumnKind.sections ||
+    LabColumnKind.marks => _SeenRule.range,
   };
 }
 
@@ -355,7 +361,7 @@ class LabSeriesStore {
         LabColumn(
           id: c.id,
           name: c.name,
-          group: c.group,
+          group: labColumnGroupName(c.group),
           kind: labColumnKindOf(c.kind),
           lo: c.lo,
           hi: c.hi,

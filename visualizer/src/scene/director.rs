@@ -69,9 +69,10 @@ pub const ROLL_LEAST: f32 = 0.5;
 pub const PACE_CYCLE: [Pace; 4] = [Pace::Sections, Pace::Calm, Pace::Normal, Pace::Busy];
 
 /// How lively the section is, from its energy.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Tier {
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Tier {
     Quiet,
+    #[default]
     Normal,
     High,
 }
@@ -96,7 +97,7 @@ impl Tier {
     }
 
     /// The tier's name, for a readout.
-    fn name(self) -> &'static str {
+    pub fn name(self) -> &'static str {
         match self {
             Self::Quiet => "quiet",
             Self::Normal => "normal",
@@ -185,7 +186,7 @@ pub struct DirectorView {
     pub shot_name: String,
     /// "quiet", "normal" or "high": how lively the music's section is, which sets how often the
     /// director cuts.
-    pub tier: &'static str,
+    pub tier: Tier,
     /// Whether the shot is held (see `Director::hold_shot`), so that the director does not cut.
     pub held: bool,
     /// The scene's shots in order, its `[[shot]]`s and then its `[[burst]]`s: the name (empty if
@@ -614,7 +615,7 @@ impl Director {
         DirectorView {
             state: self.state,
             shot_name: self.names[self.state.index as usize].clone(),
-            tier: Tier::of(&self.binds, music).name(),
+            tier: Tier::of(&self.binds, music),
             held: self.held,
             shots: self.shot_list(),
             pace: self.pace(),
@@ -2547,9 +2548,9 @@ mod tests {
         let cuts = beats(&mut director, 1, 40, &base, plain);
         assert_eq!(cuts.iter().map(|(b, _)| *b).collect::<Vec<_>>(), [32]);
         // The tier shows in the readout.
-        assert_eq!(director.view(&base).tier, "normal");
-        assert_eq!(director.view(&song(0.9)).tier, "high");
-        assert_eq!(director.view(&song(0.1)).tier, "quiet");
+        assert_eq!(director.view(&base).tier, Tier::Normal);
+        assert_eq!(director.view(&song(0.9)).tier, Tier::High);
+        assert_eq!(director.view(&song(0.1)).tier, Tier::Quiet);
     }
 
     #[test]

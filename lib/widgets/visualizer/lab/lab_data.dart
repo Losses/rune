@@ -1,10 +1,12 @@
 import 'dart:typed_data';
 
+import '../../../bindings/bindings.dart';
+
 /// How many buckets a second of the song has in the lab's series.
 const labBucketRate = 20;
 
 /// How loud a section of the song is.
-enum LabTier { quiet, normal, high }
+typedef LabTier = VisualizerSectionTier;
 
 /// A part of the song, from the chart.
 class LabSection {
@@ -30,7 +32,7 @@ class LabMark {
     required this.kind,
     required this.time,
     this.shotName = '',
-    this.size = '',
+    this.size = VisualizerShotSize.wide,
     this.fill = 0,
     this.strong = false,
     this.dress,
@@ -47,7 +49,7 @@ class LabMark {
   const LabMark.cut({
     required double time,
     required String shotName,
-    required String size,
+    required VisualizerShotSize size,
     int fill = 0,
     bool strong = false,
     String? dress,
@@ -92,7 +94,7 @@ class LabMark {
 
   // Cuts.
   final String shotName;
-  final String size;
+  final VisualizerShotSize size;
   final int fill;
   final bool strong;
   final String? dress;
@@ -136,13 +138,7 @@ enum LabColumnKind {
 }
 
 /// Whether the plan has a series for a column.
-enum LabPlanAvailability {
-  /// It has one.
-  yes,
-
-  /// It cannot have one, for the value comes from the live audio.
-  no,
-}
+typedef LabPlanAvailability = VisualizerLabColumnPlan;
 
 /// A row the timeline can show.
 class LabColumn {

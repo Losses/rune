@@ -10,7 +10,7 @@ VisualizerLabEvent _cut(double time, {bool first = false}) =>
       time: time,
       kind: VisualizerLabEventKindCut(
         shot: 'alley',
-        size: 'medium',
+        size: VisualizerShotSize.medium,
         fill: 0,
         strong: false,
         dress: null,
@@ -20,6 +20,20 @@ VisualizerLabEvent _cut(double time, {bool first = false}) =>
 
 void main() {
   group('marks of events', () {
+    test('generated enum choices drive event marks and retain scene names', () {
+      final event = VisualizerLabEvent(
+        time: 8,
+        kind: VisualizerLabEventKindMoment(
+          strength: VisualizerMomentStrength.strong,
+          effect: 'scene-authored-effect',
+        ),
+      );
+      final mark = labMarkOfEvent(event, null)!;
+      expect(mark.strong, isTrue);
+      expect(mark.effect, 'scene-authored-effect');
+      expect(labDescribeMark(mark), contains('strong'));
+    });
+
     test('a first cut where the song time jumped is a seek', () {
       final back = labMarkOfEvent(_cut(10, first: true), 83.4)!;
       expect(back.kind, LabMarkKind.jump);
@@ -41,7 +55,7 @@ void main() {
         final mark = labMarkOfEvent(_cut(time, first: true), 83.4)!;
         expect(mark.kind, LabMarkKind.cut, reason: '$time');
         expect(mark.shotName, 'alley');
-        expect(mark.size, 'medium');
+        expect(mark.size, VisualizerShotSize.medium);
         expect(mark.first, isTrue);
       }
       final tip = labDescribeMark(
@@ -57,7 +71,11 @@ void main() {
     });
 
     test('a mark of an unnamed shot or look still reads well', () {
-      final cut = LabMark.cut(time: 12.3, shotName: '', size: 'wide');
+      final cut = LabMark.cut(
+        time: 12.3,
+        shotName: '',
+        size: VisualizerShotSize.wide,
+      );
       expect(labDescribeMark(cut), 'Cut 0:12.3  unnamed shot (wide)');
       final look = LabMark.look(time: 5, lookName: '');
       expect(labDescribeMark(look), 'Look 0:05.0  unnamed look');
@@ -88,13 +106,17 @@ void main() {
         LabMark.cut(
           time: 60,
           shotName: 'overhead',
-          size: 'top',
+          size: VisualizerShotSize.top,
           strong: true,
           dress: 'glitch',
         ),
         over,
         // A cut with no transition at the same time does not wear the effect.
-        LabMark.cut(time: 70, shotName: 'alley', size: 'medium'),
+        LabMark.cut(
+          time: 70,
+          shotName: 'alley',
+          size: VisualizerShotSize.medium,
+        ),
       ];
       expect(labMomentOnCut(marks, onCut), isTrue);
       expect(labMomentOnCut(marks, over), isFalse);

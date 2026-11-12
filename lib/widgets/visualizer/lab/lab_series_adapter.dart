@@ -93,7 +93,7 @@ LabMark? labMarkOfEvent(VisualizerLabEvent event, double? last) {
   } else if (kind is VisualizerLabEventKindMoment) {
     return LabMark.moment(
       time: event.time,
-      strong: kind.strength == 'strong',
+      strong: kind.strength == VisualizerMomentStrength.strong,
       effect: kind.effect,
     );
   }

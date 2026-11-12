@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:rune/bindings/bindings.dart';
 import 'package:rune/widgets/visualizer/lab/lab_data.dart';
 import 'package:rune/widgets/visualizer/lab/lab_plan_data.dart';
 import 'package:rune/widgets/visualizer/lab/lab_rows.dart';
@@ -15,32 +16,32 @@ LabSeriesCatalogue _catalogue({int version = 1}) => LabSeriesCatalogue(
     LabSeriesColumn(
       id: 'shot',
       name: 'Shot',
-      group: 'Director',
-      kind: 'category',
+      group: VisualizerLabColumnGroup.director,
+      kind: VisualizerLabColumnKind.category,
       categories: ['wide', 'close'],
     ),
     LabSeriesColumn(
       id: 'drive',
       name: 'Drive',
-      group: 'Signals',
-      kind: 'number',
+      group: VisualizerLabColumnGroup.signals,
+      kind: VisualizerLabColumnKind.number,
     ),
     LabSeriesColumn(
       id: 'band_low',
       name: 'band_low',
-      group: 'Signals',
-      kind: 'number',
+      group: VisualizerLabColumnGroup.signals,
+      kind: VisualizerLabColumnKind.number,
       hi: 2,
-      plan: 'no',
+      plan: VisualizerLabColumnPlan.no,
     ),
     LabSeriesColumn(
       id: 'age',
       name: 'Age',
-      group: 'Director',
-      kind: 'number',
+      group: VisualizerLabColumnGroup.director,
+      kind: VisualizerLabColumnKind.number,
       hi: 8,
       unit: 's',
-      plan: 'later',
+      plan: VisualizerLabColumnPlan.no,
     ),
   ],
 );
@@ -50,7 +51,7 @@ LabSeriesSample _sample(int bucket, List<double> values, {int version = 1}) =>
 
 void main() {
   group('series store', () {
-    test('the catalogue maps kinds and plan words', () {
+    test('the catalogue maps generated enum values to lab rows', () {
       final store = LabSeriesStore()..setCatalogue(_catalogue());
       final ids = [for (final c in store.columns) c.id];
       expect(ids, ['sections', 'marks', 'shot', 'drive', 'band_low', 'age']);
@@ -62,13 +63,17 @@ void main() {
       expect(col('drive').binds, isEmpty);
       expect(col('band_low').plan, LabPlanAvailability.no);
       expect(col('band_low').hi, 2);
-      // An unknown word is read as no plan.
       expect(col('age').plan, LabPlanAvailability.no);
       expect(col('age').unit, 's');
-      expect(labColumnKindOf('event'), LabColumnKind.event);
-      expect(labColumnKindOf('bool'), LabColumnKind.bool);
-      expect(labColumnKindOf('phase'), LabColumnKind.phase);
-      expect(labColumnKindOf('something else'), LabColumnKind.number);
+      expect(
+        labColumnKindOf(VisualizerLabColumnKind.event),
+        LabColumnKind.event,
+      );
+      expect(labColumnKindOf(VisualizerLabColumnKind.bool), LabColumnKind.bool);
+      expect(
+        labColumnKindOf(VisualizerLabColumnKind.phase),
+        LabColumnKind.phase,
+      );
     });
 
     test('a newer sample overwrites the bucket', () {
@@ -220,8 +225,8 @@ void main() {
               LabSeriesColumn(
                 id: 'input:glow',
                 name: 'Glow',
-                group: 'Inputs',
-                kind: 'number',
+                group: VisualizerLabColumnGroup.inputs,
+                kind: VisualizerLabColumnKind.number,
                 binds: ['drive', 'input:pulse'],
               ),
             ],
