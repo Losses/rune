@@ -32,10 +32,10 @@ use crate::messages::{
     ReorderPlaylistItemPositionRequest, ReorderPlaylistItemPositionResponse,
     SearchCollectionSummaryRequest, SearchCollectionSummaryResponse, SearchForRequest,
     SearchForResponse, SearchMediaFileSummaryRequest, SearchMediaFileSummaryResponse, SeekRequest,
-    SessionSnapshotRequest, SetAdaptiveSwitchingEnabledRequest, SetLikedRequest, SetLikedResponse,
-    SetPlaybackModeRequest, SetRealtimeFFTEnabledRequest, SwitchRequest,
-    TakeBackHandoffBlockRequest, UpdatePlaylistRequest, UpdatePlaylistResponse, VolumeRequest,
-    VolumeResponse,
+    SessionSnapshotRequest, SessionSnapshotResponse, SetAdaptiveSwitchingEnabledRequest,
+    SetLikedRequest, SetLikedResponse, SetPlaybackModeRequest, SetRealtimeFFTEnabledRequest,
+    SwitchRequest, TakeBackHandoffBlockRequest, UpdatePlaylistRequest, UpdatePlaylistResponse,
+    VolumeRequest, VolumeResponse,
 };
 use crate::request_error::ExpectedRequestError;
 use crate::rpc::{RequestTranslationFuture, Slot, UnsupportedReason};
@@ -1316,6 +1316,31 @@ async fn jukebox_refresh_session_request(
     Ok(Some(()))
 }
 
+async fn jukebox_session_snapshot_request(
+    binding: &SubsonicBinding,
+    request: &SessionSnapshotRequest,
+) -> Result<Option<SessionSnapshotResponse>> {
+    let (jukebox, revision) = binding.jukebox_snapshot().await?;
+    let items = jukebox
+        .playlist
+        .songs
+        .into_iter()
+        .map(|song| PlayingItemRef::LibraryTrack {
+            library_id: binding.library_id.to_string(),
+            track: song.id,
+        })
+        .collect();
+    Ok(Some(SessionSnapshotResponse {
+        items,
+        index: jukebox.status.current_index,
+        position_seconds: f64::from(jukebox.status.position_secs.unwrap_or_default()),
+        playback_mode: 0,
+        playing: jukebox.status.playing,
+        revision,
+        call_id: request.call_id,
+    }))
+}
+
 async fn ensure_artists(binding: &SubsonicBinding) -> Result<()> {
     let loaded = binding
         .catalog
@@ -1800,6 +1825,7 @@ subsonic_requests! {
         RemoveRequest => jukebox_remove_request as translate_remove_request,
         LoadResolvedItemsRequest => jukebox_load_resolved_items_request as translate_load_resolved_items_request,
         RefreshSessionRequest => jukebox_refresh_session_request as translate_refresh_session_request,
+        SessionSnapshotRequest => jukebox_session_snapshot_request as translate_session_snapshot_request,
     }
     player {
         VolumeRequest,
@@ -3201,12 +3227,7 @@ mod tests {
                 reason: UnsupportedReason::NotImplemented
             }
         );
-        assert_eq!(
-            SessionSnapshotRequest::slot(&slots),
-            Slot::Unsupported {
-                reason: UnsupportedReason::NotImplemented
-            }
-        );
+        assert_eq!(SessionSnapshotRequest::slot(&slots), Slot::Translate);
     }
 
     #[tokio::test]

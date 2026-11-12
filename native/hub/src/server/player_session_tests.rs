@@ -64,7 +64,6 @@ use crate::{
     handlers::playback::{
         playing_item_from_request, playing_item_requests, session_snapshot_from_status,
     },
-    library_pool::LibraryHandle,
     messages::{
         CastLibraryState, CastPreflightRequest, CastResolvedItemsRequest, CastTarget,
         GetMediaFilesCountRequest, ListControllersRequest, ListRenderersRequest,
@@ -351,23 +350,18 @@ struct MixPlaybackTestResponse {
 }
 
 impl MixPlaybackTestRequest {
-    fn extract_params(
-        &self,
-        params: &GlobalParams,
-    ) -> (Option<LibraryHandle>, Arc<String>, Arc<NodeContext>) {
-        (
-            params.library.clone(),
-            params.node_id.clone(),
-            params.node.clone(),
-        )
+    fn extract_params(&self, params: &GlobalParams) -> GlobalParams {
+        params.clone()
     }
 
     async fn handle(
         &self,
-        (library, _node_id, node): (Option<LibraryHandle>, Arc<String>, Arc<NodeContext>),
+        params: GlobalParams,
         session: Option<Session>,
         _request: &Self,
     ) -> Result<Option<MixPlaybackTestResponse>> {
+        let library = params.library.clone();
+        let node = Arc::clone(&params.node);
         let resolve_request = ResolveMixQueryRequest {
             call_id: None,
             queries: self.queries.clone(),
@@ -375,10 +369,10 @@ impl MixPlaybackTestRequest {
             initial_playback_item: self.initial_playback_item.clone(),
             instantly_play: self.instantly_play,
             fallback_playing_items: self.fallback_playing_items.clone(),
-            exclude_local_queue: node.renderer_link()?.is_none() && self.cast_to.is_none(),
+            exclude_current_queue: node.renderer_link()?.is_none() && self.cast_to.is_none(),
         };
         let resolved = resolve_request
-            .handle((library.clone(), node.clone()), session, &resolve_request)
+            .handle(params, session, &resolve_request)
             .await?
             .context("mix query resolution")?;
         let load = LoadResolvedItemsRequest {
@@ -2340,14 +2334,86 @@ async fn attached_mix_query_resolves_for_controller_library_and_loads_resolved_i
             .collect::<Vec<_>>(),
     )
     .await?;
-    let request = MixPlaybackTestRequest {
-        queries: host_items
+    let renderer_file_ids = file_ids_by_uuid(
+        &renderer_replica.global_params.test_library().main_db,
+        &[host_items[0].file_uuid],
+    )
+    .await?;
+    queue_session(&renderer_replica, &[renderer_file_ids[&host_items[0].file_uuid]]).await?;
+    let current_player_queue = controller_replica
+        .global_params
+        .node
+        .renderer_link()?
+        .context("attached renderer link")?
+        .call(&SessionSnapshotRequest { call_id: None })
+        .await?
+        .items;
+    assert_eq!(
+        current_player_queue,
+        vec![PlayingItemRef::LibraryTrack {
+            library_id: controller_replica
+                .global_params
+                .test_library()
+                .library_id
+                .to_string(),
+            track: host_items[0].file_uuid.to_string(),
+        }]
+    );
+    let query: Vec<MixQuery> = host_items
+        .iter()
+        .map(|item| MixQuery {
+            operator: "lib::track".into(),
+            parameter: controller_file_ids[&item.file_uuid].to_string(),
+        })
+        .collect();
+    let resolve_with_exclusion = |exclude_current_queue| ResolveMixQueryRequest {
+        call_id: None,
+        queries: query.clone(),
+        hint_position: -1,
+        initial_playback_item: None,
+        instantly_play: true,
+        fallback_playing_items: Vec::new(),
+        exclude_current_queue,
+    };
+    let excluded = dispatch_gui_request(
+        &controller_replica.global_params,
+        &resolve_with_exclusion(true),
+    )
+    .await?
+    .context("resolved mix with current queue exclusion")?;
+    assert_eq!(excluded.playing_items.len(), 1);
+    let included = dispatch_gui_request(
+        &controller_replica.global_params,
+        &resolve_with_exclusion(false),
+    )
+    .await?
+    .context("resolved mix without current queue exclusion")?;
+    assert_eq!(included.playing_items.len(), 2);
+
+    queue_session(&host, &[ids[0]]).await?;
+    let host_file_ids = file_ids_by_uuid(
+        &host.global_params.test_library().main_db,
+        &host_items
             .iter()
-            .map(|item| MixQuery {
-                operator: "lib::track".into(),
-                parameter: controller_file_ids[&item.file_uuid].to_string(),
-            })
-            .collect(),
+            .map(|item| item.file_uuid)
+            .collect::<Vec<_>>(),
+    )
+    .await?;
+    let mut local_request = resolve_with_exclusion(true);
+    local_request.queries = host_items
+        .iter()
+        .map(|item| MixQuery {
+            operator: "lib::track".into(),
+            parameter: host_file_ids[&item.file_uuid].to_string(),
+        })
+        .collect();
+    let local_excluded = dispatch_gui_request(&host.global_params, &local_request)
+        .await?
+        .context("resolved mix with local queue exclusion")?;
+    assert_eq!(local_excluded.playing_items.len(), 1);
+
+    let request = MixPlaybackTestRequest {
+        queries: query.clone(),
         playback_mode: 0,
         hint_position: -1,
         initial_playback_item: None,
@@ -2442,6 +2508,26 @@ async fn attached_mix_query_resolves_for_controller_library_and_loads_resolved_i
             .get_playlist(),
         renderer_status.playlist
     );
+
+    controller_replica
+        .global_params
+        .node
+        .renderer_link()?
+        .context("attached renderer link")?
+        .close();
+    let snapshot_failure = match dispatch_gui_request(
+        &controller_replica.global_params,
+        &resolve_with_exclusion(true),
+    )
+    .await
+    {
+        Err(error) => error,
+        Ok(_) => anyhow::bail!("a failed current-player snapshot should fail the mix request"),
+    };
+    assert!(snapshot_failure.chain().any(|cause| matches!(
+        cause.downcast_ref::<ExpectedRequestError>(),
+        Some(ExpectedRequestError::Unavailable { what: "renderer" })
+    )));
 
     renderer_replica.global_params.player.lock().await.stop();
     wait_player(&renderer_replica, |status| {
@@ -7767,7 +7853,7 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
             initial_playback_item: None,
             instantly_play: true,
             fallback_playing_items: Vec::new(),
-            exclude_local_queue: false,
+            exclude_current_queue: false,
         },
     )
     .await?
@@ -8085,6 +8171,7 @@ async fn fake_subsonic_response(
             r#"{{"subsonic-response":{{"status":"ok","user":{{"username":"alice","streamRole":{},"downloadRole":false,"jukeboxRole":{}}}}}}}"#,
             roles.stream, roles.jukebox
         ),
+        "jukeboxControl" if roles.jukebox => r#"{"subsonic-response":{"status":"ok","jukeboxPlaylist":{"entry":{"id":"jukebox-track","title":"Queued"},"currentIndex":0,"playing":true,"gain":1.0,"position":7}}}"#.to_owned(),
         _ => r#"{"subsonic-response":{"status":"ok"}}"#.to_owned(),
     };
     (StatusCode::OK, body)
@@ -8692,6 +8779,22 @@ async fn subsonic_registration_resolves_mode_stores_secret_and_deduplicates() ->
         node.current_player()?,
         CurrentPlayer::SubsonicJukebox(_)
     ));
+    let snapshot = dispatch_gui_request(
+        &fixture.global_params,
+        &SessionSnapshotRequest { call_id: None },
+    )
+    .await?
+    .context("Subsonic jukebox session snapshot")?;
+    assert_eq!(
+        snapshot.items,
+        vec![PlayingItemRef::LibraryTrack {
+            library_id: summary.record_id.clone(),
+            track: "jukebox-track".into(),
+        }]
+    );
+    assert_eq!(snapshot.index, Some(0));
+    assert_eq!(snapshot.position_seconds, 7.0);
+    assert!(snapshot.playing);
     let registry = LibraryRegistry::load(PathBuf::from(&*node.config_path).as_path())?;
     let stored = registry
         .libraries

@@ -33,7 +33,7 @@ Future<List<PlayingItem>> operatePlaybackWithMixQuery({
       initialPlaybackItem: requestItems.first,
       instantlyPlay: instantlyPlay,
       fallbackPlayingItems: requestItems.skip(1).toList(),
-      excludeLocalQueue: castTo == null,
+      excludeCurrentQueue: castTo == null,
     ).sendSignalToRust(),
   );
   final resolved = resolvedSignal.message;

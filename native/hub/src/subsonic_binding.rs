@@ -640,35 +640,43 @@ impl SubsonicBinding {
         }
     }
 
-    pub(crate) async fn publish_jukebox_snapshot(&self) -> Result<()> {
+    pub(crate) async fn jukebox_snapshot(&self) -> Result<(SubsonicJukebox, u64)> {
         let jukebox = self
             .client
             .jukebox_get()
             .await
             .map_err(jukebox_error_for_refresh)?;
-        let revision = {
+        let (revision, changed) = {
             let mut state = self
                 .jukebox_state
                 .lock()
                 .map_err(|_| anyhow::anyhow!("Subsonic jukebox state lock poisoned"))?;
-            let revision = match state.as_ref() {
-                Some(current) if current.jukebox == jukebox => return Ok(()),
-                Some(current) => current.revision.saturating_add(1),
-                None => 1,
+            let (revision, changed) = match state.as_ref() {
+                Some(current) if current.jukebox == jukebox => (current.revision, false),
+                Some(current) => (current.revision.saturating_add(1), true),
+                None => (1, true),
             };
-            *state = Some(JukeboxPollState {
-                jukebox: jukebox.clone(),
-                revision,
-            });
-            revision
+            if changed {
+                *state = Some(JukeboxPollState {
+                    jukebox: jukebox.clone(),
+                    revision,
+                });
+            }
+            (revision, changed)
         };
-        broadcast_jukebox(
-            &*self.covers.broadcaster,
-            self.library_id,
-            &jukebox,
-            revision,
-        );
-        Ok(())
+        if changed {
+            broadcast_jukebox(
+                &*self.covers.broadcaster,
+                self.library_id,
+                &jukebox,
+                revision,
+            );
+        }
+        Ok((jukebox, revision))
+    }
+
+    pub(crate) async fn publish_jukebox_snapshot(&self) -> Result<()> {
+        self.jukebox_snapshot().await.map(|_| ())
     }
 
     pub(crate) async fn playback_source(

@@ -17,7 +17,7 @@ pub struct ResolveMixQueryRequest {
     pub initial_playback_item: Option<PlayingItemRef>,
     pub instantly_play: bool,
     pub fallback_playing_items: Vec<PlayingItemRef>,
-    pub exclude_local_queue: bool,
+    pub exclude_current_queue: bool,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

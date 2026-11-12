@@ -34,6 +34,7 @@ use crate::{
     library_pool::{LibraryHandle, LibraryPool},
     messages::*,
     node::NodeContext,
+    rpc::dispatch_gui_request,
     session::{HandoffLoadParams, PlayerSession},
     utils::{
         GlobalParams, ParamsExtractor, files_to_playback_request, find_nearest_index,
@@ -177,7 +178,7 @@ struct ResolvedMixQuery {
 async fn resolve_mix_query(
     request: &ResolveMixQueryRequest,
     library: &LibraryHandle,
-    node: &NodeContext,
+    params: &GlobalParams,
 ) -> Result<ResolvedMixQuery> {
     let fallback_items =
         playing_items_from_requests(&request.fallback_playing_items, Some(library)).await?;
@@ -187,11 +188,31 @@ async fn resolve_mix_query(
             .get_file_handle(&library.fsio, &library.main_db, &fallback_items)
             .await?
     } else {
-        let queue = if request.exclude_local_queue && node.renderer_link()?.is_none() {
-            node.session_queue_for_library(library.library_id).await?
+        let queue = if request.exclude_current_queue {
+            let snapshot = dispatch_gui_request(params, &SessionSnapshotRequest { call_id: None })
+                .await?
+                .context("Current player did not return a session snapshot")?;
+            let track_uuids = snapshot
+                .items
+                .into_iter()
+                .filter_map(|item| match item {
+                    PlayingItemRef::LibraryTrack { library_id, track }
+                        if library_id == library.library_id.to_string() =>
+                    {
+                        Uuid::parse_str(&track).ok()
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            let ids = file_ids_by_uuid(&library.main_db, &track_uuids).await?;
+            track_uuids
+                .iter()
+                .filter_map(|uuid| ids.get(uuid).copied())
+                .collect()
         } else {
             Vec::new()
         };
+        let excluded_tracks = queue.iter().copied().collect::<HashSet<_>>();
         query_mix_media_files(
             &library.main_db,
             &library.recommend_db,
@@ -207,6 +228,7 @@ async fn resolve_mix_query(
         .await
         .with_context(|| format!("Failed to query tracks: {:?}", request.queries))?
         .into_iter()
+        .filter(|track| !excluded_tracks.contains(&track.id))
         .map(Into::into)
         .collect()
     };
@@ -253,7 +275,7 @@ async fn resolve_mix_query(
             nearest_index
         }
     };
-    let playing_items = playing_item_requests(&items, &node.library_pool, None).await;
+    let playing_items = playing_item_requests(&items, &params.library_pool, None).await;
 
     Ok(ResolvedMixQuery {
         playing_items,
@@ -662,20 +684,20 @@ impl Signal for SetMixWithOthersRequest {
 }
 
 impl ParamsExtractor for ResolveMixQueryRequest {
-    type Params = (Option<LibraryHandle>, Arc<NodeContext>);
+    type Params = GlobalParams;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (all_params.library.clone(), all_params.node.clone())
+        all_params.clone()
     }
 }
 
 impl Signal for ResolveMixQueryRequest {
-    type Params = (Option<LibraryHandle>, Arc<NodeContext>);
+    type Params = GlobalParams;
     type Response = ResolveMixQueryResponse;
 
     async fn handle(
         &self,
-        (library, node): Self::Params,
+        params: Self::Params,
         session: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -685,8 +707,8 @@ impl Signal for ResolveMixQueryRequest {
         for item in &request.fallback_playing_items {
             reject_remote_independent_item(session.as_ref(), item)?;
         }
-        let library = require_library(library)?;
-        let resolved = resolve_mix_query(request, &library, &node).await?;
+        let library = require_library(params.library.clone())?;
+        let resolved = resolve_mix_query(request, &library, &params).await?;
         let start_index = resolved
             .start_index
             .map(u32::try_from)

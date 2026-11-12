@@ -146,7 +146,7 @@ pub async fn operate_playback_with_mix_query_request(
             initial_playback_item: None,
             instantly_play: instant_play,
             fallback_playing_items: vec![],
-            exclude_local_queue: true,
+            exclude_current_queue: true,
         })
         .await?;
     let _: LoadResolvedItemsResponse = connection
