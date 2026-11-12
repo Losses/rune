@@ -57,11 +57,11 @@ pub fn read_metadata(fsio: &FsIo, fs_node: &FsNode) -> Result<FileMetadata> {
 }
 
 /// Batch query to check which files have been modified since last database entry
-/// Returns a map of (directory, file_name) -> last_modified timestamp for files that exist in database
+/// Returns a map of (directory, file_name) -> change token for files that exist in database
 pub async fn get_existing_files_modified(
     main_db: &DatabaseConnection,
     file_keys: Vec<(String, String)>, // (directory, file_name)
-) -> Result<std::collections::HashMap<(String, String), String>> {
+) -> Result<std::collections::HashMap<(String, String), Option<String>>> {
     if file_keys.is_empty() {
         return Ok(HashMap::new());
     }
@@ -91,18 +91,18 @@ pub async fn get_existing_files_modified(
             .with_context(|| "Failed to query existing files")?;
 
         for file in existing_files {
-            result.insert((file.directory, file.file_name), file.last_modified);
+            result.insert((file.directory, file.file_name), file.change_token);
         }
     }
 
     Ok(result)
 }
 
-/// Filter out files that haven't been modified based on last_modified timestamps
+/// Filter out files whose change token has not changed.
 /// Returns (files_to_process, skipped_count)
 pub fn filter_modified_files(
     descriptions: Vec<Option<FileDescription>>,
-    existing_modified_map: &std::collections::HashMap<(String, String), String>,
+    existing_modified_map: &std::collections::HashMap<(String, String), Option<String>>,
 ) -> (Vec<Option<FileDescription>>, usize) {
     let mut filtered = Vec::new();
     let mut skipped_count = 0;
@@ -114,7 +114,10 @@ pub fn filter_modified_files(
 
                 if let Some(db_last_modified) = existing_modified_map.get(&key) {
                     // File exists in database, check if it's been modified
-                    if db_last_modified == &desc.last_modified {
+                    if change_token_is_current(
+                        db_last_modified.as_deref(),
+                        desc.change_token.as_deref(),
+                    ) {
                         // File hasn't been modified, skip it
                         skipped_count += 1;
                         continue;
@@ -129,6 +132,12 @@ pub fn filter_modified_files(
     }
 
     (filtered, skipped_count)
+}
+
+fn change_token_is_current(stored: Option<&str>, scanned: Option<&str>) -> bool {
+    stored
+        .zip(scanned)
+        .is_some_and(|(stored, scanned)| stored == scanned)
 }
 
 // SQLite constraint failures and explicit row validation reject one record. Connection,
@@ -217,7 +226,10 @@ async fn sync_file_descriptions_inner(
                     file.local_available
                         && file.content_hash.is_some()
                         && file.content_size.is_some()
-                        && file.last_modified == description.last_modified
+                        && change_token_is_current(
+                            file.change_token.as_deref(),
+                            description.change_token.as_deref(),
+                        )
                 })
             {
                 rejected.insert((description.directory.clone(), description.file_name.clone()));
@@ -431,6 +443,7 @@ where
 {
     let mut active_model: media_files::ActiveModel = existing_file.clone().into();
     active_model.last_modified = ActiveValue::Set(description.last_modified.clone());
+    active_model.change_token = ActiveValue::Set(description.change_token.clone());
     active_model.local_available = ActiveValue::Set(true);
     active_model.update(db).await?;
     Ok(())
@@ -448,6 +461,7 @@ async fn update_file_metadata(
 
     // Update last modified and file hash
     active_model.last_modified = ActiveValue::Set(description.last_modified.clone());
+    active_model.change_token = ActiveValue::Set(description.change_token.clone());
     active_model.local_available = ActiveValue::Set(true);
 
     match description
@@ -585,6 +599,7 @@ async fn insert_new_file(
             Decimal::from_f64(duration_in_seconds).expect("Unable to convert track duration"),
         ),
         last_modified: ActiveValue::Set(description.last_modified.clone()),
+        change_token: ActiveValue::Set(description.change_token.clone()),
         hlc_uuid: ActiveValue::Set(Uuid::new_v4().to_string()),
         local_available: ActiveValue::Set(true),
         ..Default::default()
@@ -1144,4 +1159,17 @@ pub async fn get_parsed_file_by_id(
     };
 
     Ok((file, artists, album))
+}
+
+#[cfg(test)]
+mod change_token_tests {
+    use super::change_token_is_current;
+
+    #[test]
+    fn missing_change_tokens_never_mark_a_file_unchanged() {
+        assert!(!change_token_is_current(None, None));
+        assert!(!change_token_is_current(Some("etag"), None));
+        assert!(!change_token_is_current(None, Some("etag")));
+        assert!(change_token_is_current(Some("etag"), Some("etag")));
+    }
 }

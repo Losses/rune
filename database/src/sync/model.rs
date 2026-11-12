@@ -361,7 +361,7 @@ sync_orm::row_policies! {
                         media_files::Column::LocalAvailable => false,
                         media_files::Column::CoverArtCheckedAt => None::<String>,
                     },
-                    local_reads: [media_files::Column::LocalAvailable, media_files::Column::FileName],
+                    local_reads: [media_files::Column::LocalAvailable, media_files::Column::FileName, media_files::Column::ChangeToken],
                     lists: {
                         metadata: MetadataTag => {
                             entity: media_metadata::Entity,

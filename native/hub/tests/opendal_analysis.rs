@@ -14,7 +14,10 @@ use std::{
 use analysis::{analysis::analyze_audio, utils::computing_device::ComputingDevice};
 use anyhow::{Context, Result};
 use database::{
-    actions::analysis::analysis_audio_library,
+    actions::{
+        analysis::analysis_audio_library, cover_art::scan_cover_arts, mixes::query_mix_media_files,
+    },
+    connection::RecommendationDbConnection,
     entities::{media_analysis, media_files},
 };
 use fsio::{
@@ -25,7 +28,8 @@ use playback::{
     player::{Playable, PlaybackSource, PlaybackState, Player, PlayingItem},
     strategies::AddMode,
 };
-use sea_orm::{DatabaseConnection, EntityTrait, PaginatorTrait};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter};
 use tokio::{runtime::Handle, task::spawn_blocking, time::timeout};
 use uuid::Uuid;
 
@@ -73,6 +77,40 @@ async fn assert_scan_change_detection(
         .one(&db)
         .await?
         .context("missing initial file")?;
+    assert!(
+        original.last_modified.parse::<i64>().is_ok(),
+        "{backend} last_modified must remain a modification time, got {:?}",
+        original.last_modified
+    );
+    let original_change_token = original.change_token.clone();
+    assert!(
+        original_change_token.is_some(),
+        "{backend} ETag was not stored"
+    );
+    media_files::Entity::update_many()
+        .col_expr(
+            media_files::Column::CoverArtCheckedAt,
+            Expr::value(Some("2025-01-02T00:00:00Z".to_owned())),
+        )
+        .filter(media_files::Column::Id.eq(original.id))
+        .exec(&db)
+        .await?;
+    let reads_before_current_cover_check = read_count();
+    scan_cover_arts(
+        Arc::new(fs.clone()),
+        &db,
+        Path::new(""),
+        4,
+        |_, _| {},
+        None,
+        &store.record_store(),
+    )
+    .await?;
+    assert_eq!(
+        read_count(),
+        reads_before_current_cover_check,
+        "{backend} cover inspection was not considered current"
+    );
     let after_initial = read_count();
     fixtures::scan_library(
         &fs,
@@ -89,7 +127,7 @@ async fn assert_scan_change_detection(
     );
     set_file(changed);
     let check_fs = fs.clone();
-    let prior_token = original.last_modified.clone();
+    let prior_token = original_change_token.clone().context("missing token")?;
     assert_ne!(
         spawn_blocking(move || check_fs.change_token(Path::new("track.ogg"))).await??,
         prior_token,
@@ -113,9 +151,9 @@ async fn assert_scan_change_detection(
         .await?
         .context("missing rescanned file")?;
     assert_ne!(
-        original.last_modified, updated.last_modified,
+        original_change_token, updated.change_token,
         "{backend} ETag did not change: {:?} -> {:?}, current token {changed_token}, processed {rescanned}",
-        original.last_modified, updated.last_modified
+        original_change_token, updated.change_token
     );
     assert!(read_count() > after_initial, "changed object was not read");
     Ok(())
@@ -544,5 +582,101 @@ async fn object_store_scan_uses_etag_and_skips_unchanged_content() -> Result<()>
     })
     .await
     .context("object store scan timed out")??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn last_modified_mix_sort_uses_opendal_modification_times() -> Result<()> {
+    let audio = std::fs::read(fixtures::audio_fixture())?;
+    let webdav = WebDavFixture::start(vec![
+        ("later.ogg".into(), audio.clone()),
+        ("earlier.ogg".into(), audio),
+    ])
+    .await?;
+    let fs = FsIo::new_opendal(webdav_config(&webdav), Handle::current())?;
+    let actor = Uuid::from_u128(0x215);
+    let db = scanned_database(&fs, Path::new(""), actor).await?;
+    let files = media_files::Entity::find().all(&db).await?;
+    assert_eq!(files.len(), 2);
+    assert!(
+        files
+            .iter()
+            .all(|file| file.last_modified.parse::<i64>().is_ok())
+    );
+    for file in &files {
+        let modified = if file.file_name == "earlier.ogg" {
+            "1735689500"
+        } else {
+            "1735689600"
+        };
+        media_files::Entity::update_many()
+            .col_expr(media_files::Column::LastModified, Expr::value(modified))
+            .filter(media_files::Column::Id.eq(file.id))
+            .exec(&db)
+            .await?;
+    }
+    let sorted = query_mix_media_files(
+        &db,
+        &RecommendationDbConnection::new(),
+        vec![
+            ("lib::all".into(), "true".into()),
+            ("sort::last_modified".into(), "true".into()),
+        ],
+        0,
+        10,
+        &[],
+    )
+    .await?;
+    assert_eq!(
+        sorted
+            .iter()
+            .map(|file| file.file_name.as_str())
+            .collect::<Vec<_>>(),
+        ["earlier.ogg", "later.ogg"]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn webdav_file_without_stored_change_token_is_processed_on_each_scan() -> Result<()> {
+    let bytes = std::fs::read(fixtures::audio_fixture())?;
+    let webdav = WebDavFixture::start(vec![("track.ogg".into(), bytes)]).await?;
+    let fs = FsIo::new_opendal(webdav_config(&webdav), Handle::current())?;
+    let actor = Uuid::from_u128(0x216);
+    let db = fixtures::memory_database(actor).await?;
+    let store = fixtures::open_library(db.clone(), actor, None).await?;
+    fixtures::scan_library(
+        &fs,
+        &db,
+        &actor.to_string(),
+        Path::new(""),
+        &store.record_store(),
+    )
+    .await?;
+    let file = media_files::Entity::find()
+        .one(&db)
+        .await?
+        .context("missing initially scanned file")?;
+    media_files::Entity::update_many()
+        .col_expr(
+            media_files::Column::ChangeToken,
+            Expr::value(Option::<String>::None),
+        )
+        .filter(media_files::Column::Id.eq(file.id))
+        .exec(&db)
+        .await?;
+    let initial_reads = webdav.read_ranges().len();
+    fixtures::scan_library(
+        &fs,
+        &db,
+        &actor.to_string(),
+        Path::new(""),
+        &store.record_store(),
+    )
+    .await?;
+    assert!(
+        webdav.read_ranges().len() > initial_reads,
+        "file without a change token was skipped on its next scan"
+    );
     Ok(())
 }

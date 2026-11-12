@@ -336,6 +336,11 @@ mod inspection_timestamp_tests {
         assert!(!current("1704067200", None));
         assert!(!current("1704067200", Some("invalid")));
     }
+
+    #[test]
+    fn opendal_modification_time_keeps_cover_inspection_current() {
+        assert!(current("1735689600", Some("2025-01-01T00:00:00Z")));
+    }
 }
 
 /// Returns a map of file_id -> (file_last_modified, cover_art_updated_at)

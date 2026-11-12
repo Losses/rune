@@ -33,6 +33,7 @@ pub struct FileDescription {
     pub file_hash: Option<String>,
     codec_information: Option<(u32, f64)>,
     pub last_modified: String,
+    pub change_token: Option<String>,
     pub raw_node: FsNode,
 }
 
@@ -134,7 +135,9 @@ pub fn describe_file(
 
     // Get last modified time through the fs abstraction: on Android the
     // tree-relative path does not exist on the local filesystem.
-    let last_modified = fsio.change_token(&file_path)?;
+    let last_modified = fsio.modified_time(&file_path)?.to_string();
+    let change_token = fsio.change_token(&file_path)?;
+    let change_token = (!change_token.is_empty()).then_some(change_token);
 
     Ok(FileDescription {
         lib_path: lib_path.clone(),
@@ -147,6 +150,7 @@ pub fn describe_file(
         file_hash: None,
         codec_information: None,
         last_modified,
+        change_token,
         raw_node: fs_node.clone(),
     })
 }

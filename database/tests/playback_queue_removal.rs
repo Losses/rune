@@ -36,6 +36,7 @@ async fn fresh_library_has_no_legacy_queue_and_queue_mix_uses_session_values() -
             extension: Set("ogg".into()),
             file_hash: Set(format!("hash-{id}")),
             last_modified: Set(String::new()),
+            change_token: Set(None),
             cover_art_uuid: Set(None),
             cover_art_checked_at: Set(None),
             sample_rate: Set(0),

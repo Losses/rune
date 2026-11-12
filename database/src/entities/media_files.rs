@@ -3,6 +3,8 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use super::media_cover_art;
+
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
 #[sea_orm(table_name = "media_files")]
 pub struct Model {
@@ -18,6 +20,7 @@ pub struct Model {
     pub file_hash: String,
     #[sea_orm(column_type = "Text")]
     pub last_modified: String,
+    pub change_token: Option<String>,
     pub cover_art_uuid: Option<String>,
     pub cover_art_checked_at: Option<String>,
     pub sample_rate: i32,
@@ -35,7 +38,7 @@ pub enum Relation {
     #[sea_orm(
         belongs_to = "super::media_cover_art::Entity",
         from = "Column::CoverArtUuid",
-        to = "super::media_cover_art::Column::HlcUuid"
+        to = "media_cover_art::Column::HlcUuid"
     )]
     MediaCoverArt,
     #[sea_orm(has_one = "super::media_file_albums::Entity")]
