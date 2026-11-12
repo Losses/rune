@@ -439,7 +439,7 @@ async fn serve_s3(stream: TcpStream, state: S3ServerState) {
                     prefixes.insert(format!("{prefix}{directory}/"));
                 } else {
                     content_count += 1;
-                    contents.push_str(&format!("<Contents><Key>{key}</Key><LastModified>2025-01-01T00:00:00Z</LastModified><ETag>&quot;fixture&quot;</ETag><Size>{}</Size><StorageClass>STANDARD</StorageClass></Contents>", bytes.len()));
+                    contents.push_str(&format!("<Contents><Key>{key}</Key><LastModified>2025-01-01T00:00:00Z</LastModified><ETag>{}</ETag><Size>{}</Size><StorageClass>STANDARD</StorageClass></Contents>", fixture_etag(bytes), bytes.len()));
                 }
             }
             let key_count = content_count + prefixes.len();
@@ -673,45 +673,52 @@ async fn serve_webdav(stream: TcpStream, state: WebDavServerState) {
             } else {
                 format!("{directory}/")
             };
-            let entries =
-                if files_snapshot.contains_key(directory) {
-                    files_snapshot
-                        .get(directory)
-                        .map(|bytes| vec![dav_entry(&path, false, bytes.len())])
-                        .unwrap_or_default()
+            let entries = if files_snapshot.contains_key(directory) {
+                files_snapshot
+                    .get(directory)
+                    .map(|bytes| {
+                        vec![dav_entry(
+                            &path,
+                            false,
+                            bytes.len(),
+                            Some(fixture_etag(bytes)),
+                        )]
+                    })
+                    .unwrap_or_default()
+            } else {
+                let has_children = files_snapshot
+                    .keys()
+                    .any(|name| name.strip_prefix(&prefix).is_some())
+                    || directories
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .contains(path.trim_end_matches('/'));
+                let mut entries = if has_children {
+                    vec![dav_entry(&path, true, 0, None)]
                 } else {
-                    let has_children = files_snapshot
-                        .keys()
-                        .any(|name| name.strip_prefix(&prefix).is_some())
-                        || directories
-                            .lock()
-                            .unwrap_or_else(|error| error.into_inner())
-                            .contains(path.trim_end_matches('/'));
-                    let mut entries = if has_children {
-                        vec![dav_entry(&path, true, 0)]
-                    } else {
-                        Vec::new()
-                    };
-                    let mut directories = BTreeSet::new();
-                    for (name, bytes) in files_snapshot.iter() {
-                        let Some(remainder) = name.strip_prefix(&prefix) else {
-                            continue;
-                        };
-                        if let Some((child, _)) = remainder.split_once('/') {
-                            directories.insert(child.to_owned());
-                        } else {
-                            entries.push(dav_entry(
-                                &format!("/dav/library/{prefix}{remainder}"),
-                                false,
-                                bytes.len(),
-                            ));
-                        }
-                    }
-                    entries.extend(directories.into_iter().map(|child| {
-                        dav_entry(&format!("/dav/library/{prefix}{child}/"), true, 0)
-                    }));
-                    entries
+                    Vec::new()
                 };
+                let mut directories = BTreeSet::new();
+                for (name, bytes) in files_snapshot.iter() {
+                    let Some(remainder) = name.strip_prefix(&prefix) else {
+                        continue;
+                    };
+                    if let Some((child, _)) = remainder.split_once('/') {
+                        directories.insert(child.to_owned());
+                    } else {
+                        entries.push(dav_entry(
+                            &format!("/dav/library/{prefix}{remainder}"),
+                            false,
+                            bytes.len(),
+                            Some(fixture_etag(bytes)),
+                        ));
+                    }
+                }
+                entries.extend(directories.into_iter().map(|child| {
+                    dav_entry(&format!("/dav/library/{prefix}{child}/"), true, 0, None)
+                }));
+                entries
+            };
             let xml = format!(
                 "<?xml version=\"1.0\"?><D:multistatus xmlns:D=\"DAV:\">{}</D:multistatus>",
                 entries.join("")
@@ -932,9 +939,10 @@ fn fixture_etag(bytes: &[u8]) -> String {
     format!("\"{}\"", blake3::hash(bytes).to_hex())
 }
 
-fn dav_entry(path: &str, directory: bool, size: usize) -> String {
+fn dav_entry(path: &str, directory: bool, size: usize, etag: Option<String>) -> String {
     let resource = if directory { "<D:collection/>" } else { "" };
+    let etag = etag.map_or_else(String::new, |tag| format!("<D:getetag>{tag}</D:getetag>"));
     format!(
-        "<D:response><D:href>{path}</D:href><D:propstat><D:prop><D:resourcetype>{resource}</D:resourcetype><D:getcontentlength>{size}</D:getcontentlength><D:getlastmodified>Wed, 01 Jan 2025 00:00:00 GMT</D:getlastmodified></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>"
+        "<D:response><D:href>{path}</D:href><D:propstat><D:prop><D:resourcetype>{resource}</D:resourcetype><D:getcontentlength>{size}</D:getcontentlength><D:getlastmodified>Wed, 01 Jan 2025 00:00:00 GMT</D:getlastmodified>{etag}</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>"
     )
 }
