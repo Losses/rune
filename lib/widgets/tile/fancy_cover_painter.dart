@@ -6,13 +6,11 @@ import './fancy_cover_config.dart';
 class FancyCoverPainter extends CustomPainter {
   final List<String> texts;
   final List<FancyCoverConfig> configs;
-  final Size canvasSize;
   final Color color;
 
   FancyCoverPainter({
     required this.texts,
     required this.configs,
-    required this.canvasSize,
     required this.color,
   }) : assert(texts.length == configs.length);
 
@@ -29,8 +27,8 @@ class FancyCoverPainter extends CustomPainter {
     String text,
     FancyCoverConfig config,
   ) {
-    final scaledFontSize = max((canvasSize.width / 256) * config.fontSize, 1.0);
-    final scaledTextBoxWidth = config.textBoxWidth * canvasSize.width;
+    final scaledFontSize = max((size.width / 256) * config.fontSize, 1.0);
+    final scaledTextBoxWidth = config.textBoxWidth * size.width;
 
     final textStyle = TextStyle(
       color: color,

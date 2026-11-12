@@ -28,7 +28,6 @@ class FancyCoverImplementation extends StatelessWidget {
         painter: FancyCoverPainter(
           texts: texts,
           configs: configs,
-          canvasSize: Size.square(size),
           color: foreground,
         ),
       ),

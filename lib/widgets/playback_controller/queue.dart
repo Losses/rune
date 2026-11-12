@@ -120,8 +120,7 @@ class _PlaylistQueueItemState extends State<PlaylistQueueItem> {
                 ? Icon(Symbols.play_arrow, color: color, size: 24)
                 : const SizedBox(width: 24),
             const SizedBox(width: 4),
-            SizedBox(
-              width: 320,
+            Flexible(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
