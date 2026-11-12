@@ -370,6 +370,17 @@ jobs:
         with:
           length: 7
 
+      - name: Name the artifact
+        id: artifact
+        run: |
+          # A workflow_dispatch run can come from a branch name with "/", which upload-artifact rejects.
+          safe_ref=$(printf '%s' "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9._-' '-')
+          suffix=""
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then suffix="-$SHORT_SHA"; fi
+          echo "prefix=Rune-$safe_ref$suffix" >> "$GITHUB_OUTPUT"
+        env:
+          SHORT_SHA: ${{ steps.short-sha.outputs.sha }}
+
       - name: Add assets
         run: |
           mkdir -p build/linux/x64/release/bundle/assets
@@ -380,7 +391,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           path: build/linux/x64/release/bundle/
-          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-linux
+          name: ${{ steps.artifact.outputs.prefix }}-linux
 
       - name: Build Zip for Release
         uses: thedoctor0/zip-release@master
@@ -461,6 +472,17 @@ jobs:
         with:
           length: 7
 
+      - name: Name the artifact
+        id: artifact
+        run: |
+          # A workflow_dispatch run can come from a branch name with "/", which upload-artifact rejects.
+          safe_ref=$(printf '%s' "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9._-' '-')
+          suffix=""
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then suffix="-$SHORT_SHA"; fi
+          echo "prefix=Rune-$safe_ref$suffix" >> "$GITHUB_OUTPUT"
+        env:
+          SHORT_SHA: ${{ steps.short-sha.outputs.sha }}
+
       - name: Copy Steam Launch Scripts
         run: |
           chmod +x scripts/steam/*
@@ -470,7 +492,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           path: build/linux/x64/release/bundle/
-          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-steam-sniper
+          name: ${{ steps.artifact.outputs.prefix }}-steam-sniper
 
       - name: Build Zip for Release
         uses: thedoctor0/zip-release@master
@@ -525,6 +547,18 @@ jobs:
         with:
           length: 7
 
+      - name: Name the DMG and ZIP
+        id: artifact
+        run: |
+          # A workflow_dispatch run can come from a branch name with "/", which create-dmg and upload-artifact reject.
+          safe_ref=$(printf '%s' "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9._-' '-')
+          suffix=""
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then suffix="-$SHORT_SHA"; fi
+          echo "ref=$safe_ref" >> "$GITHUB_OUTPUT"
+          echo "prefix=Rune-$safe_ref$suffix" >> "$GITHUB_OUTPUT"
+        env:
+          SHORT_SHA: ${{ steps.short-sha.outputs.sha }}
+
       - name: Install certificates
         env:
           DEVELOPER_ID_APPLICATION_P12_BASE64_MAC: ${{ secrets.DEVELOPER_ID_APPLICATION_P12_BASE64_MAC }}
@@ -568,29 +602,29 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          REF_NAME: ${{ github.ref_name }}
+          REF_NAME: ${{ steps.artifact.outputs.ref }}
           SHA: ${{ steps.short-sha.outputs.sha }}
 
       - name: Rename DMG
         run: |
-          mv temp_macos/*.dmg "temp_macos/Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.dmg"
+          mv temp_macos/*.dmg "temp_macos/${{ steps.artifact.outputs.prefix }}-macOS.dmg"
 
       - name: Rename ZIP
         run: |
-          mv temp_macos/*.zip "temp_macos/Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.zip"
+          mv temp_macos/*.zip "temp_macos/${{ steps.artifact.outputs.prefix }}-macOS.zip"
 
       - name: Upload artifact macOS DMG
         uses: actions/upload-artifact@v4
         with:
-          path: temp_macos/Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.dmg
-          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.dmg
+          path: temp_macos/${{ steps.artifact.outputs.prefix }}-macOS.dmg
+          name: ${{ steps.artifact.outputs.prefix }}-macOS.dmg
 
       - name: Upload artifact macOS ZIP
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          path: temp_macos/Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.zip
-          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.zip
+          path: temp_macos/${{ steps.artifact.outputs.prefix }}-macOS.zip
+          name: ${{ steps.artifact.outputs.prefix }}-macOS.zip
 
       - name: Release DMG
         uses: ncipollo/release-action@v1
