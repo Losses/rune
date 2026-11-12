@@ -32,6 +32,21 @@ xcrun productbuild \
   /Applications \
   Rune.pkg
 
+if [ "$RUNE_APPSTORE_UPLOAD" != "true" ]; then
+  # A rehearsal: App Store Connect checks the package the way an upload would, and nothing is uploaded.
+  echo "Validate with App Store Connect (no upload): ----------------------------"
+
+  API_PRIVATE_KEYS_DIR=$RUNNER_TEMP \
+  xcrun altool \
+    --validate-app \
+    -f Rune.pkg \
+    --type osx \
+    --apiKey "$APP_STORE_CONNECT_KEYID" \
+    --apiIssuer "$APP_STORE_CONNECT_ISSUER" \
+    --verbose
+  exit 0
+fi
+
 echo "Upload to App Store Connect: ----------------------------"
 
 API_PRIVATE_KEYS_DIR=$RUNNER_TEMP \
