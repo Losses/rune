@@ -182,92 +182,97 @@ void main() {
     },
   );
 
-  testWidgets('new local folder asks for a mode inside the guide', (
-    tester,
-  ) async {
-    final modes = <LibraryInitializeMode?>[];
-    final opened = <String>[];
-    final scans = <String>[];
-    final registry = LibraryRegistryProvider(
-      loadRecords: () async => ListLibraryRecordsResponse(
-        records: const [],
-        invalidRecords: const [],
-        lastOpenRecord: null,
-      ),
-      registerLocal: (path, alias, mode) async {
-        expect(path, '/picked/music');
-        expect(alias, 'music');
-        modes.add(mode);
-        return mode == null
-            ? const RegisterLibraryResponse(
-                outcome: RegisterLibraryOutcomeNeedsInitializeMode(),
-              )
-            : RegisterLibraryResponse(
-                record: _record(),
-                outcome: const RegisterLibraryOutcomeRegistered(),
-              );
-      },
-      openRecord: (recordId, callId) async {
-        opened.add(recordId);
-        return _opened(recordId, callId);
-      },
-    );
-    final manager = LibraryManagerProvider(
-      sendScanRequest: (_) {},
-      navigate: (_) {},
-    );
-    addTearDown(registry.dispose);
-    addTearDown(manager.dispose);
-    await tester.pumpWidget(
-      _app(
-        registry: registry,
-        manager: manager,
-        home: Builder(
-          builder: (context) => Button(
-            onPressed: () => showAddLibraryGuide(
-              context,
-              dependencies: AddLibraryGuideDependencies(
-                pickLocalFolder: () async => '/picked/music',
-                testLocalLibrary: (_) async => (true, false, null),
-                registerLocal: (path, alias, mode) async {
-                  expect(path, '/picked/music');
-                  expect(alias, 'music');
-                  modes.add(mode);
-                  return RegisterLibraryResponse(
-                    record: _record(),
-                    outcome: const RegisterLibraryOutcomeRegistered(),
-                  );
-                },
-                openRecord: (recordId) async => opened.add(recordId),
-                scanLibrary: (recordId) async => scans.add(recordId),
+  for (final (choice, expectedMode) in [
+    ('Local hard drive', LibraryInitializeMode.portable),
+    ('In the cloud', LibraryInitializeMode.redirected),
+  ]) {
+    testWidgets('new local folder asks for a mode inside the guide: $choice', (
+      tester,
+    ) async {
+      final modes = <LibraryInitializeMode?>[];
+      final opened = <String>[];
+      final scans = <String>[];
+      final registry = LibraryRegistryProvider(
+        loadRecords: () async => ListLibraryRecordsResponse(
+          records: const [],
+          invalidRecords: const [],
+          lastOpenRecord: null,
+        ),
+        registerLocal: (path, alias, mode) async {
+          expect(path, '/picked/music');
+          expect(alias, 'music');
+          modes.add(mode);
+          return mode == null
+              ? const RegisterLibraryResponse(
+                  outcome: RegisterLibraryOutcomeNeedsInitializeMode(),
+                )
+              : RegisterLibraryResponse(
+                  record: _record(),
+                  outcome: const RegisterLibraryOutcomeRegistered(),
+                );
+        },
+        openRecord: (recordId, callId) async {
+          opened.add(recordId);
+          return _opened(recordId, callId);
+        },
+      );
+      final manager = LibraryManagerProvider(
+        sendScanRequest: (_) {},
+        navigate: (_) {},
+      );
+      addTearDown(registry.dispose);
+      addTearDown(manager.dispose);
+      await tester.pumpWidget(
+        _app(
+          registry: registry,
+          manager: manager,
+          home: Builder(
+            builder: (context) => Button(
+              onPressed: () => showAddLibraryGuide(
+                context,
+                dependencies: AddLibraryGuideDependencies(
+                  pickLocalFolder: () async => '/picked/music',
+                  testLocalLibrary: (_) async => (true, false, null),
+                  registerLocal: (path, alias, mode) async {
+                    expect(path, '/picked/music');
+                    expect(alias, 'music');
+                    modes.add(mode);
+                    return RegisterLibraryResponse(
+                      record: _record(),
+                      outcome: const RegisterLibraryOutcomeRegistered(),
+                    );
+                  },
+                  openRecord: (recordId) async => opened.add(recordId),
+                  scanLibrary: (recordId) async => scans.add(recordId),
+                ),
               ),
+              child: const Text('Open guide'),
             ),
-            child: const Text('Open guide'),
           ),
         ),
-      ),
-    );
-    await tester.tap(find.text('Open guide'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Local Folder'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Confirm'));
-    await tester.pumpAndSettle();
-    expect(find.text('Library Setup'), findsOneWidget);
-    expect(find.text('In the cloud'), findsOneWidget);
-    expect(
-      find.text('We will store your index in the configuration directory.'),
-      findsOneWidget,
-    );
-    // One tap chooses, as in the Library Setup dialog.
-    await tester.tap(find.text('Local hard drive'));
-    await tester.pumpAndSettle();
+      );
+      await tester.tap(find.text('Open guide'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Local Folder'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+      expect(find.text('Library Setup'), findsOneWidget);
+      expect(find.text('In the cloud'), findsOneWidget);
+      expect(
+        find.text('We will store your index in the configuration directory.'),
+        findsOneWidget,
+      );
+      // One tap chooses, as in the Library Setup dialog.
+      await tester.tap(find.text(choice));
+      await tester.pumpAndSettle();
 
-    expect(modes, [LibraryInitializeMode.portable]);
-    expect(opened, ['record-1']);
-    expect(scans, hasLength(1));
-    expect(scans, ['record-1']);
-  });
+      expect(modes, [expectedMode]);
+      expect(opened, ['record-1']);
+      expect(scans, hasLength(1));
+      expect(scans, ['record-1']);
+    });
+  }
 
   testWidgets('initialized local folder skips the mode question', (
     tester,
@@ -815,10 +820,7 @@ void main() {
       );
       await tester.tap(find.widgetWithText(Button, 'Confirm'));
       await tester.pumpAndSettle();
-      expect(
-        find.text('Where should Rune store your index?'),
-        findsOneWidget,
-      );
+      expect(find.text('Where should Rune store your index?'), findsOneWidget);
       await tester.tap(find.text('On this device'));
       await tester.pumpAndSettle();
       expect(
