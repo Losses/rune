@@ -4,11 +4,11 @@ This specification describes Rune's business data, application integration and m
 
 ## Source rows and identities
 
-Every replicated business row owns a stable UUID. The source tables keep it in a column named `hlc_uuid`; the name is historical, and the value is a plain random UUID, not derived from a clock. Reuse a row's valid source UUID unless a family specifies a deterministic identity correction; extend the source table when that column is missing. Corrections preserve local row IDs and foreign keys and reject ambiguous or already-published incompatible data before mutation. Integer primary keys remain local and are translated through the referenced source row. A content hash identifies bytes; a source UUID identifies a business row. Identical files can have distinct UUIDs, each with independent liked state and device counts.
+Every replicated business row owns a stable source UUID. Reuse a row's valid source UUID unless a family specifies a deterministic identity correction; extend the source table when that column is missing. Corrections preserve local row IDs and foreign keys and reject ambiguous or already-published incompatible data before mutation. Integer primary keys remain local and are translated through the referenced source row. A content hash identifies bytes; a source UUID identifies a business row. Identical files can have distinct UUIDs, each with independent liked state and device counts.
 
 `media_files` represents both local and remote files:
 
-- The source UUID (`hlc_uuid`) identifies the file record across devices.
+- The source UUID (`source_uuid`) identifies the file record across devices.
 - `local_available` says whether this device has the current verified bytes.
 - `directory` and `file_name` locate bytes only when `local_available` is true. A remote-only row uses its content identity for remote access.
 - `content_hash` and `content_size` identify the expected BLAKE3 content and byte length. The existing `file_hash` stores a separate CRC.
@@ -16,7 +16,7 @@ Every replicated business row owns a stable UUID. The source tables keep it in a
 
 Receiving a file updates the existing UUID's row in place. Download attachment preserves both that UUID and its local integer ID. The file row directly stores its identity, expected content and local availability.
 
-`media_file_likes` stores the shared liked state. It has a unique `track_uuid`, its own stable source UUID (`hlc_uuid`), `liked` and `updated_at`. Its object UUID is the file UUID. Missing state reads as false; an explicit unlike stores false and uses the normal versioned assignment. Playback operations update device statistics; liked state changes through `set_liked`.
+`media_file_likes` stores the shared liked state. It has a unique `track_uuid`, its own stable source UUID (`source_uuid`), `liked` and `updated_at`. Its object UUID is the file UUID. Missing state reads as false; an explicit unlike stores false and uses the normal versioned assignment. Playback operations update device statistics; liked state changes through `set_liked`.
 
 `media_file_stats` has one row per `(track_uuid, device_id)`, containing skipped and completed-play counts and update metadata. Its UUID is UUIDv5 using the file UUID as namespace and the device UUID's 16 bytes as name. Liked state belongs to `media_file_likes`. A device increments only its own row. A received assignment replaces its owner's accepted absolute values, making replay idempotent. Queries sum device rows for display and filtering; each stored row remains its owner's contribution.
 

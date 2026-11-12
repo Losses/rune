@@ -361,7 +361,7 @@ async fn sqlite_scenario(shape: usize, seed: u64) -> Result<()> {
     let mut local_ids = BTreeSet::new();
     for local in &libraries {
         let track = media_files::Entity::find()
-            .filter(media_files::Column::HlcUuid.eq(id(88).to_string()))
+            .filter(media_files::Column::SourceUuid.eq(id(88).to_string()))
             .one(&local.db)
             .await?
             .context("track missing")?;
@@ -384,7 +384,7 @@ async fn sqlite_scenario(shape: usize, seed: u64) -> Result<()> {
             .await?;
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].track_uuid, entries[1].track_uuid);
-        assert_ne!(entries[0].hlc_uuid, entries[1].hlc_uuid);
+        assert_ne!(entries[0].source_uuid, entries[1].source_uuid);
         let album = media_file_albums::Entity::find()
             .one(&local.db)
             .await?

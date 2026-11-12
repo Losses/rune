@@ -36,7 +36,7 @@ async fn invalidate(db: &DatabaseConnection, row: &media_files::Model) -> Result
     let result = media_files::Entity::update_many()
         .col_expr(media_files::Column::LocalAvailable, Expr::value(false))
         .filter(media_files::Column::Id.eq(row.id))
-        .filter(media_files::Column::HlcUuid.eq(&row.hlc_uuid))
+        .filter(media_files::Column::SourceUuid.eq(&row.source_uuid))
         .filter(media_files::Column::LocalAvailable.eq(true))
         .filter(media_files::Column::Directory.eq(&row.directory))
         .filter(media_files::Column::FileName.eq(&row.file_name))
@@ -107,7 +107,10 @@ impl ManagedAudioVerifier {
                     })
                 }
                 Err(error) => {
-                    log::warn!("Managed audio {} is unavailable: {error:#}", row.hlc_uuid);
+                    log::warn!(
+                        "Managed audio {} is unavailable: {error:#}",
+                        row.source_uuid
+                    );
                     result.invalidated = invalidate(db, &row).await?;
                     return Ok(result);
                 }
@@ -140,7 +143,7 @@ impl ManagedAudioVerifier {
                 Err(error) => {
                     log::warn!(
                         "Managed audio {} read failed: {error}",
-                        pending.row.hlc_uuid
+                        pending.row.source_uuid
                     );
                     Some(false)
                 }

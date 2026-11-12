@@ -240,7 +240,7 @@ impl Signal for AddItemToPlaylistRequest {
         Ok(Some(AddItemToPlaylistResponse {
             call_id: None,
             success: true,
-            occurrence_id: entry.hlc_uuid,
+            occurrence_id: entry.source_uuid,
         }))
     }
 }

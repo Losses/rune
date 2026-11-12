@@ -80,7 +80,7 @@ pub async fn has_fingerprint(main_db: &DatabaseConnection, file_id: i32) -> Resu
         return Ok(false);
     };
     Ok(media_file_fingerprint::Entity::find()
-        .filter(media_file_fingerprint::Column::TrackUuid.eq(file.hlc_uuid))
+        .filter(media_file_fingerprint::Column::TrackUuid.eq(file.source_uuid))
         .exists(main_db)
         .await?)
 }
@@ -352,7 +352,7 @@ where
             eligible.push((file, bytes_to_u32s(row.fingerprint)?));
         }
     }
-    eligible.sort_by_key(|(file, _)| file.hlc_uuid.clone());
+    eligible.sort_by_key(|(file, _)| file.source_uuid.clone());
     let total = eligible
         .len()
         .saturating_mul(eligible.len().saturating_sub(1))
@@ -421,14 +421,14 @@ where
     let mut verified = Vec::new();
     for row in rows {
         let Some(first) = MediaFiles::find()
-            .filter(media_files::Column::HlcUuid.eq(row.first_track_uuid.clone()))
+            .filter(media_files::Column::SourceUuid.eq(row.first_track_uuid.clone()))
             .one(db)
             .await?
         else {
             continue;
         };
         let Some(second) = MediaFiles::find()
-            .filter(media_files::Column::HlcUuid.eq(row.second_track_uuid.clone()))
+            .filter(media_files::Column::SourceUuid.eq(row.second_track_uuid.clone()))
             .one(db)
             .await?
         else {
@@ -462,7 +462,7 @@ where
                 continue;
             };
             if fingerprint_status(&fingerprint, &file) == SourceStatus::Verified {
-                zero_score_files.push(file.hlc_uuid);
+                zero_score_files.push(file.source_uuid);
             }
         }
     }
@@ -471,12 +471,12 @@ where
     let mut marked = 0;
     for (index, group) in groups.into_iter().enumerate() {
         let files = MediaFiles::find()
-            .filter(media_files::Column::HlcUuid.is_in(group))
+            .filter(media_files::Column::SourceUuid.is_in(group))
             .all(db)
             .await?;
         let mut identities = HashSet::new();
         for file in &files {
-            let id = Uuid::parse_str(&file.hlc_uuid)?;
+            let id = Uuid::parse_str(&file.source_uuid)?;
             anyhow::ensure!(
                 !id.is_nil() && identities.insert(id),
                 "ambiguous source identities in duplicate group"
@@ -487,7 +487,7 @@ where
             .max_by(|a, b| {
                 a.sample_rate
                     .cmp(&b.sample_rate)
-                    .then_with(|| b.hlc_uuid.cmp(&a.hlc_uuid))
+                    .then_with(|| b.source_uuid.cmp(&a.source_uuid))
             })
             .context("empty duplicate group")?
             .id;
@@ -536,7 +536,7 @@ where
         }
         for row in &rows {
             let file_id = Uuid::parse_str(&row.track_uuid)?;
-            let id = Uuid::parse_str(&row.hlc_uuid)?;
+            let id = Uuid::parse_str(&row.source_uuid)?;
             anyhow::ensure!(
                 id == migration::catalog_identity::fingerprint(
                     file_id,

@@ -62,7 +62,7 @@ async fn repeated_tags_reorder_without_replacing_source_rows_or_local_file_state
         .exec(&db)
         .await?;
     let previous = media_metadata::Entity::find()
-        .order_by_asc(media_metadata::Column::HlcUuid)
+        .order_by_asc(media_metadata::Column::SourceUuid)
         .all(&db)
         .await?;
     let mut swapped = vec![second, first, custom];
@@ -73,7 +73,7 @@ async fn repeated_tags_reorder_without_replacing_source_rows_or_local_file_state
     RuneModel::project(&db, &key, Some(&payload)).await?;
     assert_eq!(RuneModel::encode_on(&db, &key).await?, Some(payload));
     let after = media_metadata::Entity::find()
-        .order_by_asc(media_metadata::Column::HlcUuid)
+        .order_by_asc(media_metadata::Column::SourceUuid)
         .all(&db)
         .await?;
     assert_eq!(

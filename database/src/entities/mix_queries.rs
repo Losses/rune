@@ -2,6 +2,8 @@
 
 use sea_orm::entity::prelude::*;
 
+use super::mixes::{Column as MixesColumn, Entity as MixesEntity};
+
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
 #[sea_orm(table_name = "mix_queries")]
 pub struct Model {
@@ -16,15 +18,15 @@ pub struct Model {
     #[sea_orm(column_type = "Text")]
     pub parameter: String,
     pub group: i32,
-    pub hlc_uuid: String,
+    pub source_uuid: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::mixes::Entity",
+        belongs_to = "MixesEntity",
         from = "Column::MixUuid",
-        to = "super::mixes::Column::HlcUuid"
+        to = "MixesColumn::SourceUuid"
     )]
     Mixes,
 }

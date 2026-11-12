@@ -187,7 +187,7 @@ async fn author_mix(
         store,
         ObjectKey {
             collection: Collection::Mixes,
-            id: mix.hlc_uuid.parse()?,
+            id: mix.source_uuid.parse()?,
         },
     )
     .await
@@ -212,13 +212,13 @@ pub async fn create_mix(
         scriptlet_mode: Set(scriptlet_mode),
         mode: Set(Some(mode)),
         locked: Set(locked),
-        hlc_uuid: Set(Uuid::new_v4().to_string()),
+        source_uuid: Set(Uuid::new_v4().to_string()),
         ..Default::default()
     }
     .insert(&tx)
     .await?;
     add_term(&tx, CollectionQueryType::Mix, row.id, &row.name).await?;
-    replace_queries_on(&tx, &row.hlc_uuid, queries, 0).await?;
+    replace_queries_on(&tx, &row.source_uuid, queries, 0).await?;
     author_mix(&tx, store, &row).await?;
     tx.commit().await?;
     Ok(row)
@@ -271,7 +271,7 @@ pub async fn update_mix(
     }
     let row = model.update(&tx).await?;
     if let Some(queries) = queries {
-        replace_queries_on(&tx, &row.hlc_uuid, queries, 0).await?;
+        replace_queries_on(&tx, &row.source_uuid, queries, 0).await?;
     }
     add_term(&tx, CollectionQueryType::Mix, row.id, &row.name).await?;
     author_mix(&tx, store, &row).await?;
@@ -288,7 +288,7 @@ pub async fn remove_mix(db: &DatabaseConnection, store: &SeaOrmSyncStore, id: i3
         .ok_or(ExpectedError::NotFound { what: "mix" })?;
     let key = ObjectKey {
         collection: Collection::Mixes,
-        id: row.hlc_uuid.parse()?,
+        id: row.source_uuid.parse()?,
     };
     remove_term(&tx, CollectionQueryType::Mix, id).await?;
     apply(&tx, &key, None).await?;
@@ -301,7 +301,7 @@ pub async fn replace_mix_queries(
     db: &DatabaseConnection,
     store: &SeaOrmSyncStore,
     mix_id: i32,
-    mix_hlc_uuid: &str,
+    mix_source_uuid: &str,
     queries: Vec<(String, String)>,
     group: Option<i32>,
 ) -> Result<()> {
@@ -311,8 +311,8 @@ pub async fn replace_mix_queries(
         .one(&tx)
         .await?
         .ok_or(ExpectedError::NotFound { what: "mix" })?;
-    anyhow::ensure!(mix.hlc_uuid == mix_hlc_uuid, "mix identity changed");
-    replace_queries_on(&tx, &mix.hlc_uuid, queries, group.unwrap_or_default()).await?;
+    anyhow::ensure!(mix.source_uuid == mix_source_uuid, "mix identity changed");
+    replace_queries_on(&tx, &mix.source_uuid, queries, group.unwrap_or_default()).await?;
     author_mix(&tx, store, &mix).await?;
     tx.commit().await?;
     Ok(())
@@ -325,7 +325,7 @@ pub async fn get_mix_queries_by_mix_id(
         .one(db)
         .await?
         .ok_or(ExpectedError::NotFound { what: "mix" })?;
-    query_views_on(db, &mix.hlc_uuid).await
+    query_views_on(db, &mix.source_uuid).await
 }
 pub async fn executable_mix_queries(
     db: &DatabaseConnection,
@@ -335,7 +335,7 @@ pub async fn executable_mix_queries(
         .one(db)
         .await?
         .ok_or(ExpectedError::NotFound { what: "mix" })?;
-    executable_queries_on(db, &mix.hlc_uuid).await
+    executable_queries_on(db, &mix.source_uuid).await
 }
 pub async fn remove_mix_query(
     db: &DatabaseConnection,
@@ -351,13 +351,13 @@ pub async fn remove_mix_query(
         .await?
         .ok_or(ExpectedError::NotFound { what: "mix clause" })?;
     let mix = mixes::Entity::find()
-        .filter(mixes::Column::HlcUuid.eq(&row.mix_uuid))
+        .filter(mixes::Column::SourceUuid.eq(&row.mix_uuid))
         .one(&tx)
         .await?
         .ok_or(ExpectedError::NotFound { what: "mix" })?;
     let owner = [row.mix_uuid.into()];
     let mut items = Clauses::read_on(&tx, &owner, Clauses::read_ceiling()).await?;
-    items.retain(|item| item.id.to_string() != row.hlc_uuid);
+    items.retain(|item| item.id.to_string() != row.source_uuid);
     for (index, item) in items.iter_mut().enumerate() {
         item.position = index as i32;
     }
@@ -430,7 +430,7 @@ pub async fn add_item_to_mix(
         .one(&tx)
         .await?
         .ok_or(ExpectedError::NotFound { what: "mix" })?;
-    let row = add_query_on(&tx, &mix.hlc_uuid, operator, parameter).await?;
+    let row = add_query_on(&tx, &mix.source_uuid, operator, parameter).await?;
     author_mix(&tx, store, &mix).await?;
     tx.commit().await?;
     Ok(row)
@@ -457,7 +457,7 @@ pub async fn initialize_mix_queries_before_replication(db: &DatabaseConnection) 
         .await?;
     for mix in all {
         if mix_queries::Entity::find()
-            .filter(mix_queries::Column::MixUuid.eq(&mix.hlc_uuid))
+            .filter(mix_queries::Column::MixUuid.eq(&mix.source_uuid))
             .count(&tx)
             .await?
             == 0
@@ -471,7 +471,7 @@ pub async fn initialize_mix_queries_before_replication(db: &DatabaseConnection) 
                 queries.push(("pipe::limit".into(), "50".into()));
                 queries.push(("pipe::recommend".into(), n.into()));
             }
-            replace_queries_on(&tx, &mix.hlc_uuid, queries, 0).await?;
+            replace_queries_on(&tx, &mix.source_uuid, queries, 0).await?;
         }
     }
     tx.commit().await?;
@@ -578,7 +578,7 @@ macro_rules! add_subquery_filter {
         if !$ids.is_empty() {
             let parents = $parent::Entity::find()
                 .select_only()
-                .column($parent::Column::HlcUuid)
+                .column($parent::Column::SourceUuid)
                 .filter($parent::Column::Id.is_in($ids))
                 .into_query();
             let subquery = <$entity>::find()
@@ -588,7 +588,7 @@ macro_rules! add_subquery_filter {
                 .into_query();
 
             $or_condition = $or_condition.add(
-                Expr::col((media_files::Entity, media_files::Column::HlcUuid))
+                Expr::col((media_files::Entity, media_files::Column::SourceUuid))
                     .in_subquery(subquery),
             );
         }
@@ -604,7 +604,7 @@ fn statistics_sum(column: media_file_stats::Column) -> SimpleExpr {
                 media_file_stats::Entity,
                 media_file_stats::Column::TrackUuid,
             ))
-            .equals((media_files::Entity, media_files::Column::HlcUuid)),
+            .equals((media_files::Entity, media_files::Column::SourceUuid)),
         )
         .to_owned();
     Func::coalesce([Expr::from(sum), Expr::val(0)]).into()
@@ -731,7 +731,7 @@ pub async fn query_mix_media_files(
                 media_file_fingerprint::Entity,
                 media_file_fingerprint::Column::TrackUuid,
             ))
-            .equals((media_files::Entity, media_files::Column::HlcUuid)),
+            .equals((media_files::Entity, media_files::Column::SourceUuid)),
         )
         .and_where(
             Expr::col((
@@ -905,7 +905,7 @@ pub async fn query_mix_media_files(
                         media_file_likes::Entity,
                         media_file_likes::Column::TrackUuid,
                     ))
-                    .equals((media_files::Entity, media_files::Column::HlcUuid)),
+                    .equals((media_files::Entity, media_files::Column::SourceUuid)),
                 )
                 .and_where(
                     Expr::col((media_file_likes::Entity, media_file_likes::Column::Liked)).eq(true),
@@ -968,7 +968,7 @@ pub async fn query_mix_media_files(
                             .in_subquery(
                                 playlists::Entity::find()
                                     .select_only()
-                                    .column(playlists::Column::HlcUuid)
+                                    .column(playlists::Column::SourceUuid)
                                     .filter(playlists::Column::Id.eq(only_playlist))
                                     .into_query(),
                             )
@@ -1188,7 +1188,7 @@ pub async fn query_views_on<C: sea_orm::ConnectionTrait>(
             (row.parameter, true)
         };
         result.push(MixQueryView {
-            clause_id: row.hlc_uuid.parse()?,
+            clause_id: row.source_uuid.parse()?,
             operator: row.operator,
             parameter,
             target_uuid: target,
@@ -1286,7 +1286,7 @@ async fn replace_queries_on(
                 mix_queries::Column::LocalDirectory,
                 Expr::value(Some(directory)),
             )
-            .filter(mix_queries::Column::HlcUuid.eq(id.to_string()))
+            .filter(mix_queries::Column::SourceUuid.eq(id.to_string()))
             .filter(mix_queries::Column::MixUuid.eq(mix_uuid))
             .exec(tx)
             .await?;
@@ -1368,7 +1368,7 @@ async fn add_query_on(
                     mix_queries::Column::LocalDirectory,
                     Expr::value(Some(parameter)),
                 )
-                .filter(mix_queries::Column::HlcUuid.eq(id.to_string()))
+                .filter(mix_queries::Column::SourceUuid.eq(id.to_string()))
                 .filter(mix_queries::Column::MixUuid.eq(mix_uuid))
                 .exec(tx)
                 .await?;
@@ -1376,7 +1376,7 @@ async fn add_query_on(
         id
     };
     mix_queries::Entity::find()
-        .filter(mix_queries::Column::HlcUuid.eq(id.to_string()))
+        .filter(mix_queries::Column::SourceUuid.eq(id.to_string()))
         .filter(mix_queries::Column::MixUuid.eq(mix_uuid))
         .one(tx)
         .await?

@@ -1433,7 +1433,7 @@ async fn attach_test_cover(f: &Fixture, media_file_id: i32, bytes: &[u8]) -> Res
     let hash = blake3::hash(bytes).to_hex().to_string();
     let cover_uuid = artwork(&hash).to_string();
     if media_cover_art::Entity::find()
-        .filter(media_cover_art::Column::HlcUuid.eq(&cover_uuid))
+        .filter(media_cover_art::Column::SourceUuid.eq(&cover_uuid))
         .one(&*library.main_db)
         .await?
         .is_none()
@@ -1446,7 +1446,7 @@ async fn attach_test_cover(f: &Fixture, media_file_id: i32, bytes: &[u8]) -> Res
             content_hash: Set(Some(hash)),
             content_size: Set(Some(i64::try_from(bytes.len())?)),
             local_available: Set(true),
-            hlc_uuid: Set(cover_uuid.clone()),
+            source_uuid: Set(cover_uuid.clone()),
         })
         .exec(&*library.main_db)
         .await?;
@@ -3317,7 +3317,7 @@ async fn set_session_title(f: &Fixture, id: i32, title: &str) -> Result<()> {
         position: Set(0),
         meta_key: Set("track_title".into()),
         meta_value: Set(title.into()),
-        hlc_uuid: Set(Uuid::new_v4().to_string()),
+        source_uuid: Set(Uuid::new_v4().to_string()),
         ..Default::default()
     })
     .exec(&*f.global_params.test_library().main_db)
@@ -4178,7 +4178,7 @@ async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
             .await?
             .context("host fixture track")?;
         c_ids.push(row.id);
-        c_track_uuids.push(row.hlc_uuid);
+        c_track_uuids.push(row.source_uuid);
     }
     let b_local_id = session_audio(&b, "revoke-b-local.ogg").await?;
 
@@ -4196,7 +4196,7 @@ async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
         for track_uuid in &c_track_uuids {
             ids.push(
                 media_files::Entity::find()
-                    .filter(Column::HlcUuid.eq(track_uuid))
+                    .filter(Column::SourceUuid.eq(track_uuid))
                     .one(&*b_replica.global_params.test_library().main_db)
                     .await?
                     .context("replicated host track")?
@@ -9087,7 +9087,7 @@ async fn assert_opendal_library_scan(s3: bool) -> Result<()> {
             call_id: None,
             items: vec![PlayingItemRef::LibraryTrack {
                 library_id: library_id.to_string(),
-                track: tracks[0].hlc_uuid.clone(),
+                track: tracks[0].source_uuid.clone(),
             }],
             start_index: Some(0),
             mode: PlaylistOperateMode::Replace,

@@ -25,7 +25,7 @@ pub(super) async fn reset(db: &DatabaseConnection, actor: Uuid) -> Result<()> {
     store.lock(&tx).await?;
     let local_tracks: BTreeSet<Uuid> = media_files::Entity::find()
         .select_only()
-        .column(media_files::Column::HlcUuid)
+        .column(media_files::Column::SourceUuid)
         .filter(media_files::Column::LocalAvailable.eq(true))
         .into_tuple::<String>()
         .all(&tx)
@@ -35,10 +35,10 @@ pub(super) async fn reset(db: &DatabaseConnection, actor: Uuid) -> Result<()> {
         .collect::<Result<_, _>>()?;
     let local_art: BTreeSet<Uuid> = media_cover_art::Entity::find()
         .select_only()
-        .column(media_cover_art::Column::HlcUuid)
+        .column(media_cover_art::Column::SourceUuid)
         .filter(media_cover_art::Column::LocalAvailable.eq(true))
-        .filter(media_cover_art::Column::HlcUuid.ne(""))
-        .filter(media_cover_art::Column::HlcUuid.ne(Uuid::nil().to_string()))
+        .filter(media_cover_art::Column::SourceUuid.ne(""))
+        .filter(media_cover_art::Column::SourceUuid.ne(Uuid::nil().to_string()))
         .into_tuple::<String>()
         .all(&tx)
         .await?
@@ -132,7 +132,7 @@ pub(super) async fn reset(db: &DatabaseConnection, actor: Uuid) -> Result<()> {
             if key.collection == Collection::PlaybackStatistics {
                 // This is a local namespace discard, not a replicated owner removal.
                 media_file_stats::Entity::delete_many()
-                    .filter(media_file_stats::Column::HlcUuid.eq(key.id.to_string()))
+                    .filter(media_file_stats::Column::SourceUuid.eq(key.id.to_string()))
                     .exec(&tx)
                     .await?;
             } else {

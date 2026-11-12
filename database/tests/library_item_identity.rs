@@ -18,7 +18,7 @@ async fn insert_file(db: &sea_orm::DatabaseConnection, file_uuid: Uuid) -> Resul
         last_modified: Set(String::new()),
         sample_rate: Set(1),
         duration: Set(1.into()),
-        hlc_uuid: Set(file_uuid.to_string()),
+        source_uuid: Set(file_uuid.to_string()),
         ..Default::default()
     })
     .exec(db)

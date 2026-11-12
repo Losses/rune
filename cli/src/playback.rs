@@ -59,14 +59,14 @@ async fn play_files(
         files
             .into_iter()
             .filter_map(|file| {
-                if let Err(error) = Uuid::parse_str(&file.hlc_uuid) {
-                    error!("Invalid file UUID {}: {error}", file.hlc_uuid);
+                if let Err(error) = Uuid::parse_str(&file.source_uuid) {
+                    error!("Invalid file UUID {}: {error}", file.source_uuid);
                     return None;
                 }
                 Some((
                     PlayingItem::LibraryTrack {
                         library_id: library_uuid,
-                        track: file.hlc_uuid,
+                        track: file.source_uuid,
                     },
                     canonicalize(canonicalized_path.join(file.directory).join(file.file_name))
                         .unwrap(),

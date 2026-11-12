@@ -3,7 +3,14 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::media_cover_art;
+use super::media_cover_art::{Column as MediaCoverArtColumn, Entity as MediaCoverArtEntity};
+
+use super::media_analysis::Entity as MediaAnalysisEntity;
+use super::media_file_albums::Entity as MediaFileAlbumsEntity;
+use super::media_file_artists::Entity as MediaFileArtistsEntity;
+use super::media_file_playlists::Entity as MediaFilePlaylistsEntity;
+use super::media_file_stats::Entity as MediaFileStatsEntity;
+use super::media_metadata::Entity as MediaMetadataEntity;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
 #[sea_orm(table_name = "media_files")]
@@ -28,28 +35,28 @@ pub struct Model {
     pub local_available: bool,
     pub content_hash: Option<String>,
     pub content_size: Option<i64>,
-    pub hlc_uuid: String,
+    pub source_uuid: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_many = "super::media_analysis::Entity")]
+    #[sea_orm(has_many = "MediaAnalysisEntity")]
     MediaAnalysis,
     #[sea_orm(
-        belongs_to = "super::media_cover_art::Entity",
+        belongs_to = "MediaCoverArtEntity",
         from = "Column::CoverArtUuid",
-        to = "media_cover_art::Column::HlcUuid"
+        to = "MediaCoverArtColumn::SourceUuid"
     )]
     MediaCoverArt,
-    #[sea_orm(has_one = "super::media_file_albums::Entity")]
+    #[sea_orm(has_one = "MediaFileAlbumsEntity")]
     MediaFileAlbums,
-    #[sea_orm(has_many = "super::media_file_artists::Entity")]
+    #[sea_orm(has_many = "MediaFileArtistsEntity")]
     MediaFileArtists,
-    #[sea_orm(has_many = "super::media_file_playlists::Entity")]
+    #[sea_orm(has_many = "MediaFilePlaylistsEntity")]
     MediaFilePlaylists,
-    #[sea_orm(has_many = "super::media_file_stats::Entity")]
+    #[sea_orm(has_many = "MediaFileStatsEntity")]
     MediaFileStats,
-    #[sea_orm(has_many = "super::media_metadata::Entity")]
+    #[sea_orm(has_many = "MediaMetadataEntity")]
     MediaMetadata,
 }
 

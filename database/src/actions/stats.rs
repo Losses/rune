@@ -20,15 +20,15 @@ async fn assign_liked<C: ConnectionTrait>(
         .await?
         .ok_or(ExpectedError::NotFound { what: "media file" })?;
     let existing = likes::Entity::find()
-        .filter(likes::Column::TrackUuid.eq(&file.hlc_uuid))
+        .filter(likes::Column::TrackUuid.eq(&file.source_uuid))
         .one(db)
         .await?;
     let is_existing = existing.is_some();
     let mut row = existing
         .map(Into::into)
         .unwrap_or_else(|| likes::ActiveModel {
-            track_uuid: Set(file.hlc_uuid.clone()),
-            hlc_uuid: Set(file.hlc_uuid),
+            track_uuid: Set(file.source_uuid.clone()),
+            source_uuid: Set(file.source_uuid),
             ..Default::default()
         });
     row.liked = Set(liked);
@@ -63,9 +63,9 @@ pub async fn set_liked(
     let Some(file) = media_files::Entity::find_by_id(file_id).one(&tx).await? else {
         return Ok(None);
     };
-    let track_id = Uuid::parse_str(&file.hlc_uuid)?;
+    let track_id = Uuid::parse_str(&file.source_uuid)?;
     if let Some(existing) = likes::Entity::find()
-        .filter(likes::Column::TrackUuid.eq(&file.hlc_uuid))
+        .filter(likes::Column::TrackUuid.eq(&file.source_uuid))
         .one(&tx)
         .await?
         && existing.liked == liked
@@ -110,7 +110,7 @@ async fn author_increment(
         .one(&tx)
         .await?
         .ok_or(ExpectedError::NotFound { what: "media file" })?;
-    let track_id = Uuid::parse_str(&file.hlc_uuid)?;
+    let track_id = Uuid::parse_str(&file.source_uuid)?;
     let key = ObjectKey {
         collection: Collection::PlaybackStatistics,
         id: Uuid::new_v5(&track_id, device_id.as_bytes()),
@@ -132,7 +132,7 @@ async fn increment_statistics<C: ConnectionTrait>(
         .one(db)
         .await?
         .ok_or(ExpectedError::NotFound { what: "media file" })?;
-    let file_uuid = Uuid::parse_str(&file.hlc_uuid)?;
+    let file_uuid = Uuid::parse_str(&file.source_uuid)?;
     let device = device_id.to_string();
     let now = Utc::now().to_rfc3339();
     let mut conflict = OnConflict::columns([stats::Column::TrackUuid, stats::Column::DeviceId]);
@@ -149,9 +149,9 @@ async fn increment_statistics<C: ConnectionTrait>(
         );
     }
     stats::Entity::insert(stats::ActiveModel {
-        track_uuid: Set(file.hlc_uuid.clone()),
+        track_uuid: Set(file.source_uuid.clone()),
         device_id: Set(device.clone()),
-        hlc_uuid: Set(Uuid::new_v5(&file_uuid, device_id.as_bytes()).to_string()),
+        source_uuid: Set(Uuid::new_v5(&file_uuid, device_id.as_bytes()).to_string()),
         skipped: Set(i32::from(!played)),
         played_through: Set(i32::from(played)),
         updated_at: Set(now),
@@ -161,7 +161,7 @@ async fn increment_statistics<C: ConnectionTrait>(
     .exec_without_returning(db)
     .await?;
     stats::Entity::find()
-        .filter(stats::Column::TrackUuid.eq(&file.hlc_uuid))
+        .filter(stats::Column::TrackUuid.eq(&file.source_uuid))
         .filter(stats::Column::DeviceId.eq(device))
         .one(db)
         .await?

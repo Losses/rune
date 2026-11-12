@@ -57,7 +57,7 @@ async fn track_uuid(db: &sea_orm::DatabaseConnection, id: i32) -> Result<String>
         .one(db)
         .await?
         .unwrap()
-        .hlc_uuid)
+        .source_uuid)
 }
 async fn marker(db: &sea_orm::DatabaseConnection) -> Result<i32> {
     Ok(media_files::Entity::find()
@@ -70,7 +70,7 @@ async fn marker(db: &sea_orm::DatabaseConnection) -> Result<i32> {
 async fn entry_file(db: &sea_orm::DatabaseConnection) -> Result<i32> {
     let entry = media_file_playlists::Entity::find().one(db).await?.unwrap();
     Ok(media_files::Entity::find()
-        .filter(media_files::Column::HlcUuid.eq(entry.track_uuid))
+        .filter(media_files::Column::SourceUuid.eq(entry.track_uuid))
         .one(db)
         .await?
         .unwrap()
@@ -100,7 +100,7 @@ async fn parent(
                 id: Set(id),
                 name: Set(name.into()),
                 group: Set(group.into()),
-                hlc_uuid: Set(uuid.clone()),
+                source_uuid: Set(uuid.clone()),
             })
             .exec(db)
             .await?;
@@ -129,9 +129,9 @@ async fn member(
                 .one(db)
                 .await?
                 .unwrap()
-                .hlc_uuid;
+                .source_uuid;
             media_file_artists::Entity::insert(media_file_artists::ActiveModel {
-                hlc_uuid: Set(catalog_identity::membership(
+                source_uuid: Set(catalog_identity::membership(
                     track.parse()?,
                     ParentKind::Artist,
                     uuid.parse()?,
@@ -149,9 +149,9 @@ async fn member(
                 .one(db)
                 .await?
                 .unwrap()
-                .hlc_uuid;
+                .source_uuid;
             media_file_genres::Entity::insert(media_file_genres::ActiveModel {
-                hlc_uuid: Set(catalog_identity::membership(
+                source_uuid: Set(catalog_identity::membership(
                     track.parse()?,
                     ParentKind::Genre,
                     uuid.parse()?,
@@ -169,9 +169,9 @@ async fn member(
                 .one(db)
                 .await?
                 .unwrap()
-                .hlc_uuid;
+                .source_uuid;
             media_file_albums::Entity::insert(media_file_albums::ActiveModel {
-                hlc_uuid: Set(track.clone()),
+                source_uuid: Set(track.clone()),
                 track_uuid: Set(track),
                 album_uuid: Set(uuid),
                 track_number: Set(number),
@@ -187,7 +187,7 @@ async fn member(
 async fn title(db: &sea_orm::DatabaseConnection, id: i32, value: &str) -> Result<()> {
     media_metadata::Entity::insert(media_metadata::ActiveModel {
         file_id: Set(id),
-        hlc_uuid: Set(Uuid::new_v4().to_string()),
+        source_uuid: Set(Uuid::new_v4().to_string()),
         position: Set(0),
         meta_key: Set("track_title".into()),
         meta_value: Set(value.into()),
@@ -217,7 +217,7 @@ async fn business_actions_replicate_with_distinct_local_keys_and_deletions() -> 
     for (db, id) in [(&db1, 10), (&db2, 77)] {
         media_files::Entity::update_many()
             .col_expr(
-                media_files::Column::HlcUuid,
+                media_files::Column::SourceUuid,
                 Expr::value(track_id.to_string()),
             )
             .filter(media_files::Column::Id.eq(id))
@@ -424,7 +424,7 @@ async fn failed_business_projection_rolls_back_records_and_progress() -> Result<
     for (db, id) in [(&db1, 10), (&db2, 77)] {
         media_files::Entity::update_many()
             .col_expr(
-                media_files::Column::HlcUuid,
+                media_files::Column::SourceUuid,
                 Expr::value(track_id.to_string()),
             )
             .filter(media_files::Column::Id.eq(id))
@@ -539,7 +539,7 @@ async fn attaching_changed_content_keeps_playlist_and_identity() -> Result<()> {
         create_playlist(&db, &store.record_store(), "Changed".into(), "group".into()).await?;
     add_item_to_playlist(&db, &store.record_store(), list.id, 10, None).await?;
     let file = media_files::Entity::find_by_id(10).one(&db).await?.unwrap();
-    let track: Uuid = file.hlc_uuid.parse()?;
+    let track: Uuid = file.source_uuid.parse()?;
     let original = root.path().join("updated.ogg");
     std::fs::write(&original, b"new bytes")?;
     let blob = hash_file(&fs, &original)?;
@@ -590,7 +590,7 @@ async fn attaching_changed_content_keeps_playlist_and_identity() -> Result<()> {
             .one(&db)
             .await?
             .unwrap()
-            .hlc_uuid,
+            .source_uuid,
         track.to_string()
     );
     Ok(())
@@ -605,7 +605,10 @@ async fn changed_content_sync_preserves_track_identity_and_playlist() -> Result<
     let track = Uuid::new_v4();
     for (db, id) in [(&db1, 10), (&db2, 77)] {
         media_files::Entity::update_many()
-            .col_expr(media_files::Column::HlcUuid, Expr::value(track.to_string()))
+            .col_expr(
+                media_files::Column::SourceUuid,
+                Expr::value(track.to_string()),
+            )
             .filter(media_files::Column::Id.eq(id))
             .exec(db)
             .await?;
@@ -691,7 +694,7 @@ async fn attachment_keeps_player_references_across_scans() -> Result<()> {
     )
     .await?;
     let old = get_media_files(&db, 0, 10).await?.pop().unwrap();
-    let track: Uuid = old.hlc_uuid.parse()?;
+    let track: Uuid = old.source_uuid.parse()?;
 
     store.import_existing(node).await?;
     set_liked(&db, &store.record_store(), old.id, true).await?;
@@ -868,7 +871,10 @@ async fn remote_metadata_edits_project_onto_existing_audio_without_feedback() ->
     let track = Uuid::new_v4();
     for (db, id) in [(&db1, 10), (&db2, 77)] {
         media_files::Entity::update_many()
-            .col_expr(media_files::Column::HlcUuid, Expr::value(track.to_string()))
+            .col_expr(
+                media_files::Column::SourceUuid,
+                Expr::value(track.to_string()),
+            )
             .filter(media_files::Column::Id.eq(id))
             .exec(db)
             .await?;
@@ -887,8 +893,8 @@ async fn remote_metadata_edits_project_onto_existing_audio_without_feedback() ->
         let artist = artists::Entity::find_by_id(11).one(&tx).await?.unwrap();
         let link = media_file_artists::Entity::find().one(&tx).await?.unwrap();
         for (collection, id) in [
-            (Collection::Artists, artist.hlc_uuid),
-            (Collection::FileArtists, link.hlc_uuid),
+            (Collection::Artists, artist.source_uuid),
+            (Collection::FileArtists, link.source_uuid),
         ] {
             author_source_on(
                 &tx,
@@ -1026,7 +1032,10 @@ async fn saved_mix_uses_stable_references_across_local_ids() -> Result<()> {
     let track = Uuid::new_v4();
     for (db, id) in [(&db1, 10), (&db2, 77)] {
         media_files::Entity::update_many()
-            .col_expr(media_files::Column::HlcUuid, Expr::value(track.to_string()))
+            .col_expr(
+                media_files::Column::SourceUuid,
+                Expr::value(track.to_string()),
+            )
             .filter(media_files::Column::Id.eq(id))
             .exec(db)
             .await?;
@@ -1078,7 +1087,7 @@ async fn saved_mix_uses_stable_references_across_local_ids() -> Result<()> {
         &db1,
         &a.record_store(),
         mix.id,
-        &mix.hlc_uuid,
+        &mix.source_uuid,
         clauses,
         Some(3),
     )
@@ -1094,7 +1103,7 @@ async fn saved_mix_uses_stable_references_across_local_ids() -> Result<()> {
     let queries = get_mix_queries_by_mix_id(&db2, local).await?;
     assert_eq!(queries.len(), 6);
     let stored = mix_queries::Entity::find()
-        .filter(mix_queries::Column::MixUuid.eq(&mix.hlc_uuid))
+        .filter(mix_queries::Column::MixUuid.eq(&mix.source_uuid))
         .all(&db2)
         .await?;
     assert!(stored.iter().all(|q| q.group == 3));
@@ -1332,7 +1341,7 @@ async fn received_record_materializes_without_head_side_effects() -> Result<()> 
     support::exchange_scoped(&source, &peer(&target), scope.clone()).await?;
     assert!(
         media_files::Entity::find()
-            .filter(media_files::Column::HlcUuid.eq(track.to_string()))
+            .filter(media_files::Column::SourceUuid.eq(track.to_string()))
             .one(&db)
             .await?
             .is_some()
@@ -1365,7 +1374,7 @@ async fn catalog_track_removal_finishes_projection_once() -> Result<()> {
     support::exchange_scoped(&source, &peer(&target), scope.clone()).await?;
     assert!(
         media_files::Entity::find()
-            .filter(media_files::Column::HlcUuid.eq(track.to_string()))
+            .filter(media_files::Column::SourceUuid.eq(track.to_string()))
             .one(&db)
             .await?
             .is_none()
@@ -1547,7 +1556,7 @@ async fn availability_distinguishes_local_reference_missing_and_pending() -> Res
         )
         .await?;
     let remote = media_files::Entity::find()
-        .filter(media_files::Column::HlcUuid.eq(key.id.to_string()))
+        .filter(media_files::Column::SourceUuid.eq(key.id.to_string()))
         .one(&db)
         .await?
         .unwrap()
@@ -1576,7 +1585,7 @@ async fn explicit_catalog_membership_import_preserves_source_identity() -> Resul
         .one(&db1)
         .await?
         .unwrap();
-    let file_id: Uuid = file.hlc_uuid.parse()?;
+    let file_id: Uuid = file.source_uuid.parse()?;
     let artist = catalog_identity::parent(ParentKind::Artist, "Artist");
     let membership = catalog_identity::membership(file_id, ParentKind::Artist, artist);
     parent(&db1, Collection::Artists, 13, "Artist", "A").await?;
@@ -1587,13 +1596,13 @@ async fn explicit_catalog_membership_import_preserves_source_identity() -> Resul
     a.import_existing(a.record_store().author()).await?;
     transfer(&a, &b).await?;
     let row = media_file_artists::Entity::find().one(&db2).await?.unwrap();
-    assert_eq!(row.hlc_uuid, membership.to_string());
+    assert_eq!(row.source_uuid, membership.to_string());
     let parent = artists::Entity::find()
-        .filter(artists::Column::HlcUuid.eq(row.artist_uuid.clone()))
+        .filter(artists::Column::SourceUuid.eq(row.artist_uuid.clone()))
         .one(&db2)
         .await?
         .unwrap();
-    assert_eq!(parent.hlc_uuid, artist.to_string());
+    assert_eq!(parent.source_uuid, artist.to_string());
     assert_eq!(parent.name, "Artist");
     a.import_existing(a.record_store().author()).await?;
     transfer(&a, &b).await?;

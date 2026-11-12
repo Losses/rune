@@ -44,7 +44,7 @@ async fn fresh_library_has_no_legacy_queue_and_queue_mix_uses_session_values() -
             local_available: Set(true),
             content_hash: Set(None),
             content_size: Set(None),
-            hlc_uuid: Set(Uuid::new_v4().to_string()),
+            source_uuid: Set(Uuid::new_v4().to_string()),
         }
         .insert(&db)
         .await?;

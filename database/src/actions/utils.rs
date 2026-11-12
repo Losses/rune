@@ -48,7 +48,7 @@ macro_rules! get_entity_to_cover_ids {
             .join(
                 JoinType::InnerJoin,
                 <$item_entity::Entity>::has_many($related_entity::Entity)
-                    .from(<$item_entity::Column>::HlcUuid)
+                    .from(<$item_entity::Column>::SourceUuid)
                     .to(<$related_entity::Column>::$relation_column_name)
                     .into(),
             )
@@ -56,14 +56,14 @@ macro_rules! get_entity_to_cover_ids {
                 JoinType::InnerJoin,
                 <$related_entity::Entity>::belongs_to(media_files::Entity)
                     .from(<$related_entity::Column>::TrackUuid)
-                    .to(media_files::Column::HlcUuid)
+                    .to(media_files::Column::SourceUuid)
                     .into(),
             )
             .join(
                 JoinType::InnerJoin,
                 media_files::Entity::belongs_to(media_cover_art::Entity)
                     .from(media_files::Column::CoverArtUuid)
-                    .to(media_cover_art::Column::HlcUuid)
+                    .to(media_cover_art::Column::SourceUuid)
                     .into(),
             )
             .filter(<$item_entity::Column>::Id.is_in($entity_ids.clone()))

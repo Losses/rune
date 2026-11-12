@@ -24,7 +24,7 @@ async fn track_receive_preserves_local_file_fields_and_portable_custom_tags() ->
     });
     RuneModel::project(db, &object, Some(&Payload::Track(track.clone()))).await?;
     let file = media_files::Entity::find()
-        .filter(media_files::Column::HlcUuid.eq(object.id.to_string()))
+        .filter(media_files::Column::SourceUuid.eq(object.id.to_string()))
         .one(db)
         .await?
         .unwrap();

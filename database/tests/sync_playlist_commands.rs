@@ -35,7 +35,7 @@ async fn commands_publish_playlist_and_occurrence_removals() -> Result<()> {
             last_modified: Set(String::new()),
             sample_rate: Set(1),
             duration: Set(1.into()),
-            hlc_uuid: Set(file.to_string()),
+            source_uuid: Set(file.to_string()),
             ..Default::default()
         })
         .exec(conn)
@@ -47,12 +47,12 @@ async fn commands_publish_playlist_and_occurrence_removals() -> Result<()> {
     playlists::update_playlist(&db, &record_store, list.id, Some("renamed".into()), None).await?;
     let first = playlists::add_item_to_playlist(&db, &record_store, list.id, 1, None).await?;
     let second = playlists::add_item_to_playlist(&db, &record_store, list.id, 1, None).await?;
-    assert_ne!(first.hlc_uuid, second.hlc_uuid);
+    assert_ne!(first.source_uuid, second.source_uuid);
     playlists::reorder_playlist_item_position(
         &db,
         &record_store,
         list.id,
-        second.hlc_uuid.parse()?,
+        second.source_uuid.parse()?,
         0,
     )
     .await?;
@@ -79,9 +79,9 @@ async fn commands_publish_playlist_and_occurrence_removals() -> Result<()> {
     assert!(
         remote_entries
             .iter()
-            .any(|entry| entry.hlc_uuid == second.hlc_uuid && entry.position == 0)
+            .any(|entry| entry.source_uuid == second.source_uuid && entry.position == 0)
     );
-    playlists::remove_item_from_playlist(&db, &record_store, list.id, first.hlc_uuid.parse()?)
+    playlists::remove_item_from_playlist(&db, &record_store, list.id, first.source_uuid.parse()?)
         .await?;
     support::exchange_scoped(
         &(Arc::new(a.endpoint()) as support::Peer),
@@ -119,7 +119,7 @@ async fn commands_publish_playlist_and_occurrence_removals() -> Result<()> {
     use sea_orm::ColumnTrait;
     assert!(
         mix_queries::Entity::find()
-            .filter(Column::MixUuid.eq(mix.hlc_uuid.clone()))
+            .filter(Column::MixUuid.eq(mix.source_uuid.clone()))
             .all(&db)
             .await?
             .len()
@@ -130,7 +130,7 @@ async fn commands_publish_playlist_and_occurrence_removals() -> Result<()> {
             .await?
             .iter()
             .any(|(key, _)| key.collection == Collection::Mixes
-                && key.id.to_string() == mix.hlc_uuid)
+                && key.id.to_string() == mix.source_uuid)
     );
     assert!(a.head().await?.sequence > 0);
     Ok(())
@@ -157,7 +157,7 @@ async fn occurrence_cursor_preserves_duplicates_and_commands_address_one_uuid() 
         sample_rate: Set(44100),
         duration: Set(1.into()),
         local_available: Set(false),
-        hlc_uuid: Set(Uuid::new_v4().to_string()),
+        source_uuid: Set(Uuid::new_v4().to_string()),
         ..Default::default()
     })
     .exec_with_returning(&db)
@@ -171,7 +171,7 @@ async fn occurrence_cursor_preserves_duplicates_and_commands_address_one_uuid() 
         ids.push(
             playlists::add_item_to_playlist(&db, &record_store, playlist.id, file.id, Some(7))
                 .await?
-                .hlc_uuid,
+                .source_uuid,
         );
     }
     ids.sort();
@@ -216,15 +216,15 @@ async fn occurrence_cursor_preserves_duplicates_and_commands_address_one_uuid() 
     );
     playlists::remove_item_from_playlist(&db, &record_store, playlist.id, selected).await?;
     let remaining = entries::Entity::find()
-        .filter(entries::Column::PlaylistUuid.eq(playlist.hlc_uuid.clone()))
-        .order_by_asc(entries::Column::HlcUuid)
+        .filter(entries::Column::PlaylistUuid.eq(playlist.source_uuid.clone()))
+        .order_by_asc(entries::Column::SourceUuid)
         .all(&db)
         .await?;
     assert_eq!(remaining.len(), 4);
     assert!(
         remaining
             .iter()
-            .all(|entry| entry.position == 7 && entry.hlc_uuid != ids[2])
+            .all(|entry| entry.position == 7 && entry.source_uuid != ids[2])
     );
 
     // Import keeps repeated lines and reports paths that cannot be resolved uniquely.
@@ -236,7 +236,7 @@ async fn occurrence_cursor_preserves_duplicates_and_commands_address_one_uuid() 
         last_modified: Set(String::new()),
         sample_rate: Set(44100),
         duration: Set(1.into()),
-        hlc_uuid: Set(Uuid::new_v4().to_string()),
+        source_uuid: Set(Uuid::new_v4().to_string()),
         ..Default::default()
     })
     .exec(&db)
@@ -284,7 +284,7 @@ async fn occurrence_cursor_preserves_duplicates_and_commands_address_one_uuid() 
     )
     .await?;
     let remote_import = playlist_rows::Entity::find()
-        .filter(PlaylistsColumn::HlcUuid.eq(imported.hlc_uuid.clone()))
+        .filter(PlaylistsColumn::SourceUuid.eq(imported.source_uuid.clone()))
         .one(&peer_db)
         .await?
         .unwrap();
@@ -343,7 +343,7 @@ async fn occurrence_cursor_preserves_duplicates_and_commands_address_one_uuid() 
     );
     assert!(
         entries::Entity::find()
-            .filter(entries::Column::HlcUuid.eq(ids[0].clone()))
+            .filter(entries::Column::SourceUuid.eq(ids[0].clone()))
             .one(&db)
             .await?
             .is_some()

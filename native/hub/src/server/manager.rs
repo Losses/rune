@@ -3559,7 +3559,7 @@ mod lifecycle_tests {
             }
         }
         let remote = media_files::Entity::find()
-            .filter(Column::HlcUuid.eq(&original.hlc_uuid))
+            .filter(Column::SourceUuid.eq(&original.source_uuid))
             .one(&*replica.global_params.test_library().main_db)
             .await?
             .context("replicated track")?;
@@ -4041,7 +4041,7 @@ mod lifecycle_tests {
         b.start_worker().await?;
         let received = wait_until("unopened L2 track to synchronize", || async {
             Ok(media_files::Entity::find()
-                .filter(Column::HlcUuid.eq(&original.hlc_uuid))
+                .filter(Column::SourceUuid.eq(&original.source_uuid))
                 .one(&*replica.main_db)
                 .await?)
         })
@@ -4092,7 +4092,7 @@ mod lifecycle_tests {
         assert_eq!(
             client
                 .head(&blob_url)
-                .query(&[("track_id", &original.hlc_uuid)])
+                .query(&[("track_id", &original.source_uuid)])
                 .send()
                 .await?
                 .status(),
@@ -4141,7 +4141,7 @@ mod lifecycle_tests {
         let replica = b.global_params.library_pool.acquire(library_id).await?;
         assert!(
             media_files::Entity::find()
-                .filter(Column::HlcUuid.eq(&later.hlc_uuid))
+                .filter(Column::SourceUuid.eq(&later.source_uuid))
                 .one(&*replica.main_db)
                 .await?
                 .is_none(),
@@ -4228,7 +4228,7 @@ mod lifecycle_tests {
                 .context("fixture scanner did not create the source audio row")?;
             let track_key = ObjectKey {
                 collection: Collection::Tracks,
-                id: source_track.hlc_uuid.parse()?,
+                id: source_track.source_uuid.parse()?,
             };
             anyhow::ensure!(
                 b.global_params
@@ -4894,7 +4894,7 @@ mod lifecycle_tests {
             .await?
             .pop()
             .context("missing scanned audio")?;
-        let track_id: Uuid = file.hlc_uuid.parse()?;
+        let track_id: Uuid = file.source_uuid.parse()?;
         let resolver = sync_worker::PairedAudioResolver(
             Arc::downgrade(&manager.global_params.node),
             manager
@@ -4951,7 +4951,7 @@ mod lifecycle_tests {
         )
         .await?;
         assert!(
-            matches!(&queued[..], [(PlayingItem::LibraryTrack { track, .. }, PlaybackSource::LibraryStream)] if *track == file.hlc_uuid)
+            matches!(&queued[..], [(PlayingItem::LibraryTrack { track, .. }, PlaybackSource::LibraryStream)] if *track == file.source_uuid)
         );
         let summaries = get_metadata_summary_by_files(
             params.test_library().main_db.as_ref(),
@@ -5034,7 +5034,7 @@ mod lifecycle_tests {
             .pop()
             .context("missing updated audio")?;
         assert_eq!(current.id, file.id);
-        let file_uuid = Uuid::parse_str(&file.hlc_uuid)?;
+        let file_uuid = Uuid::parse_str(&file.source_uuid)?;
         assert_eq!(resolver.resolve_id(file_uuid).await?, Some(current.id));
         params.main_token.cancel();
         Ok(())

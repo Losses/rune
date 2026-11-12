@@ -112,7 +112,7 @@ async fn fingerprint_source_change_and_failed_journal_leave_no_assignment() -> R
         .unwrap();
     assert_eq!(row.fingerprint, vec![1, 2, 3, 4]);
     assert_eq!(
-        row.hlc_uuid,
+        row.source_uuid,
         migration::catalog_identity::fingerprint(
             file_id,
             Some("chromaprint"),
@@ -153,7 +153,7 @@ async fn fingerprint_write_failure_fails_the_batch_and_stops_queued_files() -> R
         .expect("scanned first audio file");
     db.execute_unprepared(&format!(
         "CREATE TRIGGER reject_fingerprint BEFORE INSERT ON media_file_fingerprint WHEN NEW.track_uuid = '{}' BEGIN SELECT RAISE(ABORT, 'test failure'); END",
-        first_file.hlc_uuid
+        first_file.source_uuid
     ))
     .await?;
 
@@ -217,8 +217,8 @@ async fn author_zero_similarity(
     first: &media_files::Model,
     second: &media_files::Model,
 ) -> Result<()> {
-    let first_uuid = first.hlc_uuid.parse()?;
-    let second_uuid = second.hlc_uuid.parse()?;
+    let first_uuid = first.source_uuid.parse()?;
+    let second_uuid = second.source_uuid.parse()?;
     let configuration = default_similarity_configuration();
     let key = ObjectKey {
         collection: Collection::Similarities,
@@ -347,8 +347,8 @@ async fn missing_zero_score_pairs_preserve_zero_threshold_duplicate_marks() -> R
     let third = fingerprinted_file(&db, &store, 3, Uuid::new_v4(), vec![u32::MAX; 64]).await?;
     compare_all_pairs(&db, |_, _| {}, &Configuration::default(), None, &store).await?;
 
-    let first_uuid = first.hlc_uuid.parse()?;
-    let third_uuid = third.hlc_uuid.parse()?;
+    let first_uuid = first.source_uuid.parse()?;
+    let third_uuid = third.source_uuid.parse()?;
     let key = ObjectKey {
         collection: Collection::Similarities,
         id: migration::catalog_identity::similarity(
@@ -376,7 +376,7 @@ async fn missing_zero_score_pairs_preserve_zero_threshold_duplicate_marks() -> R
         .await?;
     for row in zero_rows {
         let key = ObjectKey {
-            id: row.hlc_uuid.parse()?,
+            id: row.source_uuid.parse()?,
             ..key.clone()
         };
         let tx = db.begin().await?;
@@ -506,7 +506,7 @@ async fn independent_configurations_coexist_in_primary_rows() -> Result<()> {
                 &db,
                 &ObjectKey {
                     collection: Collection::Fingerprints,
-                    id: row.hlc_uuid.parse()?,
+                    id: row.source_uuid.parse()?,
                 },
             )
             .await?
@@ -531,7 +531,7 @@ async fn legacy_fingerprint_does_not_block_supported_assignment() -> Result<()> 
         track_uuid: Set(file_id.to_string()),
         fingerprint: Set(vec![1, 2, 3, 4]),
         is_duplicated: Set(1),
-        hlc_uuid: Set(legacy.to_string()),
+        source_uuid: Set(legacy.to_string()),
         ..Default::default()
     })
     .exec(&db)
@@ -552,7 +552,7 @@ async fn legacy_fingerprint_does_not_block_supported_assignment() -> Result<()> 
     .await?;
     let rows = media_file_fingerprint::Entity::find().all(&db).await?;
     assert_eq!(rows.len(), 2);
-    assert!(rows.iter().any(|row| row.hlc_uuid == legacy.to_string()
+    assert!(rows.iter().any(|row| row.source_uuid == legacy.to_string()
         && row.is_duplicated == 1
         && row.fingerprint == vec![1, 2, 3, 4]));
     let current = current_fingerprint(&db, &file).await?.unwrap();
@@ -615,7 +615,7 @@ async fn duplicate_filter_uses_supported_current_identity_once() -> Result<()> {
         track_uuid: Set(first.to_string()),
         fingerprint: Set(vec![1, 2, 3, 4]),
         is_duplicated: Set(0),
-        hlc_uuid: Set(legacy.to_string()),
+        source_uuid: Set(legacy.to_string()),
         ..Default::default()
     })
     .exec(&db)
@@ -812,7 +812,7 @@ async fn import_existing_skips_oversized_fingerprint() -> Result<()> {
             track_uuid: Set(id.to_string()),
             fingerprint: Set(vec![1; size]),
             is_duplicated: Set(0),
-            hlc_uuid: Set(key.id.to_string()),
+            source_uuid: Set(key.id.to_string()),
             ..Default::default()
         })
         .exec(&db)

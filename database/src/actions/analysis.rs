@@ -167,7 +167,7 @@ async fn insert_analysis_result(
         spectral_kurtosis: ActiveValue::Set(Decimal::from_f32(result.spectral_kurtosis)),
         perceptual_spread: ActiveValue::Set(Decimal::from_f32(result.raw.perceptual_spread)),
         perceptual_sharpness: ActiveValue::Set(Decimal::from_f32(result.raw.perceptual_sharpness)),
-        hlc_uuid: ActiveValue::Set(
+        source_uuid: ActiveValue::Set(
             Uuid::new_v5(
                 &Uuid::NAMESPACE_OID,
                 format!(

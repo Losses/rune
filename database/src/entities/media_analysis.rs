@@ -2,6 +2,8 @@
 
 use sea_orm::entity::prelude::*;
 
+use super::media_files::{Column as MediaFilesColumn, Entity as MediaFilesEntity};
+
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
 #[sea_orm(table_name = "media_analysis")]
 pub struct Model {
@@ -70,15 +72,15 @@ pub struct Model {
     pub mfcc10: Option<Decimal>,
     pub mfcc11: Option<Decimal>,
     pub mfcc12: Option<Decimal>,
-    pub hlc_uuid: String,
+    pub source_uuid: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::media_files::Entity",
+        belongs_to = "MediaFilesEntity",
         from = "Column::FileId",
-        to = "super::media_files::Column::Id"
+        to = "MediaFilesColumn::Id"
     )]
     MediaFiles,
 }

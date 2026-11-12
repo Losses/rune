@@ -67,7 +67,7 @@ impl Signal for GetCoverArtIdsByMixQueriesRequest {
                         let mut cover_art_ids: Vec<i32> = media_cover_art::Entity::find()
                             .select_only()
                             .column(Column::Id)
-                            .filter(Column::HlcUuid.is_in(uuids))
+                            .filter(Column::SourceUuid.is_in(uuids))
                             .into_tuple()
                             .all(&*main_db)
                             .await

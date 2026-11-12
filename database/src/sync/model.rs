@@ -115,7 +115,7 @@ fn validate_provenance(
 sync_orm::owned_list_mapping! { pub struct MetadataTag, MetadataMap for media_metadata::Entity {
     max_items: 128,
     owners: [media_metadata::Column::FileId], constants: {},
-    key: id: Uuid => media_metadata::Column::HlcUuid,
+    key: id: Uuid => media_metadata::Column::SourceUuid,
     fields: {
         position: i32 => media_metadata::Column::Position,
         key: String => media_metadata::Column::MetaKey,
@@ -128,7 +128,7 @@ sync_orm::owned_list_mapping! { pub struct MetadataTag, MetadataMap for media_me
 sync_orm::owned_list_mapping! { pub struct MixClause, MixClauseMap for mix_queries::Entity {
     max_items: 128,
     owners: [mix_queries::Column::MixUuid], constants: {},
-    key: id: Uuid => mix_queries::Column::HlcUuid,
+    key: id: Uuid => mix_queries::Column::SourceUuid,
     fields: {
         position: i32 => mix_queries::Column::Position,
         operator: String => mix_queries::Column::Operator,
@@ -223,7 +223,7 @@ sync_orm::row_policies! {
                 value: Album,
                 mapping: AlbumMap,
                 policy: {
-                    uuid: albums::Column::HlcUuid,
+                    uuid: albums::Column::SourceUuid,
                     fields: {
                         name: String => albums::Column::Name,
                         group: String => albums::Column::Group
@@ -254,7 +254,7 @@ sync_orm::row_policies! {
                 value: Artist,
                 mapping: ArtistMap,
                 policy: {
-                    uuid: artists::Column::HlcUuid,
+                    uuid: artists::Column::SourceUuid,
                     fields: {
                         name: String => artists::Column::Name,
                         group: String => artists::Column::Group
@@ -285,7 +285,7 @@ sync_orm::row_policies! {
                 value: Genre,
                 mapping: GenreMap,
                 policy: {
-                    uuid: genres::Column::HlcUuid,
+                    uuid: genres::Column::SourceUuid,
                     fields: {
                         name: String => genres::Column::Name,
                         group: String => genres::Column::Group
@@ -316,7 +316,7 @@ sync_orm::row_policies! {
                 value: Playlist,
                 mapping: PlaylistMap,
                 policy: {
-                    uuid: playlists::Column::HlcUuid,
+                    uuid: playlists::Column::SourceUuid,
                     fields: {
                         name: String => playlists::Column::Name,
                         group: String => playlists::Column::Group
@@ -344,7 +344,7 @@ sync_orm::row_policies! {
                 value: Track,
                 mapping: TrackMap,
                 policy: {
-                    uuid: media_files::Column::HlcUuid,
+                    uuid: media_files::Column::SourceUuid,
                     fields: {
                         extension: String => media_files::Column::Extension,
                         content_hash: Option<String> => media_files::Column::ContentHash,
@@ -417,7 +417,7 @@ sync_orm::row_policies! {
                 value: Artwork,
                 mapping: ArtworkMap,
                 policy: {
-                    uuid: media_cover_art::Column::HlcUuid,
+                    uuid: media_cover_art::Column::SourceUuid,
                     fields: {
                         digest: String => media_cover_art::Column::ContentHash,
                         size: i64 => media_cover_art::Column::ContentSize,
@@ -430,7 +430,7 @@ sync_orm::row_policies! {
                     },
                     // The library migration leaves a cover over the size limit without a digest and
                     // marks it unavailable, so it has nothing to sync.
-                    source_filter: Condition::all().add(media_cover_art::Column::HlcUuid.ne(Uuid::nil().to_string())).add(media_cover_art::Column::HlcUuid.ne("")).add(media_cover_art::Column::ContentHash.is_not_null()),
+                    source_filter: Condition::all().add(media_cover_art::Column::SourceUuid.ne(Uuid::nil().to_string())).add(media_cover_art::Column::SourceUuid.ne("")).add(media_cover_art::Column::ContentHash.is_not_null()),
                     limits: {
                         digest => (64, 64),
                         size => (1, 8 * 1024 * 1024)
@@ -452,7 +452,7 @@ sync_orm::row_policies! {
                 value: FileArtist,
                 mapping: FileArtistMap,
                 policy: {
-                    uuid: media_file_artists::Column::HlcUuid,
+                    uuid: media_file_artists::Column::SourceUuid,
                     fields: {
                         file_id: Uuid => media_file_artists::Column::TrackUuid,
                         artist_id: Uuid => media_file_artists::Column::ArtistUuid
@@ -473,7 +473,7 @@ sync_orm::row_policies! {
                 value: FileGenre,
                 mapping: FileGenreMap,
                 policy: {
-                    uuid: media_file_genres::Column::HlcUuid,
+                    uuid: media_file_genres::Column::SourceUuid,
                     fields: {
                         file_id: Uuid => media_file_genres::Column::TrackUuid,
                         genre_id: Uuid => media_file_genres::Column::GenreUuid
@@ -494,7 +494,7 @@ sync_orm::row_policies! {
                 value: TrackAlbum,
                 mapping: TrackAlbumMap,
                 policy: {
-                    uuid: media_file_albums::Column::HlcUuid,
+                    uuid: media_file_albums::Column::SourceUuid,
                     fields: {
                         track_id: Uuid => media_file_albums::Column::TrackUuid,
                         album_id: Uuid => media_file_albums::Column::AlbumUuid,
@@ -519,7 +519,7 @@ sync_orm::row_policies! {
                 value: Liked,
                 mapping: LikedMap,
                 policy: {
-                    uuid: media_file_likes::Column::HlcUuid,
+                    uuid: media_file_likes::Column::SourceUuid,
                     fields: {
                         track_id: Uuid => media_file_likes::Column::TrackUuid,
                         liked: bool => media_file_likes::Column::Liked,
@@ -543,7 +543,7 @@ sync_orm::row_policies! {
                 value: PlaylistEntry,
                 mapping: PlaylistEntryMap,
                 policy: {
-                    uuid: media_file_playlists::Column::HlcUuid,
+                    uuid: media_file_playlists::Column::SourceUuid,
                     fields: {
                         playlist_id: Uuid => media_file_playlists::Column::PlaylistUuid,
                         track_id: Uuid => media_file_playlists::Column::TrackUuid,
@@ -562,7 +562,7 @@ sync_orm::row_policies! {
                 value: PlaybackStatistics,
                 mapping: PlaybackStatisticsMap,
                 policy: {
-                    uuid: media_file_stats::Column::HlcUuid,
+                    uuid: media_file_stats::Column::SourceUuid,
                     fields: {
                         track_id: Uuid => media_file_stats::Column::TrackUuid,
                         device_id: Uuid => media_file_stats::Column::DeviceId,
@@ -594,7 +594,7 @@ sync_orm::row_policies! {
                 value: Mix,
                 mapping: MixMap,
                 policy: {
-                    uuid: mixes::Column::HlcUuid,
+                    uuid: mixes::Column::SourceUuid,
                     fields: {
                         name: String => mixes::Column::Name,
                         group: String => mixes::Column::Group,
@@ -608,7 +608,7 @@ sync_orm::row_policies! {
                             entity: mix_queries::Entity,
                             mapping: MixClauseMap,
                             owner: |row: &RowView<mixes::Entity>| -> Result<Vec<Value>, DbErr> {
-                                Ok(vec![row.read::<String>(mixes::Column::HlcUuid)?.into()])
+                                Ok(vec![row.read::<String>(mixes::Column::SourceUuid)?.into()])
                             }
                         }
                     },
@@ -634,7 +634,7 @@ sync_orm::row_policies! {
                 value: Fingerprint,
                 mapping: FingerprintMap,
                 policy: {
-                    uuid: media_file_fingerprint::Column::HlcUuid,
+                    uuid: media_file_fingerprint::Column::SourceUuid,
                     fields: {
                         file_id: Uuid => media_file_fingerprint::Column::TrackUuid,
                         bytes: BinaryValue => media_file_fingerprint::Column::Fingerprint,
@@ -676,7 +676,7 @@ sync_orm::row_policies! {
                 value: Similarity,
                 mapping: SimilarityMap,
                 policy: {
-                    uuid: media_file_similarity::Column::HlcUuid,
+                    uuid: media_file_similarity::Column::SourceUuid,
                     fields: {
                         first_file_id: Uuid => media_file_similarity::Column::FirstTrackUuid,
                         second_file_id: Uuid => media_file_similarity::Column::SecondTrackUuid,

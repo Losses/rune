@@ -50,7 +50,7 @@ pub async fn assign_computed_fingerprint(
     let tx = db.begin().await?;
     store.lock(&tx).await?;
     let file = checked_file(&tx, observed).await?;
-    let file_id = file.hlc_uuid.parse()?;
+    let file_id = file.source_uuid.parse()?;
     let id = migration::catalog_identity::fingerprint(
         file_id,
         Some(&algorithm),
@@ -70,12 +70,12 @@ pub async fn assign_computed_fingerprint(
             store.author_on(&tx, key, None).await?;
         }
         let existing = media_file_fingerprint::Entity::find()
-            .filter(media_file_fingerprint::Column::HlcUuid.eq(id.to_string()))
+            .filter(media_file_fingerprint::Column::SourceUuid.eq(id.to_string()))
             .one(&tx)
             .await?;
         let mut row: media_file_fingerprint::ActiveModel =
             existing.map(Into::into).unwrap_or_default();
-        row.hlc_uuid = Set(id.to_string());
+        row.source_uuid = Set(id.to_string());
         row.track_uuid = Set(file_id.to_string());
         row.fingerprint = Set(bytes);
         row.is_duplicated = Set(is_duplicated);
@@ -90,7 +90,7 @@ pub async fn assign_computed_fingerprint(
         return Ok(());
     }
     if let Some(existing) = media_file_fingerprint::Entity::find()
-        .filter(media_file_fingerprint::Column::HlcUuid.eq(id.to_string()))
+        .filter(media_file_fingerprint::Column::SourceUuid.eq(id.to_string()))
         .one(&tx)
         .await?
         && existing.fingerprint.len() > MAX_PORTABLE_FINGERPRINT_BYTES
@@ -157,8 +157,8 @@ pub async fn assign_computed_similarity(
             && fingerprint_status(&second_row, &second) == SourceStatus::Verified,
         "fingerprint changed during comparison"
     );
-    let first_file_id = first.hlc_uuid.parse()?;
-    let second_file_id = second.hlc_uuid.parse()?;
+    let first_file_id = first.source_uuid.parse()?;
+    let second_file_id = second.source_uuid.parse()?;
     let matching = score > 0.0;
     remove_unmatched_similarity_rows(&tx, store, first_file_id, second_file_id, !matching).await?;
     if !matching {
@@ -230,7 +230,7 @@ async fn remove_unmatched_similarity_rows(
         }
         let key = ObjectKey {
             collection: Collection::Similarities,
-            id: row.hlc_uuid.parse()?,
+            id: row.source_uuid.parse()?,
         };
         let record = store.author_on(tx, key, None).await?;
         apply(tx, &record.key, record.value.as_ref()).await?;
@@ -247,7 +247,7 @@ async fn checked_file(
         .await?
         .ok_or_else(|| anyhow::anyhow!("source file disappeared"))?;
     ensure!(
-        current.hlc_uuid == observed.hlc_uuid
+        current.source_uuid == observed.source_uuid
             && current.last_modified == observed.last_modified
             && current.content_hash == observed.content_hash
             && current.content_size == observed.content_size
@@ -270,7 +270,7 @@ pub fn fingerprint_status(
     row: &media_file_fingerprint::Model,
     file: &media_files::Model,
 ) -> SourceStatus {
-    let Ok(file_id) = file.hlc_uuid.parse() else {
+    let Ok(file_id) = file.source_uuid.parse() else {
         return SourceStatus::Changed;
     };
     let expected = migration::catalog_identity::fingerprint(
@@ -279,7 +279,7 @@ pub fn fingerprint_status(
         row.configuration.as_deref(),
         row.format_version,
     );
-    if row.track_uuid != file.hlc_uuid || row.hlc_uuid != expected.to_string() {
+    if row.track_uuid != file.source_uuid || row.source_uuid != expected.to_string() {
         return SourceStatus::Changed;
     }
     if row.algorithm.is_none()
@@ -307,7 +307,7 @@ pub async fn current_fingerprint<C: sea_orm::ConnectionTrait>(
     db: &C,
     file: &media_files::Model,
 ) -> Result<Option<media_file_fingerprint::Model>> {
-    let file_id: uuid::Uuid = file.hlc_uuid.parse()?;
+    let file_id: uuid::Uuid = file.source_uuid.parse()?;
     let id = migration::catalog_identity::fingerprint(
         file_id,
         Some("chromaprint"),
@@ -315,13 +315,13 @@ pub async fn current_fingerprint<C: sea_orm::ConnectionTrait>(
         Some(1),
     );
     let rows = media_file_fingerprint::Entity::find()
-        .filter(media_file_fingerprint::Column::HlcUuid.eq(id.to_string()))
+        .filter(media_file_fingerprint::Column::SourceUuid.eq(id.to_string()))
         .all(db)
         .await?;
     ensure!(rows.len() <= 1, "duplicate current fingerprint identity");
     if let Some(row) = rows.first() {
         ensure!(
-            row.track_uuid == file.hlc_uuid,
+            row.track_uuid == file.source_uuid,
             "fingerprint identity points to different file"
         );
     }
@@ -350,7 +350,7 @@ pub async fn assign_duplicate_mark(
         fingerprint_status(&row, &file) == SourceStatus::Verified,
         "fingerprint is unavailable"
     );
-    let uuid = file.hlc_uuid.parse()?;
+    let uuid = file.source_uuid.parse()?;
     let id = migration::catalog_identity::fingerprint(
         uuid,
         row.algorithm.as_deref(),
@@ -358,7 +358,7 @@ pub async fn assign_duplicate_mark(
         row.format_version,
     );
     ensure!(
-        row.hlc_uuid == id.to_string(),
+        row.source_uuid == id.to_string(),
         "fingerprint source identity requires correction"
     );
     if row.fingerprint.len() > MAX_PORTABLE_FINGERPRINT_BYTES {
@@ -400,7 +400,7 @@ pub async fn unavailable_fingerprints(
     let mut unavailable = Vec::new();
     for row in rows {
         let status = match media_files::Entity::find()
-            .filter(media_files::Column::HlcUuid.eq(row.track_uuid.clone()))
+            .filter(media_files::Column::SourceUuid.eq(row.track_uuid.clone()))
             .one(db)
             .await?
         {
@@ -427,7 +427,8 @@ pub fn similarity_status(
     first: &media_files::Model,
     second: &media_files::Model,
 ) -> SourceStatus {
-    let (Ok(first_id), Ok(second_id)) = (first.hlc_uuid.parse(), second.hlc_uuid.parse()) else {
+    let (Ok(first_id), Ok(second_id)) = (first.source_uuid.parse(), second.source_uuid.parse())
+    else {
         return SourceStatus::Changed;
     };
     let expected = migration::catalog_identity::similarity(
@@ -437,9 +438,9 @@ pub fn similarity_status(
         row.configuration.as_deref(),
         row.format_version,
     );
-    if row.first_track_uuid != first.hlc_uuid
-        || row.second_track_uuid != second.hlc_uuid
-        || row.hlc_uuid != expected.to_string()
+    if row.first_track_uuid != first.source_uuid
+        || row.second_track_uuid != second.source_uuid
+        || row.source_uuid != expected.to_string()
     {
         return SourceStatus::Changed;
     }
@@ -476,11 +477,11 @@ pub async fn unavailable_similarities(
     let mut unavailable = Vec::new();
     for row in rows {
         let first = media_files::Entity::find()
-            .filter(media_files::Column::HlcUuid.eq(row.first_track_uuid.clone()))
+            .filter(media_files::Column::SourceUuid.eq(row.first_track_uuid.clone()))
             .one(db)
             .await?;
         let second = media_files::Entity::find()
-            .filter(media_files::Column::HlcUuid.eq(row.second_track_uuid.clone()))
+            .filter(media_files::Column::SourceUuid.eq(row.second_track_uuid.clone()))
             .one(db)
             .await?;
         let status = match (first, second) {

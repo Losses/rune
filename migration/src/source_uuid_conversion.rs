@@ -1017,13 +1017,13 @@ mod tests {
             let rows = db
                 .query_all_raw(Statement::from_string(
                     db.get_database_backend(),
-                    format!("SELECT hlc_uuid FROM {table} WHERE id IN ({ids}) ORDER BY id"),
+                    format!("SELECT source_uuid FROM {table} WHERE id IN ({ids}) ORDER BY id"),
                 ))
                 .await
                 .unwrap();
             let mut seen = HashSet::new();
             for (i, row) in rows.iter().enumerate() {
-                let value: String = row.try_get("", "hlc_uuid").unwrap();
+                let value: String = row.try_get("", "source_uuid").unwrap();
                 let uuid = Uuid::parse_str(&value).unwrap();
                 assert!(!uuid.is_nil() && value == uuid.to_string() && seen.insert(uuid));
                 if i == 0 {
@@ -1031,7 +1031,7 @@ mod tests {
                 }
             }
         }
-        let rows = db.query_all_raw(Statement::from_string(db.get_database_backend(), "SELECT f.hlc_uuid AS file_uuid,s.hlc_uuid AS stat_uuid,s.track_uuid,s.device_id,s.skipped,s.played_through,l.track_uuid AS liked_track FROM media_file_stats s JOIN media_files f ON f.hlc_uuid=s.track_uuid LEFT JOIN media_file_likes l ON l.track_uuid=f.hlc_uuid ORDER BY f.id".to_owned())).await.unwrap();
+        let rows = db.query_all_raw(Statement::from_string(db.get_database_backend(), "SELECT f.source_uuid AS file_uuid,s.source_uuid AS stat_uuid,s.track_uuid,s.device_id,s.skipped,s.played_through,l.track_uuid AS liked_track FROM media_file_stats s JOIN media_files f ON f.source_uuid=s.track_uuid LEFT JOIN media_file_likes l ON l.track_uuid=f.source_uuid ORDER BY f.id".to_owned())).await.unwrap();
         assert_eq!(rows.len(), 2);
         for (i, row) in rows.iter().enumerate() {
             let file: String = row.try_get("", "file_uuid").unwrap();

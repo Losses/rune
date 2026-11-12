@@ -16,7 +16,7 @@ async fn explicit_import_rejects_incompatible_parent_and_assigns_playlist_id() -
     albums::Entity::insert(albums::ActiveModel {
         name: Set("legacy".into()),
         group: Set("l".into()),
-        hlc_uuid: Set(Uuid::new_v4().to_string()),
+        source_uuid: Set(Uuid::new_v4().to_string()),
         ..Default::default()
     })
     .exec(&local.db)
@@ -24,7 +24,7 @@ async fn explicit_import_rejects_incompatible_parent_and_assigns_playlist_id() -
     playlists::Entity::insert(playlists::ActiveModel {
         name: Set("legacy".into()),
         group: Set("l".into()),
-        hlc_uuid: Set(String::new()),
+        source_uuid: Set(String::new()),
         ..Default::default()
     })
     .exec(&local.db)
@@ -38,7 +38,10 @@ async fn explicit_import_rejects_incompatible_parent_and_assigns_playlist_id() -
         "legacy",
     );
     albums::Entity::update_many()
-        .col_expr(albums::Column::HlcUuid, Expr::value(album_id.to_string()))
+        .col_expr(
+            albums::Column::SourceUuid,
+            Expr::value(album_id.to_string()),
+        )
         .filter(albums::Column::Name.eq("legacy"))
         .exec(&local.db)
         .await?;
@@ -48,14 +51,14 @@ async fn explicit_import_rejects_incompatible_parent_and_assigns_playlist_id() -
             .one(&local.db)
             .await?
             .unwrap()
-            .hlc_uuid,
+            .source_uuid,
         album_id.to_string()
     );
     let playlist_id = playlists::Entity::find()
         .one(&local.db)
         .await?
         .unwrap()
-        .hlc_uuid;
+        .source_uuid;
     Uuid::parse_str(&playlist_id)?;
     let head = local.peer.head().await?;
     local.library.import_basic().await?;
@@ -65,7 +68,7 @@ async fn explicit_import_rejects_incompatible_parent_and_assigns_playlist_id() -
             .one(&local.db)
             .await?
             .unwrap()
-            .hlc_uuid,
+            .source_uuid,
         playlist_id
     );
     Ok(())

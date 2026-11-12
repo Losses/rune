@@ -3,6 +3,8 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use super::media_files::{Column as MediaFilesColumn, Entity as MediaFilesEntity};
+
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "media_file_similarity")]
 pub struct Model {
@@ -19,21 +21,21 @@ pub struct Model {
     pub algorithm: Option<String>,
     pub configuration: Option<String>,
     pub format_version: Option<i32>,
-    pub hlc_uuid: String,
+    pub source_uuid: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::media_files::Entity",
+        belongs_to = "MediaFilesEntity",
         from = "Column::SecondTrackUuid",
-        to = "super::media_files::Column::HlcUuid"
+        to = "MediaFilesColumn::SourceUuid"
     )]
     MediaFiles2,
     #[sea_orm(
-        belongs_to = "super::media_files::Entity",
+        belongs_to = "MediaFilesEntity",
         from = "Column::FirstTrackUuid",
-        to = "super::media_files::Column::HlcUuid"
+        to = "MediaFilesColumn::SourceUuid"
     )]
     MediaFiles1,
 }

@@ -384,7 +384,7 @@ mod access_policy_tests {
             content_hash: ActiveValue::Set(Some(cover_hash.clone())),
             content_size: ActiveValue::Set(Some(5)),
             local_available: ActiveValue::Set(true),
-            hlc_uuid: ActiveValue::Set(Uuid::new_v4().to_string()),
+            source_uuid: ActiveValue::Set(Uuid::new_v4().to_string()),
             ..Default::default()
         })
         .exec(&*library.main_db)
@@ -569,7 +569,7 @@ mod access_policy_tests {
         );
         assert!(right.library_sync.get(&album).await?.is_some());
         let remote = media_files::Entity::find()
-            .filter(Column::HlcUuid.eq(&original.hlc_uuid))
+            .filter(Column::SourceUuid.eq(&original.source_uuid))
             .one(&*right.main_db)
             .await?
             .context("replicated track")?;

@@ -191,7 +191,7 @@ pub async fn local_file(
     use sea_orm::{EntityTrait, Set};
     Ok(media_files::Entity::insert(media_files::ActiveModel {
         id: Set(id),
-        hlc_uuid: Set(uuid.to_string()),
+        source_uuid: Set(uuid.to_string()),
         file_name: Set(name.into()),
         directory: Set(String::new()),
         extension: Set("ogg".into()),
@@ -220,7 +220,7 @@ pub async fn fixture_statistics(
         .one(db)
         .await?
         .ok_or_else(|| anyhow::anyhow!("fixture track missing"))?;
-    let track: Uuid = file.hlc_uuid.parse()?;
+    let track: Uuid = file.source_uuid.parse()?;
     let key = key(
         Collection::PlaybackStatistics,
         Uuid::new_v5(&track, device.as_bytes()),
@@ -248,7 +248,7 @@ pub async fn fixture_like(
         .one(db)
         .await?
         .ok_or_else(|| anyhow::anyhow!("fixture track missing"))?;
-    let track: Uuid = file.hlc_uuid.parse()?;
+    let track: Uuid = file.source_uuid.parse()?;
     let payload = Payload::Liked(Liked {
         track_id: track,
         liked,

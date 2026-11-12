@@ -2,6 +2,8 @@
 
 use sea_orm::entity::prelude::*;
 
+use super::mix_queries::Entity as MixQueriesEntity;
+
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
 #[sea_orm(table_name = "mixes")]
 pub struct Model {
@@ -14,12 +16,12 @@ pub struct Model {
     pub mode: Option<i32>,
     pub locked: bool,
     pub scriptlet_mode: bool,
-    pub hlc_uuid: String,
+    pub source_uuid: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_many = "super::mix_queries::Entity")]
+    #[sea_orm(has_many = "MixQueriesEntity")]
     MixQueries,
 }
 

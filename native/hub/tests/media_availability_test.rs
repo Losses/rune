@@ -80,7 +80,7 @@ async fn pending_rows_are_returned_and_reported_without_becoming_playable() -> R
     ] {
         media_files::Entity::insert(media_files::ActiveModel {
             id: Set(id),
-            hlc_uuid: Set(if id == 20 { track } else { Uuid::new_v4() }.to_string()),
+            source_uuid: Set(if id == 20 { track } else { Uuid::new_v4() }.to_string()),
             file_name: Set(name.into()),
             directory: Set(String::new()),
             extension: Set("ogg".into()),
@@ -216,7 +216,7 @@ async fn queued_downloads_with_content_remain_streamable() -> Result<()> {
         size: 128,
     };
     let inserted = media_files::Entity::insert(media_files::ActiveModel {
-        hlc_uuid: Set(track.to_string()),
+        source_uuid: Set(track.to_string()),
         file_name: Set("remote.ogg".into()),
         directory: Set(String::new()),
         extension: Set("ogg".into()),

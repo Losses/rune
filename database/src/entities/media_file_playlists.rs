@@ -2,6 +2,9 @@
 
 use sea_orm::entity::prelude::*;
 
+use super::media_files::{Column as MediaFilesColumn, Entity as MediaFilesEntity};
+use super::playlists::{Column as PlaylistsColumn, Entity as PlaylistsEntity};
+
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
 #[sea_orm(table_name = "media_file_playlists")]
 pub struct Model {
@@ -10,21 +13,21 @@ pub struct Model {
     pub playlist_uuid: String,
     pub track_uuid: String,
     pub position: i32,
-    pub hlc_uuid: String,
+    pub source_uuid: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::media_files::Entity",
+        belongs_to = "MediaFilesEntity",
         from = "Column::TrackUuid",
-        to = "super::media_files::Column::HlcUuid"
+        to = "MediaFilesColumn::SourceUuid"
     )]
     MediaFiles,
     #[sea_orm(
-        belongs_to = "super::playlists::Entity",
+        belongs_to = "PlaylistsEntity",
         from = "Column::PlaylistUuid",
-        to = "super::playlists::Column::HlcUuid"
+        to = "PlaylistsColumn::SourceUuid"
     )]
     Playlists,
 }

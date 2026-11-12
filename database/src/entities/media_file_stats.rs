@@ -2,6 +2,8 @@
 
 use sea_orm::entity::prelude::*;
 
+use super::media_files::{Column as MediaFilesColumn, Entity as MediaFilesEntity};
+
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
 #[sea_orm(table_name = "media_file_stats")]
 pub struct Model {
@@ -9,7 +11,7 @@ pub struct Model {
     pub id: i32,
     pub track_uuid: String,
     pub device_id: String,
-    pub hlc_uuid: String,
+    pub source_uuid: String,
     pub skipped: i32,
     pub played_through: i32,
     #[sea_orm(column_type = "Text")]
@@ -19,9 +21,9 @@ pub struct Model {
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::media_files::Entity",
+        belongs_to = "MediaFilesEntity",
         from = "Column::TrackUuid",
-        to = "super::media_files::Column::HlcUuid"
+        to = "MediaFilesColumn::SourceUuid"
     )]
     MediaFiles,
 }

@@ -143,7 +143,7 @@ pub async fn catalog_track(
         (Some(digest), Some(size)) => {
             validate_digest(&digest)?;
             Some((
-                file.hlc_uuid.parse()?,
+                file.source_uuid.parse()?,
                 BlobRef {
                     digest,
                     size: u64::try_from(size)?,
@@ -191,7 +191,7 @@ pub async fn local_audio_path(
 ) -> Result<Option<PathBuf>> {
     validate_digest(&blob.digest)?;
     let Some(file) = media_files::Entity::find()
-        .filter(media_files::Column::HlcUuid.eq(id.to_string()))
+        .filter(media_files::Column::SourceUuid.eq(id.to_string()))
         .one(db)
         .await?
     else {
@@ -235,7 +235,9 @@ pub async fn cached_blob_path(
             digest: digest.to_owned(),
             size: u64::try_from(size)?,
         };
-        if let Some(path) = local_audio_path(db, fsio, root, file.hlc_uuid.parse()?, &blob).await? {
+        if let Some(path) =
+            local_audio_path(db, fsio, root, file.source_uuid.parse()?, &blob).await?
+        {
             return Ok(Some(path));
         }
     }
@@ -286,7 +288,7 @@ pub async fn attach_download(
     store.lock(&tx).await?;
     store.identity_on(&tx).await?;
     let row = media_files::Entity::find()
-        .filter(media_files::Column::HlcUuid.eq(track_id.to_string()))
+        .filter(media_files::Column::SourceUuid.eq(track_id.to_string()))
         .one(&tx)
         .await?
         .ok_or_else(|| anyhow::anyhow!("downloaded file no longer exists"))?;
@@ -356,7 +358,7 @@ mod tests {
                 last_modified: Set(String::new()),
                 sample_rate: Set(1),
                 duration: Set(1.into()),
-                hlc_uuid: Set(Uuid::new_v4().to_string()),
+                source_uuid: Set(Uuid::new_v4().to_string()),
                 local_available: Set(local),
                 content_hash: Set(hash),
                 content_size: Set(size),

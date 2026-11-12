@@ -36,7 +36,7 @@ impl From<media_files::Model> for MediaFileHandle {
         MediaFileHandle {
             item: PlayingItem::Unknown,
             file_id: Some(x.id),
-            file_uuid: Uuid::parse_str(&x.hlc_uuid).ok(),
+            file_uuid: Uuid::parse_str(&x.source_uuid).ok(),
             file_name: x.file_name,
             directory: x.directory,
             extension: x.extension,

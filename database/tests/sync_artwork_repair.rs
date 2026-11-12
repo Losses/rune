@@ -40,7 +40,7 @@ async fn corrupt_body_repairs_same_row_and_rolls_back_on_failure() -> Result<()>
         .await?;
     assert!(local.library.pending_references().await?.is_empty());
     let placeholder = media_cover_art::Entity::find()
-        .filter(media_cover_art::Column::HlcUuid.eq(id.to_string()))
+        .filter(media_cover_art::Column::SourceUuid.eq(id.to_string()))
         .one(&local.db)
         .await?
         .unwrap();
@@ -141,7 +141,7 @@ async fn unrelated_local_body_does_not_satisfy_missing_artwork_reference() -> Re
         content_hash: Set(Some(stray_digest)),
         content_size: Set(Some(stray_size)),
         local_available: Set(true),
-        hlc_uuid: Set(stray_id.to_string()),
+        source_uuid: Set(stray_id.to_string()),
         ..Default::default()
     })
     .exec(&local.db)
@@ -176,7 +176,7 @@ async fn unrelated_local_body_does_not_satisfy_missing_artwork_reference() -> Re
     assert_eq!(local.library.pending_references().await?.len(), 1);
     assert!(
         media_cover_art::Entity::find()
-            .filter(media_cover_art::Column::HlcUuid.eq(expected.to_string()))
+            .filter(media_cover_art::Column::SourceUuid.eq(expected.to_string()))
             .one(&local.db)
             .await?
             .is_none()
@@ -199,7 +199,7 @@ async fn unrelated_local_body_does_not_satisfy_missing_artwork_reference() -> Re
     .await?;
     assert!(
         media_cover_art::Entity::find()
-            .filter(media_cover_art::Column::HlcUuid.eq(expected.to_string()))
+            .filter(media_cover_art::Column::SourceUuid.eq(expected.to_string()))
             .one(&local.db)
             .await?
             .unwrap()

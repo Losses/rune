@@ -135,8 +135,8 @@ async fn killed_imports_recover_across_publication_stages() -> Result<()> {
         .context("missing other source")?;
 
     source.import_existing(source_node).await?;
-    let selected_track: Uuid = first.hlc_uuid.parse()?;
-    let other_track: Uuid = second.hlc_uuid.parse()?;
+    let selected_track: Uuid = first.source_uuid.parse()?;
+    let other_track: Uuid = second.source_uuid.parse()?;
     let source_identity = source.identity().await?;
     let checkpoint = sync::CheckpointKey {
         namespace: source_identity.namespace,
@@ -183,13 +183,13 @@ async fn killed_imports_recover_across_publication_stages() -> Result<()> {
         initialize_db(&db, &node.to_string()).await?;
         sync_library(db.clone(), node, &base, reqwest::Client::new()).await?;
         let selected = media_files::Entity::find()
-            .filter(media_files::Column::HlcUuid.eq(selected_track.to_string()))
+            .filter(media_files::Column::SourceUuid.eq(selected_track.to_string()))
             .one(&db)
             .await?
             .context("missing selected catalog item")?
             .id;
         let other = media_files::Entity::find()
-            .filter(media_files::Column::HlcUuid.eq(other_track.to_string()))
+            .filter(media_files::Column::SourceUuid.eq(other_track.to_string()))
             .one(&db)
             .await?
             .context("missing other catalog item")?

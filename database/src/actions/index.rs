@@ -84,7 +84,7 @@ pub async fn index_media_files(
         if summary.file_uuid.is_empty() {
             let id = Uuid::new_v4().to_string();
             media_files::Entity::update_many()
-                .col_expr(media_files::Column::HlcUuid, Expr::value(id.clone()))
+                .col_expr(media_files::Column::SourceUuid, Expr::value(id.clone()))
                 .filter(media_files::Column::Id.eq(summary.id))
                 .exec(&txn)
                 .await?;
@@ -144,11 +144,11 @@ async fn author_album_assignment(
         .await?
         .ok_or_else(|| Error::msg("missing album assignment"))?;
     let album = albums::Entity::find()
-        .filter(albums::Column::HlcUuid.eq(&link.album_uuid))
+        .filter(albums::Column::SourceUuid.eq(&link.album_uuid))
         .one(txn)
         .await?
         .ok_or_else(|| Error::msg("missing album"))?;
-    let album_id = Uuid::parse_str(&album.hlc_uuid)?;
+    let album_id = Uuid::parse_str(&album.source_uuid)?;
     let track_id = Uuid::parse_str(&summary.file_uuid)?;
     let album_key = ObjectKey {
         collection: Collection::Albums,
@@ -192,18 +192,18 @@ async fn process_artists(
         artists::Entity::insert(artists::ActiveModel {
             name: Set(name.clone()),
             group: Set(generate_group_name(&name)),
-            hlc_uuid: Set(id.to_string()),
+            source_uuid: Set(id.to_string()),
             ..Default::default()
         })
         .on_conflict(
-            OnConflict::column(artists::Column::HlcUuid)
+            OnConflict::column(artists::Column::SourceUuid)
                 .do_nothing()
                 .to_owned(),
         )
         .exec_without_returning(tx)
         .await?;
         let row = artists::Entity::find()
-            .filter(artists::Column::HlcUuid.eq(id.to_string()))
+            .filter(artists::Column::SourceUuid.eq(id.to_string()))
             .one(tx)
             .await?
             .ok_or_else(|| Error::msg("missing indexed artist"))?;
@@ -237,7 +237,7 @@ async fn process_artists(
                 store,
                 ObjectKey {
                     collection: Collection::FileArtists,
-                    id: row.hlc_uuid.parse()?,
+                    id: row.source_uuid.parse()?,
                 },
             )
             .await?;
@@ -247,7 +247,7 @@ async fn process_artists(
                     tx,
                     ObjectKey {
                         collection: Collection::FileArtists,
-                        id: row.hlc_uuid.parse()?,
+                        id: row.source_uuid.parse()?,
                     },
                     None,
                 )
@@ -263,7 +263,7 @@ async fn process_artists(
         media_file_artists::Entity::insert(media_file_artists::ActiveModel {
             track_uuid: Set(summary.file_uuid.clone()),
             artist_uuid: Set(parent),
-            hlc_uuid: Set(id.to_string()),
+            source_uuid: Set(id.to_string()),
             ..Default::default()
         })
         .exec(tx)
@@ -292,18 +292,18 @@ async fn process_album(
     albums::Entity::insert(albums::ActiveModel {
         name: Set(summary.album.clone()),
         group: Set(generate_group_name(&summary.album)),
-        hlc_uuid: Set(album_id.to_string()),
+        source_uuid: Set(album_id.to_string()),
         ..Default::default()
     })
     .on_conflict(
-        OnConflict::column(albums::Column::HlcUuid)
+        OnConflict::column(albums::Column::SourceUuid)
             .do_nothing()
             .to_owned(),
     )
     .exec_without_returning(tx)
     .await?;
     let album = albums::Entity::find()
-        .filter(albums::Column::HlcUuid.eq(album_id.to_string()))
+        .filter(albums::Column::SourceUuid.eq(album_id.to_string()))
         .one(tx)
         .await?
         .ok_or_else(|| Error::msg("missing indexed album"))?;
@@ -312,7 +312,7 @@ async fn process_album(
         track_uuid: Set(summary.file_uuid.clone()),
         album_uuid: Set(album_id.to_string()),
         track_number: Set(Some(summary.track_number)),
-        hlc_uuid: Set(summary.file_uuid.clone()),
+        source_uuid: Set(summary.file_uuid.clone()),
         ..Default::default()
     })
     .on_conflict(
@@ -353,18 +353,18 @@ async fn process_genres(
         genres::Entity::insert(genres::ActiveModel {
             name: Set(name.clone()),
             group: Set(generate_group_name(&name)),
-            hlc_uuid: Set(id.to_string()),
+            source_uuid: Set(id.to_string()),
             ..Default::default()
         })
         .on_conflict(
-            OnConflict::column(genres::Column::HlcUuid)
+            OnConflict::column(genres::Column::SourceUuid)
                 .do_nothing()
                 .to_owned(),
         )
         .exec_without_returning(tx)
         .await?;
         let row = genres::Entity::find()
-            .filter(genres::Column::HlcUuid.eq(id.to_string()))
+            .filter(genres::Column::SourceUuid.eq(id.to_string()))
             .one(tx)
             .await?
             .ok_or_else(|| Error::msg("missing indexed genre"))?;
@@ -398,7 +398,7 @@ async fn process_genres(
                 store,
                 ObjectKey {
                     collection: Collection::FileGenres,
-                    id: row.hlc_uuid.parse()?,
+                    id: row.source_uuid.parse()?,
                 },
             )
             .await?;
@@ -408,7 +408,7 @@ async fn process_genres(
                     tx,
                     ObjectKey {
                         collection: Collection::FileGenres,
-                        id: row.hlc_uuid.parse()?,
+                        id: row.source_uuid.parse()?,
                     },
                     None,
                 )
@@ -424,7 +424,7 @@ async fn process_genres(
         media_file_genres::Entity::insert(media_file_genres::ActiveModel {
             track_uuid: Set(summary.file_uuid.clone()),
             genre_uuid: Set(parent),
-            hlc_uuid: Set(id.to_string()),
+            source_uuid: Set(id.to_string()),
             ..Default::default()
         })
         .exec(tx)

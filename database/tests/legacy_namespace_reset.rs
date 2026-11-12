@@ -94,7 +94,7 @@ async fn legacy_fixture() -> Result<LegacyFixture> {
                 key(Collection::PlaylistEntries, Uuid::new_v4()),
                 Some(Payload::PlaylistEntry(PlaylistEntry {
                     playlist_id: list,
-                    track_id: own_tracks[0].hlc_uuid.parse()?,
+                    track_id: own_tracks[0].source_uuid.parse()?,
                     position: 0,
                 })),
             )
@@ -114,12 +114,12 @@ async fn legacy_fixture() -> Result<LegacyFixture> {
     let peer_tracks = media_files::Entity::find().all(&peer_db).await?;
     let peer_liked = peer_tracks
         .iter()
-        .find(|row| row.hlc_uuid == own_tracks[1].hlc_uuid)
+        .find(|row| row.source_uuid == own_tracks[1].source_uuid)
         .unwrap();
     set_liked(&peer_db, &remote.record_store(), peer_liked.id, true).await?;
     let peer_stats = peer_tracks
         .iter()
-        .find(|row| row.hlc_uuid == own_tracks[0].hlc_uuid)
+        .find(|row| row.source_uuid == own_tracks[0].source_uuid)
         .unwrap();
     increase_played_through(&peer_db, &remote.record_store(), peer_stats.id, other).await?;
     exchange(&target, &source).await?;
@@ -184,18 +184,18 @@ async fn legacy_reset_preserves_only_local_sources_and_reopens_idempotently() ->
             .one(&fixture.db)
             .await?
             .unwrap();
-        assert_eq!(row.hlc_uuid, original.hlc_uuid);
+        assert_eq!(row.source_uuid, original.source_uuid);
         assert!(row.local_available);
         assert!(
             store
-                .get(&key(Collection::Tracks, row.hlc_uuid.parse()?))
+                .get(&key(Collection::Tracks, row.source_uuid.parse()?))
                 .await?
                 .is_some()
         );
     }
     assert!(
         media_files::Entity::find()
-            .filter(media_files::Column::HlcUuid.eq(fixture.remote_track.to_string()))
+            .filter(media_files::Column::SourceUuid.eq(fixture.remote_track.to_string()))
             .one(&fixture.db)
             .await?
             .is_none()
@@ -210,15 +210,15 @@ async fn legacy_reset_preserves_only_local_sources_and_reopens_idempotently() ->
             .await?
             .unwrap()
             .track_uuid,
-        fixture.own_tracks[0].hlc_uuid
+        fixture.own_tracks[0].source_uuid
     );
     let stats = media_file_stats::Entity::find().all(&fixture.db).await?;
     assert_eq!(stats.len(), 1);
     assert_eq!(stats[0].device_id, fixture.actor.to_string());
     assert_eq!(stats[0].played_through, 1);
-    let own_track = fixture.own_tracks[0].hlc_uuid.parse::<Uuid>()?;
+    let own_track = fixture.own_tracks[0].source_uuid.parse::<Uuid>()?;
     assert_eq!(
-        stats[0].hlc_uuid,
+        stats[0].source_uuid,
         Uuid::new_v5(&own_track, fixture.actor.as_bytes()).to_string()
     );
     assert!(
@@ -231,7 +231,7 @@ async fn legacy_reset_preserves_only_local_sources_and_reopens_idempotently() ->
         store
             .get(&key(
                 Collection::PlaybackStatistics,
-                stats[0].hlc_uuid.parse()?
+                stats[0].source_uuid.parse()?
             ))
             .await?
             .is_some()
@@ -249,14 +249,14 @@ async fn legacy_reset_preserves_only_local_sources_and_reopens_idempotently() ->
     }
     assert!(
         playlists::Entity::find()
-            .filter(playlists::Column::HlcUuid.eq(fixture.remote_playlist.to_string()))
+            .filter(playlists::Column::SourceUuid.eq(fixture.remote_playlist.to_string()))
             .one(&fixture.db)
             .await?
             .is_none()
     );
     assert!(
         mixes::Entity::find()
-            .filter(mixes::Column::HlcUuid.eq(fixture.remote_mix.to_string()))
+            .filter(mixes::Column::SourceUuid.eq(fixture.remote_mix.to_string()))
             .one(&fixture.db)
             .await?
             .is_none()
@@ -279,7 +279,7 @@ async fn legacy_reset_preserves_only_local_sources_and_reopens_idempotently() ->
 async fn legacy_reset_drops_own_references_to_peer_only_tracks() -> Result<()> {
     let fixture = legacy_fixture().await?;
     let remote_row = media_files::Entity::find()
-        .filter(media_files::Column::HlcUuid.eq(fixture.remote_track.to_string()))
+        .filter(media_files::Column::SourceUuid.eq(fixture.remote_track.to_string()))
         .one(&fixture.db)
         .await?
         .unwrap();

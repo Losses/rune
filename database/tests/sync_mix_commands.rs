@@ -56,7 +56,7 @@ async fn commands_author_and_reject_invalid_queries_atomically() -> Result<()> {
     .await?;
     let key = ObjectKey {
         collection: Collection::Mixes,
-        id: mix.hlc_uuid.parse()?,
+        id: mix.source_uuid.parse()?,
     };
     assert!(matches!(
         library.get(&key).await?.unwrap().value,
@@ -97,7 +97,7 @@ async fn commands_author_and_reject_invalid_queries_atomically() -> Result<()> {
             &db,
             &store,
             mix.id,
-            &mix.hlc_uuid,
+            &mix.source_uuid,
             vec![("invalid".into(), "x".into())],
             None
         )
@@ -120,7 +120,7 @@ async fn commands_author_and_reject_invalid_queries_atomically() -> Result<()> {
         &db,
         &store,
         mix.id,
-        &mix.hlc_uuid,
+        &mix.source_uuid,
         vec![("filter::liked".into(), "true".into())],
         None,
     )
@@ -180,7 +180,7 @@ async fn each_mix_command_replicates_its_result() -> Result<()> {
     .await?;
     let key = ObjectKey {
         collection: Collection::Mixes,
-        id: mix.hlc_uuid.parse()?,
+        id: mix.source_uuid.parse()?,
     };
     async fn check(
         source: &support::SqlLibrary,
@@ -212,7 +212,7 @@ async fn each_mix_command_replicates_its_result() -> Result<()> {
         &source.db,
         &store,
         mix.id,
-        &mix.hlc_uuid,
+        &mix.source_uuid,
         vec![("filter::liked".into(), "true".into())],
         Some(2),
     )
@@ -281,7 +281,7 @@ async fn directory_binding_stays_local_and_clause_identity_survives_reordering()
         &source.db,
         &store,
         mix.id,
-        &mix.hlc_uuid,
+        &mix.source_uuid,
         vec![
             ("pipe::limit".into(), "8".into()),
             ("lib::directory.deep".into(), "/local/music".into()),
@@ -293,7 +293,7 @@ async fn directory_binding_stays_local_and_clause_identity_survives_reordering()
     assert_eq!(reordered[1].clause_id, initial[0].clause_id);
     assert_eq!(reordered[1].parameter, "/local/music");
     support::exchange(&source.peer, &target.peer).await?;
-    let remote = query_views_on(&target.db, &mix.hlc_uuid).await?;
+    let remote = query_views_on(&target.db, &mix.source_uuid).await?;
     assert_eq!(remote[1].clause_id, initial[0].clause_id);
     assert!(!remote[1].available);
     assert!(remote[1].parameter.is_empty());

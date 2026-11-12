@@ -3,6 +3,8 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use super::media_file_artists::Entity as MediaFileArtistsEntity;
+
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
 #[sea_orm(table_name = "artists")]
 pub struct Model {
@@ -13,12 +15,12 @@ pub struct Model {
     #[sea_orm(column_type = "Text")]
     pub group: String,
     #[sea_orm(column_type = "Text")]
-    pub hlc_uuid: String,
+    pub source_uuid: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_many = "super::media_file_artists::Entity")]
+    #[sea_orm(has_many = "MediaFileArtistsEntity")]
     MediaFileArtists,
 }
 

@@ -42,7 +42,7 @@ async fn new_node_opening_portable_library_can_publish_existing_state() -> Resul
             .one(&db)
             .await?
             .unwrap()
-            .hlc_uuid,
+            .source_uuid,
     )?;
     let track_key = ObjectKey {
         collection: Collection::Tracks,
@@ -142,7 +142,7 @@ async fn copied_library_with_distinct_actors_is_rejected_as_same_replica() -> Re
         .one(&db)
         .await?
         .unwrap()
-        .hlc_uuid;
+        .source_uuid;
     db.execute_unprepared("PRAGMA wal_checkpoint(TRUNCATE)")
         .await?;
     drop(initial);
@@ -214,7 +214,7 @@ async fn copied_library_with_distinct_actors_is_rejected_as_same_replica() -> Re
         b_peer
             .get(&ObjectKey {
                 collection: Collection::Playlists,
-                id: a_list.hlc_uuid.parse()?
+                id: a_list.source_uuid.parse()?
             })
             .await?
             .is_none()
@@ -223,7 +223,7 @@ async fn copied_library_with_distinct_actors_is_rejected_as_same_replica() -> Re
         a_peer
             .get(&ObjectKey {
                 collection: Collection::Playlists,
-                id: b_list.hlc_uuid.parse()?
+                id: b_list.source_uuid.parse()?
             })
             .await?
             .is_none()

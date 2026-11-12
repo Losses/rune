@@ -98,7 +98,7 @@ async fn a_mix_with_genre_and_directory_queries_reads_back() -> Result<()> {
         &db,
         &library.record_store(),
         mix.id,
-        &mix.hlc_uuid,
+        &mix.source_uuid,
         queries.clone(),
         None,
     )

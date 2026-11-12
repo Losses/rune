@@ -57,12 +57,12 @@ pub async fn files_by_uuid(
 ) -> Result<HashMap<Uuid, media_files::Model>> {
     let identities = file_uuids.iter().map(Uuid::to_string).collect::<Vec<_>>();
     Ok(media_files::Entity::find()
-        .filter(media_files::Column::HlcUuid.is_in(identities))
+        .filter(media_files::Column::SourceUuid.is_in(identities))
         .all(db)
         .await?
         .into_iter()
         .filter_map(|file| {
-            Uuid::parse_str(&file.hlc_uuid)
+            Uuid::parse_str(&file.source_uuid)
                 .ok()
                 .map(|uuid| (uuid, file))
         })
@@ -90,7 +90,7 @@ pub async fn file_uuids_by_id(
         .await?
         .into_iter()
         .filter_map(|file| {
-            Uuid::parse_str(&file.hlc_uuid)
+            Uuid::parse_str(&file.source_uuid)
                 .ok()
                 .map(|uuid| (file.id, uuid))
         })
@@ -296,13 +296,13 @@ pub async fn remove_track(
         .one(tx)
         .await?
         .ok_or(ExpectedError::NotFound { what: "track" })?;
-    let track = file.hlc_uuid.as_str();
+    let track = file.source_uuid.as_str();
     remove_track_links::<media_file_albums::Entity>(
         tx,
         store,
         Collection::TrackAlbums,
         media_file_albums::Column::TrackUuid,
-        media_file_albums::Column::HlcUuid,
+        media_file_albums::Column::SourceUuid,
         track,
     )
     .await?;
@@ -311,7 +311,7 @@ pub async fn remove_track(
         store,
         Collection::FileArtists,
         media_file_artists::Column::TrackUuid,
-        media_file_artists::Column::HlcUuid,
+        media_file_artists::Column::SourceUuid,
         track,
     )
     .await?;
@@ -320,7 +320,7 @@ pub async fn remove_track(
         store,
         Collection::FileGenres,
         media_file_genres::Column::TrackUuid,
-        media_file_genres::Column::HlcUuid,
+        media_file_genres::Column::SourceUuid,
         track,
     )
     .await?;
@@ -329,7 +329,7 @@ pub async fn remove_track(
         store,
         Collection::Fingerprints,
         media_file_fingerprint::Column::TrackUuid,
-        media_file_fingerprint::Column::HlcUuid,
+        media_file_fingerprint::Column::SourceUuid,
         track,
     )
     .await?;

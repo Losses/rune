@@ -80,7 +80,7 @@ impl Fixture {
         }
         set_download_rule(&db, vec![("lib::all".into(), "true".into())], None, true).await?;
         let first = media_files::Entity::find()
-            .filter(media_files::Column::HlcUuid.eq(tracks[0].0.to_string()))
+            .filter(media_files::Column::SourceUuid.eq(tracks[0].0.to_string()))
             .one(&db)
             .await?
             .unwrap();
@@ -327,7 +327,7 @@ async fn obsolete_attachment_does_not_block_the_following_file() -> Result<()> {
     for file in files {
         assert_eq!(
             is_materialized(&fixture.db, &fixture.fs, fixture.root.path(), file.id).await?,
-            file.hlc_uuid == fixture.tracks[1].0.to_string()
+            file.source_uuid == fixture.tracks[1].0.to_string()
         );
     }
     Ok(())
@@ -406,7 +406,7 @@ async fn managed_corruption_is_repaired_without_metadata_authorship() -> Result<
     let before_head = fixture.store.head().await?;
     let (track, blob) = &fixture.tracks[0];
     let before = media_files::Entity::find()
-        .filter(media_files::Column::HlcUuid.eq(track.to_string()))
+        .filter(media_files::Column::SourceUuid.eq(track.to_string()))
         .one(&fixture.db)
         .await?
         .unwrap();
@@ -447,7 +447,7 @@ async fn managed_corruption_is_repaired_without_metadata_authorship() -> Result<
         .await?
         .unwrap();
     assert!(repaired.local_available);
-    assert_eq!(repaired.hlc_uuid, before.hlc_uuid);
+    assert_eq!(repaired.source_uuid, before.source_uuid);
     assert_eq!(hash_file(&fixture.fs, &path)?, *blob);
     assert_eq!(fixture.store.head().await?, before_head);
     Ok(())
@@ -513,7 +513,7 @@ async fn invalid_local_path_does_not_block_following_file() -> Result<()> {
         .col_expr(media_files::Column::Directory, Expr::value("../invalid"))
         .col_expr(media_files::Column::FileName, Expr::value("track.ogg"))
         .col_expr(media_files::Column::LocalAvailable, Expr::value(true))
-        .filter(media_files::Column::HlcUuid.eq(fixture.tracks[0].0.to_string()))
+        .filter(media_files::Column::SourceUuid.eq(fixture.tracks[0].0.to_string()))
         .exec(&fixture.db)
         .await?;
     let report = fixture.run(&fixture.base).await?;
@@ -559,7 +559,7 @@ async fn head_and_get_blob_do_not_rehash() -> Result<()> {
     fixture.run(&fixture.base).await?;
     let (track, blob) = &fixture.tracks[0];
     let row = media_files::Entity::find()
-        .filter(media_files::Column::HlcUuid.eq(track.to_string()))
+        .filter(media_files::Column::SourceUuid.eq(track.to_string()))
         .one(&fixture.db)
         .await?
         .unwrap();

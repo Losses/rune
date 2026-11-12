@@ -68,7 +68,7 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
         } else {
             1
         };
-        let file_id: Uuid = file.hlc_uuid.parse()?;
+        let file_id: Uuid = file.source_uuid.parse()?;
         let artist_id =
             migration::catalog_identity::parent(ParentKind::Artist, &format!("Artist {index}"));
         let album_id =
@@ -98,7 +98,7 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
         )
         .await?;
         media_file_artists::Entity::delete_many()
-            .filter(media_file_artists::Column::TrackUuid.eq(file.hlc_uuid.clone()))
+            .filter(media_file_artists::Column::TrackUuid.eq(file.source_uuid.clone()))
             .exec(&source_db)
             .await?;
         let membership =
@@ -281,7 +281,7 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
         assert_eq!(catalog.len(), 2);
         let local = fixtures::open_library(db.clone(), node, None).await?;
         let id = media_files::Entity::find()
-            .filter(media_files::Column::HlcUuid.eq(first.hlc_uuid.clone()))
+            .filter(media_files::Column::SourceUuid.eq(first.source_uuid.clone()))
             .one(&db)
             .await?
             .unwrap()
@@ -297,7 +297,7 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
             .await?
             .unwrap();
         let received_art = media_cover_art::Entity::find()
-            .filter(media_cover_art::Column::HlcUuid.eq(art_id.to_string()))
+            .filter(media_cover_art::Column::SourceUuid.eq(art_id.to_string()))
             .one(&db)
             .await?
             .expect("artwork metadata missing");

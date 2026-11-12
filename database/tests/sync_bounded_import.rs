@@ -32,7 +32,7 @@ async fn seed(local: &SqlLibrary, invalid: bool) -> Result<()> {
             last_modified: Set("old".into()),
             sample_rate: Set(44100),
             duration: Set(rust_decimal::Decimal::ONE),
-            hlc_uuid: Set(identity),
+            source_uuid: Set(identity),
             ..Default::default()
         })
         .exec(&local.db)
@@ -53,7 +53,7 @@ async fn finish_and_check(local: &SqlLibrary) -> Result<()> {
         .await?
         .unwrap();
     assert!(
-        row.hlc_uuid.is_empty(),
+        row.source_uuid.is_empty(),
         "failed batch assigned a source UUID"
     );
     assert!(!initialized(local).await?);
@@ -74,7 +74,7 @@ async fn finish_and_check(local: &SqlLibrary) -> Result<()> {
         .one(&local.db)
         .await?
         .unwrap()
-        .hlc_uuid;
+        .source_uuid;
     assert!(Uuid::parse_str(&assigned).is_ok());
     reopened.import_basic().await?;
     assert_eq!(reopened.head().await?, head);
@@ -83,7 +83,7 @@ async fn finish_and_check(local: &SqlLibrary) -> Result<()> {
             .one(&local.db)
             .await?
             .unwrap()
-            .hlc_uuid,
+            .source_uuid,
         assigned
     );
     Ok(())
@@ -97,7 +97,7 @@ async fn failure_rolls_back_only_current_source_batch_and_restart_is_idempotent(
     assert_eq!(local.library.head().await?.sequence, 126);
     media_files::Entity::update_many()
         .col_expr(
-            media_files::Column::HlcUuid,
+            media_files::Column::SourceUuid,
             Expr::value(Uuid::from_u128(130).to_string()),
         )
         .filter(media_files::Column::Id.eq(130))

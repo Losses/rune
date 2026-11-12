@@ -58,7 +58,7 @@ async fn metadata_initial_incremental_and_idle_rounds() -> Result<()> {
         let tx = source.db.begin().await?;
         media_files::Entity::insert_many((base..end).map(|index| media_files::ActiveModel {
             id: Set(index + 1),
-            hlc_uuid: Set(Uuid::from_u128(index as u128 + 1).to_string()),
+            source_uuid: Set(Uuid::from_u128(index as u128 + 1).to_string()),
             file_name: Set(String::new()),
             directory: Set(String::new()),
             extension: Set("ogg".into()),
@@ -75,7 +75,7 @@ async fn metadata_initial_incremental_and_idle_rounds() -> Result<()> {
         .await?;
         media_metadata::Entity::insert_many((base..end).map(|index| media_metadata::ActiveModel {
             file_id: Set(index + 1),
-            hlc_uuid: Set(Uuid::new_v4().to_string()),
+            source_uuid: Set(Uuid::new_v4().to_string()),
             position: Set(0),
             meta_key: Set("track_title".into()),
             meta_value: Set(format!("Track {index}")),

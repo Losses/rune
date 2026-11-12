@@ -102,7 +102,7 @@ pub async fn list_occurrences(
         .await?
         .ok_or(ExpectedError::NotFound { what: "playlist" })?;
     let mut query =
-        entries::Entity::find().filter(entries::Column::PlaylistUuid.eq(parent.hlc_uuid));
+        entries::Entity::find().filter(entries::Column::PlaylistUuid.eq(parent.source_uuid));
     if let Some(after) = after {
         let id: Uuid = after
             .occurrence_id
@@ -115,13 +115,13 @@ pub async fn list_occurrences(
                 .add(
                     Condition::all()
                         .add(entries::Column::Position.eq(after.position))
-                        .add(entries::Column::HlcUuid.gt(after.occurrence_id)),
+                        .add(entries::Column::SourceUuid.gt(after.occurrence_id)),
                 ),
         );
     }
     let mut rows = query
         .order_by_asc(entries::Column::Position)
-        .order_by_asc(entries::Column::HlcUuid)
+        .order_by_asc(entries::Column::SourceUuid)
         .limit(u64::from(limit) + 1)
         .find_also_related(media_files::Entity)
         .all(db)
@@ -131,7 +131,7 @@ pub async fn list_occurrences(
     let next = if more {
         rows.last().map(|(row, _)| OccurrenceCursor {
             position: row.position,
-            occurrence_id: row.hlc_uuid.clone(),
+            occurrence_id: row.source_uuid.clone(),
         })
     } else {
         None
@@ -140,7 +140,7 @@ pub async fn list_occurrences(
         .into_iter()
         .map(|(row, file)| {
             Ok(Occurrence {
-                occurrence_id: row.hlc_uuid,
+                occurrence_id: row.source_uuid,
                 position: row.position,
                 track_id: row.track_uuid.parse()?,
                 file,
@@ -302,7 +302,7 @@ async fn create_on(
     let new_playlist = ActiveModel {
         name: ActiveValue::Set(name.clone()),
         group: ActiveValue::Set(group),
-        hlc_uuid: ActiveValue::Set(
+        source_uuid: ActiveValue::Set(
             Uuid::new_v5(
                 &Uuid::NAMESPACE_URL,
                 format!("RUNE_PLAYLIST::{name}::{}", Utc::now().to_rfc3339()).as_bytes(),
@@ -351,7 +351,7 @@ pub async fn create_playlist(
     let tx = db.begin().await?;
     store.lock(&tx).await?;
     let row = create_on(&tx, name, group).await?;
-    author(&tx, store, Collection::Playlists, &row.hlc_uuid).await?;
+    author(&tx, store, Collection::Playlists, &row.source_uuid).await?;
     tx.commit().await?;
     Ok(row)
 }
@@ -378,7 +378,7 @@ pub async fn update_playlist(
     }
     let row = active.update(&tx).await?;
     add_term(&tx, CollectionQueryType::Playlist, id, &row.name).await?;
-    author(&tx, store, Collection::Playlists, &row.hlc_uuid).await?;
+    author(&tx, store, Collection::Playlists, &row.source_uuid).await?;
     tx.commit().await?;
     Ok(row)
 }
@@ -401,7 +401,7 @@ pub async fn remove_playlist(
             &tx,
             ObjectKey {
                 collection: Collection::Playlists,
-                id: row.hlc_uuid.parse()?,
+                id: row.source_uuid.parse()?,
             },
             None,
         )
@@ -418,16 +418,16 @@ async fn add_on(
     position: i32,
 ) -> Result<media_file_playlists::Model> {
     let entry = media_file_playlists::ActiveModel {
-        playlist_uuid: Set(parent.hlc_uuid.clone()),
-        track_uuid: Set(file.hlc_uuid.clone()),
+        playlist_uuid: Set(parent.source_uuid.clone()),
+        track_uuid: Set(file.source_uuid.clone()),
         position: Set(position),
-        hlc_uuid: Set(Uuid::new_v4().to_string()),
+        source_uuid: Set(Uuid::new_v4().to_string()),
         ..Default::default()
     };
     let row = media_file_playlists::Entity::insert(entry)
         .exec_with_returning(tx)
         .await?;
-    author(tx, store, Collection::PlaylistEntries, &row.hlc_uuid).await?;
+    author(tx, store, Collection::PlaylistEntries, &row.source_uuid).await?;
     Ok(row)
 }
 
@@ -451,7 +451,7 @@ pub async fn add_item_to_playlist(
     let position = match position {
         Some(p) => p,
         None => media_file_playlists::Entity::find()
-            .filter(media_file_playlists::Column::PlaylistUuid.eq(&parent.hlc_uuid))
+            .filter(media_file_playlists::Column::PlaylistUuid.eq(&parent.source_uuid))
             .order_by_desc(media_file_playlists::Column::Position)
             .one(&tx)
             .await?
@@ -479,8 +479,8 @@ async fn find_occurrence(
         .await?
         .ok_or(ExpectedError::NotFound { what: "playlist" })?;
     media_file_playlists::Entity::find()
-        .filter(media_file_playlists::Column::PlaylistUuid.eq(parent.hlc_uuid))
-        .filter(media_file_playlists::Column::HlcUuid.eq(occurrence_id.to_string()))
+        .filter(media_file_playlists::Column::PlaylistUuid.eq(parent.source_uuid))
+        .filter(media_file_playlists::Column::SourceUuid.eq(occurrence_id.to_string()))
         .one(tx)
         .await?
         .ok_or(ExpectedError::NotFound {
@@ -529,7 +529,7 @@ pub async fn reorder_playlist_item_position(
         let mut active: media_file_playlists::ActiveModel = row.into();
         active.position = Set(position);
         let row = active.update(&tx).await?;
-        author(&tx, store, Collection::PlaylistEntries, &row.hlc_uuid).await?;
+        author(&tx, store, Collection::PlaylistEntries, &row.source_uuid).await?;
     }
     tx.commit().await?;
     Ok(())
@@ -591,7 +591,7 @@ pub async fn create_m3u8_playlist_from_lines(
     let tx = db.begin().await?;
     store.lock(&tx).await?;
     let row = create_on(&tx, name, group).await?;
-    author(&tx, store, Collection::Playlists, &row.hlc_uuid).await?;
+    author(&tx, store, Collection::Playlists, &row.source_uuid).await?;
     let result = import_on(&tx, store, &row, &lines).await?;
     tx.commit().await?;
     Ok((row, result))

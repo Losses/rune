@@ -140,7 +140,7 @@ async fn mix_filters_and_orders_by_likes_and_per_device_totals() -> Result<()> {
             last_modified: Set("2020-01-01".into()),
             sample_rate: Set(44100),
             duration: Set(1.into()),
-            hlc_uuid: Set(Uuid::new_v4().to_string()),
+            source_uuid: Set(Uuid::new_v4().to_string()),
             local_available: Set(true),
             ..Default::default()
         })
@@ -149,7 +149,7 @@ async fn mix_filters_and_orders_by_likes_and_per_device_totals() -> Result<()> {
         media_analysis::Entity::insert(media_analysis::ActiveModel {
             file_id: Set(id),
             analysis_version: Set(analysis::CURRENT_ANALYSIS_VERSION),
-            hlc_uuid: Set(Uuid::new_v4().to_string()),
+            source_uuid: Set(Uuid::new_v4().to_string()),
             ..Default::default()
         })
         .exec(&db)

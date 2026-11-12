@@ -55,7 +55,7 @@ pub async fn ensure_magic_cover_art(
             content_hash: ActiveValue::Set(None),
             content_size: ActiveValue::Set(None),
             local_available: ActiveValue::Set(false),
-            hlc_uuid: ActiveValue::Set("00000000-0000-0000-0000-000000000000".to_owned()),
+            source_uuid: ActiveValue::Set("00000000-0000-0000-0000-000000000000".to_owned()),
         };
 
         let insert_result = media_cover_art::Entity::insert(new_magic_cover_art)
@@ -95,7 +95,7 @@ fn bake_cover_art_by_cover_arts(
             continue;
         }
         let digest = blake3::hash(&cover_art.binary).to_hex().to_string();
-        if migration::catalog_identity::artwork(&digest).to_string() != cover_art.hlc_uuid
+        if migration::catalog_identity::artwork(&digest).to_string() != cover_art.source_uuid
             || cover_art.content_hash.as_deref() != Some(digest.as_str())
             || cover_art.content_size != Some(cover_art.binary.len() as i64)
         {
@@ -138,13 +138,13 @@ pub async fn bake_cover_art_by_media_files(
     let mut paths = HashMap::new();
     for ids in ids.into_iter().collect::<Vec<_>>().chunks(4) {
         let artwork = media_cover_art::Entity::find()
-            .filter(media_cover_art::Column::HlcUuid.is_in(ids.iter().copied()))
+            .filter(media_cover_art::Column::SourceUuid.is_in(ids.iter().copied()))
             .filter(media_cover_art::Column::LocalAvailable.eq(true))
             .all(main_db)
             .await?;
         let identity: Vec<_> = artwork
             .iter()
-            .map(|row| (row.id, row.hlc_uuid.clone()))
+            .map(|row| (row.id, row.source_uuid.clone()))
             .collect();
         let baked = bake_cover_art_by_cover_arts(fsio, artwork)?;
         for (id, uuid) in identity {
@@ -380,7 +380,7 @@ pub async fn remove_cover_art_by_file_id(
     let tx = main_db.begin().await?;
     store.lock(&tx).await?;
     if let Some(file) = media_files::Entity::find_by_id(file_id).one(&tx).await? {
-        let id = file.hlc_uuid.parse()?;
+        let id = file.source_uuid.parse()?;
         let mut active: media_files::ActiveModel = file.into();
         active.cover_art_uuid = ActiveValue::Set(None);
         active.cover_art_checked_at = ActiveValue::Set(None);
@@ -413,7 +413,7 @@ pub async fn get_cover_art_id_by_track_id(
         return Ok(media_cover_art::Entity::find()
             .select_only()
             .column(media_cover_art::Column::Id)
-            .filter(media_cover_art::Column::HlcUuid.eq(artwork))
+            .filter(media_cover_art::Column::SourceUuid.eq(artwork))
             .into_tuple::<i32>()
             .one(main_db)
             .await?);
@@ -480,7 +480,7 @@ mod identity_tests {
                 last_modified: Set("2020".into()),
                 sample_rate: Set(44100),
                 duration: Set(1.into()),
-                hlc_uuid: Set(source.into()),
+                source_uuid: Set(source.into()),
                 local_available: Set(true),
                 ..Default::default()
             })
@@ -510,7 +510,7 @@ mod identity_tests {
             .map(|file| {
                 artwork
                     .iter()
-                    .find(|art| Some(&art.hlc_uuid) == file.cover_art_uuid.as_ref())
+                    .find(|art| Some(&art.source_uuid) == file.cover_art_uuid.as_ref())
                     .unwrap()
                     .id
             })
@@ -521,13 +521,13 @@ mod identity_tests {
         assert_eq!(std::fs::read(&baked[&ids[1]])?, vec![4, 5, 6]);
         for file in files {
             let art = media_cover_art::Entity::find()
-                .filter(media_cover_art::Column::HlcUuid.eq(file.cover_art_uuid.unwrap()))
+                .filter(media_cover_art::Column::SourceUuid.eq(file.cover_art_uuid.unwrap()))
                 .one(&db)
                 .await?
                 .unwrap();
             let digest = blake3::hash(&art.binary).to_hex().to_string();
             assert_eq!(
-                art.hlc_uuid,
+                art.source_uuid,
                 migration::catalog_identity::artwork(&digest).to_string()
             );
         }
@@ -591,7 +591,7 @@ async fn attach_body(
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
     verify_body(id, digest, size, &body)?;
     let rows = media_cover_art::Entity::find()
-        .filter(media_cover_art::Column::HlcUuid.eq(id.to_string()))
+        .filter(media_cover_art::Column::SourceUuid.eq(id.to_string()))
         .all(tx)
         .await?;
     ensure!(rows.len() <= 1, "duplicate artwork identity");
@@ -638,7 +638,7 @@ async fn attach_body(
             content_size: Set(Some(size as i64)),
             local_available: Set(true),
             primary_color: Set(primary_color),
-            hlc_uuid: Set(id.to_string()),
+            source_uuid: Set(id.to_string()),
             ..Default::default()
         })
         .exec(tx)
@@ -659,7 +659,7 @@ pub async fn assign_inspected(
     use crate::sync::model::{Collection, ObjectKey, author_source_on};
     use sea_orm::sea_query::Expr;
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, TransactionTrait};
-    let file_id: Uuid = observed.hlc_uuid.parse()?;
+    let file_id: Uuid = observed.source_uuid.parse()?;
     ensure!(!file_id.is_nil(), "missing file source identity");
     let tx = db.begin().await?;
     store.lock(&tx).await?;
@@ -668,7 +668,7 @@ pub async fn assign_inspected(
         .await?
         .ok_or_else(|| anyhow::anyhow!("inspected file disappeared"))?;
     ensure!(
-        current.hlc_uuid == observed.hlc_uuid
+        current.source_uuid == observed.source_uuid
             && current.last_modified == observed.last_modified
             && current.content_hash == observed.content_hash
             && current.content_size == observed.content_size
@@ -722,7 +722,7 @@ pub async fn artwork_body_needed(
 ) -> Result<bool> {
     let body = expected.body()?;
     let local = media_cover_art::Entity::find()
-        .filter(media_cover_art::Column::HlcUuid.eq(id.to_string()))
+        .filter(media_cover_art::Column::SourceUuid.eq(id.to_string()))
         .one(db)
         .await?;
     Ok(local.is_none_or(|row| {
@@ -851,7 +851,7 @@ mod received_body_tests {
         assert!(!artwork_body_needed(&db, id, &changed).await?);
         media_cover_art::Entity::update_many()
             .col_expr(media_cover_art::Column::LocalAvailable, Expr::value(false))
-            .filter(media_cover_art::Column::HlcUuid.eq(id.to_string()))
+            .filter(media_cover_art::Column::SourceUuid.eq(id.to_string()))
             .exec(&db)
             .await?;
         assert!(artwork_body_needed(&db, id, &changed).await?);

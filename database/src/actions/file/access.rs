@@ -88,7 +88,7 @@ pub async fn audio_availability<C: ConnectionTrait>(
         .filter(media_files::Column::Id.is_in(ids.iter().copied()))
         .all(db)
         .await?;
-    let uuids: Vec<_> = rows.iter().map(|row| row.hlc_uuid.clone()).collect();
+    let uuids: Vec<_> = rows.iter().map(|row| row.source_uuid.clone()).collect();
     let pending: HashSet<_> = sync_download_jobs::Entity::find()
         .filter(sync_download_jobs::Column::FileUuid.is_in(uuids))
         .all(db)
@@ -103,7 +103,7 @@ pub async fn audio_availability<C: ConnectionTrait>(
             .map(|row| {
                 let state = if row_path(&fsio, &root, &row)?.is_some() {
                     AudioAvailability::Local
-                } else if pending.contains(&row.hlc_uuid) {
+                } else if pending.contains(&row.source_uuid) {
                     AudioAvailability::ImportPending
                 } else if row.content_hash.is_some() && row.content_size.is_some() {
                     AudioAvailability::RemoteOnly

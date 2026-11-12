@@ -96,7 +96,7 @@ async fn reference_before_parent_survives_endpoint_restart_and_parent_removal() 
         .await?;
     assert!(restarted.pending_mixes().await?.is_empty());
     let row = mixes::Entity::find()
-        .filter(mixes::Column::HlcUuid.eq(mix.to_string()))
+        .filter(mixes::Column::SourceUuid.eq(mix.to_string()))
         .one(&local.db)
         .await?
         .unwrap();
@@ -193,7 +193,7 @@ async fn changed_entry_does_not_show_stale_parent_while_waiting() -> Result<()> 
                 .one(&local.db)
                 .await?
                 .unwrap();
-            assert_eq!(row.hlc_uuid, entry.to_string());
+            assert_eq!(row.source_uuid, entry.to_string());
             assert_eq!(
                 row.playlist_uuid,
                 if sequence == 2 { old } else { new }.to_string()

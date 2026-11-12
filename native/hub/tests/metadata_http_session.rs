@@ -477,7 +477,7 @@ async fn sqlite_sessions_resume_through_truncation_reset_timeout_and_slow_respon
         playlist("tail-19")
     );
     let row = playlists::Entity::find()
-        .filter(playlists::Column::HlcUuid.eq(key.id.to_string()))
+        .filter(playlists::Column::SourceUuid.eq(key.id.to_string()))
         .one(&target.db)
         .await?
         .context("SQL projection missing")?;

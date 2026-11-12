@@ -26,14 +26,14 @@ async fn missing_host_file_remove_everywhere_authors_removal() -> Result<()> {
     use database::entities::{media_file_likes, media_file_stats};
     use sea_orm::Set;
     let row = media_files::Entity::find_by_id(id).one(&db).await?.unwrap();
-    let track_uuid = row.hlc_uuid;
+    let track_uuid = row.source_uuid;
     let key = ObjectKey {
         collection: Collection::Tracks,
         id: track_uuid.parse()?,
     };
     media_file_likes::Entity::insert(media_file_likes::ActiveModel {
         track_uuid: Set(track_uuid.clone()),
-        hlc_uuid: Set(Uuid::new_v4().to_string()),
+        source_uuid: Set(Uuid::new_v4().to_string()),
         liked: Set(true),
         updated_at: Set("2025-01-01T00:00:00Z".into()),
         ..Default::default()
@@ -42,7 +42,7 @@ async fn missing_host_file_remove_everywhere_authors_removal() -> Result<()> {
     .await?;
     media_file_stats::Entity::insert(media_file_stats::ActiveModel {
         track_uuid: Set(track_uuid),
-        hlc_uuid: Set(Uuid::new_v4().to_string()),
+        source_uuid: Set(Uuid::new_v4().to_string()),
         device_id: Set(node.to_string()),
         skipped: Set(1),
         played_through: Set(2),
@@ -99,7 +99,7 @@ async fn unavailable_case(managed: bool, policy: MissingHostFilePolicy) -> Resul
     let row = media_files::Entity::find_by_id(id).one(&db).await?.unwrap();
     let key = ObjectKey {
         collection: Collection::Tracks,
-        id: row.hlc_uuid.parse()?,
+        id: row.source_uuid.parse()?,
     };
     let before = store.get_on(&db, &key).await?;
     std::fs::remove_file(path)?;
@@ -179,12 +179,12 @@ async fn missing_host_removal_reaches_another_replica() -> Result<()> {
         .one(&a.db)
         .await?
         .unwrap()
-        .hlc_uuid;
+        .source_uuid;
     support::exchange(&a.peer, &b.peer).await?;
     use sea_orm::{ColumnTrait, QueryFilter};
     assert!(
         media_files::Entity::find()
-            .filter(media_files::Column::HlcUuid.eq(&uuid))
+            .filter(media_files::Column::SourceUuid.eq(&uuid))
             .one(&b.db)
             .await?
             .is_some()
@@ -202,7 +202,7 @@ async fn missing_host_removal_reaches_another_replica() -> Result<()> {
     support::exchange(&a.peer, &b.peer).await?;
     assert!(
         media_files::Entity::find()
-            .filter(media_files::Column::HlcUuid.eq(&uuid))
+            .filter(media_files::Column::SourceUuid.eq(&uuid))
             .one(&b.db)
             .await?
             .is_none()

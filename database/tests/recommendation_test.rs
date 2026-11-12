@@ -26,7 +26,7 @@ async fn setup_db() -> Result<DatabaseConnection> {
 async fn insert_file(db: &DatabaseConnection, id: i32) -> Result<()> {
     db.execute_unprepared(&format!(
         "INSERT INTO media_files (id, file_name, directory, extension, file_hash, last_modified, \
-         sample_rate, duration, hlc_uuid) \
+         sample_rate, duration, source_uuid) \
          VALUES ({id}, 'f{id}.mp3', '.', 'mp3', 'hash{id}', '0', 44100, 1.0, 'file-{id}')"
     ))
     .await?;
@@ -36,7 +36,7 @@ async fn insert_file(db: &DatabaseConnection, id: i32) -> Result<()> {
 /// A track whose analysis has `rms = x` and `zcr = y`, everything else NULL (0).
 async fn insert_analysis(db: &DatabaseConnection, file_id: i32, x: f64, y: f64) -> Result<()> {
     db.execute_unprepared(&format!(
-        "INSERT INTO media_analysis (analysis_version, file_id, rms, zcr, hlc_uuid) \
+        "INSERT INTO media_analysis (analysis_version, file_id, rms, zcr, source_uuid) \
          VALUES (2, {file_id}, {x}, {y}, 'analysis-{file_id}')"
     ))
     .await?;
@@ -303,7 +303,7 @@ async fn loaded_vectors_are_bit_identical_to_the_model_conversion() -> Result<()
         .await?
         .into_iter()
         .map(|r| r.try_get::<String>("", "name").unwrap())
-        .filter(|c| !["id", "file_id", "analysis_version", "hlc_uuid"].contains(&c.as_str()))
+        .filter(|c| !["id", "file_id", "analysis_version", "source_uuid"].contains(&c.as_str()))
         .collect();
     assert_eq!(columns.len(), 61);
 
@@ -322,7 +322,7 @@ async fn loaded_vectors_are_bit_identical_to_the_model_conversion() -> Result<()
             })
             .collect();
         db.execute_unprepared(&format!(
-            "INSERT INTO media_analysis (analysis_version, file_id, {}, hlc_uuid) \
+            "INSERT INTO media_analysis (analysis_version, file_id, {}, source_uuid) \
              VALUES (2, {id}, {}, 'a{id}')",
             columns.join(", "),
             values.join(", ")
@@ -409,7 +409,7 @@ async fn perf_load_100k_rows() -> Result<()> {
             c.as_str() != "id"
                 && c.as_str() != "file_id"
                 && c.as_str() != "analysis_version"
-                && !c.contains("hlc")
+                && c.as_str() != "source_uuid"
         })
         .collect();
     db.execute_unprepared("BEGIN").await?;
@@ -419,7 +419,7 @@ async fn perf_load_100k_rows() -> Result<()> {
             .map(|i| format!("{}", (id as f64 * 0.37 + i as f64).sin()))
             .collect();
         db.execute_unprepared(&format!(
-            "INSERT INTO media_analysis (analysis_version, file_id, {}, hlc_uuid) \
+            "INSERT INTO media_analysis (analysis_version, file_id, {}, source_uuid) \
              VALUES (2, {id}, {}, 'a{id}')",
             columns.join(", "),
             values.join(", ")

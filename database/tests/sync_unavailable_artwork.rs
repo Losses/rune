@@ -17,7 +17,7 @@ async fn library_with_oversized_cover(local: &support::SqlLibrary) -> Result<(St
         content_hash: Set(None),
         content_size: Set(None),
         local_available: Set(false),
-        hlc_uuid: Set(cover.clone()),
+        source_uuid: Set(cover.clone()),
         ..Default::default()
     })
     .exec(&local.db)
@@ -32,7 +32,7 @@ async fn library_with_oversized_cover(local: &support::SqlLibrary) -> Result<(St
         sample_rate: Set(44100),
         duration: Set(rust_decimal::Decimal::ONE),
         cover_art_uuid: Set(Some(cover.clone())),
-        hlc_uuid: Set(track.clone()),
+        source_uuid: Set(track.clone()),
         ..Default::default()
     })
     .exec(&local.db)
@@ -59,14 +59,14 @@ async fn a_track_whose_cover_was_left_out_still_syncs() -> Result<()> {
     let remote = support::SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     support::exchange(&local.peer, &remote.peer).await?;
     let received = media_files::Entity::find()
-        .filter(media_files::Column::HlcUuid.eq(&track))
+        .filter(media_files::Column::SourceUuid.eq(&track))
         .one(&remote.db)
         .await?
         .context("the track did not reach the peer")?;
     assert_eq!(received.cover_art_uuid.as_deref(), Some(cover.as_str()));
     assert!(
         media_cover_art::Entity::find()
-            .filter(media_cover_art::Column::HlcUuid.eq(&cover))
+            .filter(media_cover_art::Column::SourceUuid.eq(&cover))
             .one(&remote.db)
             .await?
             .is_none()

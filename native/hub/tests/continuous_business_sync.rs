@@ -160,7 +160,7 @@ impl Replica {
     }
     async fn file(&self, uuid: Uuid) -> Result<i32> {
         Ok(media_files::Entity::find()
-            .filter(media_files::Column::HlcUuid.eq(uuid.to_string()))
+            .filter(media_files::Column::SourceUuid.eq(uuid.to_string()))
             .one(&self.db)
             .await?
             .context("track is missing")?
@@ -170,7 +170,7 @@ impl Replica {
         Ok(playlists::get_all_playlists(&self.db)
             .await?
             .into_iter()
-            .find(|row| row.hlc_uuid == uuid.to_string()))
+            .find(|row| row.source_uuid == uuid.to_string()))
     }
 }
 fn coordinator() -> Result<Coordinator<RuneModel>> {
@@ -284,7 +284,7 @@ async fn business_scenario() -> Result<()> {
     for (index, id) in tracks.iter().enumerate() {
         media_files::Entity::insert(media_files::ActiveModel {
             id: Set(index as i32 + 1),
-            hlc_uuid: Set(id.to_string()),
+            source_uuid: Set(id.to_string()),
             file_name: Set(format!("track-{index}.ogg")),
             directory: Set(String::new()),
             extension: Set("ogg".into()),
@@ -323,7 +323,7 @@ async fn business_scenario() -> Result<()> {
     let a1 = a.file(tracks[0]).await?;
     let shared =
         playlists::create_playlist(&a.db, &a_store, "shared original".into(), "s".into()).await?;
-    let shared_uuid: Uuid = shared.hlc_uuid.parse()?;
+    let shared_uuid: Uuid = shared.source_uuid.parse()?;
     let removed = playlists::add_item_to_playlist(&a.db, &a_store, shared.id, a1, None).await?;
     let mut in_flight = coordinator()?;
     assert!(
@@ -345,7 +345,7 @@ async fn business_scenario() -> Result<()> {
                 // The HTTP request is waiting at the source while these commands commit.
                 let commands: Result<_> = async {
                     let entry = playlists::add_item_to_playlist(&a.db, &a_store, shared.id, a1, None).await?;
-                    assert_ne!(removed.hlc_uuid, entry.hlc_uuid);
+                    assert_ne!(removed.source_uuid, entry.source_uuid);
                     stats::set_liked(&a.db, &a_store, a1, true).await?;
                     stats::increase_skipped(&a.db, &a_store, a1, a.actor).await?;
                     assert!(stats::get_liked(&a.db, a1).await?);
@@ -392,13 +392,18 @@ async fn business_scenario() -> Result<()> {
         None,
     )
     .await?;
-    playlists::remove_item_from_playlist(&b.db, &b_store, shared_b.id, removed.hlc_uuid.parse()?)
-        .await?;
+    playlists::remove_item_from_playlist(
+        &b.db,
+        &b_store,
+        shared_b.id,
+        removed.source_uuid.parse()?,
+    )
+    .await?;
     playlists::reorder_playlist_item_position(
         &b.db,
         &b_store,
         shared_b.id,
-        kept.hlc_uuid.parse()?,
+        kept.source_uuid.parse()?,
         5,
     )
     .await?;
@@ -425,7 +430,7 @@ async fn business_scenario() -> Result<()> {
     let d1 = d.file(tracks[0]).await?;
     let transient =
         playlists::create_playlist(&c.db, &c_store, "remove me".into(), "x".into()).await?;
-    let transient_uuid: Uuid = transient.hlc_uuid.parse()?;
+    let transient_uuid: Uuid = transient.source_uuid.parse()?;
     playlists::update_playlist(
         &c.db,
         &c_store,
@@ -436,7 +441,7 @@ async fn business_scenario() -> Result<()> {
     .await?;
     let retained =
         playlists::create_playlist(&d.db, &d_store, "remote list".into(), "r".into()).await?;
-    let retained_uuid: Uuid = retained.hlc_uuid.parse()?;
+    let retained_uuid: Uuid = retained.source_uuid.parse()?;
     let retained_entry =
         playlists::add_item_to_playlist(&d.db, &d_store, retained.id, d1, None).await?;
     let mix = mixes::create_mix(
@@ -473,8 +478,8 @@ async fn business_scenario() -> Result<()> {
         vec![("lib::playlist".into(), transient.id.to_string())],
     )
     .await?;
-    let dangling_uuid = dangling_mix.hlc_uuid.clone();
-    let removed_mix_uuid = mix.hlc_uuid.clone();
+    let dangling_uuid = dangling_mix.source_uuid.clone();
+    let removed_mix_uuid = mix.source_uuid.clone();
     stats::set_liked(&c.db, &c_store, c2, true).await?;
     stats::increase_skipped(&c.db, &c_store, c2, c.actor).await?;
     stats::increase_played_through(&c.db, &c_store, c2, c.actor).await?;
@@ -488,7 +493,7 @@ async fn business_scenario() -> Result<()> {
         !mixes::get_all_mixes(&c.db)
             .await?
             .iter()
-            .any(|row| row.hlc_uuid == removed_mix_uuid)
+            .any(|row| row.source_uuid == removed_mix_uuid)
     );
     let views = mixes::get_mix_queries_by_mix_id(&c.db, dangling_mix.id).await?;
     assert_eq!(views.len(), 1);
@@ -549,7 +554,7 @@ async fn business_scenario() -> Result<()> {
                 .iter()
                 .map(|row| row.occurrence_id.as_str())
                 .collect::<Vec<_>>(),
-            [extra.hlc_uuid.as_str(), kept.hlc_uuid.as_str()]
+            [extra.source_uuid.as_str(), kept.source_uuid.as_str()]
         );
         let retained_row = replica
             .playlist(retained_uuid)
@@ -559,13 +564,17 @@ async fn business_scenario() -> Result<()> {
             .await?
             .entries;
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].occurrence_id, retained_entry.hlc_uuid);
+        assert_eq!(entries[0].occurrence_id, retained_entry.source_uuid);
         assert_eq!(entries[0].track_id, tracks[0]);
         let all_mixes = mixes::get_all_mixes(&replica.db).await?;
-        assert!(!all_mixes.iter().any(|row| row.hlc_uuid == removed_mix_uuid));
+        assert!(
+            !all_mixes
+                .iter()
+                .any(|row| row.source_uuid == removed_mix_uuid)
+        );
         let dangling = all_mixes
             .iter()
-            .find(|row| row.hlc_uuid == dangling_uuid)
+            .find(|row| row.source_uuid == dangling_uuid)
             .context("missing-reference mix is absent")?;
         let views = mixes::get_mix_queries_by_mix_id(&replica.db, dangling.id).await?;
         assert_eq!(views.len(), 1);
@@ -628,7 +637,7 @@ async fn repeated_scenario() -> Result<()> {
     let track = Uuid::from_u128(201);
     media_files::Entity::insert(media_files::ActiveModel {
         id: Set(1),
-        hlc_uuid: Set(track.to_string()),
+        source_uuid: Set(track.to_string()),
         file_name: Set("shared.ogg".into()),
         directory: Set(String::new()),
         extension: Set("ogg".into()),
@@ -651,7 +660,7 @@ async fn repeated_scenario() -> Result<()> {
         "c".into(),
     )
     .await?;
-    let common_uuid: Uuid = common.hlc_uuid.parse()?;
+    let common_uuid: Uuid = common.source_uuid.parse()?;
     for target in replicas.iter().skip(1) {
         exchange(a, target).await?;
     }
@@ -696,7 +705,7 @@ async fn repeated_scenario() -> Result<()> {
             Some(position),
         )
         .await?;
-        kept_entries.push(entry.hlc_uuid);
+        kept_entries.push(entry.source_uuid);
     }
     // A small page size guarantees several real continuation reads over duplicates.
     let mut cursor = None;
@@ -718,7 +727,7 @@ async fn repeated_scenario() -> Result<()> {
             let name = format!("replica-{index}-round-{round}");
             let row =
                 playlists::create_playlist(&replica.db, &store, name.clone(), "r".into()).await?;
-            let id: Uuid = row.hlc_uuid.parse()?;
+            let id: Uuid = row.source_uuid.parse()?;
             let final_name = format!("{name}-updated");
             playlists::update_playlist(&replica.db, &store, row.id, Some(final_name.clone()), None)
                 .await?;
@@ -785,8 +794,8 @@ async fn repeated_scenario() -> Result<()> {
         let rows = playlists::get_all_playlists(&replica.db).await?;
         let observed: BTreeMap<Uuid, String> = rows
             .into_iter()
-            .filter(|row| row.hlc_uuid != common_uuid.to_string())
-            .map(|row| Ok((row.hlc_uuid.parse()?, row.name)))
+            .filter(|row| row.source_uuid != common_uuid.to_string())
+            .map(|row| Ok((row.source_uuid.parse()?, row.name)))
             .collect::<Result<_>>()?;
         assert_eq!(observed, expected);
         let mut cursor = None;
@@ -851,7 +860,7 @@ async fn concurrent_scenario() -> Result<()> {
     let track = Uuid::from_u128(301);
     media_files::Entity::insert(media_files::ActiveModel {
         id: Set(1),
-        hlc_uuid: Set(track.to_string()),
+        source_uuid: Set(track.to_string()),
         file_name: Set("shared.ogg".into()),
         directory: Set(String::new()),
         extension: Set("ogg".into()),
@@ -868,7 +877,7 @@ async fn concurrent_scenario() -> Result<()> {
     a.library.import_existing(a.actor).await?;
     let playlist =
         playlists::create_playlist(&a.db, &store, "committed".into(), "c".into()).await?;
-    let playlist_uuid: Uuid = playlist.hlc_uuid.parse()?;
+    let playlist_uuid: Uuid = playlist.source_uuid.parse()?;
     exchange(&a, &b).await?;
     let mut session = coordinator()?;
     assert!(!step(&mut session, &a, &b).await?);

@@ -1287,11 +1287,11 @@ mod tests {
     }
 
     async fn assert_owner(db: &sea_orm_migration::sea_orm::DatabaseConnection, actor: &str) {
-        let row = db.query_one_raw(Statement::from_string(db.get_database_backend(), "SELECT s.device_id,s.hlc_uuid,s.skipped,s.played_through,f.liked FROM media_file_stats s JOIN media_file_likes f ON s.track_uuid=f.track_uuid".to_owned())).await.unwrap().unwrap();
+        let row = db.query_one_raw(Statement::from_string(db.get_database_backend(), "SELECT s.device_id,s.source_uuid,s.skipped,s.played_through,f.liked FROM media_file_stats s JOIN media_file_likes f ON s.track_uuid=f.track_uuid".to_owned())).await.unwrap().unwrap();
         assert_eq!(row.try_get::<String>("", "device_id").unwrap(), actor);
         let file = Uuid::parse_str("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb").unwrap();
         assert_eq!(
-            row.try_get::<String>("", "hlc_uuid").unwrap(),
+            row.try_get::<String>("", "source_uuid").unwrap(),
             Uuid::new_v5(&file, Uuid::parse_str(actor).unwrap().as_bytes()).to_string()
         );
         assert_eq!(row.try_get::<i32>("", "skipped").unwrap(), 3);
@@ -1621,9 +1621,9 @@ mod tests {
             .await
             .unwrap();
         crate::Migrator::up(&db, None).await.unwrap();
-        db.execute_unprepared("INSERT INTO media_files(id,file_name,directory,extension,file_hash,last_modified,sample_rate,duration,hlc_uuid) VALUES(1,'a','','ogg','a','old',44100,1,'11111111-1111-4111-8111-111111111111'),(2,'b','','ogg','b','old',44100,1,'22222222-2222-4222-8222-222222222222')").await.unwrap();
-        db.execute_unprepared("INSERT INTO media_file_similarity(first_track_uuid,second_track_uuid,similarity,hlc_uuid) VALUES('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',0.1,'first'), ('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',0.2,'second')").await.unwrap();
-        assert!(db.execute_unprepared("INSERT INTO media_file_similarity(first_track_uuid,second_track_uuid,similarity,hlc_uuid) VALUES('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',0.3,'first')").await.is_err());
+        db.execute_unprepared("INSERT INTO media_files(id,file_name,directory,extension,file_hash,last_modified,sample_rate,duration,source_uuid) VALUES(1,'a','','ogg','a','old',44100,1,'11111111-1111-4111-8111-111111111111'),(2,'b','','ogg','b','old',44100,1,'22222222-2222-4222-8222-222222222222')").await.unwrap();
+        db.execute_unprepared("INSERT INTO media_file_similarity(first_track_uuid,second_track_uuid,similarity,source_uuid) VALUES('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',0.1,'first'), ('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',0.2,'second')").await.unwrap();
+        assert!(db.execute_unprepared("INSERT INTO media_file_similarity(first_track_uuid,second_track_uuid,similarity,source_uuid) VALUES('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',0.3,'first')").await.is_err());
         db.execute_unprepared("DELETE FROM media_files WHERE id=1")
             .await
             .unwrap();

@@ -95,7 +95,7 @@ pub async fn set_download_rule(
                 .one(db)
                 .await?
                 .ok_or_else(|| anyhow::anyhow!("mix does not exist"))?
-                .hlc_uuid,
+                .source_uuid,
         )
     } else {
         None
@@ -222,7 +222,7 @@ pub async fn cleanup_unselected_downloads(
             .exec(&tx)
             .await?;
         sync_download_jobs::Entity::delete_many()
-            .filter(sync_download_jobs::Column::FileUuid.eq(&row.hlc_uuid))
+            .filter(sync_download_jobs::Column::FileUuid.eq(&row.source_uuid))
             .exec(&tx)
             .await?;
         tx.commit().await?;
@@ -321,7 +321,7 @@ pub async fn rule_queries(
 ) -> Result<Vec<(String, String)>> {
     if let Some(id) = &rule.mix_id {
         let mix = mixes::Entity::find()
-            .filter(mixes::Column::HlcUuid.eq(id))
+            .filter(mixes::Column::SourceUuid.eq(id))
             .one(db)
             .await?
             .ok_or_else(|| anyhow::anyhow!("download rule references a missing mix"))?;
@@ -407,7 +407,7 @@ pub async fn release_obsolete_reservations(db: &DatabaseConnection) -> Result<()
             after = job.id.clone();
             let tx = db.begin().await?;
             let file = media_files::Entity::find()
-                .filter(media_files::Column::HlcUuid.eq(&job.file_uuid))
+                .filter(media_files::Column::SourceUuid.eq(&job.file_uuid))
                 .one(&tx)
                 .await?;
             let current = file.is_some_and(|file| {

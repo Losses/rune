@@ -3,6 +3,9 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use super::albums::{Column as AlbumsColumn, Entity as AlbumsEntity};
+use super::media_files::{Column as MediaFilesColumn, Entity as MediaFilesEntity};
+
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
 #[sea_orm(table_name = "media_file_albums")]
 pub struct Model {
@@ -13,21 +16,21 @@ pub struct Model {
     pub track_number: Option<i32>,
     pub album_uuid: String,
     #[sea_orm(column_type = "Text")]
-    pub hlc_uuid: String,
+    pub source_uuid: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::albums::Entity",
+        belongs_to = "AlbumsEntity",
         from = "Column::AlbumUuid",
-        to = "super::albums::Column::HlcUuid"
+        to = "AlbumsColumn::SourceUuid"
     )]
     Albums,
     #[sea_orm(
-        belongs_to = "super::media_files::Entity",
+        belongs_to = "MediaFilesEntity",
         from = "Column::TrackUuid",
-        to = "super::media_files::Column::HlcUuid"
+        to = "MediaFilesColumn::SourceUuid"
     )]
     MediaFiles,
 }

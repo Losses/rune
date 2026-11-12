@@ -147,7 +147,7 @@ async fn interrupted_import_resumes_without_new_track_identity() -> Result<()> {
     .await?;
     assert_eq!(
         media_files::Entity::find()
-            .filter(media_files::Column::HlcUuid.is_in([track.to_string(), second.to_string()]))
+            .filter(media_files::Column::SourceUuid.is_in([track.to_string(), second.to_string()]))
             .count(&db)
             .await?,
         2

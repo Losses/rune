@@ -79,7 +79,7 @@ async fn get_artwork(
         .body()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let rows = Entity::find()
-        .filter(Column::HlcUuid.eq(id.to_string()))
+        .filter(Column::SourceUuid.eq(id.to_string()))
         .all(&context.db)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;

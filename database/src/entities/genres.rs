@@ -3,6 +3,8 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use super::media_file_genres::Entity as MediaFileGenresEntity;
+
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
 #[sea_orm(table_name = "genres")]
 pub struct Model {
@@ -11,12 +13,12 @@ pub struct Model {
     #[sea_orm(unique)]
     pub name: String,
     pub group: String,
-    pub hlc_uuid: String,
+    pub source_uuid: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_many = "super::media_file_genres::Entity")]
+    #[sea_orm(has_many = "MediaFileGenresEntity")]
     MediaFileGenres,
 }
 
