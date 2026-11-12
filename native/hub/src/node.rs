@@ -59,7 +59,7 @@ use crate::{
     server::{ServerManager, WebSocketService, utils::device::load_device_info},
     utils::{
         Broadcaster, GlobalParams, LocalGuiBroadcaster, RemoteEventScope, RinfRustSignal,
-        RunningMode, TaskTokens, nid::get_or_create_node_id, sync_settings::SyncSettings,
+        TaskTokens, nid::get_or_create_node_id, sync_settings::SyncSettings,
     },
 };
 use database::library_registry::LibraryRecordId;
@@ -1072,7 +1072,6 @@ impl NodeContext {
             cert_validator: self.cert_validator.clone(),
             permission_manager: self.permission_manager.clone(),
             server_manager,
-            running_mode: RunningMode::Server,
         };
         Ok(base)
     }

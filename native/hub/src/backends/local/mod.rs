@@ -1,5 +1,5 @@
+use crate::node::NodeContext;
 use crate::utils::{GlobalParams, TaskTokens};
-use crate::{node::NodeContext, utils::RunningMode};
 #[macro_use]
 pub(crate) mod gui_request;
 
@@ -64,7 +64,6 @@ pub async fn local_player_loop(
         cert_validator,
         permission_manager,
         server_manager: OnceLock::new(),
-        running_mode: RunningMode::Client,
     };
 
     let global_params = Arc::new(global_params);

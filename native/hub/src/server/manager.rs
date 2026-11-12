@@ -894,8 +894,7 @@ mod lifecycle_tests {
     use super::*;
     use crate::utils::nid::get_or_create_node_id;
     use crate::utils::{
-        Broadcaster, GlobalParams, RinfRustSignal, RunningMode, TaskTokens,
-        sync_settings::SyncSettings,
+        Broadcaster, GlobalParams, RinfRustSignal, TaskTokens, sync_settings::SyncSettings,
     };
     use database::actions::downloads::{prepare_download, set_download_rule};
     use database::actions::file::{attach_download, catalog_track, hash_file, is_materialized};
@@ -1223,7 +1222,6 @@ mod lifecycle_tests {
             cert_validator: node_context.cert_validator.clone(),
             permission_manager: node_context.permission_manager.clone(),
             server_manager: OnceLock::new(),
-            running_mode: RunningMode::Client,
         });
         let manager = node_context.manager()?;
         node_context.attach_ui(&params).await;

@@ -137,12 +137,6 @@ pub struct TaskTokens {
     pub deduplicate_record_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum RunningMode {
-    Server,
-    Client,
-}
-
 /// The current UI library for a request, or the expected `Unavailable` error
 /// when this process has none open (for example in remote-control mode).
 pub fn require_library(library: Option<LibraryHandle>) -> Result<LibraryHandle> {
@@ -176,7 +170,6 @@ pub struct GlobalParams {
     pub cert_validator: Arc<RwLock<CertValidator>>,
     pub permission_manager: Arc<RwLock<PermissionManager>>,
     pub server_manager: OnceLock<Arc<ServerManager>>,
-    pub running_mode: RunningMode,
 }
 
 impl GlobalParams {
@@ -2069,8 +2062,7 @@ async fn run_local_open(
 pub struct CollectionCoverOptions<'a> {
     pub bake: bool,
     pub library_id: uuid::Uuid,
-    pub running_mode: &'a RunningMode,
-    pub remote_host: &'a Option<String>,
+    pub session: Option<&'a crate::Session>,
     pub playback_queue: &'a [i32],
 }
 
@@ -2102,13 +2094,9 @@ pub async fn inject_cover_art_map(
     // Get the base cover art paths
     let raw_cover_art_map = bake_cover_art_by_media_files(fsio, main_db, files).await?;
 
-    // Process the cover art paths based on the running mode
-    let cover_art_map = process_cover_art_map(
-        raw_cover_art_map,
-        options.library_id,
-        options.running_mode,
-        options.remote_host,
-    );
+    // Process cover art paths for this request's caller.
+    let cover_art_map =
+        process_cover_art_map(raw_cover_art_map, options.library_id, options.session);
 
     Ok(Collection {
         id: collection.id,
@@ -2123,17 +2111,11 @@ pub async fn inject_cover_art_map(
 pub fn process_cover_art_map(
     cover_art_map: HashMap<i32, String>,
     library_id: uuid::Uuid,
-    running_mode: &RunningMode,
-    remote_host: &Option<String>,
+    session: Option<&crate::Session>,
 ) -> HashMap<i32, String> {
     cover_art_map
         .into_iter()
-        .map(|(id, path)| {
-            (
-                id,
-                process_cover_art_path(&path, library_id, running_mode, remote_host),
-            )
-        })
+        .map(|(id, path)| (id, process_cover_art_path(&path, library_id, session)))
         .collect()
 }
 
@@ -2180,36 +2162,23 @@ pub fn determine_batch_size(workload_factor: f32) -> usize {
 pub fn process_cover_art_path(
     path: &str,
     library_id: uuid::Uuid,
-    running_mode: &RunningMode,
-    remote_host: &Option<String>,
+    session: Option<&crate::Session>,
 ) -> String {
-    match running_mode {
-        RunningMode::Server => {
-            // Path is from server, we need to convert to a remote URL
-            if path.is_empty() {
-                path.to_string()
-            } else {
-                // If we have a remote host, we need to construct a URL for the file
-                if let Some(host) = remote_host {
-                    // Extract the filename from the path, as we only need the cache part
-                    let file_name = Path::new(path)
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .unwrap_or_default();
-
-                    // Construct the URL using the host and cache prefix
-                    format!("{host}/files/cache/{file_name}?library_id={library_id}")
-                } else {
-                    // No host available, return the original path
-                    path.to_string()
-                }
-            }
-        }
-        RunningMode::Client => {
-            // We're running as a client, so the path is already correct
-            path.to_string()
-        }
+    let Some(session) = session else {
+        return path.to_string();
+    };
+    if path.is_empty() {
+        return path.to_string();
     }
+
+    let file_name = Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    format!(
+        "{}/files/cache/{file_name}?library_id={library_id}",
+        session.host
+    )
 }
 
 pub async fn parse_media_files(
@@ -2511,22 +2480,24 @@ mod moved_node_request_tests {
 
 #[cfg(test)]
 mod cover_art_url_tests {
-    use super::{RunningMode, process_cover_art_path};
+    use super::process_cover_art_path;
+    use crate::Session;
     use uuid::Uuid;
 
     #[test]
     fn remote_cover_url_names_its_library() {
         let library_id = Uuid::new_v4();
         let path = "/tmp/rune/cover_arts/cover-digest";
-        let remote_host = Some("https://peer.example".to_string());
+        let remote_session = Session {
+            public_key: "key".to_string(),
+            fingerprint: "fingerprint".to_string(),
+            host: "https://peer.example".to_string(),
+        };
 
+        assert_eq!(process_cover_art_path(path, library_id, None), path);
         assert_eq!(
-            process_cover_art_path(path, library_id, &RunningMode::Server, &remote_host),
+            process_cover_art_path(path, library_id, Some(&remote_session)),
             format!("https://peer.example/files/cache/cover-digest?library_id={library_id}")
-        );
-        assert_eq!(
-            process_cover_art_path(path, library_id, &RunningMode::Client, &remote_host),
-            path
         );
     }
 }

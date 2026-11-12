@@ -1,7 +1,6 @@
 use crate::node::NodeContext;
 use crate::request_error::ExpectedRequestError;
 use crate::utils::CollectionCoverOptions;
-use crate::utils::RunningMode;
 use std::{marker::PhantomData, str::FromStr, sync::Arc};
 
 use anyhow::{Error, Result};
@@ -226,24 +225,20 @@ fn create_query(domain: &str, parameter: &str) -> Result<Box<dyn ComplexQuery>> 
 }
 
 impl ParamsExtractor for ComplexQueryRequest {
-    type Params = (Option<LibraryHandle>, RunningMode, Arc<NodeContext>);
+    type Params = (Option<LibraryHandle>, Arc<NodeContext>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (
-            all_params.library.clone(),
-            all_params.running_mode,
-            all_params.node.clone(),
-        )
+        (all_params.library.clone(), all_params.node.clone())
     }
 }
 
 impl Signal for ComplexQueryRequest {
-    type Params = (Option<LibraryHandle>, RunningMode, Arc<NodeContext>);
+    type Params = (Option<LibraryHandle>, Arc<NodeContext>);
     type Response = ComplexQueryResponse;
 
     async fn handle(
         &self,
-        (library, running_mode, node): Self::Params,
+        (library, node): Self::Params,
         session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -254,10 +249,7 @@ impl Signal for ComplexQueryRequest {
         let library_id = library.library_id;
         let queue = Arc::new(node.session_queue_for_library(library.library_id).await?);
         let queries = &dart_signal.queries;
-        let remote_host = match session {
-            Some(x) => Some(x.host.clone()),
-            None => None,
-        };
+        let session = session.as_ref();
 
         let futures = queries.iter().map(|query| {
             let main_db = main_db.clone();
@@ -266,21 +258,18 @@ impl Signal for ComplexQueryRequest {
             let queue = queue.clone();
 
             {
-                let value = remote_host.clone();
+                let request_session = session;
                 async move {
                     let fsio = Arc::clone(&fsio);
                     let query_executor = create_query(&query.domain, &query.parameter)?;
                     let unified_collections = query_executor
                         .execute(&main_db, &recommend_db, &queue)
                         .await?;
-                    let remote_host = value.clone();
-
                     let entries_futures =
                         unified_collections.into_iter().map(|unified_collection| {
                             let fsio = Arc::clone(&fsio);
                             let main_db = main_db.clone();
                             let recommend_db = recommend_db.clone();
-                            let remote_host = remote_host.clone();
                             let queue = queue.clone();
                             async move {
                                 // Get the collection with processed cover art paths
@@ -296,8 +285,7 @@ impl Signal for ComplexQueryRequest {
                                         CollectionCoverOptions {
                                             bake: true,
                                             library_id,
-                                            running_mode: &running_mode,
-                                            remote_host: &remote_host,
+                                            session: request_session,
                                             playback_queue: &queue,
                                         },
                                     )
