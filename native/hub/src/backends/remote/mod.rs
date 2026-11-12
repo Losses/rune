@@ -952,7 +952,7 @@ pub(crate) async fn open_remote_library_for_fingerprint(
         .await?;
     node.install_renderer_link(link, alias)?;
     listen_local_gui(&params, &params.main_token);
-    node.session()?.player.lock().await.pause();
+    node.session()?.player.lock().await.pause_applied().await?;
     Ok((params, generation))
 }
 

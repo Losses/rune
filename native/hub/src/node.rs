@@ -582,7 +582,7 @@ impl NodeContext {
         }
         self.install_renderer_link(link, alias)?;
         self.publish_capabilities()?;
-        self.session()?.player.lock().await.pause();
+        self.session()?.player.lock().await.pause_applied().await?;
         if let Some(link) = self.renderer_link()?
             && let Err(error) = link.call(&RefreshSessionRequest { call_id: None }).await
         {

@@ -305,7 +305,7 @@ impl Signal for LoadRequest {
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let volume = dart_signal.index;
-        player.lock().await.load(volume as usize);
+        player.lock().await.load_applied(volume as usize).await?;
         Ok(Some(()))
     }
 }
@@ -328,7 +328,7 @@ impl Signal for PlayRequest {
         _session: Option<Session>,
         _: &Self,
     ) -> Result<Option<Self::Response>> {
-        player.lock().await.play();
+        player.lock().await.play_applied().await?;
         Ok(Some(()))
     }
 }
@@ -351,7 +351,7 @@ impl Signal for PauseRequest {
         _session: Option<Session>,
         _: &Self,
     ) -> Result<Option<Self::Response>> {
-        player.lock().await.pause();
+        player.lock().await.pause_applied().await?;
         Ok(Some(()))
     }
 }
@@ -397,7 +397,7 @@ impl Signal for NextRequest {
     ) -> Result<Option<Self::Response>> {
         record_skip(&node, &player).await?;
 
-        player.lock().await.next();
+        player.lock().await.next_applied().await?;
         Ok(Some(()))
     }
 }
@@ -422,7 +422,7 @@ impl Signal for PreviousRequest {
     ) -> Result<Option<Self::Response>> {
         record_skip(&node, &player).await?;
 
-        player.lock().await.previous();
+        player.lock().await.previous_applied().await?;
         Ok(Some(()))
     }
 }
@@ -446,7 +446,11 @@ impl Signal for SetPlaybackModeRequest {
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let mode = dart_signal.mode;
-        player.lock().await.set_playback_mode(mode.into());
+        player
+            .lock()
+            .await
+            .set_playback_mode_applied(mode.into())
+            .await?;
         Ok(Some(()))
     }
 }
@@ -469,18 +473,21 @@ impl Signal for SwitchRequest {
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        let index = dart_signal.index.try_into().map_err(|error| {
+        let index: usize = dart_signal.index.try_into().map_err(|error| {
             ExpectedRequestError::invalid_input(format!("Invalid switch index: {error}"))
         })?;
         let mut previous_item = None;
+        let mut selected_item: Option<PlayingItem> = None;
         let mut invalid_index = false;
         node.session()?
             .edit_queue(dart_signal.expected_revision, |player| {
-                if index >= player.get_playlist().len() {
+                let playlist = player.get_playlist();
+                if index >= playlist.len() {
                     invalid_index = true;
                     return false;
                 }
                 previous_item = player.get_status().item;
+                selected_item = Some(playlist[index].clone());
                 player.switch(index);
                 false
             })
@@ -489,6 +496,14 @@ impl Signal for SwitchRequest {
             return Err(
                 ExpectedRequestError::invalid_input("Invalid switch index: out of range").into(),
             );
+        }
+        if let Some(item) = selected_item {
+            node.session()?
+                .player
+                .lock()
+                .await
+                .wait_for_item_applied(item, PlaybackState::Playing)
+                .await?;
         }
         record_skip_item(&node, previous_item).await?;
 
@@ -514,7 +529,11 @@ impl Signal for SeekRequest {
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        player.lock().await.seek(dart_signal.position_seconds);
+        player
+            .lock()
+            .await
+            .seek_applied(dart_signal.position_seconds)
+            .await?;
         Ok(Some(()))
     }
 }
@@ -567,7 +586,7 @@ impl Signal for VolumeRequest {
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let volume = dart_signal.volume;
-        player.lock().await.set_volume(volume);
+        player.lock().await.set_volume_applied(volume).await?;
         Ok(Some(VolumeResponse {
             call_id: None,
             volume,
@@ -634,7 +653,11 @@ impl Signal for SetRealtimeFFTEnabledRequest {
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let enabled = dart_signal.enabled;
-        player.lock().await.set_realtime_fft_enabled(enabled);
+        player
+            .lock()
+            .await
+            .set_realtime_fft_enabled_applied(enabled)
+            .await?;
         Ok(Some(()))
     }
 }
@@ -658,7 +681,11 @@ impl Signal for SetAdaptiveSwitchingEnabledRequest {
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let enabled = dart_signal.enabled;
-        player.lock().await.set_adaptive_switching_enabled(enabled);
+        player
+            .lock()
+            .await
+            .set_adaptive_switching_enabled_applied(enabled)
+            .await?;
         Ok(Some(()))
     }
 }
@@ -681,7 +708,11 @@ impl Signal for SetMixWithOthersRequest {
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        player.lock().await.set_mix_with_others(dart_signal.enabled);
+        player
+            .lock()
+            .await
+            .set_mix_with_others_applied(dart_signal.enabled)
+            .await?;
         Ok(Some(()))
     }
 }
@@ -1837,19 +1868,19 @@ async fn pause_handoff_source(
     } else {
         let session = node.session()?;
         let was_playing = session.player.lock().await.get_status().state == PlaybackState::Playing;
-        session.player.lock().await.pause();
+        session.player.lock().await.pause_applied().await?;
         let snapshot = match session_snapshot(node, &session).await {
             Ok(snapshot) => snapshot,
             Err(error) => {
                 if was_playing {
-                    session.player.lock().await.play();
+                    session.player.lock().await.play_applied().await?;
                 }
                 return Err(error);
             }
         };
         if snapshot.playing {
             if was_playing {
-                session.player.lock().await.play();
+                session.player.lock().await.play_applied().await?;
             }
             // Something resumed the source while it was being handed off.
             return Err(ExpectedRequestError::HandoffSuperseded.into());
@@ -1876,13 +1907,9 @@ async fn resume_handoff_source(node: &Arc<NodeContext>, paused: PausedHandoffSou
         }
         PausedSource::Renderer(source) => {
             source.call(&PlayRequest { call_id: None }).await?;
-            source
-                .call(&SessionSnapshotRequest { call_id: None })
-                .await?;
         }
         PausedSource::Local(session) => {
-            session.player.lock().await.play();
-            session.playback_snapshot().await;
+            session.player.lock().await.play_applied().await?;
         }
     }
     Ok(())

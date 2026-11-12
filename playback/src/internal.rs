@@ -389,6 +389,10 @@ impl From<PlaybackMode> for u32 {
 
 #[derive(Debug)]
 pub enum PlayerCommand {
+    WithCompletion {
+        command: Box<PlayerCommand>,
+        response: oneshot::Sender<PlayerStatus>,
+    },
     Restore {
         tracks: Vec<(PlayingItem, PlaybackSource)>,
         index: Option<usize>,
@@ -778,6 +782,14 @@ impl PlayerInternal {
 
                     debug!("Received command: {cmd:?}");
                     match cmd {
+                        PlayerCommand::WithCompletion { command, response } => {
+                            self.commands_sender
+                                .send(*command)
+                                .context("Failed to queue completed player command")?;
+                            self.commands_sender
+                                .send(PlayerCommand::StatusAfterPending(response))
+                                .context("Failed to queue player completion")?;
+                        },
                         PlayerCommand::Restore { tracks, index, position, mode } => {
                             self.clear_unavailable(None)?;
                             self.add_to_playlist(tracks, AddMode::AppendToEnd);

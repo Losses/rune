@@ -1511,7 +1511,9 @@ async fn queue_session(f: &Fixture, ids: &[i32]) -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -> Result<()> {
     use crate::messages::{
-        MovePlaylistItemRequest, PauseRequest, PlayRequest, RendererAttachmentChanged,
+        LoadRequest, MovePlaylistItemRequest, NextRequest, PauseRequest, PlayRequest,
+        PreviousRequest, RemoveRequest, RendererAttachmentChanged, SeekRequest,
+        SetPlaybackModeRequest, SwitchRequest,
     };
 
     let first = tempfile::tempdir()?;
@@ -1651,7 +1653,16 @@ async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -
     .await?
     .context("renderer volume response")?;
     assert_eq!(volume.volume, 0.63);
-    wait_player(&b, |status| status.volume == 0.63).await?;
+    assert_eq!(
+        b.global_params
+            .node
+            .session()?
+            .playback_snapshot()
+            .await
+            .0
+            .volume,
+        0.63
+    );
     assert_eq!(
         a.global_params
             .node
@@ -1664,7 +1675,16 @@ async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -
     );
 
     dispatch_gui_request(&a.global_params, &PlayRequest { call_id: None }).await?;
-    wait_player(&b, |status| status.state == PlaybackState::Playing).await?;
+    assert_eq!(
+        b.global_params
+            .node
+            .session()?
+            .playback_snapshot()
+            .await
+            .0
+            .state,
+        PlaybackState::Playing
+    );
     assert_eq!(
         a.global_params
             .node
@@ -1676,7 +1696,107 @@ async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -
         PlaybackState::Paused
     );
     dispatch_gui_request(&a.global_params, &PauseRequest { call_id: None }).await?;
-    wait_player(&b, |status| status.state == PlaybackState::Paused).await?;
+    assert_eq!(
+        b.global_params
+            .node
+            .session()?
+            .playback_snapshot()
+            .await
+            .0
+            .state,
+        PlaybackState::Paused
+    );
+
+    dispatch_gui_request(
+        &a.global_params,
+        &SeekRequest {
+            call_id: None,
+            position_seconds: 0.2,
+        },
+    )
+    .await?;
+    assert!(
+        b.global_params
+            .node
+            .session()?
+            .playback_snapshot()
+            .await
+            .0
+            .position
+            >= Duration::from_millis(200)
+    );
+    dispatch_gui_request(
+        &a.global_params,
+        &SetPlaybackModeRequest {
+            call_id: None,
+            mode: 2,
+        },
+    )
+    .await?;
+    assert_eq!(
+        b.global_params
+            .node
+            .session()?
+            .playback_snapshot()
+            .await
+            .0
+            .playback_mode,
+        PlaybackMode::RepeatAll
+    );
+    dispatch_gui_request(
+        &a.global_params,
+        &LoadRequest {
+            call_id: None,
+            index: 1,
+        },
+    )
+    .await?;
+    let loaded = b.global_params.node.session()?.playback_snapshot().await.0;
+    assert_eq!(loaded.index, Some(1));
+    assert_eq!(loaded.state, PlaybackState::Paused);
+
+    let revision = b.global_params.node.session()?.queue_revision().await;
+    dispatch_gui_request(
+        &a.global_params,
+        &SwitchRequest {
+            call_id: None,
+            index: 0,
+            expected_revision: Some(revision),
+        },
+    )
+    .await?;
+    assert_eq!(
+        b.global_params
+            .node
+            .session()?
+            .playback_snapshot()
+            .await
+            .0
+            .index,
+        Some(0)
+    );
+    dispatch_gui_request(&a.global_params, &NextRequest { call_id: None }).await?;
+    assert_eq!(
+        b.global_params
+            .node
+            .session()?
+            .playback_snapshot()
+            .await
+            .0
+            .index,
+        Some(1)
+    );
+    dispatch_gui_request(&a.global_params, &PreviousRequest { call_id: None }).await?;
+    assert_eq!(
+        b.global_params
+            .node
+            .session()?
+            .playback_snapshot()
+            .await
+            .0
+            .index,
+        Some(0)
+    );
 
     let revision = b.global_params.node.session()?.queue_revision().await;
     dispatch_gui_request(
@@ -1689,12 +1809,38 @@ async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -
         },
     )
     .await?;
-    wait_player(&b, |status| {
-        status.playlist.first().is_some_and(|item| {
-            matches!(&item.item, PlayingItem::LibraryTrack { track, .. } if *track == expected_first_uuid.to_string())
-        })
-    })
+    assert!(matches!(
+        &b.global_params
+            .player
+            .lock()
+            .await
+            .get_status()
+            .playlist
+            .first()
+            .context("updated playlist is empty")?
+            .item,
+        PlayingItem::LibraryTrack { track, .. } if *track == expected_first_uuid.to_string()
+    ));
+    let revision = b.global_params.node.session()?.queue_revision().await;
+    dispatch_gui_request(
+        &a.global_params,
+        &RemoveRequest {
+            call_id: None,
+            index: 1,
+            expected_revision: Some(revision),
+        },
+    )
     .await?;
+    assert_eq!(
+        b.global_params
+            .player
+            .lock()
+            .await
+            .get_status()
+            .playlist
+            .len(),
+        1
+    );
 
     timeout(Duration::from_secs(5), async {
         loop {

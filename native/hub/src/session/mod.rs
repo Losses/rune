@@ -225,6 +225,9 @@ impl PlayerSession {
                 .checked_add(1)
                 .context("Queue revision overflow")?;
         }
+        let completion = player.command_completion();
+        drop(state);
+        completion.await?;
         Ok(())
     }
 
@@ -239,7 +242,7 @@ impl PlayerSession {
             }
             .into());
         }
-        let player = self.player.lock().await;
+        let mut player = self.player.lock().await;
         let result = player
             .handoff_load(
                 params.tracks,
@@ -251,6 +254,7 @@ impl PlayerSession {
             )
             .await
             .context("Handoff load player command failed")?;
+        player.command_completion().await?;
         state.add_handoff_block(params.block, result.interrupted);
         state.update_queue(&result.items);
         state.queue_revision = state
@@ -272,7 +276,11 @@ impl PlayerSession {
             // metadata was refreshed. In that case the player command can remove
             // the block while preserving any current item outside it.
             .unwrap_or(InterruptedItem::Nothing);
-        let player = self.player.lock().await;
+        let interrupted_item = match &interrupted {
+            InterruptedItem::Nothing => None,
+            InterruptedItem::Item { item, .. } => Some(item.clone()),
+        };
+        let mut player = self.player.lock().await;
         let result = player
             .take_back_block(block, interrupted)
             .await
@@ -280,6 +288,14 @@ impl PlayerSession {
             .ok_or(ExpectedRequestError::Unavailable {
                 what: "handoff block",
             })?;
+        player.command_completion().await?;
+        if result.index.is_some()
+            && let Some(item) = interrupted_item
+        {
+            player
+                .wait_for_item_applied(item, PlaybackState::Paused)
+                .await?;
+        }
         state.update_queue(&result.remaining);
         state.remove_handoff_block(block);
         state.queue_revision = state
