@@ -1040,16 +1040,10 @@ pub async fn query_mix_media_files(
 
         let recommend_n = pipe_limit.unwrap_or(30);
 
-        let file_ids = match get_recommendation_by_parameter(
-            recommend_db,
-            virtual_point,
-            recommend_n as usize,
-        )
-        .with_context(|| "Failed to get recommendation by parameters")
-        {
-            Ok(x) => x.into_iter().map(|x| x.0 as i32).collect::<Vec<i32>>(),
-            Err(_) => return Ok([].to_vec()),
-        };
+        let file_ids = recommendation_file_ids(
+            get_recommendation_by_parameter(recommend_db, virtual_point, recommend_n as usize)
+                .with_context(|| "Failed to get recommendation by parameters"),
+        )?;
 
         let media_files = get_files_by_ids(main_db, &file_ids).await?;
 
@@ -1136,6 +1130,13 @@ pub async fn query_mix_media_files(
     let sorted_files = sort_media_files(media_files, &track_ids);
 
     Ok(sorted_files)
+}
+
+fn recommendation_file_ids(recommendations: Result<Vec<(u32, f32)>>) -> Result<Vec<i32>> {
+    Ok(recommendations?
+        .into_iter()
+        .map(|(file_id, _)| file_id as i32)
+        .collect())
 }
 
 /// Query parameters resolved for this device. Missing targets remain identifiable.
@@ -1380,4 +1381,15 @@ async fn add_query_on(
         .one(tx)
         .await?
         .context("mix clause disappeared")
+}
+
+#[cfg(test)]
+mod recommendation_failure_tests {
+    use super::recommendation_file_ids;
+
+    #[test]
+    fn recommendation_lookup_failure_is_propagated() {
+        let result = recommendation_file_ids(Err(anyhow::anyhow!("injected lookup failure")));
+        assert!(result.is_err());
+    }
 }

@@ -2692,6 +2692,50 @@ async fn attached_mix_query_resolves_for_controller_library_and_loads_resolved_i
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn mix_queue_exclusion_reports_unreadable_queue() -> Result<()> {
+    use crate::messages::{MixQuery, MixQueryRequest};
+    use crate::request_error::classify;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = fixture(dir.path()).await?;
+    let file_id = session_audio(&fixture, "mix-queue-failure.ogg").await?;
+    let library_id = fixture.global_params.test_library().library_id;
+    fixture
+        .global_params
+        .player
+        .lock()
+        .await
+        .add_to_playlist_with_sources(
+            vec![(
+                PlayingItem::LibraryTrack {
+                    library_id,
+                    track: "not-a-uuid".into(),
+                },
+                PlaybackSource::LibraryStream,
+            )],
+            AddMode::AppendToEnd,
+        );
+    wait_player(&fixture, |status| status.playlist.len() == 1).await?;
+
+    let request = MixQueryRequest {
+        call_id: None,
+        queries: vec![MixQuery {
+            operator: "lib::track".into(),
+            parameter: file_id.to_string(),
+        }],
+        cursor: 0,
+        page_size: 30,
+        bake_cover_arts: false,
+    };
+    let error = match dispatch_gui_request(&fixture.global_params, &request).await {
+        Err(error) => error,
+        Ok(_) => anyhow::bail!("a mix must fail when its exclusion queue cannot be read"),
+    };
+    assert_eq!(classify(&error), RequestErrorKind::Internal);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn attached_mix_query_rejects_items_outside_renderer_libraries() -> Result<()> {
     use crate::messages::{PlayingItemRef, PlaylistOperateMode};
 
@@ -7495,7 +7539,9 @@ async fn remote_m3u8_and_independent_lyrics_cannot_read_outside_library() -> Res
     use crate::backends::remote::connect_remote;
     use crate::messages::{
         CreateM3u8PlaylistRequest, CreateM3u8PlaylistResponse, RemoteRequestFailed,
+        RemoveItemFromPlaylistRequest,
     };
+    use sea_orm::ConnectionTrait;
 
     let host_dir = tempfile::tempdir()?;
     let controller_dir = tempfile::tempdir()?;
@@ -7558,6 +7604,52 @@ async fn remote_m3u8_and_independent_lyrics_cannot_read_outside_library() -> Res
     assert!(!failure.detail.contains(secret));
     assert!(!String::from_utf8_lossy(&response_payload).contains(secret));
 
+    host.global_params
+        .test_library()
+        .main_db
+        .execute_unprepared(
+            "CREATE TRIGGER fail_playlist_insert BEFORE INSERT ON playlists \
+             BEGIN SELECT RAISE(ABORT, 'injected playlist failure'); END",
+        )
+        .await?;
+    let failed_create_request = CreateM3u8PlaylistRequest {
+        call_id: None,
+        name: "failed remote".into(),
+        group: "security".into(),
+        path: inside_playlist.to_string_lossy().into_owned(),
+    };
+    let (response_name, response_payload) = socket_request_for_library(
+        &mut socket,
+        "CreateM3u8PlaylistRequest",
+        &rinf::serialize(&failed_create_request)?,
+        library_id,
+    )
+    .await?;
+    assert_eq!(response_name, "RemoteRequestFailed");
+    let failure: RemoteRequestFailed = rinf::deserialize(&response_payload)?;
+    assert_eq!(failure.kind, RequestErrorKind::Internal);
+    host.global_params
+        .test_library()
+        .main_db
+        .execute_unprepared("DROP TRIGGER fail_playlist_insert")
+        .await?;
+
+    let missing_playlist_request = RemoveItemFromPlaylistRequest {
+        call_id: None,
+        playlist_id: i32::MAX,
+        occurrence_id: Uuid::new_v4().to_string(),
+    };
+    let (response_name, response_payload) = socket_request_for_library(
+        &mut socket,
+        "RemoveItemFromPlaylistRequest",
+        &rinf::serialize(&missing_playlist_request)?,
+        library_id,
+    )
+    .await?;
+    assert_eq!(response_name, "RemoteRequestFailed");
+    let failure: RemoteRequestFailed = rinf::deserialize(&response_payload)?;
+    assert_eq!(failure.kind, RequestErrorKind::NotFound);
+
     let inside_request = CreateM3u8PlaylistRequest {
         call_id: None,
         name: "inside remote".into(),
@@ -7573,8 +7665,8 @@ async fn remote_m3u8_and_independent_lyrics_cannot_read_outside_library() -> Res
     .await?;
     assert_eq!(response_name, "CreateM3u8PlaylistResponse");
     let imported: CreateM3u8PlaylistResponse = rinf::deserialize(&response_payload)?;
-    assert!(imported.success);
     assert_eq!(imported.imported_count, Some(1));
+    assert!(imported.playlist.is_some());
 
     let local_request = CreateM3u8PlaylistRequest {
         call_id: None,
@@ -7593,7 +7685,6 @@ async fn remote_m3u8_and_independent_lyrics_cannot_read_outside_library() -> Res
         )
         .await?
         .context("local playlist import returned no response")?;
-    assert!(local_response.success);
     assert_eq!(local_response.imported_count, Some(0));
 
     assert!(track_id > 0);

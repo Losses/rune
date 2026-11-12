@@ -140,8 +140,6 @@ pub struct CreateM3u8PlaylistResponse {
     pub playlist: Option<Playlist>,
     pub imported_count: Option<i32>,
     pub not_found_paths: Vec<String>,
-    pub success: bool,
-    pub error: String,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -156,8 +154,6 @@ pub struct RemoveItemFromPlaylistRequest {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct RemoveItemFromPlaylistResponse {
-    pub success: bool,
-    pub error: String,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

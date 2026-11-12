@@ -52,6 +52,33 @@ void main() {
     await failures.close();
   });
 
+  test('playlist request failure shows the existing localized message', () async {
+    final responses = StreamController<int>();
+    final failures = StreamController<RequestFailedResponse>();
+    final result = awaitResponse(
+      'RemoveItemFromPlaylistRequest',
+      responses.stream,
+      failures: failures.stream,
+    );
+    failures.add(
+      const RequestFailedResponse(
+        request: 'RemoveItemFromPlaylistRequest',
+        kind: RequestErrorKind.notFound,
+        detail: 'playlist',
+      ),
+    );
+    final failure = await result.then<RequestFailure>(
+      (_) => fail('expected a playlist request failure'),
+      onError: (Object error) => error as RequestFailure,
+    );
+    expect(
+      requestFailureMessage(AppLocalizationsEn(), failure),
+      AppLocalizationsEn().requestItemMissing,
+    );
+    await responses.close();
+    await failures.close();
+  });
+
   test('unrelated failure is ignored', () async {
     final responses = StreamController<int>();
     final failures = StreamController<RequestFailedResponse>();

@@ -429,11 +429,7 @@ pub(crate) async fn remove_item_from_playlist_request(
         .update_playlist(&remote_id, None, &[], &[position])
         .await
         .map_err(subsonic_request_error)?;
-    Ok(Some(RemoveItemFromPlaylistResponse {
-        success: true,
-        error: String::new(),
-        call_id: None,
-    }))
+    Ok(Some(RemoveItemFromPlaylistResponse { call_id: None }))
 }
 
 pub(crate) async fn reorder_playlist_item_position_request(

@@ -555,7 +555,7 @@ impl NodeContext {
     }
 
     pub async fn session_queue_for_library(&self, library_id: Uuid) -> Result<Vec<i32>> {
-        Ok(self.session()?.queue_for_library(library_id).await)
+        self.session()?.queue_for_library(library_id).await
     }
 
     pub async fn attach_renderer(self: &Arc<Self>, fingerprint: &str) -> Result<()> {

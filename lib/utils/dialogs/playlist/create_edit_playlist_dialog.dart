@@ -15,7 +15,6 @@ import '../../api/create_m3u8_playlist.dart';
 import '../../api/fetch_collection_group_summary_title.dart';
 
 import '../clean_group_titles.dart';
-import 'show_import_m3u8_failed_dialog.dart';
 import 'show_import_m3u8_success_dialog.dart';
 
 class CreateEditPlaylistDialog extends StatefulWidget {
@@ -168,20 +167,13 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
                             );
                             if (!context.mounted) return;
                             widget.$close(result.playlist);
-                            if (result.success) {
-                              CollectionCache().clearType(
-                                CollectionType.playlist,
-                              );
-                              if (result.notFoundPaths.isNotEmpty) {
-                                showCreateImportM3u8SuccessDialog(
-                                  context,
-                                  result.notFoundPaths,
-                                );
-                              }
-                            } else if (result.notFoundPaths.isNotEmpty) {
-                              showCreateImportM3u8FailedDialog(
+                            CollectionCache().clearType(
+                              CollectionType.playlist,
+                            );
+                            if (result.notFoundPaths.isNotEmpty) {
+                              showCreateImportM3u8SuccessDialog(
                                 context,
-                                result.error,
+                                result.notFoundPaths,
                               );
                             }
                             return;

@@ -363,7 +363,7 @@ impl Signal for CreateM3u8PlaylistRequest {
         };
         let lines = parse_m3u8_lines(&content);
 
-        match create_m3u8_playlist_from_lines(
+        let (playlist, import_result) = create_m3u8_playlist_from_lines(
             &library.main_db,
             &library.library_sync.record_store(),
             name.clone(),
@@ -371,33 +371,20 @@ impl Signal for CreateM3u8PlaylistRequest {
             lines,
         )
         .await
-        {
-            Ok((playlist, import_result)) => {
-                broadcaster.broadcast(&LibraryContentChanged {
-                    path: library.display_name.clone(),
-                });
-                Ok(Some(CreateM3u8PlaylistResponse {
-                    call_id: None,
-                    playlist: Some(Playlist {
-                        id: playlist.id,
-                        name: playlist.name,
-                        group: playlist.group,
-                    }),
-                    imported_count: Some(import_result.matched_ids.len() as i32),
-                    not_found_paths: import_result.unmatched_paths,
-                    success: true,
-                    error: String::new(),
-                }))
-            }
-            Err(e) => Ok(Some(CreateM3u8PlaylistResponse {
-                call_id: None,
-                playlist: None,
-                imported_count: Some(0),
-                not_found_paths: vec![],
-                success: false,
-                error: e.to_string(),
-            })),
-        }
+        .context("Failed to import M3U8 playlist")?;
+        broadcaster.broadcast(&LibraryContentChanged {
+            path: library.display_name.clone(),
+        });
+        Ok(Some(CreateM3u8PlaylistResponse {
+            call_id: None,
+            playlist: Some(Playlist {
+                id: playlist.id,
+                name: playlist.name,
+                group: playlist.group,
+            }),
+            imported_count: Some(import_result.matched_ids.len() as i32),
+            not_found_paths: import_result.unmatched_paths,
+        }))
     }
 }
 
@@ -422,30 +409,17 @@ impl Signal for RemoveItemFromPlaylistRequest {
         let library = require_library(library)?;
         let request = dart_signal;
 
-        match remove_item_from_playlist(
+        remove_item_from_playlist(
             &library.main_db,
             &library.library_sync.record_store(),
             request.playlist_id,
             parse_occurrence_id(&request.occurrence_id)?,
         )
-        .await
-        {
-            Ok(_) => {
-                broadcaster.broadcast(&LibraryContentChanged {
-                    path: library.display_name.clone(),
-                });
-                Ok(Some(RemoveItemFromPlaylistResponse {
-                    call_id: None,
-                    success: true,
-                    error: String::new(),
-                }))
-            }
-            Err(e) => Ok(Some(RemoveItemFromPlaylistResponse {
-                call_id: None,
-                success: false,
-                error: e.to_string(),
-            })),
-        }
+        .await?;
+        broadcaster.broadcast(&LibraryContentChanged {
+            path: library.display_name.clone(),
+        });
+        Ok(Some(RemoveItemFromPlaylistResponse { call_id: None }))
     }
 }
 

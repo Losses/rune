@@ -386,7 +386,7 @@ impl PlayerSession {
         Ok(())
     }
 
-    pub async fn queue_for_library(&self, library_id: Uuid) -> Vec<i32> {
+    pub async fn queue_for_library(&self, library_id: Uuid) -> Result<Vec<i32>> {
         let items = self
             .player
             .lock()
@@ -398,23 +398,30 @@ impl PlayerSession {
                 PlayingItem::LibraryTrack {
                     library_id: item_library,
                     track,
-                } if item_library == library_id => Uuid::parse_str(&track).ok(),
+                } if item_library == library_id => Some(track),
                 _ => None,
             })
             .collect::<Vec<_>>();
-        let Some(node) = self.node.upgrade() else {
-            return Vec::new();
-        };
-        let Ok(library) = node.library_pool.acquire(library_id).await else {
-            return Vec::new();
-        };
-        let Ok(ids) = file_ids_by_uuid(&library.main_db, &items).await else {
-            return Vec::new();
-        };
-        items
+        let items = items
+            .into_iter()
+            .map(|track| Uuid::parse_str(&track).context("Queue contains an invalid track UUID"))
+            .collect::<Result<Vec<_>>>()?;
+        let node = self
+            .node
+            .upgrade()
+            .ok_or(ExpectedRequestError::Unavailable {
+                what: "player node",
+            })?;
+        let library = node
+            .library_pool
+            .acquire(library_id)
+            .await
+            .map_err(|_| ExpectedRequestError::Unavailable { what: "library" })?;
+        let ids = file_ids_by_uuid(&library.main_db, &items).await?;
+        Ok(items
             .iter()
             .filter_map(|uuid| ids.get(uuid).copied())
-            .collect()
+            .collect())
     }
 
     pub(crate) async fn new(
