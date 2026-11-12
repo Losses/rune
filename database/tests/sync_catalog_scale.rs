@@ -356,7 +356,7 @@ async fn exchange(
     source_db: &sea_orm::DatabaseConnection,
     target_db: &sea_orm::DatabaseConnection,
 ) -> Result<usize> {
-    tokio::time::timeout(Duration::from_secs(900), async {
+    tokio::time::timeout(Duration::from_secs(60), async {
         let remote = sync::StorePeer(source.clone());
         let mut coordinator = sync::Coordinator::new(scope, database::sync::session_limits())?;
         let mut steps = 0;

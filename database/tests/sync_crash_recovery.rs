@@ -29,6 +29,8 @@ use sync_orm::{
 };
 use uuid::Uuid;
 
+const TEST_DEADLINE: Duration = Duration::from_secs(60);
+
 async fn scalar(db: &DatabaseConnection, sql: &str, name: &str) -> Result<String> {
     let row = db
         .query_one_raw(Statement::from_string(DbBackend::Sqlite, sql))
@@ -246,12 +248,12 @@ fn kill_at(root: &Path, url: &str, library: Uuid, node: Uuid, phase: &str) -> Re
         if let Some(status) = child.try_wait()? {
             anyhow::bail!("child exited before fault point: {status}");
         }
-        if start.elapsed() > Duration::from_secs(30) {
+        if start.elapsed() > TEST_DEADLINE {
             child.kill()?;
             child.wait()?;
             anyhow::bail!("child timed out before fault point");
         }
-        std::thread::sleep(Duration::from_millis(10));
+        std::thread::yield_now();
     }
     child.kill()?;
     ensure!(!child.wait()?.success(), "child survived termination");

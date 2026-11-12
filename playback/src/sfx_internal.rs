@@ -145,14 +145,35 @@ mod tests {
     use rodio::Source;
     use rodio::source::SineWave;
 
-    // Runs the player for a while, long enough for it to look at its sound a few times.
-    async fn run_briefly(internal: &mut SfxPlayerInternal) {
-        let _ = tokio::time::timeout(FINISHED_CHECK * 3, internal.run()).await;
+    // Advances the player's timer through several finished-output checks.
+    async fn run_briefly(
+        internal: &mut SfxPlayerInternal,
+        commands_sender: &mpsc::UnboundedSender<SfxPlayerCommand>,
+    ) {
+        let cancellation = internal.cancellation_token.clone();
+        {
+            let run = internal.run();
+            tokio::pin!(run);
+            for _ in 0..3 {
+                assert!(!commands_sender.is_closed());
+                tokio::select! {
+                    _ = tokio::time::advance(FINISHED_CHECK) => {},
+                    result = &mut run => panic!("SFX player stopped unexpectedly: {result:?}"),
+                }
+                tokio::select! {
+                    _ = tokio::task::yield_now() => {},
+                    result = &mut run => panic!("SFX player stopped unexpectedly: {result:?}"),
+                }
+            }
+            cancellation.cancel();
+            run.await.unwrap();
+        }
+        internal.cancellation_token = CancellationToken::new();
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn the_output_closes_once_the_sound_has_finished() {
-        let (_commands_sender, commands) = mpsc::unbounded_channel();
+        let (commands_sender, commands) = mpsc::unbounded_channel();
         let mut internal = SfxPlayerInternal::new(commands, CancellationToken::new());
         // A sink without a device, whose queue the test plays by hand.
         let (sink, mut queue) = Sink::new_idle();
@@ -161,14 +182,14 @@ mod tests {
         internal.state = InternalSfxPlaybackState::Playing;
 
         // A sound that still plays keeps its output.
-        run_briefly(&mut internal).await;
+        run_briefly(&mut internal, &commands_sender).await;
         assert!(internal.sink.is_some());
 
         for _ in 0..48_000 {
             queue.next();
         }
         assert!(internal.sink.as_ref().is_some_and(Sink::empty));
-        run_briefly(&mut internal).await;
+        run_briefly(&mut internal, &commands_sender).await;
         assert!(internal.sink.is_none());
         assert_eq!(internal.state, InternalSfxPlaybackState::Empty);
     }

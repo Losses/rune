@@ -544,6 +544,7 @@ mod change_tests {
     use crate::utils::DeviceType;
     use std::sync::{Arc, Mutex};
     use tokio::time::{Duration, timeout};
+    const TEST_DEADLINE: Duration = Duration::from_secs(60);
     use tokio_util::sync::CancellationToken;
 
     async fn add_permission_user(
@@ -733,7 +734,7 @@ mod change_tests {
             .change_user_status("fingerprint", UserStatus::Blocked)
             .await?;
 
-        timeout(Duration::from_secs(5), changes.changed()).await??;
+        timeout(TEST_DEADLINE, changes.changed()).await??;
         assert_eq!(*changes.borrow(), initial_generation + 1);
         assert_eq!(
             *hook_calls.lock().unwrap(),

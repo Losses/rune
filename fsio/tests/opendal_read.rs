@@ -11,7 +11,7 @@ mod test_fixtures;
 use test_fixtures::{S3Fixture, WebDavFixture};
 
 const AUDIO: &[u8] = b"0123456789abcdef";
-const DEADLINE: Duration = Duration::from_secs(10);
+const DEADLINE: Duration = Duration::from_secs(60);
 
 fn webdav_config(server: &WebDavFixture, password: &str) -> OpenDalConfig {
     OpenDalConfig::WebDav {

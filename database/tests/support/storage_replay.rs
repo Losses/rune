@@ -16,6 +16,8 @@ use std::{
 };
 use tempfile::TempDir;
 
+const TEST_DEADLINE: Duration = Duration::from_secs(60);
+
 #[derive(Clone, Debug)]
 struct Event {
     op: u8,
@@ -300,7 +302,7 @@ fn wait(mut child: std::process::Child, limit: Duration) -> Result<std::process:
             child.wait()?;
             bail!("subprocess timed out");
         }
-        thread::sleep(Duration::from_millis(10));
+        thread::yield_now();
     }
 }
 fn run_case(binary: &Path, name: &str, root: &Path, extra: &[(&str, OsString)]) -> Result<String> {
@@ -314,7 +316,7 @@ fn run_case(binary: &Path, name: &str, root: &Path, extra: &[(&str, OsString)]) 
     for (key, value) in extra {
         command.env(key, value);
     }
-    let output = wait(command.spawn()?, Duration::from_secs(30))?;
+    let output = wait(command.spawn()?, TEST_DEADLINE)?;
     ensure!(
         output.status.success(),
         "{name} failed: {} {}",
@@ -426,12 +428,12 @@ fn capture(binary: &Path, root: &Path) -> Result<(PathBuf, Value, Vec<Event>, St
                 String::from_utf8_lossy(&output.stderr)
             );
         }
-        if started.elapsed() > Duration::from_secs(30) {
+        if started.elapsed() > TEST_DEADLINE {
             child.kill()?;
             child.wait()?;
             bail!("capture timed out");
         }
-        thread::sleep(Duration::from_millis(10));
+        thread::yield_now();
     }
     child.kill()?;
     child.wait()?;

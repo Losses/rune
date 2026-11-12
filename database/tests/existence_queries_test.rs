@@ -17,7 +17,7 @@ async fn existence_queries_preserve_filters_duplicates_and_errors() -> Result<()
     let db = Database::connect("sqlite::memory:").await?;
     initialize_db(&db, "existence-test").await?;
     let fs = FsIo::new();
-    let root = fixtures::asset_directory().canonicalize()?;
+    let root = fs.canonicalize(&fixtures::asset_directory())?.path;
     let actor = uuid::Uuid::new_v4();
     let store = fixtures::open_library(db.clone(), actor, Some(uuid::Uuid::new_v4())).await?;
     let node = fs.canonicalize(&root.join("startup_0.ogg"))?;

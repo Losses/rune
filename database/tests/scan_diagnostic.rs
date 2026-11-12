@@ -19,7 +19,6 @@ use database::{
 use fsio::FsIo;
 use sea_orm::sea_query::Expr;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter};
-use std::time::Duration;
 use std::{path::PathBuf, sync::Arc, time::Instant};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -164,7 +163,10 @@ async fn unchanged_cover_scan_does_not_reinspect() -> Result<()> {
     std::fs::create_dir(root.join("with-cover"))?;
     std::fs::create_dir(root.join("without-cover"))?;
     std::fs::copy(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../assets/source/lotus.png"),
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../assets/available_app_store.png"
+        ),
         root.join("with-cover/cover.png"),
     )?;
     write_tagged_wav(&root.join("with-cover/track.wav"), "with cover")?;
@@ -199,7 +201,6 @@ async fn unchanged_cover_scan_does_not_reinspect() -> Result<()> {
             .all(|file| file.cover_art_checked_at.is_some())
     );
     let head = sync_orm::causal_progress::head_on(&db, store.namespace()).await?;
-    tokio::time::sleep(Duration::from_millis(20)).await;
     scan_cover_arts(fs, &db, root, 16, |_, _| {}, None, &store).await?;
     let after = media_files::Entity::find().all(&db).await?;
     assert_eq!(before, after);
@@ -218,7 +219,7 @@ async fn rejected_artwork_assignment_does_not_stop_other_files_and_retries() -> 
     let temp = tempfile::tempdir()?;
     let root = temp.path();
     for (directory, image) in [
-        ("rejected", "source/lotus.png"),
+        ("rejected", "available_app_store.png"),
         ("healthy", "available_ms_store.png"),
     ] {
         std::fs::create_dir(root.join(directory))?;

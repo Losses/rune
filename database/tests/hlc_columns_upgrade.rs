@@ -87,7 +87,7 @@ async fn alpha_database_with_bookkeeping_columns_still_works() -> Result<()> {
     )
     .await?;
     let fs = FsIo::new();
-    let root = fixtures::asset_directory().canonicalize()?;
+    let root = fs.canonicalize(&fixtures::asset_directory())?.path;
     let audio = fs.canonicalize(&root.join("startup_0.ogg"))?;
     let mut descriptions = vec![Some(describe_file(&fs, &audio, &Some(root))?)];
     sync_file_descriptions(

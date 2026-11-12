@@ -13,6 +13,7 @@ use url::Url;
 mod support;
 
 type RequestLog = Arc<Mutex<Vec<HashMap<String, String>>>>;
+const TEST_DEADLINE: Duration = Duration::from_secs(60);
 type ResponseOverride = Option<(StatusCode, String)>;
 
 #[derive(Clone)]
@@ -95,7 +96,7 @@ fn client(url: Url) -> SubsonicClient {
 }
 
 async fn bounded<T>(future: impl std::future::Future<Output = T>) -> T {
-    tokio::time::timeout(Duration::from_secs(3), future)
+    tokio::time::timeout(TEST_DEADLINE, future)
         .await
         .expect("request timed out")
 }

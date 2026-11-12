@@ -31,7 +31,7 @@ async fn failed_metadata_insert_rolls_back_file() -> Result<()> {
     db.execute_raw(Statement::from_string(DbBackend::Sqlite,
         "CREATE TRIGGER reject_metadata BEFORE INSERT ON media_metadata BEGIN SELECT RAISE(ABORT, 'test failure'); END;".to_owned())).await?;
     let fs = FsIo::new();
-    let root = fixtures::asset_directory().canonicalize()?;
+    let root = fs.canonicalize(&fixtures::asset_directory())?.path;
     let node = fs.canonicalize(&root.join("startup_0.ogg"))?;
     let mut descriptions = vec![Some(describe_file(&fs, &node, &Some(root))?)];
     assert!(

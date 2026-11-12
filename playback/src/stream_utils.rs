@@ -204,6 +204,8 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
+
+    const TEST_DEADLINE: Duration = Duration::from_secs(60);
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
     use tokio::sync::oneshot;
@@ -231,10 +233,7 @@ mod tests {
                 .await
                 .unwrap();
             socket.write_all(&vec![7; 300 * 1024]).await.unwrap();
-            if tokio::time::timeout(Duration::from_secs(3), waiting)
-                .await
-                .is_err()
-            {
+            if tokio::time::timeout(TEST_DEADLINE, waiting).await.is_err() {
                 forced_server.store(true, Ordering::SeqCst);
             }
             let _ = socket.write_all(&vec![9; 1024 * 1024 - 300 * 1024]).await;
@@ -246,12 +245,12 @@ mod tests {
             .no_proxy()
             .build()?;
         let mut stream = tokio::time::timeout(
-            Duration::from_secs(5),
+            TEST_DEADLINE,
             create_stream_with_client(client, &format!("http://{address}/audio")),
         )
         .await??;
         let (first, stream) = tokio::time::timeout(
-            Duration::from_secs(5),
+            TEST_DEADLINE,
             tokio::task::spawn_blocking(move || {
                 let mut bytes = [0; 4];
                 stream.read_exact(&mut bytes).unwrap();
@@ -281,6 +280,7 @@ mod tests {
     async fn managed_reader_returns_error_when_range_download_fails() -> Result<()> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let address = listener.local_addr()?;
+        let (release_initial, wait_release) = oneshot::channel();
         let server = tokio::spawn(async move {
             let (mut initial, _) = listener.accept().await.unwrap();
             let mut request = vec![0; 4096];
@@ -292,6 +292,7 @@ mod tests {
                 .await
                 .unwrap();
             initial.write_all(&[1]).await.unwrap();
+            let _ = wait_release.await;
             drop(initial);
 
             let (mut range, _) = listener.accept().await.unwrap();
@@ -305,16 +306,17 @@ mod tests {
         });
         let client = reqwest::Client::builder().no_proxy().build()?;
         let stream = tokio::time::timeout(
-            Duration::from_secs(5),
+            TEST_DEADLINE,
             create_stream_with_client(client, &format!("http://{address}/audio")),
         )
         .await??;
         let mut managed = ManagedStream::new(stream, CancellationToken::new());
+        release_initial.send(()).unwrap();
         let reader = tokio::task::spawn_blocking(move || {
             let mut output = vec![0; 1_048_576];
             managed.read_exact(&mut output)
         });
-        let result = tokio::time::timeout(Duration::from_secs(5), reader).await??;
+        let result = tokio::time::timeout(TEST_DEADLINE, reader).await??;
         assert!(result.is_err(), "failed range request must fail the read");
         server.await?;
         Ok(())
@@ -324,23 +326,40 @@ mod tests {
     async fn incomplete_stream_records_source_unreachable() -> Result<()> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let address = listener.local_addr()?;
+        let (release, waiting) = oneshot::channel::<()>();
         let server = tokio::spawn(async move {
             let (mut socket, _) = listener.accept().await.unwrap();
-            let mut request = vec![0; 4096];
-            let _ = socket.read(&mut request).await.unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0; 1024];
+            loop {
+                let read = socket.read(&mut chunk).await.unwrap();
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&chunk[..read]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
             socket
                 .write_all(
                     b"HTTP/1.1 200 OK\r\nContent-Length: 1024\r\nConnection: close\r\n\r\nshort",
                 )
                 .await
                 .unwrap();
+            tokio::time::timeout(TEST_DEADLINE, waiting)
+                .await
+                .expect("client must create the stream before the response ends")
+                .expect("client must release the response");
+            socket.shutdown().await.unwrap();
         });
         let client = reqwest::Client::builder().no_proxy().build()?;
         let stream = tokio::time::timeout(
-            Duration::from_secs(5),
+            TEST_DEADLINE,
             create_stream_with_client(client, &format!("http://{address}/audio")),
         )
         .await??;
+        release.send(()).expect("server must await the release");
         let reason = Arc::new(Mutex::new(None));
         let mut managed =
             ManagedStream::new_with_failure(stream, CancellationToken::new(), reason.clone());

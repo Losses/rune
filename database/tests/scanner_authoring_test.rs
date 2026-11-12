@@ -23,7 +23,7 @@ async fn journal_failure_rolls_back_scanned_file() -> Result<()> {
     let db = fixtures::memory_database(node).await?;
     let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::from_u128(2), node).await?;
     let fs = FsIo::new();
-    let root = fixtures::asset_directory().canonicalize()?;
+    let root = fs.canonicalize(&fixtures::asset_directory())?.path;
     let audio = fs.canonicalize(&root.join("startup_0.ogg"))?;
     let mut descriptions = vec![Some(describe_file(&fs, &audio, &Some(root))?)];
     db.execute_unprepared("CREATE TRIGGER reject_journal BEFORE INSERT ON sync_journal BEGIN SELECT RAISE(ABORT, 'test failure'); END").await?;
@@ -122,7 +122,7 @@ async fn index_reads_metadata_after_acquiring_replica_lock() -> Result<()> {
     migration::up_with_actor(&db, Some(&actor.to_string()), None).await?;
     let library = fixtures::open_library(db.clone(), actor, None).await?;
     let store = library.record_store();
-    let root = fixtures::asset_directory().canonicalize()?;
+    let root = FsIo::new().canonicalize(&fixtures::asset_directory())?.path;
     let file_id = scan_audio_file(
         &FsIo::new(),
         &db,

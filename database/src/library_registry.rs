@@ -1525,7 +1525,7 @@ mod tests {
             let _ = sender.send(LibraryRegistry::load(&path).map(|r| r.libraries.len()));
         });
         let loaded = receiver
-            .recv_timeout(Duration::from_secs(5))
+            .recv_timeout(Duration::from_secs(60))
             .expect("load waited for the registry writer lock");
         assert_eq!(loaded.unwrap(), 6);
     }

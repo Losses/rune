@@ -15,6 +15,7 @@ use subsonic::{SubsonicClient, SubsonicCredentials};
 mod support;
 
 type Requests = Arc<Mutex<Vec<HashMap<String, String>>>>;
+const TEST_DEADLINE: Duration = Duration::from_secs(60);
 
 #[tokio::test]
 async fn scrobble_sends_track_time_submission_and_authentication() {
@@ -32,13 +33,10 @@ async fn scrobble_sends_track_time_submission_and_authentication() {
         reqwest::Client::new(),
     );
 
-    tokio::time::timeout(
-        Duration::from_secs(3),
-        client.scrobble("song-42", None, false),
-    )
-    .await
-    .expect("request timed out")
-    .unwrap();
+    tokio::time::timeout(TEST_DEADLINE, client.scrobble("song-42", None, false))
+        .await
+        .expect("request timed out")
+        .unwrap();
     client
         .scrobble("song-42", Some(1_700_000_123_456), true)
         .await

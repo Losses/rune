@@ -46,7 +46,7 @@ async fn legacy_rows_are_invalid_and_replaced_only_after_success() -> Result<()>
     .await?;
     Migrator::up(&db, None).await?;
     let fs = Arc::new(FsIo::new());
-    let root = fixtures::asset_directory().canonicalize()?;
+    let root = fs.canonicalize(&fixtures::asset_directory())?.path;
     let store = fixtures::open_library(db.clone(), actor, None).await?;
     let node = fs.canonicalize(&root.join("startup_0.ogg"))?;
     let mut descriptions = vec![Some(describe_file(&fs, &node, &Some(root.clone()))?)];
