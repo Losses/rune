@@ -9103,9 +9103,6 @@ async fn assert_opendal_library_scan(s3: bool) -> Result<()> {
         })
         .await?;
         anyhow::ensure!(played.item.is_some(), "OpenDAL track did not reach the player");
-        fixture.start_worker().await?;
-        // TODO(RES): expose a barrier for the first sync pass so this wait can follow completion.
-        sleep(Duration::from_millis(1_200)).await;
         node.library_pool.unregister_ui(library_id).await;
         node.shutdown().await?;
         if let Some(webdav) = webdav {

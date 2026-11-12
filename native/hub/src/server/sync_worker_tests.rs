@@ -14,10 +14,10 @@ use fsio::test_fixtures::{S3Fixture, WebDavFixture};
 use fsio::{OpenDalConfig, OpenDalObjectStore};
 use futures::future::try_join_all;
 use serde_json::json;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use sync::SyncModel;
@@ -58,6 +58,11 @@ struct FixedShareFactory {
     session: ShareStoreSession,
 }
 
+struct RoutedShareFactory {
+    stores: HashMap<Uuid, Arc<MemoryObjectStore>>,
+    opened: Arc<Mutex<HashMap<Uuid, usize>>>,
+}
+
 impl ShareStoreFactory for FixedShareFactory {
     fn open<'a>(
         &'a self,
@@ -67,6 +72,35 @@ impl ShareStoreFactory for FixedShareFactory {
     ) -> BoxFuture<'a, Result<ShareStoreSession, ShareSyncFailure>> {
         let session = self.session.clone();
         Box::pin(async move { Ok(session) })
+    }
+}
+
+impl ShareStoreFactory for RoutedShareFactory {
+    fn open<'a>(
+        &'a self,
+        record: &'a LibraryRecord,
+        _prefix: &'a str,
+        _credentials: &'a CredentialStore,
+    ) -> BoxFuture<'a, Result<ShareStoreSession, ShareSyncFailure>> {
+        let Some(library_id) = record.library_id else {
+            return Box::pin(async { Err(ShareSyncFailure::ProbeFailed) });
+        };
+        let Some(store) = self.stores.get(&library_id).cloned() else {
+            return Box::pin(async { Err(ShareSyncFailure::ProbeFailed) });
+        };
+        *self
+            .opened
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .entry(library_id)
+            .or_default() += 1;
+        let store: Arc<dyn ObjectStore> = store;
+        Box::pin(async move {
+            Ok(ShareStoreSession {
+                store,
+                capabilities: ShareCapabilities::default(),
+            })
+        })
     }
 }
 
@@ -801,6 +835,109 @@ async fn read_only_share_reports_typed_failure_without_objects() -> Result<()> {
     let result = sync_pass(&library.library, namespace, &session).await;
     assert_eq!(result, Err(ShareSyncFailure::ReadOnlyShare));
     assert!(store.list_prefix("").await.unwrap().is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn share_worker_skips_redirected_catalog_before_opening_a_store() -> Result<()> {
+    let redirected_id = Uuid::new_v4();
+    let share_id = Uuid::new_v4();
+    let mut redirected_record = test_record(redirected_id);
+    redirected_record.catalog = CatalogPlacement::Redirected(Uuid::new_v4());
+    let share_record = test_record(share_id);
+    let redirected_library =
+        support::SqlLibrary::new_persistent(redirected_id, Uuid::new_v4()).await?;
+    let share_library = support::SqlLibrary::new_persistent(share_id, Uuid::new_v4()).await?;
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().to_string_lossy().into_owned();
+    let broadcaster = Arc::new(QuietBroadcaster::default());
+    let node = NodeContext::new(&path, &path, broadcaster, false).await?;
+    std::fs::write(
+        directory.path().join("libraries.json"),
+        serde_json::to_vec(&json!({
+            "version": 3,
+            "libraries": [redirected_record.clone(), share_record.clone()],
+            "last_open_record": null,
+        }))?,
+    )?;
+    let make_resources =
+        |library_id: Uuid, library: &support::SqlLibrary, record: LibraryRecord| LibraryResources {
+            library_id,
+            display_name: record.alias.clone(),
+            main_db: Arc::new(library.db.clone()),
+            library_sync: library.library.clone(),
+            recommend_db: Arc::new(RecommendationDbConnection::new()),
+            fsio: Arc::new(fsio::FsIo::new()),
+            media_root: library.root.path().to_string_lossy().into_owned(),
+            descriptor: record,
+        };
+    let redirected_handle = node
+        .library_pool
+        .register_ui(make_resources(
+            redirected_id,
+            &redirected_library,
+            redirected_record,
+        ))
+        .await?;
+    let share_handle = node
+        .library_pool
+        .register_ui(make_resources(share_id, &share_library, share_record))
+        .await?;
+    anyhow::ensure!(
+        node.library_pool.served_library_ids().await? == [redirected_id, share_id],
+        "redirected catalog must precede the share status barrier"
+    );
+
+    let redirected_store = Arc::new(MemoryObjectStore::default());
+    let share_store = Arc::new(MemoryObjectStore::default());
+    let opened = Arc::new(Mutex::new(HashMap::new()));
+    let factory: Arc<dyn ShareStoreFactory> = Arc::new(RoutedShareFactory {
+        stores: HashMap::from([
+            (redirected_id, redirected_store.clone()),
+            (share_id, share_store.clone()),
+        ]),
+        opened: opened.clone(),
+    });
+    let cancel = CancellationToken::new();
+    let task = tokio::spawn(run_share_worker(
+        Arc::downgrade(&node),
+        Arc::new(|| {}),
+        cancel.clone(),
+        factory,
+        ShareWorkerTimers {
+            tick: Duration::from_millis(25),
+            foreground_pull: Duration::from_millis(50),
+            background_pull: Duration::from_millis(50),
+            push_debounce: Duration::from_millis(10),
+            statistics_push: Duration::from_millis(50),
+            idle_push: Duration::from_millis(100),
+        },
+    ));
+    wait_until("the later in-share catalog store request", || async {
+        Ok((opened
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(&share_id)
+            .copied()
+            .unwrap_or_default()
+            > 0
+            && !share_store.calls().is_empty())
+        .then_some(()))
+    })
+    .await?;
+    assert!(redirected_store.calls().is_empty());
+    assert_eq!(
+        opened
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(&redirected_id),
+        None
+    );
+
+    cancel.cancel();
+    task.await?;
+    drop((redirected_handle, share_handle));
+    node.shutdown().await?;
     Ok(())
 }
 
