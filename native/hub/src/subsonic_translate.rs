@@ -1701,6 +1701,11 @@ fn subsonic_request_error(error: SubsonicError) -> anyhow::Error {
             reason: UnsupportedReason::NotImplemented,
         }
         .into(),
+        SubsonicError::RuneVisualizerFeedUnsupported => ExpectedRequestError::Unsupported {
+            request: "Subsonic visualizer feed",
+            reason: UnsupportedReason::NotImplemented,
+        }
+        .into(),
         SubsonicError::InvalidJukeboxGain => {
             ExpectedRequestError::invalid_input("invalid Subsonic jukebox gain").into()
         }

@@ -63,6 +63,8 @@ pub enum SubsonicError {
     JukeboxUnsupported,
     #[error("jukebox gain must be between 0 and 1 inclusive")]
     InvalidJukeboxGain,
+    #[error("Subsonic server does not support runeVisualizerFeed version 1")]
+    RuneVisualizerFeedUnsupported,
 }
 
 /// Safe classifications for stream failures; these values never contain a URL or credentials.
@@ -129,6 +131,17 @@ pub struct SubsonicProbe {
     pub extensions: Vec<(String, Vec<u32>)>,
     pub roles: SubsonicRoles,
     pub roles_known: bool,
+}
+
+impl SubsonicProbe {
+    /// Whether this OpenSubsonic server declares Rune's visualizer feed version 1.
+    pub fn supports_rune_visualizer_feed(&self) -> bool {
+        self.open_subsonic
+            && self
+                .extensions
+                .iter()
+                .any(|(name, versions)| name == "runeVisualizerFeed" && versions.contains(&1))
+    }
 }
 
 /// A Subsonic client with caller-owned credentials and an HTTP client.
@@ -211,6 +224,54 @@ impl SubsonicClient {
             roles,
             roles_known: true,
         })
+    }
+
+    /// Resolve the declared Rune visualizer feed endpoint and attach this account's credentials.
+    pub async fn rune_visualizer_feed_url(
+        &self,
+        probe: &SubsonicProbe,
+    ) -> Result<Url, SubsonicError> {
+        #[derive(Deserialize)]
+        struct FeedResponse {
+            #[serde(rename = "runeVisualizerFeed")]
+            feed: Option<FeedUrl>,
+        }
+        #[derive(Deserialize)]
+        struct FeedUrl {
+            url: String,
+        }
+
+        if !probe.supports_rune_visualizer_feed() {
+            return Err(SubsonicError::RuneVisualizerFeedUnsupported);
+        }
+        let response: FeedResponse = self.call("getRuneVisualizerFeed", &[]).await?;
+        let feed = response
+            .feed
+            .ok_or_else(|| SubsonicError::Malformed("feed endpoint omitted URL".into()))?;
+        let mut url = self
+            .base_url
+            .join(&feed.url)
+            .map_err(|error| SubsonicError::Malformed(error.to_string()))?;
+        match url.scheme() {
+            "http" => url
+                .set_scheme("ws")
+                .map_err(|_| SubsonicError::Malformed("invalid feed URL scheme".into()))?,
+            "https" => url
+                .set_scheme("wss")
+                .map_err(|_| SubsonicError::Malformed("invalid feed URL scheme".into()))?,
+            "ws" | "wss" => {}
+            _ => return Err(SubsonicError::Malformed("invalid feed URL scheme".into())),
+        }
+        let existing_keys: Vec<String> =
+            url.query_pairs().map(|(key, _)| key.into_owned()).collect();
+        let mut query = url.query_pairs_mut();
+        for (key, value) in self.auth_query() {
+            if !existing_keys.iter().any(|existing| existing == key) {
+                query.append_pair(key, &value);
+            }
+        }
+        drop(query);
+        Ok(url)
     }
 
     /// List ID3 artists.

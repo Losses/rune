@@ -46,7 +46,8 @@ use crate::{
         },
     },
     utils::{
-        GlobalParams, RemoteEventScope, RinfRustSignal, broadcastable::REMOTE_EVENT_DECLARATIONS,
+        Broadcaster, GlobalParams, RemoteEventScope, RinfRustSignal,
+        broadcastable::REMOTE_EVENT_DECLARATIONS,
     },
     visualizer::{ChartItem, VISUALIZER},
 };
@@ -669,6 +670,29 @@ pub(crate) fn update_visualizer_feed(message: &dyn RinfRustSignal) {
     {
         log::warn!("Could not use the renderer's visualizer covers: {error:#}");
     }
+}
+
+/// Deliver one Rune wire frame from either a Rune renderer or a declared Subsonic feed.
+pub(crate) fn deliver_visualizer_feed_frame(
+    payload: &[u8],
+    broadcaster: &dyn Broadcaster,
+) -> Result<()> {
+    let (name, body, _) = decode_message(payload)
+        .ok_or_else(|| anyhow::anyhow!("Malformed visualizer feed frame"))?;
+    if !matches!(
+        name.as_str(),
+        "PlaybackStatus" | "VisualizerFeedChart" | "VisualizerFeedCovers" | "RealtimeFFT"
+    ) {
+        return Ok(());
+    }
+    let declaration = REMOTE_EVENT_DECLARATIONS
+        .iter()
+        .find(|declaration| declaration.name == name)
+        .ok_or_else(|| anyhow::anyhow!("Undeclared visualizer feed message"))?;
+    let message = (declaration.decode)(&body)?;
+    update_visualizer_feed(message.as_ref());
+    broadcaster.broadcast(message.as_ref());
+    Ok(())
 }
 
 impl From<PlayingItemRef> for ChartItem {

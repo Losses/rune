@@ -1,5 +1,8 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
 
 use axum::Router;
 use axum::extract::{Path, Query, State};
@@ -21,12 +24,14 @@ struct FixtureConfig {
     error: Option<i64>,
     malformed: bool,
     http_status: Option<u16>,
+    feed_extension: bool,
 }
 
 #[derive(Clone, Default)]
 struct FixtureState {
     config: Option<FixtureConfig>,
     requests: RequestLog,
+    probe_count: Arc<AtomicUsize>,
 }
 
 struct Fixture {
@@ -39,6 +44,7 @@ async fn fixture(config: FixtureConfig) -> Fixture {
     let state = FixtureState {
         config: Some(config),
         requests: Arc::new(Mutex::new(Vec::new())),
+        probe_count: Arc::new(AtomicUsize::new(0)),
     };
     let requests = state.requests.clone();
     let app = Router::new()
@@ -74,8 +80,19 @@ async fn handle(
         return (StatusCode::OK, format!(r#"{{"subsonic-response":{{"status":"failed","version":"1.16.1","error":{{"code":{code},"message":"server says no"}}}}}}"#)).into_response();
     }
     let response = match endpoint.as_str() {
-        "ping" => format!(r#"{{"subsonic-response":{{"status":"ok","version":"1.16.1","type":"Fake","serverVersion":"2.0","openSubsonic":{}}}}}"#, config.open),
-        "getOpenSubsonicExtensions" => r#"{"subsonic-response":{"status":"ok","openSubsonicExtensions":[{"name":"apiKeyAuthentication","versions":[1]}]}}"#.into(),
+        "ping" => {
+            let server_version = if state.probe_count.fetch_add(1, Ordering::SeqCst) == 0 { "2.0" } else { "3.0" };
+            format!(r#"{{"subsonic-response":{{"status":"ok","version":"1.16.1","type":"Fake","serverVersion":"{server_version}","openSubsonic":{}}}}}"#, config.open)
+        }
+        "getOpenSubsonicExtensions" => {
+            let feed = if config.feed_extension {
+                r#",{"name":"runeVisualizerFeed","versions":[1]}"#
+            } else {
+                ""
+            };
+            format!(r#"{{"subsonic-response":{{"status":"ok","openSubsonicExtensions":[{{"name":"apiKeyAuthentication","versions":[1]}}{feed}]}}}}"#)
+        }
+        "getRuneVisualizerFeed" => r#"{"subsonic-response":{"status":"ok","runeVisualizerFeed":{"url":"ws://127.0.0.1:9020/feed"}}}"#.into(),
         "tokenInfo" => r#"{"subsonic-response":{"status":"ok","tokenInfo":{"username":"alice"}}}"#.into(),
         "getUser" => format!(r#"{{"subsonic-response":{{"status":"ok","user":{{"username":"alice","streamRole":true,"downloadRole":true,"jukeboxRole":{}}}}}}}"#, config.jukebox),
         _ => r#"{"subsonic-response":{"status":"ok"}}"#.into(),
@@ -90,7 +107,89 @@ fn config(open: bool, jukebox: bool) -> FixtureConfig {
         error: None,
         malformed: false,
         http_status: None,
+        feed_extension: false,
     }
+}
+
+#[tokio::test]
+async fn rune_visualizer_feed_requires_open_subsonic_version_one_and_uses_account_auth() {
+    let mut cfg = config(true, true);
+    cfg.feed_extension = true;
+    let feed_fixture = fixture(cfg).await;
+    let client = SubsonicClient::new(feed_fixture.url.clone(), password(), reqwest::Client::new());
+    let probe = client.probe().await.unwrap();
+    assert!(probe.supports_rune_visualizer_feed());
+    let url = client.rune_visualizer_feed_url(&probe).await.unwrap();
+    assert_eq!(url.scheme(), "ws");
+    assert_eq!(url.path(), "/feed");
+    let query: HashMap<_, _> = url.query_pairs().into_owned().collect();
+    assert_eq!(query["u"], "alice");
+    assert_eq!(query["c"], "rune");
+    assert!(query.contains_key("t"));
+    assert!(query.contains_key("s"));
+    assert!(!query.contains_key("p"));
+    let api_key_client = SubsonicClient::new(
+        feed_fixture.url.clone(),
+        SubsonicCredentials::ApiKey {
+            key: "feed-api-key".into(),
+        },
+        reqwest::Client::new(),
+    );
+    let api_key_url = api_key_client
+        .rune_visualizer_feed_url(&probe)
+        .await
+        .unwrap();
+    let api_key_query: HashMap<_, _> = api_key_url.query_pairs().into_owned().collect();
+    assert_eq!(api_key_query["apiKey"], "feed-api-key");
+    for forbidden in ["u", "p", "t", "s"] {
+        assert!(!api_key_query.contains_key(forbidden));
+    }
+
+    let mut classic = config(false, true);
+    classic.feed_extension = true;
+    let classic_fixture = fixture(classic).await;
+    let probe = SubsonicClient::new(
+        classic_fixture.url.clone(),
+        password(),
+        reqwest::Client::new(),
+    )
+    .probe()
+    .await
+    .unwrap();
+    assert!(!probe.supports_rune_visualizer_feed());
+    assert_eq!(
+        SubsonicClient::new(
+            classic_fixture.url.clone(),
+            password(),
+            reqwest::Client::new()
+        )
+        .rune_visualizer_feed_url(&probe)
+        .await
+        .unwrap_err(),
+        SubsonicError::RuneVisualizerFeedUnsupported,
+    );
+}
+
+#[tokio::test]
+async fn probe_re_reads_extensions_after_server_version_changes() {
+    let mut cfg = config(true, true);
+    cfg.feed_extension = true;
+    let fixture = fixture(cfg).await;
+    let client = SubsonicClient::new(fixture.url.clone(), password(), reqwest::Client::new());
+    let first = client.probe().await.unwrap();
+    let second = client.probe().await.unwrap();
+    assert_eq!(first.server_version.as_deref(), Some("2.0"));
+    assert_eq!(second.server_version.as_deref(), Some("3.0"));
+    assert!(first.supports_rune_visualizer_feed());
+    assert!(second.supports_rune_visualizer_feed());
+    let extensions_calls = fixture
+        .requests
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(endpoint, _)| endpoint == "getOpenSubsonicExtensions")
+        .count();
+    assert_eq!(extensions_calls, 2);
 }
 
 fn password() -> SubsonicCredentials {

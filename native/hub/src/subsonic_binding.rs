@@ -1,7 +1,7 @@
 use crate::{
     messages::{
         LibraryContentChanged, PlaybackStatus, PlayingItemRef, PlaylistItem, PlaylistUpdate,
-        RequestErrorKind, RequestFailedResponse, RequestFailureCause,
+        RequestErrorKind, RequestFailedResponse, RequestFailureCause, SetRealtimeFFTEnabledRequest,
     },
     utils::Broadcaster,
 };
@@ -17,13 +17,15 @@ use uuid::Uuid;
 
 use anyhow::Result;
 use database::playing_item::PlayingItemMetadataSummary;
-use futures::future::BoxFuture;
+use futures::{SinkExt, StreamExt, future::BoxFuture};
 use playback::player::{
     AudioPlaybackNote, AudioRequest, AudioSourceMode, PlayingItem, RemoteAudioError,
     RemoteAudioSource, SubsonicItem, UnavailableReason,
 };
 use subsonic::{SubsonicAlbum, SubsonicArtist, SubsonicClient, SubsonicJukebox, SubsonicSong};
+use tokio_tungstenite::{connect_async, tungstenite::Message};
 
+use crate::backends::remote::{deliver_visualizer_feed_frame, encode_message};
 use crate::request_error::ExpectedRequestError;
 use crate::subsonic_translate::jukebox_error_for_refresh;
 
@@ -86,6 +88,7 @@ pub(crate) struct SubsonicBinding {
     jukebox_poll: Mutex<Option<CancellationToken>>,
     jukebox_state: Arc<Mutex<Option<JukeboxPollState>>>,
     playback_starts: Mutex<HashMap<String, u64>>,
+    visualizer_feed: Mutex<Option<CancellationToken>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -347,6 +350,7 @@ impl SubsonicBinding {
             jukebox_poll: Mutex::new(None),
             jukebox_state: Arc::new(Mutex::new(None)),
             playback_starts: Mutex::new(HashMap::new()),
+            visualizer_feed: Mutex::new(None),
         }
     }
 
@@ -362,6 +366,7 @@ impl SubsonicBinding {
         }
         let cancellation = self.covers.cancellation.child_token();
         *poll = Some(cancellation.clone());
+        self.start_visualizer_feed();
         let client = Arc::clone(&self.client);
         let library_id = self.library_id;
         let broadcaster = Arc::clone(&self.covers.broadcaster);
@@ -412,6 +417,93 @@ impl SubsonicBinding {
         {
             token.cancel();
         }
+        if let Ok(mut feed) = self.visualizer_feed.lock()
+            && let Some(token) = feed.take()
+        {
+            token.cancel();
+        }
+    }
+
+    fn start_visualizer_feed(self: &Arc<Self>) {
+        if !self.probe.supports_rune_visualizer_feed() {
+            return;
+        }
+        let Ok(mut feed) = self.visualizer_feed.lock() else {
+            return;
+        };
+        if let Some(token) = feed.take() {
+            token.cancel();
+        }
+        let cancellation = self.covers.cancellation.child_token();
+        *feed = Some(cancellation.clone());
+        let client = Arc::clone(&self.client);
+        let probe = self.probe.clone();
+        let broadcaster = Arc::clone(&self.covers.broadcaster);
+        tokio::spawn(async move {
+            let url = match client.rune_visualizer_feed_url(&probe).await {
+                Ok(url) => url,
+                Err(error) => {
+                    log::warn!("Could not resolve Subsonic visualizer feed: {error}");
+                    return;
+                }
+            };
+            let (mut socket, _) = match connect_async(url.as_str()).await {
+                Ok(socket) => socket,
+                Err(error) => {
+                    log::warn!("Could not connect to Subsonic visualizer feed: {error}");
+                    return;
+                }
+            };
+            let fft_payload = match rinf::serialize(&SetRealtimeFFTEnabledRequest {
+                enabled: true,
+                call_id: None,
+            }) {
+                Ok(payload) => payload,
+                Err(error) => {
+                    log::warn!("Could not encode Subsonic visualizer feed request: {error}");
+                    return;
+                }
+            };
+            for (name, body) in [
+                ("SubscribeVisualizerFeedRequest", Vec::new()),
+                ("SetRealtimeFFTEnabledRequest", fft_payload),
+            ] {
+                let frame = encode_message(name, &body, None);
+                if let Err(error) = socket.send(Message::Binary(frame.into())).await {
+                    log::warn!("Could not subscribe to Subsonic visualizer feed: {error}");
+                    return;
+                }
+            }
+            loop {
+                tokio::select! {
+                    _ = cancellation.cancelled() => {
+                        let frame = encode_message(
+                            "UnsubscribeVisualizerFeedRequest",
+                            &[],
+                            None,
+                        );
+                        let _ = socket.send(Message::Binary(frame.into())).await;
+                        let _ = socket.close(None).await;
+                        break;
+                    }
+                    message = socket.next() => match message {
+                        Some(Ok(Message::Binary(payload))) => {
+                            if let Err(error) =
+                                deliver_visualizer_feed_frame(&payload, &*broadcaster)
+                            {
+                                log::debug!("Ignoring Subsonic visualizer feed frame: {error:#}");
+                            }
+                        }
+                        Some(Ok(Message::Close(_))) | None => break,
+                        Some(Err(error)) => {
+                            log::debug!("Subsonic visualizer feed ended: {error}");
+                            break;
+                        }
+                        Some(Ok(_)) => {}
+                    }
+                }
+            }
+        });
     }
 
     pub(crate) async fn report_track_started_at(&self, track_id: &str, start_time: u64) {
@@ -766,5 +858,306 @@ mod tests {
             .await
             .unwrap();
         assert!(!cache.exists());
+    }
+}
+
+#[cfg(test)]
+mod visualizer_feed_tests {
+    use std::collections::HashMap;
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    };
+    use std::time::Duration;
+
+    use axum::{
+        Router,
+        extract::{
+            Path, Query, State,
+            ws::{Message as AxumMessage, WebSocket, WebSocketUpgrade},
+        },
+        http::StatusCode,
+        response::IntoResponse,
+        routing::get,
+    };
+    use serde::Serialize;
+    use tempfile::TempDir;
+    use tokio::{net::TcpListener, sync::Notify, time::timeout};
+    use url::Url;
+    use uuid::Uuid;
+
+    use super::SubsonicBinding;
+    use crate::{
+        backends::remote::{decode_message, encode_message},
+        messages::{
+            PlaybackStatus, PlayingItemRef, RealtimeFFT, VisualizerFeedChart, VisualizerFeedCovers,
+        },
+        utils::{Broadcaster, RinfRustSignal},
+    };
+    use subsonic::{SubsonicClient, SubsonicCredentials};
+
+    #[derive(Clone)]
+    struct MockState {
+        open: bool,
+        declares_feed: bool,
+        connections: Arc<AtomicUsize>,
+        closed: Arc<AtomicBool>,
+        auth: Arc<Mutex<Option<HashMap<String, String>>>>,
+        requests: Arc<Mutex<Vec<String>>>,
+        connected: Arc<Notify>,
+    }
+
+    #[derive(Default)]
+    struct Signals(Mutex<Vec<String>>);
+
+    impl Broadcaster for Signals {
+        fn broadcast(&self, message: &dyn RinfRustSignal) {
+            self.0.lock().unwrap().push(message.name());
+        }
+    }
+
+    async fn server(
+        open: bool,
+        declares_feed: bool,
+    ) -> (Url, MockState, tokio::task::JoinHandle<()>) {
+        let state = MockState {
+            open,
+            declares_feed,
+            connections: Arc::new(AtomicUsize::new(0)),
+            closed: Arc::new(AtomicBool::new(false)),
+            auth: Arc::new(Mutex::new(None)),
+            requests: Arc::new(Mutex::new(Vec::new())),
+            connected: Arc::new(Notify::new()),
+        };
+        let app = Router::new()
+            .route("/rest/{*endpoint}", get(http))
+            .route("/feed", get(feed))
+            .with_state(state.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        (
+            Url::parse(&format!("http://{address}")).unwrap(),
+            state,
+            task,
+        )
+    }
+
+    async fn http(
+        State(state): State<MockState>,
+        Path(endpoint): Path<String>,
+    ) -> impl IntoResponse {
+        let endpoint = endpoint.trim_end_matches(".view");
+        let response = match endpoint {
+            "ping" => format!(r#"{{"subsonic-response":{{"status":"ok","version":"1.16.1","serverVersion":"1","openSubsonic":{}}}}}"#, state.open),
+            "getOpenSubsonicExtensions" => {
+                let ext = if state.declares_feed { r#",{"name":"runeVisualizerFeed","versions":[1]}"# } else { "" };
+                format!(r#"{{"subsonic-response":{{"status":"ok","openSubsonicExtensions":[{{"name":"apiKeyAuthentication","versions":[1]}}{ext}]}}}}"#)
+            }
+            "getUser" => r#"{"subsonic-response":{"status":"ok","user":{"username":"alice","jukeboxRole":true}}}"#.into(),
+            "getRuneVisualizerFeed" => r#"{"subsonic-response":{"status":"ok","runeVisualizerFeed":{"url":"/feed"}}}"#.into(),
+            _ => r#"{"subsonic-response":{"status":"ok","jukeboxStatus":{"playing":false}}}"#.into(),
+        };
+        (StatusCode::OK, response)
+    }
+
+    async fn feed(
+        State(state): State<MockState>,
+        Query(query): Query<HashMap<String, String>>,
+        ws: WebSocketUpgrade,
+    ) -> impl IntoResponse {
+        *state.auth.lock().unwrap() = Some(query);
+        ws.on_upgrade(move |socket| feed_socket(socket, state))
+    }
+
+    async fn feed_socket(mut socket: WebSocket, state: MockState) {
+        state.connections.fetch_add(1, Ordering::SeqCst);
+        state.connected.notify_one();
+        let item = PlayingItemRef::LibraryTrack {
+            library_id: Uuid::new_v4().to_string(),
+            track: "track-1".into(),
+        };
+        let events = [
+            event(
+                "PlaybackStatus",
+                &PlaybackStatus {
+                    session_id: "feed".into(),
+                    state: "playing".into(),
+                    progress_seconds: 1.0,
+                    progress_percentage: 0.1,
+                    artist: None,
+                    album: None,
+                    title: Some("song".into()),
+                    duration: 10.0,
+                    index: Some(0),
+                    item: Some("track-1".into()),
+                    item_request: Some(item.clone()),
+                    playback_mode: 0,
+                    ready: true,
+                    cover_art_path: None,
+                    lib_path: String::new(),
+                },
+            ),
+            event(
+                "VisualizerFeedChart",
+                &VisualizerFeedChart {
+                    item: item.clone(),
+                    chart: vec![1, 2, 3],
+                },
+            ),
+            event(
+                "VisualizerFeedCovers",
+                &VisualizerFeedCovers {
+                    item,
+                    playing: Some(vec![4]),
+                    random: vec![vec![5]],
+                },
+            ),
+            event(
+                "RealtimeFFT",
+                &RealtimeFFT {
+                    value: vec![0.25, 0.5],
+                },
+            ),
+        ];
+        for event in events {
+            if socket
+                .send(AxumMessage::Binary(event.into()))
+                .await
+                .is_err()
+            {
+                return;
+            }
+        }
+        while let Some(Ok(message)) = socket.recv().await {
+            if let AxumMessage::Binary(payload) = &message
+                && let Some((name, _, _)) = decode_message(payload)
+            {
+                state.requests.lock().unwrap().push(name);
+            }
+            if matches!(message, AxumMessage::Close(_)) {
+                state.closed.store(true, Ordering::SeqCst);
+                break;
+            }
+        }
+        state.closed.store(true, Ordering::SeqCst);
+    }
+
+    fn event<T: Serialize>(name: &str, value: &T) -> Vec<u8> {
+        encode_message(name, &rinf::serialize(value).unwrap(), None)
+    }
+
+    async fn open_binding(
+        url: Url,
+        root: &TempDir,
+        broadcaster: Arc<Signals>,
+    ) -> Arc<SubsonicBinding> {
+        let client = SubsonicClient::new(
+            url,
+            SubsonicCredentials::Password {
+                user: "alice".into(),
+                password: "secret".into(),
+            },
+            reqwest::Client::new(),
+        );
+        let probe = client.probe().await.unwrap();
+        Arc::new(SubsonicBinding::new(
+            client,
+            probe,
+            root.path().to_path_buf(),
+            Uuid::new_v4(),
+            false,
+            broadcaster,
+        ))
+    }
+
+    #[tokio::test]
+    async fn subsonic_visualizer_feed_delivers_events_authenticates_and_closes_with_library() {
+        let (url, state, server) = server(true, true).await;
+        let root = TempDir::new().unwrap();
+        let signals = Arc::new(Signals::default());
+        let binding = open_binding(url.clone(), &root, signals.clone()).await;
+        binding.start_jukebox_polling();
+        timeout(Duration::from_secs(2), async {
+            loop {
+                if state.connections.load(Ordering::SeqCst) == 1 {
+                    break;
+                }
+                state.connected.notified().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(state.auth.lock().unwrap().as_ref().unwrap()["u"], "alice");
+        assert!(
+            state
+                .auth
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .contains_key("t")
+        );
+        timeout(Duration::from_secs(2), async {
+            loop {
+                if signals.0.lock().unwrap().len() >= 4 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            signals.0.lock().unwrap().as_slice(),
+            [
+                "PlaybackStatus",
+                "VisualizerFeedChart",
+                "VisualizerFeedCovers",
+                "RealtimeFFT"
+            ]
+        );
+        binding.stop_jukebox_polling();
+        timeout(Duration::from_secs(2), async {
+            while !state.closed.load(Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let requests = state.requests.lock().unwrap();
+        assert!(
+            requests
+                .iter()
+                .any(|name| name == "SubscribeVisualizerFeedRequest")
+        );
+        assert!(
+            requests
+                .iter()
+                .any(|name| name == "SetRealtimeFFTEnabledRequest")
+        );
+        assert!(
+            requests
+                .iter()
+                .any(|name| name == "UnsubscribeVisualizerFeedRequest")
+        );
+        drop(requests);
+        binding.covers.cancellation.cancel();
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn subsonic_visualizer_feed_is_not_connected_without_open_subsonic_declaration() {
+        for (open, declares_feed) in [(false, true), (true, false)] {
+            let (url, state, server) = server(open, declares_feed).await;
+            let root = TempDir::new().unwrap();
+            let binding = open_binding(url, &root, Arc::new(Signals::default())).await;
+            binding.start_jukebox_polling();
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            assert_eq!(state.connections.load(Ordering::SeqCst), 0);
+            binding.stop_jukebox_polling();
+            binding.covers.cancellation.cancel();
+            server.abort();
+        }
     }
 }

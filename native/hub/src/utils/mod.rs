@@ -1610,6 +1610,7 @@ fn subsonic_probe_failure(error: SubsonicError) -> RegisterLibraryResponse {
         SubsonicError::Malformed(_)
         | SubsonicError::Server { .. }
         | SubsonicError::JukeboxUnsupported
+        | SubsonicError::RuneVisualizerFeedUnsupported
         | SubsonicError::InvalidJukeboxGain => RegisterLibraryFailureKind::SubsonicNotSubsonic,
     };
     let detail = match kind {
