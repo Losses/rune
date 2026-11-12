@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -6,11 +8,24 @@ import 'package:rune/l10n/app_localizations.dart';
 import 'package:rune/providers/library_manager.dart';
 import 'package:rune/providers/library_open_state.dart';
 import 'package:rune/providers/library_registry.dart';
+import 'package:rune/utils/api/request_failure.dart';
 import 'package:rune/widgets/library_task_button.dart';
 
 class _LibraryManager extends ChangeNotifier implements LibraryManagerProvider {
+  final StreamController<RequestFailure> _failures =
+      StreamController<RequestFailure>.broadcast();
+
+  @override
+  Stream<RequestFailure> get failureFeedback => _failures.stream;
+
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
+
+  @override
+  void dispose() {
+    _failures.close();
+    super.dispose();
+  }
 }
 
 Future<(LibraryOpenStateProvider, LibraryRegistryProvider)> _openState(

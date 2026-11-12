@@ -1,7 +1,7 @@
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
-use super::CastLibraryState;
+use super::{CastLibraryState, LibraryTaskKind};
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct SystemInfoRequest {
@@ -61,6 +61,9 @@ pub enum RequestFailureCause {
         peer_version: Option<String>,
     },
     SubsonicNotAuthorized,
+    LibraryTaskAlreadyRunning {
+        task: LibraryTaskKind,
+    },
 }
 
 #[derive(Deserialize, Serialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]

@@ -4,7 +4,7 @@ use thiserror::Error as ThisError;
 
 use crate::access_policy::Denial;
 use crate::messages::{
-    CastLibraryState, ProtocolUpdateSide, RequestErrorKind, RequestFailureCause,
+    CastLibraryState, LibraryTaskKind, ProtocolUpdateSide, RequestErrorKind, RequestFailureCause,
 };
 use crate::rpc::UnsupportedReason;
 use discovery::protocol_version::ProtocolVersion;
@@ -50,6 +50,8 @@ pub enum ExpectedRequestError {
     UnexpectedResponse { expected: String, actual: String },
     #[error("Queue changed: expected revision {expected}, current revision {current}")]
     StaleQueueRevision { expected: u64, current: u64 },
+    #[error("Cannot start a library task while {task} is running")]
+    LibraryTaskAlreadyRunning { task: LibraryTaskKind },
     #[error("Handoff was superseded by a newer request")]
     HandoffSuperseded,
     #[error("Cast is not possible for library {library_id}: {state:?}")]
@@ -110,6 +112,9 @@ pub fn classify(error: &Error) -> RequestErrorKind {
                 ExpectedRequestError::Remote { kind, .. } => *kind,
                 ExpectedRequestError::UnexpectedResponse { .. } => RequestErrorKind::Internal,
                 ExpectedRequestError::StaleQueueRevision { .. } => RequestErrorKind::Conflict,
+                ExpectedRequestError::LibraryTaskAlreadyRunning { .. } => {
+                    RequestErrorKind::Conflict
+                }
                 ExpectedRequestError::HandoffSuperseded => RequestErrorKind::Conflict,
                 ExpectedRequestError::CastNotPossible { state, .. } => match state {
                     CastLibraryState::NotHeld | CastLibraryState::AccessRevoked => {
@@ -137,6 +142,9 @@ pub fn request_failure_cause(error: &Error) -> Option<RequestFailureCause> {
                         library_id: library_id.clone(),
                         state: *state,
                     });
+                }
+                ExpectedRequestError::LibraryTaskAlreadyRunning { task } => {
+                    return Some(RequestFailureCause::LibraryTaskAlreadyRunning { task: *task });
                 }
                 ExpectedRequestError::Reconnecting { alias } => {
                     return Some(RequestFailureCause::Reconnecting {
@@ -182,7 +190,9 @@ mod tests {
     use database::error::ExpectedError;
 
     use super::{ExpectedRequestError, classify, request_failure_cause};
-    use crate::messages::{CastLibraryState, RequestErrorKind, RequestFailureCause};
+    use crate::messages::{
+        CastLibraryState, LibraryTaskKind, RequestErrorKind, RequestFailureCause,
+    };
     use sea_orm::{
         ConnectionTrait, SqlxSqliteConnector,
         sqlx::{SqlitePool, sqlite::SqliteConnectOptions},
@@ -242,6 +252,22 @@ mod tests {
     fn superseded_handoff_is_a_conflict_after_context() {
         let error = Error::new(ExpectedRequestError::HandoffSuperseded).context("handoff");
         assert_eq!(classify(&error), RequestErrorKind::Conflict);
+    }
+
+    #[test]
+    fn running_library_task_is_a_typed_conflict_after_context() {
+        let error = Error::new(ExpectedRequestError::LibraryTaskAlreadyRunning {
+            task: LibraryTaskKind::Scan,
+        })
+        .context("AnalyzeAudioLibraryRequest");
+        assert_eq!(classify(&error), RequestErrorKind::Conflict);
+        assert_eq!(
+            request_failure_cause(&error),
+            Some(RequestFailureCause::LibraryTaskAlreadyRunning {
+                task: LibraryTaskKind::Scan,
+            })
+        );
+        assert!(format!("{error:#}").contains("scan is running"));
     }
 
     #[test]

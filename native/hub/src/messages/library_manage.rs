@@ -75,37 +75,12 @@ pub struct AnalyzeAudioLibraryRequest {
     pub call_id: Option<u64>,
 }
 
-#[derive(Deserialize, Serialize, RustSignal)]
-pub struct AnalyzeAudioLibraryProgress {
-    pub record_id: String,
-    pub progress: i32,
-    pub total: i32,
-}
-
-#[derive(Deserialize, Serialize, RustSignal)]
-pub struct AnalyzeAudioLibraryResponse {
-    pub record_id: String,
-    pub total: i32,
-}
-
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct DeduplicateAudioLibraryRequest {
     pub similarity_threshold: f32,
     pub workload_factor: f32,
     #[serde(default)]
     pub call_id: Option<u64>,
-}
-
-#[derive(Deserialize, Serialize, RustSignal)]
-pub struct DeduplicateAudioLibraryProgress {
-    pub record_id: String,
-    pub progress: i32,
-    pub total: i32,
-}
-
-#[derive(Deserialize, Serialize, RustSignal)]
-pub struct DeduplicateAudioLibraryResponse {
-    pub record_id: String,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
@@ -124,11 +99,18 @@ pub struct CancelTaskRequest {
     pub call_id: Option<u64>,
 }
 
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
+pub enum CancelTaskResult {
+    Library(super::LibraryTaskState),
+    ScanCancelled,
+    ScanUnchanged,
+}
+
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct CancelTaskResponse {
     pub record_id: String,
     pub r#type: CancelTaskType,
-    pub success: bool,
+    pub result: CancelTaskResult,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

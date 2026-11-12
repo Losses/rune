@@ -123,7 +123,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
     let config_path = node.config_path.clone();
 
     let main_cancel_token = node.token.child_token();
-    let task_tokens: Arc<Mutex<TaskTokens>> = Arc::new(Mutex::new(TaskTokens::default()));
+    let task_tokens: Arc<Mutex<TaskTokens>> = node.task_tokens.clone();
 
     info!("Initializing player");
     let session = node.session()?;
@@ -151,6 +151,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
         node_id,
         main_token: main_cancel_token,
         task_tokens,
+        library_tasks: node.library_tasks.clone(),
         player,
         sfx_player,
         scrobbler,

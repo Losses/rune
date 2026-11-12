@@ -7564,7 +7564,7 @@ async fn rpc_target_blacklisted_request_returns_typed_failure_without_sending() 
 async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -> Result<()> {
     use crate::backends::remote::update_visualizer_feed;
     use crate::messages::{
-        AnalyzeAudioLibraryProgress, AnalyzeAudioLibraryResponse, PlayingItemRef, PlaylistItem,
+        LibraryTaskOutcome, LibraryTaskState, LibraryTaskStateChanged, LibraryTaskKind, PlayingItemRef, PlaylistItem,
         RealtimeFFT, ScanAudioLibraryResponse, VisualizerFeedChart, VisualizerFeedCovers,
     };
     use crate::utils::broadcastable::REMOTE_EVENT_DECLARATIONS;
@@ -7686,19 +7686,25 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
             record_id: "declared-library".into(),
             progress: 2,
         });
-    b.global_params
-        .broadcaster
-        .broadcast(&AnalyzeAudioLibraryProgress {
+    b.global_params.broadcaster.broadcast(&LibraryTaskStateChanged {
+        state: LibraryTaskState::Running {
             record_id: "declared-library".into(),
+            task: LibraryTaskKind::Analyze,
+            run_id: "declared-run".into(),
             progress: 1,
             total: 2,
-        });
-    b.global_params
-        .broadcaster
-        .broadcast(&AnalyzeAudioLibraryResponse {
+        },
+    });
+    b.global_params.broadcaster.broadcast(&LibraryTaskStateChanged {
+        state: LibraryTaskState::Ended {
             record_id: "declared-library".into(),
+            task: LibraryTaskKind::Analyze,
+            run_id: "declared-run".into(),
+            progress: 2,
             total: 2,
-        });
+            outcome: LibraryTaskOutcome::Finished,
+        },
+    });
     b.global_params
         .broadcaster
         .broadcast(&capability_snapshot(&b.global_params.node)?);
@@ -7712,9 +7718,11 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
                         !matches!(declaration.name, "VisualizerFeedChart" | "VisualizerFeedCovers")
                     })
                     .all(|declaration| {
-                        records.iter().any(|(name, payload)| {
-                            name == declaration.name && (declaration.decode)(payload).is_ok()
-                        })
+                        let expected = if declaration.name == "LibraryTaskStateChanged" { 2 } else { 1 };
+                        records.iter().filter(|(name, _)| name == declaration.name).count() >= expected
+                            && records.iter().any(|(name, payload)| {
+                                name == declaration.name && (declaration.decode)(payload).is_ok()
+                            })
                     })
             };
             if decoded_all {
@@ -7725,6 +7733,11 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     })
     .await
     .context("declared events were not decoded and re-broadcast")?;
+    let task_states = signals.decoded::<LibraryTaskStateChanged>("LibraryTaskStateChanged");
+    assert!(matches!(task_states.as_slice(), [
+        LibraryTaskStateChanged { state: LibraryTaskState::Running { run_id, progress: 1, .. } },
+        LibraryTaskStateChanged { state: LibraryTaskState::Ended { run_id: ended_run, outcome: LibraryTaskOutcome::Finished, .. } },
+    ] if run_id == "declared-run" && ended_run == run_id));
     assert!(
         signals
             .decoded::<PlaylistUpdate>("PlaylistUpdate")

@@ -73,6 +73,12 @@ Future<T> awaitResponse<T>(
 
 String requestFailureMessage(AppLocalizations s, RequestFailure failure) =>
     switch (failure.cause) {
+      RequestFailureCauseLibraryTaskAlreadyRunning(:final task) =>
+        '${switch (task) {
+          LibraryTaskKind.scan => s.scanning,
+          LibraryTaskKind.analyze => s.analyzing,
+          LibraryTaskKind.deduplicate => s.deduplicating,
+        }}: ${s.requestUnavailable}',
       RequestFailureCauseReconnecting(:final alias) =>
         s.remoteLibraryReconnecting(alias),
       RequestFailureCauseStorageBusy() => s.requestStorageBusy,

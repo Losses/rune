@@ -3,10 +3,7 @@ use rinf::RustSignal;
 use std::any::TypeId;
 
 implement_rinf_rust_signal_trait!(ControllersUpdated);
-implement_rinf_rust_signal_trait!(
-    DeduplicateAudioLibraryProgress,
-    DeduplicateAudioLibraryResponse
-);
+
 implement_rinf_rust_signal_trait!(
     PlaybackStatus,
     PlaylistUpdate,
@@ -16,8 +13,7 @@ implement_rinf_rust_signal_trait!(
     LibraryContentChanged,
     ScanAudioLibraryProgress,
     ScanAudioLibraryResponse,
-    AnalyzeAudioLibraryProgress,
-    AnalyzeAudioLibraryResponse,
+    LibraryTaskStateChanged,
     ScrobbleServiceStatusUpdated,
     CrashResponse
 );
@@ -38,7 +34,6 @@ crate::declare_remote_events!(
     LibraryContentChanged => Library,
     ScanAudioLibraryProgress => Library,
     ScanAudioLibraryResponse => Library,
-    AnalyzeAudioLibraryProgress => Library,
-    AnalyzeAudioLibraryResponse => Library,
+    LibraryTaskStateChanged => Library,
     RequestCapabilities => Session,
 );

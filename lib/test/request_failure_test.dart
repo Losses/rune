@@ -105,6 +105,24 @@ void main() {
     expect(message(RequestErrorKind.internal), s.unknownError);
   });
 
+  test('running library task failure names the task in localized text', () {
+    final s = AppLocalizationsEn();
+    expect(
+      requestFailureMessage(
+        s,
+        const RequestFailure(
+          'AnalyzeAudioLibraryRequest',
+          RequestErrorKind.conflict,
+          'Cannot start a library task while scan is running',
+          RequestFailureCauseLibraryTaskAlreadyRunning(
+            task: LibraryTaskKind.scan,
+          ),
+        ),
+      ),
+      'Scanning: This is not available right now.',
+    );
+  });
+
   test('peer update failures name the device that must update', () {
     final s = AppLocalizationsEn();
     const kind = RequestErrorKind.peerNeedsUpdate;

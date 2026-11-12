@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -9,6 +11,7 @@ import '../bindings/bindings.dart';
 import '../providers/library_manager.dart';
 import '../providers/library_open_state.dart';
 import '../utils/dialogs/information/error.dart';
+import '../utils/api/request_failure.dart';
 
 Future<bool?> showCancelDialog(BuildContext context) {
   return $showModal<bool>(
@@ -34,9 +37,10 @@ Future<bool?> showCancelDialog(BuildContext context) {
   );
 }
 
-class LibraryTaskButton extends StatelessWidget {
+class LibraryTaskButton extends StatefulWidget {
   final String title;
   final String progressTitle;
+  final String requestName;
   final Future<void> Function(LibraryManagerProvider, String) onPressedStart;
   final Future<void> Function(LibraryManagerProvider, String)? onContextMenu;
   final void Function(LibraryManagerProvider, String) onPressedCancel;
@@ -46,6 +50,7 @@ class LibraryTaskButton extends StatelessWidget {
   const LibraryTaskButton({
     required this.title,
     required this.progressTitle,
+    required this.requestName,
     required this.onPressedStart,
     required this.onPressedCancel,
     required this.isTaskWorking,
@@ -53,6 +58,35 @@ class LibraryTaskButton extends StatelessWidget {
     this.onContextMenu,
     super.key,
   });
+
+  @override
+  State<LibraryTaskButton> createState() => _LibraryTaskButtonState();
+}
+
+class _LibraryTaskButtonState extends State<LibraryTaskButton> {
+  StreamSubscription<RequestFailure>? _failureSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _failureSubscription = context
+        .read<LibraryManagerProvider>()
+        .failureFeedback
+        .listen((failure) {
+          if (!mounted || failure.request != widget.requestName) return;
+          showErrorDialog(
+            context: context,
+            title: S.of(context).unavailable,
+            errorMessage: requestFailureMessage(S.of(context), failure),
+          );
+        });
+  }
+
+  @override
+  void dispose() {
+    _failureSubscription?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -85,31 +119,31 @@ class LibraryTaskButton extends StatelessWidget {
     final isWorking = scanWorking || analyzeWorking || deduplicateWorking;
 
     return isWorking &&
-            isTaskWorking(scanWorking, analyzeWorking, deduplicateWorking)
+            widget.isTaskWorking(scanWorking, analyzeWorking, deduplicateWorking)
         ? ProgressButton(
-            title: progressTitle,
-            onPressed: () => onPressedCancel(libraryManager, recordId),
-            progress: progress,
+            title: widget.progressTitle,
+            onPressed: () => widget.onPressedCancel(libraryManager, recordId),
+            progress: widget.progress,
             filled: false,
           )
         : GestureDetector(
             onSecondaryTapUp: (details) {
-              if (onContextMenu != null) {
-                onContextMenu!(libraryManager, recordId);
+              if (widget.onContextMenu != null) {
+                widget.onContextMenu!(libraryManager, recordId);
               }
             },
             onLongPressEnd: isDesktop
                 ? null
                 : (details) {
-                    if (onContextMenu != null) {
-                      onContextMenu!(libraryManager, recordId);
+                    if (widget.onContextMenu != null) {
+                      widget.onContextMenu!(libraryManager, recordId);
                     }
                   },
             child: Button(
               onPressed: isWorking
                   ? null
-                  : () => onPressedStart(libraryManager, recordId),
-              child: Text(title),
+                  : () => widget.onPressedStart(libraryManager, recordId),
+              child: Text(widget.title),
             ),
           );
   }
@@ -126,6 +160,7 @@ class ScanLibraryButton extends StatelessWidget {
     return LibraryTaskButton(
       title: title ?? S.of(context).scan,
       progressTitle: S.of(context).scanning,
+      requestName: 'ScanAudioLibraryRequest',
       progress: null,
       onPressedCancel: (libraryManager, recordId) async {
         final confirm = await showCancelDialog(context);
@@ -199,6 +234,7 @@ class AnalyzeLibraryButton extends StatelessWidget {
     return LibraryTaskButton(
       title: title ?? S.of(context).analyze,
       progressTitle: S.of(context).analyzing,
+      requestName: 'AnalyzeAudioLibraryRequest',
       onPressedCancel: (libraryManager, recordId) async {
         final confirm = await showCancelDialog(context);
 
@@ -247,6 +283,7 @@ class DeduplicateLibraryButton extends StatelessWidget {
     return LibraryTaskButton(
       title: title ?? S.of(context).deduplicate,
       progressTitle: S.of(context).deduplicating,
+      requestName: 'DeduplicateAudioLibraryRequest',
       onPressedCancel: (libraryManager, recordId) async {
         final confirm = await showCancelDialog(context);
 

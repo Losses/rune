@@ -7,6 +7,7 @@ import '../screens/collection/utils/collection_data_provider.dart';
 import '../bindings/bindings.dart';
 import '../constants/configurations.dart';
 import '../constants/settings_manager.dart';
+import '../utils/api/request_failure.dart';
 
 enum TaskStatus { working, finished, cancelled, failed }
 
@@ -80,26 +81,34 @@ class LibraryManagerProvider with ChangeNotifier {
   StreamSubscription? _libraryContentSubscription;
   StreamSubscription? _scanProgressSubscription;
   StreamSubscription? _scanResultSubscription;
-  StreamSubscription? _analyzeProgressSubscription;
-  StreamSubscription? _analyzeResultSubscription;
-  StreamSubscription? _cancelTaskSubscription;
-  StreamSubscription? _deduplicateProgressSubscription;
-  StreamSubscription? _deduplicateResultSubscription;
+  StreamSubscription? _libraryTaskSubscription;
+  StreamSubscription? _requestFailureSubscription;
+  final StreamController<RequestFailure> _failureFeedback =
+      StreamController<RequestFailure>.broadcast();
 
   final Map<String, Completer<TaskStatus>> _scanCompleters = {};
   final Map<String, String> _scanIds = {};
   int _nextScanId = 0;
   final Map<String, Completer<void>> _analyzeCompleters = {};
   final Map<String, Completer<void>> _deduplicateCompleters = {};
+  final Map<String, bool> _analysisInitializeIntent = {};
 
   final void Function(ScanAudioLibraryRequest)? _sendScanRequest;
   final void Function(String)? _navigate;
+  final Stream<LibraryTaskStateChanged> _libraryTaskStates;
+  final Stream<RequestFailedResponse> _requestFailures;
 
   LibraryManagerProvider({
     void Function(ScanAudioLibraryRequest)? sendScanRequest,
     void Function(String)? navigate,
+    Stream<LibraryTaskStateChanged>? libraryTaskStates,
+    Stream<RequestFailedResponse>? requestFailures,
   }) : _sendScanRequest = sendScanRequest,
-       _navigate = navigate {
+       _navigate = navigate,
+       _libraryTaskStates = libraryTaskStates ??
+           LibraryTaskStateChanged.rustSignalStream.map((event) => event.message),
+       _requestFailures = requestFailures ??
+           RequestFailedResponse.rustSignalStream.map((event) => event.message) {
     initListeners();
   }
 
@@ -165,90 +174,60 @@ class LibraryManagerProvider with ChangeNotifier {
       CollectionCache().clearAll();
     });
 
-    _analyzeProgressSubscription = AnalyzeAudioLibraryProgress.rustSignalStream
-        .listen((event) {
-          final analyzeProgress = event.message;
-          _updateAnalyzeProgress(
-            analyzeProgress.recordId,
-            analyzeProgress.progress,
-            analyzeProgress.total,
-            TaskStatus.working,
-            getAnalyzeTaskProgress(analyzeProgress.recordId)?.isInitializeTask ??
-                false,
-          );
-        });
-
-    _analyzeResultSubscription = AnalyzeAudioLibraryResponse.rustSignalStream
-        .listen((event) {
-          final analyzeResult = event.message;
-          _updateAnalyzeProgress(
-            analyzeResult.recordId,
-            analyzeResult.total,
-            analyzeResult.total,
-            TaskStatus.finished,
-            getAnalyzeTaskProgress(analyzeResult.recordId)?.isInitializeTask ??
-                false,
-          );
-
-          // Complete the analyze task
-          _analyzeCompleters[analyzeResult.recordId]?.complete();
-          _analyzeCompleters.remove(analyzeResult.recordId);
-        });
-
-    _cancelTaskSubscription = CancelTaskResponse.rustSignalStream.listen((
-      event,
-    ) {
-      final cancelResponse = event.message;
-      if (cancelResponse.success) {
-        if (cancelResponse.rType == CancelTaskType.scanAudioLibrary) {
-          // The supervised worker publishes the terminal state with its scan ID.
-        } else if (cancelResponse.rType == CancelTaskType.analyzeAudioLibrary) {
-          _updateAnalyzeProgress(
-            cancelResponse.recordId,
-            0,
-            0,
-            TaskStatus.cancelled,
-            false,
-          );
-        } else if (cancelResponse.rType ==
-            CancelTaskType.deduplicateAudioLibrary) {
-          _updateDeduplicateProgress(
-            cancelResponse.recordId,
-            0,
-            0,
-            TaskStatus.cancelled,
-          );
-        }
+    _libraryTaskSubscription = _libraryTaskStates.listen((event) {
+      _applyLibraryTaskState(event.state);
+    });
+    _requestFailureSubscription = _requestFailures.listen((failure) {
+      if (failure.request == 'ScanAudioLibraryRequest' ||
+          failure.request == 'AnalyzeAudioLibraryRequest' ||
+          failure.request == 'DeduplicateAudioLibraryRequest') {
+        _failureFeedback.add(
+          RequestFailure(
+            failure.request,
+            failure.kind,
+            failure.detail,
+            failure.cause,
+          ),
+        );
       }
     });
+  }
 
-    _deduplicateProgressSubscription = DeduplicateAudioLibraryProgress
-        .rustSignalStream
-        .listen((event) {
-          final deduplicateProgress = event.message;
-          _updateDeduplicateProgress(
-            deduplicateProgress.recordId,
-            deduplicateProgress.progress,
-            deduplicateProgress.total,
-            TaskStatus.working,
-          );
-        });
+  Stream<RequestFailure> get failureFeedback => _failureFeedback.stream;
 
-    _deduplicateResultSubscription = DeduplicateAudioLibraryResponse
-        .rustSignalStream
-        .listen((event) {
-          final deduplicateResult = event.message;
-          _updateDeduplicateProgress(
-            deduplicateResult.recordId,
-            100,
-            100,
-            TaskStatus.finished,
-          );
-
-          // Complete deduplicate task
-          _deduplicateCompleters[deduplicateResult.recordId]?.complete();
-          _deduplicateCompleters.remove(deduplicateResult.recordId);
-        });
+  void _applyLibraryTaskState(LibraryTaskState state) {
+    if (state case LibraryTaskStateRunning(:final recordId, :final task, :final progress, :final total)) {
+      switch (task) {
+        case LibraryTaskKind.analyze:
+          _updateAnalyzeProgress(recordId, progress, total, TaskStatus.working,
+            getAnalyzeTaskProgress(recordId)?.isInitializeTask ??
+                _analysisInitializeIntent[recordId] ?? false);
+        case LibraryTaskKind.deduplicate:
+          _updateDeduplicateProgress(recordId, progress, total, TaskStatus.working);
+        case LibraryTaskKind.scan:
+          return;
+      }
+      return;
+    }
+    if (state case LibraryTaskStateEnded(:final recordId, :final task, :final progress, :final total, :final outcome)) {
+      final status = switch (outcome) {
+        LibraryTaskOutcomeFinished() => TaskStatus.finished,
+        LibraryTaskOutcomeCancelled() => TaskStatus.cancelled,
+        _ => TaskStatus.failed,
+      };
+      switch (task) {
+        case LibraryTaskKind.analyze:
+          _updateAnalyzeProgress(recordId, progress, total, status,
+            getAnalyzeTaskProgress(recordId)?.isInitializeTask ??
+                _analysisInitializeIntent.remove(recordId) ?? false);
+          _analyzeCompleters.remove(recordId)?.complete();
+        case LibraryTaskKind.deduplicate:
+          _updateDeduplicateProgress(recordId, progress, total, status);
+          _deduplicateCompleters.remove(recordId)?.complete();
+        case LibraryTaskKind.scan:
+          return;
+      }
+    }
   }
 
   void _updateScanProgress(
@@ -364,7 +343,8 @@ class LibraryManagerProvider with ChangeNotifier {
   }
 
   Future<void> analyzeLibrary(String recordId, [bool initialize = false]) async {
-    _updateAnalyzeProgress(recordId, 0, -1, TaskStatus.working, initialize);
+    _analysisInitializeIntent[recordId] = initialize;
+    _analyzeCompleters.putIfAbsent(recordId, Completer<void>.new);
     final computingDevice = 'cpu';
 
     double workloadFactor = 0.75;
@@ -390,8 +370,7 @@ class LibraryManagerProvider with ChangeNotifier {
   }
 
   Future<void> deduplicateLibrary(String recordId) async {
-    _updateDeduplicateProgress(recordId, 0, -1, TaskStatus.working);
-
+    _deduplicateCompleters.putIfAbsent(recordId, Completer<void>.new);
     double workloadFactor = 0.75;
     String similarityLevel =
         await $settingsManager.getValue<String>(kDeduplicateThresholdKey) ??
@@ -431,7 +410,10 @@ class LibraryManagerProvider with ChangeNotifier {
 
   Future<void> waitForAnalyzeToComplete(String recordId) {
     final taskProgress = getAnalyzeTaskProgress(recordId);
-    if (taskProgress == null || taskProgress.status == TaskStatus.finished) {
+    if (taskProgress != null && taskProgress.status != TaskStatus.working) {
+      return Future.value();
+    }
+    if (taskProgress == null && !_analyzeCompleters.containsKey(recordId)) {
       return Future.value();
     }
 
@@ -444,7 +426,10 @@ class LibraryManagerProvider with ChangeNotifier {
 
   Future<void> waitForDeduplicateToComplete(String recordId) {
     final taskProgress = getDeduplicateTaskProgress(recordId);
-    if (taskProgress == null || taskProgress.status == TaskStatus.finished) {
+    if (taskProgress != null && taskProgress.status != TaskStatus.working) {
+      return Future.value();
+    }
+    if (taskProgress == null && !_deduplicateCompleters.containsKey(recordId)) {
       return Future.value();
     }
 
@@ -477,11 +462,9 @@ class LibraryManagerProvider with ChangeNotifier {
     _libraryContentSubscription?.cancel();
     _scanProgressSubscription?.cancel();
     _scanResultSubscription?.cancel();
-    _analyzeProgressSubscription?.cancel();
-    _analyzeResultSubscription?.cancel();
-    _cancelTaskSubscription?.cancel();
-    _deduplicateProgressSubscription?.cancel();
-    _deduplicateResultSubscription?.cancel();
+    _libraryTaskSubscription?.cancel();
+    _requestFailureSubscription?.cancel();
+    _failureFeedback.close();
     super.dispose();
   }
 }

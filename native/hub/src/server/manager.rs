@@ -893,9 +893,7 @@ mod lifecycle_tests {
     use super::super::libraries::ListedLibrary;
     use super::*;
     use crate::utils::nid::get_or_create_node_id;
-    use crate::utils::{
-        Broadcaster, GlobalParams, RinfRustSignal, TaskTokens, sync_settings::SyncSettings,
-    };
+    use crate::utils::{Broadcaster, GlobalParams, RinfRustSignal, sync_settings::SyncSettings};
     use database::actions::downloads::{prepare_download, set_download_rule};
     use database::actions::file::{attach_download, catalog_track, hash_file, is_materialized};
     use database::actions::metadata::{
@@ -1213,7 +1211,8 @@ mod lifecycle_tests {
             library: Some(library.clone()),
             ui_library: Arc::new(Mutex::new(Some(library))),
             main_token: token.clone(),
-            task_tokens: Arc::new(Mutex::new(TaskTokens::default())),
+            task_tokens: node_context.task_tokens.clone(),
+            library_tasks: node_context.library_tasks.clone(),
             player: node_context.session()?.player.clone(),
             sfx_player: Arc::new(Mutex::new(SfxPlayer::new(Some((*token).clone())))),
             scrobbler: node_context.session()?.scrobbler.clone(),

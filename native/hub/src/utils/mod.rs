@@ -131,13 +131,13 @@ pub async fn initialize_opendal_databases(
 
 #[derive(Debug, Default)]
 pub struct TaskTokens {
-    pub scan_token: Option<CancellationToken>,
-    pub scan_id: Option<String>,
-    pub scan_record_id: Option<String>,
-    pub analyze_token: Option<CancellationToken>,
-    pub analyze_record_id: Option<String>,
-    pub deduplicate_token: Option<CancellationToken>,
-    pub deduplicate_record_id: Option<String>,
+    pub scans: HashMap<String, ScanTask>,
+}
+
+#[derive(Debug)]
+pub struct ScanTask {
+    pub token: CancellationToken,
+    pub scan_id: String,
 }
 
 /// The current UI library for a request, or the expected `Unavailable` error
@@ -165,6 +165,7 @@ pub struct GlobalParams {
     pub node_id: Arc<String>,
     pub main_token: Arc<CancellationToken>,
     pub task_tokens: Arc<Mutex<TaskTokens>>,
+    pub library_tasks: Arc<std::sync::Mutex<LibraryTaskOwner>>,
     pub player: Arc<Mutex<dyn Playable>>,
     pub sfx_player: Arc<Mutex<SfxPlayer>>,
     pub scrobbler: Arc<Mutex<dyn ScrobblingServiceManager>>,
@@ -2845,3 +2846,6 @@ mod opendal_share_data_detection_tests {
         );
     }
 }
+
+mod library_tasks;
+pub use library_tasks::LibraryTaskOwner;
