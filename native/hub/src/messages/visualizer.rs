@@ -171,12 +171,16 @@ pub struct VisualizerSupportRequest {
 /// cover wall can be shown.
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct VisualizerSupportResponse {
-    pub supported: bool,
-    pub adapter: String,
-    pub problem: Option<String>,
+    pub support: VisualizerSupport,
     pub inputs: VisualizerInputs,
     #[serde(default)]
     pub call_id: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
+pub enum VisualizerSupport {
+    Supported { adapter: String },
+    Unsupported { problem: String },
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
@@ -187,7 +191,7 @@ pub struct VisualizerStatusRequest {
 
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct VisualizerStatusResponse {
-    pub running: bool,
+    pub runtime: VisualizerRuntimeStatus,
     pub width: u32,
     pub height: u32,
     pub target_fps: u32,
@@ -198,14 +202,43 @@ pub struct VisualizerStatusResponse {
     pub preset_path: String,
     pub preset_count: u32,
     pub inputs: VisualizerInputs,
-    pub adapter: String,
-    /// How frames reach the screen: "iosurface" (no copies, macOS), "dxgi-shared" (no copies,
-    /// Windows), "vulkan-shared" (no copies, Linux), "surface" (no copies, Android: presented
-    /// into the texture's window), "readback", or empty before the render thread runs.
-    pub transport: String,
     pub last_error: Option<String>,
     #[serde(default)]
     pub call_id: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
+pub enum VisualizerRuntimeStatus {
+    NotRunningYet,
+    Stopped {
+        adapter: String,
+        transport: VisualizerTransport,
+    },
+    Running {
+        adapter: String,
+        transport: VisualizerTransport,
+    },
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VisualizerTransport {
+    Readback,
+    IoSurface,
+    DxgiShared,
+    VulkanShared,
+    Surface,
+}
+
+impl From<visualizer::Transport> for VisualizerTransport {
+    fn from(value: visualizer::Transport) -> Self {
+        match value {
+            visualizer::Transport::Readback => Self::Readback,
+            visualizer::Transport::IoSurface => Self::IoSurface,
+            visualizer::Transport::DxgiShared => Self::DxgiShared,
+            visualizer::Transport::VulkanShared => Self::VulkanShared,
+            visualizer::Transport::Surface => Self::Surface,
+        }
+    }
 }
 
 /// The texture that shows the visualizer (macOS), sent once it started and whenever another one

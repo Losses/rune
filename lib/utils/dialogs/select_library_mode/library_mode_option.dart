@@ -1,7 +1,9 @@
+import '../../../bindings/bindings.dart';
+
 class LibraryModeOption {
   final String title;
   final String subtitle;
-  final String value;
+  final LibraryInitializeMode value;
 
   const LibraryModeOption({
     required this.title,

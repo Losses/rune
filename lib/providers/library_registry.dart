@@ -12,13 +12,6 @@ import '../utils/rune_log.dart';
 import '../utils/dialogs/select_library_mode/show_select_library_mode_dialog.dart';
 import '../utils/file_storage/mac_secure_manager.dart';
 
-LibraryInitializeMode? stringToLibraryInitializeMode(String? value) {
-  if (value == null) return null;
-  return value == 'Redirected'
-      ? LibraryInitializeMode.redirected
-      : LibraryInitializeMode.portable;
-}
-
 class LibraryRegistryFailure implements Exception {
   const LibraryRegistryFailure(this.kind, this.detail);
 
@@ -37,9 +30,7 @@ Future<LibraryRecordSummary?> registerAndOpenLocalFolder(
     if (!context.mounted) return null;
     final mode = Platform.isAndroid
         ? LibraryInitializeMode.redirected
-        : stringToLibraryInitializeMode(
-            await showSelectLibraryModeDialog(context),
-          );
+        : await showSelectLibraryModeDialog(context);
     if (mode == null || !context.mounted) return null;
     response = await registry.registerLocalFolder(path, alias, mode);
   }

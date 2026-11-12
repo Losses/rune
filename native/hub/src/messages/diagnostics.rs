@@ -12,10 +12,16 @@ pub struct RunFsSelfTestRequest {
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct FsSelfTestProgress {
     pub layer: String,
-    pub ok: bool,
-    pub skipped: bool,
+    pub outcome: FsSelfTestLayerOutcome,
     pub elapsed_ms: i64,
     pub detail: String,
+}
+
+#[derive(Deserialize, Serialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FsSelfTestLayerOutcome {
+    Passed,
+    Failed,
+    Skipped,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]

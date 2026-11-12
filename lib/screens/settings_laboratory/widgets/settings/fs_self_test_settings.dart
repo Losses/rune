@@ -40,6 +40,16 @@ class FsSelfTestSettings extends StatelessWidget {
   }
 }
 
+@visibleForTesting
+Widget fsSelfTestOutcomeIcon(FsSelfTestLayerOutcome outcome) => switch (outcome) {
+  FsSelfTestLayerOutcome.skipped =>
+    Icon(Symbols.block, color: Colors.grey, size: 18),
+  FsSelfTestLayerOutcome.passed =>
+    Icon(Symbols.check_circle, color: Colors.green, size: 18),
+  FsSelfTestLayerOutcome.failed =>
+    Icon(Symbols.error, color: Colors.red, size: 18),
+};
+
 class FsSelfTestDialog extends StatefulWidget {
   const FsSelfTestDialog({
     super.key,
@@ -76,8 +86,7 @@ class _FsSelfTestDialogState extends State<FsSelfTestDialog> {
             _layers.add(
               FsSelfTestLayerResult(
                 layer: progress.layer,
-                ok: progress.ok,
-                skipped: progress.skipped,
+                outcome: progress.outcome,
                 elapsedMs: progress.elapsedMs.toInt(),
                 detail: progress.detail,
               ),
@@ -114,13 +123,7 @@ class _FsSelfTestDialogState extends State<FsSelfTestDialog> {
   }
 
   Widget _buildStatusIcon(FsSelfTestLayerResult layer) {
-    if (layer.skipped) {
-      return Icon(Symbols.block, color: Colors.grey, size: 18);
-    }
-    if (layer.ok) {
-      return Icon(Symbols.check_circle, color: Colors.green, size: 18);
-    }
-    return Icon(Symbols.error, color: Colors.red, size: 18);
+    return fsSelfTestOutcomeIcon(layer.outcome);
   }
 
   Widget _buildSummary(BuildContext context) {
@@ -192,7 +195,9 @@ class _FsSelfTestDialogState extends State<FsSelfTestDialog> {
                     header: Text(
                       '${layer.layer} · ${layer.elapsedMs} ms',
                       style: TextStyle(
-                        color: layer.skipped ? Colors.grey : null,
+                        color: layer.outcome == FsSelfTestLayerOutcome.skipped
+                            ? Colors.grey
+                            : null,
                       ),
                     ),
                     content: SelectableText(

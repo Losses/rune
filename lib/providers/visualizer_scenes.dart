@@ -101,6 +101,18 @@ class VisualizerScenesProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  @visibleForTesting
+  void applySupport(VisualizerSupportResponse support) {
+    switch (support.support) {
+      case VisualizerSupportSupported():
+        _gpu = true;
+      case VisualizerSupportUnsupported():
+        _gpu = false;
+    }
+    setInputs(support.inputs);
+    notifyListeners();
+  }
+
   /// Whether the cover wall page runs the visualizer: some checked scene is
   /// not the cover wall. With only the cover wall checked the page shows the
   /// plain wall and the visualizer never starts. False until the scenes are
@@ -266,6 +278,7 @@ class VisualizerScenesProvider extends ChangeNotifier {
   Future<void> _probeGpu() async {
     // Looking for a GPU can take a few seconds the first time.
     try {
+<<<<<<< ours
       final support = (await awaitResponse(
         'VisualizerSupportRequest',
         VisualizerSupportResponse.rustSignalStream,
@@ -276,6 +289,10 @@ class VisualizerScenesProvider extends ChangeNotifier {
       )).message;
       _gpu = support.supported;
       setInputs(support.inputs);
+=======
+      final support = (await response).message;
+      applySupport(support);
+>>>>>>> theirs
     } on TimeoutException {
       _gpu = false;
     }

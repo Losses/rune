@@ -192,10 +192,16 @@ pub enum LibraryRecordKindSummary {
     },
     OpenDal {
         library_id: String,
-        service: String,
+        service: OpenDalServiceKind,
         endpoint: String,
         root: String,
     },
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OpenDalServiceKind {
+    WebDav,
+    S3,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
@@ -262,14 +268,14 @@ impl From<&LibraryRecord> for LibraryRecordSummary {
                 Some(FsAdapter::WebDav { endpoint, root, .. }) => {
                     LibraryRecordKindSummary::OpenDal {
                         library_id: record.library_id.unwrap_or_default().to_string(),
-                        service: "webdav".into(),
+                        service: OpenDalServiceKind::WebDav,
                         endpoint: endpoint.clone(),
                         root: root.clone(),
                     }
                 }
                 Some(FsAdapter::S3 { endpoint, root, .. }) => LibraryRecordKindSummary::OpenDal {
                     library_id: record.library_id.unwrap_or_default().to_string(),
-                    service: "s3".into(),
+                    service: OpenDalServiceKind::S3,
                     endpoint: endpoint.clone(),
                     root: root.clone(),
                 },

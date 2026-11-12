@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../../bindings/bindings.dart';
 import '../../../widgets/no_shortcuts.dart';
 import '../../../widgets/subtitle_button.dart';
 
@@ -8,7 +9,7 @@ import '../../l10n.dart';
 import 'library_mode_option.dart';
 
 class SelectLibraryModeDialog extends StatelessWidget {
-  final Function(String?) onClose;
+  final Function(LibraryInitializeMode?) onClose;
 
   const SelectLibraryModeDialog({super.key, required this.onClose});
 
@@ -16,12 +17,12 @@ class SelectLibraryModeDialog extends StatelessWidget {
         LibraryModeOption(
           title: S.of(context).portableMode,
           subtitle: S.of(context).portableModeSubtitle,
-          value: "Portable",
+          value: LibraryInitializeMode.portable,
         ),
         LibraryModeOption(
           title: S.of(context).localMode,
           subtitle: S.of(context).localModeSubtitle,
-          value: "Redirected",
+          value: LibraryInitializeMode.redirected,
         ),
       ];
 
@@ -56,7 +57,7 @@ class SelectLibraryModeDialog extends StatelessWidget {
 
 class _DialogContent extends StatelessWidget {
   final List<LibraryModeOption> options;
-  final Function(String?) onOptionSelected;
+  final Function(LibraryInitializeMode?) onOptionSelected;
 
   const _DialogContent({
     required this.options,

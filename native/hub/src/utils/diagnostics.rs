@@ -19,15 +19,21 @@ use crate::messages::*;
 
 const LAYER_SAF_INIT: &str = "L1 SAF initialization (AndroidFsIo)";
 
-fn emit_progress(result: &FsSelfTestLayerResult) {
+fn make_progress(result: &FsSelfTestLayerResult) -> FsSelfTestProgress {
     FsSelfTestProgress {
         layer: result.layer.clone(),
-        ok: result.ok,
-        skipped: result.skipped,
+        outcome: match (result.ok, result.skipped) {
+            (_, true) => FsSelfTestLayerOutcome::Skipped,
+            (true, false) => FsSelfTestLayerOutcome::Passed,
+            (false, false) => FsSelfTestLayerOutcome::Failed,
+        },
         elapsed_ms: result.elapsed_ms as i64,
         detail: result.detail.clone(),
     }
-    .send_signal_to_dart();
+}
+
+fn emit_progress(result: &FsSelfTestLayerResult) {
+    make_progress(result).send_signal_to_dart();
 }
 
 async fn run_self_test(path: &str) -> Vec<FsSelfTestLayerResult> {
@@ -288,9 +294,36 @@ impl StandaloneRequestReceiver for RunFsSelfTestRequest {
 
 #[cfg(test)]
 mod tests {
+    use crate::messages::FsSelfTestLayerOutcome;
+
     use super::*;
     use anyhow::Context;
     use tempfile::TempDir;
+
+    #[test]
+    fn self_test_progress_outcomes_cover_pass_fail_and_skip() {
+        let progress_for = |ok, skipped| {
+            make_progress(&FsSelfTestLayerResult {
+                layer: "layer".into(),
+                ok,
+                skipped,
+                elapsed_ms: 1,
+                detail: String::new(),
+            })
+        };
+        assert_eq!(
+            progress_for(true, false).outcome,
+            FsSelfTestLayerOutcome::Passed
+        );
+        assert_eq!(
+            progress_for(false, false).outcome,
+            FsSelfTestLayerOutcome::Failed
+        );
+        assert_eq!(
+            progress_for(false, true).outcome,
+            FsSelfTestLayerOutcome::Skipped
+        );
+    }
 
     #[tokio::test]
     async fn wal_self_test_reports_typed_result_and_removes_probe_file() -> anyhow::Result<()> {

@@ -10,7 +10,8 @@ use crate::messages::{
     OpenLibraryRequest, OpenLibraryResult, PlaybackStatus, PlaylistOperateMode,
     RegisterLibraryFailureKind, RegisterLibraryOutcome, RemoteConnectionLost,
     RemoteLibraryReconnected, RemoteLibraryReconnecting, RemoteLossKind, RequestCapabilities,
-    RequestCapability, RequestFailedResponse,
+    RequestCapability, RequestFailedResponse, LibraryRecordKindSummary, LibraryRecordSummary,
+    OpenDalServiceKind,
     SetLikedRequest,
 };
 use crate::messages::{
@@ -8864,7 +8865,7 @@ async fn opendal_share_registration_uses_choice_and_existing_share_identity() ->
 
 #[tokio::test]
 async fn opendal_webdav_registration_open_and_scan_are_read_only_on_current_thread() -> Result<()> {
-    assert_opendal_library_scan(false).await
+    assert_opendal_library_scan(OpenDalServiceKind::WebDav).await
 }
 
 #[tokio::test]
@@ -8915,10 +8916,10 @@ async fn keep_in_share_rejects_a_read_only_share_before_registration() -> Result
 
 #[tokio::test]
 async fn opendal_s3_registration_open_and_scan_are_read_only_on_current_thread() -> Result<()> {
-    assert_opendal_library_scan(true).await
+    assert_opendal_library_scan(OpenDalServiceKind::S3).await
 }
 
-async fn assert_opendal_library_scan(s3: bool) -> Result<()> {
+async fn assert_opendal_library_scan(service_kind: OpenDalServiceKind) -> Result<()> {
     use database::{
         actions::metadata::{
             MissingHostFilePolicy, ScanOptions, get_metadata_summary_by_files, scan_audio_library,
@@ -8943,32 +8944,34 @@ async fn assert_opendal_library_scan(s3: bool) -> Result<()> {
                 include_bytes!("../../../../assets/startup_1.ogg").to_vec(),
             ),
         ];
-        let (endpoint, webdav, s3_fixture) = if s3 {
-            let fixture = S3Fixture::start_read_only(files).await?;
-            (fixture.endpoint.clone(), None, Some(fixture))
-        } else {
-            let fixture = WebDavFixture::start_read_only(files).await?;
-            (fixture.endpoint.clone(), Some(fixture), None)
+        let (endpoint, webdav, s3_fixture) = match service_kind {
+            OpenDalServiceKind::S3 => {
+                let fixture = S3Fixture::start_read_only(files).await?;
+                (fixture.endpoint.clone(), None, Some(fixture))
+            }
+            OpenDalServiceKind::WebDav => {
+                let fixture = WebDavFixture::start_read_only(files).await?;
+                (fixture.endpoint.clone(), Some(fixture), None)
+            }
         };
         let dir = tempfile::tempdir()?;
         let fixture = super::fixture(dir.path()).await?;
         let node = fixture.global_params.node.clone();
-        let service = if s3 {
-            OpenDalLibraryService::S3 {
+        let service = match service_kind {
+            OpenDalServiceKind::S3 => OpenDalLibraryService::S3 {
                 endpoint,
                 bucket: "bucket".into(),
                 region: "us-east-1".into(),
                 root: "/library/".into(),
                 access_key_id: "access".into(),
                 secret_access_key: "secret".into(),
-            }
-        } else {
-            OpenDalLibraryService::WebDav {
+            },
+            OpenDalServiceKind::WebDav => OpenDalLibraryService::WebDav {
                 endpoint,
                 root: "/dav/library/".into(),
                 username: "user".into(),
                 password: "pass".into(),
-            }
+            },
         };
         let request = RegisterOpenDalLibraryRequest {
             call_id: None,
@@ -9003,6 +9006,15 @@ async fn assert_opendal_library_scan(s3: bool) -> Result<()> {
             .iter()
             .find(|record| record.record_id.0.to_string() == record_id)
             .context("stored record")?;
+        let summary = LibraryRecordSummary::from(record);
+        anyhow::ensure!(
+            matches!(
+                summary.kind,
+                LibraryRecordKindSummary::OpenDal { service, .. } if service == service_kind
+            ),
+            "registered OpenDAL record had the wrong service summary: {:?}",
+            summary.kind
+        );
         let library_id = record.library_id.context("catalog library id")?;
         let library = node.library_pool.acquire_ui(library_id).await?;
         let storage_key = match &record.catalog {

@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 use ::playback::player::Playable;
 use ::visualizer::{
     Inspect, LabCommand, LabEvent, LabEventKind, LabTransition, Level, Location, PcmInput,
-    SceneInputs, Transport, VisualizerInputs as EngineInputs,
+    SceneInputs, VisualizerInputs as EngineInputs,
 };
 
 use crate::{
@@ -25,6 +25,31 @@ fn message_inputs(inputs: EngineInputs) -> VisualizerInputs {
         EngineInputs::None => VisualizerInputs::None,
         EngineInputs::SpectrumOnly => VisualizerInputs::SpectrumOnly,
         EngineInputs::Full => VisualizerInputs::Full,
+    }
+}
+
+fn message_runtime_status(status: &::visualizer::Status) -> VisualizerRuntimeStatus {
+    match status.transport {
+        Some(transport) if status.running => VisualizerRuntimeStatus::Running {
+            adapter: status.adapter.clone(),
+            transport: transport.into(),
+        },
+        Some(transport) => VisualizerRuntimeStatus::Stopped {
+            adapter: status.adapter.clone(),
+            transport: transport.into(),
+        },
+        None => VisualizerRuntimeStatus::NotRunningYet,
+    }
+}
+
+fn message_support(result: &Result<String, String>) -> VisualizerSupport {
+    match result {
+        Ok(adapter) => VisualizerSupport::Supported {
+            adapter: adapter.clone(),
+        },
+        Err(problem) => VisualizerSupport::Unsupported {
+            problem: problem.clone(),
+        },
     }
 }
 
@@ -332,7 +357,7 @@ impl Signal for VisualizerStatusRequest {
         let status = VISUALIZER.status();
         Ok(Some(VisualizerStatusResponse {
             call_id: None,
-            running: status.running,
+            runtime: message_runtime_status(&status),
             width: status.width,
             height: status.height,
             target_fps: status.target_fps,
@@ -341,16 +366,6 @@ impl Signal for VisualizerStatusRequest {
             preset_path: status.preset_path,
             preset_count: u32::try_from(status.preset_count).unwrap_or(u32::MAX),
             inputs: message_inputs(status.inputs),
-            adapter: status.adapter,
-            transport: match status.transport {
-                Some(Transport::IoSurface) => "iosurface",
-                Some(Transport::Readback) => "readback",
-                Some(Transport::DxgiShared) => "dxgi-shared",
-                Some(Transport::VulkanShared) => "vulkan-shared",
-                Some(Transport::Surface) => "surface",
-                None => "",
-            }
-            .to_string(),
             last_error: status.last_error,
         }))
     }
@@ -600,21 +615,10 @@ impl Signal for VisualizerSupportRequest {
                 gpu
             })
             .await;
-        Ok(Some(match gpu {
-            Ok(adapter) => VisualizerSupportResponse {
-                call_id: None,
-                supported: true,
-                adapter: adapter.clone(),
-                problem: None,
-                inputs: message_inputs(VISUALIZER.status().inputs),
-            },
-            Err(problem) => VisualizerSupportResponse {
-                call_id: None,
-                supported: false,
-                adapter: String::new(),
-                problem: Some(problem.clone()),
-                inputs: message_inputs(VISUALIZER.status().inputs),
-            },
+        Ok(Some(VisualizerSupportResponse {
+            call_id: None,
+            support: message_support(gpu),
+            inputs: message_inputs(VISUALIZER.status().inputs),
         }))
     }
 }
@@ -952,5 +956,77 @@ impl Signal for VisualizerPlanRequest {
             version,
             plan,
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use visualizer::Transport;
+
+    use crate::Signal;
+    use crate::messages::{VisualizerRuntimeStatus, VisualizerSupport, VisualizerTransport};
+
+    use super::{VISUALIZER, VisualizerStatusRequest, message_runtime_status, message_support};
+
+    #[test]
+    fn visualizer_support_handler_encodes_each_case() {
+        assert_eq!(
+            message_support(&Ok("Adapter".into())),
+            VisualizerSupport::Supported {
+                adapter: "Adapter".into()
+            }
+        );
+        assert_eq!(
+            message_support(&Err("No GPU".into())),
+            VisualizerSupport::Unsupported {
+                problem: "No GPU".into()
+            }
+        );
+    }
+
+    #[test]
+    fn visualizer_status_handler_encodes_started_runtime_states() {
+        let status = |running, transport| visualizer::Status {
+            running,
+            adapter: "Adapter".into(),
+            transport: Some(transport),
+            ..Default::default()
+        };
+        for (engine_transport, wire_transport) in [
+            (Transport::Readback, VisualizerTransport::Readback),
+            (Transport::IoSurface, VisualizerTransport::IoSurface),
+            (Transport::DxgiShared, VisualizerTransport::DxgiShared),
+            (Transport::VulkanShared, VisualizerTransport::VulkanShared),
+            (Transport::Surface, VisualizerTransport::Surface),
+        ] {
+            assert_eq!(
+                message_runtime_status(&status(true, engine_transport)),
+                VisualizerRuntimeStatus::Running {
+                    adapter: "Adapter".into(),
+                    transport: wire_transport,
+                }
+            );
+            assert_eq!(
+                message_runtime_status(&status(false, engine_transport)),
+                VisualizerRuntimeStatus::Stopped {
+                    adapter: "Adapter".into(),
+                    transport: wire_transport,
+                }
+            );
+        }
+        assert_eq!(
+            message_runtime_status(&visualizer::Status::default()),
+            VisualizerRuntimeStatus::NotRunningYet
+        );
+    }
+
+    #[tokio::test]
+    async fn visualizer_status_handler_returns_the_render_thread_state() {
+        let request = VisualizerStatusRequest { call_id: None };
+        let response = request.handle((), None, &request).await.unwrap().unwrap();
+        assert_eq!(
+            response.runtime,
+            message_runtime_status(&VISUALIZER.status())
+        );
     }
 }

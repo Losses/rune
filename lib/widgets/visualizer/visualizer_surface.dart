@@ -211,7 +211,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
       _updateLabel(status);
       // No path yet: the scene the visualizer begins with is still being
       // built, and the page stays as it is until it shows.
-      final path = status.running ? status.presetPath : '';
+      final path = visualizerScenePath(status);
       _controller.scenePath.value = path.isEmpty ? null : path;
       _controller.sceneName.value = path.isEmpty ? null : status.presetName;
       if (path.isNotEmpty) {
@@ -275,4 +275,16 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
       ),
     );
   }
+}
+
+@visibleForTesting
+String visualizerScenePath(VisualizerStatusResponse status) {
+  switch (status.runtime) {
+    case VisualizerRuntimeStatusRunning():
+      return status.presetPath;
+    case VisualizerRuntimeStatusStopped():
+    case VisualizerRuntimeStatusNotRunningYet():
+      return '';
+  }
+  throw StateError('Unknown visualizer runtime status');
 }
