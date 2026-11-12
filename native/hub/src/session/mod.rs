@@ -13,7 +13,6 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use ::visualizer::VisualizerInputs as EngineInputs;
 use anyhow::{Context, Result};
 use database::{
     actions::{
@@ -796,7 +795,6 @@ async fn handle_status_event(
     let playing = value.state == PlaybackState::Playing;
     // This device is the source: its player gives the spectrum and the chart is analysed here,
     // whether or not an item is loaded.
-    VISUALIZER.set_inputs(EngineInputs::Full);
     VISUALIZER.set_playing(playing);
     VISUALIZER.set_playback(
         value.path.as_deref(),

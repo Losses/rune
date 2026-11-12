@@ -60,7 +60,6 @@ use ::discovery::{
     client::{CertValidator, select_best_host},
     endpoint::{DEFAULT_DEVICE_PORT, DeviceAddress, device_url},
 };
-use ::visualizer::VisualizerInputs as EngineInputs;
 
 pub fn encode_message(type_name: &str, payload: &[u8], uuid: Option<Uuid>) -> Vec<u8> {
     let type_len = type_name.len() as u8;
@@ -673,7 +672,6 @@ pub(crate) fn update_visualizer_feed(message: &dyn RinfRustSignal) {
     }
     if let Some(status) = message.as_any().downcast_ref::<PlaybackStatus>() {
         let item = status.item_request.as_ref().map(chart_item);
-        VISUALIZER.set_inputs(EngineInputs::Full);
         VISUALIZER.set_feed_playback(
             item,
             Duration::from_secs_f64(f64::from(status.progress_seconds.max(0.0))),

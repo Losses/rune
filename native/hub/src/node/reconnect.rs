@@ -145,16 +145,31 @@ impl NodeContext {
         let mut task = reconnect.take()?;
         // This task is completing itself; dropping its handle must not abort it.
         task.handle.take();
-        if let Some((link, alias)) = connected {
+        let restored = if let Some((link, alias)) = connected {
             if let Err(error) = self.install_renderer_link(link, alias.clone()) {
                 log::warn!("Could not reinstall remote library: {error:#}");
+                None
             } else {
-                self.gui_broadcaster.broadcast(&RemoteLibraryReconnected {
-                    fingerprint: fingerprint.to_owned(),
-                    alias,
-                });
-                return self.renderer_link().ok().flatten();
+                self.renderer_link()
+                    .ok()
+                    .flatten()
+                    .map(|link| (link, alias))
             }
+        } else {
+            None
+        };
+        if let Some((link, alias)) = restored {
+            drop(ui);
+            if let Err(error) = self.refresh_current_player() {
+                log::warn!(
+                    "Could not update visualizer inputs after renderer reconnect: {error:#}"
+                );
+            }
+            self.gui_broadcaster.broadcast(&RemoteLibraryReconnected {
+                fingerprint: fingerprint.to_owned(),
+                alias,
+            });
+            return Some(link);
         }
         if let Ok(mut player) = self.current_player.lock() {
             *player = CurrentPlayer::RunePeer {
@@ -162,6 +177,10 @@ impl NodeContext {
                 attached: false,
                 reconnecting: None,
             };
+        }
+        drop(ui);
+        if let Err(error) = self.refresh_current_player() {
+            log::warn!("Could not update visualizer inputs after renderer loss: {error:#}");
         }
         self.gui_broadcaster.broadcast(&RemoteConnectionLost {
             kind: loss.0,

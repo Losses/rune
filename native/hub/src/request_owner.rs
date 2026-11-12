@@ -12,6 +12,7 @@ use database::{
 use playback::player::PlayingItem;
 use rinf::DartSignal;
 use serde::{Serialize, de::DeserializeOwned};
+use visualizer::VisualizerInputs;
 
 use crate::{
     Signal, TypedRequest,
@@ -298,6 +299,20 @@ impl OpenLibrary {
 }
 
 impl CurrentPlayer {
+    pub(crate) fn visualizer_inputs(&self) -> VisualizerInputs {
+        match self {
+            Self::Local => VisualizerInputs::Full,
+            Self::RunePeer { .. } => VisualizerInputs::Full,
+            Self::SubsonicJukebox(binding) => {
+                if binding.probe.supports_rune_visualizer_feed() {
+                    VisualizerInputs::Full
+                } else {
+                    VisualizerInputs::None
+                }
+            }
+        }
+    }
+
     pub(crate) fn implementation(&self) -> Implementation {
         match self {
             Self::Local => Implementation::Local,
@@ -313,5 +328,25 @@ impl CurrentPlayer {
 
     pub(crate) fn suppresses_local_session_events(&self) -> bool {
         matches!(self, Self::RunePeer { .. })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CurrentPlayer;
+    use visualizer::VisualizerInputs;
+
+    #[test]
+    fn local_and_rune_players_feed_the_full_visualizer() {
+        assert_eq!(
+            CurrentPlayer::Local.visualizer_inputs(),
+            VisualizerInputs::Full
+        );
+        let player = CurrentPlayer::RunePeer {
+            link: None,
+            attached: true,
+            reconnecting: None,
+        };
+        assert_eq!(player.visualizer_inputs(), VisualizerInputs::Full);
     }
 }

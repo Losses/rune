@@ -45,6 +45,7 @@ use crate::request_owner::{CurrentPlayer, Implementation, OpenLibrary};
 use crate::rpc::{Slot, TargetRequest};
 use crate::server::sync_worker::SyncTokenStore;
 use crate::subsonic_binding::SubsonicBinding;
+use crate::visualizer::VISUALIZER;
 use crate::{Session, session::PlayerSession};
 use crate::{
     library_pool::{LibraryHandle, LibraryPool},
@@ -390,6 +391,7 @@ impl NodeContext {
         node.local_session
             .set(PlayerSession::new(&node, "local", os_media_controls).await?)
             .map_err(|_| anyhow::anyhow!("Local session already initialized"))?;
+        node.refresh_current_player()?;
         node.start_notifications().await;
         manager.start_worker().await?;
         if node.sync_settings.read().await.listen {
@@ -585,6 +587,7 @@ impl NodeContext {
             return Err(error).context("Pause previously attached renderer");
         }
         self.install_renderer_link(link, alias)?;
+        self.refresh_current_player()?;
         self.publish_capabilities()?;
         self.session()?.player.lock().await.pause_applied().await?;
         if let Some(link) = self.renderer_link()?
@@ -867,6 +870,7 @@ impl NodeContext {
 
     fn refresh_current_player(&self) -> Result<()> {
         let player = self.current_player()?;
+        VISUALIZER.set_inputs(player.visualizer_inputs());
         *self
             .current_player
             .lock()

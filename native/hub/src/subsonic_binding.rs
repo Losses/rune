@@ -5,9 +5,7 @@ use crate::{
     },
     utils::Broadcaster,
     visualizer::RANDOM_COVERS,
-    visualizer::VISUALIZER,
 };
-use ::visualizer::VisualizerInputs as EngineInputs;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::ErrorKind;
@@ -370,13 +368,6 @@ impl SubsonicBinding {
         if self.play_on_this_device {
             return;
         }
-        VISUALIZER.set_inputs(
-            if self.probe.roles.jukebox_role && self.probe.supports_rune_visualizer_feed() {
-                EngineInputs::Full
-            } else {
-                EngineInputs::None
-            },
-        );
         if !self.probe.roles.jukebox_role {
             return;
         }
@@ -443,9 +434,6 @@ impl SubsonicBinding {
             && let Some(token) = feed.take()
         {
             token.cancel();
-        }
-        if !self.play_on_this_device {
-            VISUALIZER.set_inputs(EngineInputs::None);
         }
     }
 
@@ -939,6 +927,7 @@ mod visualizer_feed_tests {
     };
     use std::time::Duration;
 
+    use crate::request_owner::CurrentPlayer;
     use axum::{
         Router,
         extract::{
@@ -954,6 +943,7 @@ mod visualizer_feed_tests {
     use tokio::{net::TcpListener, sync::Notify, time::timeout};
     use url::Url;
     use uuid::Uuid;
+    use visualizer::VisualizerInputs;
 
     use super::SubsonicBinding;
     use crate::{
@@ -1138,6 +1128,22 @@ mod visualizer_feed_tests {
             false,
             broadcaster,
         ))
+    }
+
+    #[tokio::test]
+    async fn jukebox_visualizer_inputs_follow_the_mock_probe_declaration() {
+        for (declares_feed, expected) in [
+            (true, VisualizerInputs::Full),
+            (false, VisualizerInputs::None),
+        ] {
+            let (url, _, server) = server(true, declares_feed).await;
+            let root = TempDir::new().unwrap();
+            let binding = open_binding(url, &root, Arc::new(Signals::default())).await;
+            let player = CurrentPlayer::SubsonicJukebox(binding.clone());
+            assert_eq!(player.visualizer_inputs(), expected);
+            binding.stop_jukebox_polling();
+            server.abort();
+        }
     }
 
     #[tokio::test]

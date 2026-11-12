@@ -55,6 +55,7 @@ use std::{
 #[cfg(target_os = "linux")]
 use std::{env, process::Command};
 use tempfile::TempDir;
+use visualizer::VisualizerInputs;
 use url::Url;
 use uuid::Uuid;
 
@@ -1873,6 +1874,8 @@ async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -
     );
 
     a.global_params.node.detach_renderer().await?;
+    assert!(matches!(a.global_params.node.current_player()?, CurrentPlayer::Local));
+    assert_eq!(a.global_params.node.current_player()?.visualizer_inputs(), VisualizerInputs::Full);
     let detached = signals
         .0
         .lock()
@@ -9267,6 +9270,7 @@ async fn subsonic_registration_resolves_mode_stores_secret_and_deduplicates() ->
         node.current_player()?,
         CurrentPlayer::SubsonicJukebox(_)
     ));
+    assert_eq!(node.current_player()?.visualizer_inputs(), VisualizerInputs::None);
     let snapshot = dispatch_gui_request(
         &fixture.global_params,
         &SessionSnapshotRequest { call_id: None },
@@ -9329,6 +9333,9 @@ async fn subsonic_registration_resolves_mode_stores_secret_and_deduplicates() ->
             .count(),
         1
     );
+    node.close_ui(&fixture.global_params.main_token).await;
+    assert!(matches!(node.current_player()?, CurrentPlayer::Local));
+    assert_eq!(node.current_player()?.visualizer_inputs(), VisualizerInputs::Full);
     server.task.abort();
     node.shutdown().await?;
     Ok(())
@@ -10918,7 +10925,9 @@ async fn session_binding_prefers_remote_peer_over_attached_renderer() -> Result<
 
     let node = &controller.global_params.node;
     assert!(matches!(node.current_player()?, CurrentPlayer::Local));
+    assert_eq!(node.current_player()?.visualizer_inputs(), VisualizerInputs::Full);
     node.attach_renderer(&renderer_info.fingerprint).await?;
+    assert_eq!(node.current_player()?.visualizer_inputs(), VisualizerInputs::Full);
     let attached = match node.current_player()? {
         CurrentPlayer::RunePeer {
             link: Some(renderer),
@@ -10929,6 +10938,7 @@ async fn session_binding_prefers_remote_peer_over_attached_renderer() -> Result<
     };
     node.attach_remote_ui(&controller.global_params, renderer_info.fingerprint, None)
         .await?;
+    assert_eq!(node.current_player()?.visualizer_inputs(), VisualizerInputs::Full);
     match node.current_player()? {
         CurrentPlayer::RunePeer {
             link: Some(renderer),
