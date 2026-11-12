@@ -85,6 +85,11 @@ pub trait FileIo: Send + Sync {
     fn canonicalize_str(&self, path: &str) -> Result<FsNode, FileIoError>;
     /// Seconds since the UNIX epoch of the last modification.
     fn modified_time(&self, path: &Path) -> Result<u64, FileIoError>;
+    /// Stable backend-provided signal used to skip unchanged files during scans.
+    /// Backends without a stronger signal use modification time.
+    fn change_token(&self, path: &Path) -> Result<String, FileIoError> {
+        self.modified_time(path).map(|time| time.to_string())
+    }
     async fn ensure_file(&self, path: &Path) -> Result<FsNode, FileIoError>;
     async fn ensure_directory(&self, path: &Path) -> Result<FsNode, FileIoError>;
 

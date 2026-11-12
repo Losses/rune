@@ -14,10 +14,16 @@ use tokio::{
     task::{JoinHandle, JoinSet},
 };
 
+type ReadRanges = Arc<Mutex<Vec<Option<(usize, usize)>>>>;
+
 #[derive(Clone)]
 pub struct WebDavFixture {
     pub endpoint: String,
     writes: Arc<Mutex<Vec<String>>>,
+    #[allow(dead_code)]
+    ranges: ReadRanges,
+    #[allow(dead_code)]
+    files: Arc<Mutex<HashMap<String, Vec<u8>>>>,
     #[allow(dead_code)]
     reject_reads: Arc<AtomicBool>,
     #[allow(dead_code)]
@@ -33,11 +39,13 @@ impl WebDavFixture {
         let address = listener.local_addr()?;
         let files = Arc::new(Mutex::new(files.into_iter().collect::<HashMap<_, _>>()));
         let writes = Arc::new(Mutex::new(Vec::new()));
+        let ranges = Arc::new(Mutex::new(Vec::new()));
         let reject_reads = Arc::new(AtomicBool::new(false));
         let conditional_mode = Arc::new(AtomicU8::new(0));
         let reject_writes = Arc::new(AtomicBool::new(false));
         let server_files = files.clone();
         let server_writes = writes.clone();
+        let server_ranges = ranges.clone();
         let server_reject_reads = reject_reads.clone();
         let server_conditional_mode = conditional_mode.clone();
         let server_reject_writes = reject_writes.clone();
@@ -51,11 +59,21 @@ impl WebDavFixture {
                         };
                         let files = server_files.clone();
                         let writes = server_writes.clone();
+                        let ranges = server_ranges.clone();
                         let reject_reads = server_reject_reads.clone();
                         let conditional_mode = server_conditional_mode.clone();
                         let reject_writes = server_reject_writes.clone();
                         connections.spawn(async move {
-                            serve_webdav(stream, files, writes, reject_reads, conditional_mode, reject_writes).await;
+                            serve_webdav(
+                                stream,
+                                files,
+                                writes,
+                                ranges,
+                                reject_reads,
+                                conditional_mode,
+                                reject_writes,
+                            )
+                            .await;
                         });
                     }
                     Some(_) = connections.join_next(), if !connections.is_empty() => {}
@@ -65,6 +83,8 @@ impl WebDavFixture {
         Ok(Self {
             endpoint: format!("http://{address}"),
             writes,
+            ranges,
+            files,
             reject_reads,
             conditional_mode,
             reject_writes,
@@ -84,6 +104,22 @@ impl WebDavFixture {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .clone()
+    }
+
+    #[allow(dead_code)]
+    pub fn read_ranges(&self) -> Vec<Option<(usize, usize)>> {
+        self.ranges
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
+
+    #[allow(dead_code)]
+    pub fn set_file(&self, name: &str, bytes: Vec<u8>) {
+        self.files
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(name.to_owned(), bytes);
     }
 
     #[allow(dead_code)]
@@ -117,6 +153,9 @@ pub struct S3Fixture {
     writes: Arc<Mutex<Vec<String>>>,
     #[allow(dead_code)]
     reject_writes: Arc<AtomicBool>,
+    ranges: ReadRanges,
+    #[allow(dead_code)]
+    files: Arc<Mutex<HashMap<String, Vec<u8>>>>,
     task: Arc<JoinHandle<()>>,
 }
 
@@ -129,6 +168,9 @@ impl S3Fixture {
         let reject_writes = Arc::new(AtomicBool::new(false));
         let server_writes = writes.clone();
         let server_reject_writes = reject_writes.clone();
+        let ranges = Arc::new(Mutex::new(Vec::new()));
+        let server_files = files.clone();
+        let server_ranges = ranges.clone();
         let task = tokio::spawn(async move {
             let mut connections = JoinSet::new();
             loop {
@@ -137,11 +179,12 @@ impl S3Fixture {
                         let Ok((stream, _)) = accepted else {
                             break;
                         };
-                        let files = files.clone();
+                        let files = server_files.clone();
                         let writes = server_writes.clone();
                         let reject_writes = server_reject_writes.clone();
+                        let ranges = server_ranges.clone();
                         connections.spawn(async move {
-                            serve_s3(stream, files, writes, reject_writes).await;
+                            serve_s3(stream, files, writes, reject_writes, ranges).await;
                         });
                     }
                     Some(_) = connections.join_next(), if !connections.is_empty() => {}
@@ -152,6 +195,8 @@ impl S3Fixture {
             endpoint: format!("http://{address}"),
             writes,
             reject_writes,
+            ranges,
+            files,
             task: Arc::new(task),
         })
     }
@@ -170,6 +215,22 @@ impl S3Fixture {
             .unwrap_or_else(|error| error.into_inner())
             .clone()
     }
+
+    #[allow(dead_code)]
+    pub fn read_ranges(&self) -> Vec<Option<(usize, usize)>> {
+        self.ranges
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
+
+    #[allow(dead_code)]
+    pub fn set_file(&self, name: &str, bytes: Vec<u8>) {
+        self.files
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(name.to_owned(), bytes);
+    }
 }
 
 impl Drop for S3Fixture {
@@ -185,6 +246,7 @@ async fn serve_s3(
     files: Arc<Mutex<HashMap<String, Vec<u8>>>>,
     writes: Arc<Mutex<Vec<String>>>,
     reject_writes: Arc<AtomicBool>,
+    ranges: ReadRanges,
 ) {
     let mut reader = BufReader::new(stream);
     loop {
@@ -264,7 +326,6 @@ async fn serve_s3(
                 .unwrap_or("library/");
             let prefix = requested_prefix.replace("%2F", "/").replace("%2f", "/");
             let prefix = prefix.trim_start_matches('/');
-            let mut contents = String::new();
             let mut prefixes = BTreeSet::new();
             for (name, bytes) in files_snapshot.iter() {
                 let key = format!("library/{name}");
@@ -272,20 +333,34 @@ async fn serve_s3(
                     continue;
                 };
                 if let Some((directory, _)) = remainder.split_once('/') {
-                    prefixes.insert(format!("{prefix}{directory}/"));
+                    let common_prefix = format!("{prefix}{directory}/");
+                    prefixes.insert(format!(
+                        "<CommonPrefixes><Prefix>{common_prefix}</Prefix></CommonPrefixes>"
+                    ));
                 } else {
-                    contents.push_str(&format!("<Contents><Key>{key}</Key><LastModified>2025-01-01T00:00:00Z</LastModified><ETag>&quot;fixture&quot;</ETag><Size>{}</Size><StorageClass>STANDARD</StorageClass></Contents>", bytes.len()));
+                    prefixes.insert(format!("<Contents><Key>{key}</Key><LastModified>2025-01-01T00:00:00Z</LastModified><ETag>{}</ETag><Size>{}</Size><StorageClass>STANDARD</StorageClass></Contents>", fixture_etag(bytes), bytes.len()));
                 }
             }
-            let common_prefixes = prefixes
-                .into_iter()
-                .map(|prefix| format!("<CommonPrefixes><Prefix>{prefix}</Prefix></CommonPrefixes>"))
-                .collect::<String>();
+            let start = path
+                .split("continuation-token=")
+                .nth(1)
+                .and_then(|value| value.split('&').next())
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(0);
+            let records = prefixes.into_iter().collect::<Vec<_>>();
+            let end = (start + 3).min(records.len());
+            let page = records.get(start..end).unwrap_or_default().join("");
+            let truncated = end < records.len();
+            let continuation = if truncated {
+                format!("<NextContinuationToken>{end}</NextContinuationToken>")
+            } else {
+                String::new()
+            };
             let xml = format!(
-            "<?xml version=\"1.0\"?><ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Name>bucket</Name><Prefix>{prefix}</Prefix><IsTruncated>false</IsTruncated>{common_prefixes}{contents}</ListBucketResult>"
+            "<?xml version=\"1.0\"?><ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Name>bucket</Name><Prefix>{prefix}</Prefix><IsTruncated>{truncated}</IsTruncated>{continuation}{page}</ListBucketResult>"
         );
             (200, "application/xml", String::new(), xml.into_bytes())
-        } else {
+        } else if (method == "GET" || method == "HEAD") && !path.contains("list-type=2") {
             let name = path.rsplit("/library/").next().unwrap_or_default();
             match files_snapshot.get(name) {
                 Some(_bytes) if method == "HEAD" => (
@@ -333,6 +408,10 @@ async fn serve_s3(
                     } else {
                         (bytes.clone(), None)
                     };
+                    ranges
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .push(range_header);
                     let mut extra = format!(
                         "Last-Modified: Wed, 01 Jan 2025 00:00:00 GMT\r\nETag: {}\r\n",
                         fixture_etag(bytes)
@@ -352,6 +431,8 @@ async fn serve_s3(
                 }
                 _ => (404, "text/plain", String::new(), Vec::new()),
             }
+        } else {
+            (404, "text/plain", String::new(), Vec::new())
         };
         let reason = match status {
             200 => "OK",
@@ -391,6 +472,7 @@ async fn serve_webdav(
     stream: TcpStream,
     files: Arc<Mutex<HashMap<String, Vec<u8>>>>,
     writes: Arc<Mutex<Vec<String>>>,
+    ranges: ReadRanges,
     reject_reads: Arc<AtomicBool>,
     conditional_mode: Arc<AtomicU8>,
     reject_writes: Arc<AtomicBool>,
@@ -486,34 +568,41 @@ async fn serve_webdav(
             } else {
                 format!("{directory}/")
             };
-            let entries =
-                if files_snapshot.contains_key(directory) {
-                    files_snapshot
-                        .get(directory)
-                        .map(|bytes| vec![dav_entry(&path, false, bytes.len())])
-                        .unwrap_or_default()
-                } else {
-                    let mut entries = vec![dav_entry(&path, true, 0)];
-                    let mut directories = BTreeSet::new();
-                    for (name, bytes) in files_snapshot.iter() {
-                        let Some(remainder) = name.strip_prefix(&prefix) else {
-                            continue;
-                        };
-                        if let Some((child, _)) = remainder.split_once('/') {
-                            directories.insert(child.to_owned());
-                        } else {
-                            entries.push(dav_entry(
-                                &format!("/dav/library/{prefix}{remainder}"),
-                                false,
-                                bytes.len(),
-                            ));
-                        }
+            let entries = if files_snapshot.contains_key(directory) {
+                files_snapshot
+                    .get(directory)
+                    .map(|bytes| {
+                        vec![dav_entry(
+                            &path,
+                            false,
+                            bytes.len(),
+                            Some(fixture_etag(bytes)),
+                        )]
+                    })
+                    .unwrap_or_default()
+            } else {
+                let mut entries = vec![dav_entry(&path, true, 0, None)];
+                let mut directories = BTreeSet::new();
+                for (name, bytes) in files_snapshot.iter() {
+                    let Some(remainder) = name.strip_prefix(&prefix) else {
+                        continue;
+                    };
+                    if let Some((child, _)) = remainder.split_once('/') {
+                        directories.insert(child.to_owned());
+                    } else {
+                        entries.push(dav_entry(
+                            &format!("/dav/library/{prefix}{remainder}"),
+                            false,
+                            bytes.len(),
+                            Some(fixture_etag(bytes)),
+                        ));
                     }
-                    entries.extend(directories.into_iter().map(|child| {
-                        dav_entry(&format!("/dav/library/{prefix}{child}/"), true, 0)
-                    }));
-                    entries
-                };
+                }
+                entries.extend(directories.into_iter().map(|child| {
+                    dav_entry(&format!("/dav/library/{prefix}{child}/"), true, 0, None)
+                }));
+                entries
+            };
             let xml = format!(
                 "<?xml version=\"1.0\"?><D:multistatus xmlns:D=\"DAV:\">{}</D:multistatus>",
                 entries.join("")
@@ -564,6 +653,10 @@ async fn serve_webdav(
                     } else {
                         (bytes.clone(), None)
                     };
+                    ranges
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .push(bounds);
                     let mut extra = format!("ETag: {}\r\n", fixture_etag(bytes));
                     if let Some((start, end)) = bounds {
                         extra.push_str(&format!(
@@ -731,9 +824,10 @@ fn fixture_etag(bytes: &[u8]) -> String {
     format!("\"{}\"", blake3::hash(bytes).to_hex())
 }
 
-fn dav_entry(path: &str, directory: bool, size: usize) -> String {
+fn dav_entry(path: &str, directory: bool, size: usize, etag: Option<String>) -> String {
     let resource = if directory { "<D:collection/>" } else { "" };
+    let etag = etag.map_or_else(String::new, |tag| format!("<D:getetag>{tag}</D:getetag>"));
     format!(
-        "<D:response><D:href>{path}</D:href><D:propstat><D:prop><D:resourcetype>{resource}</D:resourcetype><D:getcontentlength>{size}</D:getcontentlength><D:getlastmodified>Wed, 01 Jan 2025 00:00:00 GMT</D:getlastmodified></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>"
+        "<D:response><D:href>{path}</D:href><D:propstat><D:prop><D:resourcetype>{resource}</D:resourcetype><D:getcontentlength>{size}</D:getcontentlength><D:getlastmodified>Wed, 01 Jan 2025 00:00:00 GMT</D:getlastmodified>{etag}</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>"
     )
 }

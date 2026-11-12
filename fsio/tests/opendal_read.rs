@@ -219,3 +219,65 @@ async fn sync_read_from_spawn_blocking_completes() {
     .await
     .unwrap();
 }
+
+#[tokio::test]
+async fn large_remote_reads_and_end_seek_use_ranges() {
+    tokio::time::timeout(DEADLINE, async {
+        let bytes = vec![0x5a; 64 * 1024 * 1024];
+        let webdav = WebDavFixture::start(vec![("large.bin".into(), bytes.clone())])
+            .await
+            .unwrap();
+        let s3 = S3Fixture::start(vec![("large.bin".into(), bytes)])
+            .await
+            .unwrap();
+        let webdav_fs =
+            FsIo::new_opendal(webdav_config(&webdav, "pass"), Handle::current()).unwrap();
+        let s3_fs = FsIo::new_opendal(s3_config(&s3), Handle::current()).unwrap();
+        for fs in [webdav_fs, s3_fs] {
+            let blocking_fs = fs.clone();
+            spawn_blocking(move || {
+                let mut stream = blocking_fs.open(Path::new("large.bin"), "r").unwrap();
+                stream.seek(SeekFrom::End(-8)).unwrap();
+                let mut tail = [0; 8];
+                stream.read_exact(&mut tail).unwrap();
+                assert_eq!(tail, [0x5a; 8]);
+            })
+            .await
+            .unwrap();
+        }
+        for ranges in [webdav.read_ranges(), s3.read_ranges()] {
+            assert!(!ranges.is_empty(), "expected ranged GETs");
+            assert!(
+                ranges.iter().all(Option::is_some),
+                "full object GET observed: {ranges:?}"
+            );
+            assert!(
+                ranges
+                    .iter()
+                    .flatten()
+                    .any(|range| *range == (64 * 1024 * 1024 - 8, 64 * 1024 * 1024 - 1)),
+                "unexpected end-seek ranges: {ranges:?}"
+            );
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn paged_directory_listing_returns_every_entry() {
+    tokio::time::timeout(DEADLINE, async {
+        let files: Vec<_> = (0..11)
+            .map(|index| (format!("track-{index:02}.ogg"), vec![index]))
+            .collect();
+        let webdav = WebDavFixture::start(files.clone()).await.unwrap();
+        let s3 = S3Fixture::start(files).await.unwrap();
+        for config in [webdav_config(&webdav, "pass"), s3_config(&s3)] {
+            let fs = FsIo::new_opendal(config, Handle::current()).unwrap();
+            let entries = fs.read_dir(Path::new("")).await.unwrap();
+            assert_eq!(entries.len(), 11, "listing truncated: {entries:#?}");
+        }
+    })
+    .await
+    .unwrap();
+}

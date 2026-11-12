@@ -225,7 +225,9 @@ impl OpenDalFsIo {
         if !visited.insert(key.clone()) {
             return Ok(());
         }
-        let entries = self.run("list", |op| op.list(&key))?;
+        let entries = self.run("list", |op| {
+            op.lister(&key)?.collect::<opendal::Result<Vec<_>>>()
+        })?;
         let current = key.trim_matches('/');
         let mut seen = HashSet::new();
         for entry in entries {
@@ -246,7 +248,9 @@ impl OpenDalFsIo {
 
     fn list_one(&self, key: &str) -> Result<Vec<FsNode>, FileIoError> {
         let key = directory_key(key);
-        let entries = self.run("list", |op| op.list(&key))?;
+        let entries = self.run("list", |op| {
+            op.lister(&key)?.collect::<opendal::Result<Vec<_>>>()
+        })?;
         let current = key.trim_matches('/');
         let mut seen = HashSet::new();
         let mut nodes = Vec::new();
@@ -348,6 +352,8 @@ struct RemoteFile {
     reader: Reader,
     position: u64,
     length: u64,
+    buffer_start: u64,
+    buffer: Vec<u8>,
 }
 
 impl Read for RemoteFile {
@@ -355,22 +361,25 @@ impl Read for RemoteFile {
         if buf.is_empty() || self.position >= self.length {
             return Ok(0);
         }
-        let end = self
-            .position
-            .saturating_add(buf.len().min(64 * 1024) as u64)
-            .min(self.length);
-        let bytes = self.reader.read(self.position..end).map_err(|error| {
-            let mapped = map_open_error(&error, "read");
-            let kind = match mapped {
-                FileIoError::PermissionDenied(_) => IoErrorKind::PermissionDenied,
-                FileIoError::PathNotFound(_) => IoErrorKind::NotFound,
-                _ => IoErrorKind::Other,
-            };
-            IoError::new(kind, mapped)
-        })?;
-        let bytes = bytes.to_vec();
-        let count = bytes.len().min(buf.len());
-        buf[..count].copy_from_slice(&bytes[..count]);
+        if self.position < self.buffer_start
+            || self.position >= self.buffer_start.saturating_add(self.buffer.len() as u64)
+        {
+            let end = self.position.saturating_add(256 * 1024).min(self.length);
+            let bytes = self.reader.read(self.position..end).map_err(|error| {
+                let mapped = map_open_error(&error, "read");
+                let kind = match mapped {
+                    FileIoError::PermissionDenied(_) => IoErrorKind::PermissionDenied,
+                    FileIoError::PathNotFound(_) => IoErrorKind::NotFound,
+                    _ => IoErrorKind::Other,
+                };
+                IoError::new(kind, mapped)
+            })?;
+            self.buffer_start = self.position;
+            self.buffer = bytes.to_vec();
+        }
+        let offset = (self.position - self.buffer_start) as usize;
+        let count = (self.buffer.len() - offset).min(buf.len());
+        buf[..count].copy_from_slice(&self.buffer[offset..offset + count]);
         self.position += count as u64;
         Ok(count)
     }
@@ -424,6 +433,8 @@ impl FileIo for OpenDalFsIo {
             reader,
             position: 0,
             length,
+            buffer_start: 0,
+            buffer: Vec::new(),
         }))
     }
 
@@ -544,6 +555,18 @@ impl FileIo for OpenDalFsIo {
                 .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
                 .map(|duration| duration.as_secs())
                 .unwrap_or_default()
+        })
+    }
+    fn change_token(&self, path: &Path) -> Result<String, FileIoError> {
+        let key = self.key(path)?;
+        self.run("stat", |op| op.stat(&key)).map(|meta| {
+            meta.etag().map(str::to_owned).unwrap_or_else(|| {
+                meta.last_modified()
+                    .map(SystemTime::from)
+                    .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                    .map(|duration| duration.as_secs().to_string())
+                    .unwrap_or_default()
+            })
         })
     }
     async fn ensure_file(&self, path: &Path) -> Result<FsNode, FileIoError> {

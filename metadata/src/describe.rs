@@ -134,8 +134,7 @@ pub fn describe_file(
 
     // Get last modified time through the fs abstraction: on Android the
     // tree-relative path does not exist on the local filesystem.
-    let last_modified = fsio.modified_time(&file_path)?;
-    let last_modified = format!("{last_modified}");
+    let last_modified = fsio.change_token(&file_path)?;
 
     Ok(FileDescription {
         lib_path: lib_path.clone(),

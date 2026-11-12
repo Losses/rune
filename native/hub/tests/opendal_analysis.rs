@@ -13,8 +13,14 @@ use std::{
 
 use analysis::{analysis::analyze_audio, utils::computing_device::ComputingDevice};
 use anyhow::{Context, Result};
-use database::{actions::analysis::analysis_audio_library, entities::media_analysis};
-use fsio::{FileIoError, FsIo, OpenDalConfig, test_fixtures::WebDavFixture};
+use database::{
+    actions::analysis::analysis_audio_library,
+    entities::{media_analysis, media_files},
+};
+use fsio::{
+    FileIoError, FsIo, OpenDalConfig,
+    test_fixtures::{S3Fixture, WebDavFixture},
+};
 use playback::{
     player::{Playable, PlaybackSource, PlaybackState, Player, PlayingItem},
     strategies::AddMode,
@@ -32,6 +38,204 @@ fn webdav_config(server: &WebDavFixture) -> OpenDalConfig {
         username: "user".into(),
         password: "pass".into(),
     }
+}
+
+fn s3_config(server: &S3Fixture) -> OpenDalConfig {
+    OpenDalConfig::S3 {
+        endpoint: server.endpoint.clone(),
+        bucket: "bucket".into(),
+        region: "us-east-1".into(),
+        root: "/library/".into(),
+        access_key_id: "access".into(),
+        secret_access_key: "secret".into(),
+    }
+}
+
+async fn assert_scan_change_detection(
+    backend: &str,
+    fs: FsIo,
+    changed: Vec<u8>,
+    set_file: impl Fn(Vec<u8>),
+    read_count: impl Fn() -> usize,
+) -> Result<()> {
+    let actor = Uuid::new_v4();
+    let db = fixtures::memory_database(actor).await?;
+    let store = fixtures::open_library(db.clone(), actor, None).await?;
+    fixtures::scan_library(
+        &fs,
+        &db,
+        &actor.to_string(),
+        Path::new(""),
+        &store.record_store(),
+    )
+    .await?;
+    let original = media_files::Entity::find()
+        .one(&db)
+        .await?
+        .context("missing initial file")?;
+    let after_initial = read_count();
+    fixtures::scan_library(
+        &fs,
+        &db,
+        &actor.to_string(),
+        Path::new(""),
+        &store.record_store(),
+    )
+    .await?;
+    assert_eq!(
+        read_count(),
+        after_initial,
+        "unchanged object was read again"
+    );
+    set_file(changed);
+    let check_fs = fs.clone();
+    let prior_token = original.last_modified.clone();
+    assert_ne!(
+        spawn_blocking(move || check_fs.change_token(Path::new("track.ogg"))).await??,
+        prior_token,
+        "{backend} fixture did not change its ETag"
+    );
+    let changed_token = spawn_blocking({
+        let fs = fs.clone();
+        move || fs.change_token(Path::new("track.ogg"))
+    })
+    .await??;
+    let rescanned = fixtures::scan_library(
+        &fs,
+        &db,
+        &actor.to_string(),
+        Path::new(""),
+        &store.record_store(),
+    )
+    .await?;
+    let updated = media_files::Entity::find()
+        .one(&db)
+        .await?
+        .context("missing rescanned file")?;
+    assert_ne!(
+        original.last_modified, updated.last_modified,
+        "{backend} ETag did not change: {:?} -> {:?}, current token {changed_token}, processed {rescanned}",
+        original.last_modified, updated.last_modified
+    );
+    assert!(read_count() > after_initial, "changed object was not read");
+    Ok(())
+}
+
+fn large_wav() -> Vec<u8> {
+    let data_length = 64 * 1024 * 1024;
+    let mut bytes = Vec::with_capacity(data_length + 44);
+    bytes.extend_from_slice(b"RIFF");
+    bytes.extend_from_slice(&((data_length + 36) as u32).to_le_bytes());
+    bytes.extend_from_slice(b"WAVEfmt ");
+    bytes.extend_from_slice(&16_u32.to_le_bytes());
+    bytes.extend_from_slice(&1_u16.to_le_bytes());
+    bytes.extend_from_slice(&2_u16.to_le_bytes());
+    bytes.extend_from_slice(&192_000_u32.to_le_bytes());
+    bytes.extend_from_slice(&768_000_u32.to_le_bytes());
+    bytes.extend_from_slice(&4_u16.to_le_bytes());
+    bytes.extend_from_slice(&16_u16.to_le_bytes());
+    bytes.extend_from_slice(b"data");
+    bytes.extend_from_slice(&(data_length as u32).to_le_bytes());
+    bytes.resize(data_length + 44, 0);
+    bytes
+}
+
+async fn assert_large_audio_playback_and_analysis(
+    fs: FsIo,
+    ranges: impl Fn() -> Vec<Option<(usize, usize)>>,
+    actor: Uuid,
+) -> Result<()> {
+    let db = fixtures::memory_database(actor).await?;
+    let store = fixtures::open_library(db.clone(), actor, None).await?;
+    fixtures::scan_library(
+        &fs,
+        &db,
+        &actor.to_string(),
+        Path::new(""),
+        &store.record_store(),
+    )
+    .await?;
+    assert_eq!(media_files::Entity::find().count(&db).await?, 1);
+
+    let player = Player::new(Arc::new(fs.clone()), None);
+    player.add_to_playlist_with_sources(
+        vec![(
+            PlayingItem::IndependentFile("large.wav".into()),
+            PlaybackSource::Local("large.wav".into()),
+        )],
+        AddMode::AppendToEnd,
+    );
+    player.load(0);
+    player.play();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while player.get_status().state != PlaybackState::Playing {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("large remote playback did not start")?;
+    player.seek(42.0);
+
+    let analysis_fs = Arc::new(fs);
+    assert_eq!(
+        analysis_audio_library(
+            analysis_fs,
+            &db,
+            Path::new(""),
+            1,
+            ComputingDevice::Cpu,
+            |_, _| {},
+            None,
+        )
+        .await?,
+        1,
+    );
+    assert!(media_analysis::Entity::find().count(&db).await? > 0);
+    let ranges = ranges();
+    assert!(
+        ranges.iter().all(Option::is_some),
+        "non-ranged audio read: {ranges:?}"
+    );
+    assert!(
+        ranges
+            .iter()
+            .flatten()
+            .any(|(start, _)| *start > 32 * 1024 * 1024),
+        "playback seek did not read near the end: {ranges:?}"
+    );
+    player.terminate();
+    Ok(())
+}
+
+fn change_ogg_vendor(bytes: &mut [u8]) {
+    let marker = bytes
+        .windows(4)
+        .position(|window| window == b"Lavf")
+        .unwrap();
+    let page_start = bytes[..marker]
+        .windows(4)
+        .rposition(|window| window == b"OggS")
+        .unwrap();
+    bytes[marker] = b'M';
+    let segment_count = bytes[page_start + 26] as usize;
+    let body_length = bytes[page_start + 27..page_start + 27 + segment_count]
+        .iter()
+        .map(|length| usize::from(*length))
+        .sum::<usize>();
+    let page_end = page_start + 27 + segment_count + body_length;
+    bytes[page_start + 22..page_start + 26].fill(0);
+    let mut checksum = 0_u32;
+    for byte in &bytes[page_start..page_end] {
+        checksum ^= u32::from(*byte) << 24;
+        for _ in 0..8 {
+            checksum = if checksum & 0x8000_0000 == 0 {
+                checksum << 1
+            } else {
+                (checksum << 1) ^ 0x04c1_1db7
+            };
+        }
+    }
+    bytes[page_start + 22..page_start + 26].copy_from_slice(&checksum.to_le_bytes());
 }
 
 async fn scanned_database(fs: &FsIo, root: &Path, actor: Uuid) -> Result<DatabaseConnection> {
@@ -212,6 +416,7 @@ async fn playback_and_analysis_can_read_the_same_webdav_library_concurrently() -
         })
         .await
         .context("WebDAV playback did not start")?;
+        player.seek(0.5);
         let analysis_fs = Arc::clone(&fs);
         let analysis_db = db.clone();
         let analysis_progress = Arc::new(AtomicUsize::new(0));
@@ -231,11 +436,113 @@ async fn playback_and_analysis_can_read_the_same_webdav_library_concurrently() -
         assert_eq!(analysis_task.await??, 1);
         assert_eq!(analysis_progress.load(Ordering::SeqCst), 1);
         assert!(media_analysis::Entity::find().count(&db).await? > 0);
+        let ranges = server.read_ranges();
+        assert!(
+            !ranges.is_empty(),
+            "audio playback/analysis made no GET requests"
+        );
+        assert!(
+            ranges.iter().all(Option::is_some),
+            "whole-file GET observed: {ranges:?}"
+        );
         player.terminate();
         assert!(server.write_requests().is_empty());
         Ok::<(), anyhow::Error>(())
     })
     .await
     .context("concurrent WebDAV playback and analysis timed out")??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn paged_audio_library_scan_is_complete_on_both_backends() -> Result<()> {
+    timeout(Duration::from_secs(120), async {
+        let audio = std::fs::read(fixtures::audio_fixture())?;
+        let files = (0..11)
+            .map(|index| (format!("track-{index:02}.ogg"), audio.clone()))
+            .collect::<Vec<_>>();
+        let webdav = WebDavFixture::start(files.clone()).await?;
+        let s3 = S3Fixture::start(files).await?;
+        for (fs, actor) in [
+            (
+                FsIo::new_opendal(webdav_config(&webdav), Handle::current())?,
+                Uuid::from_u128(0x211),
+            ),
+            (
+                FsIo::new_opendal(s3_config(&s3), Handle::current())?,
+                Uuid::from_u128(0x212),
+            ),
+        ] {
+            let db = scanned_database(&fs, Path::new(""), actor).await?;
+            assert_eq!(media_files::Entity::find().count(&db).await?, 11);
+        }
+        Ok::<(), anyhow::Error>(())
+    })
+    .await
+    .context("paged library scan timed out")??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn large_audio_is_played_seeked_and_analyzed_by_both_backends() -> Result<()> {
+    timeout(Duration::from_secs(180), async {
+        let audio = large_wav();
+        let webdav = WebDavFixture::start(vec![("large.wav".into(), audio.clone())]).await?;
+        let s3 = S3Fixture::start(vec![("large.wav".into(), audio)]).await?;
+        let webdav_ranges = webdav.clone();
+        assert_large_audio_playback_and_analysis(
+            FsIo::new_opendal(webdav_config(&webdav), Handle::current())?,
+            move || webdav_ranges.read_ranges(),
+            Uuid::from_u128(0x213),
+        )
+        .await?;
+        let s3_ranges = s3.clone();
+        assert_large_audio_playback_and_analysis(
+            FsIo::new_opendal(s3_config(&s3), Handle::current())?,
+            move || s3_ranges.read_ranges(),
+            Uuid::from_u128(0x214),
+        )
+        .await?;
+        Ok::<(), anyhow::Error>(())
+    })
+    .await
+    .context("large audio playback and analysis timed out")??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn object_store_scan_uses_etag_and_skips_unchanged_content() -> Result<()> {
+    timeout(DEADLINE, async {
+        let bytes = std::fs::read(fixtures::audio_fixture())?;
+        let webdav = WebDavFixture::start(vec![("track.ogg".into(), bytes.clone())]).await?;
+        let s3 = S3Fixture::start(vec![("track.ogg".into(), bytes.clone())]).await?;
+        let mut changed = bytes.clone();
+        change_ogg_vendor(&mut changed);
+        assert_eq!(changed.len(), bytes.len());
+
+        let webdav_set = webdav.clone();
+        let webdav_count = webdav.clone();
+        assert_scan_change_detection(
+            "WebDAV",
+            FsIo::new_opendal(webdav_config(&webdav), Handle::current())?,
+            changed.clone(),
+            move |data| webdav_set.set_file("track.ogg", data),
+            move || webdav_count.read_ranges().len(),
+        )
+        .await?;
+        let s3_set = s3.clone();
+        let s3_count = s3.clone();
+        assert_scan_change_detection(
+            "S3",
+            FsIo::new_opendal(s3_config(&s3), Handle::current())?,
+            changed,
+            move |data| s3_set.set_file("track.ogg", data),
+            move || s3_count.read_ranges().len(),
+        )
+        .await?;
+        Ok::<(), anyhow::Error>(())
+    })
+    .await
+    .context("object store scan timed out")??;
     Ok(())
 }
