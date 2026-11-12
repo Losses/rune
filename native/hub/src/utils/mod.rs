@@ -2496,7 +2496,7 @@ pub async fn parse_media_files(
                 file.title
             },
             duration: file.duration,
-            cover_art_id: file.cover_art_id.unwrap_or(-1),
+            cover_art_id: file.cover_art_id,
             track_number: file.track_number,
             audio_availability: state,
             audio_origin: origin.into(),

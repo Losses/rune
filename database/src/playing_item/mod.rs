@@ -99,7 +99,7 @@ impl From<MetadataSummary> for PlayingItemMetadataSummary {
             artist: x.artist,
             album: x.album,
             title: x.title,
-            track_number: x.track_number,
+            track_number: x.track_number.unwrap_or_default(),
             duration: x.duration,
         }
     }

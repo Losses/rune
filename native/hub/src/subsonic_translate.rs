@@ -593,7 +593,6 @@ pub(crate) async fn fetch_media_file_by_ids_request(
                 .as_deref()
                 .map(|cover| catalog.ids.intern(SubsonicIdKind::CoverArt, cover))
                 .transpose()?
-                .unwrap_or_default()
         };
         if let Some(cover) = song.cover_art.clone() {
             covers.push((*id, cover));
@@ -635,7 +634,6 @@ fn media_file_from_song(
             .as_deref()
             .map(|cover| catalog.ids.intern(SubsonicIdKind::CoverArt, cover))
             .transpose()?
-            .unwrap_or_default()
     };
     Ok(subsonic_media_file(binding, id, cover_art_id, song))
 }
@@ -647,7 +645,7 @@ const SUBSONIC_AUDIO_AVAILABILITY: AudioAvailability = AudioAvailability::Remote
 fn subsonic_media_file(
     binding: &SubsonicBinding,
     id: i32,
-    cover_art_id: i32,
+    cover_art_id: Option<i32>,
     song: &SubsonicSong,
 ) -> MediaFile {
     MediaFile {
@@ -660,10 +658,7 @@ fn subsonic_media_file(
         title: song.title.clone(),
         duration: f64::from(song.duration.unwrap_or_default()),
         cover_art_id,
-        track_number: song
-            .track
-            .and_then(|number| i32::try_from(number).ok())
-            .unwrap_or_default(),
+        track_number: song.track.and_then(|number| i32::try_from(number).ok()),
         audio_availability: SUBSONIC_AUDIO_AVAILABILITY,
         audio_origin: AudioOrigin::Remote,
     }
@@ -834,8 +829,7 @@ pub(crate) async fn search_media_file_summary_request(
                 .cover_art
                 .as_deref()
                 .map(|cover| catalog.ids.intern(SubsonicIdKind::CoverArt, cover))
-                .transpose()?
-                .unwrap_or_default();
+                .transpose()?;
             catalog.songs.insert(id, song.clone());
             Ok(MediaFileSummary {
                 id,
@@ -1657,8 +1651,7 @@ pub(crate) async fn mix_query_request(
                 .cover_art
                 .as_deref()
                 .map(|cover| catalog.ids.intern(SubsonicIdKind::CoverArt, cover))
-                .transpose()?
-                .unwrap_or_default();
+                .transpose()?;
             let media_file = subsonic_media_file(binding, id, cover_art_id, &song);
             Ok((media_file, song.cover_art))
         })
@@ -2414,7 +2407,12 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(first.cover_art_map.is_empty());
-        assert!(first.media_files.iter().all(|file| file.cover_art_id > 0));
+        assert!(
+            first
+                .media_files
+                .iter()
+                .all(|file| file.cover_art_id.is_some_and(|id| id > 0))
+        );
         wait_for_covers(&binding, &["cover-1", "cover-2"]).await;
         let second = fetch_media_file_by_ids_request(&binding, &fetch(search.tracks))
             .await
@@ -2968,7 +2966,7 @@ mod tests {
         assert_eq!(details.file.artist, "Artist");
         assert_eq!(details.file.album, "Album");
         assert_eq!(details.file.duration, 180.0);
-        assert_eq!(details.file.track_number, 7);
+        assert_eq!(details.file.track_number, Some(7));
         assert_eq!(details.album.name, "Album");
         assert_eq!(details.artists[0].name, "Artist");
         assert_eq!(details.call_id, Some(24));

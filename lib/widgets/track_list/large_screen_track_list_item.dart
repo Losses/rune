@@ -58,9 +58,7 @@ class _LargeScreenTrackListItemState extends State<LargeScreenTrackListItem> {
   @override
   Widget build(BuildContext context) {
     final Typography typography = FluentTheme.of(context).typography;
-    final int? trackNumber = widget.item.trackNumber == 0
-        ? null
-        : widget.item.trackNumber;
+    final int? trackNumber = widget.item.trackNumber;
     final int? diskNumber = trackNumber == null
         ? trackNumber
         : trackNumber ~/ 1000;

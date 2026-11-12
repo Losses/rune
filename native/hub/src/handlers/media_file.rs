@@ -274,7 +274,7 @@ impl Signal for SearchMediaFileSummaryRequest {
                     } else {
                         x.title
                     },
-                    cover_art_id: x.cover_art_id.unwrap_or(-1),
+                    cover_art_id: x.cover_art_id,
                     audio_availability: crate_messages::AudioAvailability::from_local(
                         states
                             .get(&x.id)

@@ -165,7 +165,9 @@ pub async fn display_mixes_in_table(main_db: &MainDbConnection, files: &[media_f
                     summary.id,
                     summary.title,
                     summary.album,
-                    summary.track_number,
+                    summary
+                        .track_number
+                        .map_or_else(String::new, |number| number.to_string()),
                     format_time(
                         summary
                             .duration

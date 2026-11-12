@@ -67,8 +67,8 @@ pub struct MediaFile {
     pub album: String,
     pub title: String,
     pub duration: f64,
-    pub cover_art_id: i32,
-    pub track_number: i32,
+    pub cover_art_id: Option<i32>,
+    pub track_number: Option<i32>,
     pub audio_availability: AudioAvailability,
     pub audio_origin: AudioOrigin,
 }
@@ -117,7 +117,7 @@ pub struct FetchMediaFileByIdsResponse {
 pub struct MediaFileSummary {
     pub id: i32,
     pub name: String,
-    pub cover_art_id: i32,
+    pub cover_art_id: Option<i32>,
     pub audio_availability: AudioAvailability,
 }
 

@@ -978,7 +978,7 @@ pub struct MetadataSummary {
     pub album: String,
     pub genre: String,
     pub title: String,
-    pub track_number: i32,
+    pub track_number: Option<i32>,
     pub duration: f64,
     pub cover_art_id: Option<i32>,
     pub file_hash: String,
@@ -1048,17 +1048,12 @@ pub async fn get_metadata_summary_by_files<C: sea_orm::ConnectionTrait>(
             .and_then(|id| artwork_ids.get(id))
             .copied();
 
-        let parsed_disk_number = metadata
-            .get("disc_number")
-            .and_then(|s| extract_number(s))
-            .unwrap_or(0);
+        let parsed_disk_number = metadata.get("disc_number").and_then(|s| extract_number(s));
 
-        let parsed_track_number = metadata
-            .get("track_number")
-            .and_then(|s| extract_number(s))
-            .unwrap_or(0);
+        let parsed_track_number = metadata.get("track_number").and_then(|s| extract_number(s));
 
-        let track_number = parsed_disk_number * 1000 + parsed_track_number;
+        let track_number =
+            parsed_track_number.map(|track| parsed_disk_number.unwrap_or(0) * 1000 + track);
 
         let summary = MetadataSummary {
             id: file_id,

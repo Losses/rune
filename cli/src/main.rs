@@ -420,7 +420,9 @@ async fn main() {
                             summary.artist,
                             summary.album,
                             summary.title,
-                            summary.track_number,
+                            summary
+                                .track_number
+                                .map_or_else(String::new, |number| number.to_string()),
                             summary.duration,
                             summary.cover_art_id.unwrap_or_default()
                         ]);

@@ -311,7 +311,7 @@ async fn process_album(
     media_file_albums::Entity::insert(media_file_albums::ActiveModel {
         track_uuid: Set(summary.file_uuid.clone()),
         album_uuid: Set(album_id.to_string()),
-        track_number: Set(Some(summary.track_number)),
+        track_number: Set(summary.track_number),
         source_uuid: Set(summary.file_uuid.clone()),
         ..Default::default()
     })
