@@ -265,12 +265,13 @@ impl PlayerSession {
         block: HandoffBlockId,
     ) -> Result<(TakeBackBlockResult, u64)> {
         let mut state = self.state.lock().await;
-        let record = state
+        let interrupted: InterruptedItem = state
             .handoff_block(block)
-            .ok_or(ExpectedRequestError::Unavailable {
-                what: "handoff block",
-            })?;
-        let interrupted: InterruptedItem = record.interrupted.into();
+            .map(|record| record.interrupted.into())
+            // A renderer can still have the tagged queue block after its session
+            // metadata was refreshed. In that case the player command can remove
+            // the block while preserving any current item outside it.
+            .unwrap_or(InterruptedItem::Nothing);
         let player = self.player.lock().await;
         let result = player
             .take_back_block(block, interrupted)

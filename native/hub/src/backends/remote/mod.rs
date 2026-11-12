@@ -1,4 +1,4 @@
-use crate::node::NodeContext;
+use crate::node::{HandoffPlaybackEvent, NodeContext};
 use crate::request_error::ExpectedRequestError;
 use crate::request_owner::OpenLibrary;
 #[cfg(test)]
@@ -636,6 +636,17 @@ async fn register_session_handlers(
                 }
                 match decode(&payload) {
                     Ok(message) => {
+                        if let Some(status) = message.as_any().downcast_ref::<PlaybackStatus>() {
+                            node.publish_handoff_playback_event(HandoffPlaybackEvent::Status(
+                                Box::new(status.clone()),
+                            ));
+                        } else if let Some(playlist) =
+                            message.as_any().downcast_ref::<PlaylistUpdate>()
+                        {
+                            node.publish_handoff_playback_event(HandoffPlaybackEvent::Playlist(
+                                playlist.items.clone(),
+                            ));
+                        }
                         update_visualizer_feed(message.as_ref());
                         node.gui_broadcaster.broadcast(message.as_ref());
                     }

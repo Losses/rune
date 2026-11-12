@@ -29,7 +29,7 @@ use discovery::{
 use playback::{player::HandoffBlockId as PlayerHandoffBlockId, sfx_player::SfxPlayer};
 use rinf::{DartSignal, RustSignal};
 use tokio::{
-    sync::{Mutex, RwLock},
+    sync::{Mutex, RwLock, broadcast},
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
@@ -51,10 +51,10 @@ use crate::{
     messages::{
         AttachedRenderer, CapabilityReason, ClientStatus, ClientSummary,
         IncommingClientPermissionNotification, InitializeNodeRequest, InitializeNodeResponse,
-        LibraryTaskKind, LibraryTaskStateChanged, PauseRequest, ProtocolUpdateSide,
-        RefreshSessionRequest, RemoteLibraryReconnecting, RemoteLossKind,
-        RendererAttachmentChanged, RendererLinkLost, RequestCapabilities, RequestCapability,
-        TrustListUpdated, TrustedClientsChanged, TrustedServerCertificate,
+        LibraryTaskKind, LibraryTaskStateChanged, PauseRequest, PlaybackStatus, PlaylistItem,
+        PlaylistUpdate, ProtocolUpdateSide, RefreshSessionRequest, RemoteLibraryReconnecting,
+        RemoteLossKind, RendererAttachmentChanged, RendererLinkLost, RequestCapabilities,
+        RequestCapability, TrustListUpdated, TrustedClientsChanged, TrustedServerCertificate,
     },
     request_error::classify,
     server::{ServerManager, WebSocketService, utils::device::load_device_info},
@@ -135,6 +135,7 @@ pub struct NodeContext {
     pub broadcaster: Arc<dyn Broadcaster>,
     pub websocket_service: Arc<WebSocketService>,
     pub gui_broadcaster: Arc<dyn Broadcaster>,
+    handoff_playback_events: broadcast::Sender<HandoffPlaybackEvent>,
     pub renderer_link: Arc<StdMutex<Option<Arc<RendererLink>>>>,
     ui_library: Arc<StdMutex<UiLibrary>>,
     current_player: Arc<StdMutex<CurrentPlayer>>,
@@ -171,9 +172,26 @@ struct NodeBroadcaster {
     current_player: Arc<StdMutex<CurrentPlayer>>,
     local: Arc<dyn Broadcaster>,
     remote: Arc<WebSocketService>,
+    handoff_playback_events: broadcast::Sender<HandoffPlaybackEvent>,
 }
+
+#[derive(Clone)]
+pub(crate) enum HandoffPlaybackEvent {
+    Status(Box<PlaybackStatus>),
+    Playlist(Vec<PlaylistItem>),
+}
+
 impl Broadcaster for NodeBroadcaster {
     fn broadcast(&self, message: &dyn RinfRustSignal) {
+        if let Some(status) = message.as_any().downcast_ref::<PlaybackStatus>() {
+            let _ = self
+                .handoff_playback_events
+                .send(HandoffPlaybackEvent::Status(Box::new(status.clone())));
+        } else if let Some(playlist) = message.as_any().downcast_ref::<PlaylistUpdate>() {
+            let _ = self
+                .handoff_playback_events
+                .send(HandoffPlaybackEvent::Playlist(playlist.items.clone()));
+        }
         let remote_event = message.remote_event();
         let suppress_local_status = self
             .current_player
@@ -191,6 +209,16 @@ impl Broadcaster for NodeBroadcaster {
 }
 
 impl NodeContext {
+    pub(crate) fn subscribe_handoff_playback_events(
+        &self,
+    ) -> broadcast::Receiver<HandoffPlaybackEvent> {
+        self.handoff_playback_events.subscribe()
+    }
+
+    pub(crate) fn publish_handoff_playback_event(&self, event: HandoffPlaybackEvent) {
+        let _ = self.handoff_playback_events.send(event);
+    }
+
     pub(crate) async fn sync_library_token(&self, library_id: Uuid) -> CancellationToken {
         let mut tokens = self.sync_library_tokens.lock().await;
         tokens
@@ -277,6 +305,7 @@ impl NodeContext {
             Path::new(config_path),
             &permission_manager.list_users().await,
         )?);
+        let (handoff_playback_events, _) = broadcast::channel(128);
         let node = Arc::new(Self {
             protocol_version: StdMutex::new(PROTOCOL_VERSION),
             config_path: Arc::new(config_path.to_owned()),
@@ -297,8 +326,10 @@ impl NodeContext {
                 current_player: current_player.clone(),
                 local: broadcaster.clone(),
                 remote: websocket_service.clone(),
+                handoff_playback_events: handoff_playback_events.clone(),
             }),
             gui_broadcaster: broadcaster,
+            handoff_playback_events,
             websocket_service,
             renderer_link,
             ui_library,
@@ -1451,12 +1482,16 @@ mod tests {
 
     #[test]
     fn only_controller_signals_reach_remote_clients() {
+        use tokio::sync::broadcast;
+
         let remote = Arc::new(WebSocketService::new());
         let mut received = remote.broadcast_tx.subscribe();
+        let (handoff_playback_events, _) = broadcast::channel(1);
         let broadcaster = NodeBroadcaster {
             current_player: Arc::new(StdMutex::new(CurrentPlayer::Local)),
             local: Arc::new(Quiet(None)),
             remote,
+            handoff_playback_events,
         };
         broadcaster.broadcast(&TrustListUpdated {
             certificates: Vec::new(),

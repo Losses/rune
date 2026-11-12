@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use log::warn;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, broadcast, broadcast::error::RecvError};
 use uuid::Uuid;
 
 use ::database::{
@@ -26,6 +26,7 @@ use ::playback::player::{
 };
 
 use crate::backends::remote::{RendererLink, RendererLinkUse};
+use crate::node::HandoffPlaybackEvent;
 use crate::request_error::ExpectedRequestError;
 use crate::server::libraries::{cast_library_state, cast_library_states, parse_library_ids};
 use crate::subsonic_binding::SubsonicBinding;
@@ -41,6 +42,8 @@ use crate::{
         require_library,
     },
 };
+
+const HANDOFF_START_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub async fn playing_item_from_request(
     request: PlayingItemRef,
@@ -742,7 +745,7 @@ impl ParamsExtractor for HandoffLoadRequest {
 
 impl Signal for HandoffLoadRequest {
     type Params = Arc<NodeContext>;
-    type Response = LoadResolvedItemsResponse;
+    type Response = HandoffLoadResponse;
 
     async fn handle(
         &self,
@@ -756,15 +759,15 @@ impl Signal for HandoffLoadRequest {
             }
             .into());
         }
-        let result = apply_handoff_load(
+        let handoff_item = apply_handoff_load(
             &node,
             PlayerHandoffBlockId::try_from(&request.block)?,
             &request.load,
         )
         .await?;
-        Ok(Some(LoadResolvedItemsResponse {
+        Ok(Some(HandoffLoadResponse {
             call_id: None,
-            result,
+            handoff_item,
         }))
     }
 }
@@ -1071,25 +1074,32 @@ async fn apply_cast_load(
     node: &NodeContext,
     request: &LoadResolvedItemsRequest,
 ) -> Result<ResolvedItemsLoadResult> {
-    apply_resolved_items_load(node, request, None).await
+    let (result, _) = apply_resolved_items_load(node, request, None).await?;
+    Ok(result)
 }
 
 async fn apply_handoff_load(
     node: &NodeContext,
     block: PlayerHandoffBlockId,
     request: &LoadResolvedItemsRequest,
-) -> Result<ResolvedItemsLoadResult> {
+) -> Result<PlayingItemRef> {
     if request.mode != PlaylistOperateMode::PlayNext {
         return Err(ExpectedRequestError::invalid_input("Handoff load must use PlayNext").into());
     }
-    apply_resolved_items_load(node, request, Some(block)).await
+    let (_, handoff_item) = apply_resolved_items_load(node, request, Some(block)).await?;
+    handoff_item.ok_or_else(|| {
+        ExpectedRequestError::Unavailable {
+            what: "handoff block item",
+        }
+        .into()
+    })
 }
 
 async fn apply_resolved_items_load(
     node: &NodeContext,
     request: &LoadResolvedItemsRequest,
     block: Option<PlayerHandoffBlockId>,
-) -> Result<ResolvedItemsLoadResult> {
+) -> Result<(ResolvedItemsLoadResult, Option<PlayingItemRef>)> {
     let position = request
         .position_seconds
         .map(Duration::try_from_secs_f64)
@@ -1232,6 +1242,17 @@ async fn apply_resolved_items_load(
     let result = ResolvedItemsLoadResult {
         left_out_items: left_out.into_iter().map(Into::into).collect(),
     };
+    let handoff_item = match block {
+        Some(_) => Some(
+            start_index
+                .and_then(|index| prepared.get(index))
+                .and_then(|(item, _)| playing_item_to_ref(item))
+                .ok_or(ExpectedRequestError::Unavailable {
+                    what: "handoff block item",
+                })?,
+        ),
+        None => None,
+    };
     if let Some(block) = block {
         let position = position.unwrap_or_default();
         let play = request.play.unwrap_or(true);
@@ -1266,7 +1287,20 @@ async fn apply_resolved_items_load(
             })
             .await?;
     }
-    Ok(result)
+    Ok((result, handoff_item))
+}
+
+fn playing_item_to_ref(item: &PlayingItem) -> Option<PlayingItemRef> {
+    match item {
+        PlayingItem::LibraryTrack { library_id, track } => Some(PlayingItemRef::LibraryTrack {
+            library_id: library_id.to_string(),
+            track: track.clone(),
+        }),
+        PlayingItem::IndependentFile(path) => {
+            Some(PlayingItemRef::IndependentFile { path: path.clone() })
+        }
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1652,7 +1686,7 @@ impl Signal for HandoffRequest {
                             .await?;
                         node.remember_handoff_block(source.fingerprint().to_owned(), block)
                             .await;
-                        resume_handoff_source(paused).await?;
+                        resume_handoff_source(&node, paused).await?;
                         return Err(error);
                     }
                     if resume_renderer {
@@ -1684,7 +1718,7 @@ impl Signal for HandoffRequest {
                 Err(error) => {
                     node.remember_handoff_block(source.fingerprint().to_owned(), block)
                         .await;
-                    resume_handoff_source(paused).await?;
+                    resume_handoff_source(&node, paused).await?;
                     return Err(error);
                 }
             }
@@ -1697,19 +1731,46 @@ impl Signal for HandoffRequest {
         let result = async {
             let mut snapshot = copy_session_snapshot(&paused.snapshot);
             snapshot.playing = paused.was_playing;
+            let expected_item = snapshot
+                .index
+                .and_then(|index| snapshot.items.get(index as usize))
+                .cloned();
+            let expected_position = snapshot.position_seconds;
             let load = handoff_load(snapshot, load_mode);
             match target {
                 Some(target) => {
                     let block = PlayerHandoffBlockId(Uuid::new_v4());
-                    hand_off_to_renderer(&node, target, block, load).await?;
+                    expected_item.context("handoff current item")?;
+                    hand_off_to_renderer(&node, target, block, load, expected_position).await?;
                 }
-                None => hand_off_to_this_device(&node, attached.clone(), &load).await?,
+                None => {
+                    let expected_item = expected_item.context("handoff current item")?;
+                    hand_off_to_this_device(
+                        &node,
+                        attached.clone(),
+                        &load,
+                        &expected_item,
+                        expected_position,
+                    )
+                    .await?
+                }
             }
             Ok::<(), anyhow::Error>(())
         }
         .await;
         if let Err(error) = result {
-            resume_handoff_source(paused).await?;
+            if let Some(target) = target
+                && node
+                    .renderer_link()?
+                    .is_some_and(|link| link.fingerprint() == target)
+            {
+                if let Some(source) = &attached {
+                    node.attach_renderer(source.fingerprint()).await?;
+                } else {
+                    node.detach_renderer().await?;
+                }
+            }
+            resume_handoff_source(&node, paused).await?;
             return Err(error);
         }
         Ok(Some(HandoffResponse { call_id: None }))
@@ -1801,11 +1862,18 @@ async fn pause_handoff_source(
     }
 }
 
-async fn resume_handoff_source(paused: PausedHandoffSource) -> Result<()> {
+async fn resume_handoff_source(node: &Arc<NodeContext>, paused: PausedHandoffSource) -> Result<()> {
     if !paused.was_playing {
         return Ok(());
     }
     match paused.source {
+        PausedSource::Renderer(source) if source.is_closed() => {
+            let link = node
+                .renderer_link()?
+                .filter(|link| link.fingerprint() == source.fingerprint())
+                .context("source renderer was not restored after failed handoff")?;
+            link.call(&PlayRequest { call_id: None }).await?;
+        }
         PausedSource::Renderer(source) => {
             source.call(&PlayRequest { call_id: None }).await?;
             source
@@ -1855,26 +1923,59 @@ async fn hand_off_to_renderer(
     target: &str,
     block: PlayerHandoffBlockId,
     load: LoadResolvedItemsRequest,
+    expected_position: f64,
 ) -> Result<()> {
-    let (link, alias) = node
+    let (connected_link, alias) = node
         .connect_renderer(target, RendererLinkUse::Control)
+        .await?;
+    let mut events = node.subscribe_handoff_playback_events();
+    let target_before = connected_link
+        .call(&SessionSnapshotRequest { call_id: None })
         .await?;
     let handoff = HandoffLoadRequest {
         block: block.into(),
         load,
         call_id: None,
     };
-    if let Err(error) = link.call(&handoff).await {
-        link.close();
-        return Err(error);
-    }
-    node.install_renderer_link(link, alias)?;
+    let response = match connected_link.call(&handoff).await {
+        Ok(response) => response,
+        Err(error) => {
+            connected_link.close();
+            return Err(error);
+        }
+    };
+    let target_item = response.handoff_item;
+    node.install_renderer_link(connected_link, alias)?;
+    let link = node
+        .renderer_link()?
+        .context("renderer link disappeared after handoff load")?;
     node.remember_handoff_block(target.to_owned(), block).await;
     node.publish_capabilities()?;
     if let Some(link) = node.renderer_link()?
         && let Err(error) = link.call(&RefreshSessionRequest { call_id: None }).await
     {
         warn!("Handoff succeeded, but renderer state refresh failed: {error:#}");
+    }
+    if let Err(error) = wait_for_handoff_start(&mut events, &target_item, expected_position).await {
+        let rollback = link
+            .call(&TakeBackHandoffBlockRequest {
+                block: block.into(),
+                call_id: None,
+            })
+            .await;
+        match rollback {
+            Err(rollback_error) => {
+                warn!("Could not roll back failed handoff block: {rollback_error:#}");
+                return Err(error.context(format!("handoff rollback failed: {rollback_error:#}")));
+            }
+            Ok(snapshot) if snapshot.items != target_before.items => {
+                return Err(error.context("handoff rollback retained the unavailable item"));
+            }
+            Ok(_) => {
+                node.take_handoff_block(link.fingerprint()).await;
+            }
+        }
+        return Err(error);
     }
     Ok(())
 }
@@ -1884,12 +1985,143 @@ async fn hand_off_to_this_device(
     node: &Arc<NodeContext>,
     attached: Option<Arc<RendererLink>>,
     load: &LoadResolvedItemsRequest,
+    expected_item: &PlayingItemRef,
+    expected_position: f64,
 ) -> Result<()> {
+    let session = node.session()?;
+    let original = session_snapshot(node, &session).await?;
+    let mut events = node.subscribe_handoff_playback_events();
     apply_cast_load(node, load).await?;
+    if let Err(error) = wait_for_handoff_start(&mut events, expected_item, expected_position).await
+    {
+        if original.items.is_empty() {
+            if let Err(restore_error) = node
+                .session()?
+                .edit_queue(None, |player| {
+                    player.clear_playlist();
+                    true
+                })
+                .await
+            {
+                warn!("Could not clear local queue after failed handoff: {restore_error:#}");
+            }
+        } else {
+            let restore = handoff_load(original, PlaylistOperateMode::Replace);
+            if let Err(restore_error) = apply_cast_load(node, &restore).await {
+                warn!("Could not restore local queue after failed handoff: {restore_error:#}");
+            }
+        }
+        return Err(error);
+    }
     if attached.is_some() {
         node.detach_renderer().await?;
     } else {
         node.session()?.clear_handoff_blocks().await?;
     }
     Ok(())
+}
+
+async fn wait_for_handoff_start(
+    events: &mut broadcast::Receiver<HandoffPlaybackEvent>,
+    expected_item: &PlayingItemRef,
+    expected_position: f64,
+) -> Result<()> {
+    tokio::time::timeout(HANDOFF_START_TIMEOUT, async {
+        loop {
+            let event = match events.recv().await {
+                Ok(event) => event,
+                Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Closed) => {
+                    return Err(ExpectedRequestError::Unavailable {
+                        what: "handoff playback status",
+                    }
+                    .into());
+                }
+            };
+            match event {
+                HandoffPlaybackEvent::Playlist(items) => {
+                    if items.iter().any(|item| {
+                        same_handoff_item(&item.item, expected_item) && item.unavailable.is_some()
+                    }) {
+                        return Err(ExpectedRequestError::Unavailable {
+                            what: "handed-off track",
+                        }
+                        .into());
+                    }
+                }
+                HandoffPlaybackEvent::Status(status) => {
+                    if status
+                        .item_request
+                        .as_ref()
+                        .is_some_and(|item| same_handoff_item(item, expected_item))
+                        && status.state.eq_ignore_ascii_case("playing")
+                        && status.ready
+                        && (f64::from(status.progress_seconds) - expected_position).abs() <= 1.5
+                    {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    })
+    .await
+    .map_err(|_| {
+        anyhow::Error::new(ExpectedRequestError::Unavailable {
+            what: "handoff playback start",
+        })
+        .context(format!(
+            "expected item {expected_item:?} at {expected_position}s"
+        ))
+    })?
+}
+
+fn same_handoff_item(left: &PlayingItemRef, right: &PlayingItemRef) -> bool {
+    match (left, right) {
+        (
+            PlayingItemRef::LibraryTrack { track: left, .. },
+            PlayingItemRef::LibraryTrack { track: right, .. },
+        ) => left == right,
+        _ => left == right,
+    }
+}
+
+#[cfg(test)]
+mod handoff_confirmation_tests {
+    use super::*;
+    use std::time::Instant;
+
+    #[tokio::test]
+    async fn slow_handoff_playback_confirmation_completes_when_status_arrives() -> Result<()> {
+        let expected_item = PlayingItemRef::IndependentFile {
+            path: "slow-start.ogg".into(),
+        };
+        let (sender, mut events) = broadcast::channel(1);
+        let delayed_sender = sender.clone();
+        let delayed_item = expected_item.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let _ = delayed_sender.send(HandoffPlaybackEvent::Status(Box::new(PlaybackStatus {
+                session_id: "slow-start".into(),
+                state: "Playing".into(),
+                progress_seconds: 42.0,
+                progress_percentage: 0.0,
+                artist: None,
+                album: None,
+                title: None,
+                duration: 0.0,
+                index: Some(0),
+                item: None,
+                item_request: Some(delayed_item),
+                playback_mode: 0,
+                ready: true,
+                cover_art_path: None,
+                lib_path: String::new(),
+            })));
+        });
+
+        let started = Instant::now();
+        wait_for_handoff_start(&mut events, &expected_item, 42.0).await?;
+        assert!(started.elapsed() >= Duration::from_millis(100));
+        Ok(())
+    }
 }

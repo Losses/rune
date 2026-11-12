@@ -910,7 +910,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         },
         RequestResponse {
             request: "HandoffLoadRequest".to_string(),
-            response: Some("LoadResolvedItemsResponse".to_string()),
+            response: Some("HandoffLoadResponse".to_string()),
             scope: RequestScope::Session,
             access: RequestAccess::Control,
             introduced_minor: None,

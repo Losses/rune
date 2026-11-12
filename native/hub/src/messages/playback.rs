@@ -358,6 +358,13 @@ pub struct ResolvedItemsLoadResult {
     pub left_out_items: Vec<PlayingItemRef>,
 }
 
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct HandoffLoadResponse {
+    pub handoff_item: PlayingItemRef,
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
 /// The id of a handed-off queue block on the wire: a UUID in text form, like the
 /// other ids that cross the Dart boundary.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, SignalPiece)]

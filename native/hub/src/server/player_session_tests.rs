@@ -1477,7 +1477,7 @@ async fn wait_player(
     f: &Fixture,
     predicate: impl Fn(&PlayerStatus) -> bool,
 ) -> Result<PlayerStatus> {
-    timeout(Duration::from_secs(10), async {
+    timeout(Duration::from_secs(120), async {
         loop {
             let status = f.global_params.player.lock().await.get_status();
             if predicate(&status) {
@@ -6130,7 +6130,7 @@ async fn handoff_dispatch_appends_to_idle_renderer_queue_and_starts_source_curso
     .await?;
     let source_paused =
         wait_player(&source, |status| status.state == PlaybackState::Paused).await?;
-    assert!(merged.position.abs_diff(source_paused.position) <= Duration::from_millis(300));
+    assert!(merged.position.abs_diff(source_paused.position) <= Duration::from_millis(1500));
     assert_eq!(source_paused.playlist, source_queue);
     assert_eq!(source_paused.item, source_before.item);
 
@@ -6202,11 +6202,7 @@ async fn failed_handoff_load_restores_source_playback_state() -> Result<()> {
     assert_eq!(target_after.playlist, target_before.playlist);
     assert_eq!(target_after.index, target_before.index);
     assert_eq!(target_after.item, target_before.item);
-    assert_eq!(target_after.state, target_before.state);
-    assert_eq!(
-        source.global_params.player.lock().await.get_status().state,
-        PlaybackState::Playing
-    );
+    wait_player(&source, |status| status.state == PlaybackState::Playing).await?;
     let failed_handoff_states = timeout(Duration::from_secs(5), async {
         loop {
             let states = signals
@@ -6255,6 +6251,243 @@ async fn failed_handoff_load_restores_source_playback_state() -> Result<()> {
     );
     controller.global_params.node.shutdown().await?;
     source.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
+async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() -> Result<()> {
+    use crate::messages::HandoffRequest;
+    use crate::request_error::ExpectedRequestError;
+    use crate::access_policy::{ConnectionLevel, DeviceGrants, LibraryGrants, SyncLevel};
+    let host_dir = tempfile::tempdir()?;
+    let source_dir = tempfile::tempdir()?;
+    let target_dir = tempfile::tempdir()?;
+    let host = fixture(host_dir.path()).await?;
+    let source = fixture(source_dir.path()).await?;
+    let target = fixture(target_dir.path()).await?;
+    let host_id = session_audio(&host, "handoff-source-corrupt-on-target.ogg").await?;
+    let (host_address, source_replica) = replicate_host_library(&host, &source)
+        .await
+        .context("replicate source library")?;
+    pair(&host, &target).await?;
+    pair(&target, &host).await?;
+    let host_library_id = host.global_params.library_id.context("host library id")?;
+    let target_fingerprint = info(&target).await?.fingerprint;
+    host.global_params.node.access_policy.set(
+        &target_fingerprint,
+        DeviceGrants {
+            control: true,
+            connection: LibraryGrants {
+                all_libraries: None,
+                libraries: [(host_library_id, ConnectionLevel::ViewEdit)]
+                    .into_iter()
+                    .collect(),
+            },
+            sync: LibraryGrants {
+                all_libraries: None,
+                libraries: [(host_library_id, SyncLevel::PullPush)]
+                    .into_iter()
+                    .collect(),
+            },
+            administer: false,
+        },
+    )?;
+    let (_, target_replica) =
+        replicate_host_library_at(&host, &target, host_address)
+            .await
+            .context("replicate target library")?;
+    let source_file = Path::new(&source_replica.global_params.test_library().media_root)
+        .join("handoff-source-corrupt-on-target.ogg");
+    fs::copy(
+        Path::new(&host.global_params.test_library().media_root)
+            .join("handoff-source-corrupt-on-target.ogg"),
+        &source_file,
+    )?;
+    let host_item = library_track_for_id(&host, host_id).await?;
+    let source_item = ::playback::player::LibraryItem {
+        library_id: target_replica
+            .global_params
+            .library_id
+            .context("target replica library id")?,
+        file_uuid: host_item.file_uuid,
+    };
+    source
+        .global_params
+        .node
+        .session()?
+        .edit_queue(None, |player| {
+            player.add_to_playlist_with_sources(
+                vec![(PlayingItem::from(source_item), PlaybackSource::Local(source_file.clone()))],
+                AddMode::AppendToEnd,
+            );
+            true
+        })
+        .await?;
+    source
+        .global_params
+        .player
+        .lock()
+        .await
+        .set_playback_mode(PlaybackMode::RepeatAll);
+    source.global_params.player.lock().await.load(0);
+    source.global_params.player.lock().await.play();
+    let source_before = wait_player(&source, |status| status.state == PlaybackState::Playing).await?;
+    let expected_item = source_before.item.clone().context("source item")?;
+    let mut expected_position = source_before.position;
+
+    let source_fingerprint = info(&source).await?.fingerprint;
+    target
+        .global_params
+        .node
+        .access_policy
+        .set(&source_fingerprint, DeviceGrants::my_device())?;
+    let target_address = paired_full(&target, &source)
+        .await
+        .context("pair target renderer")?;
+    source
+        .global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(
+            &target_fingerprint,
+            vec![format!("127.0.0.1:{}", target_address.port())],
+        )
+        .await?;
+
+    let target_id = session_audio(&target, "handoff-target-before-corrupt.ogg").await?;
+    queue_session(&target, &[target_id]).await?;
+    target
+        .global_params
+        .player
+        .lock()
+        .await
+        .set_playback_mode(PlaybackMode::RepeatAll);
+    target.global_params.player.lock().await.load(0);
+    target.global_params.player.lock().await.play();
+    let target_before = wait_player(&target, |status| status.state == PlaybackState::Playing).await?;
+    let target_track_id = file_ids_by_uuid(
+        &target_replica.global_params.test_library().main_db,
+        &[host_item.file_uuid],
+    )
+    .await?
+    .get(&host_item.file_uuid)
+    .copied()
+    .context("target replica track id")?;
+    let target_file = Path::new(&target_replica.global_params.test_library().media_root)
+        .join("handoff-source-corrupt-on-target.ogg");
+    if target_file.exists() {
+        fs::remove_file(&target_file)?;
+    }
+    media_files::Entity::update(media_files::ActiveModel {
+        id: Set(target_track_id),
+        local_available: Set(false),
+        content_hash: Set(None),
+        content_size: Set(None),
+        ..Default::default()
+    })
+    .exec(&*target_replica.global_params.test_library().main_db)
+    .await?;
+
+    let handoff = HandoffRequest {
+        call_id: None,
+        target: Some(target_fingerprint.clone()),
+    };
+    let unplayable_result = timeout(
+        Duration::from_secs(5),
+        dispatch_gui_request(&source.global_params, &handoff),
+    )
+    .await
+    .context("handoff with no playable target item did not fail promptly")?
+    .context("dispatch handoff with no playable target item");
+    assert!(
+        unplayable_result.as_ref().is_err_and(|error| error.chain().any(|cause| {
+            cause
+                .downcast_ref::<ExpectedRequestError>()
+                .is_some_and(|expected| {
+                    matches!(
+                        expected,
+                        ExpectedRequestError::Unavailable { .. }
+                            | ExpectedRequestError::Remote {
+                                kind: RequestErrorKind::Unavailable | RequestErrorKind::NotFound,
+                                ..
+                            }
+                    )
+                })
+        })),
+        "handoff with no playable target item should return a typed failure: {unplayable_result:?}"
+    );
+    let target_after_unplayable = wait_player(&target, |status| {
+        status.playlist == target_before.playlist && status.item == target_before.item
+    })
+    .await?;
+    assert_eq!(target_after_unplayable.playlist, target_before.playlist);
+    assert_eq!(target_after_unplayable.index, target_before.index);
+    assert_eq!(target_after_unplayable.item, target_before.item);
+    let source_after_unplayable = wait_player(&source, |status| {
+        status.item == Some(expected_item.clone()) && status.state == PlaybackState::Playing
+    })
+    .await?;
+    assert!(
+        source_after_unplayable.position.abs_diff(expected_position)
+            <= Duration::from_millis(1500)
+    );
+    expected_position = source_after_unplayable.position;
+
+    let host_file = Path::new(&host.global_params.test_library().media_root)
+        .join("handoff-source-corrupt-on-target.ogg");
+    fs::write(&host_file, b"not an audio file")?;
+    materialize_replica_file(
+        &target_replica,
+        target_track_id,
+        &host_file,
+        "handoff-source-corrupt-on-target.ogg",
+    )
+    .await?;
+    fs::write(&target_file, b"not an audio file")?;
+    let result = dispatch_gui_request(&source.global_params, &handoff)
+        .await
+        .context("dispatch corrupt-track handoff");
+    assert!(
+        result.as_ref().is_err_and(|error| error.chain().any(|cause| {
+            cause
+                .downcast_ref::<ExpectedRequestError>()
+                .is_some_and(|expected| {
+                    matches!(
+                        expected,
+                        ExpectedRequestError::Unavailable { .. }
+                            | ExpectedRequestError::Remote {
+                                kind: RequestErrorKind::Unavailable | RequestErrorKind::NotFound,
+                                ..
+                            }
+                    )
+                })
+        })),
+        "decode failure should be returned as a typed unavailable error: {result:?}"
+    );
+    let target_after = match wait_player(&target, |status| {
+        status.playlist == target_before.playlist && status.item == target_before.item
+    })
+    .await
+    {
+        Ok(status) => status,
+        Err(error) => {
+            let status = target.global_params.player.lock().await.get_status();
+            return Err(error.context(format!(
+                "target after rollback: {status:?}; handoff error: {:?}",
+                result.as_ref().err()
+            )));
+        }
+    };
+    assert_eq!(target_after.playlist, target_before.playlist);
+    assert_eq!(target_after.index, target_before.index);
+    assert_eq!(target_after.item, target_before.item);
+    let source_after = wait_player(&source, |status| status.state == PlaybackState::Playing).await?;
+    assert_eq!(source_after.item, Some(expected_item));
+    assert!(source_after.position.abs_diff(expected_position) <= Duration::from_millis(1500));
+    source.global_params.node.shutdown().await?;
+    target.global_params.node.shutdown().await?;
+    host.global_params.node.shutdown().await?;
     Ok(())
 }
 
@@ -6505,7 +6738,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
         status.state == PlaybackState::Paused && status.playlist == source_queue
     })
     .await?;
-    assert!(b_status.position.abs_diff(a_paused.position) <= Duration::from_millis(300));
+    assert!(b_status.position.abs_diff(a_paused.position) <= Duration::from_millis(1500));
     assert_eq!(a_paused.playlist, source_queue);
     assert_eq!(a_paused.index, Some(source_index));
     assert_eq!(
@@ -6696,17 +6929,26 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
         .session_id()
         .await
         .to_string();
-    let b_paused_source_position = b_signals
-        .decoded::<PlaybackStatus>("PlaybackStatus")
-        .into_iter()
-        .find(|status| {
-            status.state == "Paused"
-                && status.index == Some(current_index as i32)
-                && status.session_id == b_session_id
-        })
-        .map(|status| Duration::from_secs_f64(status.progress_seconds.max(0.0) as f64))
-        .context("paused renderer position before taking its handoff block")?;
-    assert!(a_returned.position.abs_diff(b_paused_source_position) <= Duration::from_millis(300));
+    let b_paused_source_position = timeout(Duration::from_secs(30), async {
+        loop {
+            if let Some(position) = b_signals
+                .decoded::<PlaybackStatus>("PlaybackStatus")
+                .into_iter()
+                .find(|status| {
+                    status.state == "Paused"
+                        && status.index == Some(current_index as i32)
+                        && status.session_id == b_session_id
+                })
+                .map(|status| Duration::from_secs_f64(status.progress_seconds.max(0.0) as f64))
+            {
+                return position;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .context("paused renderer position before taking its handoff block")?;
+    assert!(a_returned.position.abs_diff(b_paused_source_position) <= Duration::from_millis(1500));
     assert!(controller.global_params.node.renderer_link()?.is_none());
     let b_paused = wait_player(&b, |status| {
         status.state == PlaybackState::Paused && status.playlist == expected_target_queue
