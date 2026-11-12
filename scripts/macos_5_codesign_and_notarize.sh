@@ -36,6 +36,11 @@ xcrun notarytool submit "Rune.zip" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM
 
 xcrun stapler staple "Rune.app"
 
+echo "Verify: ----------------------------"
+
+xcrun stapler validate "Rune.app"
+/usr/bin/codesign --verify --deep --strict --verbose=2 "Rune.app"
+
 rm -rf "Rune.zip"
 
 /usr/bin/ditto -c -k --keepParent --sequesterRsrc "Rune.app" "Rune.zip"

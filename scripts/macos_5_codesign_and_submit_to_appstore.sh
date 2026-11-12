@@ -24,6 +24,8 @@ echo "Codesign: ----------------------------"
   -v \
   Rune.app
 
+/usr/bin/codesign --verify --deep --strict --verbose=2 Rune.app
+
 echo "Package: ----------------------------"
 
 xcrun productbuild \
@@ -31,6 +33,9 @@ xcrun productbuild \
   --component Rune.app \
   /Applications \
   Rune.pkg
+
+# Fails when the package is unsigned, and shows the installer certificate's chain.
+pkgutil --check-signature Rune.pkg
 
 if [ "$RUNE_APPSTORE_UPLOAD" != "true" ]; then
   # A rehearsal: App Store Connect checks the package the way an upload would, and nothing is uploaded.
