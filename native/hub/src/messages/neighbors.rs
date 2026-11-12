@@ -218,7 +218,7 @@ pub struct RemoveTrustedServerResponse {
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct ServerAvailabilityTestRequest {
-    pub url: String,
+    pub hosts: Vec<String>,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

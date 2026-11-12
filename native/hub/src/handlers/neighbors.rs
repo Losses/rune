@@ -22,6 +22,7 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use log::info;
 use reqwest::redirect::Policy;
+use rustls::pki_types::CertificateDer;
 use tokio::{sync::RwLock, time::timeout};
 use url::Url;
 use uuid::Uuid;
@@ -32,9 +33,9 @@ use ::discovery::{
     client::{
         CertValidator, CertValidatorError, fetch_server_certificate, select_best_host, try_connect,
     },
+    endpoint::endpoint_host_port,
     protocol::DiscoveryService,
     server::{PermissionManager, UserStatus},
-    url::decode_rnsrv_url,
     utils::{DeviceInfo, DeviceType},
 };
 
@@ -511,17 +512,20 @@ impl Signal for ServerAvailabilityTestRequest {
     ) -> Result<Option<Self::Response>> {
         let validator = Arc::new(validator.read().await.clone());
 
-        let hosts = match decode_rnsrv_url(&req.url) {
-            Ok(x) => x,
-            Err(_) => {
-                return Ok(Some(ServerAvailabilityTestResponse {
-                    call_id: None,
-                    outcome: ServerAvailabilityTestOutcome::Failed(
-                        ServerAvailabilityTestFailure::AddressMalformed,
-                    ),
-                }));
-            }
-        };
+        let hosts = &req.hosts;
+        if hosts.is_empty()
+            || hosts.iter().any(|host| {
+                endpoint_host_port(host).is_none_or(|(_, port)| port.is_none())
+                    || Url::parse(&format!("https://{host}")).is_err()
+            })
+        {
+            return Ok(Some(ServerAvailabilityTestResponse {
+                call_id: None,
+                outcome: ServerAvailabilityTestOutcome::Failed(
+                    ServerAvailabilityTestFailure::AddressMalformed,
+                ),
+            }));
+        }
 
         let client_config = Arc::new(validator.clone().into_client_config());
         let outcome = match timeout(
@@ -533,7 +537,7 @@ impl Signal for ServerAvailabilityTestRequest {
             Err(_) => availability_outcome(Err(ServerAvailabilityTestFailure::TimedOut)),
             Ok(Ok(_)) => availability_outcome(Ok(())),
             Ok(Err(_)) => {
-                let failure = if has_fingerprint_mismatch(&hosts, &validator).await {
+                let failure = if has_fingerprint_mismatch(hosts, &validator).await {
                     ServerAvailabilityTestFailure::TlsFingerprintMismatch
                 } else {
                     ServerAvailabilityTestFailure::NoHostReachable
@@ -569,7 +573,7 @@ async fn has_fingerprint_mismatch(hosts: &[String], validator: &CertValidator) -
         let Ok(certificate_pem) = pem::parse(server_certificate.cert) else {
             continue;
         };
-        let certificate = rustls::pki_types::CertificateDer::from(certificate_pem.into_contents());
+        let certificate = CertificateDer::from(certificate_pem.into_contents());
         if matches!(
             validator.verify_certificate(&certificate, host).await,
             Err(CertValidatorError::FingerprintMismatch)
@@ -1260,8 +1264,52 @@ mod remote_file_cache_tests {
 
 #[cfg(test)]
 mod server_availability_test_tests {
-    use super::availability_outcome;
-    use crate::messages::{ServerAvailabilityTestFailure, ServerAvailabilityTestOutcome};
+    use super::{Signal, availability_outcome};
+    use crate::{
+        Session,
+        messages::{
+            ServerAvailabilityTestFailure, ServerAvailabilityTestOutcome,
+            ServerAvailabilityTestRequest,
+        },
+    };
+    use discovery::client::CertValidator;
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    async fn request_outcome(hosts: Vec<String>) -> ServerAvailabilityTestOutcome {
+        let directory = tempfile::tempdir().expect("temporary certificate directory");
+        let validator = Arc::new(RwLock::new(
+            CertValidator::new(directory.path())
+                .await
+                .expect("certificate validator"),
+        ));
+        let request = ServerAvailabilityTestRequest {
+            hosts,
+            call_id: None,
+        };
+        request
+            .handle(validator, None::<Session>, &request)
+            .await
+            .expect("availability request")
+            .expect("availability response")
+            .outcome
+    }
+
+    #[tokio::test]
+    async fn empty_host_list_is_typed_malformed_address() {
+        assert_eq!(
+            request_outcome(Vec::new()).await,
+            ServerAvailabilityTestOutcome::Failed(ServerAvailabilityTestFailure::AddressMalformed),
+        );
+    }
+
+    #[tokio::test]
+    async fn malformed_host_is_typed_malformed_address() {
+        assert_eq!(
+            request_outcome(vec!["bad host:7863".to_owned()]).await,
+            ServerAvailabilityTestOutcome::Failed(ServerAvailabilityTestFailure::AddressMalformed),
+        );
+    }
 
     #[test]
     fn malformed_address_is_reported_as_typed_failure() {

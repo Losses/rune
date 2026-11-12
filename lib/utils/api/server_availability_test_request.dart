@@ -14,8 +14,8 @@ String serverAvailabilityFailureMessage(
       ServerAvailabilityTestFailure.timedOut => s.requestUnavailable,
     };
 
-Future<bool> serverAvailabilityTest(String url, AppLocalizations s) async {
-  final removeTrustRequest = ServerAvailabilityTestRequest(url: url);
+Future<bool> serverAvailabilityTest(List<String> hosts, AppLocalizations s) async {
+  final removeTrustRequest = ServerAvailabilityTestRequest(hosts: hosts);
 
   final rustSignal = await awaitResponse(
     'ServerAvailabilityTestRequest',

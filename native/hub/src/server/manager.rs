@@ -2048,6 +2048,30 @@ mod lifecycle_tests {
         paired_full_with_protocol_version(a, b, discovery::protocol_version::PROTOCOL_VERSION).await
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn server_availability_test_accepts_reachable_typed_host() -> Result<()> {
+        let server_dir = tempfile::tempdir()?;
+        let client_dir = tempfile::tempdir()?;
+        let server = fixture_with_library(server_dir.path(), Uuid::new_v4()).await?;
+        let client = fixture_with_library(client_dir.path(), Uuid::new_v4()).await?;
+        let address = paired_full(&server, &client).await?;
+        let request = ServerAvailabilityTestRequest {
+            hosts: vec![format!("127.0.0.1:{}", address.port())],
+            call_id: None,
+        };
+
+        let response = request
+            .handle(
+                Arc::clone(&client.global_params.cert_validator),
+                None,
+                &request,
+            )
+            .await?
+            .context("availability response")?;
+        assert_eq!(response.outcome, ServerAvailabilityTestOutcome::Success);
+        Ok(())
+    }
+
     async fn paired_full_with_protocol_version(
         a: &Fixture,
         b: &Fixture,

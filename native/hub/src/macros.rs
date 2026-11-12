@@ -906,7 +906,7 @@ mod node_request_loop_tests {
         );
         availability_tx.send(DartSignalPack {
             message: ServerAvailabilityTestRequest {
-                url: String::new(),
+                hosts: Vec::new(),
                 call_id: None,
             },
             binary: Vec::new(),
