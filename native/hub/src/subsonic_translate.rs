@@ -600,23 +600,7 @@ pub(crate) async fn fetch_media_file_by_ids_request(
         if let Some(cover) = song.cover_art.clone() {
             covers.push((*id, cover));
         }
-        media_files.push(MediaFile {
-            id: *id,
-            library_id: binding.library_id.to_string(),
-            track: song.id.clone(),
-            path: String::new(),
-            artist: song.artist.unwrap_or_default(),
-            album: song.album.unwrap_or_default(),
-            title: song.title,
-            duration: f64::from(song.duration.unwrap_or_default()),
-            cover_art_id,
-            track_number: song
-                .track
-                .and_then(|number| i32::try_from(number).ok())
-                .unwrap_or_default(),
-            audio_availability: AudioAvailability::Unavailable,
-            audio_origin: AudioOrigin::Remote,
-        });
+        media_files.push(subsonic_media_file(binding, *id, cover_art_id, &song));
     }
     Ok(Some(FetchMediaFileByIdsResponse {
         call_id: None,
@@ -655,7 +639,20 @@ fn media_file_from_song(
             .transpose()?
             .unwrap_or_default()
     };
-    Ok(MediaFile {
+    Ok(subsonic_media_file(binding, id, cover_art_id, song))
+}
+
+/// Subsonic tracks stream from the server: playable here, not stored here.
+const SUBSONIC_AUDIO_AVAILABILITY: AudioAvailability = AudioAvailability::RemoteOnly;
+
+/// The `MediaFile` for a Subsonic song whose ids are already interned.
+fn subsonic_media_file(
+    binding: &SubsonicBinding,
+    id: i32,
+    cover_art_id: i32,
+    song: &SubsonicSong,
+) -> MediaFile {
+    MediaFile {
         id,
         library_id: binding.library_id.to_string(),
         track: song.id.clone(),
@@ -669,9 +666,9 @@ fn media_file_from_song(
             .track
             .and_then(|number| i32::try_from(number).ok())
             .unwrap_or_default(),
-        audio_availability: AudioAvailability::Unavailable,
+        audio_availability: SUBSONIC_AUDIO_AVAILABILITY,
         audio_origin: AudioOrigin::Remote,
-    })
+    }
 }
 
 pub(crate) async fn fetch_media_files_request(
@@ -846,7 +843,7 @@ pub(crate) async fn search_media_file_summary_request(
                 id,
                 name: song.title,
                 cover_art_id,
-                audio_availability: AudioAvailability::Unavailable,
+                audio_availability: SUBSONIC_AUDIO_AVAILABILITY,
             })
         })
         .collect::<Result<Vec<_>>>()?;
@@ -1639,23 +1636,7 @@ pub(crate) async fn mix_query_request(
                 .map(|cover| catalog.ids.intern(SubsonicIdKind::CoverArt, cover))
                 .transpose()?
                 .unwrap_or_default();
-            let media_file = MediaFile {
-                id,
-                library_id: binding.library_id.to_string(),
-                track: song.id.clone(),
-                path: String::new(),
-                artist: song.artist.unwrap_or_default(),
-                album: song.album.unwrap_or_default(),
-                title: song.title,
-                duration: f64::from(song.duration.unwrap_or_default()),
-                cover_art_id,
-                track_number: song
-                    .track
-                    .and_then(|value| i32::try_from(value).ok())
-                    .unwrap_or_default(),
-                audio_availability: AudioAvailability::Unavailable,
-                audio_origin: AudioOrigin::Remote,
-            };
+            let media_file = subsonic_media_file(binding, id, cover_art_id, &song);
             Ok((media_file, song.cover_art))
         })
         .collect::<Result<Vec<_>>>()?;
@@ -1873,29 +1854,30 @@ mod tests {
         fetch_media_file_by_ids_request, fetch_media_files_request,
         fetch_parsed_media_file_request, fetch_remote_playlist, get_liked_request,
         get_lyric_request, get_media_files_count_request, get_playlist_by_id_request,
-        jukebox_error, remove_item_from_playlist_request, remove_playlist_request,
-        reorder_playlist_item_position_request, search_collection_summary_request,
-        search_for_request, search_media_file_summary_request, set_liked_request,
-        subsonic_request_error, update_playlist_request,
+        jukebox_error, mix_query_request, remove_item_from_playlist_request,
+        remove_playlist_request, reorder_playlist_item_position_request,
+        search_collection_summary_request, search_for_request, search_media_file_summary_request,
+        set_liked_request, subsonic_request_error, update_playlist_request,
     };
     use crate::{
         TypedRequest,
         macros::{RequestSlots, RequestTranslator},
         messages::{
-            AddItemToPlaylistRequest, CastPreflightRequest, CollectionType,
+            AddItemToPlaylistRequest, AudioAvailability, CastPreflightRequest, CollectionType,
             CreateM3u8PlaylistRequest, CreatePlaylistRequest, FetchAllPlaylistsRequest,
             FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
             FetchDirectoryTreeRequest, FetchMediaFileByIdsRequest, FetchMediaFilesRequest,
             FetchParsedMediaFileRequest, FetchPlaylistOccurrencesRequest, GetLikedRequest,
             GetLyricByTrackIdRequest, GetMediaFilesCountRequest, GetPlaylistByIdRequest,
-            HandoffLoadRequest, LoadRequest, LoadResolvedItemsRequest, MovePlaylistItemRequest,
-            NextRequest, PauseRequest, PlayRequest, PlayingItemRef, PlaylistOperateMode,
-            PreviousRequest, RefreshSessionRequest, RemoveItemFromPlaylistRequest,
-            RemovePlaylistRequest, RemoveRequest, ReorderPlaylistItemPositionRequest,
-            SearchCollectionSummaryRequest, SearchForRequest, SearchMediaFileSummaryRequest,
-            SeekRequest, SessionSnapshotRequest, SetAdaptiveSwitchingEnabledRequest,
-            SetLikedRequest, SetPlaybackModeRequest, SetRealtimeFFTEnabledRequest, SwitchRequest,
-            TakeBackHandoffBlockRequest, UpdatePlaylistRequest, VolumeRequest,
+            HandoffLoadRequest, LoadRequest, LoadResolvedItemsRequest, MixQuery, MixQueryRequest,
+            MovePlaylistItemRequest, NextRequest, PauseRequest, PlayRequest, PlayingItemRef,
+            PlaylistOperateMode, PreviousRequest, RefreshSessionRequest,
+            RemoveItemFromPlaylistRequest, RemovePlaylistRequest, RemoveRequest,
+            ReorderPlaylistItemPositionRequest, SearchCollectionSummaryRequest, SearchForRequest,
+            SearchMediaFileSummaryRequest, SeekRequest, SessionSnapshotRequest,
+            SetAdaptiveSwitchingEnabledRequest, SetLikedRequest, SetPlaybackModeRequest,
+            SetRealtimeFFTEnabledRequest, SwitchRequest, TakeBackHandoffBlockRequest,
+            UpdatePlaylistRequest, VolumeRequest,
         },
         request_error::{ExpectedRequestError, classify},
         request_owner::Implementation,
@@ -2323,6 +2305,13 @@ mod tests {
                     );
                 }
                 serde_json::json!({"searchResult3":search})
+            }
+            "getAlbum" => {
+                let songs = ["song-1", "song-2"].map(mock_song);
+                serde_json::json!({"album":{
+                    "id":"album-1","name":"Album One","artist":"Artist","artistId":"artist-1",
+                    "song":songs
+                }})
             }
             "getArtists" => serde_json::json!({"artists":{"index":{
                 "name":"A","artist":[
@@ -2974,6 +2963,88 @@ mod tests {
         assert!(missing.artists.is_empty());
         assert_eq!(missing.album.id, 0);
         assert!(missing.album.name.is_empty());
+    }
+
+    #[tokio::test]
+    async fn subsonic_tracks_are_playable_in_every_track_list() {
+        let root = TempDir::new().unwrap();
+        let (binding, _) = mock_subsonic(&root, false).await;
+        let page = fetch_media_files_request(
+            &binding,
+            &FetchMediaFilesRequest {
+                cursor: 0,
+                page_size: 4,
+                bake_cover_arts: false,
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .media_files;
+        let by_ids = fetch_media_file_by_ids_request(
+            &binding,
+            &FetchMediaFileByIdsRequest {
+                call_id: None,
+                ids: page.iter().map(|file| file.id).collect(),
+                bake_cover_arts: false,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .media_files;
+        let album = search_collection_summary_request(
+            &binding,
+            &SearchCollectionSummaryRequest {
+                collection_type: Some(CollectionType::Album),
+                bake_cover_arts: Some(false),
+                n: 1,
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .result
+        .remove(0);
+        let album_tracks = mix_query_request(
+            &binding,
+            &MixQueryRequest {
+                queries: vec![MixQuery {
+                    operator: "lib::album".into(),
+                    parameter: album.id.to_string(),
+                }],
+                cursor: 0,
+                page_size: 10,
+                bake_cover_arts: false,
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .files;
+        let summaries = search_media_file_summary_request(
+            &binding,
+            &SearchMediaFileSummaryRequest {
+                n: 4,
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .result;
+        assert!(!page.is_empty() && !by_ids.is_empty() && !album_tracks.is_empty());
+        assert!(!summaries.is_empty());
+        let playable = AudioAvailability::RemoteOnly;
+        for file in page.iter().chain(&by_ids).chain(&album_tracks) {
+            assert_eq!(file.audio_availability, playable, "{}", file.track);
+        }
+        for summary in &summaries {
+            assert_eq!(summary.audio_availability, playable, "{}", summary.name);
+        }
     }
 
     #[tokio::test]
