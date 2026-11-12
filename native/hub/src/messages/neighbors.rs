@@ -1,5 +1,29 @@
+use discovery::utils::DeviceType;
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, SignalPiece)]
+pub enum DeviceTypeMessage {
+    Mobile,
+    Desktop,
+    Web,
+    Headless,
+    Server,
+    Unknown,
+}
+
+impl From<DeviceType> for DeviceTypeMessage {
+    fn from(device_type: DeviceType) -> Self {
+        match device_type {
+            DeviceType::Mobile => Self::Mobile,
+            DeviceType::Desktop => Self::Desktop,
+            DeviceType::Web => Self::Web,
+            DeviceType::Headless => Self::Headless,
+            DeviceType::Server => Self::Server,
+            DeviceType::Unknown => Self::Unknown,
+        }
+    }
+}
 
 #[derive(Clone, Serialize, Deserialize, SignalPiece)]
 pub enum ClientStatus {
@@ -53,7 +77,7 @@ pub struct StopListeningRequest {
 pub struct DiscoveredDeviceMessage {
     pub alias: String,
     pub device_model: String,
-    pub device_type: String,
+    pub device_type: DeviceTypeMessage,
     pub fingerprint: String,
     pub last_seen_unix_epoch: i64,
     pub addresses: Vec<String>,

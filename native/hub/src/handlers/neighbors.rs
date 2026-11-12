@@ -246,7 +246,7 @@ impl Signal for GetDiscoveredDeviceRequest {
                     alias: x.alias,
                     fingerprint: x.fingerprint,
                     device_model: x.device_model,
-                    device_type: x.device_type.to_string(),
+                    device_type: x.device_type.into(),
                     last_seen_unix_epoch: x.last_seen.timestamp(),
                     addresses,
                 })
@@ -265,6 +265,43 @@ fn announced_device_addresses(ips: &[IpAddr], api_port: Option<u16>) -> Result<V
     ips.iter()
         .map(|ip| Ok(DeviceAddress::new(ip.to_string(), port)?.to_string()))
         .collect()
+}
+
+#[cfg(test)]
+mod device_type_tests {
+    use super::*;
+    use crate::messages::DeviceTypeMessage;
+    use discovery::protocol::DiscoveryService;
+
+    #[tokio::test]
+    async fn discovered_device_message_preserves_announced_device_type() -> Result<()> {
+        let scanner = DiscoveryService::without_store();
+        let announcement = serde_json::json!({
+            "fingerprint": "peer-fingerprint",
+            "alias": "Bedroom",
+            "deviceModel": "Rune Server",
+            "deviceType": "server",
+            "api_port": 7863,
+            "announce": true,
+        });
+        scanner
+            .observe_announcement(
+                &serde_json::to_vec(&announcement)?,
+                "192.0.2.10:57863".parse()?,
+                None,
+            )
+            .await?;
+
+        let request = GetDiscoveredDeviceRequest { call_id: None };
+        let response = request
+            .handle(Arc::new(scanner), None, &request)
+            .await?
+            .context("discovered device response")?;
+
+        assert_eq!(response.devices.len(), 1);
+        assert_eq!(response.devices[0].device_type, DeviceTypeMessage::Server);
+        Ok(())
+    }
 }
 
 impl ParamsExtractor for StartServerRequest {

@@ -135,19 +135,19 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
   }
 }
 
-IconData deviceTypeToIcon(String deviceType) {
+IconData deviceTypeToIcon(DeviceTypeMessage deviceType) {
   switch (deviceType) {
-    case "Mobile":
+    case DeviceTypeMessage.mobile:
       return Symbols.smartphone;
-    case "Desktop":
+    case DeviceTypeMessage.desktop:
       return Symbols.computer;
-    case "Web":
+    case DeviceTypeMessage.web:
       return Symbols.public;
-    case "Headless":
+    case DeviceTypeMessage.headless:
       return Symbols.psychology_alt;
-    case "Server":
+    case DeviceTypeMessage.server:
       return Symbols.host;
-    default:
+    case DeviceTypeMessage.unknown:
       return Symbols.help;
   }
 }

@@ -696,7 +696,7 @@ void main() {
                 const DiscoveredDeviceMessage(
                   alias: 'Bedroom',
                   deviceModel: 'Desktop',
-                  deviceType: 'Desktop',
+                  deviceType: DeviceTypeMessage.desktop,
                   fingerprint: 'peer',
                   lastSeenUnixEpoch: 0,
                   addresses: ['192.0.2.1:9999'],
