@@ -638,7 +638,7 @@ jobs:
           omitDraftDuringUpdate: true
           omitNameDuringUpdate: true
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev') }}
-          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta')) }}
+          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev')) }}
 
       - name: Release ZIP
         uses: ncipollo/release-action@v1
@@ -652,7 +652,7 @@ jobs:
           omitDraftDuringUpdate: true
           omitNameDuringUpdate: true
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev') }}
-          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta')) }}
+          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev')) }}
 
       - name: Clean up
         if: ${{ always() }}
@@ -927,7 +927,7 @@ jobs:
           omitDraftDuringUpdate: true
           omitNameDuringUpdate: true
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev') }}
-          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta')) }}
+          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev')) }}
 
   # Checks every Apple signing secret without building, signing or uploading anything.
   check-apple-secrets:
