@@ -5,13 +5,14 @@ use crate::messages::{
     CapabilityReason, CloseLibraryRequest, CloseLibraryResponse, CreatePlaylistRequest,
     FetchAllPlaylistsRequest, FetchAllPlaylistsResponse, GetPlaylistByIdRequest,
     LibraryContentChanged, LibraryInitializeMode, ListLocalLibrariesRequest, MixQuery,
-    PlaybackStatus, PlaylistOperateMode, RegisterLibraryOutcome, RemoteConnectionLost,
+    PlaybackStatus, PlaylistOperateMode, RegisterLibraryFailureKind, RegisterLibraryOutcome, RemoteConnectionLost,
     RemoteLibraryReconnected, RemoteLibraryReconnecting, RemoteLossKind, RequestCapabilities,
     RequestCapability, RequestFailedResponse, ScanAudioLibraryProgress, ScanTaskType,
     SetLikedRequest,
 };
 use crate::messages::{
     OpenDalLibraryService, RegisterOpenDalLibraryRequest, RegisterSubsonicLibraryRequest,
+    ShareDataChoice,
     SubsonicOpenModeMessage,
 };
 use crate::node::{NodeContext, ReconnectConfig};
@@ -30,7 +31,16 @@ use axum::http::{
 };
 use axum::response::IntoResponse;
 use axum::routing::{any, get};
-use database::library_registry::{CatalogPlacement, LibraryRegistry, ProtocolAdapter, SubsonicOpenMode};
+use fsio::test_fixtures::WebDavFixture;
+use fsio::{OpenDalConfig, OpenDalObjectStore};
+use database::{
+    library_registry::{CatalogPlacement, LibraryRegistry, ProtocolAdapter, SubsonicOpenMode},
+    sync::model::RuneModel,
+};
+use sync::{
+    protocol::SyncModel,
+    share::{FORMAT_VERSION, LibraryFile, ObjectStore, encode_library},
+};
 use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
@@ -45,6 +55,7 @@ use std::{
 use std::{env, process::Command};
 use tempfile::TempDir;
 use url::Url;
+use uuid::Uuid;
 
 use crate::{
     Signal,
@@ -8014,6 +8025,7 @@ fn opendal_registration_request(endpoint: String) -> RegisterOpenDalLibraryReque
             password: "wrong-password".into(),
         },
         alias: "Remote music".into(),
+            share_data_choice: ShareDataChoice::ThisDeviceOnly,
     }
 }
 
@@ -8119,6 +8131,7 @@ async fn opendal_registration_reports_non_folder_root() -> Result<()> {
                     password: "pass".into(),
                 },
                 alias: "Missing folder".into(),
+            share_data_choice: ShareDataChoice::ThisDeviceOnly,
             },
             &node,
         ),
@@ -8146,8 +8159,192 @@ async fn opendal_registration_reports_non_folder_root() -> Result<()> {
 }
 
 #[tokio::test]
+async fn opendal_share_registration_uses_choice_and_existing_share_identity() -> Result<()> {
+    let server = WebDavFixture::start(vec![
+        ("keep/track.ogg".into(), Vec::new()),
+        ("local/track.ogg".into(), Vec::new()),
+        ("existing/track.ogg".into(), Vec::new()),
+        ("conflict/track.ogg".into(), Vec::new()),
+    ])
+    .await?;
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let mut kept_library_id = None;
+
+    for (root, choice, in_share) in [
+        (
+            "/dav/library/keep/",
+            ShareDataChoice::KeepInShare,
+            true,
+        ),
+        (
+            "/dav/library/local/",
+            ShareDataChoice::ThisDeviceOnly,
+            false,
+        ),
+    ] {
+        let response = register_opendal_library_on_node(
+            &RegisterOpenDalLibraryRequest {
+                call_id: None,
+                service: OpenDalLibraryService::WebDav {
+                    endpoint: server.endpoint.clone(),
+                    root: root.into(),
+                    username: "user".into(),
+                    password: "pass".into(),
+                },
+                alias: "Share test".into(),
+                share_data_choice: choice,
+            },
+            &node,
+        )
+        .await;
+        anyhow::ensure!(response.outcome == RegisterLibraryOutcome::Registered);
+        let record_id = response.record.context("registered share record")?.record_id;
+        let registry = LibraryRegistry::load(PathBuf::from(&*node.config_path).as_path())?;
+        let record = registry.libraries.iter().find(|item| item.record_id.0.to_string() == record_id).context("stored share record")?;
+        if in_share {
+            kept_library_id = record.library_id;
+        }
+        anyhow::ensure!(
+            matches!(&record.catalog, CatalogPlacement::InShare(_)) == in_share,
+            "catalog placement did not match the selected choice"
+        );
+    }
+
+    let existing_id = Uuid::new_v4();
+    let existing_root = "/dav/library/existing/";
+    let store = OpenDalObjectStore::new(OpenDalConfig::WebDav {
+        endpoint: server.endpoint.clone(),
+        root: existing_root.into(),
+        username: "user".into(),
+        password: "pass".into(),
+    })
+    .map_err(|error| anyhow::anyhow!("{error:?}"))?;
+    let descriptor = encode_library(&LibraryFile {
+        format: FORMAT_VERSION,
+        library_id: existing_id,
+        model: RuneModel::model_id().into(),
+        schema: RuneModel::schema_id().into(),
+    })?;
+    store
+        .put("library.json", &descriptor)
+        .await
+        .map_err(|error| anyhow::anyhow!("{error:?}"))?;
+    let response = register_opendal_library_on_node(
+        &RegisterOpenDalLibraryRequest {
+            call_id: None,
+            service: OpenDalLibraryService::WebDav {
+                endpoint: server.endpoint.clone(),
+                root: existing_root.into(),
+                username: "user".into(),
+                password: "pass".into(),
+            },
+            alias: "Existing share".into(),
+            share_data_choice: ShareDataChoice::ThisDeviceOnly,
+        },
+        &node,
+    )
+    .await;
+    anyhow::ensure!(response.outcome == RegisterLibraryOutcome::Registered);
+    let record_id = response.record.context("existing share record")?.record_id;
+    let registry = LibraryRegistry::load(PathBuf::from(&*node.config_path).as_path())?;
+    let record = registry.libraries.iter().find(|item| item.record_id.0.to_string() == record_id).context("stored existing share record")?;
+    anyhow::ensure!(record.library_id == Some(existing_id));
+    anyhow::ensure!(matches!(&record.catalog, CatalogPlacement::InShare(_)));
+
+    let conflicting_id = kept_library_id.context("share library id")?;
+    let conflict_root = "/dav/library/conflict/";
+    let conflict_store = OpenDalObjectStore::new(OpenDalConfig::WebDav {
+        endpoint: server.endpoint.clone(),
+        root: conflict_root.into(),
+        username: "user".into(),
+        password: "pass".into(),
+    })
+    .map_err(|error| anyhow::anyhow!("{error:?}"))?;
+    let conflicting_descriptor = encode_library(&LibraryFile {
+        format: FORMAT_VERSION,
+        library_id: conflicting_id,
+        model: RuneModel::model_id().into(),
+        schema: RuneModel::schema_id().into(),
+    })?;
+    conflict_store
+        .put("library.json", &conflicting_descriptor)
+        .await
+        .map_err(|error| anyhow::anyhow!("{error:?}"))?;
+    let conflict = register_opendal_library_on_node(
+        &RegisterOpenDalLibraryRequest {
+            call_id: None,
+            service: OpenDalLibraryService::WebDav {
+                endpoint: server.endpoint.clone(),
+                root: conflict_root.into(),
+                username: "user".into(),
+                password: "pass".into(),
+            },
+            alias: "Conflicting share".into(),
+            share_data_choice: ShareDataChoice::KeepInShare,
+        },
+        &node,
+    )
+    .await;
+    anyhow::ensure!(
+        conflict.outcome
+            == RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::OpenDalShareChanged)
+    );
+
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn opendal_webdav_registration_open_and_scan_are_read_only_on_current_thread() -> Result<()> {
     assert_opendal_library_scan(false).await
+}
+
+#[tokio::test]
+async fn keep_in_share_rejects_a_read_only_share_before_registration() -> Result<()> {
+    use crate::messages::{RegisterLibraryFailureKind, RegisterLibraryOutcome};
+    use database::library_registry::FsAdapter;
+    use fsio::test_fixtures::WebDavFixture;
+
+    let server = WebDavFixture::start_read_only(vec![("track.ogg".into(), Vec::new())]).await?;
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let response = register_opendal_library_on_node(
+        &RegisterOpenDalLibraryRequest {
+            call_id: None,
+            service: OpenDalLibraryService::WebDav {
+                endpoint: server.endpoint.clone(),
+                root: "/dav/library/".into(),
+                username: "user".into(),
+                password: "pass".into(),
+            },
+            alias: "Read-only share".into(),
+            share_data_choice: ShareDataChoice::KeepInShare,
+        },
+        &node,
+    )
+    .await;
+
+    assert_eq!(
+        response.outcome,
+        RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::OpenDalReadOnly)
+    );
+    let registry = LibraryRegistry::load(PathBuf::from(&*node.config_path).as_path())?;
+    assert!(registry.libraries.iter().all(|record| {
+        !record
+            .fs
+            .iter()
+            .any(|adapter| matches!(adapter, FsAdapter::WebDav { .. } | FsAdapter::S3 { .. }))
+    }));
+    assert!(
+        !PathBuf::from(&*node.config_path)
+            .join("credentials.enc")
+            .exists()
+    );
+    node.shutdown().await?;
+    Ok(())
 }
 
 #[tokio::test]
@@ -8211,6 +8408,7 @@ async fn assert_opendal_library_scan(s3: bool) -> Result<()> {
             call_id: None,
             service,
             alias: "WebDAV test".into(),
+            share_data_choice: ShareDataChoice::ThisDeviceOnly,
         };
         let response = register_opendal_library_on_node(&request, &node).await;
         anyhow::ensure!(

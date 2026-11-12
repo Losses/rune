@@ -1705,6 +1705,22 @@
   "libraryNotSupportedYet": "This library type is not supported yet.",
   "turnOnBackgroundSync": "Turn On Background Sync",
   "turnOffBackgroundSync": "Turn Off Background Sync",
+  "shareLibraryModeSubtitle": "Where should Rune store your index?",
+  "@shareLibraryModeSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShare": "In the shared folder",
+  "@keepIndexInShare": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShareSubtitle": "We will store your index in the shared folder, so your other devices can sync with it.",
+  "@keepIndexInShareSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexOnThisDevice": "On this device",
+  "@keepIndexOnThisDevice": {
+    "description": "Add-library guide text"
+  },
   "webDav": "WebDAV",
   "webDavSubtitle": "Connect to a folder on a WebDAV server.",
   "s3": "S3",
@@ -1717,6 +1733,7 @@
   "libraryOpenDalAuthenticationRejected": "Check the username and password.",
   "libraryOpenDalUnreachable": "Check the server address and network connection.",
   "libraryOpenDalNotFolder": "Check that the selected folder exists and is accessible.",
+  "libraryOpenDalReadOnly": "Choose a writable folder to keep the index in the share.",
   "subsonic": "Subsonic",
   "subsonicSubtitle": "Connect to a Subsonic music server.",
   "playOnThisDevice": "Play on This Device",

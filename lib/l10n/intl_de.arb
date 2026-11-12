@@ -1696,6 +1696,22 @@
   },
   "turnOnBackgroundSync": "Hintergrundsynchronisierung Einschalten",
   "turnOffBackgroundSync": "Hintergrundsynchronisierung Ausschalten",
+  "shareLibraryModeSubtitle": "Wo soll Rune Ihren Medienindex speichern?",
+  "@shareLibraryModeSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShare": "Im freigegebenen Ordner",
+  "@keepIndexInShare": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShareSubtitle": "Wir speichern Ihren Medienindex im freigegebenen Ordner, damit Ihre anderen Geräte ihn synchronisieren können.",
+  "@keepIndexInShareSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexOnThisDevice": "Auf diesem Gerät",
+  "@keepIndexOnThisDevice": {
+    "description": "Add-library guide text"
+  },
   "webDav": "WebDAV",
   "webDavSubtitle": "Stelle eine Verbindung zu einem Ordner auf einem WebDAV-Server her.",
   "s3": "S3",
@@ -1708,6 +1724,7 @@
   "libraryOpenDalAuthenticationRejected": "Überprüfe Benutzername und Passwort.",
   "libraryOpenDalUnreachable": "Überprüfe die Serveradresse und die Netzwerkverbindung.",
   "libraryOpenDalNotFolder": "Überprüfe, ob der ausgewählte Ordner vorhanden und zugänglich ist.",
+  "libraryOpenDalReadOnly": "Wähle einen beschreibbaren Ordner, um den Medienindex in der Freigabe zu speichern.",
   "subsonic": "Subsonic",
   "subsonicSubtitle": "Mit einem Subsonic-Musikserver verbinden.",
   "playOnThisDevice": "Auf diesem Gerät abspielen",

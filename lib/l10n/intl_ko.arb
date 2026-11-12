@@ -1698,6 +1698,22 @@
   },
   "turnOnBackgroundSync": "백그라운드 동기화 켜기",
   "turnOffBackgroundSync": "백그라운드 동기화 끄기",
+  "shareLibraryModeSubtitle": "Rune은 미디어 인덱스를 어디에 저장할까요?",
+  "@shareLibraryModeSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShare": "공유 폴더에",
+  "@keepIndexInShare": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShareSubtitle": "다른 기기에서 동기화할 수 있도록 미디어 인덱스를 공유 폴더에 저장합니다.",
+  "@keepIndexInShareSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexOnThisDevice": "이 기기에",
+  "@keepIndexOnThisDevice": {
+    "description": "Add-library guide text"
+  },
   "webDav": "WebDAV",
   "webDavSubtitle": "WebDAV 서버의 폴더에 연결합니다.",
   "s3": "S3",
@@ -1710,6 +1726,7 @@
   "libraryOpenDalAuthenticationRejected": "사용자 이름과 비밀번호를 확인하세요.",
   "libraryOpenDalUnreachable": "서버 주소와 네트워크 연결을 확인하세요.",
   "libraryOpenDalNotFolder": "선택한 폴더가 있고 접근할 수 있는지 확인하세요.",
+  "libraryOpenDalReadOnly": "미디어 인덱스를 공유 폴더에 저장하려면 쓰기 가능한 폴더를 선택하세요.",
   "subsonic": "Subsonic",
   "subsonicSubtitle": "Subsonic 음악 서버에 연결합니다.",
   "playOnThisDevice": "이 기기에서 재생",

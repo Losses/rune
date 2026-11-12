@@ -174,6 +174,7 @@ RequestCapabilities snapshot({
     registerSubsonicLibraryRequest: capability,
     replaceSubsonicCredentialRequest: capability,
     registerOpenDalLibraryRequest: capability,
+    detectOpenDalShareDataRequest: capability,
     initializeNodeRequest: capability,
     runFsSelfTestRequest: capability,
   ).copyWith(

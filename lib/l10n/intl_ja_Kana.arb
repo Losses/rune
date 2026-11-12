@@ -1698,6 +1698,22 @@
   "turnOffBackgroundSync": "バックグラウンドデドウキヲオフニスル",
   "allowAccess": "アクセスをアラウ",
   "allowAccessSubtitle": "このデバイスからのプレイバックコントロールとトラックダウンロードのアクセスをグラントします。",
+  "shareLibraryModeSubtitle": "Rune はインデックスをどこにストアしますか？",
+  "@shareLibraryModeSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShare": "きょうゆうフォルダー",
+  "@keepIndexInShare": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShareSubtitle": "ほかのデバイスとどうきできるよう、インデックスをきょうゆうフォルダーにストアします。",
+  "@keepIndexInShareSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexOnThisDevice": "このデバイス",
+  "@keepIndexOnThisDevice": {
+    "description": "Add-library guide text"
+  },
   "webDav": "WebDAV",
   "webDavSubtitle": "WebDAVサーバーノフォルダーニセツゾクシマス。",
   "s3": "S3",
@@ -1710,6 +1726,7 @@
   "libraryOpenDalAuthenticationRejected": "ユーザーネームトパスワードヲカクニンシテクダサイ。",
   "libraryOpenDalUnreachable": "サーバーノアドレストネットワークセツゾクヲカクニンシテクダサイ。",
   "libraryOpenDalNotFolder": "センタクシタフォルダーガアリ、アクセスデキルコトヲカクニンシテクダサイ。",
+  "libraryOpenDalReadOnly": "きょうゆうフォルダーにインデックスをストアするには、かきこみできるフォルダーをえらんでください。",
   "subsonic": "Subsonic",
   "subsonicSubtitle": "Subsonic オンガクサーバーに セツゾクします。",
   "playOnThisDevice": "このデバイスで サイセイ",

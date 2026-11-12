@@ -145,10 +145,27 @@ pub enum OpenDalLibraryService {
     },
 }
 
+/// Selects where Rune stores a new library's catalog for a share without a library yet.
+/// A folder that already holds a library is always joined in the share.
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShareDataChoice {
+    KeepInShare,
+    ThisDeviceOnly,
+}
+
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct RegisterOpenDalLibraryRequest {
     pub service: OpenDalLibraryService,
     pub alias: String,
+    /// Applies only when the folder does not already hold a library. Existing libraries are always joined in the share.
+    pub share_data_choice: ShareDataChoice,
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct DetectOpenDalShareDataRequest {
+    pub service: OpenDalLibraryService,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -390,6 +407,24 @@ pub enum RegisterLibraryFailureKind {
     OpenDalAuthenticationRejected,
     OpenDalUnreachable,
     OpenDalNotFolder,
+    OpenDalReadOnly,
+    OpenDalShareInvalid,
+    OpenDalShareChanged,
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
+pub enum OpenDalShareDataDetection {
+    ExistingLibrary { library_id: String },
+    WritableEmpty,
+    ReadOnly,
+    Failed(RegisterLibraryFailureKind),
+}
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct DetectOpenDalShareDataResponse {
+    pub result: OpenDalShareDataDetection,
+    #[serde(default)]
+    pub call_id: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
@@ -534,13 +569,14 @@ pub struct RemoteRequestFailed {
 
 #[cfg(test)]
 mod tests {
-    use super::{OpenDalLibraryService, RegisterOpenDalLibraryRequest};
+    use super::{OpenDalLibraryService, RegisterOpenDalLibraryRequest, ShareDataChoice};
 
     fn round_trip(service: OpenDalLibraryService) {
         let request = RegisterOpenDalLibraryRequest {
             call_id: None,
             service: service.clone(),
             alias: "music".into(),
+            share_data_choice: ShareDataChoice::ThisDeviceOnly,
         };
         let bytes = rinf::serialize(&request).unwrap();
         let decoded: RegisterOpenDalLibraryRequest = rinf::deserialize(&bytes).unwrap();

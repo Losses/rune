@@ -32,6 +32,9 @@ String libraryRegistryFailureMessage(
   RegisterLibraryFailureKind.subsonicNotSubsonic => s.libraryInvalidSource,
   RegisterLibraryFailureKind.openDalUnreachable => s.libraryOpenDalUnreachable,
   RegisterLibraryFailureKind.openDalNotFolder => s.libraryOpenDalNotFolder,
+  RegisterLibraryFailureKind.openDalReadOnly => s.libraryOpenDalReadOnly,
+  RegisterLibraryFailureKind.openDalShareInvalid => s.libraryStorageFailure,
+  RegisterLibraryFailureKind.openDalShareChanged => s.libraryInvalidSource,
   RegisterLibraryFailureKind.remoteProtocol ||
   OpenLibraryFailureKind.remoteProtocol => s.libraryRemoteProtocolFailure,
   OpenLibraryFailureKind.protocolIncompatible => s.libraryProtocolIncompatible,

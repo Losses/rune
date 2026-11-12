@@ -740,7 +740,7 @@ void main() {
       final registry = _emptyRegistry();
       final manager = _testManager();
       final opened = <String>[];
-      final requests = <(OpenDalLibraryService, String)>[];
+      final requests = <(OpenDalLibraryService, String, ShareDataChoice)>[];
       addTearDown(registry.dispose);
       addTearDown(manager.dispose);
       var fail = true;
@@ -753,8 +753,12 @@ void main() {
               onPressed: () => showAddLibraryGuide(
                 context,
                 dependencies: AddLibraryGuideDependencies(
-                  registerOpenDal: (service, alias) async {
-                    requests.add((service, alias));
+                  detectOpenDal: (_) async =>
+                      const DetectOpenDalShareDataResponse(
+                        result: OpenDalShareDataDetectionWritableEmpty(),
+                      ),
+                  registerOpenDal: (service, alias, choice) async {
+                    requests.add((service, alias, choice));
                     if (fail) {
                       return const RegisterLibraryResponse(
                         outcome: RegisterLibraryOutcomeFailed(
@@ -812,17 +816,28 @@ void main() {
       await tester.tap(find.widgetWithText(Button, 'Confirm'));
       await tester.pumpAndSettle();
       expect(
+        find.text('Where should Rune store your index?'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('On this device'));
+      await tester.pumpAndSettle();
+      expect(
         find.text('Check the server address and network connection.'),
         findsOneWidget,
       );
       await tester.tap(find.text('Close'));
       await tester.pumpAndSettle();
+      await tester.tap(find.text('Back'));
+      await tester.pumpAndSettle();
       expect(find.byType(TextBox), findsNWidgets(4));
       expect(requests.single.$1, isA<OpenDalLibraryServiceWebDav>());
       expect(requests.single.$2, 'music');
+      expect(requests.single.$3, ShareDataChoice.thisDeviceOnly);
 
       fail = false;
       await tester.tap(find.widgetWithText(Button, 'Confirm'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('On this device'));
       await tester.pumpAndSettle();
       expect(opened, ['record-1', 'scan:record-1']);
       expect(find.text('WebDAV'), findsNothing);
@@ -837,6 +852,7 @@ void main() {
     final opened = <String>[];
     OpenDalLibraryService? registeredService;
     String? registeredAlias;
+    ShareDataChoice? registeredChoice;
     addTearDown(registry.dispose);
     addTearDown(manager.dispose);
     await tester.pumpWidget(
@@ -848,9 +864,14 @@ void main() {
             onPressed: () => showAddLibraryGuide(
               context,
               dependencies: AddLibraryGuideDependencies(
-                registerOpenDal: (service, alias) async {
+                detectOpenDal: (_) async =>
+                    const DetectOpenDalShareDataResponse(
+                      result: OpenDalShareDataDetectionWritableEmpty(),
+                    ),
+                registerOpenDal: (service, alias, choice) async {
                   registeredService = service;
                   registeredAlias = alias;
+                  registeredChoice = choice;
                   return RegisterLibraryResponse(
                     record: _record(),
                     outcome: const RegisterLibraryOutcomeRegistered(),
@@ -890,9 +911,70 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(Button, 'Confirm'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('In the shared folder'));
+    await tester.pumpAndSettle();
     expect(registeredService, isA<OpenDalLibraryServiceS3>());
     expect(registeredAlias, 'music-bucket');
+    expect(registeredChoice, ShareDataChoice.keepInShare);
     expect(opened, ['record-1', 'scan:record-1']);
+  });
+
+  testWidgets('existing and read-only shares skip the data placement step', (
+    tester,
+  ) async {
+    for (final detection in <OpenDalShareDataDetection>[
+      const OpenDalShareDataDetectionExistingLibrary(libraryId: 'existing-id'),
+      const OpenDalShareDataDetectionReadOnly(),
+    ]) {
+      final registry = _emptyRegistry();
+      final manager = _testManager();
+      final choices = <ShareDataChoice>[];
+      addTearDown(registry.dispose);
+      addTearDown(manager.dispose);
+      await tester.pumpWidget(
+        _app(
+          registry: registry,
+          manager: manager,
+          home: Builder(
+            builder: (context) => Button(
+              onPressed: () => showAddLibraryGuide(
+                context,
+                dependencies: AddLibraryGuideDependencies(
+                  detectOpenDal: (_) async =>
+                      DetectOpenDalShareDataResponse(result: detection),
+                  registerOpenDal: (_, _, choice) async {
+                    choices.add(choice);
+                    return RegisterLibraryResponse(
+                      record: _record(),
+                      outcome: const RegisterLibraryOutcomeRegistered(),
+                    );
+                  },
+                  openRecord: (_) async {},
+                  scanLibrary: (_) async {},
+                ),
+              ),
+              child: const Text('Open guide'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open guide'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('WebDAV'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(Button, 'Confirm'));
+      await tester.pumpAndSettle();
+      for (var index = 0; index < 4; index++) {
+        await tester.enterText(find.byType(TextBox).at(index), 'value');
+      }
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(Button, 'Confirm'));
+      await tester.pumpAndSettle();
+      expect(find.text('Where should Rune store your index?'), findsNothing);
+      expect(find.text('In the shared folder'), findsNothing);
+      expect(find.text('On this device'), findsNothing);
+      expect(choices, [ShareDataChoice.thisDeviceOnly]);
+    }
   });
 
   testWidgets('Subsonic offers both uses and registers the selected player', (

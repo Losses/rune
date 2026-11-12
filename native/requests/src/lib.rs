@@ -177,6 +177,14 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
+            request: "DetectOpenDalShareDataRequest".to_string(),
+            response: Some("DetectOpenDalShareDataResponse".to_string()),
+            scope: RequestScope::Node,
+            access: RequestAccess::NodeLocal,
+            introduced_minor: None,
+            receiver: RequestReceiver::NodeLoop,
+        },
+        RequestResponse {
             request: "OpenLibraryRequest".to_string(),
             response: Some("OpenLibraryResponse".to_string()),
             scope: RequestScope::Node,

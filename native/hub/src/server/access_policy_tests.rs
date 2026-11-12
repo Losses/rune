@@ -1229,6 +1229,7 @@ mod access_policy_tests {
             "RegisterSubsonicLibraryRequest" => RequestAccess::NodeLocal,
             "ReplaceSubsonicCredentialRequest" => RequestAccess::NodeLocal,
             "RegisterOpenDalLibraryRequest" => RequestAccess::NodeLocal,
+            "DetectOpenDalShareDataRequest" => RequestAccess::NodeLocal,
             "OpenLibraryRequest" => RequestAccess::NodeLocal,
             "InitializeNodeRequest" => RequestAccess::NodeLocal,
             "RunFsSelfTestRequest" => RequestAccess::NodeLocal,

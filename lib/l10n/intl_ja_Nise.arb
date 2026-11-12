@@ -1698,6 +1698,22 @@
   "turnOffBackgroundSync": "背景同步停止",
   "allowAccess": "接続許可",
   "allowAccessSubtitle": "此装置再生制御共楽曲保存接続許可。",
+  "shareLibraryModeSubtitle": "貴方資料索引、Rune 何処保存了承？",
+  "@shareLibraryModeSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShare": "共有格納場所",
+  "@keepIndexInShare": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShareSubtitle": "貴方資料索引共有格納場所保存了承。他端末同期可能。",
+  "@keepIndexInShareSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexOnThisDevice": "此装置",
+  "@keepIndexOnThisDevice": {
+    "description": "Add-library guide text"
+  },
   "webDav": "WebDAV",
   "webDavSubtitle": "WebDAV通信管理機上の格納場所へ接続します。",
   "s3": "S3",
@@ -1710,6 +1726,7 @@
   "libraryOpenDalAuthenticationRejected": "使用者名と暗証番号を確認してください。",
   "libraryOpenDalUnreachable": "通信管理機の所在と網絡接続を確認してください。",
   "libraryOpenDalNotFolder": "選択した格納場所の存在と接続可否を確認してください。",
+  "libraryOpenDalReadOnly": "共有フォルダー資料索引保存為、書込可能格納場所選択了承。",
   "subsonic": "Subsonic",
   "subsonicSubtitle": "Subsonic 音楽服務器接続。",
   "playOnThisDevice": "此機器再生",

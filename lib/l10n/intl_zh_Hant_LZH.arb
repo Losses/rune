@@ -1696,6 +1696,22 @@
   },
   "turnOnBackgroundSync": "啟背景同",
   "turnOffBackgroundSync": "止背景同",
+  "shareLibraryModeSubtitle": "符聆將置曲目索引於何處？",
+  "@shareLibraryModeSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShare": "共享夾",
+  "@keepIndexInShare": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShareSubtitle": "將置曲目索引於共享夾中，俾他機得以同步。",
+  "@keepIndexInShareSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexOnThisDevice": "藏於此機",
+  "@keepIndexOnThisDevice": {
+    "description": "Add-library guide text"
+  },
   "webDav": "WebDAV",
   "webDavSubtitle": "接WebDAV伺上之資料夾。",
   "s3": "S3",
@@ -1708,6 +1724,7 @@
   "libraryOpenDalAuthenticationRejected": "核簿名與符節。",
   "libraryOpenDalUnreachable": "核伺址與網絡。",
   "libraryOpenDalNotFolder": "核所擇資料夾存而可取。",
+  "libraryOpenDalReadOnly": "擇可書之夾，方得置曲目索引於共享夾。",
   "subsonic": "Subsonic",
   "subsonicSubtitle": "連接於 Subsonic 樂庫伺服器。",
   "playOnThisDevice": "於此裝置奏",

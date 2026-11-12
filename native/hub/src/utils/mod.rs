@@ -28,12 +28,13 @@ use std::{
 use crate::handlers::local_libraries::publish_library_records_changed;
 use crate::node::{NodeContext, NodeSlot};
 use anyhow::{Context, Result};
-use fsio::{FileIoError, FsIo, OpenDalConfig};
+use fsio::{FileIoError, FsIo, OpenDalConfig, OpenDalObjectStore};
 use log::info;
 use scrobbling::manager::ScrobblingServiceManager;
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
+use ::database::sync::model::RuneModel;
 use ::database::{
     actions::{
         cover_art::bake_cover_art_by_media_files, metadata::MetadataSummary,
@@ -58,6 +59,8 @@ use ::playback::{
     sfx_player::SfxPlayer,
 };
 use ::scrobbling::manager::ScrobblingManager;
+use ::sync::protocol::SyncModel;
+use ::sync::share::{ObjectStore, ObjectValue, StoreError, decode_library};
 
 use crate::Signal;
 use crate::backends::{
@@ -863,6 +866,23 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
         async move { Ok(Some(register_opendal_library(node, request).await)) }
     }
 
+    fn handle_detect_open_dal_share_data_request(
+        &self,
+        node: &NodeSlot,
+        request: &DetectOpenDalShareDataRequest,
+    ) -> impl Future<Output = Result<Option<DetectOpenDalShareDataResponse>>> + Send {
+        async move {
+            let result = match node.current().await {
+                Ok(_) => detect_opendal_share_data(&request.service).await,
+                Err(_) => OpenDalShareDataDetection::Failed(RegisterLibraryFailureKind::Storage),
+            };
+            Ok(Some(DetectOpenDalShareDataResponse {
+                result,
+                call_id: request.call_id,
+            }))
+        }
+    }
+
     fn handle_open_library_request(
         &self,
         node: &NodeSlot,
@@ -883,6 +903,115 @@ async fn register_opendal_library(
             RegisterLibraryFailureKind::Storage,
             "Could not access library storage",
         ),
+    }
+}
+
+async fn detect_opendal_share_data(service: &OpenDalLibraryService) -> OpenDalShareDataDetection {
+    let config = match service {
+        OpenDalLibraryService::WebDav {
+            endpoint,
+            root,
+            username,
+            password,
+        } => OpenDalConfig::WebDav {
+            endpoint: endpoint.clone(),
+            root: root.clone(),
+            username: username.clone(),
+            password: password.clone(),
+        },
+        OpenDalLibraryService::S3 {
+            endpoint,
+            bucket,
+            region,
+            root,
+            access_key_id,
+            secret_access_key,
+        } => OpenDalConfig::S3 {
+            endpoint: endpoint.clone(),
+            bucket: bucket.clone(),
+            region: region.clone(),
+            root: root.clone(),
+            access_key_id: access_key_id.clone(),
+            secret_access_key: secret_access_key.clone(),
+        },
+    };
+    let store = match OpenDalObjectStore::new(config) {
+        Ok(store) => store,
+        Err(_) => {
+            return OpenDalShareDataDetection::Failed(
+                RegisterLibraryFailureKind::OpenDalUnreachable,
+            );
+        }
+    };
+    let library = ObjectStore::get(&store, "library.json").await;
+    let probe = if matches!(library, Err(StoreError::NotFound)) {
+        let prefix = format!("devices/{}.1", Uuid::new_v4());
+        store.probe(&prefix).await
+    } else {
+        Ok(fsio::ObjectStoreCapabilities::default())
+    };
+    classify_opendal_share_data(library, probe)
+}
+
+fn classify_opendal_share_data(
+    library: Result<ObjectValue, StoreError>,
+    probe: Result<fsio::ObjectStoreCapabilities, StoreError>,
+) -> OpenDalShareDataDetection {
+    match library {
+        Ok(value) => match decode_library(&value.bytes) {
+            Ok(library)
+                if library.library_id != Uuid::nil()
+                    && library.model == RuneModel::model_id()
+                    && library.schema == RuneModel::schema_id() =>
+            {
+                OpenDalShareDataDetection::ExistingLibrary {
+                    library_id: library.library_id.to_string(),
+                }
+            }
+            _ => OpenDalShareDataDetection::Failed(RegisterLibraryFailureKind::OpenDalShareInvalid),
+        },
+        Err(StoreError::PermissionDenied) => OpenDalShareDataDetection::ReadOnly,
+        Err(StoreError::Unauthorized) => OpenDalShareDataDetection::Failed(
+            RegisterLibraryFailureKind::OpenDalAuthenticationRejected,
+        ),
+        Err(StoreError::NotFound) => match probe {
+            Ok(capabilities) if capabilities.write_probe => {
+                OpenDalShareDataDetection::WritableEmpty
+            }
+            Ok(_) | Err(StoreError::PermissionDenied) => OpenDalShareDataDetection::ReadOnly,
+            Err(StoreError::Unauthorized) => OpenDalShareDataDetection::Failed(
+                RegisterLibraryFailureKind::OpenDalAuthenticationRejected,
+            ),
+            Err(_) => {
+                OpenDalShareDataDetection::Failed(RegisterLibraryFailureKind::OpenDalUnreachable)
+            }
+        },
+        Err(_) => OpenDalShareDataDetection::Failed(RegisterLibraryFailureKind::OpenDalUnreachable),
+    }
+}
+
+async fn read_share_library_id(
+    config: OpenDalConfig,
+) -> Result<Option<Uuid>, RegisterLibraryFailureKind> {
+    let store = OpenDalObjectStore::new(config)
+        .map_err(|_| RegisterLibraryFailureKind::OpenDalUnreachable)?;
+    match ObjectStore::get(&store, "library.json").await {
+        Ok(value) => {
+            let library = decode_library(&value.bytes)
+                .map_err(|_| RegisterLibraryFailureKind::OpenDalShareInvalid)?;
+            if library.library_id == Uuid::nil()
+                || library.model != RuneModel::model_id()
+                || library.schema != RuneModel::schema_id()
+            {
+                return Err(RegisterLibraryFailureKind::OpenDalShareInvalid);
+            }
+            Ok(Some(library.library_id))
+        }
+        Err(StoreError::NotFound | StoreError::PermissionDenied) => Ok(None),
+        Err(StoreError::Unauthorized) => {
+            Err(RegisterLibraryFailureKind::OpenDalAuthenticationRejected)
+        }
+        Err(_) => Err(RegisterLibraryFailureKind::OpenDalUnreachable),
     }
 }
 
@@ -925,10 +1054,11 @@ pub(crate) async fn register_opendal_library_on_node(
         ),
     };
     let is_webdav = matches!(&request.service, OpenDalLibraryService::WebDav { .. });
+    let fs_config = config.clone();
     let handle = Handle::current();
     let probe = tokio::task::spawn_blocking(move || {
         catch_unwind(AssertUnwindSafe(|| -> Result<usize, FileIoError> {
-            let fsio = FsIo::new_opendal(config, handle)?;
+            let fsio = FsIo::new_opendal(fs_config, handle)?;
             let nodes = fsio.walk_dir(Path::new(""), false)?;
             match fsio.canonicalize(Path::new("")) {
                 Ok(root) if root.is_dir => {}
@@ -983,42 +1113,47 @@ pub(crate) async fn register_opendal_library_on_node(
         );
     }
     let config_dir = Path::new(&*node.config_path);
-    let existing = match LibraryRegistry::load(config_dir) {
-        Ok(registry) => registry.libraries.into_iter().find(|record| {
-            match (&request.service, record.fs.first()) {
-                (
-                    OpenDalLibraryService::WebDav {
-                        endpoint,
-                        root,
-                        username,
-                        ..
-                    },
-                    Some(FsAdapter::WebDav {
-                        endpoint: e,
-                        root: r,
-                        username: u,
-                        ..
-                    }),
-                ) => endpoint == e && root == r && username == u,
-                (
-                    OpenDalLibraryService::S3 {
-                        endpoint,
-                        bucket,
-                        root,
-                        access_key_id,
-                        ..
-                    },
-                    Some(FsAdapter::S3 {
-                        endpoint: e,
-                        bucket: b,
-                        root: r,
-                        access_key_id: k,
-                        ..
-                    }),
-                ) => endpoint == e && bucket == b && root == r && access_key_id == k,
-                _ => false,
+    let existing_share_id = match read_share_library_id(config.clone()).await {
+        Ok(library_id) => library_id,
+        Err(kind) => {
+            return opendal_registration_failure(kind, "Could not inspect Rune share data");
+        }
+    };
+    if existing_share_id.is_none() && request.share_data_choice == ShareDataChoice::KeepInShare {
+        let store = match OpenDalObjectStore::new(config) {
+            Ok(store) => store,
+            Err(_) => {
+                return opendal_registration_failure(
+                    RegisterLibraryFailureKind::OpenDalUnreachable,
+                    "Could not reach the remote library",
+                );
             }
-        }),
+        };
+        let prefix = format!("devices/{}.1", Uuid::new_v4());
+        match store.probe(&prefix).await {
+            Ok(capabilities) if capabilities.write_probe => {}
+            Ok(_) | Err(StoreError::PermissionDenied) => {
+                return opendal_registration_failure(
+                    RegisterLibraryFailureKind::OpenDalReadOnly,
+                    "Choose a writable folder to keep the index in the share",
+                );
+            }
+            Err(StoreError::Unauthorized) => {
+                return opendal_registration_failure(
+                    RegisterLibraryFailureKind::OpenDalAuthenticationRejected,
+                    "The remote credentials were rejected",
+                );
+            }
+            Err(_) => {
+                return opendal_registration_failure(
+                    RegisterLibraryFailureKind::OpenDalUnreachable,
+                    "Could not reach the remote library",
+                );
+            }
+        }
+    }
+    let registry = match LibraryRegistry::load(config_dir) {
+        Ok(registry) => registry,
         Err(_) => {
             return opendal_registration_failure(
                 RegisterLibraryFailureKind::Storage,
@@ -1026,7 +1161,92 @@ pub(crate) async fn register_opendal_library_on_node(
             );
         }
     };
-    if let Some(record) = existing {
+    let existing = registry
+        .libraries
+        .iter()
+        .find(|record| match (&request.service, record.fs.first()) {
+            (
+                OpenDalLibraryService::WebDav {
+                    endpoint,
+                    root,
+                    username,
+                    ..
+                },
+                Some(FsAdapter::WebDav {
+                    endpoint: e,
+                    root: r,
+                    username: u,
+                    ..
+                }),
+            ) => endpoint == e && root == r && username == u,
+            (
+                OpenDalLibraryService::S3 {
+                    endpoint,
+                    bucket,
+                    root,
+                    access_key_id,
+                    ..
+                },
+                Some(FsAdapter::S3 {
+                    endpoint: e,
+                    bucket: b,
+                    root: r,
+                    access_key_id: k,
+                    ..
+                }),
+            ) => endpoint == e && bucket == b && root == r && access_key_id == k,
+            _ => false,
+        })
+        .cloned();
+    if let Some(library_id) = existing_share_id {
+        let conflicts_with_record = registry.libraries.iter().any(|record| {
+            record.library_id == Some(library_id)
+                && existing
+                    .as_ref()
+                    .is_none_or(|existing| existing.record_id != record.record_id)
+        });
+        let conflicts_with_invalid = registry
+            .invalid_records()
+            .any(|(record, _)| record.library_id == Some(library_id));
+        let changed_existing_share = existing.as_ref().is_some_and(|record| {
+            matches!(&record.catalog, CatalogPlacement::InShare(_))
+                && record.library_id != Some(library_id)
+        });
+        if conflicts_with_record || conflicts_with_invalid || changed_existing_share {
+            return opendal_registration_failure(
+                RegisterLibraryFailureKind::OpenDalShareChanged,
+                "The share belongs to another library",
+            );
+        }
+    }
+    if let Some(mut record) = existing {
+        if let Some(library_id) = existing_share_id {
+            let storage_key = match &record.catalog {
+                CatalogPlacement::InShare(key) | CatalogPlacement::Redirected(key) => *key,
+                _ => Uuid::new_v4(),
+            };
+            record.library_id = Some(library_id);
+            record.catalog = CatalogPlacement::InShare(storage_key);
+            record = match LibraryRegistry::update(config_dir, |registry| {
+                let stored = registry
+                    .libraries
+                    .iter_mut()
+                    .find(|stored| stored.record_id == record.record_id)
+                    .context("OpenDAL library record disappeared")?;
+                *stored = record.clone();
+                Ok(record.clone())
+            })
+            .await
+            {
+                Ok(record) => record,
+                Err(_) => {
+                    return opendal_registration_failure(
+                        RegisterLibraryFailureKind::Storage,
+                        "Could not update library storage",
+                    );
+                }
+            };
+        }
         return RegisterLibraryResponse {
             call_id: None,
             record: Some((&record).into()),
@@ -1034,6 +1254,16 @@ pub(crate) async fn register_opendal_library_on_node(
             detail: None,
         };
     }
+    let (library_id, catalog) = if let Some(library_id) = existing_share_id {
+        (library_id, CatalogPlacement::InShare(Uuid::new_v4()))
+    } else {
+        let storage_key = Uuid::new_v4();
+        let catalog = match request.share_data_choice {
+            ShareDataChoice::KeepInShare => CatalogPlacement::InShare(storage_key),
+            ShareDataChoice::ThisDeviceOnly => CatalogPlacement::Redirected(storage_key),
+        };
+        (Uuid::new_v4(), catalog)
+    };
     let secret = match &request.service {
         OpenDalLibraryService::WebDav { password, .. } => password.as_bytes(),
         OpenDalLibraryService::S3 {
@@ -1056,11 +1286,10 @@ pub(crate) async fn register_opendal_library_on_node(
             );
         }
     };
-    let storage_key = Uuid::new_v4();
     let record = LibraryRecord {
         record_id: LibraryRecordId(Uuid::new_v4()),
         alias: request.alias.clone(),
-        library_id: Some(Uuid::new_v4()),
+        library_id: Some(library_id),
         protocol: ProtocolAdapter::Native,
         fs: vec![match &request.service {
             OpenDalLibraryService::WebDav {
@@ -1090,7 +1319,7 @@ pub(crate) async fn register_opendal_library_on_node(
                 credential,
             },
         }],
-        catalog: CatalogPlacement::Redirected(storage_key),
+        catalog,
         background_sync: true,
     };
     let stored = if record.validate().is_err() {
@@ -2521,4 +2750,79 @@ pub fn init_logging() {
         .with_writer(writer)
         .with_ansi(false)
         .try_init();
+}
+
+#[cfg(test)]
+mod opendal_share_data_detection_tests {
+    use super::{OpenDalShareDataDetection, classify_opendal_share_data};
+    use crate::messages::RegisterLibraryFailureKind;
+    use database::sync::model::RuneModel;
+    use fsio::ObjectStoreCapabilities;
+    use sync::{
+        protocol::SyncModel,
+        share::{FORMAT_VERSION, LibraryFile, ObjectTag, ObjectValue, StoreError, encode_library},
+    };
+    use uuid::Uuid;
+
+    fn library_value(id: Uuid) -> ObjectValue {
+        let bytes = encode_library(&LibraryFile {
+            format: FORMAT_VERSION,
+            library_id: id,
+            model: RuneModel::model_id().to_owned(),
+            schema: RuneModel::schema_id().to_owned(),
+        })
+        .unwrap();
+        ObjectValue {
+            bytes,
+            tag: ObjectTag::new("tag"),
+        }
+    }
+
+    #[test]
+    fn detects_existing_share_library_id() {
+        let id = Uuid::new_v4();
+        assert_eq!(
+            classify_opendal_share_data(
+                Ok(library_value(id)),
+                Ok(ObjectStoreCapabilities::default())
+            ),
+            OpenDalShareDataDetection::ExistingLibrary {
+                library_id: id.to_string()
+            },
+        );
+    }
+
+    #[test]
+    fn detects_writable_empty_share() {
+        let capabilities = ObjectStoreCapabilities {
+            write_probe: true,
+            ..ObjectStoreCapabilities::default()
+        };
+        assert_eq!(
+            classify_opendal_share_data(Err(StoreError::NotFound), Ok(capabilities)),
+            OpenDalShareDataDetection::WritableEmpty,
+        );
+    }
+
+    #[test]
+    fn detects_read_only_empty_share() {
+        assert_eq!(
+            classify_opendal_share_data(
+                Err(StoreError::NotFound),
+                Err(StoreError::PermissionDenied)
+            ),
+            OpenDalShareDataDetection::ReadOnly,
+        );
+    }
+
+    #[test]
+    fn detects_typed_share_probe_failure() {
+        assert_eq!(
+            classify_opendal_share_data(
+                Err(StoreError::NotFound),
+                Err(StoreError::Transient("offline".into()))
+            ),
+            OpenDalShareDataDetection::Failed(RegisterLibraryFailureKind::OpenDalUnreachable),
+        );
+    }
 }

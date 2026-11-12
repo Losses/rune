@@ -1696,6 +1696,22 @@
   },
   "turnOnBackgroundSync": "Увімкнути Фонову Синхронізацію",
   "turnOffBackgroundSync": "Вимкнути Фонову Синхронізацію",
+  "shareLibraryModeSubtitle": "Де Rune зберігатиме ваш медіа-індекс?",
+  "@shareLibraryModeSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShare": "У спільній папці",
+  "@keepIndexInShare": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShareSubtitle": "Ми збережемо ваш медіа-індекс у спільній теці, щоб інші пристрої могли його синхронізувати.",
+  "@keepIndexInShareSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexOnThisDevice": "На цьому пристрої",
+  "@keepIndexOnThisDevice": {
+    "description": "Add-library guide text"
+  },
   "webDav": "WebDAV",
   "webDavSubtitle": "Підключіться до папки на сервері WebDAV.",
   "s3": "S3",
@@ -1708,6 +1724,7 @@
   "libraryOpenDalAuthenticationRejected": "Перевірте ім’я користувача та пароль.",
   "libraryOpenDalUnreachable": "Перевірте адресу сервера та мережеве з’єднання.",
   "libraryOpenDalNotFolder": "Перевірте, чи існує вибрана папка та чи є до неї доступ.",
+  "libraryOpenDalReadOnly": "Виберіть теку з можливістю запису, щоб зберігати медіа-індекс у спільній теці.",
   "subsonic": "Subsonic",
   "subsonicSubtitle": "Підключитися до музичного сервера Subsonic.",
   "playOnThisDevice": "Відтворювати на цьому пристрої",

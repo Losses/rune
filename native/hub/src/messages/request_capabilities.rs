@@ -171,6 +171,7 @@ pub struct RequestCapabilities {
     pub register_subsonic_library_request: RequestCapability,
     pub replace_subsonic_credential_request: RequestCapability,
     pub register_open_dal_library_request: RequestCapability,
+    pub detect_open_dal_share_data_request: RequestCapability,
     pub open_library_request: RequestCapability,
     pub initialize_node_request: RequestCapability,
     pub run_fs_self_test_request: RequestCapability,

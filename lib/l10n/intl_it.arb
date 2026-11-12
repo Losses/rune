@@ -1698,6 +1698,22 @@
   },
   "turnOnBackgroundSync": "Attiva la Sincronizzazione in Background",
   "turnOffBackgroundSync": "Disattiva la Sincronizzazione in Background",
+  "shareLibraryModeSubtitle": "Dove Rune memorizzerà il tuo indice multimediale?",
+  "@shareLibraryModeSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShare": "Nella cartella condivisa",
+  "@keepIndexInShare": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShareSubtitle": "Memorizzeremo il tuo indice multimediale nella cartella condivisa, così gli altri dispositivi potranno sincronizzarlo.",
+  "@keepIndexInShareSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexOnThisDevice": "Su questo dispositivo",
+  "@keepIndexOnThisDevice": {
+    "description": "Add-library guide text"
+  },
   "webDav": "WebDAV",
   "webDavSubtitle": "Connettiti a una cartella su un server WebDAV.",
   "s3": "S3",
@@ -1710,6 +1726,7 @@
   "libraryOpenDalAuthenticationRejected": "Controlla nome utente e password.",
   "libraryOpenDalUnreachable": "Controlla l’indirizzo del server e la connessione di rete.",
   "libraryOpenDalNotFolder": "Controlla che la cartella scelta esista e sia accessibile.",
+  "libraryOpenDalReadOnly": "Scegli una cartella scrivibile per conservare l’indice multimediale nella cartella condivisa.",
   "subsonic": "Subsonic",
   "subsonicSubtitle": "Connettiti a un server musicale Subsonic.",
   "playOnThisDevice": "Riproduci su questo dispositivo",

@@ -40,6 +40,7 @@ class AddLibraryGuideDependencies {
     this.addLibrary,
     this.registerControl,
     this.registerOpenDal,
+    this.detectOpenDal,
     this.openRecord,
     this.scanLibrary,
     this.pickLocalFolder,
@@ -56,8 +57,14 @@ class AddLibraryGuideDependencies {
   final PeerLibraryAdder? addLibrary;
   final Future<RegisterLibraryResponse> Function(String, String)?
   registerControl;
-  final Future<RegisterLibraryResponse> Function(OpenDalLibraryService, String)?
+  final Future<RegisterLibraryResponse> Function(
+    OpenDalLibraryService,
+    String,
+    ShareDataChoice,
+  )?
   registerOpenDal;
+  final Future<DetectOpenDalShareDataResponse> Function(OpenDalLibraryService)?
+  detectOpenDal;
   final Future<void> Function(String)? openRecord;
   final Future<void> Function(String)? scanLibrary;
   final Future<String?> Function()? pickLocalFolder;
@@ -148,13 +155,14 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
                 ? _subsonicModesContent(s)
                 : _deviceUsageContent(s),
           5 => _localModeContent(s),
+          6 => _shareModeContent(s),
           _ => const SizedBox.shrink(),
         },
         actions: [
           if (_step > 1)
             Button(
               onPressed: () => setState(() {
-                _step = _step - 1;
+                _step = _step == 6 ? 2 : _step - 1;
                 if (_step == 2) _selectedLibraryId = null;
               }),
               child: Text(s.back),
@@ -277,6 +285,28 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
       SubtitleButton(
         onPressed: () => _registerLocalFolder(LibraryInitializeMode.redirected),
         title: s.localMode,
+        subtitle: s.localModeSubtitle,
+      ),
+    ],
+  );
+
+  Widget _shareModeContent(AppLocalizations s) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Text(s.libraryMode),
+      const SizedBox(height: 8),
+      Text(s.shareLibraryModeSubtitle, style: const TextStyle(height: 1.4)),
+      const SizedBox(height: 12),
+      SubtitleButton(
+        onPressed: () => _registerOpenDal(ShareDataChoice.keepInShare),
+        title: s.keepIndexInShare,
+        subtitle: s.keepIndexInShareSubtitle,
+      ),
+      const SizedBox(height: 8),
+      SubtitleButton(
+        onPressed: () => _registerOpenDal(ShareDataChoice.thisDeviceOnly),
+        title: s.keepIndexOnThisDevice,
         subtitle: s.localModeSubtitle,
       ),
     ],
@@ -516,7 +546,7 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
     ],
   );
 
-  Future<void> _registerOpenDal() async {
+  Future<void> _registerOpenDal([ShareDataChoice? shareDataChoice]) async {
     if (_selected == AddLibrarySource.subsonic) {
       await _registerSubsonic(null);
       return;
@@ -551,10 +581,31 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
       _registeringOpenDal = true;
     });
     try {
+      if (shareDataChoice == null) {
+        final detection =
+            await (widget.dependencies.detectOpenDal ?? detectOpenDalShareData)(
+              service,
+            );
+        switch (detection.result) {
+          case OpenDalShareDataDetectionWritableEmpty():
+            if (mounted) setState(() => _step = 6);
+            return;
+          case OpenDalShareDataDetectionFailed(:final value):
+            throw LibraryRegistryFailure(value, '');
+          case OpenDalShareDataDetectionExistingLibrary():
+            // The choice is not used here; registration always joins the library in the share.
+            shareDataChoice = ShareDataChoice.thisDeviceOnly;
+          case OpenDalShareDataDetectionReadOnly():
+            shareDataChoice = ShareDataChoice.thisDeviceOnly;
+        }
+      }
+      final selectedShareDataChoice =
+          shareDataChoice ?? ShareDataChoice.thisDeviceOnly;
       final response =
           await (widget.dependencies.registerOpenDal ?? registerOpenDalLibrary)(
             service,
             alias,
+            selectedShareDataChoice,
           );
       final outcome = response.outcome;
       if (outcome case RegisterLibraryOutcomeFailed(:final value)) {

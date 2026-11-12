@@ -1696,6 +1696,22 @@
   },
   "turnOnBackgroundSync": "バックグラウンド同期をオンにする",
   "turnOffBackgroundSync": "バックグラウンド同期をオフにする",
+  "shareLibraryModeSubtitle": "Rune はあなたの資料索引をどこに保存しますか？",
+  "@shareLibraryModeSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShare": "共有フォルダー",
+  "@keepIndexInShare": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShareSubtitle": "他のデバイスと同期できるよう、あなたの資料索引を共有フォルダーに保存します。",
+  "@keepIndexInShareSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexOnThisDevice": "このデバイス",
+  "@keepIndexOnThisDevice": {
+    "description": "Add-library guide text"
+  },
   "webDav": "WebDAV",
   "webDavSubtitle": "WebDAVサーバー上のフォルダーに接続します。",
   "s3": "S3",
@@ -1708,6 +1724,7 @@
   "libraryOpenDalAuthenticationRejected": "ユーザー名と暗証番号を確認してください。",
   "libraryOpenDalUnreachable": "サーバーの通信管理機とネットワーク接続を確認してください。",
   "libraryOpenDalNotFolder": "選択したフォルダーが存在し、アクセスできることを確認してください。",
+  "libraryOpenDalReadOnly": "共有フォルダーに資料索引を保存するには、書き込み可能なフォルダーを選んでください。",
   "subsonic": "Subsonic",
   "subsonicSubtitle": "Subsonic 音楽サーバーに接続します。",
   "playOnThisDevice": "このデバイスで再生",

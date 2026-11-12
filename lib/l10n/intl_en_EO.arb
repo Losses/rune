@@ -1698,6 +1698,22 @@
   },
   "turnOnBackgroundSync": "Ŝalti Sinkronigon en la Fono",
   "turnOffBackgroundSync": "Malŝalti Sinkronigon en la Fono",
+  "shareLibraryModeSubtitle": "Kie Rune konservu vian mediindekson?",
+  "@shareLibraryModeSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShare": "En la komuna dosierujo",
+  "@keepIndexInShare": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShareSubtitle": "Ni konservos vian mediindekson en la komuna dosierujo, por ke viaj aliaj aparatoj povu sinkronigi ĝin.",
+  "@keepIndexInShareSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexOnThisDevice": "En ĉi tiu aparato",
+  "@keepIndexOnThisDevice": {
+    "description": "Add-library guide text"
+  },
   "webDav": "WebDAV",
   "webDavSubtitle": "Konektu al dosierujo ĉe WebDAV-servilo.",
   "s3": "S3",
@@ -1710,6 +1726,7 @@
   "libraryOpenDalAuthenticationRejected": "Kontrolu la uzantnomon kaj pasvorton.",
   "libraryOpenDalUnreachable": "Kontrolu la servilan adreson kaj retkonekton.",
   "libraryOpenDalNotFolder": "Kontrolu, ĉu la elektita dosierujo ekzistas kaj estas atingebla.",
+  "libraryOpenDalReadOnly": "Elektu skribeblan dosierujon por konservi la mediindekson en la komuna dosierujo.",
   "subsonic": "Subsonic",
   "subsonicSubtitle": "Konektu al Subsona muzikservilo.",
   "playOnThisDevice": "Ludi en Ĉi tiu Aparato",

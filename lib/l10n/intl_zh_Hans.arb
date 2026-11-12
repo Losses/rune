@@ -1696,6 +1696,22 @@
   },
   "turnOnBackgroundSync": "开启后台同步",
   "turnOffBackgroundSync": "关闭后台同步",
+  "shareLibraryModeSubtitle": "Rune 会将您的媒体索引存储在哪里？",
+  "@shareLibraryModeSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShare": "共享文件夹",
+  "@keepIndexInShare": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShareSubtitle": "我们会将您的媒体索引存储在共享文件夹中，以便其他设备同步。",
+  "@keepIndexInShareSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexOnThisDevice": "存放在此设备",
+  "@keepIndexOnThisDevice": {
+    "description": "Add-library guide text"
+  },
   "webDav": "WebDAV",
   "webDavSubtitle": "连接到 WebDAV 服务器上的文件夹。",
   "s3": "S3",
@@ -1708,6 +1724,7 @@
   "libraryOpenDalAuthenticationRejected": "请检查用户名和密码。",
   "libraryOpenDalUnreachable": "请检查服务器地址和网络连接。",
   "libraryOpenDalNotFolder": "请确认所选文件夹存在且可以访问。",
+  "libraryOpenDalReadOnly": "请选择可写入的文件夹，才能将媒体索引存储在共享文件夹中。",
   "subsonic": "Subsonic",
   "subsonicSubtitle": "连接到 Subsonic 音乐服务器。",
   "playOnThisDevice": "在此设备播放",

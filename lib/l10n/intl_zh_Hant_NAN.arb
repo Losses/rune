@@ -1698,6 +1698,22 @@
   },
   "turnOnBackgroundSync": "開啟背景同步",
   "turnOffBackgroundSync": "關掉背景同步",
+  "shareLibraryModeSubtitle": "Rune 欲共你的媒體索引囥佇佗位？",
+  "@shareLibraryModeSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShare": "共享資料夾",
+  "@keepIndexInShare": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShareSubtitle": "阮會共你的媒體索引囥佇共享資料夾內底，予其他裝置會當同步。",
+  "@keepIndexInShareSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexOnThisDevice": "存佇此裝置",
+  "@keepIndexOnThisDevice": {
+    "description": "Add-library guide text"
+  },
   "webDav": "WebDAV",
   "webDavSubtitle": "連線到 WebDAV 伺服器裡的資料夾。",
   "s3": "S3",
@@ -1710,6 +1726,7 @@
   "libraryOpenDalAuthenticationRejected": "請檢查用戶名稱和密碼。",
   "libraryOpenDalUnreachable": "請檢查伺服器位址和網路連線。",
   "libraryOpenDalNotFolder": "請確認所揀資料夾存在而且可以存取。",
+  "libraryOpenDalReadOnly": "請揀會當寫入的資料夾，才會當共媒體索引囥佇共享資料夾內底。",
   "subsonic": "Subsonic",
   "subsonicSubtitle": "連線佮 Subsonic 音樂伺服器。",
   "playOnThisDevice": "佇此裝置播放",

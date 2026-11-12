@@ -35,6 +35,7 @@ Future<ListPeerLibrariesResponse> listPeerLibraries(String fingerprint) async {
 Future<RegisterLibraryResponse> registerOpenDalLibrary(
   OpenDalLibraryService service,
   String alias,
+  ShareDataChoice shareDataChoice,
 ) async {
   final response = awaitResponse(
     'RegisterOpenDalLibraryRequest',
@@ -43,9 +44,23 @@ Future<RegisterLibraryResponse> registerOpenDalLibrary(
     send: () => RegisterOpenDalLibraryRequest(
       service: service,
       alias: alias,
+      shareDataChoice: shareDataChoice,
     ).sendSignalToRust(),
   );
   return (await response).message;
+}
+
+Future<DetectOpenDalShareDataResponse> detectOpenDalShareData(
+  OpenDalLibraryService service,
+) async {
+  final response = await awaitResponse(
+    'DetectOpenDalShareDataRequest',
+    DetectOpenDalShareDataResponse.rustSignalStream,
+    timeout: _timeout,
+    send: () =>
+        DetectOpenDalShareDataRequest(service: service).sendSignalToRust(),
+  );
+  return response.message;
 }
 
 Future<RegisterLibraryResponse> registerSubsonicLibrary(
