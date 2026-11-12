@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:rinf/rinf.dart';
 
 import '../../bindings/bindings.dart';
 import '../../l10n/app_localizations.dart';
@@ -198,10 +200,18 @@ class _LibraryOpenStateProvider extends ChangeNotifier
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-Widget playbackControls(RequestCapabilitiesProvider provider) => MultiProvider(
+Widget playbackControls(
+  RequestCapabilitiesProvider provider, {
+  PlaybackStatusProvider? statusProvider,
+}) => MultiProvider(
   providers: [
     ChangeNotifierProvider<RequestCapabilitiesProvider>.value(value: provider),
-    ChangeNotifierProvider(create: (_) => PlaybackStatusProvider()),
+    if (statusProvider == null)
+      ChangeNotifierProvider(create: (_) => PlaybackStatusProvider())
+    else
+      ChangeNotifierProvider<PlaybackStatusProvider>.value(
+        value: statusProvider,
+      ),
   ],
   child: FluentApp(
     localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -348,4 +358,52 @@ void main() {
     await tester.pump();
     expect(find.byIcon(Symbols.favorite), findsOneWidget);
   });
+
+  testWidgets('PlaybackStatusProvider maps playback states to button icons', (
+    tester,
+  ) async {
+    final messages = StreamController<RustSignalPack<PlaybackStatus>>.broadcast(
+      sync: true,
+    );
+    final statusProvider = PlaybackStatusProvider(
+      statusStream: messages.stream,
+    );
+    addTearDown(statusProvider.dispose);
+    addTearDown(messages.close);
+    final capabilities = RequestCapabilitiesProvider();
+    addTearDown(capabilities.dispose);
+
+    await tester.pumpWidget(
+      playbackControls(capabilities, statusProvider: statusProvider),
+    );
+    messages.add(
+      RustSignalPack(_playbackStatus(PlaybackState.playing), Uint8List(0)),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.byIcon(Symbols.pause), findsOneWidget);
+    messages.add(
+      RustSignalPack(_playbackStatus(PlaybackState.paused), Uint8List(0)),
+    );
+    await tester.pumpWidget(
+      playbackControls(capabilities, statusProvider: statusProvider),
+    );
+    expect(
+      tester.widget<PlayPauseButton>(find.byKey(const Key('play-pause'))).state,
+      PlaybackState.paused,
+    );
+    expect(find.byIcon(Symbols.pause), findsNothing);
+    expect(find.byIcon(Symbols.play_arrow), findsOneWidget);
+  });
 }
+
+PlaybackStatus _playbackStatus(PlaybackState state) => PlaybackStatus(
+  sessionId: 'subsonic-library',
+  state: state,
+  progressSeconds: 0,
+  progressPercentage: 0,
+  duration: 10,
+  playbackMode: 0,
+  ready: true,
+  libPath: '',
+);

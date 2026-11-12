@@ -1,4 +1,4 @@
-use crate::messages::PlaybackStatus;
+use crate::messages::{PlaybackState, PlaybackStatus};
 use anyhow::{Error, Result, bail};
 use database::playing_item::PlayingItemMetadataSummary;
 use playback::player::PlayingItem;
@@ -9,6 +9,8 @@ use playback::{
 use scrobbling::ScrobblingTrack;
 #[cfg(target_os = "macos")]
 use std::path;
+#[cfg(any(target_os = "ios", test))]
+use std::path::Path;
 use std::{
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -100,7 +102,7 @@ fn macos_cover_file_url(path: &std::path::Path) -> Option<String> {
 #[cfg(any(target_os = "ios", test))]
 fn ios_cover_path(path: Option<&str>, default: &std::path::Path) -> Option<String> {
     let usable = |path: &std::path::Path| path.is_absolute() && path.is_file();
-    path.map(std::path::Path::new)
+    path.map(Path::new)
         .filter(|path| usable(path))
         .or(Some(default).filter(|path| usable(path)))
         .and_then(|path| path.to_str())
@@ -113,18 +115,18 @@ pub(crate) async fn update_media_controls_progress(
 ) -> Result<()> {
     let mut manager = manager.lock().await;
 
-    let playback = match status.state.as_str() {
-        "Playing" => MediaPlayback::Playing {
+    let playback = match status.state {
+        PlaybackState::Playing => MediaPlayback::Playing {
             progress: Some(MediaPosition(Duration::from_secs_f32(
                 status.progress_seconds,
             ))),
         },
-        "Paused" => MediaPlayback::Paused {
+        PlaybackState::Paused => MediaPlayback::Paused {
             progress: Some(MediaPosition(Duration::from_secs_f32(
                 status.progress_seconds,
             ))),
         },
-        _ => MediaPlayback::Stopped,
+        PlaybackState::Stopped => MediaPlayback::Stopped,
     };
 
     match manager.controls.set_playback(playback) {

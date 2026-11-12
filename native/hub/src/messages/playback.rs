@@ -1,5 +1,8 @@
 use crate::request_error::ExpectedRequestError;
-use playback::player::{HandoffBlockId as PlaybackHandoffBlockId, UnavailableReason};
+use playback::player::{
+    HandoffBlockId as PlaybackHandoffBlockId, PlaybackState as PlayerPlaybackState,
+    UnavailableReason,
+};
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -7,7 +10,7 @@ use uuid::Uuid;
 #[derive(Clone, Deserialize, Serialize, RustSignal)]
 pub struct PlaybackStatus {
     pub session_id: String,
-    pub state: String,
+    pub state: PlaybackState,
     pub progress_seconds: f32,
     pub progress_percentage: f32,
     pub artist: Option<String>,
@@ -112,6 +115,23 @@ pub enum PlaylistUnavailableReason {
     LibraryUnavailable,
     SourceUnreachable,
     Unreadable,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, SignalPiece)]
+pub enum PlaybackState {
+    Playing,
+    Paused,
+    Stopped,
+}
+
+impl From<PlayerPlaybackState> for PlaybackState {
+    fn from(state: PlayerPlaybackState) -> Self {
+        match state {
+            PlayerPlaybackState::Playing => Self::Playing,
+            PlayerPlaybackState::Paused => Self::Paused,
+            PlayerPlaybackState::Stopped => Self::Stopped,
+        }
+    }
 }
 
 impl From<UnavailableReason> for PlaylistUnavailableReason {

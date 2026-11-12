@@ -1,7 +1,8 @@
 use crate::{
     messages::{
-        LibraryContentChanged, PlaybackStatus, PlayingItemRef, PlaylistItem, PlaylistUpdate,
-        RequestErrorKind, RequestFailedResponse, RequestFailureCause, SetRealtimeFFTEnabledRequest,
+        LibraryContentChanged, PlaybackState, PlaybackStatus, PlayingItemRef, PlaylistItem,
+        PlaylistUpdate, RequestErrorKind, RequestFailedResponse, RequestFailureCause,
+        SetRealtimeFFTEnabledRequest,
     },
     utils::Broadcaster,
     visualizer::RANDOM_COVERS,
@@ -128,22 +129,38 @@ fn broadcast_jukebox(
         revision,
     });
 
+    broadcaster.broadcast(&jukebox_playback_status(library_id, jukebox, None));
+}
+
+fn jukebox_playback_status(
+    library_id: Uuid,
+    jukebox: &SubsonicJukebox,
+    feed_position: Option<(PlaybackState, f32)>,
+) -> PlaybackStatus {
     let current = jukebox
         .status
         .current_index
         .and_then(|index| jukebox.playlist.songs.get(index as usize));
-    let position = jukebox.status.position_secs.unwrap_or_default() as f32;
+    let polled_position = jukebox.status.position_secs.unwrap_or_default() as f32;
+    let position = feed_position.map_or(polled_position, |(_, position)| position);
     let duration = current
         .and_then(|song| song.duration)
         .map(f64::from)
         .unwrap_or_default();
-    broadcaster.broadcast(&PlaybackStatus {
-        session_id,
-        state: if jukebox.status.playing {
-            "playing".into()
-        } else {
-            "paused".into()
-        },
+    PlaybackStatus {
+        session_id: library_id.to_string(),
+        state: feed_position.map_or_else(
+            || {
+                if jukebox.status.playing {
+                    PlaybackState::Playing
+                } else if current.is_some() {
+                    PlaybackState::Paused
+                } else {
+                    PlaybackState::Stopped
+                }
+            },
+            |(state, _)| state,
+        ),
         progress_seconds: position,
         progress_percentage: if duration > 0.0 {
             position / duration as f32
@@ -154,9 +171,8 @@ fn broadcast_jukebox(
         album: current.and_then(|song| song.album.clone()),
         title: current.map(|song| song.title.clone()),
         duration,
-        index: jukebox
-            .status
-            .current_index
+        index: current
+            .and(jukebox.status.current_index)
             .and_then(|index| i32::try_from(index).ok()),
         item: current.map(|song| song.id.clone()),
         item_request: current.map(|song| PlayingItemRef::LibraryTrack {
@@ -167,7 +183,7 @@ fn broadcast_jukebox(
         ready: current.is_some(),
         cover_art_path: None,
         lib_path: String::new(),
-    });
+    }
 }
 
 pub(crate) struct SubsonicCoverCache {
@@ -437,6 +453,37 @@ impl SubsonicBinding {
         }
     }
 
+    fn broadcast_visualizer_feed_status(&self, status: &PlaybackStatus) {
+        let polled = self
+            .jukebox_state
+            .lock()
+            .ok()
+            .and_then(|state| state.as_ref().cloned());
+        let Some(polled) = polled else {
+            return;
+        };
+        let current = polled
+            .jukebox
+            .status
+            .current_index
+            .and_then(|index| polled.jukebox.playlist.songs.get(index as usize));
+        let Some(current) = current else {
+            return;
+        };
+        let matches_current_track = matches!(
+            status.item_request.as_ref(),
+            Some(PlayingItemRef::LibraryTrack { track, .. }) if track == &current.id
+        );
+        if !matches_current_track {
+            return;
+        }
+        self.covers.broadcaster.broadcast(&jukebox_playback_status(
+            self.library_id,
+            &polled.jukebox,
+            Some((status.state, status.progress_seconds)),
+        ));
+    }
+
     fn start_visualizer_feed(self: &Arc<Self>) {
         if !self.probe.supports_rune_visualizer_feed() {
             return;
@@ -452,6 +499,7 @@ impl SubsonicBinding {
         let client = Arc::clone(&self.client);
         let probe = self.probe.clone();
         let broadcaster = Arc::clone(&self.covers.broadcaster);
+        let binding = Arc::clone(self);
         tokio::spawn(async move {
             let url = match client.rune_visualizer_feed_url(&probe).await {
                 Ok(url) => url,
@@ -501,9 +549,11 @@ impl SubsonicBinding {
                     }
                     message = socket.next() => match message {
                         Some(Ok(Message::Binary(payload))) => {
-                            if let Err(error) =
-                                deliver_visualizer_feed_frame(&payload, &*broadcaster)
-                            {
+                            if let Err(error) = deliver_visualizer_feed_frame(
+                                &payload,
+                                &*broadcaster,
+                                |status| binding.broadcast_visualizer_feed_status(status),
+                            ) {
                                 log::debug!("Ignoring Subsonic visualizer feed frame: {error:#}");
                             }
                         }
@@ -940,16 +990,19 @@ mod visualizer_feed_tests {
     };
     use serde::Serialize;
     use tempfile::TempDir;
-    use tokio::{net::TcpListener, sync::Notify, time::timeout};
+    use tokio::{net::TcpListener, sync::Notify};
     use url::Url;
     use uuid::Uuid;
     use visualizer::VisualizerInputs;
 
     use super::SubsonicBinding;
+    use crate::test_wait::wait_until;
+    use crate::visualizer::VISUALIZER;
     use crate::{
         backends::remote::{decode_message, encode_message},
         messages::{
-            PlaybackStatus, PlayingItemRef, RealtimeFFT, VisualizerFeedChart, VisualizerFeedCovers,
+            PlaybackState, PlaybackStatus, PlayingItemRef, RealtimeFFT, VisualizerFeedChart,
+            VisualizerFeedCovers,
         },
         utils::{Broadcaster, RinfRustSignal},
     };
@@ -963,16 +1016,184 @@ mod visualizer_feed_tests {
         closed: Arc<AtomicBool>,
         auth: Arc<Mutex<Option<HashMap<String, String>>>>,
         requests: Arc<Mutex<Vec<String>>>,
-        connected: Arc<Notify>,
+        jukebox: Arc<Mutex<MockJukebox>>,
+        feed_status: Arc<Mutex<PlaybackStatus>>,
+        feed_release: Arc<Notify>,
+    }
+
+    #[derive(Clone)]
+    struct MockJukebox {
+        playing: bool,
+        current_index: Option<u32>,
+        has_song: bool,
+        song_id: String,
+        title: String,
+        duration: u32,
+    }
+
+    impl MockJukebox {
+        fn song(song_id: &str, title: &str, duration: u32, playing: bool) -> Self {
+            Self {
+                playing,
+                current_index: Some(0),
+                has_song: true,
+                song_id: song_id.into(),
+                title: title.into(),
+                duration,
+            }
+        }
     }
 
     #[derive(Default)]
-    struct Signals(Mutex<Vec<String>>);
+    struct Signals {
+        names: Mutex<Vec<String>>,
+        playback_states: Mutex<Vec<PlaybackState>>,
+        playback_statuses: Mutex<Vec<PlaybackStatus>>,
+    }
+
+    #[derive(Serialize)]
+    struct FeedChart {
+        beats: Vec<FeedBeat>,
+        beats_per_bar: f64,
+        meter_confidence: f64,
+        sections: Vec<FeedSection>,
+        song: Vec<FeedSongSection>,
+        streams: [Vec<(f64, f64)>; 5],
+        lead: Vec<FeedLead>,
+        curves: FeedCurves,
+        song_feel: f64,
+    }
+
+    #[derive(Serialize)]
+    struct FeedBeat {
+        t: f64,
+        bar: i64,
+        pos: i64,
+        strength: f64,
+        confidence: f64,
+    }
+
+    #[derive(Serialize)]
+    struct FeedSection {
+        start: f64,
+        end: f64,
+        label: f64,
+        energy: f64,
+        repeat: f64,
+        confidence: f64,
+        rank: f64,
+    }
+
+    #[derive(Serialize)]
+    struct FeedSongSection {
+        start: f32,
+        end: f32,
+        level: f32,
+    }
+
+    #[derive(Serialize)]
+    struct FeedLead {
+        start: f64,
+        end: f64,
+        stream: f64,
+    }
+
+    #[derive(Serialize)]
+    struct FeedCurves {
+        hop: f64,
+        loudness: Vec<f64>,
+        brightness: Vec<f64>,
+        percussive: Vec<f64>,
+        beat_conf: Vec<f64>,
+        feel: Vec<f64>,
+    }
+
+    fn empty_feed_chart() -> Vec<u8> {
+        bincode::serde::encode_to_vec(
+            FeedChart {
+                beats: Vec::new(),
+                beats_per_bar: 4.0,
+                meter_confidence: 0.0,
+                sections: Vec::new(),
+                song: Vec::new(),
+                streams: [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()],
+                lead: Vec::new(),
+                curves: FeedCurves {
+                    hop: 0.0,
+                    loudness: Vec::new(),
+                    brightness: Vec::new(),
+                    percussive: Vec::new(),
+                    beat_conf: Vec::new(),
+                    feel: Vec::new(),
+                },
+                song_feel: 0.0,
+            },
+            bincode::config::standard(),
+        )
+        .unwrap()
+    }
 
     impl Broadcaster for Signals {
         fn broadcast(&self, message: &dyn RinfRustSignal) {
-            self.0.lock().unwrap().push(message.name());
+            self.names.lock().unwrap().push(message.name());
+            if let Some(status) = message.as_any().downcast_ref::<PlaybackStatus>() {
+                self.playback_states.lock().unwrap().push(status.state);
+                self.playback_statuses.lock().unwrap().push(status.clone());
+            }
         }
+    }
+
+    fn default_feed_status() -> PlaybackStatus {
+        PlaybackStatus {
+            session_id: "feed".into(),
+            state: PlaybackState::Playing,
+            progress_seconds: 1.0,
+            progress_percentage: 0.1,
+            artist: Some("feed artist".into()),
+            album: Some("feed album".into()),
+            title: Some("feed title".into()),
+            duration: 10.0,
+            index: Some(9),
+            item: Some("feed-item".into()),
+            item_request: Some(PlayingItemRef::LibraryTrack {
+                library_id: Uuid::new_v4().to_string(),
+                track: "track-1".into(),
+            }),
+            playback_mode: 7,
+            ready: false,
+            cover_art_path: Some("/feed/cover".into()),
+            lib_path: "/feed/library".into(),
+        }
+    }
+
+    async fn start_active_binding(
+        jukebox: MockJukebox,
+        feed_status: PlaybackStatus,
+    ) -> (
+        MockState,
+        Arc<SubsonicBinding>,
+        Arc<Signals>,
+        TempDir,
+        tokio::task::JoinHandle<()>,
+    ) {
+        let (url, state, server) = server(true, true).await;
+        *state.jukebox.lock().unwrap() = jukebox;
+        *state.feed_status.lock().unwrap() = feed_status;
+        let root = TempDir::new().unwrap();
+        let signals = Arc::new(Signals::default());
+        let binding = open_binding(url, &root, signals.clone()).await;
+        binding.start_jukebox_polling();
+        let library_id = binding.library_id.to_string();
+        wait_until("the initial jukebox poll", || async {
+            let statuses = signals.playback_statuses.lock().unwrap();
+            Ok(statuses
+                .iter()
+                .any(|status| status.session_id == library_id)
+                .then_some(()))
+        })
+        .await
+        .unwrap();
+        (state, binding, signals, root, server)
     }
 
     async fn server(
@@ -986,7 +1207,16 @@ mod visualizer_feed_tests {
             closed: Arc::new(AtomicBool::new(false)),
             auth: Arc::new(Mutex::new(None)),
             requests: Arc::new(Mutex::new(Vec::new())),
-            connected: Arc::new(Notify::new()),
+            jukebox: Arc::new(Mutex::new(MockJukebox {
+                playing: false,
+                current_index: Some(0),
+                has_song: true,
+                song_id: "track-1".into(),
+                title: "song".into(),
+                duration: 10,
+            })),
+            feed_status: Arc::new(Mutex::new(default_feed_status())),
+            feed_release: Arc::new(Notify::new()),
         };
         let app = Router::new()
             .route("/rest/{*endpoint}", get(http))
@@ -1005,6 +1235,7 @@ mod visualizer_feed_tests {
     async fn http(
         State(state): State<MockState>,
         Path(endpoint): Path<String>,
+        Query(query): Query<HashMap<String, String>>,
     ) -> impl IntoResponse {
         let endpoint = endpoint.trim_end_matches(".view");
         let response = match endpoint {
@@ -1015,6 +1246,17 @@ mod visualizer_feed_tests {
             }
             "getUser" => r#"{"subsonic-response":{"status":"ok","user":{"username":"alice","jukeboxRole":true}}}"#.into(),
             "getRuneVisualizerFeed" => r#"{"subsonic-response":{"status":"ok","runeVisualizerFeed":{"url":"/feed"}}}"#.into(),
+            "jukeboxControl" if query.get("action").is_some_and(|action| action == "status") => {
+                let jukebox = state.jukebox.lock().unwrap().clone();
+                let current_index = jukebox.current_index.map(|index| format!(r#", "currentIndex": {index}"#)).unwrap_or_default();
+                format!(r#"{{"subsonic-response":{{"status":"ok","jukeboxStatus":{{"playing":{},"position":0{current_index}}}}}}}"#, jukebox.playing)
+            }
+            "jukeboxControl" => {
+                let jukebox = state.jukebox.lock().unwrap().clone();
+                let current_index = jukebox.current_index.map(|index| format!(r#", "currentIndex": {index}"#)).unwrap_or_default();
+                let entry = if jukebox.has_song { format!(r#", "entry": {{"id":"{}","title":"{}","duration":{}}}"#, jukebox.song_id, jukebox.title, jukebox.duration) } else { String::new() };
+                format!(r#"{{"subsonic-response":{{"status":"ok","jukeboxPlaylist":{{"playing":{},"position":0{current_index}{entry}}}}}}}"#, jukebox.playing)
+            }
             _ => r#"{"subsonic-response":{"status":"ok","jukeboxStatus":{"playing":false}}}"#.into(),
         };
         (StatusCode::OK, response)
@@ -1031,37 +1273,22 @@ mod visualizer_feed_tests {
 
     async fn feed_socket(mut socket: WebSocket, state: MockState) {
         state.connections.fetch_add(1, Ordering::SeqCst);
-        state.connected.notify_one();
-        let item = PlayingItemRef::LibraryTrack {
-            library_id: Uuid::new_v4().to_string(),
-            track: "track-1".into(),
-        };
+        state.feed_release.notified().await;
+        let status = state.feed_status.lock().unwrap().clone();
+        let item = status
+            .item_request
+            .clone()
+            .unwrap_or_else(|| PlayingItemRef::LibraryTrack {
+                library_id: Uuid::new_v4().to_string(),
+                track: "track-1".into(),
+            });
         let events = [
-            event(
-                "PlaybackStatus",
-                &PlaybackStatus {
-                    session_id: "feed".into(),
-                    state: "playing".into(),
-                    progress_seconds: 1.0,
-                    progress_percentage: 0.1,
-                    artist: None,
-                    album: None,
-                    title: Some("song".into()),
-                    duration: 10.0,
-                    index: Some(0),
-                    item: Some("track-1".into()),
-                    item_request: Some(item.clone()),
-                    playback_mode: 0,
-                    ready: true,
-                    cover_art_path: None,
-                    lib_path: String::new(),
-                },
-            ),
+            event("PlaybackStatus", &status),
             event(
                 "VisualizerFeedChart",
                 &VisualizerFeedChart {
                     item: item.clone(),
-                    chart: vec![1, 2, 3],
+                    chart: empty_feed_chart(),
                 },
             ),
             event(
@@ -1147,22 +1374,98 @@ mod visualizer_feed_tests {
     }
 
     #[tokio::test]
+    async fn jukebox_broadcast_state_distinguishes_playing_paused_and_stopped() {
+        let (url, state, server) = server(true, false).await;
+        let root = TempDir::new().unwrap();
+        let signals = Arc::new(Signals::default());
+        let binding = open_binding(url, &root, signals.clone()).await;
+        binding.start_jukebox_polling();
+
+        async fn wait_for_state(
+            signals: &Signals,
+            previous_count: usize,
+            expected: PlaybackState,
+        ) -> anyhow::Result<usize> {
+            wait_until("jukebox playback state", || async {
+                let (count, actual) = {
+                    let states = signals.playback_states.lock().unwrap();
+                    (states.len(), states.last().copied())
+                };
+                if count > previous_count {
+                    assert!(actual == Some(expected));
+                    Ok(Some(count))
+                } else {
+                    Ok(None)
+                }
+            })
+            .await
+        }
+
+        let count = wait_for_state(&signals, 0, PlaybackState::Paused)
+            .await
+            .unwrap();
+        *state.jukebox.lock().unwrap() = MockJukebox {
+            playing: true,
+            current_index: Some(0),
+            has_song: true,
+            song_id: "track-1".into(),
+            title: "song".into(),
+            duration: 10,
+        };
+        let count = wait_for_state(&signals, count, PlaybackState::Playing)
+            .await
+            .unwrap();
+        *state.jukebox.lock().unwrap() = MockJukebox {
+            playing: false,
+            current_index: None,
+            has_song: false,
+            song_id: "track-1".into(),
+            title: "song".into(),
+            duration: 10,
+        };
+        let count = wait_for_state(&signals, count, PlaybackState::Stopped)
+            .await
+            .unwrap();
+        *state.jukebox.lock().unwrap() = MockJukebox {
+            playing: false,
+            current_index: Some(7),
+            has_song: true,
+            song_id: "track-1".into(),
+            title: "song".into(),
+            duration: 10,
+        };
+        wait_for_state(&signals, count, PlaybackState::Stopped)
+            .await
+            .unwrap();
+
+        binding.stop_jukebox_polling();
+        binding.covers.cancellation.cancel();
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn subsonic_visualizer_feed_delivers_events_authenticates_and_closes_with_library() {
         let (url, state, server) = server(true, true).await;
         let root = TempDir::new().unwrap();
         let signals = Arc::new(Signals::default());
         let binding = open_binding(url.clone(), &root, signals.clone()).await;
         binding.start_jukebox_polling();
-        timeout(Duration::from_secs(2), async {
-            loop {
-                if state.connections.load(Ordering::SeqCst) == 1 {
-                    break;
-                }
-                state.connected.notified().await;
-            }
+        wait_until("visualizer feed connection", || async {
+            Ok((state.connections.load(Ordering::SeqCst) == 1).then_some(()))
         })
         .await
         .unwrap();
+        let library_id = binding.library_id.to_string();
+        wait_until("initial jukebox status", || async {
+            let statuses = signals.playback_statuses.lock().unwrap();
+            Ok(statuses
+                .iter()
+                .any(|status| status.session_id == library_id)
+                .then_some(()))
+        })
+        .await
+        .unwrap();
+        state.feed_release.notify_one();
         assert_eq!(state.auth.lock().unwrap().as_ref().unwrap()["u"], "alice");
         assert!(
             state
@@ -1173,30 +1476,51 @@ mod visualizer_feed_tests {
                 .unwrap()
                 .contains_key("t")
         );
-        timeout(Duration::from_secs(2), async {
-            loop {
-                if signals.0.lock().unwrap().len() >= 4 {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
+        let visualizer_item = state
+            .feed_status
+            .lock()
+            .unwrap()
+            .item_request
+            .as_ref()
+            .unwrap()
+            .clone();
+        let visualizer_identity: visualizer::ChartItem = visualizer_item.into();
+        wait_until("feed events reached the visualizer", || async {
+            let names = signals.names.lock().unwrap();
+            let fft = names.iter().any(|name| name == "RealtimeFFT");
+            let feed_status = VISUALIZER.is_feed_playback();
+            let chart = VISUALIZER.has_feed_chart(&visualizer_identity);
+            let covers = VISUALIZER.feed_covers_match(&visualizer_identity, Some(&[4]), &[vec![5]]);
+            Ok((fft && feed_status && chart && covers).then_some(()))
         })
         .await
         .unwrap();
-        assert_eq!(
-            signals.0.lock().unwrap().as_slice(),
-            [
-                "PlaybackStatus",
-                "VisualizerFeedChart",
-                "VisualizerFeedCovers",
-                "RealtimeFFT"
-            ]
+        assert!(
+            !signals
+                .playback_statuses
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|status| status.session_id == "feed")
         );
+        {
+            let names = signals.names.lock().unwrap();
+            assert!(names.iter().any(|name| name == "RealtimeFFT"));
+            assert!(!names.iter().any(|name| name == "VisualizerFeedChart"));
+            assert!(!names.iter().any(|name| name == "VisualizerFeedCovers"));
+        }
         binding.stop_jukebox_polling();
-        timeout(Duration::from_secs(2), async {
-            while !state.closed.load(Ordering::SeqCst) {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
+        wait_until("visualizer feed close", || async {
+            Ok(state.closed.load(Ordering::SeqCst).then_some(()))
+        })
+        .await
+        .unwrap();
+        wait_until("visualizer feed unsubscribe request", || async {
+            let requests = state.requests.lock().unwrap();
+            Ok(requests
+                .iter()
+                .any(|name| name == "UnsubscribeVisualizerFeedRequest")
+                .then_some(()))
         })
         .await
         .unwrap();
@@ -1217,6 +1541,90 @@ mod visualizer_feed_tests {
                 .any(|name| name == "UnsubscribeVisualizerFeedRequest")
         );
         drop(requests);
+        binding.covers.cancellation.cancel();
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn feed_playback_status_keeps_the_polled_jukebox_identity() {
+        let feed_status = PlaybackStatus {
+            session_id: "third-party-session".into(),
+            state: PlaybackState::Paused,
+            progress_seconds: 8.0,
+            progress_percentage: 0.8,
+            artist: Some("third-party-artist".into()),
+            album: Some("third-party-album".into()),
+            title: Some("third-party-title".into()),
+            duration: 99.0,
+            index: Some(99),
+            item: Some("third-party-item".into()),
+            item_request: Some(PlayingItemRef::LibraryTrack {
+                library_id: "third-party-library".into(),
+                track: "song-a".into(),
+            }),
+            playback_mode: 7,
+            ready: false,
+            cover_art_path: Some("/third-party/cover".into()),
+            lib_path: "/third-party/library".into(),
+        };
+        let (state, binding, signals, _root, server) =
+            start_active_binding(MockJukebox::song("song-a", "Song A", 20, true), feed_status)
+                .await;
+        let before = signals.playback_statuses.lock().unwrap().len();
+        state.feed_release.notify_one();
+        let status = wait_until("binding status updated from matching feed", || async {
+            let statuses = signals.playback_statuses.lock().unwrap();
+            Ok((statuses.len() > before).then_some(statuses.last().unwrap().clone()))
+        })
+        .await
+        .unwrap();
+        assert_eq!(status.session_id, binding.library_id.to_string());
+        assert!(status.state == PlaybackState::Paused);
+        assert_eq!(status.progress_seconds, 8.0);
+        assert_eq!(status.progress_percentage, 0.4);
+        assert_eq!(status.artist, None);
+        assert_eq!(status.album, None);
+        assert_eq!(status.title.as_deref(), Some("Song A"));
+        assert_eq!(status.duration, 20.0);
+        assert_eq!(status.index, Some(0));
+        assert_eq!(status.item.as_deref(), Some("song-a"));
+        assert!(
+            status.item_request
+                == Some(PlayingItemRef::LibraryTrack {
+                    library_id: binding.library_id.to_string(),
+                    track: "song-a".into(),
+                })
+        );
+        assert_eq!(status.playback_mode, 0);
+        assert!(status.ready);
+        assert_eq!(status.cover_art_path, None);
+        assert_eq!(status.lib_path, "");
+        binding.stop_jukebox_polling();
+        binding.covers.cancellation.cancel();
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn feed_playback_status_for_a_different_track_does_not_change_jukebox_status() {
+        let mut feed_status = default_feed_status();
+        feed_status.session_id = "third-party-session".into();
+        feed_status.item_request = Some(PlayingItemRef::LibraryTrack {
+            library_id: "third-party-library".into(),
+            track: "song-b".into(),
+        });
+        let (state, binding, signals, _root, server) =
+            start_active_binding(MockJukebox::song("song-a", "Song A", 20, true), feed_status)
+                .await;
+        let before = signals.playback_statuses.lock().unwrap().len();
+        state.feed_release.notify_one();
+        wait_until("feed FFT after mismatched track status", || async {
+            let names = signals.names.lock().unwrap();
+            Ok(names.iter().any(|name| name == "RealtimeFFT").then_some(()))
+        })
+        .await
+        .unwrap();
+        assert_eq!(signals.playback_statuses.lock().unwrap().len(), before);
+        binding.stop_jukebox_polling();
         binding.covers.cancellation.cancel();
         server.abort();
     }

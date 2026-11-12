@@ -6,6 +6,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:system_tray/system_tray.dart';
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 
+import '../bindings/bindings.dart';
 import '../providers/status.dart';
 import '../providers/router_path.dart';
 
@@ -83,7 +84,7 @@ class TrayManager {
     final path = $router.path;
     final status = Provider.of<PlaybackStatusProvider>(context, listen: false);
     final bool playing =
-        !status.notReady && status.playbackStatus.state == "Playing";
+        !status.notReady && status.playbackStatus.state == PlaybackState.playing;
 
     final s = S.of(context);
     final locale = s.localeName;

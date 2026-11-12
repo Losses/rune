@@ -671,12 +671,8 @@ pub(crate) fn update_visualizer_feed(message: &dyn RinfRustSignal) {
         return;
     }
     if let Some(status) = message.as_any().downcast_ref::<PlaybackStatus>() {
-        let item = status.item_request.as_ref().map(chart_item);
-        VISUALIZER.set_feed_playback(
-            item,
-            Duration::from_secs_f64(f64::from(status.progress_seconds.max(0.0))),
-            status.state == "playing",
-        );
+        let (item, position, playing) = feed_playback_args(status);
+        VISUALIZER.set_feed_playback(item, position, playing);
         return;
     }
     if let Some(chart) = message.as_any().downcast_ref::<VisualizerFeedChart>() {
@@ -696,10 +692,19 @@ pub(crate) fn update_visualizer_feed(message: &dyn RinfRustSignal) {
     }
 }
 
+fn feed_playback_args(status: &PlaybackStatus) -> (Option<ChartItem>, Duration, bool) {
+    (
+        status.item_request.as_ref().map(chart_item),
+        Duration::from_secs_f64(f64::from(status.progress_seconds.max(0.0))),
+        status.state == PlaybackState::Playing,
+    )
+}
+
 /// Deliver one Rune wire frame from either a Rune renderer or a declared Subsonic feed.
 pub(crate) fn deliver_visualizer_feed_frame(
     payload: &[u8],
     broadcaster: &dyn Broadcaster,
+    mut on_playback_status: impl FnMut(&PlaybackStatus),
 ) -> Result<()> {
     let (name, body, _) = decode_message(payload)
         .ok_or_else(|| anyhow::anyhow!("Malformed visualizer feed frame"))?;
@@ -715,7 +720,11 @@ pub(crate) fn deliver_visualizer_feed_frame(
         .ok_or_else(|| anyhow::anyhow!("Undeclared visualizer feed message"))?;
     let message = (declaration.decode)(&body)?;
     update_visualizer_feed(message.as_ref());
-    broadcaster.broadcast(message.as_ref());
+    if let Some(status) = message.as_any().downcast_ref::<PlaybackStatus>() {
+        on_playback_status(status);
+    } else if message.as_any().is::<RealtimeFFT>() {
+        broadcaster.broadcast(message.as_ref());
+    }
     Ok(())
 }
 
@@ -1013,6 +1022,31 @@ mod loss_tests {
         .unwrap_err();
         assert!(matches!(error.downcast_ref::<ExpectedRequestError>(),
             Some(ExpectedRequestError::Remote { kind: RequestErrorKind::Internal, detail, .. }) if detail == "outer: inner"));
+    }
+
+    #[test]
+    fn rune_playing_status_keeps_the_visualizer_feed_playing() {
+        let status = PlaybackStatus {
+            session_id: "renderer".into(),
+            state: PlaybackState::Playing,
+            progress_seconds: 12.0,
+            progress_percentage: 0.2,
+            artist: None,
+            album: None,
+            title: None,
+            duration: 60.0,
+            index: Some(0),
+            item: None,
+            item_request: None,
+            playback_mode: 0,
+            ready: true,
+            cover_art_path: None,
+            lib_path: String::new(),
+        };
+
+        let (_, position, playing) = feed_playback_args(&status);
+        assert_eq!(position, Duration::from_secs(12));
+        assert!(playing);
     }
 
     #[test]

@@ -21,8 +21,9 @@ use ::database::{
     playing_item::{MediaFileHandle, dispatcher::PlayingItemActionDispatcher},
 };
 use ::playback::player::{
-    HandoffBlockId as PlayerHandoffBlockId, LibraryItem, Playable, PlaybackSource, PlaybackState,
-    PlayerStatus, PlayingItem, PlaylistEdit, PlaylistLoad, PlaylistPlacement,
+    HandoffBlockId as PlayerHandoffBlockId, LibraryItem, Playable, PlaybackSource,
+    PlaybackState as PlayerPlaybackState, PlayerStatus, PlayingItem, PlaylistEdit, PlaylistLoad,
+    PlaylistPlacement,
 };
 
 use crate::backends::remote::{RendererLink, RendererLinkUse};
@@ -502,7 +503,7 @@ impl Signal for SwitchRequest {
                 .player
                 .lock()
                 .await
-                .wait_for_item_applied(item, PlaybackState::Playing)
+                .wait_for_item_applied(item, PlayerPlaybackState::Playing)
                 .await?;
         }
         record_skip_item(&node, previous_item).await?;
@@ -1648,7 +1649,7 @@ pub(crate) fn session_snapshot_from_status(
             })?,
         position_seconds: status.position.as_secs_f64(),
         playback_mode: status.playback_mode.into(),
-        playing: status.state == PlaybackState::Playing,
+        playing: status.state == PlayerPlaybackState::Playing,
         revision,
     })
 }
@@ -1867,7 +1868,8 @@ async fn pause_handoff_source(
         })
     } else {
         let session = node.session()?;
-        let was_playing = session.player.lock().await.get_status().state == PlaybackState::Playing;
+        let was_playing =
+            session.player.lock().await.get_status().state == PlayerPlaybackState::Playing;
         session.player.lock().await.pause_applied().await?;
         let snapshot = match session_snapshot(node, &session).await {
             Ok(snapshot) => snapshot,
@@ -2081,7 +2083,7 @@ async fn wait_for_handoff_start(
                         .item_request
                         .as_ref()
                         .is_some_and(|item| same_handoff_item(item, expected_item))
-                        && status.state.eq_ignore_ascii_case("playing")
+                        && status.state == PlaybackState::Playing
                         && status.ready
                         && (f64::from(status.progress_seconds) - expected_position).abs() <= 1.5
                     {
@@ -2129,7 +2131,7 @@ mod handoff_confirmation_tests {
             tokio::time::sleep(Duration::from_millis(100)).await;
             let _ = delayed_sender.send(HandoffPlaybackEvent::Status(Box::new(PlaybackStatus {
                 session_id: "slow-start".into(),
-                state: "Playing".into(),
+                state: PlaybackState::Playing,
                 progress_seconds: 42.0,
                 progress_percentage: 0.0,
                 artist: None,

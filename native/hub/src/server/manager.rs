@@ -931,7 +931,7 @@ mod lifecycle_tests {
     use crate::library_pool::{LibraryHandle, LibraryPool};
     use crate::messages::{
         DeviceConnectionLevel, DeviceSyncLevel, LibraryInitializeMode, OpenLibraryRequest,
-        OpenLibraryResult, PlaybackStatus, RegisterLocalLibraryRequest,
+        OpenLibraryResult, PlaybackState, PlaybackStatus, RegisterLocalLibraryRequest,
         RegisterRemoteControlRequest, RequestErrorKind, RequestFailureCause, TrustListUpdated,
         TrustedServerCertificate,
     };
@@ -3877,7 +3877,7 @@ mod lifecycle_tests {
         });
         broadcaster.broadcast(&PlaybackStatus {
             session_id: a.global_params.node.session()?.session_id().await,
-            state: "Playing".into(),
+            state: PlaybackState::Playing,
             progress_seconds: 12.0,
             progress_percentage: 0.5,
             artist: None,

@@ -95,7 +95,7 @@ RequestCapability _playPauseCapability(
         context,
         listen: listen,
       )?.playbackStatus.state ==
-      'Playing';
+      PlaybackState.playing;
   final active = playing ? capabilities.pauseRequest : capabilities.playRequest;
   if (active is RequestCapabilityHidden &&
       (capabilities.pauseRequest is! RequestCapabilityHidden ||

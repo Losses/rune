@@ -1163,7 +1163,7 @@ fn format_status(
 ) -> PlaybackStatus {
     PlaybackStatus {
         session_id: session_id.to_string(),
-        state: status.state.to_string(),
+        state: status.state.clone().into(),
         progress_seconds: status.position.as_secs_f32(),
         progress_percentage: if metadata.duration > 0.0 {
             status.position.as_secs_f32() / metadata.duration as f32

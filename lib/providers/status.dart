@@ -11,7 +11,7 @@ import '../bindings/bindings.dart';
 import '../constants/configurations.dart';
 
 class PlaybackStatusState {
-  String state;
+  PlaybackState state;
   bool ready;
   double progressSeconds;
   double progressPercentage;
@@ -26,7 +26,7 @@ class PlaybackStatusState {
   String? libPath;
 
   PlaybackStatusState({
-    this.state = "Stopped",
+    this.state = PlaybackState.stopped,
     this.ready = false,
     this.progressSeconds = 0,
     this.progressPercentage = 0,
@@ -122,9 +122,11 @@ class PlaybackStatusProvider with ChangeNotifier {
 
   bool _hasPendingNotification = false;
 
-  PlaybackStatusProvider() {
-    statusSubscription =
-        PlaybackStatus.rustSignalStream.listen(_updatePlaybackStatus);
+  PlaybackStatusProvider({
+    Stream<RustSignalPack<PlaybackStatus>>? statusStream,
+  }) {
+    statusSubscription = (statusStream ?? PlaybackStatus.rustSignalStream)
+        .listen(_updatePlaybackStatus);
   }
 
   @override
@@ -147,7 +149,6 @@ class PlaybackStatusProvider with ChangeNotifier {
     final newStatus = signal.message;
     final previousState = PlaybackStatusState.from(_playbackStatusState);
 
-    // Create a temporary state to compare
     final tempState = PlaybackStatusState.from(_playbackStatusState);
     tempState.updateFrom(newStatus);
 
@@ -156,7 +157,7 @@ class PlaybackStatusProvider with ChangeNotifier {
 
       _playbackStatusState.state = newStatus.state;
 
-      if (newStatus.state != "Stopped" ||
+      if (newStatus.state != PlaybackState.stopped ||
           _playbackStatusState.libPath != newStatus.libPath) {
         _playbackStatusState.progressSeconds = newStatus.progressSeconds;
         _playbackStatusState.progressPercentage = newStatus.progressPercentage;

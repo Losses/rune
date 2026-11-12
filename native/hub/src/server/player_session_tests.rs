@@ -7,7 +7,7 @@ use crate::messages::{
     CapabilityReason, CloseLibraryRequest, CloseLibraryResponse, CreatePlaylistRequest,
     FetchAllPlaylistsRequest, FetchAllPlaylistsResponse, GetPlaylistByIdRequest,
     LibraryContentChanged, LibraryInitializeMode, ListLocalLibrariesRequest, MixQuery,
-    OpenLibraryRequest, OpenLibraryResult, PlaybackStatus, PlaylistOperateMode,
+    OpenLibraryRequest, OpenLibraryResult, PlaybackState, PlaybackStatus, PlaylistOperateMode,
     RegisterLibraryFailureKind, RegisterLibraryOutcome, RemoteConnectionLost,
     RemoteLibraryReconnected, RemoteLibraryReconnecting, RemoteLossKind, RequestCapabilities,
     RequestCapability, RequestFailedResponse, LibraryRecordKindSummary, LibraryRecordSummary,
@@ -100,7 +100,7 @@ use playback::{
     PlaybackMode,
     player::{
         AudioPlaybackNote, AudioSourceMode, LibraryItem, MockPlayer, Playable, PlaybackSource,
-        PlaybackState, PlayerStatus, PlayingItem, QueueEntry, RemoteAudioError, SubsonicItem,
+        PlaybackState as PlayerPlaybackState, PlayerStatus, PlayingItem, QueueEntry, RemoteAudioError, SubsonicItem,
         UnavailableReason,
     },
     strategies::AddMode,
@@ -744,7 +744,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     };
     dispatch_gui_request(&fixture.global_params, &load).await?;
     let playing = wait_player(&fixture, |status| {
-        status.state == PlaybackState::Playing
+        status.state == PlayerPlaybackState::Playing
             && matches!(status.item, Some(PlayingItem::LibraryTrack { .. }))
     })
     .await?;
@@ -778,12 +778,12 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     .await?;
     fixture.global_params.player.lock().await.switch(1);
     wait_player(&fixture, |status| {
-        status.item == Some(PlayingItem::from(rune_item)) && status.state == PlaybackState::Playing
+        status.item == Some(PlayingItem::from(rune_item)) && status.state == PlayerPlaybackState::Playing
     })
     .await?;
     fixture.global_params.player.lock().await.switch(0);
     wait_player(&fixture, |status| {
-        status.item == Some(item.clone()) && status.state == PlaybackState::Playing
+        status.item == Some(item.clone()) && status.state == PlayerPlaybackState::Playing
     })
     .await?;
     let session_store = Path::new(&*node.config_path).join("sessions/local.json");
@@ -833,7 +833,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     let ranged = source.request.get(Some((12, Some(23)))).await?;
     assert_eq!(ranged.status(), StatusCode::PARTIAL_CONTENT);
     assert!(stream_ranges.lock().unwrap().iter().any(Option::is_some));
-    wait_player(&fixture, |status| status.state == PlaybackState::Stopped).await?;
+    wait_player(&fixture, |status| status.state == PlayerPlaybackState::Stopped).await?;
     supports_ranges.store(false, Ordering::Release);
     assert!(matches!(
         source.request.prepare().await?,
@@ -967,7 +967,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     .await?;
     fixture.global_params.player.lock().await.play();
     let restored_playing = wait_player(&fixture, |status| {
-        status.state == PlaybackState::Playing
+        status.state == PlayerPlaybackState::Playing
             && matches!(status.item, Some(PlayingItem::LibraryTrack { .. }))
     })
     .await?;
@@ -1216,7 +1216,7 @@ fn recorded_handoff_order(
         .filter_map(|(index, (_, payload))| {
             rinf::deserialize::<PlaybackStatus>(payload)
                 .ok()
-                .filter(|status| status.session_id == source_session_id && status.state == "Paused")
+                .filter(|status| status.session_id == source_session_id && status.state == PlaybackState::Paused)
                 .map(|_| index)
         })
         .next()
@@ -1539,7 +1539,7 @@ async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -
     let a_track = session_audio(&a, "local-renderer-link.ogg").await?;
     queue_session(&a, &[a_track]).await?;
     a.global_params.player.lock().await.play();
-    wait_player(&a, |status| status.state == PlaybackState::Playing).await?;
+    wait_player(&a, |status| status.state == PlayerPlaybackState::Playing).await?;
     let b_tracks = [
         session_audio(&b, "remote-renderer-first.ogg").await?,
         session_audio(&b, "remote-renderer-second.ogg").await?,
@@ -1590,7 +1590,7 @@ async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -
             .map(|renderer| renderer.fingerprint.as_str()),
         Some(b_info.fingerprint.as_str())
     );
-    wait_player(&a, |status| status.state == PlaybackState::Paused).await?;
+    wait_player(&a, |status| status.state == PlayerPlaybackState::Paused).await?;
     let local_session_id = a.global_params.node.session()?.session_id().await;
     let remote_session_id = b.global_params.node.session()?.session_id().await;
     wait_until("renderer queue refresh after attach", || async {
@@ -1675,7 +1675,7 @@ async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -
             .await
             .0
             .state,
-        PlaybackState::Playing
+        PlayerPlaybackState::Playing
     );
     assert_eq!(
         a.global_params
@@ -1685,7 +1685,7 @@ async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -
             .await
             .0
             .state,
-        PlaybackState::Paused
+        PlayerPlaybackState::Paused
     );
     dispatch_gui_request(&a.global_params, &PauseRequest { call_id: None }).await?;
     assert_eq!(
@@ -1696,7 +1696,7 @@ async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -
             .await
             .0
             .state,
-        PlaybackState::Paused
+        PlayerPlaybackState::Paused
     );
 
     dispatch_gui_request(
@@ -1745,7 +1745,7 @@ async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -
     .await?;
     let loaded = b.global_params.node.session()?.playback_snapshot().await.0;
     assert_eq!(loaded.index, Some(1));
-    assert_eq!(loaded.state, PlaybackState::Paused);
+    assert_eq!(loaded.state, PlayerPlaybackState::Paused);
 
     let revision = b.global_params.node.session()?.queue_revision().await;
     dispatch_gui_request(
@@ -2570,7 +2570,7 @@ async fn attached_mix_query_resolves_for_controller_library_and_loads_resolved_i
     .await?;
     renderer_replica.global_params.player.lock().await.pause();
     wait_player(&renderer_replica, |status| {
-        status.state == PlaybackState::Paused
+        status.state == PlayerPlaybackState::Paused
     })
     .await?;
     assert_eq!(renderer_status.playlist, expected_items);
@@ -2653,7 +2653,7 @@ async fn attached_mix_query_resolves_for_controller_library_and_loads_resolved_i
 
     renderer_replica.global_params.player.lock().await.stop();
     wait_player(&renderer_replica, |status| {
-        status.state == PlaybackState::Stopped
+        status.state == PlayerPlaybackState::Stopped
     })
     .await?;
     controller_replica
@@ -2903,7 +2903,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
     controller_replica.global_params.player.lock().await.load(0);
     controller_replica.global_params.player.lock().await.play();
     let local_before = wait_player(&controller_replica, |status| {
-        status.state == PlaybackState::Playing && status.item.is_some()
+        status.state == PlayerPlaybackState::Playing && status.item.is_some()
     })
     .await?;
     let make_query = |file_id: i32, cast_to: Option<CastTarget>| MixPlaybackTestRequest {
@@ -2937,14 +2937,14 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
         .context("detached cast response")?;
     assert_eq!(response.playing_items.len(), 1);
     let renderer_status = wait_player(&renderer, |status| {
-        status.state == PlaybackState::Playing
+        status.state == PlayerPlaybackState::Playing
             && status.item.is_some()
             && status.playlist.len() == 1
     })
     .await?;
     assert_eq!(renderer_status.playlist.len(), 1);
     renderer.global_params.player.lock().await.pause();
-    wait_player(&renderer, |status| status.state == PlaybackState::Paused).await?;
+    wait_player(&renderer, |status| status.state == PlayerPlaybackState::Paused).await?;
     let local_after = controller_replica
         .global_params
         .player
@@ -2952,7 +2952,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
         .await
         .get_status();
     assert_eq!(local_after.item, local_before.item);
-    assert_eq!(local_after.state, PlaybackState::Playing);
+    assert_eq!(local_after.state, PlayerPlaybackState::Playing);
     assert!(
         controller_replica
             .global_params
@@ -2977,11 +2977,11 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
         .connect_renderer(&renderer_info.fingerprint, RendererLinkUse::Cast)
         .await?;
     renderer.global_params.player.lock().await.play();
-    wait_player(&renderer, |status| status.state == PlaybackState::Playing).await?;
+    wait_player(&renderer, |status| status.state == PlayerPlaybackState::Playing).await?;
     // The playing status is the barrier before checking that a detached cast emits no renderer status.
     tokio::time::sleep(Duration::from_secs(2)).await;
     renderer.global_params.player.lock().await.pause();
-    wait_player(&renderer, |status| status.state == PlaybackState::Paused).await?;
+    wait_player(&renderer, |status| status.state == PlayerPlaybackState::Paused).await?;
     cast_link.close();
     drop(cast_link);
     assert!(
@@ -3017,12 +3017,12 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
         )
         .await?;
     let attached_cast_status = wait_player(&renderer, |status| {
-        status.state == PlaybackState::Playing
+        status.state == PlayerPlaybackState::Playing
             && status.item == Some(PlayingItem::from(host_items[1]))
     })
     .await?;
     renderer.global_params.player.lock().await.pause();
-    wait_player(&renderer, |status| status.state == PlaybackState::Paused).await?;
+    wait_player(&renderer, |status| status.state == PlayerPlaybackState::Paused).await?;
     assert_eq!(
         controller_replica
             .global_params
@@ -3052,7 +3052,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
         }),
     };
     renderer.global_params.player.lock().await.play();
-    let current = wait_player(&renderer, |status| status.state == PlaybackState::Playing).await?;
+    let current = wait_player(&renderer, |status| status.state == PlayerPlaybackState::Playing).await?;
     append
         .handle(
             append.extract_params(&controller_replica.global_params),
@@ -3061,11 +3061,11 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
         )
         .await?;
     let after_next = wait_player(&renderer, |status| status.playlist.len() == 2).await?;
-    assert_eq!(after_next.state, PlaybackState::Playing);
+    assert_eq!(after_next.state, PlayerPlaybackState::Playing);
     assert_eq!(after_next.item, current.item);
     assert_eq!(after_next.playlist[1], PlayingItem::from(host_items[1]));
     renderer.global_params.player.lock().await.pause();
-    wait_player(&renderer, |status| status.state == PlaybackState::Paused).await?;
+    wait_player(&renderer, |status| status.state == PlayerPlaybackState::Paused).await?;
 
     signals.0.lock().unwrap().clear();
     controller_replica
@@ -3086,7 +3086,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
 
     signals.0.lock().unwrap().clear();
     renderer.global_params.player.lock().await.play();
-    wait_player(&renderer, |status| status.state == PlaybackState::Playing).await?;
+    wait_player(&renderer, |status| status.state == PlayerPlaybackState::Playing).await?;
     controller_replica
         .global_params
         .node
@@ -3109,7 +3109,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
         Some(other_info.fingerprint.as_str())
     );
     wait_controller_count(&renderer.global_params.node, 0).await?;
-    wait_player(&renderer, |status| status.state == PlaybackState::Paused).await?;
+    wait_player(&renderer, |status| status.state == PlayerPlaybackState::Paused).await?;
     assert_eq!(
         controller_replica
             .global_params
@@ -3187,13 +3187,13 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
                 PlayingItem::from(host_items[0]),
                 PlayingItem::from(host_items[1]),
             ]
-            && status.state == PlaybackState::Paused
+            && status.state == PlayerPlaybackState::Paused
             && status.index == Some(1)
             && status.playback_mode == PlaybackMode::Shuffle
             && (status.position.as_secs_f64() - 7.25).abs() < 0.1
     })
     .await?;
-    assert_eq!(forwarded_status.state, PlaybackState::Paused);
+    assert_eq!(forwarded_status.state, PlayerPlaybackState::Paused);
     assert_eq!(forwarded_status.index, Some(1));
     assert_eq!(forwarded_status.playback_mode, PlaybackMode::Shuffle);
     assert!((forwarded_status.position.as_secs_f64() - 7.25).abs() < 0.1);
@@ -3232,7 +3232,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
     };
     dispatch_gui_request(&controller_replica.global_params, &play_next_when_idle).await?;
     wait_player(&renderer, |status| {
-        status.state == PlaybackState::Playing
+        status.state == PlayerPlaybackState::Playing
             && status.index == Some(appended_index)
             && status.item == Some(PlayingItem::from(host_items[1]))
     })
@@ -3396,17 +3396,17 @@ async fn session_f2_batches_playlist_metadata_per_library_in_queue_order() -> Re
 
     a.global_params.player.lock().await.switch(0);
     wait_player(&a, |status| {
-        status.item == Some(queue[0].clone()) && status.state == PlaybackState::Playing
+        status.item == Some(queue[0].clone()) && status.state == PlayerPlaybackState::Playing
     })
     .await?;
     a.global_params.player.lock().await.next();
     wait_player(&a, |status| {
-        status.item == Some(queue[1].clone()) && status.state == PlaybackState::Playing
+        status.item == Some(queue[1].clone()) && status.state == PlayerPlaybackState::Playing
     })
     .await?;
     a.global_params.player.lock().await.next();
     wait_player(&a, |status| {
-        status.item == Some(queue[2].clone()) && status.state == PlaybackState::Playing
+        status.item == Some(queue[2].clone()) && status.state == PlayerPlaybackState::Playing
     })
     .await?;
 
@@ -3465,7 +3465,7 @@ async fn session_d1_survives_library_switch() -> Result<()> {
     let next = session_audio(&a, "next.ogg").await?;
     queue_session(&a, &[id, next]).await?;
     a.global_params.player.lock().await.switch(0);
-    wait_player(&a, |s| s.state == PlaybackState::Playing).await?;
+    wait_player(&a, |s| s.state == PlayerPlaybackState::Playing).await?;
     a.global_params.player.lock().await.seek(0.1);
     let before = wait_player(&a, |s| s.position >= Duration::from_millis(80)).await?;
     close_ui(&a.global_params).await?;
@@ -3477,10 +3477,10 @@ async fn session_d1_survives_library_switch() -> Result<()> {
     let after = b.global_params.player.lock().await.get_status();
     assert_eq!(before.playlist, after.playlist);
     assert_eq!(before.item, after.item);
-    assert_eq!(after.state, PlaybackState::Playing);
+    assert_eq!(after.state, PlayerPlaybackState::Playing);
     assert!(after.position >= before.position);
     b.global_params.player.lock().await.pause();
-    wait_player(&b, |s| s.state == PlaybackState::Paused).await?;
+    wait_player(&b, |s| s.state == PlayerPlaybackState::Paused).await?;
     drop(a);
     wait_until("closed UI library eviction", || async {
         Ok(connection.upgrade().is_none().then_some(()))
@@ -3489,7 +3489,7 @@ async fn session_d1_survives_library_switch() -> Result<()> {
     .context("closed UI library was not evicted from pool")?;
     b.global_params.player.lock().await.next();
     wait_player(&b, |s| {
-        s.index == Some(1) && s.state == PlaybackState::Playing
+        s.index == Some(1) && s.state == PlayerPlaybackState::Playing
     })
     .await?;
     node.shutdown().await
@@ -3852,7 +3852,7 @@ async fn session_d5_stats_follow_item_library() -> Result<()> {
         .to_f64()
         .context("stats track duration")?;
     b.global_params.player.lock().await.switch(0);
-    wait_player(&b, |status| status.state == PlaybackState::Playing).await?;
+    wait_player(&b, |status| status.state == PlayerPlaybackState::Playing).await?;
     b.global_params
         .player
         .lock()
@@ -3916,7 +3916,7 @@ async fn session_d6_removed_library_is_unavailable_without_crash() -> Result<()>
     .await?;
     b.global_params.player.lock().await.switch(0);
     let status = wait_player(&b, |s| {
-        s.item == Some(good.clone()) && s.state == PlaybackState::Playing
+        s.item == Some(good.clone()) && s.state == PlayerPlaybackState::Playing
     })
     .await?;
     assert!(status.unavailable.contains(&bad));
@@ -3956,7 +3956,7 @@ async fn session_d6_removed_library_is_unavailable_without_crash() -> Result<()>
     assert!(!recovered.unavailable.contains(&bad));
     b.global_params.player.lock().await.play();
     let playing = wait_player(&b, |s| {
-        s.item == Some(bad.clone()) && s.state == PlaybackState::Playing
+        s.item == Some(bad.clone()) && s.state == PlayerPlaybackState::Playing
     })
     .await?;
     assert!(!playing.unavailable.contains(&bad));
@@ -4009,7 +4009,7 @@ async fn session_f1_repeat_all_wraps_after_failed_last_item() -> Result<()> {
         .set_playback_mode(PlaybackMode::RepeatAll);
     b.global_params.player.lock().await.switch(1);
     wait_player(&b, |s| {
-        s.item == Some(good.clone()) && s.index == Some(0) && s.state == PlaybackState::Playing
+        s.item == Some(good.clone()) && s.index == Some(0) && s.state == PlayerPlaybackState::Playing
     })
     .await?;
     a.global_params.node.shutdown().await
@@ -4063,7 +4063,7 @@ async fn session_f1_all_failed_items_stop_without_hanging() -> Result<()> {
     let status = wait_until("all failed tracks to stop playback", || async {
         let status = b.global_params.player.lock().await.get_status();
         Ok(
-            (status.unavailable.len() == ids.len() && status.state == PlaybackState::Stopped)
+            (status.unavailable.len() == ids.len() && status.state == PlayerPlaybackState::Stopped)
                 .then_some(status),
         )
     })
@@ -4075,7 +4075,7 @@ async fn session_f1_all_failed_items_stop_without_hanging() -> Result<()> {
     // The stopped status is the barrier before checking that failed items do not restart.
     sleep(Duration::from_millis(300)).await;
     let after_quiet_period = b.global_params.player.lock().await.get_status();
-    assert_eq!(after_quiet_period.state, PlaybackState::Stopped);
+    assert_eq!(after_quiet_period.state, PlayerPlaybackState::Stopped);
     assert_eq!(after_quiet_period.index, settled.index);
     assert_eq!(after_quiet_period.item, settled.item);
     assert_eq!(after_quiet_period.playlist, settled.playlist);
@@ -4115,13 +4115,13 @@ async fn deleted_queued_uuid_is_unreadable_and_playback_advances() -> Result<()>
         .await?;
     f.global_params.player.lock().await.switch(0);
     wait_player(&f, |status| {
-        status.item == Some(PlayingItem::from(queued[0])) && status.state == PlaybackState::Playing
+        status.item == Some(PlayingItem::from(queued[0])) && status.state == PlayerPlaybackState::Playing
     })
     .await?;
     f.global_params.player.lock().await.next();
     let advanced = wait_player(&f, |status| {
         status.item == Some(PlayingItem::from(queued[2]))
-            && status.state == PlaybackState::Playing
+            && status.state == PlayerPlaybackState::Playing
             && status.unavailable.contains(&PlayingItem::from(queued[1]))
     })
     .await?;
@@ -4297,7 +4297,7 @@ async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
         wait_until("remote C track to start", || async {
             let status = b.global_params.player.lock().await.get_status();
             Ok(
-                (status.item == Some(first.clone()) && status.state == PlaybackState::Playing)
+                (status.item == Some(first.clone()) && status.state == PlayerPlaybackState::Playing)
                     .then_some(status),
             )
         })
@@ -4338,7 +4338,7 @@ async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
     peer_step_with_timeout("B stops after C stream revocation", TEST_DEADLINE, async {
         wait_until("player to settle after revocation", || async {
             let status = b.global_params.player.lock().await.get_status();
-            Ok((status.state == PlaybackState::Stopped
+            Ok((status.state == PlayerPlaybackState::Stopped
                 && status.item.is_none()
                 && status.unavailable.contains(&first)
                 && status.unavailable.contains(&second))
@@ -4357,7 +4357,7 @@ async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
                 && name == "PlaybackStatus"
             {
                 let status: PlaybackStatus = rinf::deserialize(&payload)?;
-                if status.state == "Playing"
+                if status.state == PlaybackState::Playing
                     && status.item.as_deref() == Some(first_status_item.as_str())
                 {
                     return Ok(());
@@ -4378,7 +4378,7 @@ async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
                 if let Some((name, payload, _)) = decode_message(&frame.into_data()) {
                     if name == "PlaybackStatus" {
                         let status: PlaybackStatus = rinf::deserialize(&payload)?;
-                        if status.state == "Stopped" && status.item.is_none() {
+                        if status.state == PlaybackState::Stopped && status.item.is_none() {
                             return Ok(());
                         }
                     } else if name == "PlaylistUpdate" {
@@ -4456,7 +4456,7 @@ async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
             wait_until("local track to resume", || async {
                 let status = b.global_params.player.lock().await.get_status();
                 Ok(
-                    (status.item == Some(local.clone()) && status.state == PlaybackState::Playing)
+                    (status.item == Some(local.clone()) && status.state == PlayerPlaybackState::Playing)
                         .then_some(()),
                 )
             })
@@ -4601,7 +4601,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
     assert_eq!(response.result.left_out_items.len(), 1);
     assert_eq!(response.result.left_out_items, vec![host_items[1].into()]);
     wait_player(&renderer, |status| {
-        status.state == PlaybackState::Playing
+        status.state == PlayerPlaybackState::Playing
             && status.item == Some(PlayingItem::from(host_items[2]))
             && status.playlist
                 == vec![
@@ -5197,7 +5197,7 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
     .await?;
     renderer.global_params.player.lock().await.pause();
     wait_player(&renderer, |status| {
-        status.item == Some(PlayingItem::from(items[0])) && status.state == PlaybackState::Paused
+        status.item == Some(PlayingItem::from(items[0])) && status.state == PlayerPlaybackState::Paused
     })
     .await?;
 
@@ -5237,12 +5237,12 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
         (
             PlaylistOperateMode::AppendToEnd,
             items[2],
-            PlaybackState::Playing,
+            PlayerPlaybackState::Playing,
         ),
         (
             PlaylistOperateMode::PlayNext,
             items[3],
-            PlaybackState::Playing,
+            PlayerPlaybackState::Playing,
         ),
     ] {
         let request = LoadResolvedItemsRequest {
@@ -5404,7 +5404,7 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
         status.playlist == expected_merged
             && status.index == Some(insertion + 1)
             && status.item == Some(PlayingItem::from(items[3]))
-            && status.state == PlaybackState::Playing
+            && status.state == PlayerPlaybackState::Playing
             && status.playback_mode == PlaybackMode::Shuffle
     })
     .await?;
@@ -5449,7 +5449,7 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
         status.playlist.len() == 4
             && status.index == Some(3)
             && status.item == Some(PlayingItem::from(items[3]))
-            && status.state == PlaybackState::Playing
+            && status.state == PlayerPlaybackState::Playing
     })
     .await?;
     assert_eq!(idle_merged.playlist[..2], idle_queue);
@@ -5482,7 +5482,7 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
         status.playlist.len() == 5
             && status.index == Some(2)
             && status.item == Some(PlayingItem::from(items[2]))
-            && status.state == PlaybackState::Playing
+            && status.state == PlayerPlaybackState::Playing
     })
     .await?;
     assert_eq!(
@@ -5534,9 +5534,9 @@ async fn session_f3_persists_changes_without_rewriting_while_idle() -> Result<()
         .await
         .context("initial session queue was not persisted")?;
     a.global_params.player.lock().await.switch(0);
-    wait_player(&a, |status| status.state == PlaybackState::Playing).await?;
+    wait_player(&a, |status| status.state == PlayerPlaybackState::Playing).await?;
     a.global_params.player.lock().await.pause();
-    wait_player(&a, |status| status.state == PlaybackState::Paused).await?;
+    wait_player(&a, |status| status.state == PlayerPlaybackState::Paused).await?;
     let session = a.global_params.node.session()?;
     let persistence_state = Arc::new(StdMutex::new((
         session.persistence_write_count(),
@@ -6029,7 +6029,7 @@ async fn attached_handoff_source_recorded(
     }
     source.global_params.player.lock().await.load(0);
     source.global_params.player.lock().await.play();
-    wait_player(&source, |status| status.state == PlaybackState::Playing).await?;
+    wait_player(&source, |status| status.state == PlayerPlaybackState::Playing).await?;
     let source_address = if hold_source_library {
         replicate_host_library(&source, &controller).await?.0
     } else {
@@ -6091,7 +6091,7 @@ async fn handoff_pause_failure_leaves_destination_unchanged() -> Result<()> {
             .fingerprint(),
         super::info(&source).await?.fingerprint
     );
-    wait_player(&source, |status| status.state == PlaybackState::Playing).await?;
+    wait_player(&source, |status| status.state == PlayerPlaybackState::Playing).await?;
     controller.global_params.node.shutdown().await?;
     source.global_params.node.shutdown().await?;
     Ok(())
@@ -6175,7 +6175,7 @@ async fn handoff_dispatch_appends_to_idle_renderer_queue_and_starts_source_curso
     wait_player(&source, |status| status.index == Some(2)).await?;
     source.global_params.player.lock().await.play();
     let source_before = wait_player(&source, |status| {
-        status.state == PlaybackState::Playing && status.index == Some(2)
+        status.state == PlayerPlaybackState::Playing && status.index == Some(2)
     })
     .await?;
 
@@ -6242,12 +6242,12 @@ async fn handoff_dispatch_appends_to_idle_renderer_queue_and_starts_source_curso
         status.playlist == expected_queue
             && status.index == Some(3 + 2)
             && status.item == source_before.item
-            && status.state == PlaybackState::Playing
+            && status.state == PlayerPlaybackState::Playing
             && status.playback_mode == PlaybackMode::Shuffle
     })
     .await?;
     let source_paused =
-        wait_player(&source, |status| status.state == PlaybackState::Paused).await?;
+        wait_player(&source, |status| status.state == PlayerPlaybackState::Paused).await?;
     assert!(merged.position.abs_diff(source_paused.position) <= Duration::from_millis(1500));
     assert_eq!(source_paused.playlist, source_queue);
     assert_eq!(source_paused.item, source_before.item);
@@ -6258,17 +6258,17 @@ async fn handoff_dispatch_appends_to_idle_renderer_queue_and_starts_source_curso
     };
     dispatch_gui_request(&source.global_params, &back).await?;
     let returned_source = wait_player(&source, |status| {
-        status.state == PlaybackState::Playing && status.playlist == source_queue
+        status.state == PlayerPlaybackState::Playing && status.playlist == source_queue
     })
     .await?;
     assert_eq!(returned_source.item, source_before.item);
     let idle_target = wait_player(&target, |status| {
         status.playlist == expected_target_queue
             && status.index.is_none()
-            && status.state == PlaybackState::Stopped
+            && status.state == PlayerPlaybackState::Stopped
     })
     .await?;
-    assert_eq!(idle_target.state, PlaybackState::Stopped);
+    assert_eq!(idle_target.state, PlayerPlaybackState::Stopped);
 
     target.global_params.player.lock().await.clear_playlist();
     wait_player(&target, |status| status.playlist.is_empty()).await?;
@@ -6281,15 +6281,15 @@ async fn handoff_dispatch_appends_to_idle_renderer_queue_and_starts_source_curso
         status.playlist == source_queue
             && status.index == Some(2)
             && status.item == source_before.item
-            && status.state == PlaybackState::Playing
+            && status.state == PlayerPlaybackState::Playing
     })
     .await?;
     dispatch_gui_request(&source.global_params, &back).await?;
     let empty_target = wait_player(&target, |status| {
-        status.playlist.is_empty() && status.state == PlaybackState::Stopped
+        status.playlist.is_empty() && status.state == PlayerPlaybackState::Stopped
     })
     .await?;
-    assert_eq!(empty_target.state, PlaybackState::Stopped);
+    assert_eq!(empty_target.state, PlayerPlaybackState::Stopped);
 
     source.global_params.node.shutdown().await?;
     target.global_params.node.shutdown().await?;
@@ -6302,7 +6302,7 @@ async fn failed_pause_does_not_block_a_later_handoff() -> Result<()> {
     controller.global_params.node.fail_next_handoff_pauses(1);
     assert!(hand_off(&controller, None).await.is_err());
     hand_off(&controller, Some(source_fingerprint)).await?;
-    wait_player(&source, |status| status.state == PlaybackState::Playing).await?;
+    wait_player(&source, |status| status.state == PlayerPlaybackState::Playing).await?;
     controller.global_params.node.shutdown().await?;
     source.global_params.node.shutdown().await?;
     Ok(())
@@ -6320,7 +6320,7 @@ async fn failed_handoff_load_restores_source_playback_state() -> Result<()> {
     assert_eq!(target_after.playlist, target_before.playlist);
     assert_eq!(target_after.index, target_before.index);
     assert_eq!(target_after.item, target_before.item);
-    wait_player(&source, |status| status.state == PlaybackState::Playing).await?;
+    wait_player(&source, |status| status.state == PlayerPlaybackState::Playing).await?;
     let failed_handoff_states = wait_until("source pause and resume statuses", || async {
         let states = signals
             .decoded::<PlaybackStatus>("PlaybackStatus")
@@ -6328,19 +6328,19 @@ async fn failed_handoff_load_restores_source_playback_state() -> Result<()> {
             .map(|status| status.state)
             .collect::<Vec<_>>();
         let has_pause_then_resume = states.iter().enumerate().any(|(index, state)| {
-            state == "Paused" && states[index + 1..].iter().any(|later| later == "Playing")
+            *state == PlaybackState::Paused && states[index + 1..].contains(&PlaybackState::Playing)
         });
         Ok(has_pause_then_resume.then_some(states))
     })
     .await?;
     let paused_at = failed_handoff_states
         .iter()
-        .position(|state| state == "Paused")
+        .position(|state| *state == PlaybackState::Paused)
         .context("source pause before failed target load")?;
     let resumed_at = failed_handoff_states
         .iter()
         .skip(paused_at + 1)
-        .position(|state| state == "Playing")
+        .position(|state| *state == PlaybackState::Playing)
         .map(|index| index + paused_at + 1)
         .context("source resume after failed target load")?;
     assert!(
@@ -6348,18 +6348,18 @@ async fn failed_handoff_load_restores_source_playback_state() -> Result<()> {
         "source statuses after failed load: {failed_handoff_states:?}"
     );
     source.global_params.player.lock().await.pause();
-    wait_player(&source, |status| status.state == PlaybackState::Paused).await?;
+    wait_player(&source, |status| status.state == PlayerPlaybackState::Paused).await?;
     signals.clear();
     assert!(hand_off(&controller, None).await.is_err());
     assert_eq!(
         source.global_params.player.lock().await.get_status().state,
-        PlaybackState::Paused
+        PlayerPlaybackState::Paused
     );
     assert!(
         signals
             .decoded::<PlaybackStatus>("PlaybackStatus")
             .iter()
-            .all(|status| status.state != "Playing")
+            .all(|status| status.state != PlaybackState::Playing)
     );
     controller.global_params.node.shutdown().await?;
     source.global_params.node.shutdown().await?;
@@ -6446,7 +6446,7 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
     source.global_params.player.lock().await.load(0);
     source.global_params.player.lock().await.play();
     let source_before =
-        wait_player(&source, |status| status.state == PlaybackState::Playing).await?;
+        wait_player(&source, |status| status.state == PlayerPlaybackState::Playing).await?;
     let expected_item = source_before.item.clone().context("source item")?;
     let mut expected_position = source_before.position;
 
@@ -6481,7 +6481,7 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
     target.global_params.player.lock().await.load(0);
     target.global_params.player.lock().await.play();
     let target_before =
-        wait_player(&target, |status| status.state == PlaybackState::Playing).await?;
+        wait_player(&target, |status| status.state == PlayerPlaybackState::Playing).await?;
     let target_track_id = file_ids_by_uuid(
         &target_replica.global_params.test_library().main_db,
         &[host_item.file_uuid],
@@ -6544,7 +6544,7 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
     assert_eq!(target_after_unplayable.index, target_before.index);
     assert_eq!(target_after_unplayable.item, target_before.item);
     let source_after_unplayable = wait_player(&source, |status| {
-        status.item == Some(expected_item.clone()) && status.state == PlaybackState::Playing
+        status.item == Some(expected_item.clone()) && status.state == PlayerPlaybackState::Playing
     })
     .await?;
     assert!(
@@ -6604,7 +6604,7 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
     assert_eq!(target_after.index, target_before.index);
     assert_eq!(target_after.item, target_before.item);
     let source_after =
-        wait_player(&source, |status| status.state == PlaybackState::Playing).await?;
+        wait_player(&source, |status| status.state == PlayerPlaybackState::Playing).await?;
     assert_eq!(source_after.item, Some(expected_item));
     assert!(source_after.position.abs_diff(expected_position) <= Duration::from_millis(1500));
     source.global_params.node.shutdown().await?;
@@ -6756,7 +6756,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     })
     .await?;
     controller.global_params.player.lock().await.play();
-    wait_player(controller, |status| status.state == PlaybackState::Playing).await?;
+    wait_player(controller, |status| status.state == PlayerPlaybackState::Playing).await?;
     let target_ids = [
         session_audio(&b, "handoff-target-a.ogg").await?,
         session_audio(&b, "handoff-target-b.ogg").await?,
@@ -6793,10 +6793,10 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     b.global_params.player.lock().await.switch(2);
     wait_player(&b, |status| status.index == Some(2)).await?;
     b.global_params.player.lock().await.play();
-    wait_player(&b, |status| status.state == PlaybackState::Playing).await?;
+    wait_player(&b, |status| status.state == PlayerPlaybackState::Playing).await?;
     b.global_params.player.lock().await.seek(1.1);
     let source_before = wait_player(controller, |status| {
-        status.state == PlaybackState::Playing && status.position >= Duration::from_millis(1900)
+        status.state == PlayerPlaybackState::Playing && status.position >= Duration::from_millis(1900)
     })
     .await?;
     let target_before = wait_player(&b, |status| status.position >= Duration::from_secs(1)).await?;
@@ -6816,7 +6816,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     let b_status = wait_player(&b, |status| {
         status.index == Some(3 + source_index)
             && status.item == source_before.item
-            && status.state == PlaybackState::Playing
+            && status.state == PlayerPlaybackState::Playing
             && status.playlist.len() == target_queue.len() + source_queue.len()
             && status.playlist[..3] == target_queue[..3]
             && status.playlist[3 + source_queue.len()..] == target_queue[3..]
@@ -6851,7 +6851,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     combined_queue.extend(target_queue[3..].iter().cloned());
     assert_eq!(b_status.playlist, combined_queue);
     let a_paused = wait_player(controller, |status| {
-        status.state == PlaybackState::Paused && status.playlist == source_queue
+        status.state == PlayerPlaybackState::Paused && status.playlist == source_queue
     })
     .await?;
     assert!(b_status.position.abs_diff(a_paused.position) <= Duration::from_millis(1500));
@@ -6993,9 +6993,9 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     .await?;
 
     b.global_params.player.lock().await.pause();
-    wait_player(&b, |status| status.state == PlaybackState::Paused).await?;
+    wait_player(&b, |status| status.state == PlayerPlaybackState::Paused).await?;
     b.global_params.player.lock().await.play();
-    wait_player(&b, |status| status.state == PlaybackState::Playing).await?;
+    wait_player(&b, |status| status.state == PlayerPlaybackState::Playing).await?;
     let block_start = b
         .global_params
         .player
@@ -7008,7 +7008,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
         .context("handoff block start")?;
     b.global_params.player.lock().await.switch(block_start);
     wait_player(&b, |status| {
-        status.index == Some(block_start) && status.state == PlaybackState::Playing
+        status.index == Some(block_start) && status.state == PlayerPlaybackState::Playing
     })
     .await?;
     let b_before_return = b.global_params.player.lock().await.get_status();
@@ -7032,7 +7032,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     let a_returned = wait_player(controller, |status| {
         status.index == Some(block_index)
             && status.item == b_before_return.item
-            && status.state == PlaybackState::Playing
+            && status.state == PlayerPlaybackState::Playing
             && status.playlist == block_items
             && status.position.abs_diff(b_before_return.position) <= Duration::from_millis(1500)
     })
@@ -7050,7 +7050,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
             .decoded::<PlaybackStatus>("PlaybackStatus")
             .into_iter()
             .find(|status| {
-                status.state == "Paused"
+                status.state == PlaybackState::Paused
                     && status.index == Some(current_index as i32)
                     && status.session_id == b_session_id
             })
@@ -7061,17 +7061,17 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     assert!(a_returned.position.abs_diff(b_paused_source_position) <= Duration::from_millis(1500));
     assert!(controller.global_params.node.renderer_link()?.is_none());
     let b_paused = wait_player(&b, |status| {
-        status.state == PlaybackState::Paused && status.playlist == expected_target_queue
+        status.state == PlayerPlaybackState::Paused && status.playlist == expected_target_queue
     })
     .await?;
     assert_eq!(b_paused.item, target_before.item);
     assert!(b_paused.position.abs_diff(target_before.position) <= Duration::from_millis(1500));
     controller.global_params.player.lock().await.pause();
-    wait_player(controller, |status| status.state == PlaybackState::Paused).await?;
+    wait_player(controller, |status| status.state == PlayerPlaybackState::Paused).await?;
 
     controller.global_params.player.lock().await.play();
     let a_before_refused =
-        wait_player(controller, |status| status.state == PlaybackState::Playing).await?;
+        wait_player(controller, |status| status.state == PlayerPlaybackState::Playing).await?;
     let c_before = c.global_params.player.lock().await.get_playlist();
     let refused = HandoffRequest {
         call_id: None,
@@ -7093,7 +7093,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
         })
     );
     assert!(controller.global_params.node.renderer_link()?.is_none());
-    wait_player(controller, |status| status.state == PlaybackState::Playing).await?;
+    wait_player(controller, |status| status.state == PlayerPlaybackState::Playing).await?;
     assert_eq!(
         controller
             .global_params
@@ -7106,7 +7106,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     );
     assert_eq!(c.global_params.player.lock().await.get_playlist(), c_before);
     controller.global_params.player.lock().await.pause();
-    wait_player(controller, |status| status.state == PlaybackState::Paused).await?;
+    wait_player(controller, |status| status.state == PlayerPlaybackState::Paused).await?;
 
     controller
         .global_params
@@ -7124,7 +7124,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
         })
         .await?;
     let independent_before = wait_player(controller, |status| {
-        status.state == PlaybackState::Paused && status.playlist.len() == source_queue.len() + 1
+        status.state == PlayerPlaybackState::Paused && status.playlist.len() == source_queue.len() + 1
     })
     .await?;
     let b_before_independent = b.global_params.player.lock().await.get_status();
@@ -7147,7 +7147,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
         })
     ));
     let independent_after = controller.global_params.player.lock().await.get_status();
-    assert_eq!(independent_after.state, PlaybackState::Paused);
+    assert_eq!(independent_after.state, PlayerPlaybackState::Paused);
     assert_eq!(independent_after.playlist, independent_before.playlist);
     assert_eq!(independent_after.index, independent_before.index);
     assert!(controller.global_params.node.renderer_link()?.is_none());
@@ -7166,7 +7166,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
         })
         .await?;
     controller.global_params.player.lock().await.switch(0);
-    wait_player(controller, |status| status.state == PlaybackState::Playing).await?;
+    wait_player(controller, |status| status.state == PlayerPlaybackState::Playing).await?;
     let second_handoff = HandoffRequest {
         call_id: None,
         target: Some(b_fingerprint.clone()),
@@ -7189,12 +7189,12 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     };
     dispatch_gui_request(&controller.global_params, &second_back).await?;
     let returned_stopped = wait_player(controller, |status| {
-        status.state == PlaybackState::Stopped && status.playlist == expected_block
+        status.state == PlayerPlaybackState::Stopped && status.playlist == expected_block
     })
     .await?;
     assert!(returned_stopped.index.is_none());
     let target_kept_playing = wait_player(&b, |status| {
-        status.state == PlaybackState::Playing
+        status.state == PlayerPlaybackState::Playing
             && status.item == Some(target_queue[3].clone())
             && status.playlist == expected_target_queue
     })
@@ -8030,7 +8030,7 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     signals.clear();
     b.global_params.broadcaster.broadcast(&PlaybackStatus {
         session_id: "declared-session".into(),
-        state: "paused".into(),
+        state: PlaybackState::Paused,
         progress_seconds: 0.0,
         progress_percentage: 0.0,
         artist: None,
@@ -8266,7 +8266,7 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
         },
     )
     .await?;
-    wait_player(&b, |status| status.state == PlaybackState::Playing).await?;
+    wait_player(&b, |status| status.state == PlayerPlaybackState::Playing).await?;
     let next_playing_item = PlayingItem::from(library_track_for_id(&b, next_track).await?);
     b.global_params
         .player
@@ -9110,7 +9110,7 @@ async fn assert_opendal_library_scan(service_kind: OpenDalServiceKind) -> Result
         };
         dispatch_gui_request(&fixture.global_params, &load).await?;
         let played = wait_player(&fixture, |status| {
-            status.state == PlaybackState::Playing
+            status.state == PlayerPlaybackState::Playing
                 && matches!(status.item, Some(PlayingItem::LibraryTrack { library_id: id, .. }) if id == library_id)
         })
         .await?;
@@ -9318,7 +9318,7 @@ async fn subsonic_visualizer_covers_use_the_bounded_server_cover_cache() -> Resu
     };
     dispatch_gui_request(&fixture.global_params, &load).await?;
     wait_player(&fixture, |status| {
-        status.state == PlaybackState::Playing && status.item.as_ref() == Some(&item)
+        status.state == PlayerPlaybackState::Playing && status.item.as_ref() == Some(&item)
     })
     .await?;
 

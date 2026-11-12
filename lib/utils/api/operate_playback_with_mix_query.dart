@@ -45,7 +45,7 @@ Future<List<PlayingItem>> operatePlaybackWithMixQuery({
   final previousRenderer =
       RendererAttachmentChanged.latestRustSignal?.message.renderer?.fingerprint;
   final localWasPlaying =
-      PlaybackStatus.latestRustSignal?.message.state == 'Playing';
+      PlaybackStatus.latestRustSignal?.message.state == PlaybackState.playing;
   var attachedForLoad = false;
   if (castTo != null && castTo.attach) {
     await awaitResponse(

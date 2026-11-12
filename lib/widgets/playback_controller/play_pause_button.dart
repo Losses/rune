@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../bindings/bindings.dart';
 import '../../utils/api/play_play.dart';
 import '../../utils/api/play_pause.dart';
 
@@ -8,7 +9,7 @@ import '../rune_clickable.dart';
 
 class PlayPauseButton extends StatelessWidget {
   final bool disabled;
-  final String state;
+  final PlaybackState state;
   final List<Shadow>? shadows;
 
   const PlayPauseButton({
@@ -23,10 +24,10 @@ class PlayPauseButton extends StatelessWidget {
     return RuneClickable(
       onPressed: disabled
           ? null
-          : state == "Playing"
+          : state == PlaybackState.playing
               ? playPause
               : playPlay,
-      child: state == "Playing"
+      child: state == PlaybackState.playing
           ? Icon(Symbols.pause, shadows: shadows)
           : Icon(Symbols.play_arrow, shadows: shadows),
     );

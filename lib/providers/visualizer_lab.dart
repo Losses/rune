@@ -656,7 +656,7 @@ class VisualizerLabProvider extends ChangeNotifier {
     final revision = _series.revision;
     final empty = _series.emptyColumns;
     final time = _songTime ?? status?.progressSeconds ?? 0;
-    final playing = status?.state == 'Playing';
+    final playing = status?.state == PlaybackState.playing;
     if (identical(actual, _publishedActual) &&
         revision == _publishedRevision &&
         identical(empty, _publishedEmpty) &&

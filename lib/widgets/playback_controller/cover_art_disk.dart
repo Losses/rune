@@ -6,6 +6,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../bindings/bindings.dart';
 import '../../utils/ax_shadow.dart';
 import '../../utils/format_time.dart';
 import '../../utils/kept_clear.dart';
@@ -110,7 +111,7 @@ class CoverArtDiskState extends State<CoverArtDisk>
           now.difference(_lastUpdateTime!).inMicroseconds /
           Duration.microsecondsPerSecond;
 
-      if (status.state == 'Playing') {
+      if (status.state == PlaybackState.playing) {
         // Update target angle
         _targetRotation += radiansPerSecond * elapsed;
         _targetRotation %= (2 * pi);

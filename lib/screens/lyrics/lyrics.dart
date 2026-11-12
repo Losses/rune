@@ -86,7 +86,7 @@ class _LyricsPageState extends State<LyricsPage>
   void _syncInterpolatedTime() {
     final status = playbackStatus.playbackStatus;
     final position = status.progressSeconds * 1000;
-    final playing = status.state == "Playing";
+    final playing = status.state == PlaybackState.playing;
     _durationMs = status.duration * 1000;
 
     if (position == _anchorMs && playing == _isPlaying) return;

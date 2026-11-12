@@ -171,7 +171,7 @@ List<ControllerEntry> controllerItems = [
         listen: false,
       );
 
-      if (statusProvider.playbackStatus.state == "Playing") {
+      if (statusProvider.playbackStatus.state == PlaybackState.playing) {
         return Symbols.pause;
       } else {
         return Symbols.play_arrow;
@@ -198,7 +198,7 @@ List<ControllerEntry> controllerItems = [
         return;
       }
 
-      if (statusProvider.playbackStatus.state == "Playing") {
+      if (statusProvider.playbackStatus.state == PlaybackState.playing) {
         playPause();
       } else {
         playPlay();
@@ -211,7 +211,7 @@ List<ControllerEntry> controllerItems = [
       );
       final status = statusProvider.playbackStatus;
 
-      return status.state == "Playing"
+      return status.state == PlaybackState.playing
           ? S.of(context).pause
           : S.of(context).play;
     },
@@ -238,13 +238,13 @@ List<ControllerEntry> controllerItems = [
       final notReady = statusProvider.notReady;
 
       return MenuFlyoutItem(
-        leading: status.state == "Playing"
+        leading: status.state == PlaybackState.playing
             ? const Icon(Symbols.pause)
             : const Icon(Symbols.play_arrow),
         text: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            status.state == "Playing"
+            status.state == PlaybackState.playing
                 ? Text(S.of(context).pause)
                 : Text(S.of(context).play),
             const ShortcutText('Ctrl+P'),
@@ -254,7 +254,7 @@ List<ControllerEntry> controllerItems = [
             ? null
             : () {
                 Navigator.pop(context);
-                status.state == "Playing" ? playPause() : playPlay();
+                status.state == PlaybackState.playing ? playPause() : playPlay();
               },
       );
     },
