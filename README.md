@@ -110,6 +110,7 @@ We extend our gratitude to the open-source project [Meyda](https://github.com/me
 
 ## License
 
-This project is licensed under the MPL License.
+- **Source Code**: Licensed under the [Mozilla Public License 2.0](LICENSE) (MPL-2.0).
+- **Assets & Media**: Licensed under the [Rune Asset License, Version 1.0](assets/LICENSE). See [assets/NOTICE](assets/NOTICE) for scope, third-party font licenses, and trademark carve-out notices.
 
 [^1]: All mentioned Microsoft products are trademarks of Microsoft. This project is not affiliated with Microsoft, and the founders of this project are not Microsoft employees.
