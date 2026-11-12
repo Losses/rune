@@ -1,4 +1,5 @@
 use super::gui_listener_tests::start;
+use crate::test_wait::wait_until;
 use crate::Session;
 use crate::macros::{RequestAccess, RequestScope, RequestSlots, capability_snapshot, request_scope};
 use crate::messages::{
@@ -1477,17 +1478,12 @@ async fn wait_player(
     f: &Fixture,
     predicate: impl Fn(&PlayerStatus) -> bool,
 ) -> Result<PlayerStatus> {
-    timeout(Duration::from_secs(120), async {
-        loop {
-            let status = f.global_params.player.lock().await.get_status();
-            if predicate(&status) {
-                return status;
-            }
-            sleep(Duration::from_millis(20)).await;
-        }
+    let predicate = &predicate;
+    wait_until("the session to reach the expected state", || async move {
+        let status = f.global_params.player.lock().await.get_status();
+        Ok(predicate(&status).then_some(status))
     })
     .await
-    .context("session did not reach expected state")
 }
 
 async fn queue_session(f: &Fixture, ids: &[i32]) -> Result<()> {
