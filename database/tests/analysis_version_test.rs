@@ -13,13 +13,21 @@ use database::{
         recommendation::{get_recommendation_by_file_id, sync_recommendation},
     },
     connection::RecommendationDbConnection,
-    entities::media_analysis,
+    entities::{media_analysis, media_files},
 };
 use fsio::FsIo;
 use metadata::describe::describe_file;
 use migration::{Migrator, MigratorTrait};
-use sea_orm::{ConnectionTrait, Database, EntityTrait, PaginatorTrait};
-use std::{f64::consts::PI, sync::Arc};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, Database, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+};
+use std::{
+    f64::consts::PI,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 
 #[tokio::test]
 async fn legacy_rows_are_invalid_and_replaced_only_after_success() -> Result<()> {
@@ -82,16 +90,20 @@ async fn legacy_rows_are_invalid_and_replaced_only_after_success() -> Result<()>
     }
     // Failed insertion must roll back deletion and never mark the file current.
     db.execute_unprepared("CREATE TRIGGER reject_analysis BEFORE INSERT ON media_analysis BEGIN SELECT RAISE(ABORT, 'test failure'); END").await?;
-    analysis_audio_library(
-        fs.clone(),
-        &db,
-        &root,
-        1,
-        ComputingDevice::Cpu,
-        |_, _| {},
-        None,
-    )
-    .await?;
+    assert!(
+        analysis_audio_library(
+            fs.clone(),
+            &db,
+            &root,
+            1,
+            ComputingDevice::Cpu,
+            |_, _| {},
+            None,
+        )
+        .await
+        .is_err(),
+        "an analysis result write failure must fail the batch"
+    );
     assert_eq!(media_analysis::Entity::find().one(&db).await?.unwrap(), old);
     assert_eq!(get_analyze_count(&db).await?, 0);
     db.execute_unprepared("DROP TRIGGER reject_analysis")
@@ -130,6 +142,118 @@ async fn legacy_rows_are_invalid_and_replaced_only_after_success() -> Result<()>
     assert_eq!(get_analyze_count(&db).await?, 1);
     sync_recommendation(&db, &recommendations).await?;
     assert_eq!(recommendations.vectors().len(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn undecodable_track_is_skipped_retried_and_does_not_block_neighbors() -> Result<()> {
+    let actor = uuid::Uuid::new_v4();
+    let db = fixtures::memory_database(actor).await?;
+    let library = fixtures::open_library(db.clone(), actor, None).await?;
+    let store = library.record_store();
+    let root = tempfile::tempdir()?;
+    let fs = FsIo::new();
+    fixtures::scan_audio_fixtures(
+        &fs,
+        &db,
+        &actor.to_string(),
+        root.path(),
+        &store,
+        &["bad.ogg", "good.ogg"],
+    )
+    .await?;
+    std::fs::write(root.path().join("bad.ogg"), b"not an audio file")?;
+
+    let first_run = analysis_audio_library(
+        Arc::new(fs.clone()),
+        &db,
+        root.path(),
+        1,
+        ComputingDevice::Cpu,
+        |_, _| {},
+        None,
+    )
+    .await?;
+    assert_eq!(first_run, 2);
+    let analyzed = media_analysis::Entity::find().all(&db).await?;
+    assert_eq!(analyzed.len(), 1);
+    let bad = media_files::Entity::find()
+        .filter(media_files::Column::FileName.eq("bad.ogg"))
+        .one(&db)
+        .await?
+        .expect("bad file was indexed");
+    let good = media_files::Entity::find()
+        .filter(media_files::Column::FileName.eq("good.ogg"))
+        .one(&db)
+        .await?
+        .expect("good file was indexed");
+    assert_eq!(analyzed[0].file_id, good.id);
+    assert!(analyzed.iter().all(|analysis| analysis.file_id != bad.id));
+
+    let second_run = analysis_audio_library(
+        Arc::new(fs),
+        &db,
+        root.path(),
+        1,
+        ComputingDevice::Cpu,
+        |_, _| {},
+        None,
+    )
+    .await?;
+    assert_eq!(second_run, 1, "the undecodable file must be retried");
+    assert_eq!(media_analysis::Entity::find().count(&db).await?, 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn analysis_write_failure_stops_queued_files() -> Result<()> {
+    let actor = uuid::Uuid::new_v4();
+    let db = fixtures::memory_database(actor).await?;
+    let library = fixtures::open_library(db.clone(), actor, None).await?;
+    let store = library.record_store();
+    let root = tempfile::tempdir()?;
+    let fs = FsIo::new();
+    fixtures::scan_audio_fixtures(
+        &fs,
+        &db,
+        &actor.to_string(),
+        root.path(),
+        &store,
+        &["a.ogg", "b.ogg"],
+    )
+    .await?;
+    let first_file = media_files::Entity::find()
+        .order_by_asc(media_files::Column::Id)
+        .one(&db)
+        .await?
+        .expect("scanned first audio file");
+    db.execute_unprepared(&format!(
+        "CREATE TRIGGER reject_analysis BEFORE INSERT ON media_analysis WHEN NEW.file_id = {} BEGIN SELECT RAISE(ABORT, 'test failure'); END",
+        first_file.id
+    ))
+    .await?;
+
+    let progress_count = Arc::new(AtomicUsize::new(0));
+    let progress_count_callback = Arc::clone(&progress_count);
+    let result = analysis_audio_library(
+        Arc::new(fs),
+        &db,
+        root.path(),
+        1,
+        ComputingDevice::Cpu,
+        move |_, _| {
+            progress_count_callback.fetch_add(1, Ordering::SeqCst);
+        },
+        None,
+    )
+    .await;
+
+    assert!(
+        result.is_err(),
+        "an analysis write failure must fail the batch"
+    );
+    assert_eq!(progress_count.load(Ordering::SeqCst), 1);
+    assert_eq!(media_analysis::Entity::find().count(&db).await?, 0);
     Ok(())
 }
 

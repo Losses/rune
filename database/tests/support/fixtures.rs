@@ -71,6 +71,22 @@ pub async fn scan_library(
     .await
 }
 
+pub async fn scan_audio_fixtures(
+    fs: &FsIo,
+    db: &DatabaseConnection,
+    actor: &str,
+    root: &Path,
+    store: &SeaOrmSyncStore,
+    names: &[&str],
+) -> Result<()> {
+    let source = audio_fixture();
+    for name in names {
+        std::fs::copy(&source, root.join(name))?;
+    }
+    scan_library(fs, db, actor, root, store).await?;
+    Ok(())
+}
+
 pub async fn memory_database(actor: Uuid) -> Result<DatabaseConnection> {
     let _ = initialize_node_id(actor.to_string());
     let db = Database::connect("sqlite::memory:").await?;

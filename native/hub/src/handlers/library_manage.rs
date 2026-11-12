@@ -1,5 +1,4 @@
 use crate::utils::sync_settings::SyncSettings;
-use database::actions::metadata::ScanOptions;
 use std::time::Instant;
 use std::{
     path::Path,
@@ -22,7 +21,7 @@ use ::database::actions::{
     fingerprint::{
         Configuration, compare_all_pairs, compute_file_fingerprints, mark_duplicate_files,
     },
-    metadata::scan_audio_library,
+    metadata::{ScanOptions, scan_audio_library},
     recommendation::sync_recommendation,
 };
 
@@ -706,7 +705,9 @@ mod scan_supervisor_tests {
     use crate::library_pool::LibraryPool;
     use crate::request_error::ExpectedRequestError;
     use crate::utils::RinfRustSignal;
+    use database::actions::metadata::MissingHostFilePolicy;
     use database::library_registry::{LibraryRegistry, create_replica};
+    use sea_orm::ConnectionTrait;
     use std::collections::HashMap;
     use std::time::Duration;
     use tokio::sync::oneshot;
@@ -723,6 +724,37 @@ mod scan_supervisor_tests {
         Ok((config, node_id, library))
     }
 
+    async fn open_test_library_with_audio() -> Result<(tempfile::TempDir, String, LibraryHandle)> {
+        open_test_library_with_audio_files(&["track.ogg"]).await
+    }
+
+    async fn open_test_library_with_audio_files(
+        names: &[&str],
+    ) -> Result<(tempfile::TempDir, String, LibraryHandle)> {
+        let (config, node_id, library) = open_test_library().await?;
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg");
+        for name in names {
+            std::fs::copy(&source, Path::new(&library.media_root).join(name))?;
+        }
+        let store = library.library_sync.record_store();
+        scan_audio_library(
+            &library.fsio,
+            &library.main_db,
+            &node_id,
+            Path::new(&library.media_root),
+            ScanOptions {
+                cleanup: false,
+                force: false,
+                missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+                cancel_token: None,
+            },
+            |_| {},
+            &store,
+        )
+        .await?;
+        Ok((config, node_id, library))
+    }
+
     #[derive(Default)]
     struct Capture(std::sync::Mutex<Vec<Vec<u8>>>);
     impl Broadcaster for Capture {
@@ -734,6 +766,189 @@ mod scan_supervisor_tests {
                     .push(message.encode_to_vec().unwrap());
             }
         }
+    }
+
+    #[derive(Default)]
+    struct TaskCapture {
+        events: std::sync::Mutex<Vec<Vec<u8>>>,
+        changed: tokio::sync::Notify,
+    }
+
+    impl Broadcaster for TaskCapture {
+        fn broadcast(&self, message: &dyn RinfRustSignal) {
+            if message.name() == "LibraryTaskStateChanged" {
+                self.events
+                    .lock()
+                    .unwrap()
+                    .push(message.encode_to_vec().unwrap());
+                self.changed.notify_one();
+            }
+        }
+    }
+
+    async fn wait_for_task_outcome(
+        capture: &TaskCapture,
+        task: LibraryTaskKind,
+    ) -> Result<(LibraryTaskOutcome, i32)> {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let ended = {
+                    let events = capture.events.lock().unwrap();
+                    let mut ended = None;
+                    for event in events.iter() {
+                        let changed: LibraryTaskStateChanged = rinf::deserialize(event)?;
+                        if let LibraryTaskState::Ended {
+                            task: ended_task,
+                            outcome,
+                            progress,
+                            ..
+                        } = changed.state
+                            && ended_task == task
+                        {
+                            ended = Some((outcome, progress));
+                        }
+                    }
+                    ended
+                };
+                if let Some(outcome) = ended {
+                    return Ok(outcome);
+                }
+                capture.changed.notified().await;
+            }
+        })
+        .await?
+    }
+
+    #[tokio::test]
+    async fn analysis_write_failure_ends_failed_with_analysis_error() -> Result<()> {
+        let (_config, _node_id, library) = open_test_library_with_audio().await?;
+        library
+            .main_db
+            .execute_unprepared(
+                "CREATE TRIGGER reject_analysis BEFORE INSERT ON media_analysis BEGIN SELECT RAISE(ABORT, 'test failure'); END",
+            )
+            .await?;
+        let owner = Arc::new(StdMutex::new(LibraryTaskOwner::default()));
+        let capture = Arc::new(TaskCapture::default());
+        let request = AnalyzeAudioLibraryRequest {
+            call_id: None,
+            computing_device: ComputingDeviceRequest::Cpu,
+            workload_factor: 1.0,
+        };
+        request
+            .handle(
+                (
+                    Some(library),
+                    Arc::new(Mutex::new(TaskTokens::default())),
+                    owner,
+                    capture.clone(),
+                ),
+                None,
+                &request,
+            )
+            .await?;
+
+        assert_eq!(
+            wait_for_task_outcome(&capture, LibraryTaskKind::Analyze)
+                .await?
+                .0,
+            LibraryTaskOutcome::Failed(LibraryTaskError::AnalysisFailed)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn fingerprint_write_failure_ends_failed_with_fingerprinting_error() -> Result<()> {
+        let (_config, _node_id, library) = open_test_library_with_audio().await?;
+        library
+            .main_db
+            .execute_unprepared(
+                "CREATE TRIGGER reject_fingerprint BEFORE INSERT ON media_file_fingerprint BEGIN SELECT RAISE(ABORT, 'test failure'); END",
+            )
+            .await?;
+        let owner = Arc::new(StdMutex::new(LibraryTaskOwner::default()));
+        let capture = Arc::new(TaskCapture::default());
+        let request = DeduplicateAudioLibraryRequest {
+            call_id: None,
+            workload_factor: 1.0,
+            similarity_threshold: 0.8,
+        };
+        request
+            .handle(
+                (
+                    Some(library),
+                    Arc::new(Mutex::new(TaskTokens::default())),
+                    owner,
+                    capture.clone(),
+                ),
+                None,
+                &request,
+            )
+            .await?;
+
+        assert_eq!(
+            wait_for_task_outcome(&capture, LibraryTaskKind::Deduplicate)
+                .await?
+                .0,
+            LibraryTaskOutcome::Failed(LibraryTaskError::FingerprintingFailed)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn undecodable_audio_finishes_analysis_and_is_retried() -> Result<()> {
+        use database::entities::{media_analysis, media_files};
+        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+
+        let (_config, _node_id, library) =
+            open_test_library_with_audio_files(&["bad.ogg", "good.ogg"]).await?;
+        std::fs::write(
+            Path::new(&library.media_root).join("bad.ogg"),
+            b"not an audio file",
+        )?;
+        let bad = media_files::Entity::find()
+            .filter(media_files::Column::FileName.eq("bad.ogg"))
+            .one(library.main_db.as_ref())
+            .await?
+            .expect("bad audio file was indexed");
+        let good = media_files::Entity::find()
+            .filter(media_files::Column::FileName.eq("good.ogg"))
+            .one(library.main_db.as_ref())
+            .await?
+            .expect("good audio file was indexed");
+
+        for expected_progress in [2, 1] {
+            let owner = Arc::new(StdMutex::new(LibraryTaskOwner::default()));
+            let capture = Arc::new(TaskCapture::default());
+            let request = AnalyzeAudioLibraryRequest {
+                call_id: None,
+                computing_device: ComputingDeviceRequest::Cpu,
+                workload_factor: 1.0,
+            };
+            request
+                .handle(
+                    (
+                        Some(library.clone()),
+                        Arc::new(Mutex::new(TaskTokens::default())),
+                        owner,
+                        capture.clone(),
+                    ),
+                    None,
+                    &request,
+                )
+                .await?;
+            let (outcome, progress) =
+                wait_for_task_outcome(&capture, LibraryTaskKind::Analyze).await?;
+            assert_eq!(outcome, LibraryTaskOutcome::Finished);
+            assert_eq!(progress, expected_progress);
+            let analyses = media_analysis::Entity::find()
+                .all(library.main_db.as_ref())
+                .await?;
+            assert_eq!(analyses.len(), 1);
+            assert_eq!(analyses[0].file_id, good.id);
+            assert!(analyses.iter().all(|analysis| analysis.file_id != bad.id));
+        }
+        Ok(())
     }
 
     #[tokio::test]

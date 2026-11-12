@@ -5,8 +5,8 @@ use anyhow::Result;
 use database::{
     actions::fingerprint::{
         ComputedFingerprint, ComputedSimilarity, Configuration, assign_computed_fingerprint,
-        assign_computed_similarity, compare_all_pairs, default_similarity_configuration,
-        mark_duplicate_files, reset_duplicate_marks,
+        assign_computed_similarity, compare_all_pairs, compute_file_fingerprints,
+        default_similarity_configuration, mark_duplicate_files, reset_duplicate_marks,
     },
     entities::{media_file_fingerprint, media_file_similarity, media_files},
     sync::{
@@ -14,9 +14,14 @@ use database::{
         model::{Collection, Fingerprint, ObjectKey, Payload, ScoreValue, Similarity},
     },
 };
+use fsio::FsIo;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
-    QueryFilter, QueryOrder, Set, TransactionTrait, sea_query::Expr,
+    PaginatorTrait, QueryFilter, QueryOrder, Set, TransactionTrait, sea_query::Expr,
+};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 use sync_orm::row_policy::BinaryValue;
 use uuid::Uuid;
@@ -122,6 +127,57 @@ async fn fingerprint_source_change_and_failed_journal_leave_no_assignment() -> R
             .sequence,
         1
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn fingerprint_write_failure_fails_the_batch_and_stops_queued_files() -> Result<()> {
+    let node = Uuid::new_v4();
+    let db = fixtures::memory_database(node).await?;
+    let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
+    let root = tempfile::tempdir()?;
+    let fs = FsIo::new();
+    fixtures::scan_audio_fixtures(
+        &fs,
+        &db,
+        &node.to_string(),
+        root.path(),
+        &store,
+        &["a.ogg", "b.ogg"],
+    )
+    .await?;
+    let first_file = media_files::Entity::find()
+        .order_by_asc(media_files::Column::Id)
+        .one(&db)
+        .await?
+        .expect("scanned first audio file");
+    db.execute_unprepared(&format!(
+        "CREATE TRIGGER reject_fingerprint BEFORE INSERT ON media_file_fingerprint WHEN NEW.track_uuid = '{}' BEGIN SELECT RAISE(ABORT, 'test failure'); END",
+        first_file.hlc_uuid
+    ))
+    .await?;
+
+    let progress_count = Arc::new(AtomicUsize::new(0));
+    let progress_count_callback = Arc::clone(&progress_count);
+    let result = compute_file_fingerprints(
+        Arc::new(fs),
+        &db,
+        root.path(),
+        1,
+        move |_, _| {
+            progress_count_callback.fetch_add(1, Ordering::SeqCst);
+        },
+        None,
+        &store,
+    )
+    .await;
+
+    assert!(
+        result.is_err(),
+        "a fingerprint write failure must fail the batch"
+    );
+    assert_eq!(progress_count.load(Ordering::SeqCst), 0);
+    assert_eq!(media_file_fingerprint::Entity::find().count(&db).await?, 0);
     Ok(())
 }
 

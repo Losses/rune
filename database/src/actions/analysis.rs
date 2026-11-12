@@ -18,6 +18,7 @@ use analysis::analysis::{NormalizedAnalysisResult, analyze_audio, normalize_anal
 use analysis::utils::computing_device::ComputingDevice;
 use uuid::Uuid;
 
+use crate::actions::utils::ParallelMediaFilesResult as BatchResult;
 use crate::entities::{media_analysis, media_files};
 use crate::parallel_media_files_processing;
 
@@ -88,12 +89,14 @@ where
                 Ok(analysis_result) => {
                     if let Some(x) = analysis_result {
                         match insert_analysis_result(db, file.id, &file.file_hash, x).await {
-                            Ok(_) => debug!("Finished analysis: {}", file.id),
-                            Err(e) => error!("Failed to insert analysis result: {e}"),
+                            Ok(()) => BatchResult::Processed,
+                            Err(error) => BatchResult::TaskFailed(error),
                         }
-                    };
+                    } else {
+                        BatchResult::Processed
+                    }
                 }
-                Err(e) => error!("Failed to analyze track: {e:#}"),
+                Err(error) => BatchResult::FileFailed(error),
             }
         }
     )

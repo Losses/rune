@@ -171,10 +171,12 @@ macro_rules! parallel_media_files_processing {
         $result_handler:expr
     ) => {{
         use async_channel;
-        use log::{debug, error, info, warn};
+        use log::{error, info, warn};
         use std::sync::Arc;
         use tokio::sync::{Mutex, Semaphore};
         use tokio::task::{self, JoinSet};
+        use tokio_util::sync::CancellationToken;
+        use $crate::actions::utils::ParallelMediaFilesResult;
 
         anyhow::ensure!($batch_size > 0, "Batch size must be positive");
         let cursor_query_clone = $cursor_query.clone();
@@ -187,22 +189,24 @@ macro_rules! parallel_media_files_processing {
         // so analysis workers cannot occupy the entire pool waiting for a lock.
         let result_lock = Arc::new(Mutex::new(()));
 
-        let producer_cancel_token = $cancel_token.clone();
+        let processor_cancel_token = match $cancel_token.as_ref() {
+            Some(token) => token.child_token(),
+            None => CancellationToken::new(),
+        };
+        let task_error = Arc::new(Mutex::new(None));
+        let producer_cancel_token = processor_cancel_token.clone();
         let producer = {
             let cursor_query_clone = $cursor_query.clone();
             let tx = tx.clone(); // Clone sender for producer
             async move {
                 let mut cursor = cursor_query_clone.cursor_by(media_files::Column::Id);
                 loop {
-                    if let Some(ref token) = producer_cancel_token {
-                        if token.is_cancelled() {
-                            info!("Cancellation requested. Exiting producer loop.");
-                            // Handle the error gracefully
-                            if let Err(e) = tx.send(None).await {
-                                warn!("Failed to send termination signal: {:#?}", { e });
-                            }
-                            break;
+                    if producer_cancel_token.is_cancelled() {
+                        info!("Cancellation requested. Exiting producer loop.");
+                        if let Err(e) = tx.send(None).await {
+                            warn!("Failed to send termination signal: {:#?}", { e });
                         }
+                        break;
                     }
 
                     let files = match cursor
@@ -232,14 +236,12 @@ macro_rules! parallel_media_files_processing {
 
                     for file in &files {
                         // Check cancellation before each send
-                        if let Some(ref token) = producer_cancel_token {
-                            if token.is_cancelled() {
-                                info!("Cancellation requested during file sending.");
-                                if let Err(e) = tx.send(None).await {
-                                    warn!("Failed to send termination signal: {:#?}", { e });
-                                }
-                                return Ok(());
+                        if producer_cancel_token.is_cancelled() {
+                            info!("Cancellation requested during file sending.");
+                            if let Err(e) = tx.send(None).await {
+                                warn!("Failed to send termination signal: {:#?}", { e });
                             }
+                            return Ok(());
                         }
 
                         match tx.send(Some(file.clone())).await {
@@ -263,22 +265,21 @@ macro_rules! parallel_media_files_processing {
             }
         };
 
-        let consumer_cancel_token = $cancel_token.clone();
+        let consumer_cancel_token = processor_cancel_token.clone();
         let semaphore = Arc::new(Semaphore::new($batch_size));
         let consumer = {
             let processed_count = Arc::clone(&processed_count);
             let progress_callback = Arc::clone(&$progress_callback);
+            let task_error = Arc::clone(&task_error);
             async move {
                 let mut active_tasks = JoinSet::new();
 
                 while let Ok(file_option) = rx.recv().await {
                     match file_option {
                         Some(file) => {
-                            if let Some(ref token) = consumer_cancel_token {
-                                if token.is_cancelled() {
-                                    info!("Cancellation requested. Exiting consumer loop.");
-                                    break;
-                                }
+                            if consumer_cancel_token.is_cancelled() {
+                                info!("Cancellation requested. Exiting consumer loop.");
+                                break;
                             }
 
                             let main_db = $main_db.clone();
@@ -290,14 +291,20 @@ macro_rules! parallel_media_files_processing {
                                     continue;
                                 }
                             };
+                            if consumer_cancel_token.is_cancelled() {
+                                drop(permit);
+                                info!("Cancellation requested before starting file work.");
+                                break;
+                            }
 
                             let lib_path = Arc::clone(&$lib_path);
                             let fsio = $fsio.clone();
                             let processed_count = Arc::clone(&processed_count);
                             let progress_callback = Arc::clone(&progress_callback);
-                            let process_cancel_token = consumer_cancel_token.clone();
-
                             let result_lock = Arc::clone(&result_lock);
+                            let task_error = Arc::clone(&task_error);
+                            let processor_cancel_token = consumer_cancel_token.clone();
+                            let process_cancel_token = processor_cancel_token.clone();
                             let file_clone = file.clone();
                             while let Some(result) = active_tasks.try_join_next() {
                                 if let Err(e) = result {
@@ -311,20 +318,35 @@ macro_rules! parallel_media_files_processing {
                                         fsio.as_ref(),
                                         &file_clone,
                                         &lib_path,
-                                        process_cancel_token,
+                                        Some(process_cancel_token),
                                     )
                                     // Pass the cloned token
                                 })
                                 .await;
 
-                                match analysis_result
+                                let handler_result = match analysis_result
                                     .with_context(|| "Failed to spawn analysis task")
                                 {
                                     Ok(analysis_result) => {
                                         let _writer = result_lock.lock().await;
-                                        $result_handler(&main_db, file, analysis_result).await;
+                                        $result_handler(&main_db, file, analysis_result).await
                                     }
-                                    Err(e) => error!("{e:?}"),
+                                    Err(e) => ParallelMediaFilesResult::FileFailed(e),
+                                };
+
+                                match handler_result {
+                                    ParallelMediaFilesResult::Processed => {}
+                                    ParallelMediaFilesResult::FileFailed(error) => {
+                                        warn!("File processing failed: {error:#}");
+                                    }
+                                    ParallelMediaFilesResult::TaskFailed(error) => {
+                                        error!("Task processing failed: {error:#}");
+                                        processor_cancel_token.cancel();
+                                        let mut first_error = task_error.lock().await;
+                                        if first_error.is_none() {
+                                            *first_error = Some(error);
+                                        }
+                                    }
                                 }
 
                                 let mut count = processed_count.lock().await;
@@ -358,7 +380,16 @@ macro_rules! parallel_media_files_processing {
 
         producer_result?;
         consumer_result?;
+        if let Some(error) = task_error.lock().await.take() {
+            return Err(error);
+        }
         let processed = *processed_count.lock().await;
         Ok(processed)
     }};
+}
+
+pub enum ParallelMediaFilesResult {
+    Processed,
+    FileFailed(anyhow::Error),
+    TaskFailed(anyhow::Error),
 }

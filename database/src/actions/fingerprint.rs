@@ -1,7 +1,6 @@
 mod source;
 
 use crate::actions::file::hash_file;
-use crate::actions::metadata::is_fatal_scan_error;
 use crate::sync::model::{BlobRef, MAX_PORTABLE_FINGERPRINT_BYTES};
 pub use source::{
     ComputedFingerprint, ComputedSimilarity, SourceStatus, assign_computed_fingerprint,
@@ -313,13 +312,8 @@ where
                     )
                     .await
                     {
-                        if is_fatal_scan_error(&error) {
-                            return Err(error);
-                        }
-                        log::warn!(
-                            "Fingerprint assignment failed for {}: {error:#}",
-                            file.file_name
-                        );
+                        return Err(error)
+                            .with_context(|| format!("assign fingerprint for {}", file.file_name));
                     }
                 }
                 Err(error) => {
