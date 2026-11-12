@@ -278,7 +278,6 @@ class VisualizerScenesProvider extends ChangeNotifier {
   Future<void> _probeGpu() async {
     // Looking for a GPU can take a few seconds the first time.
     try {
-<<<<<<< ours
       final support = (await awaitResponse(
         'VisualizerSupportRequest',
         VisualizerSupportResponse.rustSignalStream,
@@ -287,12 +286,7 @@ class VisualizerScenesProvider extends ChangeNotifier {
         send: (callId) =>
             VisualizerSupportRequest(callId: callId).sendSignalToRust(),
       )).message;
-      _gpu = support.supported;
-      setInputs(support.inputs);
-=======
-      final support = (await response).message;
       applySupport(support);
->>>>>>> theirs
     } on TimeoutException {
       _gpu = false;
     }
