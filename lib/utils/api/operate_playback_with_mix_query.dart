@@ -70,19 +70,22 @@ Future<List<PlayingItem>> operatePlaybackWithMixQuery({
             PlaylistRevisionResponse.rustSignalStream,
             send: () => PlaylistRevisionRequest().sendSignalToRust(),
           )).message.revision;
+    final load = LoadResolvedItemsRequest(
+      items: items,
+      startIndex: startIndex,
+      mode: operateMode,
+      expectedRevision: expectedRevision,
+      playbackMode: instantlyPlay ? playbackMode : null,
+      positionSeconds: null,
+      play: null,
+    );
     if (castTo != null && !castTo.attach) {
       final response = await awaitResponse(
         'CastResolvedItemsRequest',
         CastResolvedItemsResponse.rustSignalStream,
         send: () => CastResolvedItemsRequest(
           fingerprint: castTo.fingerprint,
-          items: items,
-          startIndex: startIndex,
-          mode: operateMode,
-          expectedRevision: expectedRevision,
-          playbackMode: instantlyPlay ? playbackMode : null,
-          positionSeconds: null,
-          play: null,
+          load: load,
         ).sendSignalToRust(),
       );
       onCastResult?.call(response.message.result);
@@ -90,15 +93,7 @@ Future<List<PlayingItem>> operatePlaybackWithMixQuery({
       final response = await awaitResponse(
         'LoadResolvedItemsRequest',
         LoadResolvedItemsResponse.rustSignalStream,
-        send: () => LoadResolvedItemsRequest(
-          items: items,
-          startIndex: startIndex,
-          mode: operateMode,
-          expectedRevision: expectedRevision,
-          playbackMode: instantlyPlay ? playbackMode : null,
-          positionSeconds: null,
-          play: null,
-        ).sendSignalToRust(),
+        send: () => load.sendSignalToRust(),
       );
       onCastResult?.call(response.message.result);
     }

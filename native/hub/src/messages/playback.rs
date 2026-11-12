@@ -334,17 +334,7 @@ pub struct LoadResolvedItemsRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, DartSignal)]
 pub struct CastResolvedItemsRequest {
     pub fingerprint: String,
-    pub items: Vec<PlayingItemRef>,
-    pub start_index: Option<u32>,
-    pub mode: PlaylistOperateMode,
-    #[serde(default)]
-    pub expected_revision: Option<u64>,
-    #[serde(default)]
-    pub playback_mode: Option<u32>,
-    #[serde(default)]
-    pub position_seconds: Option<f64>,
-    #[serde(default)]
-    pub play: Option<bool>,
+    pub load: LoadResolvedItemsRequest,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

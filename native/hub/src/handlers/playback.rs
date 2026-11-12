@@ -1001,17 +1001,7 @@ impl Signal for CastResolvedItemsRequest {
         let (link, _) = node
             .connect_renderer(&request.fingerprint, RendererLinkUse::Cast)
             .await?;
-        let forwarded = LoadResolvedItemsRequest {
-            items: request.items.clone(),
-            start_index: request.start_index,
-            mode: request.mode,
-            expected_revision: request.expected_revision,
-            playback_mode: request.playback_mode,
-            position_seconds: request.position_seconds,
-            play: request.play,
-            call_id: None,
-        };
-        let result = link.call(&forwarded).await;
+        let result = link.call(&request.load).await;
         link.close();
         let response = result?;
         Ok(Some(CastResolvedItemsResponse {

@@ -395,13 +395,7 @@ impl MixPlaybackTestRequest {
             Some(target) if !target.attach => {
                 let cast = CastResolvedItemsRequest {
                     fingerprint: target.fingerprint.clone(),
-                    items: load.items.clone(),
-                    start_index: load.start_index,
-                    mode: load.mode,
-                    expected_revision: load.expected_revision,
-                    playback_mode: load.playback_mode,
-                    position_seconds: load.position_seconds,
-                    play: load.play,
+                    load: load.clone(),
                     call_id: None,
                 };
                 cast.handle(node.clone(), None, &cast).await?;
@@ -2577,7 +2571,7 @@ async fn attached_mix_query_rejects_items_outside_renderer_libraries() -> Result
 async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() -> Result<()> {
     use crate::backends::remote::RendererLinkUse;
     use crate::messages::{
-        CastResolvedItemsRequest, CastTarget, MixQuery, PlaylistOperateMode,
+        CastResolvedItemsRequest, CastTarget, LoadResolvedItemsRequest, MixQuery, PlaylistOperateMode,
         RemotePlaylistRevisionRequest, RendererAttachmentChanged,
     };
     use crate::rpc::dispatch_gui_request;
@@ -2896,22 +2890,57 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
             .queue_revision()
             .await
     );
+    let stale_revision = revision_response
+        .revision
+        .checked_sub(1)
+        .context("renderer queue revision must be nonzero")?;
+    let stale_cast = CastResolvedItemsRequest {
+        call_id: None,
+        fingerprint: renderer_info.fingerprint.clone(),
+        load: LoadResolvedItemsRequest {
+            call_id: None,
+            items: vec![host_items[0].into(), host_items[1].into()],
+            start_index: Some(1),
+            mode: PlaylistOperateMode::Replace,
+            expected_revision: Some(stale_revision),
+            playback_mode: Some(3),
+            position_seconds: Some(7.25),
+            play: Some(false),
+        },
+    };
+    let error = match dispatch_gui_request(&controller_replica.global_params, &stale_cast).await {
+        Err(error) => error,
+        Ok(_) => anyhow::bail!("cast with a stale load revision unexpectedly succeeded"),
+    };
+    assert_eq!(classify(&error), RequestErrorKind::Conflict);
     let targeted_load = CastResolvedItemsRequest {
         call_id: None,
         fingerprint: renderer_info.fingerprint.clone(),
-        items: vec![host_items[0].into()],
-        start_index: Some(0),
-        mode: PlaylistOperateMode::Replace,
-        expected_revision: Some(revision_response.revision),
-        playback_mode: None,
-        position_seconds: None,
-        play: None,
+        load: LoadResolvedItemsRequest {
+            call_id: None,
+            items: vec![host_items[0].into(), host_items[1].into()],
+            start_index: Some(1),
+            mode: PlaylistOperateMode::Replace,
+            expected_revision: Some(revision_response.revision),
+            playback_mode: Some(3),
+            position_seconds: Some(7.25),
+            play: Some(false),
+        },
     };
     dispatch_gui_request(&controller_replica.global_params, &targeted_load).await?;
-    wait_player(&renderer, |status| {
-        status.playlist == vec![PlayingItem::from(host_items[0])]
+    let forwarded_status = wait_player(&renderer, |status| {
+        status.playlist
+            == vec![PlayingItem::from(host_items[0]), PlayingItem::from(host_items[1])]
+            && status.state == PlaybackState::Paused
+            && status.index == Some(1)
+            && status.playback_mode == PlaybackMode::Shuffle
+            && (status.position.as_secs_f64() - 7.25).abs() < 0.1
     })
     .await?;
+    assert_eq!(forwarded_status.state, PlaybackState::Paused);
+    assert_eq!(forwarded_status.index, Some(1));
+    assert_eq!(forwarded_status.playback_mode, PlaybackMode::Shuffle);
+    assert!((forwarded_status.position.as_secs_f64() - 7.25).abs() < 0.1);
     assert_eq!(
         other_renderer
             .global_params
@@ -2934,13 +2963,16 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
     let play_next_when_idle = CastResolvedItemsRequest {
         call_id: None,
         fingerprint: renderer_info.fingerprint.clone(),
-        items: vec![host_items[1].into()],
-        start_index: None,
-        mode: PlaylistOperateMode::PlayNext,
-        expected_revision: None,
-        playback_mode: None,
-        position_seconds: None,
-        play: None,
+        load: LoadResolvedItemsRequest {
+            call_id: None,
+            items: vec![host_items[1].into()],
+            start_index: None,
+            mode: PlaylistOperateMode::PlayNext,
+            expected_revision: None,
+            playback_mode: None,
+            position_seconds: None,
+            play: None,
+        },
     };
     dispatch_gui_request(&controller_replica.global_params, &play_next_when_idle).await?;
     wait_player(&renderer, |status| {
@@ -4354,13 +4386,16 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
     let cast_request = CastResolvedItemsRequest {
         call_id: None,
         fingerprint: renderer_info.fingerprint.clone(),
-        items: cast_items.clone(),
-        start_index: Some(1),
-        mode: PlaylistOperateMode::Replace,
-        expected_revision: None,
-        playback_mode: None,
-        position_seconds: None,
-        play: None,
+        load: LoadResolvedItemsRequest {
+            call_id: None,
+            items: cast_items.clone(),
+            start_index: Some(1),
+            mode: PlaylistOperateMode::Replace,
+            expected_revision: None,
+            playback_mode: None,
+            position_seconds: None,
+            play: None,
+        },
     };
     let response: CastResolvedItemsResponse = dispatch_gui_request(
         &controller.global_params,
@@ -4719,6 +4754,40 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
 
     renderer.global_params.node.shutdown().await?;
     controller.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[test]
+fn cast_resolved_items_request_serializes_one_complete_load() -> Result<()> {
+    use crate::messages::{CastResolvedItemsRequest, LoadResolvedItemsRequest, PlayingItemRef};
+
+    let request = CastResolvedItemsRequest {
+        fingerprint: "device-fingerprint".to_string(),
+        load: LoadResolvedItemsRequest {
+            call_id: None,
+            items: vec![PlayingItemRef::LibraryTrack {
+                library_id: "library".to_string(),
+                track: "track".to_string(),
+            }],
+            start_index: Some(2),
+            mode: PlaylistOperateMode::PlayNext,
+            expected_revision: Some(17),
+            playback_mode: Some(3),
+            position_seconds: Some(12.5),
+            play: Some(true),
+        },
+        call_id: Some(23),
+    };
+    let value = serde_json::to_value(request)?;
+    assert_eq!(value["fingerprint"], "device-fingerprint");
+    assert_eq!(value["call_id"], 23);
+    assert_eq!(value["load"]["start_index"], 2);
+    assert_eq!(value["load"]["mode"], "PlayNext");
+    assert_eq!(value["load"]["expected_revision"], 17);
+    assert_eq!(value["load"]["playback_mode"], 3);
+    assert_eq!(value["load"]["position_seconds"], 12.5);
+    assert_eq!(value["load"]["play"], true);
+    assert_eq!(value["load"]["items"][0]["library_track"]["track"], "track");
     Ok(())
 }
 
