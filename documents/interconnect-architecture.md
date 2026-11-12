@@ -21,6 +21,8 @@ Each is one trait with several implementations, written as an enum:
 
 Calls that are neither, such as pairing and this device's settings, always run on this device.
 
+**The UI shows one player, the current one.** When another player becomes current (Play on, or opening a Subsonic library in remote-control mode or an @RR library), this device's own session pauses where it is and stays out of the UI. When this device's player is current again, the UI shows that session, paused where it stopped.
+
 **Forwarding happens inside the implementations.** There is no routing layer above them:
 
 - Another Rune device forwards every call by default and lists the calls it does not support.
@@ -423,6 +425,7 @@ Each scenario is covered by an automated test that drives the real components ac
 - A controller renders the visualizer for a player on another Rune device, with the clock running while the player plays, and the chart and spectrum received through the feed.
 - A Subsonic server that lists `runeVisualizerFeed` enables the visualizer for its jukebox; one that does not, or lacks `openSubsonic: true`, keeps it disabled.
 - A Subsonic jukebox that plays shows as playing in the play bar, the OS media controls and the visualizer, and the play bar shows the jukebox's own track, not values sent by the feed.
+- Opening a Subsonic library in remote-control mode while this device plays pauses this device's player; from then on the play bar, queue and spectrum show only the jukebox, and opening a local library again shows this device's session paused where it stopped.
 - Handoff from a local session to B and back preserves the queue and position across libraries.
 - The local UI keeps browsing and playing a local library while it controls another device's player.
 - A Subsonic jukebox rejects items from other libraries before any HTTP call.
