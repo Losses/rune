@@ -8,6 +8,10 @@ mod access_policy_tests {
     use crate::macros::{RequestAccess, request_access, request_scope};
     use crate::messages::{CastLibraryState, RendererAvailability};
     use crate::messages::{DeviceGrantsChange, DeviceGrantsInfo, RemoveTrustedClientRequest};
+    use crate::messages::{
+        GetLikedRequest, GetLyricByTrackIdRequest, GetPrimaryColorByTrackIdRequest,
+        PlayingItemRef, SetLikedRequest,
+    };
     use crate::request_error::ExpectedRequestError;
     use crate::server::libraries::{
         cast_library_state, list_peer_libraries, list_renderer_candidates,
@@ -15,20 +19,193 @@ mod access_policy_tests {
     use crate::server::sync::client::LibrarySession;
     use crate::server::sync_worker::TestPeerSession;
     use crate::test_wait::{TEST_DEADLINE, wait_until};
-    use database::actions::stats::{get_liked, set_liked};
-    use database::entities::media_cover_art;
+    use database::actions::{file::file_ids_by_uuid, stats::{get_liked, set_liked}};
+    use database::entities::{media_cover_art, media_files};
     use database::library_registry::{
         CatalogPlacement, FsAdapter, ProtocolAdapter, RuneForwardMode,
     };
     use http_request::sync::MetadataPeer;
     use sea_orm::{
-        ActiveValue,
+        ActiveValue, EntityTrait, Set,
         sqlx::{Connection, SqliteConnection, sqlite::SqliteConnectOptions},
     };
+    use sea_orm::prelude::Decimal;
     use std::fs;
+    use std::collections::BTreeMap;
     use sync::protocol::SyncError;
     use tempfile::TempDir;
     use tokio::{sync::Mutex, time::sleep};
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn liked_requests_cannot_act_on_an_ungranted_body_library() -> Result<()> {
+        let pair = PolicyPair::new().await?;
+        let second_dir = tempfile::tempdir()?;
+        let second = fixture_open_local_library(&pair.a, second_dir.path()).await?;
+        let library_b = second.global_params.library_id.context("second library id")?;
+        let library_b_handle = second
+            .global_params
+            .library
+            .as_ref()
+            .context("second library handle")?;
+        let track = Uuid::new_v4();
+        media_files::Entity::insert(media_files::ActiveModel {
+            id: ActiveValue::NotSet,
+            file_name: Set("track.flac".into()),
+            directory: Set(String::new()),
+            extension: Set("flac".into()),
+            file_hash: Set("test-hash".into()),
+            last_modified: Set(String::new()),
+            change_token: Set(None),
+            cover_art_uuid: Set(None),
+            cover_art_checked_at: Set(None),
+            sample_rate: Set(44_100),
+            duration: Set(Decimal::ONE),
+            local_available: Set(false),
+            content_hash: Set(None),
+            content_size: Set(None),
+            source_uuid: Set(track.to_string()),
+        })
+        .exec(&*library_b_handle.main_db)
+        .await?;
+        let peer = info(&pair.b).await?;
+        let mut grants = DeviceGrants::guest();
+        grants.connection.all_libraries = None;
+        grants.connection.libraries = BTreeMap::from([(pair.id, ConnectionLevel::ViewEdit)]);
+        pair.a
+            .global_params
+            .node
+            .access_policy
+            .set(&peer.fingerprint, grants)?;
+        let user = pair
+            .a
+            .global_params
+            .node
+            .permission_manager
+            .read()
+            .await
+            .verify_by_fingerprint(&peer.fingerprint)
+            .await
+            .context("approved controller")?;
+        let session = Session {
+            fingerprint: user.fingerprint.clone(),
+            public_key: user.public_key.clone(),
+            host: "127.0.0.1".into(),
+        };
+        let second_session = Session {
+            fingerprint: user.fingerprint.clone(),
+            public_key: user.public_key.clone(),
+            host: "127.0.0.1".into(),
+        };
+        let item = PlayingItemRef::LibraryTrack {
+            library_id: library_b.to_string(),
+            track: track.to_string(),
+        };
+        let node = Arc::clone(&pair.a.global_params.node);
+        let set_request = SetLikedRequest {
+            item: Some(item.clone()),
+            liked: true,
+            call_id: Some(101),
+        };
+        let (_, set_result) = node
+            .websocket_service
+            .handle_addressed_message(
+                "SetLikedRequest",
+                rinf::serialize(&set_request)?,
+                Some(second_session),
+                Some(pair.id),
+                &node,
+            )
+            .await
+            .context("SetLikedRequest route")?;
+        let get_request = GetLikedRequest {
+            item: Some(item),
+            call_id: Some(102),
+        };
+        let (_, get_result) = node
+            .websocket_service
+            .handle_addressed_message(
+                "GetLikedRequest",
+                rinf::serialize(&get_request)?,
+                Some(session),
+                Some(pair.id),
+                &node,
+            )
+            .await
+            .context("GetLikedRequest route")?;
+        let lyric_request = GetLyricByTrackIdRequest {
+            item: Some(PlayingItemRef::LibraryTrack {
+                library_id: library_b.to_string(),
+                track: Uuid::new_v4().to_string(),
+            }),
+            call_id: Some(103),
+        };
+        let (_, lyric_result) = node
+            .websocket_service
+            .handle_addressed_message(
+                "GetLyricByTrackIdRequest",
+                rinf::serialize(&lyric_request)?,
+                Some(Session {
+                    fingerprint: user.fingerprint.clone(),
+                    public_key: user.public_key.clone(),
+                    host: "127.0.0.1".into(),
+                }),
+                Some(pair.id),
+                &node,
+            )
+            .await
+            .context("GetLyricByTrackIdRequest route")?;
+        let color_request = GetPrimaryColorByTrackIdRequest {
+            item: Some(PlayingItemRef::LibraryTrack {
+                library_id: library_b.to_string(),
+                track: Uuid::new_v4().to_string(),
+            }),
+            call_id: Some(104),
+        };
+        let (_, color_result) = node
+            .websocket_service
+            .handle_addressed_message(
+                "GetPrimaryColorByTrackIdRequest",
+                rinf::serialize(&color_request)?,
+                Some(Session {
+                    fingerprint: user.fingerprint,
+                    public_key: user.public_key,
+                    host: "127.0.0.1".into(),
+                }),
+                Some(pair.id),
+                &node,
+            )
+            .await
+            .context("GetPrimaryColorByTrackIdRequest route")?;
+
+        for (name, result) in [
+            ("SetLikedRequest", set_result),
+            ("GetLikedRequest", get_result),
+            ("GetLyricByTrackIdRequest", lyric_result),
+            ("GetPrimaryColorByTrackIdRequest", color_result),
+        ] {
+            let error = result.expect_err(name);
+            assert_eq!(classify(&error), RequestErrorKind::PermissionDenied, "{name}");
+            assert!(matches!(
+                error.downcast_ref::<Denial>(),
+                Some(Denial::Action {
+                    action: Action::ConnectionEdit { library_id }
+                }) if *library_id == library_b
+            ) || matches!(
+                error.downcast_ref::<Denial>(),
+                Some(Denial::Action {
+                    action: Action::ConnectionView { library_id }
+                }) if *library_id == library_b
+            ), "{name}: {error:#}");
+        }
+        let track_id = file_ids_by_uuid(&library_b_handle.main_db, &[track])
+            .await?
+            .get(&track)
+            .copied()
+            .context("seeded second-library track")?;
+        assert!(!get_liked(&*library_b_handle.main_db, track_id).await?);
+        pair.close().await?;
+        Ok(())
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn guest_set_liked_request_returns_typed_connection_edit_denial() -> Result<()> {

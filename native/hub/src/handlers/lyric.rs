@@ -10,30 +10,39 @@ use ::lyric::{
     vtt::parse_vtt,
 };
 use ::metadata::reader::get_lyrics;
+use std::sync::Arc;
+use uuid::Uuid;
 
 use crate::{
     Session, Signal,
-    handlers::playback::{playing_item_from_request, reject_remote_independent_item},
+    handlers::playback::{
+        authorize_item_library, playing_item_from_request, reject_remote_independent_item,
+    },
     library_pool::LibraryHandle,
     messages::*,
+    node::NodeContext,
     utils::{GlobalParams, ParamsExtractor, require_library},
 };
 
 impl ParamsExtractor for GetLyricByTrackIdRequest {
-    type Params = (Option<LibraryHandle>,);
+    type Params = (Option<LibraryHandle>, Arc<NodeContext>, Option<Uuid>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (all_params.library.clone(),)
+        (
+            all_params.library.clone(),
+            all_params.node.clone(),
+            all_params.library_id,
+        )
     }
 }
 
 impl Signal for GetLyricByTrackIdRequest {
-    type Params = (Option<LibraryHandle>,);
+    type Params = (Option<LibraryHandle>, Arc<NodeContext>, Option<Uuid>);
     type Response = GetLyricByTrackIdResponse;
 
     async fn handle(
         &self,
-        (library,): Self::Params,
+        (library, node, addressed_library_id): Self::Params,
         session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -47,6 +56,13 @@ impl Signal for GetLyricByTrackIdRequest {
             return Ok(None);
         };
         reject_remote_independent_item(session.as_ref(), item)?;
+        authorize_item_library::<GetLyricByTrackIdRequest>(
+            &node,
+            session.as_ref(),
+            addressed_library_id,
+            item,
+        )
+        .await?;
 
         let lines = match load_lyric_lines(fsio, media_root, main_db, item, &library).await {
             Ok(lines) => lines,

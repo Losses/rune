@@ -8,10 +8,13 @@ use ::database::library_registry::LibraryAccess;
 use ::playback::player::PlayingItem;
 
 use std::{path::Path, sync::Arc};
+use uuid::Uuid;
 
 use crate::{
     Session, Signal,
-    handlers::playback::{playing_item_from_request, reject_remote_independent_item},
+    handlers::playback::{
+        authorize_item_library, playing_item_from_request, reject_remote_independent_item,
+    },
     library_pool::{LibraryHandle, LibraryPool},
     messages::*,
     node::NodeContext,
@@ -22,13 +25,19 @@ use crate::{
 };
 use ::database::library_registry::{LibraryRecordId, LibraryRegistry, ProtocolAdapter};
 
-type LikedParams = (Arc<NodeContext>, Arc<LibraryPool>, Option<LibraryHandle>);
+type LikedParams = (
+    Arc<NodeContext>,
+    Arc<LibraryPool>,
+    Option<LibraryHandle>,
+    Option<Uuid>,
+);
 
 fn liked_params(all_params: &GlobalParams) -> LikedParams {
     (
         all_params.node.clone(),
         all_params.library_pool.clone(),
         all_params.library.clone(),
+        all_params.library_id,
     )
 }
 
@@ -81,13 +90,20 @@ impl Signal for SetLikedRequest {
 
     async fn handle(
         &self,
-        (node, pool, ui_library): Self::Params,
+        (node, pool, ui_library, addressed_library_id): Self::Params,
         session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
         if let Some(item) = &request.item {
             reject_remote_independent_item(session.as_ref(), item)?;
+            authorize_item_library::<SetLikedRequest>(
+                &node,
+                session.as_ref(),
+                addressed_library_id,
+                item,
+            )
+            .await?;
             if let Some(binding) = item_subsonic_binding(&node, item).await? {
                 return set_liked_request(&binding, request).await;
             }
@@ -182,13 +198,20 @@ impl Signal for GetLikedRequest {
 
     async fn handle(
         &self,
-        (node, pool, ui_library): Self::Params,
+        (node, pool, ui_library, addressed_library_id): Self::Params,
         session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
         if let Some(item) = &request.item {
             reject_remote_independent_item(session.as_ref(), item)?;
+            authorize_item_library::<GetLikedRequest>(
+                &node,
+                session.as_ref(),
+                addressed_library_id,
+                item,
+            )
+            .await?;
             if let Some(binding) = item_subsonic_binding(&node, item).await? {
                 return get_liked_request(&binding, request).await;
             }

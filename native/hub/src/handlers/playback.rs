@@ -36,7 +36,7 @@ use crate::{
     library_pool::{LibraryHandle, LibraryPool},
     messages::*,
     node::NodeContext,
-    rpc::dispatch_gui_request,
+    rpc::{TargetRequest, dispatch_gui_request},
     session::{HandoffLoadParams, PlayerSession},
     utils::{
         GlobalParams, ParamsExtractor, files_to_playback_request, find_nearest_index,
@@ -72,6 +72,32 @@ pub(crate) fn reject_remote_independent_item(
         return Err(ExpectedError::InvalidInput {
             detail: "independent files are only available on this device".into(),
         }
+        .into());
+    }
+    Ok(())
+}
+
+pub(crate) async fn authorize_item_library<R: TargetRequest>(
+    node: &Arc<NodeContext>,
+    session: Option<&Session>,
+    addressed_library_id: Option<Uuid>,
+    item: &PlayingItemRef,
+) -> Result<()> {
+    let (Some(session), PlayingItemRef::LibraryTrack { library_id, .. }) = (session, item) else {
+        return Ok(());
+    };
+    let item_library_id = Uuid::parse_str(library_id).map_err(|error| {
+        ExpectedRequestError::invalid_input(format!("Invalid library id: {error}"))
+    })?;
+    node.authorize_request(session, R::wire_name(), None, Some(item_library_id))
+        .await?;
+    let addressed_library_id = addressed_library_id.ok_or(ExpectedRequestError::Unavailable {
+        what: "addressed library id",
+    })?;
+    if item_library_id != addressed_library_id {
+        return Err(ExpectedRequestError::invalid_input(
+            "request library does not match the item's library",
+        )
         .into());
     }
     Ok(())
