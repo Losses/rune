@@ -472,19 +472,12 @@ jobs:
             libgles2-mesa-dev:armhf libegl1-mesa-dev:armhf libsystemd-dev:armhf \
             libinput-dev:armhf libudev-dev:armhf libxkbcommon-dev:armhf
 
-      - name: Setup Flutter (Linux ARM64 via git)
-        if: matrix.arch == 'arm64'
+      - name: Setup Flutter
         run: |
           git clone --depth 1 -b stable https://github.com/flutter/flutter.git $HOME/flutter
           echo "$HOME/flutter/bin" >> $GITHUB_PATH
           echo "$HOME/flutter/bin/cache/dart-sdk/bin" >> $GITHUB_PATH
           $HOME/flutter/bin/flutter --version
-
-      - name: Setup Flutter (x64 via action for armhf cross-compilation)
-        if: matrix.arch == 'armhf'
-        uses: subosito/flutter-action@v2
-        with:
-          channel: "stable"
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
