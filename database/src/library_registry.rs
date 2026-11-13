@@ -367,6 +367,36 @@ struct RegistryFile {
     last_open_record: Option<LibraryRecordId>,
 }
 
+/// The current registry format as read from disk. Records stay raw JSON so that one
+/// record this build cannot parse does not fail the whole file.
+#[derive(Deserialize)]
+struct RawRegistryFile {
+    libraries: Vec<serde_json::Value>,
+    #[serde(default)]
+    last_open_record: Option<LibraryRecordId>,
+}
+
+/// The shape `RegistryFile` has on disk, with hidden records mixed in untouched.
+/// Serializing borrowed records keeps the key order of known records unchanged.
+#[derive(Serialize)]
+struct SavedRegistryFile<'a> {
+    version: u32,
+    libraries: Vec<SavedRecord<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_open_record: Option<LibraryRecordId>,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum SavedRecord<'a> {
+    Known(&'a LibraryRecord),
+    Hidden(&'a serde_json::Value),
+}
+
+fn hidden_record_id(value: &serde_json::Value) -> Option<LibraryRecordId> {
+    LibraryRecordId::deserialize(value.get("record_id")?).ok()
+}
+
 mod v2 {
     use super::{
         CatalogPlacement, CredentialRef, DbPlacement, FsAdapter, LibraryAccess,
@@ -627,6 +657,12 @@ pub struct LibraryRegistry {
     pub invalid: Vec<(LibraryRecordId, InvalidRecord)>,
     pub last_open_record: Option<LibraryRecordId>,
     invalid_records: Vec<LibraryRecord>,
+    /// Records this build cannot deserialize, kept as raw JSON and written back unchanged.
+    /// Each is paired with the number of understood records that preceded it in the file.
+    hidden_records: Vec<(usize, serde_json::Value)>,
+    /// A last-open record that points at a hidden record, kept so a save does not drop it.
+    /// If this build clears `last_open_record`, this value is written back.
+    hidden_last_open_id: Option<LibraryRecordId>,
     path: PathBuf,
 }
 
@@ -659,6 +695,7 @@ impl LibraryRegistry {
 
     fn load_inner(config_dir: &Path, persist_conversion: bool) -> Result<Self> {
         let path = config_dir.join("libraries.json");
+        let mut hidden_records = Vec::new();
         let loaded = match fs::read(&path) {
             Ok(data) => match validate_registry_version(&data) {
                 Ok(()) => {
@@ -670,9 +707,25 @@ impl LibraryRegistry {
                         }
                         (file.libraries, file.last_open_record)
                     } else {
-                        let file: RegistryFile =
+                        let file: RawRegistryFile =
                             serde_json::from_slice(&data).context("Invalid library registry")?;
-                        (file.libraries, file.last_open_record)
+                        let mut records = Vec::new();
+                        for value in file.libraries {
+                            match LibraryRecord::deserialize(&value) {
+                                Ok(record) => records.push(record),
+                                Err(error) => {
+                                    warn!(
+                                        "Hiding library record {} that this build cannot read: {error}",
+                                        hidden_record_id(&value)
+                                            .map_or("<unknown id>".to_owned(), |id| id
+                                                .0
+                                                .to_string())
+                                    );
+                                    hidden_records.push((records.len(), value));
+                                }
+                            }
+                        }
+                        (records, file.last_open_record)
                     }
                 }
                 Err(error)
@@ -699,7 +752,16 @@ impl LibraryRegistry {
             Err(e) if e.kind() == ErrorKind::NotFound => (Vec::new(), None),
             Err(e) => return Err(e).context("Failed to read library registry"),
         };
-        let (records, last_open_record) = loaded;
+        let (records, mut last_open_record) = loaded;
+        let mut hidden_last_open_id = None;
+        if let Some(id) = last_open_record
+            && !records.iter().any(|record| record.record_id == id)
+            && hidden_records
+                .iter()
+                .any(|(_, value)| hidden_record_id(value) == Some(id))
+        {
+            hidden_last_open_id = last_open_record.take();
+        }
         let mut counts = HashMap::new();
         for record in &records {
             if let Some(id) = record.library_id {
@@ -732,6 +794,8 @@ impl LibraryRegistry {
             libraries,
             invalid,
             invalid_records,
+            hidden_records,
+            hidden_last_open_id,
             last_open_record,
             path,
         })
@@ -996,15 +1060,24 @@ impl LibraryRegistry {
             Err(e) => return Err(e).context("Failed to read library registry before saving"),
         }
         let temp = dir.join(format!(".libraries-{}.tmp", Uuid::new_v4()));
-        let data = serde_json::to_vec_pretty(&RegistryFile {
+        let mut libraries: Vec<SavedRecord> = self
+            .libraries
+            .iter()
+            .chain(self.invalid_records.iter())
+            .map(SavedRecord::Known)
+            .collect();
+        // Put each hidden record back after the same number of understood records
+        // that preceded it when loaded, or at the end if some were removed since.
+        for (offset, (anchor, value)) in self.hidden_records.iter().enumerate() {
+            libraries.insert(
+                (anchor + offset).min(libraries.len()),
+                SavedRecord::Hidden(value),
+            );
+        }
+        let data = serde_json::to_vec_pretty(&SavedRegistryFile {
             version: 3,
-            libraries: self
-                .libraries
-                .iter()
-                .chain(self.invalid_records.iter())
-                .cloned()
-                .collect(),
-            last_open_record: self.last_open_record,
+            libraries,
+            last_open_record: self.last_open_record.or(self.hidden_last_open_id),
         })?;
         let result = (|| -> Result<()> {
             fs::write(&temp, data).context("Failed to write temporary registry")?;
@@ -2197,6 +2270,8 @@ mod tests {
             ],
             invalid: Vec::new(),
             invalid_records: Vec::new(),
+            hidden_records: Vec::new(),
+            hidden_last_open_id: None,
             last_open_record: None,
             path: PathBuf::new(),
         };
@@ -2206,5 +2281,226 @@ mod tests {
             assert_eq!(record.root(Path::new("/config")), None);
             assert_eq!(record.display_name(), None);
         }
+    }
+
+    fn unknown_protocol_record() -> serde_json::Value {
+        serde_json::json!({
+            "record_id": Uuid::new_v4(),
+            "alias": "From a newer build",
+            "library_id": null,
+            "protocol": { "type": "something_new", "extra": [1, 2, 3] },
+            "fs": [],
+            "catalog": { "type": "none" },
+            "background_sync": false,
+            "future_field": { "kept": true }
+        })
+    }
+
+    fn to_value(record: &LibraryRecord) -> serde_json::Value {
+        serde_json::to_value(record).unwrap()
+    }
+
+    fn write_registry_values(
+        dir: &Path,
+        libraries: Vec<serde_json::Value>,
+        last_open_record: Option<LibraryRecordId>,
+    ) {
+        let mut file = serde_json::json!({ "version": 3, "libraries": libraries });
+        if let Some(id) = last_open_record {
+            file["last_open_record"] = serde_json::to_value(id).unwrap();
+        }
+        fs::write(
+            dir.join("libraries.json"),
+            serde_json::to_vec_pretty(&file).unwrap(),
+        )
+        .unwrap();
+    }
+
+    fn read_registry_file(dir: &Path) -> serde_json::Value {
+        serde_json::from_slice(&fs::read(dir.join("libraries.json")).unwrap()).unwrap()
+    }
+
+    fn registry_libraries(dir: &Path) -> Vec<serde_json::Value> {
+        read_registry_file(dir)["libraries"]
+            .as_array()
+            .unwrap()
+            .clone()
+    }
+
+    fn record_id_of(value: &serde_json::Value) -> LibraryRecordId {
+        serde_json::from_value(value["record_id"].clone()).unwrap()
+    }
+
+    #[test]
+    fn unknown_protocol_record_is_hidden_and_the_rest_loads() {
+        let dir = TempDir::new().unwrap();
+        let valid = native_record(Uuid::new_v4(), "/music");
+        write_registry_values(
+            dir.path(),
+            vec![to_value(&valid), unknown_protocol_record()],
+            None,
+        );
+        let loaded = LibraryRegistry::load(dir.path()).unwrap();
+        assert_eq!(loaded.libraries, vec![valid]);
+        assert!(loaded.invalid.is_empty());
+    }
+
+    #[tokio::test]
+    async fn saving_without_hidden_records_keeps_the_previous_bytes() {
+        let dir = TempDir::new().unwrap();
+        let first = native_record(Uuid::new_v4(), "/first");
+        let second = replica_record(Uuid::new_v4(), "owner");
+        let write = |libraries: Vec<LibraryRecord>| {
+            serde_json::to_vec_pretty(&RegistryFile {
+                version: 3,
+                libraries,
+                last_open_record: None,
+            })
+            .unwrap()
+        };
+        fs::write(
+            dir.path().join("libraries.json"),
+            write(vec![first.clone(), second.clone()]),
+        )
+        .unwrap();
+        let added = LibraryRegistry::register_remote_control(dir.path(), "peer", "Peer")
+            .await
+            .unwrap();
+        assert_eq!(
+            fs::read(dir.path().join("libraries.json")).unwrap(),
+            write(vec![first, second, added])
+        );
+    }
+
+    #[tokio::test]
+    async fn hidden_records_keep_their_place_across_saves() {
+        let dir = TempDir::new().unwrap();
+        let first = to_value(&native_record(Uuid::new_v4(), "/first"));
+        let second = to_value(&native_record(Uuid::new_v4(), "/second"));
+        let mut broken = native_record(Uuid::new_v4(), "/broken");
+        broken.fs.clear();
+        let broken = to_value(&broken);
+        let (a, b, c) = (
+            unknown_protocol_record(),
+            unknown_protocol_record(),
+            unknown_protocol_record(),
+        );
+        write_registry_values(
+            dir.path(),
+            vec![
+                first.clone(),
+                a.clone(),
+                b.clone(),
+                second.clone(),
+                broken.clone(),
+                c.clone(),
+            ],
+            None,
+        );
+        let added = LibraryRegistry::register_remote_control(dir.path(), "peer", "Peer")
+            .await
+            .unwrap();
+        let added = to_value(&added);
+        // Known-invalid records are written after the valid ones, as before.
+        assert_eq!(
+            registry_libraries(dir.path()),
+            vec![
+                first.clone(),
+                a.clone(),
+                b.clone(),
+                second.clone(),
+                added.clone(),
+                c.clone(),
+                broken.clone()
+            ]
+        );
+
+        let first_id = record_id_of(&first);
+        let credentials = CredentialStore::open(dir.path());
+        assert!(
+            LibraryRegistry::remove_record(dir.path(), first_id, &credentials)
+                .await
+                .unwrap()
+        );
+        let libraries = registry_libraries(dir.path());
+        // Hidden records stay at their recorded index, capped at the end of the list.
+        assert_eq!(libraries, vec![second, a, b, added, broken, c]);
+    }
+
+    #[tokio::test]
+    async fn malformed_record_is_hidden_like_an_unknown_one() {
+        let dir = TempDir::new().unwrap();
+        let valid = native_record(Uuid::new_v4(), "/music");
+        let mut malformed = to_value(&native_record(Uuid::new_v4(), "/other"));
+        malformed.as_object_mut().unwrap().remove("alias");
+        write_registry_values(dir.path(), vec![to_value(&valid), malformed.clone()], None);
+        assert_eq!(
+            LibraryRegistry::load(dir.path()).unwrap().libraries,
+            vec![valid]
+        );
+        LibraryRegistry::register_remote_control(dir.path(), "peer", "Peer")
+            .await
+            .unwrap();
+        assert_eq!(registry_libraries(dir.path())[1], malformed);
+    }
+
+    #[tokio::test]
+    async fn last_open_record_at_a_hidden_record_loads_and_is_preserved() {
+        let dir = TempDir::new().unwrap();
+        let valid = native_record(Uuid::new_v4(), "/music");
+        let unknown = unknown_protocol_record();
+        let unknown_id = record_id_of(&unknown);
+        write_registry_values(
+            dir.path(),
+            vec![to_value(&valid), unknown],
+            Some(unknown_id),
+        );
+        let loaded = LibraryRegistry::load(dir.path()).unwrap();
+        assert_eq!(loaded.libraries, vec![valid]);
+        assert_eq!(loaded.last_open_record, None);
+
+        LibraryRegistry::register_remote_control(dir.path(), "peer", "Peer")
+            .await
+            .unwrap();
+        assert_eq!(
+            read_registry_file(dir.path())["last_open_record"],
+            serde_json::to_value(unknown_id).unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn opening_another_library_replaces_a_hidden_last_open_record() {
+        let dir = TempDir::new().unwrap();
+        let valid = native_record(Uuid::new_v4(), "/music");
+        let unknown = unknown_protocol_record();
+        write_registry_values(
+            dir.path(),
+            vec![to_value(&valid), unknown.clone()],
+            Some(record_id_of(&unknown)),
+        );
+        LibraryRegistry::update(dir.path(), |registry| {
+            registry.last_open_record = Some(valid.record_id);
+            Ok(())
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            LibraryRegistry::load(dir.path()).unwrap().last_open_record,
+            Some(valid.record_id)
+        );
+        assert!(registry_libraries(dir.path()).contains(&unknown));
+    }
+
+    #[test]
+    fn last_open_record_at_an_understood_record_is_kept_with_hidden_records() {
+        let dir = TempDir::new().unwrap();
+        let valid = native_record(Uuid::new_v4(), "/music");
+        write_registry_values(
+            dir.path(),
+            vec![to_value(&valid), unknown_protocol_record()],
+            Some(valid.record_id),
+        );
+        let loaded = LibraryRegistry::load(dir.path()).unwrap();
+        assert_eq!(loaded.last_open_record, Some(valid.record_id));
     }
 }
