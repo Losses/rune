@@ -6313,12 +6313,17 @@ async fn handoff_dispatch_appends_to_idle_renderer_queue_and_starts_source_curso
         .to_string();
     let mut expected_queue = expected_target_queue.clone();
     expected_queue.extend(source_queue.iter().cloned());
-    let (source_paused_at, target_loaded_at) = recorded_handoff_order(
-        &signals,
-        &source_session_id,
-        &target_session_id,
-        expected_queue.len(),
-    )?;
+    let (source_paused_at, target_loaded_at) =
+        wait_until("the source pause and the target queue update", || async {
+            Ok(recorded_handoff_order(
+                &signals,
+                &source_session_id,
+                &target_session_id,
+                expected_queue.len(),
+            )
+            .ok())
+        })
+        .await?;
     assert!(
         source_paused_at < target_loaded_at,
         "source paused at {source_paused_at}, target loaded at {target_loaded_at}"
@@ -9460,7 +9465,9 @@ async fn local_session_signals_are_hidden_during_subsonic_remote_control() -> Re
         matches!(node.current_player()?, CurrentPlayer::SubsonicJukebox(_)),
         "Subsonic remote-control player did not become current"
     );
-    signals.clear();
+    // The jukebox poller broadcasts on its first poll and afterwards only on a change, so
+    // nothing recorded is dropped: local signals are checked only after this point.
+    let current_since = signals.0.lock().unwrap().len();
     let jukebox_session_id = match node.current_player()? {
         CurrentPlayer::SubsonicJukebox(binding) => binding.library_id.to_string(),
         _ => anyhow::bail!("Subsonic remote-control player did not become current"),
@@ -9490,6 +9497,7 @@ async fn local_session_signals_are_hidden_during_subsonic_remote_control() -> Re
         .broadcast(&crate::messages::RealtimeFFT { value: vec![0.25] });
     let (local_status_hidden, local_playlist_hidden, local_fft_hidden) = {
         let records = signals.0.lock().unwrap();
+        let records = &records[current_since..];
         (
             !records.iter().any(|(name, bytes)| {
                 name == "PlaybackStatus"
