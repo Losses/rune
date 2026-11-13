@@ -458,13 +458,13 @@ pub(crate) async fn reorder_playlist_item_position_request(
     }))
 }
 
-fn subsonic_cover_map(
+async fn subsonic_cover_map(
     binding: &SubsonicBinding,
     covers: Vec<(i32, String)>,
-) -> std::collections::HashMap<i32, String> {
+) -> Result<std::collections::HashMap<i32, String>> {
     let mut map = HashMap::new();
     for (object_id, cover_id) in covers {
-        if let Some(path) = binding.covers.cached_path(&cover_id) {
+        if let Some(path) = binding.covers.cached_path(&cover_id).await? {
             map.insert(object_id, path);
         } else {
             binding
@@ -472,7 +472,7 @@ fn subsonic_cover_map(
                 .schedule(Arc::clone(&binding.client), cover_id);
         }
     }
-    map
+    Ok(map)
 }
 
 pub(crate) async fn search_for_request(
@@ -602,7 +602,7 @@ pub(crate) async fn fetch_media_file_by_ids_request(
     Ok(Some(FetchMediaFileByIdsResponse {
         call_id: None,
         media_files,
-        cover_art_map: subsonic_cover_map(binding, covers),
+        cover_art_map: subsonic_cover_map(binding, covers).await?,
     }))
 }
 
@@ -704,7 +704,7 @@ pub(crate) async fn fetch_media_files_request(
         media_files.push(media_file_from_song(binding, id, &song)?);
     }
     let cover_art_map = if request.bake_cover_arts {
-        subsonic_cover_map(binding, covers)
+        subsonic_cover_map(binding, covers).await?
     } else {
         HashMap::new()
     };
@@ -883,53 +883,54 @@ pub(crate) async fn search_collection_summary_request(
         binding.client.search("", limits).await.map_err(|error| {
             empty_search_error(error, SearchCollectionSummaryRequest::wire_name())
         })?;
-    let mut catalog = binding
-        .catalog
-        .lock()
-        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
-    let entries = match kind {
-        SubsonicIdKind::Album => results
-            .albums
-            .into_iter()
-            .map(|item| {
-                let id = catalog.ids.intern(kind, &item.id)?;
-                let cover = item.cover_art.clone();
-                catalog.albums.insert(id, item.clone());
-                Ok((id, item.name, cover))
-            })
-            .collect::<Result<Vec<_>>>()?,
-        SubsonicIdKind::Artist => results
-            .artists
-            .into_iter()
-            .map(|item| {
-                let id = catalog.ids.intern(kind, &item.id)?;
-                let cover = item.cover_art.clone();
-                catalog.artists.insert(id, item.clone());
-                Ok((id, item.name, cover))
-            })
-            .collect::<Result<Vec<_>>>()?,
-        _ => Vec::new(),
+    let entries = {
+        let mut catalog = binding
+            .catalog
+            .lock()
+            .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+        match kind {
+            SubsonicIdKind::Album => results
+                .albums
+                .into_iter()
+                .map(|item| {
+                    let id = catalog.ids.intern(kind, &item.id)?;
+                    let cover = item.cover_art.clone();
+                    catalog.albums.insert(id, item.clone());
+                    Ok((id, item.name, cover))
+                })
+                .collect::<Result<Vec<_>>>()?,
+            SubsonicIdKind::Artist => results
+                .artists
+                .into_iter()
+                .map(|item| {
+                    let id = catalog.ids.intern(kind, &item.id)?;
+                    let cover = item.cover_art.clone();
+                    catalog.artists.insert(id, item.clone());
+                    Ok((id, item.name, cover))
+                })
+                .collect::<Result<Vec<_>>>()?,
+            _ => Vec::new(),
+        }
     };
-    let collections = entries
-        .iter()
-        .map(|(id, name, cover)| {
-            let cover_art_map = subsonic_cover_map(
-                binding,
-                cover
-                    .clone()
-                    .map(|cover| vec![(*id, cover)])
-                    .unwrap_or_default(),
-            );
-            Collection {
-                id: *id,
-                name: name.clone(),
-                queries: Vec::new(),
-                collection_type,
-                cover_art_map,
-                readonly: true,
-            }
-        })
-        .collect();
+    let mut collections = Vec::with_capacity(entries.len());
+    for (id, name, cover) in &entries {
+        let cover_art_map = subsonic_cover_map(
+            binding,
+            cover
+                .clone()
+                .map(|cover| vec![(*id, cover)])
+                .unwrap_or_default(),
+        )
+        .await?;
+        collections.push(Collection {
+            id: *id,
+            name: name.clone(),
+            queries: Vec::new(),
+            collection_type,
+            cover_art_map,
+            readonly: true,
+        });
+    }
     Ok(Some(SearchCollectionSummaryResponse {
         collection_type,
         result: collections,
@@ -1051,7 +1052,8 @@ pub(crate) async fn fetch_collection_by_ids_request(
         let cover_art_map = subsonic_cover_map(
             binding,
             cover_id.map(|cover| vec![(*id, cover)]).unwrap_or_default(),
-        );
+        )
+        .await?;
         result.push(Collection {
             id: *id,
             name,
@@ -1395,82 +1397,84 @@ async fn ensure_albums(binding: &SubsonicBinding) -> Result<()> {
     }
 }
 
-fn collection_groups(
+async fn collection_groups(
     binding: &SubsonicBinding,
     collection_type: CollectionType,
     group_titles: &[String],
 ) -> Result<Vec<CollectionGroup>> {
-    let catalog = binding
-        .catalog
-        .lock()
-        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
-    let entries: Vec<(i32, String, String, Option<String>)> = match collection_type {
-        CollectionType::Artist => catalog
-            .artists
-            .iter()
-            .map(|(id, artist)| {
-                (
-                    *id,
-                    artist.name.clone(),
-                    generate_group_name(&artist.name),
-                    artist.cover_art.clone(),
-                )
-            })
-            .collect(),
-        CollectionType::Album => catalog
-            .albums
-            .iter()
-            .map(|(id, album)| {
-                (
-                    *id,
-                    album.name.clone(),
-                    generate_group_name(&album.name),
-                    album.cover_art.clone(),
-                )
-            })
-            .collect(),
-        _ => {
-            return Err(ExpectedRequestError::Unsupported {
-                request: FetchCollectionGroupsRequest::wire_name(),
-                reason: UnsupportedReason::NotImplemented,
+    let entries: Vec<(i32, String, String, Option<String>)> = {
+        let catalog = binding
+            .catalog
+            .lock()
+            .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+        match collection_type {
+            CollectionType::Artist => catalog
+                .artists
+                .iter()
+                .map(|(id, artist)| {
+                    (
+                        *id,
+                        artist.name.clone(),
+                        generate_group_name(&artist.name),
+                        artist.cover_art.clone(),
+                    )
+                })
+                .collect(),
+            CollectionType::Album => catalog
+                .albums
+                .iter()
+                .map(|(id, album)| {
+                    (
+                        *id,
+                        album.name.clone(),
+                        generate_group_name(&album.name),
+                        album.cover_art.clone(),
+                    )
+                })
+                .collect(),
+            _ => {
+                return Err(ExpectedRequestError::Unsupported {
+                    request: FetchCollectionGroupsRequest::wire_name(),
+                    reason: UnsupportedReason::NotImplemented,
+                }
+                .into());
             }
-            .into());
         }
     };
-    Ok(group_titles
-        .iter()
-        .map(|title| {
-            let mut collections: Vec<_> = entries
+    let mut groups = Vec::with_capacity(group_titles.len());
+    for title in group_titles {
+        let mut collections: Vec<_> = entries
+            .iter()
+            .filter(|(_, _, group, _)| group == title)
+            .map(|(id, name, _, _)| Collection {
+                id: *id,
+                name: name.clone(),
+                queries: Vec::new(),
+                collection_type,
+                cover_art_map: Default::default(),
+                readonly: true,
+            })
+            .collect();
+        collections.sort_by(|left, right| left.name.cmp(&right.name));
+        for collection in &mut collections {
+            let cover = entries
                 .iter()
-                .filter(|(_, _, group, _)| group == title)
-                .map(|(id, name, _, _)| Collection {
-                    id: *id,
-                    name: name.clone(),
-                    queries: Vec::new(),
-                    collection_type,
-                    cover_art_map: Default::default(),
-                    readonly: true,
-                })
-                .collect();
-            collections.sort_by(|left, right| left.name.cmp(&right.name));
-            for collection in &mut collections {
-                let cover = entries
-                    .iter()
-                    .find(|(id, _, _, _)| *id == collection.id)
-                    .and_then(|(_, _, _, cover)| cover.clone());
-                collection.cover_art_map = subsonic_cover_map(
-                    binding,
-                    cover
-                        .map(|cover| vec![(collection.id, cover)])
-                        .unwrap_or_default(),
-                );
-            }
-            CollectionGroup {
-                group_title: title.clone(),
-                collections,
-            }
-        })
-        .collect())
+                .find(|(id, _, _, _)| *id == collection.id)
+                .and_then(|(_, _, _, cover)| cover.clone());
+            collection.cover_art_map = subsonic_cover_map(
+                binding,
+                cover
+                    .map(|cover| vec![(collection.id, cover)])
+                    .unwrap_or_default(),
+            )
+            .await?;
+        }
+        groups.push(CollectionGroup {
+            group_title: title.clone(),
+            collections,
+        });
+    }
+    Ok(groups)
 }
 
 pub(crate) async fn fetch_collection_group_summary_request(
@@ -1536,7 +1540,7 @@ pub(crate) async fn fetch_collection_groups_request(
     }
     Ok(Some(FetchCollectionGroupsResponse {
         call_id: None,
-        groups: collection_groups(binding, request.collection_type, &request.group_titles)?,
+        groups: collection_groups(binding, request.collection_type, &request.group_titles).await?,
     }))
 }
 
@@ -1636,27 +1640,28 @@ pub(crate) async fn mix_query_request(
 ) -> Result<Option<MixQueryResponse>> {
     let query = parse_detail_query(request)?;
     let songs = detail_songs(binding, query).await?;
-    let mut catalog = binding
-        .catalog
-        .lock()
-        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
-    let translated = songs
-        .into_iter()
-        .skip(usize::try_from(request.cursor.max(0)).unwrap_or(usize::MAX))
-        .take(usize::try_from(request.page_size.max(0)).unwrap_or(usize::MAX))
-        .map(|song| {
-            let id = catalog.ids.intern(SubsonicIdKind::Track, &song.id)?;
-            catalog.songs.insert(id, song.clone());
-            let cover_art_id = song
-                .cover_art
-                .as_deref()
-                .map(|cover| catalog.ids.intern(SubsonicIdKind::CoverArt, cover))
-                .transpose()?;
-            let media_file = subsonic_media_file(binding, id, cover_art_id, &song);
-            Ok((media_file, song.cover_art))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    drop(catalog);
+    let translated = {
+        let mut catalog = binding
+            .catalog
+            .lock()
+            .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+        songs
+            .into_iter()
+            .skip(usize::try_from(request.cursor.max(0)).unwrap_or(usize::MAX))
+            .take(usize::try_from(request.page_size.max(0)).unwrap_or(usize::MAX))
+            .map(|song| {
+                let id = catalog.ids.intern(SubsonicIdKind::Track, &song.id)?;
+                catalog.songs.insert(id, song.clone());
+                let cover_art_id = song
+                    .cover_art
+                    .as_deref()
+                    .map(|cover| catalog.ids.intern(SubsonicIdKind::CoverArt, cover))
+                    .transpose()?;
+                let media_file = subsonic_media_file(binding, id, cover_art_id, &song);
+                Ok((media_file, song.cover_art))
+            })
+            .collect::<Result<Vec<_>>>()?
+    };
     let covers = translated
         .iter()
         .filter_map(|(file, cover)| cover.clone().map(|cover| (file.id, cover)))
@@ -1665,7 +1670,7 @@ pub(crate) async fn mix_query_request(
     Ok(Some(MixQueryResponse {
         call_id: None,
         files,
-        cover_art_map: subsonic_cover_map(binding, covers),
+        cover_art_map: subsonic_cover_map(binding, covers).await?,
     }))
 }
 

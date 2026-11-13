@@ -13,7 +13,7 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
-use tokio::sync::Semaphore;
+use tokio::sync::{Semaphore, watch};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -188,11 +188,33 @@ fn jukebox_playback_status(
 
 pub(crate) struct SubsonicCoverCache {
     pub(crate) root: PathBuf,
-    pub(crate) pending: Mutex<HashSet<String>>,
-    pub(crate) concurrency: Semaphore,
+    pending: Mutex<HashMap<String, watch::Receiver<Option<CoverFetchResult>>>>,
+    pub(crate) concurrency: Arc<Semaphore>,
     pub(crate) cancellation: CancellationToken,
     pub(crate) broadcaster: Arc<dyn Broadcaster>,
 }
+
+#[derive(Clone)]
+struct CoverFetchResult(std::result::Result<Option<String>, Arc<anyhow::Error>>);
+
+struct SharedCoverFetchError(Arc<anyhow::Error>);
+
+impl std::fmt::Display for SharedCoverFetchError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "shared Subsonic cover fetch failed: {}", self.0)
+    }
+}
+
+impl std::fmt::Debug for SharedCoverFetchError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_tuple("SharedCoverFetchError")
+            .field(&self.0)
+            .finish()
+    }
+}
+
+impl std::error::Error for SharedCoverFetchError {}
 
 pub(crate) async fn delete_subsonic_cover_cache(
     config_dir: &Path,
@@ -214,16 +236,21 @@ impl SubsonicCoverCache {
         self.root.join(format!("{key}.img"))
     }
 
-    pub(crate) fn cached_path(&self, cover_id: &str) -> Option<String> {
+    pub(crate) async fn cached_path(&self, cover_id: &str) -> Result<Option<String>> {
         let path = self.path_for(cover_id);
-        let metadata = fs::metadata(&path).ok()?;
-        if !metadata.is_file() || metadata.len() == 0 {
-            return None;
-        }
-        if let Ok(file) = fs::OpenOptions::new().write(true).open(&path) {
-            let _ = file.set_times(fs::FileTimes::new().set_modified(SystemTime::now()));
-        }
-        path.to_str().map(str::to_owned)
+        tokio::task::spawn_blocking(move || -> Result<Option<String>> {
+            let Ok(metadata) = fs::metadata(&path) else {
+                return Ok(None);
+            };
+            if !metadata.is_file() || metadata.len() == 0 {
+                return Ok(None);
+            }
+            if let Ok(file) = fs::OpenOptions::new().write(true).open(&path) {
+                let _ = file.set_times(fs::FileTimes::new().set_modified(SystemTime::now()));
+            }
+            Ok(path.to_str().map(str::to_owned))
+        })
+        .await?
     }
 
     pub(crate) fn schedule(self: &Arc<Self>, client: Arc<SubsonicClient>, cover_id: String) {
@@ -234,62 +261,77 @@ impl SubsonicCoverCache {
     }
 
     async fn ensure_cached(
-        &self,
+        self: &Arc<Self>,
         client: Arc<SubsonicClient>,
         cover_id: &str,
     ) -> Result<Option<String>> {
-        if let Some(path) = self.cached_path(cover_id) {
+        if let Some(path) = self.cached_path(cover_id).await? {
             return Ok(Some(path));
         }
-        let owner = {
+        let mut receiver = {
             let mut pending = self
                 .pending
                 .lock()
                 .map_err(|_| anyhow::anyhow!("Subsonic cover cache lock poisoned"))?;
-            pending.insert(cover_id.to_owned())
+            if let Some(receiver) = pending.get(cover_id) {
+                receiver.clone()
+            } else {
+                let (sender, receiver) = watch::channel(None);
+                pending.insert(cover_id.to_owned(), receiver.clone());
+                let cache = Arc::clone(self);
+                let fetch_client = Arc::clone(&client);
+                let id = cover_id.to_owned();
+                tokio::spawn(async move {
+                    let result = cache.fetch_uncached(fetch_client, &id).await;
+                    if let Ok(mut pending) = cache.pending.lock() {
+                        pending.remove(&id);
+                    }
+                    let _ = sender.send(Some(CoverFetchResult(result.map_err(Arc::new))));
+                });
+                receiver
+            }
         };
-        if !owner {
-            loop {
-                if let Some(path) = self.cached_path(cover_id) {
-                    return Ok(Some(path));
-                }
-                let still_pending = self
-                    .pending
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("Subsonic cover cache lock poisoned"))?
-                    .contains(cover_id);
-                if !still_pending {
-                    return Ok(None);
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
+        loop {
+            if let Some(CoverFetchResult(result)) = receiver.borrow().clone() {
+                return result.map_err(|error| anyhow::Error::new(SharedCoverFetchError(error)));
             }
+            receiver
+                .changed()
+                .await
+                .map_err(|_| anyhow::anyhow!("Subsonic cover fetch task ended without a result"))?;
         }
-        let result = async {
-            let permit = self.concurrency.acquire().await?;
-            let bytes = tokio::select! {
-                _ = self.cancellation.cancelled() => return Ok(None),
-                result = client.cover_art(cover_id, None) => result?,
-            };
-            if bytes.is_empty() || bytes.len() > 8 * 1024 * 1024 {
-                return Ok(None);
-            }
-            let path = self.path_for(cover_id);
-            fs::create_dir_all(&self.root)?;
-            let temporary = path.with_extension("tmp");
-            fs::write(&temporary, bytes)?;
-            fs::rename(&temporary, &path)?;
-            evict_cover_cache(&self.root, &path, COVER_CACHE_LIMITS)?;
-            self.broadcaster.broadcast(&LibraryContentChanged {
-                path: String::new(),
-            });
-            drop(permit);
-            Ok(self.cached_path(cover_id))
+    }
+
+    async fn fetch_uncached(
+        &self,
+        client: Arc<SubsonicClient>,
+        cover_id: &str,
+    ) -> Result<Option<String>> {
+        let permit = tokio::select! {
+            _ = self.cancellation.cancelled() => return Ok(None),
+            permit = self.concurrency.acquire() => permit?,
+        };
+        let bytes = tokio::select! {
+            _ = self.cancellation.cancelled() => return Ok(None),
+            result = client.cover_art(cover_id, None) => result?,
+        };
+        if bytes.is_empty() || bytes.len() > 8 * 1024 * 1024 {
+            return Ok(None);
         }
-        .await;
-        if let Ok(mut pending) = self.pending.lock() {
-            pending.remove(cover_id);
-        }
-        result
+        let path = self.path_for(cover_id);
+        tokio::fs::create_dir_all(&self.root).await?;
+        let temporary = path.with_extension("tmp");
+        tokio::fs::write(&temporary, bytes).await?;
+        tokio::fs::rename(&temporary, &path).await?;
+        let root = self.root.clone();
+        let newest = path.clone();
+        tokio::task::spawn_blocking(move || evict_cover_cache(&root, &newest, COVER_CACHE_LIMITS))
+            .await??;
+        self.broadcaster.broadcast(&LibraryContentChanged {
+            path: String::new(),
+        });
+        drop(permit);
+        self.cached_path(cover_id).await
     }
 }
 
@@ -368,8 +410,8 @@ impl SubsonicBinding {
                 root: config_dir
                     .join("subsonic-covers")
                     .join(library_id.to_string()),
-                pending: Mutex::new(HashSet::new()),
-                concurrency: Semaphore::new(4),
+                pending: Mutex::new(HashMap::new()),
+                concurrency: Arc::new(Semaphore::new(4)),
                 cancellation: CancellationToken::new(),
                 broadcaster,
             }),
@@ -625,9 +667,11 @@ impl SubsonicBinding {
                 .unwrap_or_default(),
             duration: f64::from(song.duration.unwrap_or_default()),
         };
-        let cover = with_cover
-            .then(|| self.cover_path(song.cover_art.as_deref()))
-            .flatten();
+        let cover = if with_cover {
+            self.cover_path(song.cover_art.as_deref()).await
+        } else {
+            None
+        };
         Ok((summary, cover))
     }
 
@@ -770,11 +814,11 @@ impl SubsonicBinding {
             .map_err(subsonic_playback_error)
     }
 
-    pub(crate) fn cover_path(&self, cover_id: Option<&str>) -> Option<String> {
+    pub(crate) async fn cover_path(&self, cover_id: Option<&str>) -> Option<String> {
         let cover_id = cover_id?;
         self.covers
             .schedule(Arc::clone(&self.client), cover_id.to_owned());
-        self.covers.cached_path(cover_id)
+        self.covers.cached_path(cover_id).await.ok().flatten()
     }
 }
 
@@ -990,12 +1034,13 @@ mod visualizer_feed_tests {
     };
     use serde::Serialize;
     use tempfile::TempDir;
-    use tokio::{net::TcpListener, sync::Notify};
+    use tokio::{net::TcpListener, sync::Notify, time::timeout};
     use url::Url;
     use uuid::Uuid;
     use visualizer::VisualizerInputs;
 
     use super::SubsonicBinding;
+    use crate::test_wait::TEST_DEADLINE;
     use crate::test_wait::wait_until;
     use crate::visualizer::VISUALIZER;
     use crate::{
@@ -1019,6 +1064,11 @@ mod visualizer_feed_tests {
         jukebox: Arc<Mutex<MockJukebox>>,
         feed_status: Arc<Mutex<PlaybackStatus>>,
         feed_release: Arc<Notify>,
+        cover_calls: Arc<AtomicUsize>,
+        cover_started: Arc<Notify>,
+        release_cover: Arc<Notify>,
+        delay_cover: Arc<AtomicBool>,
+        fail_cover_once: Arc<AtomicBool>,
     }
 
     #[derive(Clone)]
@@ -1217,6 +1267,11 @@ mod visualizer_feed_tests {
             })),
             feed_status: Arc::new(Mutex::new(default_feed_status())),
             feed_release: Arc::new(Notify::new()),
+            cover_calls: Arc::new(AtomicUsize::new(0)),
+            cover_started: Arc::new(Notify::new()),
+            release_cover: Arc::new(Notify::new()),
+            delay_cover: Arc::new(AtomicBool::new(false)),
+            fail_cover_once: Arc::new(AtomicBool::new(false)),
         };
         let app = Router::new()
             .route("/rest/{*endpoint}", get(http))
@@ -1238,6 +1293,22 @@ mod visualizer_feed_tests {
         Query(query): Query<HashMap<String, String>>,
     ) -> impl IntoResponse {
         let endpoint = endpoint.trim_end_matches(".view");
+        if endpoint == "getCoverArt" {
+            state.cover_calls.fetch_add(1, Ordering::SeqCst);
+            state.cover_started.notify_one();
+            if state.delay_cover.load(Ordering::SeqCst) {
+                state.release_cover.notified().await;
+            }
+            if state.fail_cover_once.swap(false, Ordering::SeqCst) {
+                return (StatusCode::INTERNAL_SERVER_ERROR, "cover fetch failed").into_response();
+            }
+            return (
+                StatusCode::OK,
+                [("content-type", "image/png")],
+                vec![1_u8, 2, 3],
+            )
+                .into_response();
+        }
         let response = match endpoint {
             "ping" => format!(r#"{{"subsonic-response":{{"status":"ok","version":"1.16.1","serverVersion":"1","openSubsonic":{}}}}}"#, state.open),
             "getOpenSubsonicExtensions" => {
@@ -1259,7 +1330,7 @@ mod visualizer_feed_tests {
             }
             _ => r#"{"subsonic-response":{"status":"ok","jukeboxStatus":{"playing":false}}}"#.into(),
         };
-        (StatusCode::OK, response)
+        (StatusCode::OK, response).into_response()
     }
 
     async fn feed(
@@ -1355,6 +1426,96 @@ mod visualizer_feed_tests {
             false,
             broadcaster,
         ))
+    }
+
+    #[tokio::test]
+    async fn cancelled_cover_fetch_does_not_block_the_next_request() {
+        let (url, state, server) = server(true, false).await;
+        state.delay_cover.store(true, Ordering::SeqCst);
+        let root = TempDir::new().unwrap();
+        let binding = open_binding(url, &root, Arc::new(Signals::default())).await;
+        let first_cache = binding.covers.clone();
+        let first_client = binding.client.clone();
+        let first =
+            tokio::spawn(async move { first_cache.ensure_cached(first_client, "cover-1").await });
+        timeout(TEST_DEADLINE, state.cover_started.notified())
+            .await
+            .unwrap();
+        first.abort();
+        let _ = first.await;
+
+        let next_cache = binding.covers.clone();
+        let next_client = binding.client.clone();
+        let next =
+            tokio::spawn(async move { next_cache.ensure_cached(next_client, "cover-1").await });
+        state.release_cover.notify_one();
+        state.release_cover.notify_one();
+        let result = timeout(TEST_DEADLINE, next)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(result.is_some());
+        assert_eq!(state.cover_calls.load(Ordering::SeqCst), 1);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn concurrent_cover_requests_share_one_fetch() {
+        let (url, state, server) = server(true, false).await;
+        state.delay_cover.store(true, Ordering::SeqCst);
+        let root = TempDir::new().unwrap();
+        let binding = open_binding(url, &root, Arc::new(Signals::default())).await;
+        let first_cache = binding.covers.clone();
+        let first_client = binding.client.clone();
+        let first =
+            tokio::spawn(async move { first_cache.ensure_cached(first_client, "cover-1").await });
+        timeout(TEST_DEADLINE, state.cover_started.notified())
+            .await
+            .unwrap();
+        let second_cache = binding.covers.clone();
+        let second_client = binding.client.clone();
+        let second =
+            tokio::spawn(async move { second_cache.ensure_cached(second_client, "cover-1").await });
+        state.release_cover.notify_one();
+        state.release_cover.notify_one();
+        let first_result = timeout(TEST_DEADLINE, first)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let second_result = timeout(TEST_DEADLINE, second)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(first_result.is_some());
+        assert_eq!(first_result, second_result);
+        assert_eq!(state.cover_calls.load(Ordering::SeqCst), 1);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn failed_cover_fetch_is_retried_by_the_next_request() {
+        let (url, state, server) = server(true, false).await;
+        state.fail_cover_once.store(true, Ordering::SeqCst);
+        let root = TempDir::new().unwrap();
+        let binding = open_binding(url, &root, Arc::new(Signals::default())).await;
+        assert!(
+            binding
+                .covers
+                .ensure_cached(binding.client.clone(), "cover-1")
+                .await
+                .is_err()
+        );
+        let result = binding
+            .covers
+            .ensure_cached(binding.client.clone(), "cover-1")
+            .await
+            .unwrap();
+        assert!(result.is_some());
+        assert_eq!(state.cover_calls.load(Ordering::SeqCst), 2);
+        server.abort();
     }
 
     #[tokio::test]
