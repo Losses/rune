@@ -1,0 +1,30 @@
+[Unit]
+Description=Rune Player DRM/KMS Kiosk
+After=network.target sound.target lightdm.service seatd.service
+Conflicts=lightdm.service
+
+[Service]
+Type=simple
+User=dietpi
+Group=dietpi
+WorkingDirectory=/opt/rune-embedded
+Environment=HOME=/home/dietpi
+Environment=XDG_DATA_HOME=/home/dietpi/.local/share
+Environment=LD_PRELOAD=/opt/rune-embedded/lib/libhub.so
+Environment=LD_LIBRARY_PATH=/opt/rune-embedded/lib
+
+# Set GPU governor to performance on start
+ExecStartPre=-/bin/sh -c 'test -w /sys/class/devfreq/fde60000.gpu/governor && echo performance > /sys/class/devfreq/fde60000.gpu/governor'
+
+# Run flutter-pi directly on DRM/KMS
+ExecStart=/opt/rune-embedded/bin/flutter-pi --release /opt/rune-embedded/data
+
+# Restore GPU governor to simple_ondemand on stop
+ExecStopPost=-/bin/sh -c 'test -w /sys/class/devfreq/fde60000.gpu/governor && echo simple_ondemand > /sys/class/devfreq/fde60000.gpu/governor'
+ExecStopPost=-/bin/sh -c 'systemctl --no-block start lightdm.service'
+
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
