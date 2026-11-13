@@ -2,30 +2,32 @@
 
 ## 1. Overview
 
-runeVisualizerFeed provides a read-only stream of playback status, the current track's visualizer chart, cover images and realtime spectrum for a server's jukebox. A client can use these inputs to draw a visualizer for that jukebox.
+runeVisualizerFeed gives a client what it needs to draw a visualizer for a server's jukebox: the jukebox's playback clock, a per-track chart, cover images and the realtime spectrum.
 
-The feed does not expose jukebox control. Its subscribe, unsubscribe and spectrum-enable messages only manage feed delivery or request visualizer data.
+The feed is read-only. It does not control the jukebox; jukebox control stays with the standard `jukeboxControl` endpoint. The messages a client sends on the feed only start, stop or configure delivery.
 
 ## 2. Declaration and support detection
 
-An OpenSubsonic server declares version 1 in the openSubsonicExtensions array returned by getOpenSubsonicExtensions:
+A server declares the extension in the `openSubsonicExtensions` array returned by `getOpenSubsonicExtensions`, listing every version it supports:
 
     {
       "name": "runeVisualizerFeed",
       "versions": [1]
     }
 
-The server must identify itself as OpenSubsonic by returning "openSubsonic": true in its responses. In particular, Rune checks this flag in the ping response and does not request the extension list when the flag is absent or false. It supports this extension only when the flag is true and the declared version list contains integer 1. A declaration without version 1, or a declaration from a response with openSubsonic: false, is not support.
+The server must identify itself as OpenSubsonic by returning `"openSubsonic": true` in its responses.
 
-A client probes ping, then getOpenSubsonicExtensions for an OpenSubsonic server. It should probe the list again when serverVersion changes. Rune's probe reads the list on each probe; it does not cache the extension list in this client layer. Extension names and versions are independent: this declaration makes no claim about any other Rune extension.
+A client probes `ping` first. Only when that response has `openSubsonic: true` does it request `getOpenSubsonicExtensions`. It uses the extension when the declaration lists a version it implements, and then uses the highest such version. Version 1 is the only version defined so far. A missing declaration, a declaration without a version the client implements, or a server without `openSubsonic: true` means the client draws no visualizer for that jukebox.
+
+Rune probes when the library is added, when its credential is replaced, and each time it is opened. This declaration says nothing about any other Rune extension.
 
 ## 3. Version 1 endpoint
 
-The endpoint is named getRuneVisualizerFeed. Call it as a Subsonic REST GET:
+The endpoint is `getRuneVisualizerFeed`, called as a Subsonic REST GET:
 
     GET <server-base>/rest/getRuneVisualizerFeed.view
 
-There are no extension-specific parameters. Include the usual Subsonic API parameters and credentials, as for other Subsonic calls. The successful response contains the URL in subsonic-response.runeVisualizerFeed.url:
+It has no parameters of its own. The client sends the usual Subsonic parameters and credentials. A successful response carries the feed URL in `subsonic-response.runeVisualizerFeed.url`:
 
     {
       "subsonic-response": {
@@ -37,94 +39,109 @@ There are no extension-specific parameters. Include the usual Subsonic API param
       }
     }
 
-The url may be relative to the server base URL or absolute. Rune joins it to the configured base URL. A resulting http URL is changed to ws; https becomes wss; ws and wss are used as given. Other resulting schemes are invalid.
+The URL may be absolute or relative to the server base URL. The client resolves it against the base URL and changes `http` to `ws` and `https` to `wss`; `ws` and `wss` are used as given. Any other resulting scheme is an error.
 
-For password authentication, use u, t and s: s is a random salt and t is the lowercase hexadecimal MD5 digest of the password concatenated with that salt. For API-key authentication, use apiKey. The client also sends its normal c, v and f parameters (rune, the client API version, and json). These credentials are attached to the resolved WebSocket URL as query parameters. If the feed URL already has a query key of the same name, Rune leaves that key as supplied by the server.
+Authentication is the same as for every Subsonic call: `u`, `t` and `s` for a password (`s` a random salt, `t` the lowercase hexadecimal MD5 of the password followed by the salt), or `apiKey`. The client also sends `c`, `v` and `f`. It adds these credentials to the resolved WebSocket URL as query parameters; a query key the server already put in the URL is kept as the server gave it.
 
-A failed Subsonic response uses the normal envelope with status: "failed" and an error object containing numeric code and string message. HTTP failures, transport failures, malformed JSON or envelopes, and missing runeVisualizerFeed.url also fail the call. A client must not treat a missing or unsupported declaration as a usable feed.
+A failure is a normal Subsonic failure: `status: "failed"` with an `error` object holding a numeric `code` and a string `message`. An HTTP or transport failure, malformed JSON, a malformed envelope or a missing `runeVisualizerFeed.url` is also a failure, and the client then draws no visualizer for that jukebox.
 
 ## 4. WebSocket feed
 
-### URL and handshake
+### Handshake
 
-Connect to the resolved URL using a WebSocket handshake. The URL carries the same Subsonic credentials described above; a feed server must authenticate that handshake using those credentials and apply the account's authorization. The Rune client sends the credentials in the URL query, not in a WebSocket subprotocol or a custom header.
+The client opens a WebSocket to the resolved URL. The credentials are in the URL query; the client sends no subprotocol and no custom header. The server authenticates the handshake with those credentials and applies the account's permissions.
 
-### Binary frame format
+### Frames
 
-Each Rune feed message is one WebSocket binary message. Its bytes are:
+Every feed message is one binary WebSocket message:
 
-- byte 0: the length N of the message name in bytes, as one unsigned byte;
-- bytes 1 through N: the message name in UTF-8;
-- the following bytes up to the last 16: the message body;
-- the last 16 bytes: a UUID (the message or request id).
+- byte 0: the length N of the message name in bytes (one unsigned byte);
+- bytes 1 to N: the message name in UTF-8;
+- the bytes after the name, up to the last 16: the message body;
+- the last 16 bytes: a UUID chosen by the sender. Receivers ignore it.
 
-The UUID is generated by the sender when it has no explicit ID. The visualizer-feed client ignores this UUID. There is no numeric message ID and no library-address prefix in this feed frame form.
+The client ignores text messages, frames it cannot split this way, bodies it cannot decode and message names it does not know.
 
-The body uses Rinf's bincode serialization (Rinf 8.11.0, which re-exports bincode::serialize and bincode::deserialize). Use the field order and types below. Bincode's default encoding applies; field names are not carried in the body.
+### Body encoding
 
-### Client messages
+Bodies use bincode 1's `bincode::serialize`, which Rinf (the Rust–Dart message layer Rune uses) re-exports: fixed-width little-endian integers and `u64` lengths, not bincode's variable-length integer option. A body is the message's fields in the order listed below, with no field names and no padding:
 
-After connecting, the Rune client sends these binary messages in order:
+- `bool`: one byte, 0 or 1.
+- `u32`, `i32`, `f32`: four bytes, little-endian; `u64`, `f64`: eight bytes, little-endian.
+- `String`: a `u64` byte count, then the UTF-8 bytes. `Vec<T>`: a `u64` element count, then the elements.
+- `Option<T>`: one byte, 0 for none, or 1 followed by the value.
+- An enum: the variant's index as a `u32` (counting from 0 in the order listed), then that variant's fields.
 
-1. SubscribeVisualizerFeedRequest, with an empty body.
-2. SetRealtimeFFTEnabledRequest, with fields enabled: bool = true, then call_id: Option<u64> = None.
+### Messages the client sends
 
-When the client closes the feed as part of stopping jukebox polling or closing its library, it sends UnsubscribeVisualizerFeedRequest with an empty body, then closes the WebSocket. No success reply is required or awaited by the client. These messages do not control playback.
+After the connection opens, the client sends:
 
-### Server messages
+1. `SubscribeVisualizerFeedRequest`, with an empty body.
+2. `SetRealtimeFFTEnabledRequest`: `enabled: bool` (true), `call_id: Option<u64>` (none).
 
-The client accepts these four message names. The body fields appear in this order:
+When the client stops polling the jukebox or closes the library, it sends `UnsubscribeVisualizerFeedRequest` with an empty body and closes the WebSocket. The client does not wait for replies to any of these.
 
-- `PlaybackStatus`: session_id: String, state: String, progress_seconds: f32, progress_percentage: f32, artist: Option<String>, album: Option<String>, title: Option<String>, duration: f64, index: Option<i32>, item: Option<String>, item_request: Option<PlayingItemRef>, playback_mode: u32, ready: bool, cover_art_path: Option<String>, lib_path: String.
-- `VisualizerFeedChart`: item: PlayingItemRef, chart: Vec<u8>.
-- `VisualizerFeedCovers`: item: PlayingItemRef, playing: Option<Vec<u8>>, random: Vec<Vec<u8>>.
-- `RealtimeFFT`: value: Vec<f32>.
+### Messages the server sends
 
-PlayingItemRef is an enum with these variants and fields, in this order: LibraryTrack { library_id: String, track: String }, then IndependentFile { path: String }. For a Subsonic jukebox, Rune represents the current Subsonic track as LibraryTrack, with the Subsonic library ID and server track ID as strings.
+`PlaybackStatus` is the jukebox's playback clock:
 
-Status carries the playback position and state; it has no timestamp field. The server should emit status as its jukebox status changes. Rune's own player emits the chart for the current item when it becomes relevant to an attached controller, as soon as a cached chart is available or its analysis completes. It emits covers for that item when cover preparation completes. Realtime spectrum frames are emitted as the player produces FFT values after spectrum is enabled. The protocol assigns no fixed numeric rate or cross-type sequencing rule for these independent event streams; WebSocket preserves the order in which the server sends frames. A client must associate chart and cover messages with their item, since those jobs can complete asynchronously. Do not send playlist updates as part of this feed: the Rune feed client does not accept them.
+- `session_id: String`
+- `state: PlaybackState`, an enum: `Playing`, `Paused`, `Stopped` (no fields)
+- `progress_seconds: f32`: the position in the current track
+- `progress_percentage: f32`
+- `artist: Option<String>`, `album: Option<String>`, `title: Option<String>`
+- `duration: f64`
+- `index: Option<i32>`
+- `item: Option<String>`
+- `item_request: Option<PlayingItemRef>`: the current track
+- `playback_mode: u32`
+- `ready: bool`
+- `cover_art_path: Option<String>`
+- `lib_path: String`
 
-The Rune client processes binary frames only. It decodes and forwards the four listed messages. It silently ignores other message names and non-binary WebSocket messages. A malformed frame or a decoding error is ignored for that frame. When the server closes or the connection ends, the client stops reading and does not automatically reconnect.
+The client reads only `state`, `progress_seconds` and `item_request`; the other fields exist because the message is Rune's own player status, and a server fills them as follows: `session_id` any string, `progress_percentage` the position divided by the duration (0 when the duration is unknown), `artist`, `album`, `title` and `duration` from the track (none and 0 when unknown), `index` the track's position in the jukebox playlist, `item` none, `playback_mode` 0, `ready` true, `cover_art_path` none, `lib_path` empty.
 
-## 5. Versioning and compatibility
+`PlayingItemRef` is an enum with two variants: `LibraryTrack { library_id: String, track: String }` and `IndependentFile { path: String }`. A Subsonic server sends `LibraryTrack` with `track` set to the Subsonic song id, as in the jukebox playlist, and `library_id` set to any string that stays the same for the whole connection. The client compares `track` with the current song it gets from `jukeboxControl`, and uses the whole value to match charts and covers to the current track.
 
-The declaration version is an integer in versions; version 1 is the only version implemented by this client. There is no version field in the WebSocket handshake or frame. A server must not declare a newer version as version 1-compatible unless the version 1 message format and behavior remain valid.
+`VisualizerFeedChart` carries a chart of the current track:
 
-Unknown message names are ignored by Rune's feed client. The body format is positional bincode rather than a self-describing object: field names are not present, and the client cannot generally skip fields it does not know. Keep version 1 message layouts unchanged. A client receiving a newer declaration version must not assume that it can decode that version as version 1.
+- `item: PlayingItemRef`
+- `chart: Vec<u8>`
+
+The chart is optional. Its bytes are the chart format of Rune's own visualizer analysis; this extension carries them without defining them, so a server that does not run Rune's analysis does not send this message. Without a chart the client still draws from the clock, the spectrum and the covers.
+
+`VisualizerFeedCovers` carries cover images:
+
+- `item: PlayingItemRef`
+- `playing: Option<Vec<u8>>`: the current track's cover
+- `random: Vec<Vec<u8>>`: other covers for the cover wall
+
+Each image is PNG or JPEG. `random` holds at most 63 images, and all images in one message together take at most 16 MiB. The client ignores a message that exceeds either limit.
+
+`RealtimeFFT` carries one spectrum frame:
+
+- `value: Vec<f32>`: amplitudes scaled so the largest is 1
+
+Rune sends 512 values per frame (all bins of a 512-point FFT of the mono mix) as the jukebox plays. The client ignores an empty frame and one with more than 4096 values.
+
+### Order
+
+Chart and cover messages belong to the track in their `item`. The client keeps them only while that track is the one in the latest `PlaybackStatus`, so a server sends the status for a new track before that track's chart and covers. When the status names a different track, the client drops the previous track's chart and covers. Charts and covers may arrive at any time after the status, in any order. Spectrum frames are independent of the other messages.
+
+### Playback clock
+
+The status has no timestamp. The client takes the time it receives each `PlaybackStatus` as the time of `progress_seconds`. While `state` is `Playing`, it advances the position from there on its own clock; otherwise it shows the reported position. While playing, a difference of more than 0.3 seconds between the reported and the shown position, or a new track, makes the client jump to the reported position; a smaller difference is pulled in gradually.
+
+The server sends a status whenever the state, the track or the position (a seek) changes, and repeatedly while a track is loaded. Rune's own player reports every 100 ms, playing or paused. A server may send them less often; the client's clock then runs freely between them.
+
+### Closing
+
+The client closes the feed as described above. When the server closes the connection or it fails, the client stops reading and does not reconnect; the visualizer gets no new input until the jukebox is opened again.
+
+## 5. Versions
+
+A server lists every version it supports in `versions`; a client uses the highest version it implements. The version 1 layout of every message above is fixed: any change to a message's fields, their order, their meaning or the frame layout is a new version number, never a change to version 1.
 
 ## 6. Security
 
-Subsonic authentication values appear in the URL query because this client follows Subsonic's query-parameter authentication for both HTTP calls and the WebSocket handshake. This exposes secrets to URL handling. A server and client must keep full authenticated URLs and query strings out of application, proxy, access and diagnostic logs; redact apiKey, t and s (and any password if one is supplied by a nonconforming caller). Use TLS and wss when the server is accessed over HTTPS.
-
-## 7. Open questions
-
-The current implementation does not define these interoperable details:
-
-- The semantic schema and version of the opaque chart bytes are internal to Rune's visualizer.
-- The image encoding, maximum size and maximum number of entries in playing and random cover data are not defined by this feed code.
-- No server timestamp is included in PlaybackStatus, and the protocol does not specify how a consumer should interpolate the playback clock between status messages.
-- The protocol does not state numeric delivery rates, cross-type sequencing rules for status/chart/covers/spectrum, or a reconnect policy. Rune's client does not reconnect after a closed connection.
-- There is no declared behavior for receiving a future extension version beyond the client's current version-1-only support.
-- `PlaybackStatus` is Rune's own player status message. It carries fields that only mean something inside Rune (`session_id`, `cover_art_path`, `lib_path`, `item`), which a third-party server must still fill to produce a valid version 1 body. A future version should define a feed-specific status message.
-
-## Appendix: implementation evidence
-
-The references below map each protocol rule above to the current implementation. The prose above is the interoperable description; these source locations are evidence, not requirements to copy Rune's internal architecture.
-
-- Extension support requires OpenSubsonic and name runeVisualizerFeed with version 1: subsonic/src/lib.rs:136-144.
-- Probe reads ping, gates the extension-list call on openSubsonic, and carries serverVersion; repeated probe reads extensions again: subsonic/src/lib.rs:183-226; subsonic/src/lib.rs:1340-1359; subsonic/tests/probe.rs:173-192.
-- Ping response reads openSubsonic, type, and serverVersion; extension fields are name and numeric versions: subsonic/src/lib.rs:1340-1359.
-- Endpoint name, response nesting, URL joining, scheme conversion, and credential query insertion: subsonic/src/lib.rs:229-274; mock response native/hub/src/subsonic_binding.rs:1005-1020.
-- REST request path and HTTP GET; normal error envelope and error classes: subsonic/src/lib.rs:45-68; subsonic/src/lib.rs:750-800; subsonic/src/lib.rs:810-840.
-- Password/API-key authentication fields and password-token computation: subsonic/src/lib.rs:763-779; credential probe tests subsonic/tests/probe.rs:114-170, 195-229.
-- Feed URL uses the account's auth query; client test checks password and API-key forms: subsonic/src/lib.rs:265-274; subsonic/tests/probe.rs:114-170.
-- Binary message envelope, message-name length, body location, UUID trailer, and decoder: native/hub/src/backends/remote/mod.rs:64-77, 124-139.
-- Rinf payload serializer is bincode: native/hub/Cargo.toml:27; Rinf re-export ~/.cargo/registry/src/index.crates.io-*/rinf-8.11.0/src/lib.rs:22-27.
-- Subscribe, enable-spectrum order and fields; unsubscribe then WebSocket close; feed read and close handling: native/hub/src/subsonic_binding.rs:440-519; request type native/hub/src/messages/playback.rs:136-141.
-- Accepted event names, unknown-name handling, payload decode and forwarding: native/hub/src/backends/remote/mod.rs:699-720.
-- Playback status and visualizer message field types and order: native/hub/src/messages/playback.rs:7-24, 158-176.
-- Playing-item enum variants and fields: native/hub/src/messages/playback.rs:292-297.
-- FFT emission; chart cache/analyze and one-item feed behavior; covers emitted on async completion: native/hub/src/session/mod.rs:576; native/hub/src/session/mod.rs:830-915.
-- Chart is opaque encoded bytes to the feed; Rune decodes it internally: visualizer/src/lib.rs:95-99, 828-840.
-- Feed fixture's declaration, endpoint, and observed event/request names and lifecycle: native/hub/src/subsonic_binding.rs:1010-1018, 1041-1080, 1150-1222.
-- Credential-safe error/transport handling precedent: subsonic/src/lib.rs:45-47, 794-800, 821-828.
+The credentials travel in the URL query, as in every Subsonic call. Server and client keep authenticated URLs and query strings out of application, proxy, access and diagnostic logs, and redact `apiKey`, `t` and `s` (and `p`, should a nonconforming client send one). A server reached over HTTPS serves the feed over `wss`.
