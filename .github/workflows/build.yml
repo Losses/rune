@@ -464,7 +464,8 @@ jobs:
           EOF
           sudo dpkg --add-architecture armhf
           sudo apt-get update
-          sudo apt-get install -y jq gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf binutils-arm-linux-gnueabihf \
+          sudo apt-get install -y --no-install-recommends \
+            jq gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf binutils-arm-linux-gnueabihf \
             clang cmake ninja-build pkg-config zip \
             libasound2-dev:armhf libdrm-dev:armhf libgbm-dev:armhf \
             libgles2-mesa-dev:armhf libegl1-mesa-dev:armhf libsystemd-dev:armhf \
