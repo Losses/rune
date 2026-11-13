@@ -441,10 +441,12 @@ jobs:
           sudo apt-get install -y jq librust-alsa-sys-dev libasound2-dev clang cmake ninja-build pkg-config \
             libdrm-dev libgbm-dev libgles2-mesa-dev libegl1-mesa-dev libsystemd-dev libinput-dev libudev-dev libxkbcommon-dev
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: "stable"
+      - name: Setup Flutter (Linux ARM64 via git)
+        run: |
+          git clone --depth 1 -b stable https://github.com/flutter/flutter.git $HOME/flutter
+          echo "$HOME/flutter/bin" >> $GITHUB_PATH
+          echo "$HOME/flutter/bin/cache/dart-sdk/bin" >> $GITHUB_PATH
+          $HOME/flutter/bin/flutter --version
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
