@@ -12,7 +12,7 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-use super::{CurrentPlayer, LibraryBinding, NodeContext, UiLibrary};
+use super::{LibraryBinding, NodeContext, UiLibrary};
 use crate::{
     backends::remote::{RemoteConnectError, RendererLink, RendererLinkUse},
     messages::{
@@ -81,9 +81,12 @@ impl ReconnectTask {
             let loss = permanent_loss.map_or(loss, |detail| {
                 (RemoteLossKind::ProtocolIncompatible, detail)
             });
-            let restored = node.upgrade().and_then(|node| {
+            let restored = if let Some(node) = node.upgrade() {
                 node.finish_reconnect(&fingerprint, connected, loss, &task_cancel)
-            });
+                    .await
+            } else {
+                None
+            };
             if let Some(link) = restored
                 && let Err(error) = link.call(&RefreshSessionRequest { call_id: None }).await
             {
@@ -119,68 +122,67 @@ impl NodeContext {
         })
     }
 
-    fn finish_reconnect(
+    async fn finish_reconnect(
         &self,
         fingerprint: &str,
         connected: Option<(RendererLink, String)>,
         loss: (RemoteLossKind, String),
         cancel: &CancellationToken,
     ) -> Option<Arc<RendererLink>> {
-        let Ok(mut ui) = self.ui_library.lock() else {
-            return None;
-        };
-        let UiLibrary::Open(open) = &mut *ui else {
-            return None;
-        };
-        let LibraryBinding::RemotePeer {
-            fingerprint: current,
-            reconnect,
-        } = &mut open.catalog
-        else {
-            return None;
-        };
-        if current != fingerprint || cancel.is_cancelled() {
-            return None;
-        }
-        let mut task = reconnect.take()?;
-        // This task is completing itself; dropping its handle must not abort it.
-        task.handle.take();
-        let restored = if let Some((link, alias)) = connected {
-            if let Err(error) = self.install_renderer_link(link, alias.clone()) {
-                log::warn!("Could not reinstall remote library: {error:#}");
-                None
+        let previous_player = self.current_player_snapshot().ok()?;
+        let restored = {
+            let Ok(mut ui) = self.ui_library.lock() else {
+                return None;
+            };
+            let UiLibrary::Open(open) = &mut *ui else {
+                return None;
+            };
+            let LibraryBinding::RemotePeer {
+                fingerprint: current,
+                reconnect,
+            } = &mut open.catalog
+            else {
+                return None;
+            };
+            if current != fingerprint || cancel.is_cancelled() {
+                return None;
+            }
+            let mut task = reconnect.take()?;
+            // This task is completing itself; dropping its handle must not abort it.
+            task.handle.take();
+            if let Some((link, alias)) = connected {
+                if let Err(error) = self.install_renderer_link(link, alias.clone()) {
+                    log::warn!("Could not reinstall remote library: {error:#}");
+                    None
+                } else {
+                    self.renderer_link()
+                        .ok()
+                        .flatten()
+                        .map(|link| (link, alias))
+                }
             } else {
-                self.renderer_link()
-                    .ok()
-                    .flatten()
-                    .map(|link| (link, alias))
+                None
             }
-        } else {
-            None
         };
-        if let Some((link, alias)) = restored {
-            drop(ui);
-            if let Err(error) = self.refresh_current_player() {
-                log::warn!(
-                    "Could not update visualizer inputs after renderer reconnect: {error:#}"
-                );
+        let current_player = match self.current_player() {
+            Ok(player) => player,
+            Err(error) => {
+                log::warn!("Could not resolve the player after renderer reconnect: {error:#}");
+                return None;
             }
+        };
+        if let Err(error) = self
+            .transition_current_player(previous_player, current_player)
+            .await
+        {
+            log::warn!("Could not update current player after renderer reconnect: {error:#}");
+        }
+        if let Some((link, alias)) = restored {
             self.gui_broadcaster.broadcast(&RemoteLibraryReconnected {
                 fingerprint: fingerprint.to_owned(),
                 alias,
             });
             return Some(link);
-        }
-        if let Ok(mut player) = self.current_player.lock() {
-            *player = CurrentPlayer::RunePeer {
-                link: self.renderer_link().ok().flatten(),
-                attached: false,
-                reconnecting: None,
-            };
-        }
-        drop(ui);
-        if let Err(error) = self.refresh_current_player() {
-            log::warn!("Could not update visualizer inputs after renderer loss: {error:#}");
         }
         self.gui_broadcaster.broadcast(&RemoteConnectionLost {
             kind: loss.0,

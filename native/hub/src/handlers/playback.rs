@@ -2000,7 +2000,10 @@ async fn hand_off_to_renderer(
         }
     };
     let target_item = response.handoff_item;
+    let previous_player = node.current_player_snapshot()?;
     node.install_renderer_link(connected_link, alias)?;
+    node.transition_current_player(previous_player, node.current_player()?)
+        .await?;
     let link = node
         .renderer_link()?
         .context("renderer link disappeared after handoff load")?;

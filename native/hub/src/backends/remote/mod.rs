@@ -968,9 +968,11 @@ pub(crate) async fn open_remote_library_for_fingerprint(
     let generation = node
         .attach_remote_ui(&params, fingerprint.to_owned(), record_id)
         .await?;
+    let previous_player = node.current_player_snapshot()?;
     node.install_renderer_link(link, alias)?;
+    node.transition_current_player(previous_player, node.current_player()?)
+        .await?;
     listen_local_gui(&params, &params.main_token);
-    node.session()?.player.lock().await.pause_applied().await?;
     Ok((params, generation))
 }
 

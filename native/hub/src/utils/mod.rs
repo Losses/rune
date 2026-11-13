@@ -2098,6 +2098,7 @@ async fn open_subsonic_record(
         Arc::clone(&node.gui_broadcaster),
     ));
     node.set_open_subsonic_catalog(Some(record_id), binding)
+        .await
         .map_err(|error| (OpenLibraryFailureKind::Storage, error))
 }
 
@@ -2294,7 +2295,7 @@ async fn run_local_open(
     let library_id = library.library_id;
     info!("Resolved library id: {library_id}");
     local_player_loop(library, node.clone(), Arc::clone(scrobbler)).await?;
-    node.set_open_local_catalog(record_id, library_id)
+    node.set_open_local_catalog(record_id, library_id).await
 }
 
 pub struct CollectionCoverOptions<'a> {
@@ -2686,7 +2687,7 @@ mod moved_node_request_tests {
         let params = Arc::new(node.params_for_ui()?.for_library(library.clone()));
         *params.ui_library.lock().await = Some(library);
         node.attach_ui(&params).await;
-        node.set_open_local_catalog(None, library_id)?;
+        node.set_open_local_catalog(None, library_id).await?;
 
         let open_response = handlers
             .handle_get_sync_settings_request(&node_slot, &request)

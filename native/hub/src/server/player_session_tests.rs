@@ -7847,10 +7847,22 @@ async fn rpc_target_blacklisted_request_returns_typed_failure_without_sending() 
         ),
     )
     .await;
+    let previous_player = controller
+        .global_params
+        .node
+        .current_player_snapshot()?;
     controller
         .global_params
         .node
         .install_renderer_link(link, "Blacklist peer".to_owned())?;
+    controller
+        .global_params
+        .node
+        .transition_current_player(
+            previous_player,
+            controller.global_params.node.current_player()?,
+        )
+        .await?;
     // This node's own coordinators stay local while a renderer is attached.
     let controllers = super::step(
         "dispatch local controller list",
@@ -7975,7 +7987,7 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     b.global_params.node.set_open_local_catalog(
         None,
         b.global_params.library_id.context("renderer library id")?,
-    )?;
+    ).await?;
     let address = super::paired_full(&b, &a).await?;
     let fingerprint = super::info(&b).await?.fingerprint;
     a.global_params
@@ -8554,7 +8566,7 @@ async fn fake_subsonic_response(
             r#"{{"subsonic-response":{{"status":"ok","user":{{"username":"alice","streamRole":{},"downloadRole":false,"jukeboxRole":{}}}}}}}"#,
             roles.stream, roles.jukebox
         ),
-        "jukeboxControl" if roles.jukebox => r#"{"subsonic-response":{"status":"ok","jukeboxPlaylist":{"entry":{"id":"jukebox-track","title":"Queued"},"currentIndex":0,"playing":true,"gain":1.0,"position":7}}}"#.to_owned(),
+        "jukeboxControl" if roles.jukebox => r#"{"subsonic-response":{"status":"ok","jukeboxPlaylist":{"entry":{"id":"jukebox-track","title":"Queued"},"currentIndex":0,"playing":true,"gain":1.0,"position":7},"jukeboxStatus":{"currentIndex":0,"playing":true,"gain":1.0,"position":7}}}"#.to_owned(),
         _ => r#"{"subsonic-response":{"status":"ok"}}"#.to_owned(),
     };
     (StatusCode::OK, body)
@@ -9246,6 +9258,381 @@ async fn subsonic_registration_resolves_mode_stores_secret_and_deduplicates() ->
     assert_eq!(node.current_player()?.visualizer_inputs(), VisualizerInputs::Full);
     server.task.abort();
     node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn local_session_signals_are_hidden_during_subsonic_remote_control() -> Result<()> {
+    use crate::messages::PlayRequest;
+
+    let dir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let fixture = fixture_with_broadcaster(
+        dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+    let node = fixture.global_params.node.clone();
+    let local_track = session_audio(&fixture, "local-hidden-by-jukebox.ogg").await?;
+    queue_session(&fixture, &[local_track]).await?;
+    dispatch_gui_request(&fixture.global_params, &PlayRequest { call_id: None }).await?;
+    wait_player(&fixture, |status| status.state == PlayerPlaybackState::Playing).await?;
+    let local_session_id = node.session()?.session_id().await;
+    signals.clear();
+
+    let server = fake_subsonic_server(FakeSubsonicRoles {
+        stream: true,
+        jukebox: true,
+        wrong_password: false,
+    })
+    .await?;
+    let registration = register_subsonic_library_on_node(
+        &subsonic_registration_request(
+            server.endpoint.clone(),
+            "session-filter-test-password",
+            Some(SubsonicOpenModeMessage::RemoteControl),
+        ),
+        &node,
+    )
+    .await;
+    let record = registration.record.context("registered Subsonic record")?;
+    open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: None,
+            record_id: record.record_id,
+        },
+        node.clone(),
+        Arc::new(Mutex::new(ScrobblingManager::new(10, Duration::from_secs(5)))),
+    )
+    .await;
+    anyhow::ensure!(
+        matches!(node.current_player()?, CurrentPlayer::SubsonicJukebox(_)),
+        "Subsonic remote-control player did not become current"
+    );
+    signals.clear();
+    let jukebox_session_id = match node.current_player()? {
+        CurrentPlayer::SubsonicJukebox(binding) => binding.library_id.to_string(),
+        _ => anyhow::bail!("Subsonic remote-control player did not become current"),
+    };
+    anyhow::ensure!(
+        fixture.global_params.player.lock().await.get_status().state == PlayerPlaybackState::Paused,
+        "local audio was not paused when the jukebox became current"
+    );
+
+    wait_until("the jukebox status and queue to reach the UI", || async {
+        let records = signals.0.lock().unwrap();
+        let status = records.iter().any(|(name, bytes)| {
+            name == "PlaybackStatus"
+                && rinf::deserialize::<PlaybackStatus>(bytes)
+                    .is_ok_and(|status| status.session_id == jukebox_session_id)
+        });
+        let playlist = records.iter().any(|(name, bytes)| {
+            name == "PlaylistUpdate"
+                && rinf::deserialize::<PlaylistUpdate>(bytes)
+                    .is_ok_and(|update| update.session_id == jukebox_session_id)
+        });
+        Ok((status && playlist).then_some(()))
+    })
+    .await?;
+    node.session()?.reemit_to(&node.broadcaster).await?;
+    node.broadcaster
+        .broadcast(&crate::messages::RealtimeFFT { value: vec![0.25] });
+    let (local_status_hidden, local_playlist_hidden, local_fft_hidden) = {
+        let records = signals.0.lock().unwrap();
+        (
+            !records.iter().any(|(name, bytes)| {
+                name == "PlaybackStatus"
+                    && rinf::deserialize::<PlaybackStatus>(bytes)
+                        .is_ok_and(|status| status.session_id == local_session_id)
+            }),
+            !records.iter().any(|(name, bytes)| {
+                name == "PlaylistUpdate"
+                    && rinf::deserialize::<PlaylistUpdate>(bytes)
+                        .is_ok_and(|update| update.session_id == local_session_id)
+            }),
+            !records.iter().any(|(name, _)| name == "RealtimeFFT"),
+        )
+    };
+    anyhow::ensure!(
+        local_status_hidden,
+        "local PlaybackStatus reached the UI while Subsonic was current"
+    );
+    anyhow::ensure!(
+        local_playlist_hidden,
+        "local PlaylistUpdate reached the UI while Subsonic was current"
+    );
+    anyhow::ensure!(
+        local_fft_hidden,
+        "local RealtimeFFT reached the UI while Subsonic was current"
+    );
+
+    signals.clear();
+    node.close_ui(&fixture.global_params.main_token).await;
+    let (local_status_restored, local_playlist_restored) = {
+        let restored = signals.0.lock().unwrap();
+        (
+            restored.iter().any(|(name, bytes)| {
+                name == "PlaybackStatus"
+                    && rinf::deserialize::<PlaybackStatus>(bytes)
+                        .is_ok_and(|status| status.session_id == local_session_id)
+            }),
+            restored.iter().any(|(name, bytes)| {
+                name == "PlaylistUpdate"
+                    && rinf::deserialize::<PlaylistUpdate>(bytes)
+                        .is_ok_and(|update| update.session_id == local_session_id)
+            }),
+        )
+    };
+    anyhow::ensure!(
+        local_status_restored,
+        "closing the Subsonic library did not restore local status"
+    );
+    anyhow::ensure!(
+        local_playlist_restored,
+        "closing the Subsonic library did not restore local queue"
+    );
+    server.task.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn opening_local_library_restores_local_session_signals() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let fixture = fixture_with_broadcaster(
+        dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+    let node = fixture.global_params.node.clone();
+    let local_track = session_audio(&fixture, "local-restored-from-jukebox.ogg").await?;
+    queue_session(&fixture, &[local_track]).await?;
+
+    let server = fake_subsonic_server(FakeSubsonicRoles {
+        stream: true,
+        jukebox: true,
+        wrong_password: false,
+    })
+    .await?;
+    let registration = register_subsonic_library_on_node(
+        &subsonic_registration_request(
+            server.endpoint.clone(),
+            "session-restore-test-password",
+            Some(SubsonicOpenModeMessage::RemoteControl),
+        ),
+        &node,
+    )
+    .await;
+    let record = registration.record.context("registered Subsonic record")?;
+    open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: None,
+            record_id: record.record_id,
+        },
+        node.clone(),
+        Arc::new(Mutex::new(ScrobblingManager::new(10, Duration::from_secs(5)))),
+    )
+    .await;
+
+    signals.clear();
+    node.set_open_local_catalog(
+        None,
+        fixture.global_params.library_id.context("local library")?,
+    )
+    .await?;
+    let local_session_id = node.session()?.session_id().await;
+    let (local_status_restored, local_playlist_restored) = {
+        let records = signals.0.lock().unwrap();
+        (
+            records.iter().any(|(name, bytes)| {
+                name == "PlaybackStatus"
+                    && rinf::deserialize::<PlaybackStatus>(bytes)
+                        .is_ok_and(|status| status.session_id == local_session_id)
+            }),
+            records.iter().any(|(name, bytes)| {
+                name == "PlaylistUpdate"
+                    && rinf::deserialize::<PlaylistUpdate>(bytes)
+                        .is_ok_and(|update| update.session_id == local_session_id)
+            }),
+        )
+    };
+    anyhow::ensure!(
+        local_status_restored,
+        "opening the local library did not restore the local player status"
+    );
+    anyhow::ensure!(
+        local_playlist_restored,
+        "opening the local library did not restore the local player queue"
+    );
+
+    node.close_ui(&fixture.global_params.main_token).await;
+    server.task.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn subsonic_remote_control_pauses_and_restores_local_session_position() -> Result<()> {
+    use crate::messages::PlayRequest;
+
+    let dir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let fixture = fixture_with_broadcaster(
+        dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+    let node = fixture.global_params.node.clone();
+    let local_track = session_audio(&fixture, "local-paused-by-jukebox.ogg").await?;
+    queue_session(&fixture, &[local_track]).await?;
+    dispatch_gui_request(&fixture.global_params, &PlayRequest { call_id: None }).await?;
+    let playing = wait_player(&fixture, |status| {
+        status.state == PlayerPlaybackState::Playing
+            && status.position >= Duration::from_millis(500)
+    })
+    .await?;
+    let before_switch_position = playing.position;
+    let local_session_id = node.session()?.session_id().await;
+
+    let server = fake_subsonic_server(FakeSubsonicRoles {
+        stream: true,
+        jukebox: true,
+        wrong_password: false,
+    })
+    .await?;
+    let registration = register_subsonic_library_on_node(
+        &subsonic_registration_request(
+            server.endpoint.clone(),
+            "session-pause-test-password",
+            Some(SubsonicOpenModeMessage::RemoteControl),
+        ),
+        &node,
+    )
+    .await;
+    let record = registration.record.context("registered Subsonic record")?;
+    open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: None,
+            record_id: record.record_id,
+        },
+        node.clone(),
+        Arc::new(Mutex::new(ScrobblingManager::new(10, Duration::from_secs(5)))),
+    )
+    .await;
+
+    let paused = node.session()?.playback_snapshot().await.0;
+    assert_eq!(paused.state, PlayerPlaybackState::Paused);
+    assert!(paused.position >= before_switch_position);
+    let paused_position = paused.position;
+
+    signals.clear();
+    node.set_open_local_catalog(
+        None,
+        fixture.global_params.library_id.context("local library")?,
+    )
+    .await?;
+    let local_status = signals
+        .decoded::<PlaybackStatus>("PlaybackStatus")
+        .into_iter()
+        .find(|status| status.session_id == local_session_id)
+        .context("restored local playback status")?;
+    assert_eq!(local_status.state, PlaybackState::Paused);
+    let restored_position = Duration::from_secs_f64(f64::from(local_status.progress_seconds));
+    assert!(
+        restored_position.abs_diff(paused_position) <= Duration::from_millis(100),
+        "restored position {restored_position:?} differs from paused position {paused_position:?}"
+    );
+
+    node.close_ui(&fixture.global_params.main_token).await;
+    server.task.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rr_library_pauses_and_restores_local_session_position() -> Result<()> {
+    use crate::messages::PlayRequest;
+
+    let a_dir = tempfile::tempdir()?;
+    let b_dir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let a = fixture_with_broadcaster(
+        a_dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+    let b = fixture(b_dir.path()).await?;
+    b.global_params
+        .node
+        .set_open_local_catalog(
+            None,
+            b.global_params.library_id.context("renderer library id")?,
+        )
+        .await?;
+    let address = super::paired_full(&b, &a).await?;
+    let fingerprint = super::info(&b).await?.fingerprint;
+    a.global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(
+            &fingerprint,
+            vec![format!("127.0.0.1:{}", address.port())],
+        )
+        .await?;
+
+    let local_track = session_audio(&a, "local-paused-by-rr.ogg").await?;
+    queue_session(&a, &[local_track]).await?;
+    dispatch_gui_request(&a.global_params, &PlayRequest { call_id: None }).await?;
+    let playing = wait_player(&a, |status| {
+        status.state == PlayerPlaybackState::Playing && status.position >= Duration::from_millis(500)
+    })
+    .await?;
+    let before_switch_position = playing.position;
+
+    let remote = super::open_remote_control_record(a.global_params.node.clone(), &fingerprint)
+        .await?;
+    let paused = a
+        .global_params
+        .node
+        .session()?
+        .playback_snapshot()
+        .await
+        .0;
+    assert_eq!(paused.state, PlayerPlaybackState::Paused);
+    assert!(paused.position >= before_switch_position);
+    let paused_position = paused.position;
+
+    signals.clear();
+    a.global_params
+        .node
+        .close_ui(&remote.main_token)
+        .await;
+    let local_session_id = a.global_params.node.session()?.session_id().await;
+    let local_status = signals
+        .decoded::<PlaybackStatus>("PlaybackStatus")
+        .into_iter()
+        .find(|status| status.session_id == local_session_id)
+        .context("restored local playback status after @RR close")?;
+    assert_eq!(local_status.state, PlaybackState::Paused);
+    let restored_position = Duration::from_secs_f64(f64::from(local_status.progress_seconds));
+    assert!(
+        restored_position.abs_diff(paused_position) <= Duration::from_millis(100),
+        "restored position {restored_position:?} differs from paused position {paused_position:?}"
+    );
+
+    crate::visualizer::VISUALIZER.set_feed_playback(None, Duration::ZERO, false);
+    a.global_params.node.shutdown().await?;
+    b.global_params.node.shutdown().await?;
     Ok(())
 }
 
@@ -10016,7 +10403,7 @@ async fn registered_remote_control_opens_and_routes_library_and_session_requests
     b.global_params.node.set_open_local_catalog(
         None,
         b.global_params.library_id.context("renderer library id")?,
-    )?;
+    ).await?;
     let address = super::paired_full(&b, &a).await?;
     let fingerprint = super::info(&b).await?.fingerprint;
     a.global_params
@@ -10111,7 +10498,8 @@ async fn remote_library_request_without_renderer_library_is_typed_and_not_sent()
             .global_params
             .library_id
             .context("renderer library id")?,
-    )?;
+    )
+    .await?;
     let address = super::paired_full(&renderer, &controller).await?;
     let fingerprint = super::info(&renderer).await?.fingerprint;
     controller
@@ -10829,9 +11217,7 @@ async fn session_binding_prefers_remote_peer_over_attached_renderer() -> Result<
     assert_eq!(node.current_player()?.visualizer_inputs(), VisualizerInputs::Full);
     let attached = match node.current_player()? {
         CurrentPlayer::RunePeer {
-            link: Some(renderer),
-            attached: true,
-            ..
+            link: Some(renderer), ..
         } => renderer,
         _ => anyhow::bail!("expected attached renderer binding"),
     };
@@ -10840,9 +11226,7 @@ async fn session_binding_prefers_remote_peer_over_attached_renderer() -> Result<
     assert_eq!(node.current_player()?.visualizer_inputs(), VisualizerInputs::Full);
     match node.current_player()? {
         CurrentPlayer::RunePeer {
-            link: Some(renderer),
-            attached: false,
-            ..
+            link: Some(renderer), ..
         } => assert_eq!(renderer.id(), attached.id()),
         _ => anyhow::bail!("remote peer must take precedence over attached renderer"),
     }

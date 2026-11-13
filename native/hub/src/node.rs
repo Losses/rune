@@ -26,7 +26,10 @@ use discovery::{
     protocol::DiscoveryService,
     server::{PermissionManager, UserStatus},
 };
-use playback::{player::HandoffBlockId as PlayerHandoffBlockId, sfx_player::SfxPlayer};
+use playback::{
+    player::{HandoffBlockId as PlayerHandoffBlockId, PlaybackState},
+    sfx_player::SfxPlayer,
+};
 use rinf::{DartSignal, RustSignal};
 use tokio::{
     sync::{Mutex, RwLock, broadcast},
@@ -389,7 +392,7 @@ impl NodeContext {
         node.local_session
             .set(PlayerSession::new(&node, "local", os_media_controls).await?)
             .map_err(|_| anyhow::anyhow!("Local session already initialized"))?;
-        node.refresh_current_player()?;
+        node.refresh_current_player(node.current_player()?)?;
         node.start_notifications().await;
         manager.start_worker().await?;
         if node.sync_settings.read().await.listen {
@@ -584,10 +587,11 @@ impl NodeContext {
             link.close();
             return Err(error).context("Pause previously attached renderer");
         }
+        let previous_player = self.current_player_snapshot()?;
         self.install_renderer_link(link, alias)?;
-        self.refresh_current_player()?;
+        self.transition_current_player(previous_player, self.current_player()?)
+            .await?;
         self.publish_capabilities()?;
-        self.session()?.player.lock().await.pause_applied().await?;
         if let Some(link) = self.renderer_link()?
             && let Err(error) = link.call(&RefreshSessionRequest { call_id: None }).await
         {
@@ -610,17 +614,6 @@ impl NodeContext {
         };
         if let Some(old) = old {
             old.close();
-        }
-        if let Ok(mut player) = self.current_player.lock() {
-            let attached = matches!(
-                &*player,
-                CurrentPlayer::Local | CurrentPlayer::RunePeer { attached: true, .. }
-            );
-            *player = CurrentPlayer::RunePeer {
-                link: self.renderer_link()?.clone(),
-                attached,
-                reconnecting: None,
-            };
         }
         self.gui_broadcaster.broadcast(&RendererAttachmentChanged {
             renderer: Some(AttachedRenderer { fingerprint, alias }),
@@ -653,6 +646,7 @@ impl NodeContext {
     }
 
     pub async fn detach_renderer(&self) -> Result<()> {
+        let previous_player = self.current_player_snapshot()?;
         let detached = {
             let mut slot = self
                 .renderer_link
@@ -666,12 +660,12 @@ impl NodeContext {
             }
         };
         if detached {
-            self.refresh_current_player()?;
             self.gui_broadcaster
                 .broadcast(&RendererAttachmentChanged { renderer: None });
             self.publish_capabilities()?;
-            self.session()?.reemit_current().await?;
         }
+        self.transition_current_player(previous_player, self.current_player()?)
+            .await?;
         Ok(())
     }
 
@@ -690,6 +684,13 @@ impl NodeContext {
         kind: RemoteLossKind,
         detail: String,
     ) {
+        let previous_player = match self.current_player_snapshot() {
+            Ok(player) => player,
+            Err(error) => {
+                log::warn!("Could not read the current player after renderer loss: {error:#}");
+                return;
+            }
+        };
         let removed = match self.renderer_link.lock() {
             Ok(mut slot) if slot.as_ref().is_some_and(|link| link.id() == id) => slot.take(),
             _ => None,
@@ -722,27 +723,46 @@ impl NodeContext {
             false
         };
         if reconnecting {
-            self.refresh_current_player().ok();
+            match self.current_player() {
+                Ok(current_player) => {
+                    if let Err(error) = self
+                        .transition_current_player(previous_player, current_player)
+                        .await
+                    {
+                        log::warn!("Could not update the player after renderer loss: {error:#}");
+                    }
+                }
+                Err(error) => {
+                    log::warn!("Could not resolve the player after renderer loss: {error:#}");
+                }
+            }
             self.gui_broadcaster.broadcast(&RemoteLibraryReconnecting {
                 fingerprint: link.fingerprint().to_owned(),
                 alias: link.alias().to_owned(),
             });
             return;
         }
-        self.refresh_current_player().ok();
         self.gui_broadcaster.broadcast(&RendererLinkLost {
             fingerprint: link.fingerprint().to_owned(),
             alias: link.alias().to_owned(),
         });
         self.gui_broadcaster
             .broadcast(&RendererAttachmentChanged { renderer: None });
+        match self.current_player() {
+            Ok(current_player) => {
+                if let Err(error) = self
+                    .transition_current_player(previous_player, current_player)
+                    .await
+                {
+                    log::warn!("Could not update the player after renderer loss: {error:#}");
+                }
+            }
+            Err(error) => {
+                log::warn!("Could not resolve the player after renderer loss: {error:#}");
+            }
+        }
         if let Err(error) = self.publish_capabilities() {
             log::warn!("Could not publish request capabilities after renderer loss: {error:#}");
-        }
-        if let Ok(session) = self.session()
-            && let Err(error) = session.reemit_current().await
-        {
-            log::warn!("Could not restore local session after renderer loss: {error:#}");
         }
     }
 
@@ -789,6 +809,7 @@ impl NodeContext {
     }
 
     pub(crate) fn current_player(&self) -> Result<CurrentPlayer> {
+        let renderer_link = self.renderer_link()?;
         let ui = self
             .ui_library
             .lock()
@@ -798,7 +819,7 @@ impl NodeContext {
                 catalog: LibraryBinding::RemotePeer { reconnect, .. },
                 ..
             }) => CurrentPlayer::RunePeer {
-                link: self.renderer_link()?,
+                link: renderer_link.clone(),
                 attached: false,
                 reconnecting: reconnect.as_ref().map(|task| task.alias.clone()),
             },
@@ -810,7 +831,7 @@ impl NodeContext {
                 catalog: LibraryBinding::Subsonic(binding),
                 ..
             }) => CurrentPlayer::SubsonicJukebox(Arc::clone(binding)),
-            _ => match self.renderer_link()? {
+            _ => match renderer_link {
                 Some(link) => CurrentPlayer::RunePeer {
                     link: Some(link),
                     attached: true,
@@ -866,13 +887,77 @@ impl NodeContext {
         }
     }
 
-    fn refresh_current_player(&self) -> Result<()> {
-        let player = self.current_player()?;
+    pub(crate) fn current_player_snapshot(&self) -> Result<CurrentPlayer> {
+        self.current_player
+            .lock()
+            .map(|player| player.clone())
+            .map_err(|_| anyhow::anyhow!("Current player lock poisoned"))
+    }
+
+    fn refresh_current_player(&self, player: CurrentPlayer) -> Result<()> {
         VISUALIZER.set_inputs(player.visualizer_inputs());
         *self
             .current_player
             .lock()
             .map_err(|_| anyhow::anyhow!("Current player lock poisoned"))? = player;
+        Ok(())
+    }
+
+    pub(crate) async fn transition_current_player(
+        &self,
+        previous: CurrentPlayer,
+        current: CurrentPlayer,
+    ) -> Result<()> {
+        let leaving_local = matches!(
+            (&previous, &current),
+            (
+                CurrentPlayer::Local,
+                CurrentPlayer::RunePeer { attached: true, .. }
+            ) | (
+                CurrentPlayer::Local,
+                CurrentPlayer::RunePeer {
+                    attached: false,
+                    ..
+                }
+            ) | (CurrentPlayer::Local, CurrentPlayer::SubsonicJukebox(_))
+        );
+        let returning_local = matches!(
+            (&previous, &current),
+            (
+                CurrentPlayer::RunePeer { attached: true, .. },
+                CurrentPlayer::Local
+            ) | (
+                CurrentPlayer::RunePeer {
+                    attached: false,
+                    ..
+                },
+                CurrentPlayer::Local
+            ) | (CurrentPlayer::SubsonicJukebox(_), CurrentPlayer::Local)
+        );
+        let renderer_lost = matches!(
+            (&previous, &current),
+            (
+                CurrentPlayer::RunePeer { link: Some(_), .. },
+                CurrentPlayer::RunePeer {
+                    link: None,
+                    reconnecting: None,
+                    ..
+                }
+            )
+        );
+        self.refresh_current_player(current)?;
+        if leaving_local {
+            let session = self.session()?;
+            let mut player = session.player.lock().await;
+            if player.get_status().state == PlaybackState::Playing {
+                player
+                    .pause_applied()
+                    .await
+                    .context("Pause local player when another player becomes current")?;
+            }
+        } else if returning_local || renderer_lost {
+            self.session()?.reemit_current().await?;
+        }
         Ok(())
     }
 
@@ -891,17 +976,19 @@ impl NodeContext {
                 reconnect: None,
             },
         )
+        .await
     }
 
-    pub(crate) fn set_open_local_catalog(
+    pub(crate) async fn set_open_local_catalog(
         &self,
         record_id: Option<LibraryRecordId>,
         library_id: Uuid,
     ) -> Result<u64> {
         self.set_open_catalog(record_id, Some(library_id), LibraryBinding::Local)
+            .await
     }
 
-    pub(crate) fn set_open_subsonic_catalog(
+    pub(crate) async fn set_open_subsonic_catalog(
         &self,
         record_id: Option<LibraryRecordId>,
         binding: Arc<SubsonicBinding>,
@@ -911,6 +998,7 @@ impl NodeContext {
             Some(binding.library_id),
             LibraryBinding::Subsonic(binding),
         )
+        .await
     }
 
     pub(crate) fn subsonic_binding(
@@ -944,31 +1032,35 @@ impl NodeContext {
         })
     }
 
-    fn set_open_catalog(
+    async fn set_open_catalog(
         &self,
         record_id: Option<LibraryRecordId>,
         library_id: Option<Uuid>,
         catalog: LibraryBinding,
     ) -> Result<u64> {
+        let previous_player = self.current_player_snapshot()?;
         let jukebox_binding = match &catalog {
             LibraryBinding::Subsonic(binding) if !binding.play_on_this_device => {
                 Some(Arc::clone(binding))
             }
             _ => None,
         };
-        let mut ui = self
-            .ui_library
-            .lock()
-            .map_err(|_| anyhow::anyhow!("UI library lock poisoned"))?;
-        let generation = self.open_generation.fetch_add(1, Ordering::AcqRel) + 1;
-        *ui = UiLibrary::Open(OpenLibraryState {
-            record_id,
-            generation,
-            library_id,
-            catalog,
-        });
-        drop(ui);
-        self.refresh_current_player()?;
+        let generation = {
+            let mut ui = self
+                .ui_library
+                .lock()
+                .map_err(|_| anyhow::anyhow!("UI library lock poisoned"))?;
+            let generation = self.open_generation.fetch_add(1, Ordering::AcqRel) + 1;
+            *ui = UiLibrary::Open(OpenLibraryState {
+                record_id,
+                generation,
+                library_id,
+                catalog,
+            });
+            generation
+        };
+        self.transition_current_player(previous_player, self.current_player()?)
+            .await?;
         if let Some(binding) = jukebox_binding {
             binding.start_jukebox_polling();
         }
@@ -1159,6 +1251,7 @@ impl NodeContext {
     }
 
     async fn leave_remote_ui(&self) {
+        let previous_player = self.current_player_snapshot().ok();
         let (remote, subsonic) = self.ui_library.lock().map_or((false, None), |mut ui| {
             let remote = matches!(
                 &*ui,
@@ -1193,7 +1286,15 @@ impl NodeContext {
         if let Some(binding) = subsonic {
             binding.stop_jukebox_polling();
         }
-        self.refresh_current_player().ok();
+        if !remote
+            && let Some(previous_player) = previous_player
+            && let Ok(current_player) = self.current_player()
+            && let Err(error) = self
+                .transition_current_player(previous_player, current_player)
+                .await
+        {
+            log::warn!("Could not update current player after remote UI close: {error:#}");
+        }
         if let Err(error) = self.publish_capabilities() {
             log::warn!("Could not publish request capabilities after remote UI close: {error:#}");
         }

@@ -327,7 +327,10 @@ impl CurrentPlayer {
     }
 
     pub(crate) fn suppresses_local_session_events(&self) -> bool {
-        matches!(self, Self::RunePeer { .. })
+        match self {
+            Self::Local => false,
+            Self::RunePeer { .. } | Self::SubsonicJukebox(_) => true,
+        }
     }
 }
 
