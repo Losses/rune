@@ -36,12 +36,14 @@ case "$ARCH" in
         RUST_TARGET="aarch64-unknown-linux-gnu"
         CC_TARGET="aarch64-linux-gnu-gcc"
         CXX_TARGET="aarch64-linux-gnu-g++"
+        PKG_ARCH="arm64"
         ;;
     arm|armhf|armv7)
         TARGET_ARCH="arm"
         RUST_TARGET="armv7-unknown-linux-gnueabihf"
         CC_TARGET="arm-linux-gnueabihf-gcc"
         CXX_TARGET="arm-linux-gnueabihf-g++"
+        PKG_ARCH="armhf"
         ;;
     *)
         echo "Error: Unsupported architecture: $ARCH" >&2
@@ -57,7 +59,7 @@ elif [ "$HOST_ARCH" != "armv7l" ] && [ "$TARGET_ARCH" = "arm" ]; then
     IS_CROSS=true
 fi
 
-BUNDLE_DIR="$OUTPUT_DIR/rune-embedded-$TARGET_ARCH"
+BUNDLE_DIR="$OUTPUT_DIR/rune-embedded-$PKG_ARCH"
 rm -rf "$BUNDLE_DIR"
 mkdir -p "$BUNDLE_DIR/bin" "$BUNDLE_DIR/lib" "$BUNDLE_DIR/data"
 
@@ -68,8 +70,23 @@ rinf gen
 
 echo ">> 2. Compiling Rust backend (libhub.so) for $RUST_TARGET..."
 if [ "$IS_CROSS" = true ]; then
-    export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="$CC_TARGET"
-    export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER="$CC_TARGET"
+    if [ "$TARGET_ARCH" = "arm" ]; then
+        export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER="$CC_TARGET"
+        export CC_armv7_unknown_linux_gnueabihf="$CC_TARGET"
+        export CXX_armv7_unknown_linux_gnueabihf="$CXX_TARGET"
+        export PKG_CONFIG_ALLOW_CROSS=1
+        if [ -d "/usr/lib/arm-linux-gnueabihf/pkgconfig" ]; then
+            export PKG_CONFIG_PATH="/usr/lib/arm-linux-gnueabihf/pkgconfig:${PKG_CONFIG_PATH:-}"
+        fi
+    else
+        export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="$CC_TARGET"
+        export CC_aarch64_unknown_linux_gnu="$CC_TARGET"
+        export CXX_aarch64_unknown_linux_gnu="$CXX_TARGET"
+        export PKG_CONFIG_ALLOW_CROSS=1
+        if [ -d "/usr/lib/aarch64-linux-gnu/pkgconfig" ]; then
+            export PKG_CONFIG_PATH="/usr/lib/aarch64-linux-gnu/pkgconfig:${PKG_CONFIG_PATH:-}"
+        fi
+    fi
     cargo build --release --target "$RUST_TARGET" -p hub
     cp "$ROOT_DIR/target/$RUST_TARGET/release/libhub.so" "$BUNDLE_DIR/lib/libhub.so"
 else
@@ -77,27 +94,51 @@ else
     cp "$ROOT_DIR/target/release/libhub.so" "$BUNDLE_DIR/lib/libhub.so"
 fi
 
-echo ">> 3. Building Flutter Dart AOT Bundle via flutter build linux..."
-flutter build linux --release --verbose
+if [ "$TARGET_ARCH" = "arm64" ]; then
+    echo ">> 3. Building Flutter Dart AOT Bundle via flutter build linux..."
+    flutter build linux --release --verbose
 
-BUNDLE_SRC="build/linux/arm64/release/bundle"
-if [ ! -d "$BUNDLE_SRC" ]; then
-    BUNDLE_SRC="$(find build/linux -type d -name "bundle" | head -n 1)"
-fi
+    BUNDLE_SRC="build/linux/arm64/release/bundle"
+    if [ ! -d "$BUNDLE_SRC" ]; then
+        BUNDLE_SRC="$(find build/linux -type d -name "bundle" | head -n 1)"
+    fi
 
-echo "Copying assets from $BUNDLE_SRC..."
-cp -r "$BUNDLE_SRC/data/flutter_assets"/* "$BUNDLE_DIR/data/"
-test -f "$BUNDLE_SRC/data/icudtl.dat" && cp "$BUNDLE_SRC/data/icudtl.dat" "$BUNDLE_DIR/data/" || true
-test -f "$BUNDLE_SRC/lib/libapp.so" && cp "$BUNDLE_SRC/lib/libapp.so" "$BUNDLE_DIR/data/app.so" || true
+    echo "Copying assets from $BUNDLE_SRC..."
+    cp -r "$BUNDLE_SRC/data/flutter_assets"/* "$BUNDLE_DIR/data/"
+    test -f "$BUNDLE_SRC/data/icudtl.dat" && cp "$BUNDLE_SRC/data/icudtl.dat" "$BUNDLE_DIR/data/" || true
+    test -f "$BUNDLE_SRC/lib/libapp.so" && cp "$BUNDLE_SRC/lib/libapp.so" "$BUNDLE_DIR/data/app.so" || true
 
-echo ">> 3.1 Fetching libflutter_engine.so for $TARGET_ARCH..."
-FLUTTER_VERSION="$(flutter --version 2>/dev/null | head -n 1 | awk '{print $2}')"
-ENGINE_URL="https://github.com/ardera/flutter-engine-binaries-for-arm/releases/download/v${FLUTTER_VERSION}/engine-binaries-linux-${TARGET_ARCH}.tar.xz"
-curl -sSL "$ENGINE_URL" -o /tmp/engine.tar.xz 2>/dev/null || true
-if [ -f /tmp/engine.tar.xz ] && tar -tf /tmp/engine.tar.xz >/dev/null 2>&1; then
-    tar -xf /tmp/engine.tar.xz -C "$BUNDLE_DIR/lib/" libflutter_engine.so.release 2>/dev/null || true
-    test -f "$BUNDLE_DIR/lib/libflutter_engine.so.release" && mv "$BUNDLE_DIR/lib/libflutter_engine.so.release" "$BUNDLE_DIR/lib/libflutter_engine.so"
-    rm -f /tmp/engine.tar.xz
+    echo ">> 3.1 Fetching libflutter_engine.so for arm64..."
+    FLUTTER_VERSION="$(flutter --version 2>/dev/null | head -n 1 | awk '{print $2}')"
+    ENGINE_URL="https://github.com/ardera/flutter-engine-binaries-for-arm/releases/download/v${FLUTTER_VERSION}/engine-binaries-linux-arm64.tar.xz"
+    curl -sSL "$ENGINE_URL" -o /tmp/engine.tar.xz 2>/dev/null || true
+    if [ -f /tmp/engine.tar.xz ] && tar -tf /tmp/engine.tar.xz >/dev/null 2>&1; then
+        tar -xf /tmp/engine.tar.xz -C "$BUNDLE_DIR/lib/" libflutter_engine.so.release 2>/dev/null || true
+        test -f "$BUNDLE_DIR/lib/libflutter_engine.so.release" && mv "$BUNDLE_DIR/lib/libflutter_engine.so.release" "$BUNDLE_DIR/lib/libflutter_engine.so"
+        rm -f /tmp/engine.tar.xz
+    fi
+else
+    echo ">> 3. Building Flutter Dart AOT Bundle for armhf via bundle + gen_snapshot..."
+    flutter build bundle
+    cp -r build/flutter_assets/* "$BUNDLE_DIR/data/"
+
+    ENGINE_REPO="/tmp/engine-binaries"
+    if [ ! -d "$ENGINE_REPO" ]; then
+        git clone --depth 1 https://github.com/ardera/flutter-engine-binaries-for-arm.git "$ENGINE_REPO"
+    fi
+
+    echo "Compiling AOT app.so using gen_snapshot..."
+    chmod +x "$ENGINE_REPO/arm/gen_snapshot_linux_x64_release"
+    "$ENGINE_REPO/arm/gen_snapshot_linux_x64_release" \
+        --deterministic \
+        --snapshot_kind=app-aot-elf \
+        --elf="$BUNDLE_DIR/data/app.so" \
+        --strip \
+        "$BUNDLE_DIR/data/kernel_blob.bin"
+
+    rm -f "$BUNDLE_DIR/data/kernel_blob.bin"
+    cp "$ENGINE_REPO/arm/libflutter_engine.so.release" "$BUNDLE_DIR/lib/libflutter_engine.so"
+    cp "$ENGINE_REPO/arm/icudtl.dat" "$BUNDLE_DIR/data/icudtl.dat"
 fi
 
 echo ">> 4. Building flutter-pi DRM/KMS embedder..."
@@ -112,11 +153,16 @@ sed -i 's/target_link_libraries(flutter-pi/target_link_options(flutter-pi PRIVAT
 
 CMAKE_FLAGS=(-DCMAKE_BUILD_TYPE=Release -DENABLE_TESTS=OFF)
 if [ "$IS_CROSS" = true ]; then
+    if [ "$TARGET_ARCH" = "arm" ]; then
+        PROCESSOR="armv7-a"
+    else
+        PROCESSOR="aarch64"
+    fi
     CMAKE_FLAGS+=(
         -DCMAKE_C_COMPILER="$CC_TARGET"
         -DCMAKE_CXX_COMPILER="$CXX_TARGET"
         -DCMAKE_SYSTEM_NAME=Linux
-        -DCMAKE_SYSTEM_PROCESSOR="$TARGET_ARCH"
+        -DCMAKE_SYSTEM_PROCESSOR="$PROCESSOR"
     )
 fi
 
@@ -132,9 +178,16 @@ chmod +x "$BUNDLE_DIR/install.sh"
 
 echo ">> 6. Packaging bundle..."
 VERSION="$(git describe --tags --always || echo "latest")"
-TARBALL_NAME="Rune-$VERSION-embedded-$TARGET_ARCH.tar.gz"
-tar -czf "$OUTPUT_DIR/$TARBALL_NAME" -C "$OUTPUT_DIR" "rune-embedded-$TARGET_ARCH"
+TARBALL_NAME="Rune-$VERSION-embedded-$PKG_ARCH.tar.gz"
+ZIP_NAME="Rune-$VERSION-embedded-$PKG_ARCH.zip"
+
+tar -czf "$OUTPUT_DIR/$TARBALL_NAME" -C "$OUTPUT_DIR" "rune-embedded-$PKG_ARCH"
+if command -v zip >/dev/null 2>&1; then
+    (cd "$OUTPUT_DIR" && zip -r -q "$ZIP_NAME" "rune-embedded-$PKG_ARCH")
+fi
 
 echo "==============================================="
-echo " Build Complete: $OUTPUT_DIR/$TARBALL_NAME "
+echo " Build Complete:"
+echo " - $OUTPUT_DIR/$TARBALL_NAME"
+echo " - $OUTPUT_DIR/$ZIP_NAME"
 echo "==============================================="
