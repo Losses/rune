@@ -10723,8 +10723,24 @@ struct ReconnectFixture {
     _directories: [TempDir; 2],
 }
 
+enum ReconnectFixtureQueue {
+    Empty,
+    WithTrack,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ReconnectFixtureExit {
+    Close,
+    Switch,
+    Shutdown,
+}
+
 impl ReconnectFixture {
     async fn new(deadline: Duration) -> Result<Self> {
+        Self::with_queue(deadline, ReconnectFixtureQueue::WithTrack).await
+    }
+
+    async fn with_queue(deadline: Duration, queue: ReconnectFixtureQueue) -> Result<Self> {
         let directories = [tempfile::tempdir()?, tempfile::tempdir()?];
         let signals = Arc::new(RecordedSignals::default());
         let a = step(
@@ -10756,8 +10772,14 @@ impl ReconnectFixture {
             Ok::<_, anyhow::Error>(())
         })
         .await?;
-        let track = step("create reconnect track", session_audio(&b, "reconnect.ogg")).await?;
-        step("queue reconnect track", queue_session(&b, &[track])).await?;
+        match queue {
+            ReconnectFixtureQueue::Empty => {}
+            ReconnectFixtureQueue::WithTrack => {
+                let track =
+                    step("create reconnect track", session_audio(&b, "reconnect.ogg")).await?;
+                step("queue reconnect track", queue_session(&b, &[track])).await?;
+            }
+        }
         let remote = step(
             "open remote library",
             super::open_remote_control_record(a.global_params.node.clone(), &fingerprint),
@@ -10810,7 +10832,11 @@ impl ReconnectFixture {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn rr_reconnect_restores_real_node_requests() -> Result<()> {
-    let f = ReconnectFixture::new(Duration::from_secs(10)).await?;
+    let f = step(
+        "create reconnect fixture",
+        Box::pin(ReconnectFixture::new(Duration::from_secs(10))),
+    )
+    .await?;
     f.disconnect().await?;
     let mut browse = start::<FetchAllPlaylistsRequest>(&f.remote);
     browse.send(FetchAllPlaylistsRequest { call_id: None });
@@ -10924,7 +10950,11 @@ async fn rr_reconnect_deadline_uses_existing_loss_and_close() -> Result<()> {
 async fn rr_reconnect_stops_after_incompatible_peer_with_permanent_loss() -> Result<()> {
     use discovery::protocol_version::{PROTOCOL_VERSION, ProtocolVersion};
 
-    let f = ReconnectFixture::new(Duration::from_secs(10)).await?;
+    let f = step(
+        "create reconnect fixture",
+        Box::pin(ReconnectFixture::new(Duration::from_secs(10))),
+    )
+    .await?;
     f.disconnect().await?;
     let mut device_info = super::info(&f.b).await?;
     // One major above ours, whatever ours is, so a protocol bump never breaks this test.
@@ -10948,18 +10978,29 @@ async fn rr_reconnect_stops_after_incompatible_peer_with_permanent_loss() -> Res
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn rr_reconnect_leaving_stops_attempts() -> Result<()> {
-    for exit in ["close", "switch", "shutdown"] {
-        // Boxed: the fixture future is large, and nesting it in the watchdog's future on the
-        // stack overflowed the test thread.
-        let f = step(
-            "create reconnect fixture",
-            Box::pin(ReconnectFixture::new(Duration::from_secs(2))),
-        )
-        .await?;
+    let mut f = step(
+        "create reconnect fixture",
+        Box::pin(ReconnectFixture::with_queue(
+            Duration::from_secs(2),
+            ReconnectFixtureQueue::Empty,
+        )),
+    )
+    .await?;
+    for exit in [
+        ReconnectFixtureExit::Close,
+        ReconnectFixtureExit::Switch,
+        ReconnectFixtureExit::Shutdown,
+    ] {
+        // The fixture is reused across exits and the attempt count never resets, so each
+        // exit waits for an attempt made after its own disconnect.
+        let attempts_before = f.a.global_params.node.reconnect_attempt_count();
         step("disconnect renderer", f.disconnect()).await?;
         step("wait for first reconnect attempt", async {
             wait_until("first reconnect attempt", || async {
-                Ok((f.a.global_params.node.reconnect_attempt_count() > 0).then_some(()))
+                Ok(
+                    (f.a.global_params.node.reconnect_attempt_count() > attempts_before)
+                        .then_some(()),
+                )
             })
             .await
         })
@@ -10974,9 +11015,13 @@ async fn rr_reconnect_leaving_stops_attempts() -> Result<()> {
         .await?;
         step("leave remote library", async {
             match exit {
-                "close" => f.a.global_params.node.close_ui(&f.remote.main_token).await,
-                "switch" => f.a.global_params.node.attach_ui(&replacement).await,
-                _ => f.a.global_params.node.shutdown().await?,
+                ReconnectFixtureExit::Close => {
+                    f.a.global_params.node.close_ui(&f.remote.main_token).await
+                }
+                ReconnectFixtureExit::Switch => {
+                    f.a.global_params.node.attach_ui(&replacement).await
+                }
+                ReconnectFixtureExit::Shutdown => f.a.global_params.node.shutdown().await?,
             }
             Ok::<_, anyhow::Error>(())
         })
@@ -11002,7 +11047,7 @@ async fn rr_reconnect_leaving_stops_attempts() -> Result<()> {
             assert_eq!(
                 f.a.global_params.node.reconnect_attempt_count(),
                 attempts,
-                "attempt after {exit}"
+                "attempt after {exit:?}"
             );
             assert!(f.a.global_params.node.renderer_link()?.is_none());
             assert!(
@@ -11018,7 +11063,22 @@ async fn rr_reconnect_leaving_stops_attempts() -> Result<()> {
             Ok::<_, anyhow::Error>(())
         })
         .await?;
-        step("shutdown reconnect fixtures", f.shutdown()).await?;
+        match exit {
+            ReconnectFixtureExit::Shutdown => {
+                step("shutdown renderer fixture", f.b.global_params.node.shutdown()).await?;
+            }
+            ReconnectFixtureExit::Close | ReconnectFixtureExit::Switch => {
+                f.remote = step(
+                    "reopen remote library",
+                    super::open_remote_control_record(
+                        f.a.global_params.node.clone(),
+                        &f.fingerprint,
+                    ),
+                )
+                .await?;
+                f.signals.clear();
+            }
+        }
     }
     Ok(())
 }

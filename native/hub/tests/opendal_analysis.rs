@@ -160,7 +160,7 @@ async fn assert_scan_change_detection(
 }
 
 fn large_wav() -> Vec<u8> {
-    let data_length = 64 * 1024 * 1024;
+    let data_length = 36 * 1024 * 1024;
     let mut bytes = Vec::with_capacity(data_length + 44);
     bytes.extend_from_slice(b"RIFF");
     bytes.extend_from_slice(&((data_length + 36) as u32).to_le_bytes());
@@ -212,7 +212,7 @@ async fn assert_large_audio_playback_and_analysis(
     })
     .await
     .context("large remote playback did not start")?;
-    player.seek(42.0);
+    player.seek(45.0);
 
     let analysis_fs = Arc::new(fs);
     assert_eq!(
