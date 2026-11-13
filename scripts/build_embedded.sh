@@ -76,7 +76,7 @@ if [ "$IS_CROSS" = true ]; then
         export CXX_armv7_unknown_linux_gnueabihf="$CXX_TARGET"
         export PKG_CONFIG_ALLOW_CROSS=1
         if [ -d "/usr/lib/arm-linux-gnueabihf/pkgconfig" ]; then
-            export PKG_CONFIG_PATH="/usr/lib/arm-linux-gnueabihf/pkgconfig:${PKG_CONFIG_PATH:-}"
+            export PKG_CONFIG_PATH="/usr/lib/arm-linux-gnueabihf/pkgconfig:/usr/share/pkgconfig:${PKG_CONFIG_PATH:-}"
         fi
     else
         export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="$CC_TARGET"

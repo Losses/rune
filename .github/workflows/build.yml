@@ -468,7 +468,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             jq gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf binutils-arm-linux-gnueabihf \
             clang cmake ninja-build pkg-config zip \
-            libasound2-dev:armhf libdrm-dev:armhf libgbm-dev:armhf \
+            libasound2-dev:armhf libssl-dev:armhf libdrm-dev:armhf libgbm-dev:armhf \
             libgles2-mesa-dev:armhf libegl1-mesa-dev:armhf libsystemd-dev:armhf \
             libinput-dev:armhf libudev-dev:armhf libxkbcommon-dev:armhf
 
