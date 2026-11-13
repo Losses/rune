@@ -155,9 +155,14 @@ CMAKE_FLAGS=(-DCMAKE_BUILD_TYPE=Release -DENABLE_TESTS=OFF)
 if [ "$IS_CROSS" = true ]; then
     if [ "$TARGET_ARCH" = "arm" ]; then
         PROCESSOR="armv7-a"
+        export PKG_CONFIG_PATH="/usr/lib/arm-linux-gnueabihf/pkgconfig:/usr/share/pkgconfig:${PKG_CONFIG_PATH:-}"
+        export PKG_CONFIG_LIBDIR="/usr/lib/arm-linux-gnueabihf/pkgconfig"
     else
         PROCESSOR="aarch64"
+        export PKG_CONFIG_PATH="/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig:${PKG_CONFIG_PATH:-}"
+        export PKG_CONFIG_LIBDIR="/usr/lib/aarch64-linux-gnu/pkgconfig"
     fi
+    export PKG_CONFIG_ALLOW_CROSS=1
     CMAKE_FLAGS+=(
         -DCMAKE_C_COMPILER="$CC_TARGET"
         -DCMAKE_CXX_COMPILER="$CXX_TARGET"

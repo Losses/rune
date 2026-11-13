@@ -432,7 +432,7 @@ jobs:
             flutter_arch: arm64
             release_suffix: arm64
           - arch: armhf
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
             rust_target: armv7-unknown-linux-gnueabihf
             flutter_arch: armhf
             release_suffix: armhf
@@ -451,6 +451,17 @@ jobs:
       - name: Install system dependencies (ARMhf cross-compilation)
         if: matrix.arch == 'armhf'
         run: |
+          # Restrict default sources to amd64 so apt update doesn't look for armhf on archive.ubuntu.com
+          sudo sed -i 's/^Types: deb/Types: deb\nArchitectures: amd64/g' /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          # Add Ubuntu ports for armhf
+          sudo tee /etc/apt/sources.list.d/ports-armhf.sources << "EOF"
+          Types: deb
+          URIs: http://ports.ubuntu.com/ubuntu-ports/
+          Suites: noble noble-updates noble-security
+          Components: main universe
+          Architectures: armhf
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+          EOF
           sudo dpkg --add-architecture armhf
           sudo apt-get update
           sudo apt-get install -y jq gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf binutils-arm-linux-gnueabihf \
