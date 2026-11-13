@@ -307,6 +307,12 @@ impl SubsonicCoverCache {
         client: Arc<SubsonicClient>,
         cover_id: &str,
     ) -> Result<Option<String>> {
+        // A request that missed the cache just before an earlier fetch for this cover stored
+        // its file, and found no fetch in flight just after that fetch finished, starts this
+        // one: the file is there now, so it must not be fetched twice.
+        if let Some(path) = self.cached_path(cover_id).await? {
+            return Ok(Some(path));
+        }
         let permit = tokio::select! {
             _ = self.cancellation.cancelled() => return Ok(None),
             permit = self.concurrency.acquire() => permit?,
