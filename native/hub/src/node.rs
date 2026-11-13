@@ -27,6 +27,7 @@ use discovery::{
     server::{PermissionManager, UserStatus},
 };
 use playback::{
+    PlayerCommand,
     player::{HandoffBlockId as PlayerHandoffBlockId, PlaybackState},
     sfx_player::SfxPlayer,
 };
@@ -43,7 +44,7 @@ use crate::macros::{
     RequestAccess, RequestScope, StandaloneRequestReceiver, capability_snapshot, request_access,
     request_scope,
 };
-use crate::request_error::ExpectedRequestError;
+use crate::request_error::{ExpectedRequestError, player_command_error};
 use crate::request_owner::{CurrentPlayer, Implementation, OpenLibrary};
 use crate::rpc::{Slot, TargetRequest};
 use crate::server::sync_worker::SyncTokenStore;
@@ -948,11 +949,15 @@ impl NodeContext {
         self.refresh_current_player(current)?;
         if leaving_local {
             let session = self.session()?;
-            let mut player = session.player.lock().await;
-            if player.get_status().state == PlaybackState::Playing {
-                player
-                    .pause_applied()
+            let completion = {
+                let mut player = session.player.lock().await;
+                (player.get_status().state == PlaybackState::Playing)
+                    .then(|| player.command_with_completion(PlayerCommand::Pause))
+            };
+            if let Some(completion) = completion {
+                completion
                     .await
+                    .map_err(|error| anyhow::Error::new(player_command_error(error)))
                     .context("Pause local player when another player becomes current")?;
             }
         } else if returning_local || renderer_lost {

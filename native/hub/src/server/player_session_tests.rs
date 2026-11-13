@@ -1,4 +1,5 @@
 use super::gui_listener_tests::start;
+use anyhow::Context;
 use crate::Session;
 use crate::macros::{
     RequestAccess, RequestScope, RequestSlots, capability_snapshot, request_scope,
@@ -852,7 +853,15 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     for secret_marker in ["t=", "s=", "p=", "test-secret"] {
         assert!(!format!("{rejected:#}").contains(secret_marker));
     }
-    dispatch_gui_request(&fixture.global_params, &load).await?;
+    let unavailable_load = dispatch_gui_request(&fixture.global_params, &load)
+        .await
+        .err()
+        .context("a rejected source must fail the load request")?;
+    assert!(unavailable_load.chain().any(|cause| {
+        cause
+            .downcast_ref::<ExpectedRequestError>()
+            .is_some_and(|error| matches!(error, ExpectedRequestError::PlayerSourceUnavailable))
+    }));
     wait_player(&fixture, |status| {
         status.unavailable_reasons.get(&item) == Some(&UnavailableReason::CredentialsRejected)
     })
@@ -1258,6 +1267,83 @@ async fn session_audio(f: &Fixture, name: &str) -> Result<i32> {
         .await?
         .context("scanned session audio")?
         .id)
+}
+
+async fn repeat_one_single_item_queue() -> Result<(TempDir, Fixture)> {
+    let node_dir = tempfile::tempdir()?;
+    let fixture = fixture(node_dir.path()).await?;
+    let track = session_audio(&fixture, "repeat-one-next.ogg").await?;
+    queue_session(&fixture, &[track]).await?;
+
+    dispatch_gui_request(
+        &fixture.global_params,
+        &SetPlaybackModeRequest {
+            call_id: None,
+            mode: 1,
+        },
+    )
+    .await?;
+    dispatch_gui_request(&fixture.global_params, &PlayRequest { call_id: None }).await?;
+    dispatch_gui_request(
+        &fixture.global_params,
+        &SeekRequest {
+            call_id: None,
+            position_seconds: 0.0,
+        },
+    )
+    .await?;
+    wait_player(&fixture, |status| {
+        status.item.is_some()
+            && status.playback_mode == PlaybackMode::RepeatOne
+            && status.position.is_zero()
+    })
+    .await?;
+    Ok((node_dir, fixture))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn next_in_repeat_one_single_item_queue_answers_at_zero_position() -> Result<()> {
+    use crate::messages::NextRequest;
+
+    let (_node_dir, fixture) = repeat_one_single_item_queue().await?;
+
+    let started = Instant::now();
+    let response = timeout(
+        TEST_DEADLINE,
+        dispatch_gui_request(&fixture.global_params, &NextRequest { call_id: None }),
+    )
+    .await;
+    assert!(
+        response.is_ok(),
+        "NextRequest did not answer in {TEST_DEADLINE:?}; elapsed {:?}",
+        started.elapsed()
+    );
+    response??;
+
+    fixture.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn previous_in_repeat_one_single_item_queue_answers_at_zero_position() -> Result<()> {
+    use crate::messages::PreviousRequest;
+
+    let (_node_dir, fixture) = repeat_one_single_item_queue().await?;
+    let started = Instant::now();
+    let response = timeout(
+        TEST_DEADLINE,
+        dispatch_gui_request(&fixture.global_params, &PreviousRequest { call_id: None }),
+    )
+    .await;
+    assert!(
+        response.is_ok(),
+        "PreviousRequest did not answer in {TEST_DEADLINE:?}; elapsed {:?}",
+        started.elapsed()
+    );
+    response??;
+
+    fixture.global_params.node.shutdown().await?;
+    Ok(())
 }
 
 #[tokio::test]
@@ -6451,14 +6537,29 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
     let mut expected_position = source_before.position;
 
     let source_fingerprint = info(&source).await?.fingerprint;
+    let host_fingerprint = info(&host).await?.fingerprint;
     target
         .global_params
         .node
         .access_policy
         .set(&source_fingerprint, DeviceGrants::my_device())?;
+    target
+        .global_params
+        .node
+        .access_policy
+        .set(&host_fingerprint, DeviceGrants::my_device())?;
     let target_address = paired_full(&target, &source)
         .await
         .context("pair target renderer")?;
+    host.global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(
+            &target_fingerprint,
+            vec![format!("127.0.0.1:{}", target_address.port())],
+        )
+        .await?;
     source
         .global_params
         .cert_validator
@@ -6471,6 +6572,9 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
         .await?;
 
     let target_id = session_audio(&target, "handoff-target-before-corrupt.ogg").await?;
+    let target_during_handoff_id =
+        session_audio(&target, "handoff-target-edited-during-handoff.ogg").await?;
+    let target_during_handoff_item = library_track_for_id(&target, target_during_handoff_id).await?;
     queue_session(&target, &[target_id]).await?;
     target
         .global_params
@@ -6563,8 +6667,54 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
     )
     .await?;
     fs::write(&target_file, b"not an audio file")?;
-    let result = dispatch_gui_request(&source.global_params, &handoff)
+    let source_params = source.global_params.clone();
+    let handoff_request = HandoffRequest {
+        call_id: None,
+        target: handoff.target.clone(),
+    };
+    let handoff_task = tokio::spawn(async move {
+        dispatch_gui_request(&source_params, &handoff_request).await
+    });
+    wait_player(&target, |status| {
+        status.playlist.iter().any(|entry| {
+            entry.item == PlayingItem::LibraryTrack {
+                library_id: target_replica.global_params.library_id.unwrap(),
+                track: host_item.file_uuid.to_string(),
+            }
+        })
+    })
+    .await?;
+    let controller_link = host
+        .global_params
+        .node
+        .connect_renderer(&target_fingerprint, RendererLinkUse::Control)
+        .await?
+        .0;
+    controller_link
+        .call(&LoadResolvedItemsRequest {
+            call_id: None,
+            items: vec![PlayingItemRef::LibraryTrack {
+                library_id: target_during_handoff_item.library_id.to_string(),
+                track: target_during_handoff_item.file_uuid.to_string(),
+            }],
+            start_index: None,
+            mode: PlaylistOperateMode::AppendToEnd,
+            expected_revision: None,
+            playback_mode: None,
+            position_seconds: None,
+            play: None,
+        })
+        .await?;
+    wait_player(&target, |status| {
+        status
+            .playlist
+            .iter()
+            .any(|entry| entry.item == PlayingItem::from(target_during_handoff_item))
+    })
+    .await?;
+    let result = handoff_task
         .await
+        .context("join corrupt-track handoff")?
         .context("dispatch corrupt-track handoff");
     assert!(
         result
@@ -6586,21 +6736,20 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
             })),
         "decode failure should be returned as a typed unavailable error: {result:?}"
     );
-    let target_after = match wait_player(&target, |status| {
-        status.playlist == target_before.playlist && status.item == target_before.item
+    let target_after = wait_player(&target, |status| {
+        status.item == target_before.item
+            && status.playlist.iter().any(|entry| {
+                entry.item == PlayingItem::from(target_during_handoff_item)
+            })
+            && !status.playlist.iter().any(|entry| {
+                entry.item == PlayingItem::LibraryTrack {
+                    library_id: target_replica.global_params.library_id.unwrap(),
+                    track: host_item.file_uuid.to_string(),
+                }
+            })
     })
     .await
-    {
-        Ok(status) => status,
-        Err(error) => {
-            let status = target.global_params.player.lock().await.get_status();
-            return Err(error.context(format!(
-                "target after rollback: {status:?}; handoff error: {:?}",
-                result.as_ref().err()
-            )));
-        }
-    };
-    assert_eq!(target_after.playlist, target_before.playlist);
+    .context("rollback should remove the handoff block and retain the concurrent queue edit")?;
     assert_eq!(target_after.index, target_before.index);
     assert_eq!(target_after.item, target_before.item);
     let source_after =

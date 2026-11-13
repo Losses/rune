@@ -1,5 +1,4 @@
 use anyhow::Result;
-use futures::FutureExt;
 use futures::future::BoxFuture;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -98,10 +97,20 @@ pub struct PlayerStatus {
     pub volume: f32,
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum PlayerCommandError {
     #[error("player thread is no longer available")]
     ThreadUnavailable,
+    #[error("player command was superseded by a newer command")]
+    Superseded,
+    #[error("audio output could not be opened")]
+    OutputUnavailable,
+    #[error("audio source could not be loaded")]
+    SourceUnavailable,
+    #[error("player command cannot be applied in the current state")]
+    CannotApply,
+    #[error("player command timed out")]
+    TimedOut,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -390,218 +399,11 @@ pub trait Playable: Send {
     fn command_with_completion(
         &mut self,
         command: PlayerCommand,
-    ) -> BoxFuture<'_, Result<PlayerStatus, PlayerCommandError>>;
+    ) -> BoxFuture<'static, std::result::Result<(), PlayerCommandError>>;
     /// Wait until commands already sent to the player have updated its public status.
-    fn command_completion(&mut self) -> BoxFuture<'_, Result<PlayerStatus, PlayerCommandError>>;
-    fn wait_for_item_applied(
+    fn command_completion(
         &mut self,
-        item: PlayingItem,
-        state: PlaybackState,
-    ) -> BoxFuture<'_, Result<(), PlayerCommandError>> {
-        Box::pin(async move {
-            loop {
-                let status = self.command_completion().await?;
-                if status.item.as_ref() == Some(&item)
-                    && status.ready
-                    && (status.state == state || status.state == PlaybackState::Paused)
-                {
-                    return Ok(());
-                }
-                if status.state == PlaybackState::Stopped && status.unavailable.contains(&item) {
-                    return Ok(());
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-    }
-    fn load_applied(&mut self, index: usize) -> BoxFuture<'_, Result<(), PlayerCommandError>> {
-        Box::pin(async move {
-            let playlist = self.get_playlist();
-            let Some(expected_item) = playlist.get(index).cloned() else {
-                self.command_completion().await?;
-                return Ok(());
-            };
-            let before = self.get_status();
-            let mut status = self
-                .command_with_completion(PlayerCommand::Load { index })
-                .await?;
-            while status.index != Some(index)
-                || status.item.as_ref() != Some(&expected_item)
-                || !status.ready
-                || (before.state == PlaybackState::Playing && status.state != PlaybackState::Paused)
-            {
-                if status.unavailable.contains(&expected_item)
-                    || (status.state == PlaybackState::Stopped
-                        && status.item.is_none()
-                        && status.unavailable.len() >= status.playlist.len())
-                {
-                    return Ok(());
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-                status = self.command_completion().await?;
-            }
-            Ok(())
-        })
-    }
-    fn play_applied(&mut self) -> BoxFuture<'_, Result<(), PlayerCommandError>> {
-        Box::pin(async move {
-            let mut status = self.command_with_completion(PlayerCommand::Play).await?;
-            if status.playlist.is_empty() {
-                return Ok(());
-            }
-            while status.state != PlaybackState::Playing {
-                if status.state == PlaybackState::Stopped
-                    && status.item.is_none()
-                    && status.unavailable.len() >= status.playlist.len()
-                {
-                    return Ok(());
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-                status = self.command_completion().await?;
-            }
-            Ok(())
-        })
-    }
-    fn pause_applied(&mut self) -> BoxFuture<'_, Result<(), PlayerCommandError>> {
-        Box::pin(async move {
-            self.command_with_completion(PlayerCommand::Pause).await?;
-            Ok(())
-        })
-    }
-    fn next_applied(&mut self) -> BoxFuture<'_, Result<(), PlayerCommandError>> {
-        Box::pin(async move {
-            let before = self.get_status();
-            let mut status = self.command_with_completion(PlayerCommand::Next).await?;
-            while status.item == before.item
-                && status.state != PlaybackState::Stopped
-                && status.position >= before.position
-            {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-                status = self.command_completion().await?;
-            }
-            Ok(())
-        })
-    }
-    fn previous_applied(&mut self) -> BoxFuture<'_, Result<(), PlayerCommandError>> {
-        Box::pin(async move {
-            let before = self.get_status();
-            let mut status = self
-                .command_with_completion(PlayerCommand::Previous)
-                .await?;
-            if before.index == Some(0)
-                && before.position <= Duration::from_secs(3)
-                && matches!(
-                    before.playback_mode,
-                    PlaybackMode::Sequential | PlaybackMode::Shuffle
-                )
-            {
-                return Ok(());
-            }
-            while status.item == before.item
-                && status.state != PlaybackState::Stopped
-                && status.position >= before.position
-            {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-                status = self.command_completion().await?;
-            }
-            Ok(())
-        })
-    }
-    fn switch_applied(&mut self, index: usize) -> BoxFuture<'_, Result<(), PlayerCommandError>> {
-        Box::pin(async move {
-            if self.get_playlist().get(index).is_none() {
-                self.command_completion().await?;
-                return Ok(());
-            }
-            let mut status = self
-                .command_with_completion(PlayerCommand::Switch(index))
-                .await?;
-            while status.index != Some(index) || !status.ready {
-                if status.state == PlaybackState::Stopped {
-                    return Ok(());
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-                status = self.command_completion().await?;
-            }
-            Ok(())
-        })
-    }
-    fn seek_applied(&mut self, seconds: f64) -> BoxFuture<'_, Result<(), PlayerCommandError>> {
-        Box::pin(async move {
-            self.command_with_completion(PlayerCommand::Seek(seconds))
-                .await?;
-            Ok(())
-        })
-    }
-    fn set_playback_mode_applied(
-        &mut self,
-        mode: PlaybackMode,
-    ) -> BoxFuture<'_, Result<(), PlayerCommandError>> {
-        self.command_with_completion(PlayerCommand::SetPlaybackMode(mode))
-            .map(|result| result.map(|_| ()))
-            .boxed()
-    }
-    fn set_volume_applied(&mut self, volume: f32) -> BoxFuture<'_, Result<(), PlayerCommandError>> {
-        self.command_with_completion(PlayerCommand::SetVolume(volume))
-            .map(|result| result.map(|_| ()))
-            .boxed()
-    }
-    fn remove_from_playlist_applied(
-        &mut self,
-        index: usize,
-    ) -> BoxFuture<'_, Result<(), PlayerCommandError>> {
-        Box::pin(async move {
-            self.command_with_completion(PlayerCommand::RemoveFromPlaylist { index })
-                .await?;
-            Ok(())
-        })
-    }
-    fn move_playlist_item_applied(
-        &mut self,
-        old_index: usize,
-        new_index: usize,
-    ) -> BoxFuture<'_, Result<(), PlayerCommandError>> {
-        Box::pin(async move {
-            self.command_with_completion(PlayerCommand::MovePlayListItem {
-                old_index,
-                new_index,
-            })
-            .await?;
-            Ok(())
-        })
-    }
-    fn edit_playlist_applied(
-        &mut self,
-        edit: PlaylistEdit,
-    ) -> BoxFuture<'_, Result<(), PlayerCommandError>> {
-        self.command_with_completion(PlayerCommand::EditPlaylist(edit))
-            .map(|result| result.map(|_| ()))
-            .boxed()
-    }
-    fn set_realtime_fft_enabled_applied(
-        &mut self,
-        enabled: bool,
-    ) -> BoxFuture<'_, Result<(), PlayerCommandError>> {
-        self.command_with_completion(PlayerCommand::SetRealtimeFFTEnabled(enabled))
-            .map(|result| result.map(|_| ()))
-            .boxed()
-    }
-    fn set_adaptive_switching_enabled_applied(
-        &mut self,
-        enabled: bool,
-    ) -> BoxFuture<'_, Result<(), PlayerCommandError>> {
-        self.command_with_completion(PlayerCommand::SetAdaptiveSwitchingEnabled(enabled))
-            .map(|result| result.map(|_| ()))
-            .boxed()
-    }
-    fn set_mix_with_others_applied(
-        &mut self,
-        enabled: bool,
-    ) -> BoxFuture<'_, Result<(), PlayerCommandError>> {
-        self.command_with_completion(PlayerCommand::SetMixWithOthers(enabled))
-            .map(|result| result.map(|_| ()))
-            .boxed()
-    }
+    ) -> BoxFuture<'static, Result<PlayerStatus, PlayerCommandError>>;
     fn load(&self, index: usize);
     fn load_at_position(&self, index: usize, position: Duration, play: bool) {
         self.load(index);
@@ -1031,13 +833,21 @@ impl Player {
             error!("Failed to lock commands for sending");
         }
     }
+
+    fn command_with_discarded_completion(&self, command: PlayerCommand) {
+        let (response, _completion) = oneshot::channel();
+        self.command(PlayerCommand::WithCompletion {
+            command: Box::new(command),
+            response,
+        });
+    }
 }
 
 impl Playable for Player {
     fn command_with_completion(
         &mut self,
         command: PlayerCommand,
-    ) -> BoxFuture<'_, Result<PlayerStatus, PlayerCommandError>> {
+    ) -> BoxFuture<'static, std::result::Result<(), PlayerCommandError>> {
         let (response, result) = oneshot::channel();
         let sent = self
             .commands
@@ -1057,11 +867,13 @@ impl Playable for Player {
             }
             result
                 .await
-                .map_err(|_| PlayerCommandError::ThreadUnavailable)
+                .map_err(|_| PlayerCommandError::ThreadUnavailable)?
         })
     }
 
-    fn command_completion(&mut self) -> BoxFuture<'_, Result<PlayerStatus, PlayerCommandError>> {
+    fn command_completion(
+        &mut self,
+    ) -> BoxFuture<'static, Result<PlayerStatus, PlayerCommandError>> {
         let (response, result) = oneshot::channel();
         let sent = self
             .commands
@@ -1188,7 +1000,7 @@ impl Playable for Player {
         position: Duration,
         mode: PlaybackMode,
     ) {
-        self.command(PlayerCommand::Restore {
+        self.command_with_discarded_completion(PlayerCommand::Restore {
             tracks,
             index,
             position,
@@ -1202,7 +1014,7 @@ impl Playable for Player {
         position: Duration,
         mode: PlaybackMode,
     ) {
-        self.command(PlayerCommand::RestoreTagged {
+        self.command_with_discarded_completion(PlayerCommand::RestoreTagged {
             entries,
             index,
             position,
@@ -1334,11 +1146,13 @@ impl Playable for MockPlayer {
     fn command_with_completion(
         &mut self,
         _command: PlayerCommand,
-    ) -> BoxFuture<'_, Result<PlayerStatus, PlayerCommandError>> {
-        self.command_completion()
+    ) -> BoxFuture<'static, std::result::Result<(), PlayerCommandError>> {
+        Box::pin(std::future::ready(Ok(())))
     }
 
-    fn command_completion(&mut self) -> BoxFuture<'_, Result<PlayerStatus, PlayerCommandError>> {
+    fn command_completion(
+        &mut self,
+    ) -> BoxFuture<'static, Result<PlayerStatus, PlayerCommandError>> {
         Box::pin(std::future::ready(Ok(self.get_status())))
     }
     fn load(&self, _index: usize) {}

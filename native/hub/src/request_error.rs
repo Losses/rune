@@ -8,6 +8,7 @@ use crate::messages::{
 };
 use crate::rpc::UnsupportedReason;
 use discovery::protocol_version::ProtocolVersion;
+use playback::player::PlayerCommandError;
 
 /// Expected failures at the request boundary.
 #[derive(Debug, ThisError)]
@@ -54,6 +55,16 @@ pub enum ExpectedRequestError {
     LibraryTaskAlreadyRunning { task: LibraryTaskKind },
     #[error("Handoff was superseded by a newer request")]
     HandoffSuperseded,
+    #[error("Player command was superseded by a newer request")]
+    PlayerCommandSuperseded,
+    #[error("Player audio output is unavailable")]
+    PlayerOutputUnavailable,
+    #[error("Player audio source is unavailable")]
+    PlayerSourceUnavailable,
+    #[error("Player command cannot be applied")]
+    PlayerCommandCannotApply,
+    #[error("Player command timed out")]
+    PlayerCommandTimedOut,
     #[error("Cast is not possible for library {library_id}: {state:?}")]
     CastNotPossible {
         library_id: String,
@@ -67,6 +78,19 @@ impl ExpectedRequestError {
         Self::InvalidInput {
             detail: detail.into(),
         }
+    }
+}
+
+pub fn player_command_error(error: PlayerCommandError) -> ExpectedRequestError {
+    match error {
+        PlayerCommandError::ThreadUnavailable => ExpectedRequestError::Unavailable {
+            what: "player thread",
+        },
+        PlayerCommandError::Superseded => ExpectedRequestError::PlayerCommandSuperseded,
+        PlayerCommandError::OutputUnavailable => ExpectedRequestError::PlayerOutputUnavailable,
+        PlayerCommandError::SourceUnavailable => ExpectedRequestError::PlayerSourceUnavailable,
+        PlayerCommandError::CannotApply => ExpectedRequestError::PlayerCommandCannotApply,
+        PlayerCommandError::TimedOut => ExpectedRequestError::PlayerCommandTimedOut,
     }
 }
 
@@ -116,6 +140,11 @@ pub fn classify(error: &Error) -> RequestErrorKind {
                     RequestErrorKind::Conflict
                 }
                 ExpectedRequestError::HandoffSuperseded => RequestErrorKind::Conflict,
+                ExpectedRequestError::PlayerCommandSuperseded => RequestErrorKind::Conflict,
+                ExpectedRequestError::PlayerOutputUnavailable
+                | ExpectedRequestError::PlayerSourceUnavailable
+                | ExpectedRequestError::PlayerCommandTimedOut => RequestErrorKind::Unavailable,
+                ExpectedRequestError::PlayerCommandCannotApply => RequestErrorKind::InvalidInput,
                 ExpectedRequestError::CastNotPossible { state, .. } => match state {
                     CastLibraryState::NotHeld | CastLibraryState::AccessRevoked => {
                         RequestErrorKind::PermissionDenied

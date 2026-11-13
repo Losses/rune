@@ -225,6 +225,7 @@ impl PlayerSession {
                 .context("Queue revision overflow")?;
         }
         let completion = player.command_completion();
+        drop(player);
         drop(state);
         completion.await?;
         Ok(())
@@ -241,19 +242,19 @@ impl PlayerSession {
             }
             .into());
         }
-        let mut player = self.player.lock().await;
-        let result = player
-            .handoff_load(
-                params.tracks,
-                params.block,
-                params.start_index,
-                params.position,
-                params.play,
-                params.playback_mode,
-            )
+        let player = self.player.lock().await;
+        let response = player.handoff_load(
+            params.tracks,
+            params.block,
+            params.start_index,
+            params.position,
+            params.play,
+            params.playback_mode,
+        );
+        drop(player);
+        let result = response
             .await
             .context("Handoff load player command failed")?;
-        player.command_completion().await?;
         state.add_handoff_block(params.block, result.interrupted);
         state.update_queue(&result.items);
         state.queue_revision = state
@@ -275,26 +276,15 @@ impl PlayerSession {
             // metadata was refreshed. In that case the player command can remove
             // the block while preserving any current item outside it.
             .unwrap_or(InterruptedItem::Nothing);
-        let interrupted_item = match &interrupted {
-            InterruptedItem::Nothing => None,
-            InterruptedItem::Item { item, .. } => Some(item.clone()),
-        };
-        let mut player = self.player.lock().await;
-        let result = player
-            .take_back_block(block, interrupted)
+        let player = self.player.lock().await;
+        let response = player.take_back_block(block, interrupted);
+        drop(player);
+        let result = response
             .await
             .context("Take-back player command failed")?
             .ok_or(ExpectedRequestError::Unavailable {
                 what: "handoff block",
             })?;
-        player.command_completion().await?;
-        if result.index.is_some()
-            && let Some(item) = interrupted_item
-        {
-            player
-                .wait_for_item_applied(item, PlaybackState::Paused)
-                .await?;
-        }
         state.update_queue(&result.remaining);
         state.remove_handoff_block(block);
         state.queue_revision = state
@@ -306,11 +296,10 @@ impl PlayerSession {
 
     pub(crate) async fn clear_handoff_blocks(&self) -> Result<()> {
         let mut state = self.state.lock().await;
-        let result = self
-            .player
-            .lock()
-            .await
-            .clear_handoff_blocks()
+        let player = self.player.lock().await;
+        let response = player.clear_handoff_blocks();
+        drop(player);
+        let result = response
             .await
             .context("Clear handoff block tags player command failed")?;
         if !result.changed {
