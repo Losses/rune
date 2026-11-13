@@ -12,6 +12,7 @@ on:
           - all
           - windows
           - linux
+          - embedded-linux
           - macos
           - steam-sniper
           - mac-app-store
@@ -406,6 +407,82 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           artifacts: "build/linux/x64/release/bundle/Rune-${{ github.ref_name }}-linux-amd64.zip"
+          allowUpdates: true
+          replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          omitPrereleaseDuringUpdate: true
+          omitDraftDuringUpdate: true
+          omitNameDuringUpdate: true
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev') }}
+          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev')) }}
+
+  build-embedded-linux:
+    name: Build Embedded Linux (${{ matrix.arch }})
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'embedded-linux'
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            rust_target: aarch64-unknown-linux-gnu
+            flutter_arch: arm64
+            release_suffix: embedded-arm64
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq librust-alsa-sys-dev libasound2-dev clang cmake ninja-build pkg-config \
+            libdrm-dev libgbm-dev libgles2-mesa-dev libegl1-mesa-dev libsystemd-dev libinput-dev libudev-dev libxkbcommon-dev
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build Embedded Package
+        run: |
+          ./scripts/build_embedded.sh --arch=${{ matrix.flutter_arch }}
+
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
+
+      - name: Name the artifact
+        id: artifact
+        run: |
+          safe_ref=$(printf '%s' "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9._-' '-')
+          suffix=""
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then suffix="-$SHORT_SHA"; fi
+          echo "prefix=Rune-$safe_ref$suffix" >> "$GITHUB_OUTPUT"
+        env:
+          SHORT_SHA: ${{ steps.short-sha.outputs.sha }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          path: build/embedded/Rune-*-embedded-${{ matrix.flutter_arch }}.tar.gz
+          name: ${{ steps.artifact.outputs.prefix }}-${{ matrix.release_suffix }}
+
+      - name: Release
+        uses: ncipollo/release-action@v1
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          artifacts: "build/embedded/Rune-*-embedded-${{ matrix.flutter_arch }}.tar.gz"
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true
