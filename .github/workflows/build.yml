@@ -446,7 +446,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq alsa-base alsa-source librust-alsa-sys-dev libasound2-dev clang cmake ninja-build pkg-config \
             libgtk-3-dev dpkg-dev libayatana-appindicator3-dev libnotify-dev \
-            libdrm-dev libgbm-dev libgles2-mesa-dev libegl1-mesa-dev libsystemd-dev libinput-dev libudev-dev libxkbcommon-dev zip
+            libdrm-dev libgbm-dev libgles2-mesa-dev libegl1-mesa-dev libsystemd-dev libinput-dev libudev-dev libxkbcommon-dev
 
       - name: Install system dependencies (ARMhf cross-compilation)
         if: matrix.arch == 'armhf'
@@ -467,7 +467,7 @@ jobs:
           sudo apt-get install -y qemu-user-static libglib2.0-dev-bin
           sudo apt-get install -y --no-install-recommends \
             jq gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf binutils-arm-linux-gnueabihf \
-            clang cmake ninja-build pkg-config zip \
+            clang cmake ninja-build pkg-config \
             libasound2-dev:armhf libssl-dev:armhf libdrm-dev:armhf libgbm-dev:armhf \
             libgles2-mesa-dev:armhf libegl1-mesa-dev:armhf libsystemd-dev:armhf \
             libinput-dev:armhf libudev-dev:armhf libxkbcommon-dev:armhf
@@ -511,16 +511,14 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          path: |
-            build/embedded/Rune-*-embedded-${{ matrix.arch }}.tar.gz
-            build/embedded/Rune-*-embedded-${{ matrix.arch }}.zip
+          path: build/embedded/Rune-*-embedded-${{ matrix.arch }}.tar.gz
           name: ${{ steps.artifact.outputs.prefix }}-embedded-${{ matrix.release_suffix }}
 
       - name: Release
         uses: ncipollo/release-action@v1
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          artifacts: "build/embedded/Rune-*-embedded-${{ matrix.arch }}.zip,build/embedded/Rune-*-embedded-${{ matrix.arch }}.tar.gz"
+          artifacts: "build/embedded/Rune-*-embedded-${{ matrix.arch }}.tar.gz"
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true

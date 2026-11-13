@@ -219,15 +219,10 @@ chmod +x "$BUNDLE_DIR/install.sh"
 echo ">> 6. Packaging bundle..."
 VERSION="$(git describe --tags --always || echo "latest")"
 TARBALL_NAME="Rune-$VERSION-embedded-$PKG_ARCH.tar.gz"
-ZIP_NAME="Rune-$VERSION-embedded-$PKG_ARCH.zip"
 
 tar -czf "$OUTPUT_DIR/$TARBALL_NAME" -C "$OUTPUT_DIR" "rune-embedded-$PKG_ARCH"
-if command -v zip >/dev/null 2>&1; then
-    (cd "$OUTPUT_DIR" && zip -r -q "$ZIP_NAME" "rune-embedded-$PKG_ARCH")
-fi
 
 echo "==============================================="
 echo " Build Complete:"
 echo " - $OUTPUT_DIR/$TARBALL_NAME"
-echo " - $OUTPUT_DIR/$ZIP_NAME"
 echo "==============================================="
