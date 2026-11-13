@@ -12,6 +12,7 @@ on:
           - all
           - windows
           - linux
+          - embedded-linux
           - macos
           - steam-sniper
           - mac-app-store
@@ -406,6 +407,120 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           artifacts: "build/linux/x64/release/bundle/Rune-${{ github.ref_name }}-linux-amd64.zip"
+          allowUpdates: true
+          replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          omitPrereleaseDuringUpdate: true
+          omitDraftDuringUpdate: true
+          omitNameDuringUpdate: true
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev') }}
+          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev')) }}
+
+  build-embedded-linux:
+    name: Build Embedded Linux (${{ matrix.arch }})
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'embedded-linux'
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            rust_target: aarch64-unknown-linux-gnu
+            flutter_arch: arm64
+            release_suffix: arm64
+          - arch: armhf
+            runner: ubuntu-24.04
+            rust_target: armv7-unknown-linux-gnueabihf
+            flutter_arch: armhf
+            release_suffix: armhf
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies (ARM64)
+        if: matrix.arch == 'arm64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq alsa-base alsa-source librust-alsa-sys-dev libasound2-dev clang cmake ninja-build pkg-config \
+            libgtk-3-dev dpkg-dev libayatana-appindicator3-dev libnotify-dev \
+            libdrm-dev libgbm-dev libgles2-mesa-dev libegl1-mesa-dev libsystemd-dev libinput-dev libudev-dev libxkbcommon-dev zip
+
+      - name: Install system dependencies (ARMhf cross-compilation)
+        if: matrix.arch == 'armhf'
+        run: |
+          # Restrict default sources to amd64 so apt update doesn't look for armhf on archive.ubuntu.com
+          sudo sed -i 's/^Types: deb/Types: deb\nArchitectures: amd64/g' /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          # Add Ubuntu ports for armhf
+          sudo tee /etc/apt/sources.list.d/ports-armhf.sources << "EOF"
+          Types: deb
+          URIs: http://ports.ubuntu.com/ubuntu-ports/
+          Suites: noble noble-updates noble-security
+          Components: main universe
+          Architectures: armhf
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+          EOF
+          sudo dpkg --add-architecture armhf
+          sudo apt-get update
+          sudo apt-get install -y qemu-user-static libglib2.0-dev-bin
+          sudo apt-get install -y --no-install-recommends \
+            jq gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf binutils-arm-linux-gnueabihf \
+            clang cmake ninja-build pkg-config zip \
+            libasound2-dev:armhf libssl-dev:armhf libdrm-dev:armhf libgbm-dev:armhf \
+            libgles2-mesa-dev:armhf libegl1-mesa-dev:armhf libsystemd-dev:armhf \
+            libinput-dev:armhf libudev-dev:armhf libxkbcommon-dev:armhf
+
+      - name: Setup Flutter
+        run: |
+          git clone --depth 1 -b stable https://github.com/flutter/flutter.git $HOME/flutter
+          echo "$HOME/flutter/bin" >> $GITHUB_PATH
+          echo "$HOME/flutter/bin/cache/dart-sdk/bin" >> $GITHUB_PATH
+          $HOME/flutter/bin/flutter --version
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.rust_target }}
+
+      - name: Build Embedded Package
+        run: |
+          ./scripts/build_embedded.sh --arch=${{ matrix.flutter_arch }}
+
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
+
+      - name: Name the artifact
+        id: artifact
+        run: |
+          # A workflow_dispatch run can come from a branch name with "/", which upload-artifact rejects.
+          safe_ref=$(printf '%s' "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9._-' '-')
+          suffix=""
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then suffix="-$SHORT_SHA"; fi
+          echo "prefix=Rune-$safe_ref$suffix" >> "$GITHUB_OUTPUT"
+        env:
+          SHORT_SHA: ${{ steps.short-sha.outputs.sha }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          path: |
+            build/embedded/Rune-*-embedded-${{ matrix.arch }}.tar.gz
+            build/embedded/Rune-*-embedded-${{ matrix.arch }}.zip
+          name: ${{ steps.artifact.outputs.prefix }}-embedded-${{ matrix.release_suffix }}
+
+      - name: Release
+        uses: ncipollo/release-action@v1
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          artifacts: "build/embedded/Rune-*-embedded-${{ matrix.arch }}.zip,build/embedded/Rune-*-embedded-${{ matrix.arch }}.tar.gz"
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true

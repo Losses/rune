@@ -22,7 +22,7 @@ pkgsCross.callPackage (
     flutter,
     rustup,
     mount,
-    protobuf_26,
+    protobuf,
     pcre2,
     ninja,
     unzip,
@@ -37,7 +37,7 @@ pkgsCross.callPackage (
     libGL,
     wayland,
     gcc,
-    xorg,
+    libx11,
     libffi,
   }:
   mkShell {
@@ -58,7 +58,7 @@ pkgsCross.callPackage (
       rust-analyzer
       rustup
       mount
-      protobuf_26
+      protobuf
       pcre2
       ninja
       unzip
@@ -74,7 +74,7 @@ pkgsCross.callPackage (
       fontconfig
       mesa
       libxkbcommon
-      xorg.libX11
+      libx11
       libGL
       wayland
       zstd
@@ -109,4 +109,4 @@ pkgsCross.callPackage (
       echo "Using CXX: $CXX"
     '';
   }
-) { };
+) { }
