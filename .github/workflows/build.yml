@@ -464,6 +464,7 @@ jobs:
           EOF
           sudo dpkg --add-architecture armhf
           sudo apt-get update
+          sudo apt-get install -y qemu-user-static libglib2.0-dev-bin
           sudo apt-get install -y --no-install-recommends \
             jq gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf binutils-arm-linux-gnueabihf \
             clang cmake ninja-build pkg-config zip \
