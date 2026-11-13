@@ -78,6 +78,9 @@ if [ "$IS_CROSS" = true ]; then
         if [ -d "/usr/lib/arm-linux-gnueabihf/pkgconfig" ]; then
             export PKG_CONFIG_PATH="/usr/lib/arm-linux-gnueabihf/pkgconfig:/usr/share/pkgconfig:${PKG_CONFIG_PATH:-}"
         fi
+        export RUSTFLAGS="-C target-feature=+neon ${RUSTFLAGS:-}"
+        export CFLAGS_armv7_unknown_linux_gnueabihf="-mfpu=neon"
+        export CXXFLAGS_armv7_unknown_linux_gnueabihf="-mfpu=neon"
     else
         export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="$CC_TARGET"
         export CC_aarch64_unknown_linux_gnu="$CC_TARGET"
