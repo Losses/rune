@@ -77,19 +77,27 @@ else
     cp "$ROOT_DIR/target/release/libhub.so" "$BUNDLE_DIR/lib/libhub.so"
 fi
 
-echo ">> 3. Building Flutter Dart AOT Bundle via flutterpi_tool..."
-dart pub global activate flutterpi_tool
-if [ "$RELEASE" = true ]; then
-    flutterpi_tool build --arch="$TARGET_ARCH" --cpu=generic --release
-    cp -r build/flutter_assets/* "$BUNDLE_DIR/data/"
-    if [ -f build/app.so ]; then
-        cp build/app.so "$BUNDLE_DIR/data/app.so"
-    elif [ -f build/flutter_assets/app.so ]; then
-        cp build/flutter_assets/app.so "$BUNDLE_DIR/data/app.so"
-    fi
-else
-    flutter build bundle
-    cp -r build/flutter_assets/* "$BUNDLE_DIR/data/"
+echo ">> 3. Building Flutter Dart AOT Bundle via flutter build linux..."
+flutter build linux --release --verbose
+
+BUNDLE_SRC="build/linux/arm64/release/bundle"
+if [ ! -d "$BUNDLE_SRC" ]; then
+    BUNDLE_SRC="$(find build/linux -type d -name "bundle" | head -n 1)"
+fi
+
+echo "Copying assets from $BUNDLE_SRC..."
+cp -r "$BUNDLE_SRC/data/flutter_assets"/* "$BUNDLE_DIR/data/"
+test -f "$BUNDLE_SRC/data/icudtl.dat" && cp "$BUNDLE_SRC/data/icudtl.dat" "$BUNDLE_DIR/data/" || true
+test -f "$BUNDLE_SRC/lib/libapp.so" && cp "$BUNDLE_SRC/lib/libapp.so" "$BUNDLE_DIR/data/app.so" || true
+
+echo ">> 3.1 Fetching libflutter_engine.so for $TARGET_ARCH..."
+FLUTTER_VERSION="$(flutter --version 2>/dev/null | head -n 1 | awk '{print $2}')"
+ENGINE_URL="https://github.com/ardera/flutter-engine-binaries-for-arm/releases/download/v${FLUTTER_VERSION}/engine-binaries-linux-${TARGET_ARCH}.tar.xz"
+curl -sSL "$ENGINE_URL" -o /tmp/engine.tar.xz 2>/dev/null || true
+if [ -f /tmp/engine.tar.xz ] && tar -tf /tmp/engine.tar.xz >/dev/null 2>&1; then
+    tar -xf /tmp/engine.tar.xz -C "$BUNDLE_DIR/lib/" libflutter_engine.so.release 2>/dev/null || true
+    test -f "$BUNDLE_DIR/lib/libflutter_engine.so.release" && mv "$BUNDLE_DIR/lib/libflutter_engine.so.release" "$BUNDLE_DIR/lib/libflutter_engine.so"
+    rm -f /tmp/engine.tar.xz
 fi
 
 echo ">> 4. Building flutter-pi DRM/KMS embedder..."
