@@ -11,6 +11,7 @@ WorkingDirectory=/opt/rune-embedded
 Environment=HOME=/home/dietpi
 Environment=XDG_DATA_HOME=/home/dietpi/.local/share
 Environment=LD_PRELOAD=/opt/rune-embedded/lib/libhub.so
+Environment=LD_LIBRARY_PATH=/opt/rune-embedded/lib
 
 # Set GPU governor to performance on start
 ExecStartPre=-/bin/sh -c 'test -w /sys/class/devfreq/fde60000.gpu/governor && echo performance > /sys/class/devfreq/fde60000.gpu/governor'
