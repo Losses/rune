@@ -631,6 +631,11 @@ impl ServerManager {
                     let revocation_host = trusted_host.clone();
                     let watch_request = request.clone();
                     let watcher = tokio::spawn(async move {
+                        // This device's own grant and trust changes end playback through
+                        // `wait_for_revocation`, and the peer cuts an audio body still being
+                        // downloaded when it revokes us. A track that is already fully buffered
+                        // keeps no connection to the peer, and the peer has no push for its own
+                        // revocation, so asking it is the only way to stop such a track.
                         let access_probe = async {
                             loop {
                                 tokio::time::sleep(Duration::from_secs(1)).await;
