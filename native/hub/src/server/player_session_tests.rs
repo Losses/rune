@@ -2515,7 +2515,9 @@ async fn detach_controller_returns_when_the_connection_never_ends() -> Result<()
     let guard = session.attach_controller("fingerprint".into(), "alias".into());
     let id = Uuid::parse_str(&session.attached_controllers()[0].id)?;
 
-    session.detach_controller(id).await?;
+    timeout(TEST_DEADLINE, session.detach_controller(id))
+        .await
+        .context("detaching a controller whose connection never ends did not return")??;
 
     assert!(guard.cancellation_token().is_cancelled());
     assert!(session.attached_controllers().is_empty());
