@@ -5,7 +5,7 @@
 
 use crate::{node::NodeContext, utils::playback_implementation_for_item};
 use std::path::PathBuf;
-use std::sync::{Arc, LazyLock, Mutex, Weak};
+use std::sync::{Arc, LazyLock, Mutex};
 use tokio::runtime::Handle;
 use uuid::Uuid;
 
@@ -67,8 +67,6 @@ struct CoverSource {
     fsio: Arc<FsIo>,
     main_db: Arc<MainDbConnection>,
     recommend_db: Arc<RecommendationDbConnection>,
-    // The node owns its cover source, so the source must not keep the node alive.
-    node: Weak<NodeContext>,
     library_id: Uuid,
     item: Arc<Mutex<Option<PlayingItem>>>,
 }
@@ -93,7 +91,6 @@ pub fn provide_covers(
         fsio,
         main_db,
         recommend_db,
-        node: Arc::downgrade(node),
         library_id,
         item: Arc::new(Mutex::new(item)),
     }));
@@ -156,6 +153,8 @@ fn refresh_covers(node: &Arc<NodeContext>) {
         return;
     };
     let runtime = source.runtime.clone();
+    // The node owns its cover source, so the task must not keep the node alive.
+    let node_handle = Arc::downgrade(node);
     runtime.spawn(async move {
         let item = source
             .item
@@ -170,7 +169,7 @@ fn refresh_covers(node: &Arc<NodeContext>) {
             PlayingItem::LibraryTrack { library_id, .. } => *library_id,
             _ => source.library_id,
         };
-        let Some(node) = source.node.upgrade() else {
+        let Some(node) = node_handle.upgrade() else {
             return;
         };
         match async {
@@ -204,11 +203,7 @@ fn refresh_covers(node: &Arc<NodeContext>) {
 }
 
 /// The same query as the cover wall's, for the cover files of random tracks.
-async fn random_covers(source: &CoverSource) -> Result<Vec<PathBuf>> {
-    let node = source
-        .node
-        .upgrade()
-        .ok_or_else(|| anyhow::anyhow!("the node stopped"))?;
+async fn random_covers(source: &CoverSource, node: &NodeContext) -> Result<Vec<PathBuf>> {
     let queue = node.session_queue_for_library(source.library_id).await?;
     let files = query_mix_media_files(
         &source.main_db,
@@ -246,14 +241,13 @@ pub async fn feed_cover_bytes(
         fsio,
         main_db,
         recommend_db,
-        node: Arc::downgrade(&node),
         library_id,
         item: Arc::new(Mutex::new(None)),
     };
     let playing = read_cover_bytes(playing_path.as_deref()).await?;
     let mut used_bytes = playing.as_ref().map_or(0, Vec::len);
     let mut random = Vec::with_capacity(RANDOM_COVERS);
-    for path in random_covers(&source)
+    for path in random_covers(&source, &node)
         .await?
         .into_iter()
         .take(RANDOM_COVERS)
