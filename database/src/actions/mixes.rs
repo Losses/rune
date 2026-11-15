@@ -274,6 +274,17 @@ pub async fn get_mix_by_id(db: &DatabaseConnection, id: i32) -> Result<mixes::Mo
         .map_err(Into::into)
 }
 
+/// What an update does to a mix's playback mode.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum MixModeUpdate {
+    /// Leave the stored mode as it is.
+    Unchanged,
+    /// Make the mix keep the player's mode.
+    KeepPlayerMode,
+    /// Make the mix play in this mode.
+    Set(PlaybackMode),
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn update_mix(
     db: &DatabaseConnection,
@@ -281,8 +292,7 @@ pub async fn update_mix(
     id: i32,
     name: Option<String>,
     group: Option<String>,
-    // `None` leaves the mode as it is; `Some(None)` makes the mix keep the player's mode.
-    mode: Option<Option<PlaybackMode>>,
+    mode: MixModeUpdate,
     locked: Option<bool>,
     queries: Option<Vec<(String, String)>>,
 ) -> Result<mixes::Model> {
@@ -299,8 +309,10 @@ pub async fn update_mix(
     if let Some(v) = group {
         model.group = Set(v);
     }
-    if let Some(v) = mode {
-        model.mode = Set(Some(stored_mix_mode(v)));
+    match mode {
+        MixModeUpdate::Unchanged => {}
+        MixModeUpdate::KeepPlayerMode => model.mode = Set(Some(stored_mix_mode(None))),
+        MixModeUpdate::Set(v) => model.mode = Set(Some(stored_mix_mode(Some(v)))),
     }
     if let Some(v) = locked {
         model.locked = Set(v);

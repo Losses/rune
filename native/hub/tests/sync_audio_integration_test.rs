@@ -10,7 +10,7 @@ use database::{
         downloads::set_download_rule,
         file::is_materialized,
         metadata::get_parsed_file_by_id,
-        mixes::{create_mix, update_mix},
+        mixes::{MixModeUpdate, create_mix, update_mix},
         playlists::{add_item_to_playlist, create_playlist, get_all_playlists},
         stats::{get_liked, set_liked},
     },
@@ -398,7 +398,7 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
                 mix.id,
                 Some(mix.name.clone()),
                 Some(mix.group.clone()),
-                Some(mix_playback_mode(mix)?),
+                mix_playback_mode(mix)?.map_or(MixModeUpdate::KeepPlayerMode, MixModeUpdate::Set),
                 Some(mix.locked),
                 Some(vec![("lib::track".into(), other.to_string())]),
             )

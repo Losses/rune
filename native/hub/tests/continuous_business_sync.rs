@@ -460,7 +460,7 @@ async fn business_scenario() -> Result<()> {
         mix.id,
         Some("updated mix".into()),
         None,
-        None,
+        mixes::MixModeUpdate::Unchanged,
         None,
         None,
     )

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use database::{
     actions::mixes::{
-        add_item_to_mix, create_mix, get_mix_queries_by_mix_id,
+        MixModeUpdate, add_item_to_mix, create_mix, get_mix_queries_by_mix_id,
         initialize_mix_queries_before_replication, remove_mix, remove_mix_query,
         replace_mix_queries, update_mix,
     },
@@ -69,7 +69,7 @@ async fn commands_author_and_reject_invalid_queries_atomically() -> Result<()> {
             mix.id,
             Some("bad".into()),
             Some("m".into()),
-            Some(Some(PlaybackMode::Sequential)),
+            MixModeUpdate::Set(PlaybackMode::Sequential),
             Some(false),
             Some(vec![("invalid".into(), "x".into())])
         )
@@ -130,7 +130,7 @@ async fn commands_author_and_reject_invalid_queries_atomically() -> Result<()> {
         mix.id,
         Some("renamed".into()),
         None,
-        None,
+        MixModeUpdate::Unchanged,
         None,
         None,
     )
@@ -142,7 +142,7 @@ async fn commands_author_and_reject_invalid_queries_atomically() -> Result<()> {
         mix.id,
         Some("renamed again".into()),
         None,
-        None,
+        MixModeUpdate::Unchanged,
         None,
         None,
     )
@@ -195,7 +195,7 @@ async fn each_mix_command_replicates_its_result() -> Result<()> {
         mix.id,
         Some("Updated".into()),
         None,
-        None,
+        MixModeUpdate::Unchanged,
         None,
         None,
     )
@@ -339,11 +339,27 @@ async fn a_mix_reads_back_the_playback_mode_it_was_stored_with() -> Result<()> {
         vec![("lib::all".into(), "true".into())],
     )
     .await?;
-    for mode in [None, Some(PlaybackMode::RepeatAll)] {
-        let updated = update_mix(&db, &store, mix.id, None, None, Some(mode), None, None).await?;
+    for (update, mode) in [
+        (MixModeUpdate::KeepPlayerMode, None),
+        (
+            MixModeUpdate::Set(PlaybackMode::RepeatAll),
+            Some(PlaybackMode::RepeatAll),
+        ),
+    ] {
+        let updated = update_mix(&db, &store, mix.id, None, None, update, None, None).await?;
         assert_eq!(mix_playback_mode(&updated)?, mode);
     }
-    let untouched = update_mix(&db, &store, mix.id, None, None, None, None, None).await?;
+    let untouched = update_mix(
+        &db,
+        &store,
+        mix.id,
+        None,
+        None,
+        MixModeUpdate::Unchanged,
+        None,
+        None,
+    )
+    .await?;
     assert_eq!(
         mix_playback_mode(&untouched)?,
         Some(PlaybackMode::RepeatAll)

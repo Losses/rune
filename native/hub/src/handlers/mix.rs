@@ -1,4 +1,6 @@
-use database::actions::mixes::{add_item_to_mix, create_mix, remove_mix, update_mix};
+use database::actions::mixes::{
+    MixModeUpdate, add_item_to_mix, create_mix, remove_mix, update_mix,
+};
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context, Result};
@@ -143,7 +145,9 @@ impl Signal for UpdateMixRequest {
             request.mix_id,
             Some(request.name.clone()),
             Some(request.group.clone()),
-            Some(request.mode.map(Into::into)),
+            request.mode.map_or(MixModeUpdate::KeepPlayerMode, |mode| {
+                MixModeUpdate::Set(mode.into())
+            }),
             Some(false),
             Some(
                 request
