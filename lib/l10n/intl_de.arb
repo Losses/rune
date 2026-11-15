@@ -1524,6 +1524,8 @@
   "controlPlayback": "Wiedergabe steuern",
   "controlPlaybackDescription": "Kann auf diesem Gerät abspielen, pausieren, Titel einreihen und übertragen",
   "deviceAccessLibraries": "Mediatheken",
+  "deviceAccessNotShared": "Nicht freigegeben",
+  "deviceAccessReadWrite": "Lesen und Schreiben",
   "requestConflict": "Die Warteschlange hat sich geändert, bitte erneut versuchen",
   "requestPermissionDenied": "Dieses Gerät darf das nicht tun",
   "readOnly": "Schreibgeschützt",

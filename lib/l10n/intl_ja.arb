@@ -1524,6 +1524,8 @@
   "controlPlayback": "再生を操作",
   "controlPlaybackDescription": "このデバイスで再生、一時停止、キュー追加、キャストができます",
   "deviceAccessLibraries": "ライブラリ",
+  "deviceAccessNotShared": "共有されていません",
+  "deviceAccessReadWrite": "読み取りと書き込み",
   "requestConflict": "再生キューが変更されました。もう一度お試しください",
   "requestPermissionDenied": "このデバイスはその操作を許可されていません",
   "readOnly": "読み取り専用",

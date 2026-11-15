@@ -1459,6 +1459,8 @@
   "controlPlayback": "控制奏",
   "controlPlaybackDescription": "可喺呢部器奏、暫停、加入佇列同投放",
   "deviceAccessLibraries": "樂庫",
+  "deviceAccessNotShared": "未共",
+  "deviceAccessReadWrite": "可讀可書",
   "requestConflict": "奏列已易，復試之。",
   "requestPermissionDenied": "此器不允許執行此操作",
   "readOnly": "唯讀",

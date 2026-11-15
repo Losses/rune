@@ -1526,6 +1526,8 @@
   "controlPlayback": "Controlla riproduzione",
   "controlPlaybackDescription": "Può riprodurre, mettere in pausa, accodare e trasmettere a questo dispositivo",
   "deviceAccessLibraries": "Librerie",
+  "deviceAccessNotShared": "Non condivisa",
+  "deviceAccessReadWrite": "Lettura e scrittura",
   "requestConflict": "La coda è cambiata, riprova",
   "requestPermissionDenied": "Questo dispositivo non può farlo",
   "readOnly": "Sola lettura",

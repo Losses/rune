@@ -1257,6 +1257,8 @@
   "controlPlayback": "控制播放",
   "controlPlaybackDescription": "可以在此裝置上播放、暫停、加入佇列並投放",
   "deviceAccessLibraries": "資料庫",
+  "deviceAccessNotShared": "未共享",
+  "deviceAccessReadWrite": "讀寫",
   "requestConflict": "播放佇列已變更，請再試一次",
   "requestPermissionDenied": "此裝置不允許執行此操作",
   "readOnly": "唯讀",

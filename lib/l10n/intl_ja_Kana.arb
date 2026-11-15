@@ -1459,6 +1459,8 @@
   "controlPlayback": "サイセイヲ ソウサ",
   "controlPlaybackDescription": "コノ デバイスデ サイセイ、イチジテイシ、キューツイカ、キャストガ デキマス",
   "deviceAccessLibraries": "ライブラリ",
+  "deviceAccessNotShared": "キョウユウ サレテイマセン",
+  "deviceAccessReadWrite": "ヨミカキ",
   "requestConflict": "サイセイキューガ ヘンコウサレマシタ。モウイチド オタメシクダサイ",
   "requestPermissionDenied": "コノ デバイスハ ソノ ソウサヲ キョカ サレテイマセン",
   "readOnly": "ヨミトリセンヨウ",

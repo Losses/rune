@@ -1605,6 +1605,8 @@
   "controlPlayback": "控制播放",
   "controlPlaybackDescription": "可以在此设备上播放、暂停、加入队列并投放",
   "deviceAccessLibraries": "音乐库",
+  "deviceAccessNotShared": "未共享",
+  "deviceAccessReadWrite": "读写",
   "requestConflict": "播放队列已变化，请重试",
   "requestPermissionDenied": "此设备不允许执行此操作",
   "readOnly": "只读",

@@ -1461,6 +1461,8 @@
   "controlPlayback": "Regi la ludadon",
   "controlPlaybackDescription": "Povas ludi, paŭzi, vicigi kaj ĵeti al ĉi tiu aparato.",
   "deviceAccessLibraries": "Bibliotekoj",
+  "deviceAccessNotShared": "Ne kunhavigita",
+  "deviceAccessReadWrite": "Legebla kaj skribebla",
   "requestConflict": "La vico ŝanĝiĝis; reprovu",
   "requestPermissionDenied": "Ĉi tiu aparato ne rajtas fari tion",
   "readOnly": "Nurlegebla",

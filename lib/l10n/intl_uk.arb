@@ -1524,6 +1524,8 @@
   "controlPlayback": "Керувати відтворенням",
   "controlPlaybackDescription": "Може відтворювати, призупиняти, додавати в чергу й транслювати на цей пристрій",
   "deviceAccessLibraries": "Бібліотеки",
+  "deviceAccessNotShared": "Не спільна",
+  "deviceAccessReadWrite": "Читання й запис",
   "requestConflict": "Черга змінилася, спробуйте ще раз",
   "requestPermissionDenied": "Цьому пристрою не дозволено це робити",
   "readOnly": "Лише читання",
