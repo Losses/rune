@@ -73,6 +73,52 @@ use crate::{
     },
 };
 
+/// Asks the serving peer once per `interval` whether this device still has access to a remote
+/// audio track, and ends playback only when the peer says the access was revoked. A peer that
+/// cannot be reached (a network drop, a restart, a 5xx answer) is asked again at the next
+/// interval, so audio that is already buffered keeps playing; a revocation that happens during
+/// such an outage is caught by the first check that gets through. Returns when `cancel` is
+/// cancelled, by this probe or by the check itself.
+async fn run_access_probe<Check, Fut>(
+    interval: Duration,
+    mut check: Check,
+    cancel: &tokio_util::sync::CancellationToken,
+    failure_reason: &StdMutex<Option<UnavailableReason>>,
+) where
+    Check: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<()>>,
+{
+    let mut unreachable = false;
+    loop {
+        tokio::time::sleep(interval).await;
+        match check().await {
+            Ok(()) => {
+                if std::mem::take(&mut unreachable) {
+                    info!("Audio peer answers access checks again");
+                }
+            }
+            Err(error) => {
+                if cancel.is_cancelled() {
+                    return;
+                }
+                if UnavailableReason::classify(&error) == UnavailableReason::AccessRevoked {
+                    if let Ok(mut reason) = failure_reason.lock() {
+                        *reason = Some(UnavailableReason::AccessRevoked);
+                    }
+                    cancel.cancel();
+                    log::debug!("Audio library access revoked: {error:#}");
+                    return;
+                }
+                if std::mem::replace(&mut unreachable, true) {
+                    log::debug!("Audio library access check failed: {error:#}");
+                } else {
+                    log::warn!("Audio peer stopped answering access checks: {error:#}");
+                }
+            }
+        }
+    }
+}
+
 fn coalesce_worker_notify(
     notify: Arc<dyn Fn() + Send + Sync>,
     cancel: tokio_util::sync::CancellationToken,
@@ -636,21 +682,12 @@ impl ServerManager {
                         // downloaded when it revokes us. A track that is already fully buffered
                         // keeps no connection to the peer, and the peer has no push for its own
                         // revocation, so asking it is the only way to stop such a track.
-                        let access_probe = async {
-                            loop {
-                                tokio::time::sleep(Duration::from_secs(1)).await;
-                                if let Err(error) = watch_request.check_library_access().await {
-                                    if watch_cancel.is_cancelled() {
-                                        break;
-                                    }
-                                    if let Ok(mut reason) = watcher_failure_reason.lock() {
-                                        *reason = Some(UnavailableReason::classify(&error));
-                                    }
-                                    watch_cancel.cancel();
-                                    log::debug!("Audio library access check failed: {error:#}");
-                                }
-                            }
-                        };
+                        let access_probe = run_access_probe(
+                            Duration::from_secs(1),
+                            || watch_request.check_library_access(),
+                            &watch_cancel,
+                            &watcher_failure_reason,
+                        );
                         tokio::select! {
                             _ = watch_cancel.cancelled() => {},
                             _ = library_cancel.cancelled() => {
@@ -863,6 +900,53 @@ mod lifecycle_tests {
     use std::net::TcpListener;
     use std::path::Path;
     use tracing_subscriber::filter::LevelFilter;
+
+    #[tokio::test(start_paused = true)]
+    async fn access_probe_keeps_buffered_audio_through_unreachable_peer_and_stops_on_revocation() {
+        use std::sync::{
+            Arc, Mutex,
+            atomic::{AtomicUsize, Ordering},
+        };
+        use std::time::Duration;
+        let outcomes: Vec<fn() -> anyhow::Result<()>> = vec![
+            || Ok(()),
+            || Err(RemoteAudioError::unreachable("connection refused").into()),
+            || Err(RemoteAudioError::unreachable("unexpected status 503").into()),
+            || Err(anyhow::anyhow!("peer closed the connection")),
+            || Ok(()),
+            || Err(RemoteAudioError::unreachable("unexpected status 503").into()),
+            || Err(RemoteAudioError::AccessRevoked.into()),
+        ];
+        let checks = Arc::new(AtomicUsize::new(0));
+        let cancel = CancellationToken::new();
+        let reason = Arc::new(Mutex::new(None));
+        let probe = super::run_access_probe(
+            Duration::from_secs(1),
+            || {
+                // Until the revocation is returned, an unreachable peer must not stop playback.
+                assert!(
+                    !cancel.is_cancelled(),
+                    "playback stopped before the revocation"
+                );
+                assert_eq!(*reason.lock().unwrap(), None);
+                let index = checks.fetch_add(1, Ordering::SeqCst);
+                let outcome = outcomes[index]();
+                async move { outcome }
+            },
+            &cancel,
+            &reason,
+        );
+        tokio::time::timeout(Duration::from_secs(60), probe)
+            .await
+            .expect("the probe must stop after the revocation");
+        assert!(cancel.is_cancelled());
+        assert_eq!(
+            *reason.lock().unwrap(),
+            Some(UnavailableReason::AccessRevoked)
+        );
+        assert_eq!(checks.load(Ordering::SeqCst), 7);
+    }
+
     #[tokio::test(start_paused = true)]
     async fn worker_notifications_are_coalesced() {
         use std::sync::{
