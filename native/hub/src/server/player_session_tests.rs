@@ -2504,6 +2504,26 @@ async fn attach_pair_with_signals(
     Ok(b_info.fingerprint)
 }
 
+/// Detaching a controller whose connection never ends still returns within the deadline and
+/// leaves the controller unlisted.
+#[tokio::test]
+async fn detach_controller_returns_when_the_connection_never_ends() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let node = fixture(dir.path()).await?;
+    tokio::time::pause();
+    let session = node.global_params.node.session()?;
+    let guard = session.attach_controller("fingerprint".into(), "alias".into());
+    let id = Uuid::parse_str(&session.attached_controllers()[0].id)?;
+
+    session.detach_controller(id).await?;
+
+    assert!(guard.cancellation_token().is_cancelled());
+    assert!(session.attached_controllers().is_empty());
+    drop(guard);
+    node.global_params.node.shutdown().await?;
+    Ok(())
+}
+
 /// The reply to a detach request is sent only once the controller has left the list.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn detach_controller_replies_after_the_controller_is_gone() -> Result<()> {

@@ -40,7 +40,7 @@ use sea_orm::TransactionTrait;
 use tokio::{
     sync::{Mutex, mpsc},
     task::JoinHandle,
-    time::{Instant, sleep_until},
+    time::{Instant, sleep_until, timeout},
 };
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -111,6 +111,9 @@ struct AttachedController {
     connected_at: u64,
 }
 
+/// How long detaching a controller waits for its connection to finish closing.
+const DETACH_CONTROLLER_DEADLINE: Duration = Duration::from_secs(5);
+
 /// Owns one attached controller entry for the lifetime of its WebSocket.
 pub(crate) struct AttachedControllerGuard {
     session: Arc<PlayerSession>,
@@ -180,7 +183,9 @@ impl PlayerSession {
             .collect()
     }
 
-    /// Closes the controller's connection and returns once it is no longer listed.
+    /// Closes the controller's connection and returns once it is no longer listed. When the
+    /// connection does not finish closing within `DETACH_CONTROLLER_DEADLINE`, the entry is
+    /// removed from the list here.
     pub(crate) async fn detach_controller(&self, id: Uuid) -> Result<()> {
         let removed = {
             let controllers = self.controllers();
@@ -190,7 +195,12 @@ impl PlayerSession {
             entry.cancel.cancel();
             entry.removed.clone()
         };
-        removed.cancelled().await;
+        if timeout(DETACH_CONTROLLER_DEADLINE, removed.cancelled())
+            .await
+            .is_err()
+        {
+            self.remove_controller(id);
+        }
         Ok(())
     }
 
