@@ -521,6 +521,17 @@ pub enum PlayerEvent {
     Log(InternalLog),
 }
 
+// A progress report as the player sent it.
+#[derive(Debug, Clone, PartialEq)]
+struct ProgressReport {
+    item: Option<PlayingItem>,
+    index: Option<usize>,
+    path: Option<PathBuf>,
+    position: Duration,
+    playback_mode: PlaybackMode,
+    ready: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct PlaylistItem {
     pub item: PlayingItem,
@@ -677,6 +688,9 @@ pub(crate) struct PlayerInternal {
     // could be opened, its stream failed or its device went away. The next play opens one where
     // the track stands.
     output_stale: bool,
+    // The last progress report sent. A paused track does not send the same one again: it would
+    // tell no one anything, ten times a second, and each report wakes the app.
+    last_progress: Option<ProgressReport>,
     // An interruption paused playback, so playback goes on when the interruption ends. A play,
     // or a track that starts playing, settles it first.
     resume_after_interruption: bool,
@@ -734,6 +748,7 @@ impl PlayerInternal {
             restore_position: None,
             pending_seek: None,
             output_stale: false,
+            last_progress: None,
             resume_after_interruption: false,
             unavailable: HashMap::new(),
             outputs,
@@ -2305,31 +2320,56 @@ impl PlayerInternal {
                     self.next()?;
                 }
             } else {
-                self.event_sender
-                    .send(PlayerEvent::Progress {
-                        item: id,
-                        index,
-                        path,
-                        playback_mode,
-                        position,
-                        ready: true,
-                    })
-                    .with_context(|| "Failed to send Progress event")?;
-            }
-        } else {
-            // A track without an output that plays is still ready, where it starts.
-            self.event_sender
-                .send(PlayerEvent::Progress {
+                self.report_progress(ProgressReport {
                     item: id,
                     index,
                     path,
-                    playback_mode,
                     position,
-                    ready: self.output_stale && self.current_track_index.is_some(),
-                })
-                .with_context(|| "Failed to send Progress event")?;
+                    playback_mode,
+                    ready: true,
+                })?;
+            }
+        } else {
+            // A track without an output that plays is still ready, where it starts.
+            let ready = self.output_stale && self.current_track_index.is_some();
+            self.report_progress(ProgressReport {
+                item: id,
+                index,
+                path,
+                position,
+                playback_mode,
+                ready,
+            })?;
         }
 
+        Ok(())
+    }
+
+    fn report_progress(&mut self, report: ProgressReport) -> Result<()> {
+        if self.state == InternalPlaybackState::Paused
+            && self.last_progress.as_ref() == Some(&report)
+        {
+            return Ok(());
+        }
+        let ProgressReport {
+            item,
+            index,
+            path,
+            position,
+            playback_mode,
+            ready,
+        } = report.clone();
+        self.event_sender
+            .send(PlayerEvent::Progress {
+                item,
+                index,
+                path,
+                playback_mode,
+                position,
+                ready,
+            })
+            .with_context(|| "Failed to send Progress event")?;
+        self.last_progress = Some(report);
         Ok(())
     }
 
@@ -4270,6 +4310,47 @@ mod playback_state_tests {
                     commands_sender.send(PlayerCommand::Play)?;
                     assert_about(expect_playing(&mut events, &track).await?, paused_at);
                     assert_eq!(opens.load(Ordering::SeqCst), 2);
+
+                    runner.abort();
+                    let _ = std::fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_paused_track_reports_its_place_once() -> Result<()> {
+        let file_uuid = Uuid::new_v4();
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&[file_uuid]);
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                async {
+                    let track = start_playing(&commands_sender, &mut events, file_uuid).await?;
+                    commands_sender.send(PlayerCommand::Pause)?;
+                    expect_paused(&mut events, &track).await?;
+
+                    // Ten progress ticks pass while nothing moves.
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    let mut reports = 0;
+                    while let Ok(event) = events.try_recv() {
+                        if matches!(event, PlayerEvent::Progress { .. }) {
+                            reports += 1;
+                        }
+                    }
+                    assert!(reports <= 1, "{reports} progress reports while paused");
+
+                    // A seek moves the paused track, and its place is reported again.
+                    commands_sender.send(PlayerCommand::Seek(2.0))?;
+                    assert_about(
+                        expect_paused(&mut events, &track).await?,
+                        Duration::from_secs(2),
+                    );
+                    assert_about(next_progress(&mut events).await?, Duration::from_secs(2));
 
                     runner.abort();
                     let _ = std::fs::remove_file(wav_path);
