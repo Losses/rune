@@ -77,12 +77,25 @@ double tanh(double angle) {
   return (e1 - e2) / (e1 + e2);
 }
 
+/// The bars the spectrum shows, changed every frame while music plays.
+///
+/// They reach [FFTPainter] through this notifier, which repaints the bars
+/// alone. A rebuild for each change would rebuild inside the layout builders
+/// above the spectrum, and such a rebuild lays out every box up to the nearest
+/// relayout boundary; layout marks each of them for paint, so the page around
+/// the spectrum would repaint every frame too.
+class FFTBars extends ChangeNotifier {
+  List<double> values = [];
+
+  void changed() => notifyListeners();
+}
+
 class FFTVisualizeState extends State<FFTVisualize>
-    with TickerProviderStateMixin {
+    with SingleTickerProviderStateMixin {
   final radius = 12.0;
-  List<double> _currentFftValues = [];
+  final _bars = FFTBars();
   List<double> _targetFftValues = [];
-  Ticker? _ticker;
+  late final Ticker _ticker = createTicker(_onTick);
   bool _hasData = false;
   int _lastUpdateTime = 0;
   final _registry = FFTVisualizerRegistry();
@@ -98,68 +111,61 @@ class FFTVisualizeState extends State<FFTVisualize>
 
     SettingsManager().getValue<String>(kMildSpectrumKey).then((x) {
       if (x == 'true') {
-        setState(() {
-          _mildSpectrum = true;
-        });
+        _mildSpectrum = true;
       }
     });
 
     _mildSpectrumSubscription = SettingsManager().listenValue<String>(
       kMildSpectrumKey,
       (x) {
-        setState(
-          () {
-            _mildSpectrum = x == 'true' ? true : false;
-          },
-        );
+        _mildSpectrum = x == 'true' ? true : false;
       },
     );
 
     _fftSubscription = RealtimeFFT.rustSignalStream.listen((rustSignal) {
       if (!mounted) return;
 
-      setState(() {
-        _targetFftValues = _mildSpectrum
-            ? rustSignal.message.value.map(tanh).toList()
-            : rustSignal.message.value;
-        _lastUpdateTime = DateTime.now().millisecondsSinceEpoch;
-        if (!_hasData) {
-          _hasData = true;
-          if (_ticker?.isTicking == false) {
-            _ticker?.start();
-          }
-        }
-      });
-    });
-
-    _ticker = createTicker((Duration elapsed) {
-      final now = DateTime.now().millisecondsSinceEpoch;
-      if (now - _lastUpdateTime > 168) {
-        if (mounted) {
-          final reduced = _currentFftValues.reduce((a, b) => a + b);
-          if (!_hasData && reduced < 1e-2) {
-            _currentFftValues = List.filled(_currentFftValues.length, 0.0);
-            _ticker?.stop();
-          }
-
-          setState(() {
-            _targetFftValues = List.filled(_currentFftValues.length, 0.0);
-            _hasData = false;
-          });
+      _targetFftValues = _mildSpectrum
+          ? rustSignal.message.value.map(tanh).toList()
+          : rustSignal.message.value;
+      _lastUpdateTime = DateTime.now().millisecondsSinceEpoch;
+      if (!_hasData) {
+        _hasData = true;
+        if (!_ticker.isTicking) {
+          _ticker.start();
         }
       }
-
-      setState(() {
-        _lerpedFftValues();
-      });
     });
+  }
+
+  void _onTick(Duration elapsed) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastUpdateTime > 168) {
+      final current = _bars.values;
+      final reduced = current.fold<double>(0.0, (a, b) => a + b);
+      if (!_hasData && reduced < 1e-2) {
+        // The bars have fallen: draw them flat once and stop until the next
+        // spectrum arrives.
+        _bars.values = List.filled(current.length, 0.0);
+        _bars.changed();
+        _ticker.stop();
+        return;
+      }
+
+      _targetFftValues = List.filled(current.length, 0.0);
+      _hasData = false;
+    }
+
+    _lerpedFftValues();
+    _bars.changed();
   }
 
   @override
   dispose() {
     _fftSubscription?.cancel();
     _mildSpectrumSubscription?.cancel();
-    _ticker?.dispose();
+    _ticker.dispose();
+    _bars.dispose();
     _registry.unregister(this);
     _registry.dispose();
     super.dispose();
@@ -184,7 +190,7 @@ class FFTVisualizeState extends State<FFTVisualize>
                 imageFilter:
                     ui.ImageFilter.blur(sigmaX: radius, sigmaY: radius),
                 child: CustomPaint(
-                  painter: FFTPainter(_currentFftValues, color),
+                  painter: FFTPainter(_bars, color),
                 ),
               ),
             ),
@@ -197,13 +203,14 @@ class FFTVisualizeState extends State<FFTVisualize>
   void _lerpedFftValues() {
     if (_targetFftValues.isEmpty) return;
 
-    if (_currentFftValues.isEmpty) {
-      _currentFftValues = List.filled(_targetFftValues.length, 0.0);
+    var current = _bars.values;
+    if (current.length != _targetFftValues.length) {
+      current = _bars.values = List.filled(_targetFftValues.length, 0.0);
     }
 
-    for (int i = 0; i < _currentFftValues.length; i++) {
-      _currentFftValues[i] = ui.lerpDouble(
-        _currentFftValues[i],
+    for (int i = 0; i < current.length; i++) {
+      current[i] = ui.lerpDouble(
+        current[i],
         _targetFftValues[i],
         _mildSpectrum ? 0.08 : 0.2,
       )!;
@@ -223,13 +230,14 @@ class _WindowVisibilityObserver extends WidgetsBindingObserver {
 }
 
 class FFTPainter extends CustomPainter {
-  final List<double> fftValues;
+  final FFTBars bars;
   final Color color;
 
-  FFTPainter(this.fftValues, this.color);
+  FFTPainter(this.bars, this.color) : super(repaint: bars);
 
   @override
   void paint(Canvas canvas, Size size) {
+    final fftValues = bars.values;
     final paint = Paint()
       ..color = color
       ..strokeWidth = size.width / fftValues.length;
@@ -244,5 +252,6 @@ class FFTPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  bool shouldRepaint(FFTPainter oldDelegate) =>
+      oldDelegate.bars != bars || oldDelegate.color != color;
 }
