@@ -41,8 +41,9 @@ class FFTVisualizerRegistry {
   void _updateFFTCalculation() {
     final shouldCalculateFFT = _visualizers.isNotEmpty && _isWindowVisible;
 
-    SetRealtimeFFTEnabledRequest(enabled: shouldCalculateFFT)
-        .sendSignalToRust();
+    SetRealtimeFFTEnabledRequest(
+      enabled: shouldCalculateFFT,
+    ).sendSignalToRust();
   }
 
   void dispose() {
@@ -92,8 +93,8 @@ class FFTBars extends ChangeNotifier {
 
 class FFTVisualizeState extends State<FFTVisualize>
     with SingleTickerProviderStateMixin {
-  final radius = 12.0;
   final _bars = FFTBars();
+  SpectrumGlow? _glow;
   List<double> _targetFftValues = [];
   late final Ticker _ticker = createTicker(_onTick);
   bool _hasData = false;
@@ -108,6 +109,7 @@ class FFTVisualizeState extends State<FFTVisualize>
     super.initState();
 
     _registry.register(this);
+    _loadGlow();
 
     SettingsManager().getValue<String>(kMildSpectrumKey).then((x) {
       if (x == 'true') {
@@ -160,8 +162,17 @@ class FFTVisualizeState extends State<FFTVisualize>
     _bars.changed();
   }
 
+  Future<void> _loadGlow() async {
+    final program = await ui.FragmentProgram.fromAsset(
+      'lib/shaders/spectrum.frag',
+    );
+    if (!mounted) return;
+    setState(() => _glow = SpectrumGlow(program.fragmentShader()));
+  }
+
   @override
   dispose() {
+    _glow?.dispose();
     _fftSubscription?.cancel();
     _mildSpectrumSubscription?.cancel();
     _ticker.dispose();
@@ -174,6 +185,7 @@ class FFTVisualizeState extends State<FFTVisualize>
   @override
   Widget build(BuildContext context) {
     final color = FluentTheme.of(context).accentColor;
+    final resolution = MediaQuery.devicePixelRatioOf(context);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -184,15 +196,8 @@ class FFTVisualizeState extends State<FFTVisualize>
           alignment: widget.alignment,
           child: SizedBox(
             height: parentHeight * 2,
-            child: Opacity(
-              opacity: 0.87,
-              child: ImageFiltered(
-                imageFilter:
-                    ui.ImageFilter.blur(sigmaX: radius, sigmaY: radius),
-                child: CustomPaint(
-                  painter: FFTPainter(_bars, color),
-                ),
-              ),
+            child: CustomPaint(
+              painter: FFTPainter(_bars, color, _glow, resolution: resolution),
             ),
           ),
         );
@@ -229,29 +234,142 @@ class _WindowVisibilityObserver extends WidgetsBindingObserver {
   }
 }
 
+/// The spectrum's glow: the bars, Gaussian blurred by [blurSigma] and faded
+/// to [glowOpacity], which lib/shaders/spectrum.frag works out for each pixel.
+///
+/// The glow used to be the bars drawn into a layer that a blur filter and an
+/// opacity layer went over every frame. The shader gives the same pixels in
+/// one pass, drawn only over the bars' bounds grown by three deviations, the
+/// area the blur filter drew into: a frame repaints no more of the screen than
+/// the glow reaches, so a quiet spectrum repaints a low strip.
+///
+/// The shader draws into an image of the area, which is then drawn over it
+/// scaled: at the screen's own resolution that is the same picture, and an
+/// image of fewer pixels spares the GPU. A blur of 12 leaves no detail finer
+/// than a few pixels, so at a third of the screen's resolution the shader works
+/// out a ninth of the pixels and no pixel moves by more than 2 levels of 255
+/// (lib/test/widgets/spectrum_glow_test.dart). On a Radxa ZERO 3 at its 400
+/// MHz GPU floor, the glow at the full resolution made the GPU miss about one
+/// frame a second while music played, and at a third none.
+class SpectrumGlow {
+  SpectrumGlow(this._shader);
+
+  static const double blurSigma = 12.0;
+  static const double glowOpacity = 0.87;
+
+  /// The bars the shader takes. The spectrum has 64 bands
+  /// (playback/src/realtime_fft.rs); further bars are not drawn.
+  static const int maxBars = 64;
+
+  final ui.FragmentShader _shader;
+
+  /// The image the last frame drew, kept until the next one replaces it.
+  ui.Image? _lastImage;
+
+  /// The size in pixels of the image the last frame drew.
+  @visibleForTesting
+  Size? get lastImageSize => _lastImage == null
+      ? null
+      : Size(_lastImage!.width.toDouble(), _lastImage!.height.toDouble());
+
+  /// Draws the glow of [values] over [size], worked out in an image of
+  /// [resolution] pixels for each logical pixel.
+  void paint(
+    Canvas canvas,
+    Size size,
+    List<double> values,
+    Color color, {
+    required double resolution,
+  }) {
+    if (values.isEmpty) return;
+
+    final barWidth = size.width / values.length;
+    final middle = size.height / 2;
+    final count = min(values.length, maxBars);
+    final alpha = color.a * glowOpacity;
+
+    _shader
+      ..setFloat(0, barWidth)
+      ..setFloat(1, middle)
+      ..setFloat(2, count.toDouble())
+      ..setFloat(3, blurSigma)
+      ..setFloat(4, color.r * alpha)
+      ..setFloat(5, color.g * alpha)
+      ..setFloat(6, color.b * alpha)
+      ..setFloat(7, alpha);
+    var tallest = 0.0;
+    for (int i = 0; i < maxBars; i++) {
+      final halfHeight = i < count ? (values[i] * size.height / 2).abs() : 0.0;
+      _shader.setFloat(8 + i, halfHeight);
+      tallest = max(tallest, halfHeight);
+    }
+    if (tallest == 0) return;
+
+    // The image covers the area the blur filter drew into, grown to whole
+    // pixels of the image, so that at the screen's own resolution its pixels
+    // are the screen's.
+    final reach = 3 * blurSigma;
+    final left = ((-barWidth / 2 - reach) * resolution).floor();
+    final top = ((middle - tallest - reach) * resolution).floor();
+    final right = (((count - 0.5) * barWidth + reach) * resolution).ceil();
+    final bottom = ((middle + tallest + reach) * resolution).ceil();
+    final width = right - left;
+    final height = bottom - top;
+    final area = Rect.fromLTRB(
+      left / resolution,
+      top / resolution,
+      right / resolution,
+      bottom / resolution,
+    );
+
+    // The shader reads the coordinates before the scaling, so each pixel of
+    // the image is the glow at the middle of the block it stands for.
+    final recorder = ui.PictureRecorder();
+    Canvas(recorder)
+      ..scale(resolution)
+      ..translate(-area.left, -area.top)
+      ..drawRect(area, Paint()..shader = _shader);
+    final picture = recorder.endRecording();
+    final image = picture.toImageSync(width, height);
+    picture.dispose();
+    canvas.drawImageRect(
+      image,
+      Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+      area,
+      Paint()..filterQuality = FilterQuality.low,
+    );
+    _lastImage?.dispose();
+    _lastImage = image;
+  }
+
+  void dispose() {
+    _lastImage?.dispose();
+    _shader.dispose();
+  }
+}
+
 class FFTPainter extends CustomPainter {
+  FFTPainter(this.bars, this.color, this.glow, {required this.resolution})
+    : super(repaint: bars);
+
   final FFTBars bars;
   final Color color;
 
-  FFTPainter(this.bars, this.color) : super(repaint: bars);
+  /// The glow, or null while its shader loads.
+  final SpectrumGlow? glow;
+
+  /// The pixels of the glow's image for each logical pixel (see
+  /// SpectrumGlow.paint).
+  final double resolution;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final fftValues = bars.values;
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = size.width / fftValues.length;
-
-    final midY = size.height / 2;
-
-    for (int i = 0; i < fftValues.length; i++) {
-      final x = i * (size.width / fftValues.length);
-      final y = fftValues[i] * size.height / 2;
-      canvas.drawLine(Offset(x, midY - y), Offset(x, midY + y), paint);
-    }
-  }
+  void paint(Canvas canvas, Size size) =>
+      glow?.paint(canvas, size, bars.values, color, resolution: resolution);
 
   @override
   bool shouldRepaint(FFTPainter oldDelegate) =>
-      oldDelegate.bars != bars || oldDelegate.color != color;
+      oldDelegate.bars != bars ||
+      oldDelegate.color != color ||
+      oldDelegate.glow != glow ||
+      oldDelegate.resolution != resolution;
 }
