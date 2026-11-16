@@ -1,8 +1,7 @@
 use support::fixtures;
 
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::Result;
+use database::test_fixtures::causal_library as support;
 use database::{
     entities::{media_files, mixes},
     sync::{accepted::AcceptedState, model::*},
@@ -43,7 +42,7 @@ async fn seed(local: &SqlLibrary, invalid: bool) -> Result<()> {
 async fn initialized(local: &SqlLibrary) -> Result<bool> {
     sync_orm::causal_progress::initialization_complete_on(
         &local.db,
-        local.library.record_store().namespace(),
+        local.sync_store.record_store().namespace(),
     )
     .await
 }
@@ -59,8 +58,8 @@ async fn finish_and_check(local: &SqlLibrary) -> Result<()> {
     assert!(!initialized(local).await?);
     let reopened = fixtures::open_library(
         local.db.clone(),
-        local.library.record_store().author(),
-        Some(local.library.record_store().namespace()),
+        local.sync_store.record_store().author(),
+        Some(local.sync_store.record_store().namespace()),
     )
     .await?;
     reopened.import_basic().await?;
@@ -92,9 +91,9 @@ async fn finish_and_check(local: &SqlLibrary) -> Result<()> {
 async fn failure_rolls_back_only_current_source_batch_and_restart_is_idempotent() -> Result<()> {
     let local = SqlLibrary::new(Uuid::new_v4(), Uuid::new_v4()).await?;
     seed(&local, true).await?;
-    let error = format!("{:#}", local.library.import_basic().await.unwrap_err());
+    let error = format!("{:#}", local.sync_store.import_basic().await.unwrap_err());
     assert!(error.contains("tracks") && error.contains("130"), "{error}");
-    assert_eq!(local.library.head().await?.sequence, 126);
+    assert_eq!(local.sync_store.head().await?.sequence, 126);
     media_files::Entity::update_many()
         .col_expr(
             media_files::Column::SourceUuid,
@@ -119,7 +118,7 @@ async fn accepted_view_pages_are_bounded_and_skip_removed_values() -> Result<()>
         }
     }
     let tx = local.db.begin().await?;
-    let store = local.library.record_store();
+    let store = local.sync_store.record_store();
     let view = AcceptedState::new(&tx, &store);
     let mut after = None;
     let mut ids = Vec::new();
@@ -159,9 +158,9 @@ async fn authored_batch_failure_keeps_prior_commits_and_restart_skips_them() -> 
     let local = SqlLibrary::new(Uuid::new_v4(), Uuid::new_v4()).await?;
     seed(&local, false).await?;
     local.db.execute_unprepared("CREATE TRIGGER reject_batch BEFORE INSERT ON sync_journal WHEN NEW.sequence=130 BEGIN SELECT RAISE(ABORT, 'injected batch failure'); END").await?;
-    let error = format!("{:#}", local.library.import_basic().await.unwrap_err());
+    let error = format!("{:#}", local.sync_store.import_basic().await.unwrap_err());
     assert!(error.contains("injected batch failure"), "{error}");
-    assert_eq!(local.library.head().await?.sequence, 126);
+    assert_eq!(local.sync_store.head().await?.sequence, 126);
     local
         .db
         .execute_unprepared("DROP TRIGGER reject_batch")

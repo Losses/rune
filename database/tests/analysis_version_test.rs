@@ -1,7 +1,6 @@
-#[path = "support/fixtures.rs"]
-mod fixtures;
 use analysis::{CURRENT_ANALYSIS_VERSION, utils::computing_device::ComputingDevice};
 use anyhow::Result;
+use database::test_fixtures::fixtures;
 use database::{
     actions::{
         analysis::{

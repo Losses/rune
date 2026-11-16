@@ -1,5 +1,4 @@
-#[path = "support/causal_library.rs"]
-mod support;
+use database::test_fixtures::causal_library as support;
 
 use anyhow::Result;
 use database::sync::{
@@ -159,8 +158,8 @@ async fn old_schema_peer_is_rejected_with_typed_incompatibility() -> Result<()> 
     let source = support::SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     let target = support::SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     let old_peer = OldSchemaPeer(source.peer.clone());
-    let target_endpoint = target.library.endpoint();
-    let source_endpoint = source.library.endpoint();
+    let target_endpoint = target.sync_store.endpoint();
+    let source_endpoint = source.sync_store.endpoint();
     let mut coordinator = p::Coordinator::<RuneModel>::new(support::scope(), support::limits())?;
     assert!(matches!(
         coordinator

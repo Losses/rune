@@ -14,6 +14,39 @@ use tokio::{
     task::{JoinHandle, JoinSet},
 };
 
+/// Which change-detection properties an S3 server reports for objects.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum S3ObjectMetadata {
+    /// ETag and modification time, like a real server.
+    Full,
+    /// Neither ETag nor modification time on object requests, like a minimal
+    /// compatible server.
+    Hidden,
+}
+
+impl S3ObjectMetadata {
+    fn headers(self, bytes: &[u8]) -> String {
+        match self {
+            Self::Full => format!(
+                "Last-Modified: Wed, 01 Jan 2025 00:00:00 GMT\r\nETag: {}\r\n",
+                fixture_etag(bytes)
+            ),
+            Self::Hidden => String::new(),
+        }
+    }
+
+    fn list_properties(self, bytes: &[u8]) -> String {
+        match self {
+            Self::Full => format!(
+                "<LastModified>2025-01-01T00:00:00Z</LastModified><ETag>{}</ETag>",
+                fixture_etag(bytes)
+            ),
+            // Listings must carry a modification time for clients to parse.
+            Self::Hidden => "<LastModified>2025-01-01T00:00:00Z</LastModified>".to_owned(),
+        }
+    }
+}
+
 type ReadRanges = Arc<Mutex<Vec<Option<(usize, usize)>>>>;
 
 #[derive(Clone)]
@@ -155,10 +188,27 @@ struct S3ServerState {
     versions: Arc<Mutex<HashMap<String, Vec<Vec<u8>>>>>,
     reject_writes: Arc<AtomicBool>,
     ranges: ReadRanges,
+    object_metadata: S3ObjectMetadata,
 }
 
 impl S3Fixture {
     pub async fn start(files: Vec<(String, Vec<u8>)>) -> std::io::Result<Self> {
+        Self::start_with_metadata(files, S3ObjectMetadata::Full).await
+    }
+
+    /// Starts a server that reports neither an ETag nor a modification time,
+    /// so clients have no change signal for its objects.
+    #[allow(dead_code)]
+    pub async fn start_without_object_metadata(
+        files: Vec<(String, Vec<u8>)>,
+    ) -> std::io::Result<Self> {
+        Self::start_with_metadata(files, S3ObjectMetadata::Hidden).await
+    }
+
+    async fn start_with_metadata(
+        files: Vec<(String, Vec<u8>)>,
+        object_metadata: S3ObjectMetadata,
+    ) -> std::io::Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let address = listener.local_addr()?;
         let files = Arc::new(Mutex::new(files.into_iter().collect::<HashMap<_, _>>()));
@@ -178,6 +228,7 @@ impl S3Fixture {
             versions: versions.clone(),
             reject_writes: reject_writes.clone(),
             ranges: ranges.clone(),
+            object_metadata,
         };
         let task = tokio::spawn(async move {
             let mut connections = JoinSet::new();
@@ -297,6 +348,7 @@ async fn serve_s3(stream: TcpStream, state: S3ServerState) {
         versions,
         reject_writes,
         ranges,
+        object_metadata,
     } = state;
     let mut reader = BufReader::new(stream);
     loop {
@@ -439,7 +491,7 @@ async fn serve_s3(stream: TcpStream, state: S3ServerState) {
                     prefixes.insert(format!("{prefix}{directory}/"));
                 } else {
                     content_count += 1;
-                    contents.push_str(&format!("<Contents><Key>{key}</Key><LastModified>2025-01-01T00:00:00Z</LastModified><ETag>{}</ETag><Size>{}</Size><StorageClass>STANDARD</StorageClass></Contents>", fixture_etag(bytes), bytes.len()));
+                    contents.push_str(&format!("<Contents><Key>{key}</Key>{}<Size>{}</Size><StorageClass>STANDARD</StorageClass></Contents>", object_metadata.list_properties(bytes), bytes.len()));
                 }
             }
             let key_count = content_count + prefixes.len();
@@ -458,10 +510,7 @@ async fn serve_s3(stream: TcpStream, state: S3ServerState) {
                 Some(_bytes) if method == "HEAD" => (
                     200,
                     "application/octet-stream",
-                    format!(
-                        "Last-Modified: Wed, 01 Jan 2025 00:00:00 GMT\r\nETag: {}\r\n",
-                        fixture_etag(_bytes)
-                    ),
+                    object_metadata.headers(_bytes),
                     Vec::new(),
                 ),
                 Some(bytes)
@@ -504,10 +553,7 @@ async fn serve_s3(stream: TcpStream, state: S3ServerState) {
                         .lock()
                         .unwrap_or_else(|error| error.into_inner())
                         .push(range_header);
-                    let mut extra = format!(
-                        "Last-Modified: Wed, 01 Jan 2025 00:00:00 GMT\r\nETag: {}\r\n",
-                        fixture_etag(bytes)
-                    );
+                    let mut extra = object_metadata.headers(bytes);
                     if let Some((start, end)) = range_header {
                         extra.push_str(&format!(
                             "Content-Range: bytes {start}-{end}/{}\r\n",

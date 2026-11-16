@@ -1,6 +1,5 @@
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::Result;
+use database::test_fixtures::causal_library as support;
 use database::{
     entities::{media_files, media_metadata},
     sync::model::*,

@@ -1,7 +1,6 @@
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::Result;
 use database::sync::{SeaOrmSyncStore, model::*};
+use database::test_fixtures::causal_library as support;
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection};
 use std::sync::Arc;
 use support::{Peer, fixtures};

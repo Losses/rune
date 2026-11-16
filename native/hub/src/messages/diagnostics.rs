@@ -24,9 +24,16 @@ pub enum FsSelfTestLayerOutcome {
     Skipped,
 }
 
+/// Whether every layer of a filesystem self-test passed or was skipped.
+#[derive(Deserialize, Serialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FsSelfTestOutcome {
+    Passed,
+    Failed,
+}
+
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct RunFsSelfTestResponse {
-    pub success: bool,
+    pub outcome: FsSelfTestOutcome,
     pub report_json: String,
     pub wal_probe: WalSelfTestResult,
     #[serde(default)]

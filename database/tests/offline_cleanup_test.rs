@@ -1,5 +1,4 @@
-#[path = "support/fixtures.rs"]
-mod fixtures;
+use database::test_fixtures::fixtures;
 
 use anyhow::Result;
 use database::{

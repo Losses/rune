@@ -1,5 +1,4 @@
-#[path = "support/causal_library.rs"]
-mod support;
+use database::test_fixtures::causal_library as support;
 
 use anyhow::{Context, Result};
 use database::entities::{media_cover_art, media_files};
@@ -45,7 +44,7 @@ async fn library_with_oversized_cover(local: &support::SqlLibrary) -> Result<(St
 async fn import_skips_a_cover_the_migration_left_without_a_digest() -> Result<()> {
     let local = support::SqlLibrary::new(Uuid::new_v4(), Uuid::new_v4()).await?;
     library_with_oversized_cover(&local).await?;
-    local.library.import_basic().await?;
+    local.sync_store.import_basic().await?;
     Ok(())
 }
 
@@ -55,7 +54,7 @@ async fn a_track_whose_cover_was_left_out_still_syncs() -> Result<()> {
     let namespace = Uuid::new_v4();
     let local = support::SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     let (track, cover) = library_with_oversized_cover(&local).await?;
-    local.library.import_basic().await?;
+    local.sync_store.import_basic().await?;
     let remote = support::SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     support::exchange(&local.peer, &remote.peer).await?;
     let received = media_files::Entity::find()

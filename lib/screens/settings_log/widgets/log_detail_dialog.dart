@@ -67,10 +67,13 @@ class _LogDetailDialogState extends State<LogDetailDialog> {
         ],
       ),
       actions: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          runSpacing: 8,
           children: [
             Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Button(
                   onPressed: currentIndex > 0

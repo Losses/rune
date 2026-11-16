@@ -1,3 +1,4 @@
+use requests::NamedLibraries;
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
@@ -14,7 +15,7 @@ pub struct PlaylistsGroup {
     pub playlists: Vec<Playlist>,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct FetchAllPlaylistsRequest {
     #[serde(default)]
     pub call_id: Option<u64>,
@@ -27,7 +28,7 @@ pub struct FetchAllPlaylistsResponse {
     pub call_id: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct CreatePlaylistRequest {
     pub name: String,
     pub group: String,
@@ -42,7 +43,7 @@ pub struct CreatePlaylistResponse {
     pub call_id: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct UpdatePlaylistRequest {
     pub playlist_id: i32,
     pub name: String,
@@ -58,7 +59,7 @@ pub struct UpdatePlaylistResponse {
     pub call_id: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct RemovePlaylistRequest {
     pub playlist_id: i32,
     #[serde(default)]
@@ -68,12 +69,11 @@ pub struct RemovePlaylistRequest {
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct RemovePlaylistResponse {
     pub playlist_id: i32,
-    pub success: bool,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct AddItemToPlaylistRequest {
     pub playlist_id: i32,
     pub media_file_id: i32,
@@ -84,13 +84,12 @@ pub struct AddItemToPlaylistRequest {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct AddItemToPlaylistResponse {
-    pub success: bool,
     pub occurrence_id: String,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct ReorderPlaylistItemPositionRequest {
     pub playlist_id: i32,
     pub occurrence_id: String,
@@ -101,12 +100,11 @@ pub struct ReorderPlaylistItemPositionRequest {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct ReorderPlaylistItemPositionResponse {
-    pub success: bool,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct GetPlaylistByIdRequest {
     pub playlist_id: i32,
     #[serde(default)]
@@ -126,7 +124,7 @@ pub struct PlaylistSummary {
     pub name: String,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct CreateM3u8PlaylistRequest {
     pub name: String,
     pub group: String,
@@ -144,7 +142,7 @@ pub struct CreateM3u8PlaylistResponse {
     pub call_id: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct RemoveItemFromPlaylistRequest {
     pub playlist_id: i32,
     pub occurrence_id: String,
@@ -158,7 +156,7 @@ pub struct RemoveItemFromPlaylistResponse {
     pub call_id: Option<u64>,
 }
 
-#[derive(Clone, Serialize, Deserialize, SignalPiece)]
+#[derive(Clone, Serialize, Deserialize, SignalPiece, NamedLibraries)]
 pub struct PlaylistOccurrenceCursor {
     pub position: i32,
     pub occurrence_id: String,
@@ -172,7 +170,7 @@ pub struct PlaylistOccurrence {
     pub file: Option<super::MediaFile>,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct FetchPlaylistOccurrencesRequest {
     pub request_id: String,
     pub playlist_id: i32,

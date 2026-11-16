@@ -1,6 +1,5 @@
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::Result;
+use database::test_fixtures::causal_library as support;
 use database::{
     actions::cover_art as artwork,
     entities::{media_cover_art, media_files},
@@ -25,7 +24,7 @@ async fn corrupt_body_repairs_same_row_and_rolls_back_on_failure() -> Result<()>
         .peer
         .write_local(key(Collection::Tracks, file), Some(Payload::Track(track)))
         .await?;
-    assert_eq!(local.library.pending_references().await?.len(), 1);
+    assert_eq!(local.sync_store.pending_references().await?.len(), 1);
     let assignment = Artwork {
         digest: digest.clone(),
         size: body.len() as i64,
@@ -38,7 +37,7 @@ async fn corrupt_body_repairs_same_row_and_rolls_back_on_failure() -> Result<()>
             Some(Payload::Artwork(assignment.clone())),
         )
         .await?;
-    assert!(local.library.pending_references().await?.is_empty());
+    assert!(local.sync_store.pending_references().await?.is_empty());
     let placeholder = media_cover_art::Entity::find()
         .filter(media_cover_art::Column::SourceUuid.eq(id.to_string()))
         .one(&local.db)
@@ -47,7 +46,7 @@ async fn corrupt_body_repairs_same_row_and_rolls_back_on_failure() -> Result<()>
     assert!(!placeholder.local_available);
     artwork::attach_received_body(
         &local.db,
-        &local.library.record_store(),
+        &local.sync_store.record_store(),
         id,
         &assignment,
         body.clone(),
@@ -75,7 +74,7 @@ async fn corrupt_body_repairs_same_row_and_rolls_back_on_failure() -> Result<()>
     assert!(
         artwork::attach_received_body(
             &local.db,
-            &local.library.record_store(),
+            &local.sync_store.record_store(),
             id,
             &assignment,
             body.clone()
@@ -95,7 +94,7 @@ async fn corrupt_body_repairs_same_row_and_rolls_back_on_failure() -> Result<()>
         .await?;
     artwork::attach_received_body(
         &local.db,
-        &local.library.record_store(),
+        &local.sync_store.record_store(),
         id,
         &assignment,
         body.clone(),
@@ -154,7 +153,7 @@ async fn unrelated_local_body_does_not_satisfy_missing_artwork_reference() -> Re
     assert!(
         artwork::attach_received_body(
             &local.db,
-            &local.library.record_store(),
+            &local.sync_store.record_store(),
             expected,
             &assignment,
             b"unrelated bytes".to_vec()
@@ -173,7 +172,7 @@ async fn unrelated_local_body_does_not_satisfy_missing_artwork_reference() -> Re
             Some(Payload::Track(track)),
         )
         .await?;
-    assert_eq!(local.library.pending_references().await?.len(), 1);
+    assert_eq!(local.sync_store.pending_references().await?.len(), 1);
     assert!(
         media_cover_art::Entity::find()
             .filter(media_cover_art::Column::SourceUuid.eq(expected.to_string()))
@@ -188,10 +187,10 @@ async fn unrelated_local_body_does_not_satisfy_missing_artwork_reference() -> Re
             Some(Payload::Artwork(assignment.clone())),
         )
         .await?;
-    assert!(local.library.pending_references().await?.is_empty());
+    assert!(local.sync_store.pending_references().await?.is_empty());
     artwork::attach_received_body(
         &local.db,
-        &local.library.record_store(),
+        &local.sync_store.record_store(),
         expected,
         &assignment,
         body,

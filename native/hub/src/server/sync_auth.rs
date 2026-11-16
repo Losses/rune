@@ -17,10 +17,10 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     net::SocketAddr,
-    sync::Arc,
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::{Duration, Instant},
 };
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 use tower_governor::{
     GovernorLayer, governor::GovernorConfigBuilder, key_extractor::PeerIpKeyExtractor,
 };
@@ -83,6 +83,12 @@ impl SyncAuth {
         }
     }
 
+    /// The entries, whose critical sections never wait, so that a trust change can remove a
+    /// device's tokens before it returns.
+    fn entries(&self) -> MutexGuard<'_, Entries> {
+        self.entries.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     pub fn trust_change_hook(
         &self,
     ) -> impl Fn(&str, Option<&UserStatus>) -> Result<(), String> + Send + Sync + 'static {
@@ -91,21 +97,17 @@ impl SyncAuth {
             if status == Some(&UserStatus::Approved) {
                 return Ok(());
             }
-            let fingerprint = fingerprint.to_owned();
-            let entries = entries.clone();
-            tokio::spawn(async move {
-                entries
-                    .lock()
-                    .await
-                    .tokens
-                    .retain(|_, (token_fingerprint, _)| token_fingerprint != &fingerprint);
-            });
+            entries
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .tokens
+                .retain(|_, (token_fingerprint, _)| token_fingerprint != fingerprint);
             Ok(())
         }
     }
     #[cfg(test)]
     pub(super) async fn expire_tokens_for_fingerprint_for_test(&self, fingerprint: &str) -> bool {
-        let mut entries = self.entries.lock().await;
+        let mut entries = self.entries();
         let deadline = Instant::now();
         let mut expired = false;
         for (token_fingerprint, token_deadline) in entries.tokens.values_mut() {
@@ -119,18 +121,18 @@ impl SyncAuth {
 
     #[cfg(test)]
     pub(super) async fn challenge_count_for_test(&self) -> usize {
-        self.entries.lock().await.challenge_count
+        self.entries().challenge_count
     }
 
     #[cfg(test)]
     pub(super) async fn authorization_count_for_test(&self) -> usize {
-        self.entries.lock().await.authorization_count
+        self.entries().authorization_count
     }
 
     #[cfg(test)]
     pub(super) async fn issue_token_for_test(&self, fingerprint: &str) -> String {
         let token = random();
-        self.entries.lock().await.tokens.insert(
+        self.entries().tokens.insert(
             token.clone(),
             (fingerprint.to_owned(), Instant::now() + TOKEN_TTL),
         );
@@ -139,20 +141,15 @@ impl SyncAuth {
 
     #[cfg(test)]
     pub(super) async fn has_token_for_test(&self, token: &str) -> bool {
-        self.entries.lock().await.tokens.contains_key(token)
+        self.entries().tokens.contains_key(token)
     }
     #[cfg(test)]
     pub(super) async fn reject_next_authorization_for_test(&self, fingerprint: &str) {
-        self.entries.lock().await.reject_next_authorization_for = Some(fingerprint.to_owned());
+        self.entries().reject_next_authorization_for = Some(fingerprint.to_owned());
     }
     #[cfg(test)]
     pub(super) async fn authorization_rejection_pending_for_test(&self, fingerprint: &str) -> bool {
-        self.entries
-            .lock()
-            .await
-            .reject_next_authorization_for
-            .as_deref()
-            == Some(fingerprint)
+        self.entries().reject_next_authorization_for.as_deref() == Some(fingerprint)
     }
     pub fn router(&self) -> Router {
         let Some(config) = GovernorConfigBuilder::default()
@@ -174,7 +171,7 @@ impl SyncAuth {
     }
     pub async fn resolve_token(&self, token: &str) -> Option<String> {
         let fingerprint = {
-            let mut e = self.entries.lock().await;
+            let mut e = self.entries();
             e.tokens
                 .retain(|_, (_, deadline)| *deadline > Instant::now());
             e.tokens.get(token).map(|(f, _)| f.clone())
@@ -190,7 +187,7 @@ impl SyncAuth {
             None => false,
         };
         if !approved {
-            self.entries.lock().await.tokens.remove(token);
+            self.entries().tokens.remove(token);
         }
         fingerprint.filter(|_| approved)
     }
@@ -199,7 +196,7 @@ async fn challenge(
     State(auth): State<SyncAuth>,
     ConnectInfo(address): ConnectInfo<SocketAddr>,
 ) -> Result<Json<Challenge>, StatusCode> {
-    let mut e = auth.entries.lock().await;
+    let mut e = auth.entries();
     #[cfg(test)]
     {
         e.challenge_count += 1;
@@ -221,7 +218,7 @@ async fn challenge(
     );
     Ok(Json(Challenge {
         nonce,
-        server_fingerprint: auth.fingerprint,
+        server_fingerprint: auth.fingerprint.clone(),
     }))
 }
 async fn authorize(
@@ -229,9 +226,7 @@ async fn authorize(
     Json(request): Json<Authorization>,
 ) -> Result<Json<Token>, StatusCode> {
     let valid_nonce = auth
-        .entries
-        .lock()
-        .await
+        .entries()
         .nonces
         .remove(&request.nonce)
         .is_some_and(|(_, t)| t > Instant::now());
@@ -241,7 +236,7 @@ async fn authorize(
     #[cfg(test)]
     {
         let reject_once = {
-            let mut entries = auth.entries.lock().await;
+            let mut entries = auth.entries();
             if entries.reject_next_authorization_for.as_deref() == Some(&request.fingerprint) {
                 entries.reject_next_authorization_for.take().is_some()
             } else {
@@ -285,7 +280,7 @@ async fn authorize(
         &signature,
     )
     .map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let mut e = auth.entries.lock().await;
+    let mut e = auth.entries();
     e.tokens.retain(|_, (_, t)| *t > Instant::now());
     let oldest = e
         .tokens
@@ -418,6 +413,124 @@ mod tests {
         serde_json::from_slice(&to_bytes(response.into_body(), 8192).await.unwrap()).unwrap()
     }
     #[tokio::test]
+    async fn a_revoked_device_has_no_tokens_when_the_revocation_reports_success() {
+        let dir = std::env::temp_dir().join(format!("rune-auth-{}", random()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let permissions = Arc::new(RwLock::new(PermissionManager::new(&dir).unwrap()));
+        let cert = discovery::ssl::generate_self_signed_cert("test", "rune", "CA", 1).unwrap();
+        let fingerprint = cert.public_key_fingerprint.clone();
+        let auth = SyncAuth::new(permissions.clone(), "server".into());
+        permissions
+            .write()
+            .await
+            .add_trust_change_hook(Arc::new(auth.trust_change_hook()));
+        permissions
+            .write()
+            .await
+            .add_user(
+                cert.public_key.clone(),
+                fingerprint.clone(),
+                "device".into(),
+                "test".into(),
+                DeviceType::Desktop,
+                "127.0.0.1".into(),
+            )
+            .await
+            .unwrap();
+        permissions
+            .write()
+            .await
+            .change_user_status(&fingerprint, UserStatus::Approved)
+            .await
+            .unwrap();
+        // A real authorization: the device proves its key and is given a token.
+        let app = auth.router();
+        let challenge = get_challenge(&app).await;
+        let private = RsaPrivateKey::from_pkcs8_pem(&cert.private_key).unwrap();
+        let request = Authorization {
+            nonce: challenge.nonce.clone(),
+            fingerprint: fingerprint.clone(),
+            signature: URL_SAFE_NO_PAD.encode(
+                private
+                    .sign_with_rng(
+                        &mut OsRng,
+                        Pss::new::<Sha256>(),
+                        &Sha256::digest(message("server", &challenge.nonce)),
+                    )
+                    .unwrap(),
+            ),
+        };
+        let (status, bytes) = post(&app, "/sync/authorize", &request).await;
+        assert_eq!(status, StatusCode::OK);
+        let token: Token = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            auth.resolve_token(&token.token).await.as_deref(),
+            Some(fingerprint.as_str())
+        );
+
+        // Blocked and approved again, one call after the other with no waiting: the token
+        // must not come back to life, so the revocation had taken it away when it reported
+        // success.
+        for status in [UserStatus::Blocked, UserStatus::Approved] {
+            permissions
+                .write()
+                .await
+                .change_user_status(&fingerprint, status)
+                .await
+                .unwrap();
+        }
+        assert_eq!(auth.resolve_token(&token.token).await, None);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn a_revoked_devices_tokens_are_gone_when_the_revocation_returns() {
+        let dir = std::env::temp_dir().join(format!("rune-auth-{}", random()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let permissions = Arc::new(RwLock::new(PermissionManager::new(&dir).unwrap()));
+        let auth = SyncAuth::new(permissions.clone(), "server".into());
+        permissions
+            .write()
+            .await
+            .add_trust_change_hook(Arc::new(auth.trust_change_hook()));
+        permissions
+            .write()
+            .await
+            .add_user(
+                "key".into(),
+                "device".into(),
+                "device".into(),
+                "test".into(),
+                DeviceType::Desktop,
+                "127.0.0.1".into(),
+            )
+            .await
+            .unwrap();
+        permissions
+            .write()
+            .await
+            .change_user_status("device", UserStatus::Approved)
+            .await
+            .unwrap();
+        let token = auth.issue_token_for_test("device").await;
+        let other = auth.issue_token_for_test("other-device").await;
+
+        permissions
+            .write()
+            .await
+            .change_user_status("device", UserStatus::Blocked)
+            .await
+            .unwrap();
+
+        // Nothing public shows a token that is still held for a device that no longer
+        // authenticates (`resolve_token` checks the status again), so the held tokens are read
+        // directly: they must be gone without any waiting.
+        assert!(!auth.has_token_for_test(&token).await);
+        assert!(auth.has_token_for_test(&other).await);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
     async fn authorization_requires_key_proof_and_tracks_revocation() {
         let dir = std::env::temp_dir().join(format!("rune-auth-{}", random()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -516,7 +629,7 @@ mod tests {
                 .unwrap();
             assert_eq!(response.status(), status);
         }
-        assert_eq!(auth.entries.lock().await.tokens.len(), 8);
+        assert_eq!(auth.entries().tokens.len(), 8);
         let mut bad = sign(&get_challenge(&app).await);
         bad.signature = URL_SAFE_NO_PAD.encode([0u8; 256]);
         assert_eq!(
@@ -546,7 +659,7 @@ mod tests {
             .unwrap();
         timeout(Duration::from_secs(2), async {
             loop {
-                if auth.entries.lock().await.tokens.is_empty() {
+                if auth.entries().tokens.is_empty() {
                     break;
                 }
                 tokio::task::yield_now().await;
@@ -618,11 +731,7 @@ mod tests {
         .await;
         assert!(matches!(unrelated, Err(StatusCode::UNAUTHORIZED)));
         assert_eq!(
-            auth.entries
-                .lock()
-                .await
-                .reject_next_authorization_for
-                .as_deref(),
+            auth.entries().reject_next_authorization_for.as_deref(),
             Some(target_fingerprint)
         );
 
@@ -643,13 +752,7 @@ mod tests {
         )
         .await;
         assert!(matches!(target, Err(StatusCode::UNAUTHORIZED)));
-        assert!(
-            auth.entries
-                .lock()
-                .await
-                .reject_next_authorization_for
-                .is_none()
-        );
+        assert!(auth.entries().reject_next_authorization_for.is_none());
         let _ = std::fs::remove_dir_all(dir);
     }
 }

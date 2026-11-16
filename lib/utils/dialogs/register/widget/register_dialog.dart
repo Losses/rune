@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../../../bindings/bindings.dart';
 import '../../../../widgets/no_shortcuts.dart';
 import '../../../../widgets/responsive_dialog_actions.dart';
 import '../../../../providers/license.dart';
@@ -13,11 +12,11 @@ import '../../../../providers/license.dart';
 import '../../../l10n.dart';
 import '../../../settings_manager.dart';
 import '../../../api/register_license.dart';
+import '../../../api/request_failure.dart';
 
 import '../show_register_dialog.dart';
 
 import 'show_register_failed_dialog.dart';
-import 'show_register_invalid_dialog.dart';
 import 'show_register_success_dialog.dart';
 
 class RegisterDialog extends StatefulWidget {
@@ -44,69 +43,71 @@ class _RegisterDialogState extends State<RegisterDialog> {
             Text(S.of(context).evaluationMode),
           ],
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              S.of(context).evaluationModeContent1,
-              style: TextStyle(height: 1.4),
-            ),
-            SizedBox(height: 4),
-            Text(
-              S.of(context).evaluationModeContent2,
-              style: TextStyle(height: 1.4),
-            ),
-            SizedBox(height: 4),
-            Text(
-              S.of(context).evaluationModeContent4,
-              style: TextStyle(height: 1.4),
-            ),
-            SizedBox(height: 16),
-            Button(
-              onPressed: _loading
-                  ? null
-                  : _loading
-                  ? null
-                  : () => launchUrl(
-                      Uri.parse('https://nodewave.bandcamp.com/album/rune'),
-                    ),
-              child: Row(
-                children: [
-                  SvgPicture.asset(
-                    width: 16,
-                    'assets/bandcamp.svg',
-                    colorFilter: ColorFilter.mode(
-                      theme.inactiveColor,
-                      BlendMode.srcIn,
-                    ),
-                  ),
-                  SizedBox(width: 8),
-                  Text("Bandcamp"),
-                ],
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                S.of(context).evaluationModeContent1,
+                style: TextStyle(height: 1.4),
               ),
-            ),
-            SizedBox(height: 4),
-            Button(
-              onPressed: _loading
-                  ? null
-                  : () => launchUrl(Uri.parse('https://not-ci.itch.io/rune')),
-              child: Row(
-                children: [
-                  SvgPicture.asset(
-                    width: 16,
-                    'assets/itch.svg',
-                    colorFilter: ColorFilter.mode(
-                      theme.inactiveColor,
-                      BlendMode.srcIn,
-                    ),
-                  ),
-                  SizedBox(width: 8),
-                  Text("itch.io"),
-                ],
+              SizedBox(height: 4),
+              Text(
+                S.of(context).evaluationModeContent2,
+                style: TextStyle(height: 1.4),
               ),
-            ),
-          ],
+              SizedBox(height: 4),
+              Text(
+                S.of(context).evaluationModeContent4,
+                style: TextStyle(height: 1.4),
+              ),
+              SizedBox(height: 16),
+              Button(
+                onPressed: _loading
+                    ? null
+                    : _loading
+                    ? null
+                    : () => launchUrl(
+                        Uri.parse('https://nodewave.bandcamp.com/album/rune'),
+                      ),
+                child: Row(
+                  children: [
+                    SvgPicture.asset(
+                      width: 16,
+                      'assets/bandcamp.svg',
+                      colorFilter: ColorFilter.mode(
+                        theme.inactiveColor,
+                        BlendMode.srcIn,
+                      ),
+                    ),
+                    SizedBox(width: 8),
+                    Text("Bandcamp"),
+                  ],
+                ),
+              ),
+              SizedBox(height: 4),
+              Button(
+                onPressed: _loading
+                    ? null
+                    : () => launchUrl(Uri.parse('https://not-ci.itch.io/rune')),
+                child: Row(
+                  children: [
+                    SvgPicture.asset(
+                      width: 16,
+                      'assets/itch.svg',
+                      colorFilter: ColorFilter.mode(
+                        theme.inactiveColor,
+                        BlendMode.srcIn,
+                      ),
+                    ),
+                    SizedBox(width: 8),
+                    Text("itch.io"),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
           ResponsiveDialogActions(
@@ -140,9 +141,12 @@ class _RegisterDialogState extends State<RegisterDialog> {
                         _loading = true;
                       });
 
-                      final RegisterLicenseResponse license;
+                      String? license;
+                      RequestFailure? failure;
                       try {
                         license = await registerLicense(path);
+                      } on RequestFailure catch (error) {
+                        failure = error;
                       } finally {
                         if (mounted) setState(() => _loading = false);
                       }
@@ -151,35 +155,24 @@ class _RegisterDialogState extends State<RegisterDialog> {
 
                       if (!context.mounted) return;
 
-                      if (license.success && license.valid) {
-                        SettingsManager().setValue(
-                          LicenseProvider.licenseKey,
-                          license.license,
-                        );
-                        Provider.of<LicenseProvider>(
-                          context,
-                          listen: false,
-                        ).revalidateLicense();
-                        showRegisterSuccessDialog(context);
-                        return;
-                      }
-
-                      if (license.success && !license.valid) {
-                        await showRegisterInvalidDialog(context);
+                      if (failure != null) {
+                        await showRegisterFailure(context, failure);
 
                         if (!context.mounted) return;
                         showRegisterDialog(context);
 
                         return;
                       }
-                      if (!license.success) {
-                        showRegisterFailedDialog(context, license.error);
 
-                        if (!context.mounted) return;
-                        showRegisterDialog(context);
-
-                        return;
-                      }
+                      SettingsManager().setValue(
+                        LicenseProvider.licenseKey,
+                        license,
+                      );
+                      Provider.of<LicenseProvider>(
+                        context,
+                        listen: false,
+                      ).revalidateLicense();
+                      showRegisterSuccessDialog(context);
                     },
               child: Text(S.of(context).register),
             ),

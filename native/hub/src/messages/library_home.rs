@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use requests::NamedLibraries;
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
@@ -18,7 +19,9 @@ pub enum LibraryHomeDomain {
     Most,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, SignalPiece)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, SignalPiece, NamedLibraries,
+)]
 pub enum LibraryHomeListMode {
     Name,
     Forward,
@@ -26,7 +29,9 @@ pub enum LibraryHomeListMode {
     Random,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, SignalPiece)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, SignalPiece, NamedLibraries,
+)]
 pub enum LibraryHomeQuery {
     Artists(LibraryHomeListMode),
     Albums(LibraryHomeListMode),
@@ -53,13 +58,13 @@ impl LibraryHomeQuery {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, SignalPiece)]
+#[derive(Clone, Serialize, Deserialize, SignalPiece, NamedLibraries)]
 pub struct ComplexQuery {
     pub title: String,
     pub query: LibraryHomeQuery,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct ComplexQueryRequest {
     pub queries: Vec<ComplexQuery>,
     #[serde(default)]

@@ -49,78 +49,80 @@ class _ReviewConnectionDialogState extends State<ReviewConnectionDialog> {
         title: Column(
           children: [SizedBox(height: 8), Text(s.reviewRequestTitle)],
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              s.connectionVerificationMessage(
-                widget.clientSummary.alias,
-                widget.clientSummary.deviceModel,
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                s.connectionVerificationMessage(
+                  widget.clientSummary.alias,
+                  widget.clientSummary.deviceModel,
+                ),
+                style: TextStyle(height: 1.4),
               ),
-              style: TextStyle(height: 1.4),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Flexible(
-                  child: Container(
-                    constraints: BoxConstraints(maxWidth: 226),
-                    child: FingerprintFigure(
-                      fingerprint: fingerprint,
-                      buttonStyle: const ButtonStyle(
-                        padding: WidgetStatePropertyAll(EdgeInsets.all(0)),
-                      ),
-                      textStyle: const TextStyle(
-                        fontFamily: 'NotoRunic',
-                        fontSize: 14,
-                        letterSpacing: 4,
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Flexible(
+                    child: Container(
+                      constraints: BoxConstraints(maxWidth: 226),
+                      child: FingerprintFigure(
+                        fingerprint: fingerprint,
+                        buttonStyle: const ButtonStyle(
+                          padding: WidgetStatePropertyAll(EdgeInsets.all(0)),
+                        ),
+                        textStyle: const TextStyle(
+                          fontFamily: 'NotoRunic',
+                          fontSize: 14,
+                          letterSpacing: 4,
+                        ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    children: [
-                      SubtitleButton(
-                        title: s.myDevice,
-                        subtitle: s.myDeviceAccessDescription,
-                        selected:
-                            status == ClientStatus.approved &&
-                            preset == DevicePreset.myDevice,
-                        onPressed: () => setState(() {
-                          status = ClientStatus.approved;
-                          preset = DevicePreset.myDevice;
-                        }),
-                      ),
-                      const SizedBox(height: 8),
-                      SubtitleButton(
-                        title: s.guest,
-                        subtitle: s.guestAccessDescription,
-                        selected:
-                            status == ClientStatus.approved &&
-                            preset == DevicePreset.guest,
-                        onPressed: () => setState(() {
-                          status = ClientStatus.approved;
-                          preset = DevicePreset.guest;
-                        }),
-                      ),
-                      const SizedBox(height: 8),
-                      SubtitleButton(
-                        title: s.blockDevice,
-                        subtitle: s.blockDeviceSubtitle,
-                        selected: status == ClientStatus.blocked,
-                        onPressed: () => setState(() {
-                          status = ClientStatus.blocked;
-                        }),
-                      ),
-                    ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        SubtitleButton(
+                          title: s.myDevice,
+                          subtitle: s.myDeviceAccessDescription,
+                          selected:
+                              status == ClientStatus.approved &&
+                              preset == DevicePreset.myDevice,
+                          onPressed: () => setState(() {
+                            status = ClientStatus.approved;
+                            preset = DevicePreset.myDevice;
+                          }),
+                        ),
+                        const SizedBox(height: 8),
+                        SubtitleButton(
+                          title: s.guest,
+                          subtitle: s.guestAccessDescription,
+                          selected:
+                              status == ClientStatus.approved &&
+                              preset == DevicePreset.guest,
+                          onPressed: () => setState(() {
+                            status = ClientStatus.approved;
+                            preset = DevicePreset.guest;
+                          }),
+                        ),
+                        const SizedBox(height: 8),
+                        SubtitleButton(
+                          title: s.blockDevice,
+                          subtitle: s.blockDeviceSubtitle,
+                          selected: status == ClientStatus.blocked,
+                          onPressed: () => setState(() {
+                            status = ClientStatus.blocked;
+                          }),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ],
+                ],
+              ),
+            ],
+          ),
         ),
         actions: [
           FilledButton(

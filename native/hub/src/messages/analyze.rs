@@ -1,7 +1,8 @@
+use requests::NamedLibraries;
 use rinf::{DartSignal, RustSignal};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct IfAnalyzeExistsRequest {
     pub file_id: i32,
     #[serde(default)]
@@ -16,7 +17,7 @@ pub struct IfAnalyzeExistsResponse {
     pub call_id: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct GetAnalyzeCountRequest {
     #[serde(default)]
     pub call_id: Option<u64>,

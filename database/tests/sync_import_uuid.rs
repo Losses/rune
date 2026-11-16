@@ -1,5 +1,4 @@
-#[path = "support/causal_library.rs"]
-mod support;
+use database::test_fixtures::causal_library as support;
 
 use anyhow::Result;
 use database::actions::mixes::{executable_queries_on, query_views_on};
@@ -30,7 +29,7 @@ async fn explicit_import_rejects_incompatible_parent_and_assigns_playlist_id() -
     .exec(&local.db)
     .await?;
     assert!(
-        local.library.import_basic().await.is_err(),
+        local.sync_store.import_basic().await.is_err(),
         "incompatible parent UUID was rewritten"
     );
     let album_id = migration::catalog_identity::parent(
@@ -45,7 +44,7 @@ async fn explicit_import_rejects_incompatible_parent_and_assigns_playlist_id() -
         .filter(albums::Column::Name.eq("legacy"))
         .exec(&local.db)
         .await?;
-    local.library.import_basic().await?;
+    local.sync_store.import_basic().await?;
     assert_eq!(
         albums::Entity::find()
             .one(&local.db)
@@ -61,7 +60,7 @@ async fn explicit_import_rejects_incompatible_parent_and_assigns_playlist_id() -
         .source_uuid;
     Uuid::parse_str(&playlist_id)?;
     let head = local.peer.head().await?;
-    local.library.import_basic().await?;
+    local.sync_store.import_basic().await?;
     assert_eq!(local.peer.head().await?, head);
     assert_eq!(
         playlists::Entity::find()
@@ -95,7 +94,7 @@ async fn importing_an_unresolved_mix_preserves_its_target_uuid() -> Result<()> {
     });
     let key = support::key(Collection::Mixes, mix);
     RuneModel::project(&local.db, &key, Some(&value)).await?;
-    local.library.import_basic().await?;
+    local.sync_store.import_basic().await?;
     assert_eq!(local.peer.get(&key).await?.unwrap().value, Some(value));
     let views = query_views_on(&local.db, &mix.to_string()).await?;
     assert!(!views[0].available);
@@ -106,7 +105,7 @@ async fn importing_an_unresolved_mix_preserves_its_target_uuid() -> Result<()> {
             .is_err()
     );
     let head = local.peer.head().await?;
-    local.library.import_basic().await?;
+    local.sync_store.import_basic().await?;
     assert_eq!(local.peer.head().await?, head);
     Ok(())
 }

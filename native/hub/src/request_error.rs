@@ -4,7 +4,9 @@ use thiserror::Error as ThisError;
 
 use crate::access_policy::Denial;
 use crate::messages::{
-    CastLibraryState, LibraryTaskKind, ProtocolUpdateSide, RequestErrorKind, RequestFailureCause,
+    CastLibraryState, LibraryOpenErrorKind, LibraryTaskKind, OpenLibraryFailureKind,
+    ProtocolUpdateSide, RegisterLibraryFailureKind, RemoveLibraryRecordFailureKind,
+    RequestErrorKind, RequestFailureCause, ScrobbleAuthenticationFailure,
 };
 use crate::rpc::UnsupportedReason;
 use discovery::protocol_version::ProtocolVersion;
@@ -70,6 +72,22 @@ pub enum ExpectedRequestError {
         library_id: String,
         state: CastLibraryState,
     },
+    #[error("The license key is invalid")]
+    LicenseInvalid,
+    #[error("Library registration failed: {kind:?}")]
+    LibraryRegistrationFailed { kind: RegisterLibraryFailureKind },
+    #[error("Remote library could not be opened: {kind:?}")]
+    RemoteOpenFailed { kind: LibraryOpenErrorKind },
+    #[error("Library could not be opened: {kind:?}")]
+    LibraryOpenFailed { kind: OpenLibraryFailureKind },
+    #[error("Library record could not be removed: {kind:?}")]
+    LibraryRecordRemovalFailed {
+        kind: RemoveLibraryRecordFailureKind,
+    },
+    #[error("Scrobble authentication failed: {failure:?}")]
+    ScrobbleAuthentication {
+        failure: ScrobbleAuthenticationFailure,
+    },
 }
 
 impl ExpectedRequestError {
@@ -104,6 +122,47 @@ pub struct FailedCall {
 impl std::fmt::Display for FailedCall {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "call {}", self.call_id)
+    }
+}
+
+/// The request failure kind of a library registration failure.
+fn registration_failure_kind(kind: RegisterLibraryFailureKind) -> RequestErrorKind {
+    use RegisterLibraryFailureKind as Kind;
+    match kind {
+        Kind::InvalidRecord
+        | Kind::InvalidSource
+        | Kind::SubsonicNotSubsonic
+        | Kind::OpenDalNotFolder
+        | Kind::OpenDalShareInvalid
+        | Kind::OpenDalShareChanged => RequestErrorKind::InvalidInput,
+        Kind::Untrusted
+        | Kind::RemoteUntrusted
+        | Kind::RemoteNotAuthorized
+        | Kind::SubsonicWrongCredentials
+        | Kind::SubsonicRoleMissing
+        | Kind::OpenDalAuthenticationRejected
+        | Kind::OpenDalReadOnly => RequestErrorKind::PermissionDenied,
+        Kind::Storage
+        | Kind::RemoteUnreachable
+        | Kind::RemoteProtocol
+        | Kind::SubsonicUnreachable
+        | Kind::SubsonicServerTooOld
+        | Kind::SubsonicClientTooOld
+        | Kind::OpenDalUnreachable => RequestErrorKind::Unavailable,
+    }
+}
+
+/// The request failure kind of a library that could not be opened.
+fn open_failure_kind(kind: OpenLibraryFailureKind) -> RequestErrorKind {
+    use OpenLibraryFailureKind as Kind;
+    match kind {
+        Kind::InvalidRecord => RequestErrorKind::InvalidInput,
+        Kind::RecordNotFound | Kind::MediaFolderMissing => RequestErrorKind::NotFound,
+        Kind::RemoteUntrusted | Kind::RemoteNotAuthorized => RequestErrorKind::PermissionDenied,
+        Kind::ProtocolIncompatible => RequestErrorKind::PeerNeedsUpdate,
+        Kind::RemoteUnreachable | Kind::RemoteProtocol | Kind::NotSupportedYet | Kind::Storage => {
+            RequestErrorKind::Unavailable
+        }
     }
 }
 
@@ -151,6 +210,36 @@ pub fn classify(error: &Error) -> RequestErrorKind {
                     }
                     CastLibraryState::Unreachable => RequestErrorKind::Unavailable,
                     CastLibraryState::Ready => RequestErrorKind::Internal,
+                },
+                ExpectedRequestError::LicenseInvalid => RequestErrorKind::InvalidInput,
+                ExpectedRequestError::LibraryRegistrationFailed { kind } => {
+                    registration_failure_kind(*kind)
+                }
+                ExpectedRequestError::RemoteOpenFailed { kind } => match kind {
+                    LibraryOpenErrorKind::RemoteUntrusted
+                    | LibraryOpenErrorKind::RemoteNotAuthorized => {
+                        RequestErrorKind::PermissionDenied
+                    }
+                    LibraryOpenErrorKind::RemoteUnreachable
+                    | LibraryOpenErrorKind::RemoteProtocol => RequestErrorKind::Unavailable,
+                },
+                ExpectedRequestError::LibraryOpenFailed { kind } => open_failure_kind(*kind),
+                ExpectedRequestError::LibraryRecordRemovalFailed { kind } => match kind {
+                    RemoveLibraryRecordFailureKind::RecordNotFound => RequestErrorKind::NotFound,
+                    RemoveLibraryRecordFailureKind::RecordIsOpen => RequestErrorKind::Conflict,
+                },
+                ExpectedRequestError::ScrobbleAuthentication { failure } => match failure {
+                    ScrobbleAuthenticationFailure::CredentialsRejected => {
+                        RequestErrorKind::PermissionDenied
+                    }
+                    ScrobbleAuthenticationFailure::ServiceUnreachable => {
+                        RequestErrorKind::Unavailable
+                    }
+                    ScrobbleAuthenticationFailure::LastFmApiCredentialsMissing { .. }
+                    | ScrobbleAuthenticationFailure::LastFmApiCredentialsInvalid => {
+                        RequestErrorKind::InvalidInput
+                    }
+                    ScrobbleAuthenticationFailure::Other { .. } => RequestErrorKind::Internal,
                 },
             };
         }
@@ -205,6 +294,26 @@ pub fn request_failure_cause(error: &Error) -> Option<RequestFailureCause> {
                 }
                 ExpectedRequestError::SubsonicNotAuthorized => {
                     return Some(RequestFailureCause::SubsonicNotAuthorized);
+                }
+                ExpectedRequestError::LicenseInvalid => {
+                    return Some(RequestFailureCause::LicenseInvalid);
+                }
+                ExpectedRequestError::LibraryRegistrationFailed { kind } => {
+                    return Some(RequestFailureCause::LibraryRegistrationFailed { kind: *kind });
+                }
+                ExpectedRequestError::RemoteOpenFailed { kind } => {
+                    return Some(RequestFailureCause::RemoteOpenFailed { kind: *kind });
+                }
+                ExpectedRequestError::LibraryOpenFailed { kind } => {
+                    return Some(RequestFailureCause::LibraryOpenFailed { kind: *kind });
+                }
+                ExpectedRequestError::LibraryRecordRemovalFailed { kind } => {
+                    return Some(RequestFailureCause::LibraryRecordRemovalFailed { kind: *kind });
+                }
+                ExpectedRequestError::ScrobbleAuthentication { failure } => {
+                    return Some(RequestFailureCause::ScrobbleAuthentication {
+                        failure: failure.clone(),
+                    });
                 }
                 _ => {}
             }

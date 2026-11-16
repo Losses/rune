@@ -14,8 +14,8 @@ use crate::{
         InvalidLibraryRecordSummary, InvalidRecordReasonSummary, LibraryRecordKindSummary,
         LibraryRecordSummary, LibraryRecordsChanged, ListLibraryRecordsRequest,
         ListLibraryRecordsResponse, ListLocalLibrariesRequest, ListLocalLibrariesResponse,
-        LocalLibrary, OpenRecord, RemoveLibraryRecordFailureKind, RemoveLibraryRecordOutcome,
-        RemoveLibraryRecordRequest, RemoveLibraryRecordResponse, SetLibraryBackgroundSyncRequest,
+        LocalLibrary, OpenRecord, RemoveLibraryRecordFailureKind, RemoveLibraryRecordRequest,
+        RemoveLibraryRecordResponse, SetLibraryBackgroundSyncRequest,
         SetLibraryBackgroundSyncResponse,
     },
     node::NodeContext,
@@ -178,12 +178,9 @@ impl Signal for RemoveLibraryRecordRequest {
         request: &Self,
     ) -> Result<Option<Self::Response>> {
         let Ok(id) = Uuid::parse_str(&request.record_id) else {
-            return Ok(Some(RemoveLibraryRecordResponse {
-                call_id: None,
-                outcome: RemoveLibraryRecordOutcome::Failed(
-                    RemoveLibraryRecordFailureKind::RecordNotFound,
-                ),
-            }));
+            return Err(removal_failure(
+                RemoveLibraryRecordFailureKind::RecordNotFound,
+            ));
         };
         let (open_id, _, _) = node.capability_library_identity()?;
         if open_id
@@ -191,12 +188,9 @@ impl Signal for RemoveLibraryRecordRequest {
             .and_then(|record_id| Uuid::parse_str(record_id).ok())
             == Some(id)
         {
-            return Ok(Some(RemoveLibraryRecordResponse {
-                call_id: None,
-                outcome: RemoveLibraryRecordOutcome::Failed(
-                    RemoveLibraryRecordFailureKind::RecordIsOpen,
-                ),
-            }));
+            return Err(removal_failure(
+                RemoveLibraryRecordFailureKind::RecordIsOpen,
+            ));
         }
         let config = Path::new(&*node.config_path);
         let registry = LibraryRegistry::load(config)?;
@@ -210,12 +204,9 @@ impl Signal for RemoveLibraryRecordRequest {
                 .iter()
                 .any(|(record_id, _)| record_id.0 == id)
         {
-            return Ok(Some(RemoveLibraryRecordResponse {
-                call_id: None,
-                outcome: RemoveLibraryRecordOutcome::Failed(
-                    RemoveLibraryRecordFailureKind::RecordNotFound,
-                ),
-            }));
+            return Err(removal_failure(
+                RemoveLibraryRecordFailureKind::RecordNotFound,
+            ));
         }
         let library_id = record.and_then(|record| record.catalog_library_id());
         let subsonic_library_id = record.and_then(|record| {
@@ -223,12 +214,9 @@ impl Signal for RemoveLibraryRecordRequest {
                 .then(|| record.catalog_library_id().unwrap_or(record.record_id.0))
         });
         if !LibraryRegistry::remove_record(config, LibraryRecordId(id), &node.credentials).await? {
-            return Ok(Some(RemoveLibraryRecordResponse {
-                call_id: None,
-                outcome: RemoveLibraryRecordOutcome::Failed(
-                    RemoveLibraryRecordFailureKind::RecordNotFound,
-                ),
-            }));
+            return Err(removal_failure(
+                RemoveLibraryRecordFailureKind::RecordNotFound,
+            ));
         }
         if let Some(library_id) = library_id {
             node.stop_library_sync(library_id).await;
@@ -238,11 +226,13 @@ impl Signal for RemoveLibraryRecordRequest {
             delete_subsonic_cover_cache(config, library_id).await?;
         }
         publish_library_records_changed(&node).await?;
-        Ok(Some(RemoveLibraryRecordResponse {
-            call_id: None,
-            outcome: RemoveLibraryRecordOutcome::Removed,
-        }))
+        Ok(Some(RemoveLibraryRecordResponse { call_id: None }))
     }
+}
+
+/// A library record that could not be removed, of `kind`.
+fn removal_failure(kind: RemoveLibraryRecordFailureKind) -> anyhow::Error {
+    ExpectedRequestError::LibraryRecordRemovalFailed { kind }.into()
 }
 
 impl ParamsExtractor for ListLocalLibrariesRequest {
@@ -304,31 +294,24 @@ impl Signal for SetLibraryBackgroundSyncRequest {
         _: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
-        let result = async {
-            let library_id = Uuid::parse_str(&request.library_id).map_err(|error| {
-                ExpectedRequestError::invalid_input(format!("invalid library UUID: {error}"))
-            })?;
-            LibraryRegistry::set_background_sync(
-                Path::new(&*node.config_path),
-                library_id,
-                request.enabled,
-            )
-            .await
-        }
-        .await;
-        if result.is_ok() {
-            publish_library_records_changed(&node).await?;
-        }
-        Ok(Some(SetLibraryBackgroundSyncResponse {
-            call_id: None,
-            error: result.err().map(|error| format!("{error:#}")),
-        }))
+        let library_id = Uuid::parse_str(&request.library_id).map_err(|error| {
+            ExpectedRequestError::invalid_input(format!("invalid library UUID: {error}"))
+        })?;
+        LibraryRegistry::set_background_sync(
+            Path::new(&*node.config_path),
+            library_id,
+            request.enabled,
+        )
+        .await?;
+        publish_library_records_changed(&node).await?;
+        Ok(Some(SetLibraryBackgroundSyncResponse { call_id: None }))
     }
 }
 
 #[cfg(all(test, not(target_os = "android")))]
 mod tests {
     use super::*;
+    use crate::server::utils::device::RunMode;
     use crate::utils::LocalGuiBroadcaster;
     use database::{
         connection::StorageMode,
@@ -349,17 +332,13 @@ mod tests {
         node: &Arc<NodeContext>,
         library_id: String,
         enabled: bool,
-    ) -> Result<Option<String>> {
+    ) -> Result<Option<anyhow::Error>> {
         let request = SetLibraryBackgroundSyncRequest {
             call_id: None,
             library_id,
             enabled,
         };
-        Ok(request
-            .handle(node.clone(), None, &request)
-            .await?
-            .unwrap()
-            .error)
+        Ok(request.handle(node.clone(), None, &request).await.err())
     }
 
     async fn register(config: &Path, replica_id: Uuid) -> Result<(LibraryRecord, LibraryRecord)> {
@@ -381,7 +360,15 @@ mod tests {
     async fn list_and_set_local_library_options() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let config = Arc::new(dir.path().to_string_lossy().into_owned());
-        let node = NodeContext::new(&config, &config, Arc::new(LocalGuiBroadcaster), false).await?;
+        let node = NodeContext::new(
+            &config,
+            &config,
+            Arc::new(LocalGuiBroadcaster),
+            false,
+            RunMode::App,
+            Arc::new(::visualizer::Visualizer::new()),
+        )
+        .await?;
         assert!(list(&config).await?.is_empty());
         let (owned, replica) = register(dir.path(), Uuid::new_v4()).await?;
         let libraries = list(&config).await?;
@@ -433,9 +420,16 @@ mod tests {
                 .count(),
             1
         );
-        for id in ["invalid".into(), Uuid::new_v4().to_string()] {
-            assert!(set(&node, id, false).await?.is_some());
-        }
+        let invalid = set(&node, "invalid".into(), false).await?;
+        assert_eq!(
+            crate::request_error::classify(&invalid.expect("a library id that is not a UUID")),
+            crate::messages::RequestErrorKind::InvalidInput
+        );
+        assert!(
+            set(&node, Uuid::new_v4().to_string(), false)
+                .await?
+                .is_some()
+        );
         assert_eq!(LibraryRegistry::load(dir.path())?.libraries.len(), 2);
         Ok(())
     }

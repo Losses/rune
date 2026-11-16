@@ -3,7 +3,10 @@ use std::sync::Arc;
 use crate::request_error::ExpectedRequestError;
 use crate::{
     Session, Signal,
-    messages::{DetachControllerRequest, ListControllersRequest, ListControllersResponse},
+    messages::{
+        DetachControllerRequest, DetachControllerResponse, ListControllersRequest,
+        ListControllersResponse,
+    },
     node::NodeContext,
     utils::{GlobalParams, ParamsExtractor},
 };
@@ -45,7 +48,7 @@ impl ParamsExtractor for DetachControllerRequest {
 
 impl Signal for DetachControllerRequest {
     type Params = Arc<NodeContext>;
-    type Response = ();
+    type Response = DetachControllerResponse;
 
     async fn handle(
         &self,
@@ -55,7 +58,7 @@ impl Signal for DetachControllerRequest {
     ) -> Result<Option<Self::Response>> {
         let id = Uuid::parse_str(&request.id)
             .map_err(|_| ExpectedRequestError::invalid_input("Invalid controller id"))?;
-        node.session()?.detach_controller(id)?;
-        Ok(None)
+        node.session()?.detach_controller(id).await?;
+        Ok(Some(DetachControllerResponse { call_id: None }))
     }
 }

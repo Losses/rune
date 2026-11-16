@@ -194,7 +194,7 @@ class _MixEditorState extends State<MixEditor> {
                 controller: _controller.modeController,
                 title: S.of(context).mode,
                 items: modeSelectItems,
-                defaultValue: '99',
+                defaultValue: keepModeSelectValue,
               ),
               SelectInputSection(
                 controller: _controller.recommendationController,

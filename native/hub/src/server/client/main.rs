@@ -25,7 +25,7 @@ use uuid::Uuid;
 use ::discovery::{
     client::CertValidator,
     config::get_config_dir,
-    endpoint::{DEFAULT_DEVICE_PORT, DeviceAddress, device_url},
+    endpoint::{DEFAULT_DEVICE_PORT, DeviceAddress, DeviceScheme},
     protocol::DiscoveryService,
     server::PermissionManager,
 };
@@ -318,7 +318,7 @@ fn setup_logging() -> Result<()> {
 
 fn validate_and_format_url(input: &str) -> Result<String> {
     let address: DeviceAddress = input.parse().map_err(anyhow::Error::msg)?;
-    Ok(device_url(address.host(), address.port(), "wss", "/ws")?.to_string())
+    Ok(address.url(DeviceScheme::Wss, "/ws")?.to_string())
 }
 
 #[cfg(test)]

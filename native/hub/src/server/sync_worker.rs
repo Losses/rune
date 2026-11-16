@@ -5,8 +5,6 @@ use super::sync::client::fetch_missing;
 use super::sync::downloads::{DownloadAudioContext, download_requested_audio_until};
 use super::sync::{library_base, library_notification};
 use super::sync_auth::{Authorization, Challenge, TOKEN_TTL, Token, message};
-#[cfg(test)]
-use super::utils::device::load_device_info;
 use crate::access_policy::{Action, ConnectionLevel, SyncLevel};
 use crate::messages::{LibrarySyncStatusUpdated, ShareSyncFailure};
 #[cfg(test)]
@@ -27,7 +25,7 @@ use database::sync::model::RuneModel;
 use database::sync::share::{ShareCapabilities, SharePullError, SharePushError};
 use database::sync::{LibrarySyncStore, replica::PendingShareChange};
 use discovery::access_policy::{AccessPolicy, PeerIdentity};
-use discovery::endpoint::{DeviceAddress, device_url};
+use discovery::endpoint::{DeviceAddress, DeviceScheme, device_url};
 use discovery::server::UserStatus;
 use fsio::{OpenDalConfig, OpenDalObjectStore};
 use futures::future::BoxFuture;
@@ -58,6 +56,7 @@ use std::{
 use sync::SyncPeer;
 use sync::protocol::SyncError;
 use sync::share::{ObjectStore, StoreError};
+use tokio::sync::broadcast::error::RecvError;
 use tokio::time as tokio_time;
 use tokio::time::{Instant, MissedTickBehavior};
 use tokio::{sync::Mutex, task::JoinSet};
@@ -294,11 +293,6 @@ struct StoredSyncToken {
 }
 
 impl SyncTokenStore {
-    #[cfg(test)]
-    pub(crate) fn insert_stale_for_test(&self, fingerprint: &str, base: &str) {
-        self.insert(fingerprint, base, "unknown-to-peer".to_owned());
-    }
-
     /// Serializes authorization per peer endpoint, so concurrent passes against one
     /// peer share a single challenge round trip while other peers are not blocked.
     fn authorization_lock(&self, fingerprint: &str, base: &str) -> Arc<Mutex<()>> {
@@ -733,7 +727,7 @@ fn share_push_failure(error: SharePushError) -> ShareSyncFailure {
 
 #[cfg(test)]
 #[path = "sync_worker_tests.rs"]
-mod share_worker_tests;
+pub(super) mod share_worker_tests;
 
 async fn eligible_libraries(global: &NodeContext) -> Vec<Uuid> {
     match global.library_pool.served_library_ids().await {
@@ -1116,28 +1110,42 @@ async fn peer_may_sync(
     is_authority || peer.is_some_and(|peer| global.access_policy.check(&peer, &action).is_ok())
 }
 
+/// Returns once the peer `fingerprint` is no longer approved here, or `host` is no longer one of
+/// its trusted hosts. It follows the permission and trusted-host changes (as the websocket does
+/// with the grants) instead of asking on a timer, so it ends the moment the change is made, and
+/// when the node is gone.
 pub(super) async fn wait_for_revocation(global: Weak<NodeContext>, fingerprint: &str, host: &str) {
+    let Some(node) = global.upgrade() else {
+        return;
+    };
+    // Subscribe before the first check, so that no change between them is missed.
+    let mut permissions = node.permission_manager.read().await.changes();
+    let mut hosts = node.cert_validator.read().await.subscribe_changes();
+    drop(node);
     loop {
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        let Some(global) = global.upgrade() else {
+        let Some(node) = global.upgrade() else {
             return;
         };
-        let status = global
+        let status = node
             .permission_manager
             .read()
             .await
             .verify_by_fingerprint(fingerprint)
             .await
-            .map(|u| u.status);
-        let approved = outbound_eligible(status);
-        let trusted = global
+            .map(|user| user.status);
+        let trusted = node
             .cert_validator
             .read()
             .await
             .get_hosts_for_fingerprint(fingerprint)
             .await;
-        if !approved || !trusted.iter().any(|candidate| candidate == host) {
+        drop(node);
+        if !outbound_eligible(status) || !trusted.iter().any(|candidate| candidate == host) {
             return;
+        }
+        tokio::select! {
+            result = permissions.changed() => if result.is_err() { return; },
+            result = hosts.recv() => if matches!(result, Err(RecvError::Closed)) { return; },
         }
     }
 }
@@ -1167,63 +1175,6 @@ fn classify_peer_pass(result: Result<bool>) -> Result<PeerPass> {
         }
         Err(error) => Err(error),
     }
-}
-
-#[cfg(test)]
-#[derive(Default)]
-pub(super) struct TestPeerSession {
-    locks: ReplicaLocks,
-}
-
-#[cfg(test)]
-impl TestPeerSession {
-    pub(super) async fn pass(
-        &self,
-        params: Arc<GlobalParams>,
-        private_key: &str,
-        endpoint: PeerEndpoint,
-        metadata: bool,
-    ) -> Result<PeerPass> {
-        let global = params.node.clone();
-        let credentials = LocalCredentials {
-            fingerprint: load_device_info(Path::new(&*global.config_path))
-                .await?
-                .fingerprint,
-            private_key: private_key.into(),
-        };
-        let library = global
-            .library_pool
-            .acquire_background(params.library_id.unwrap())
-            .await?;
-        let notify: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
-        classify_peer_pass(
-            sync_one(
-                &global,
-                &library,
-                &notify,
-                &endpoint,
-                PassOptions {
-                    credentials: &credentials,
-                    metadata,
-                    locks: &self.locks,
-                    cancel: &params.node.token,
-                },
-            )
-            .await,
-        )
-    }
-}
-
-#[cfg(test)]
-pub(super) async fn test_peer_pass(
-    params: Arc<GlobalParams>,
-    private_key: &str,
-    endpoint: PeerEndpoint,
-    metadata: bool,
-) -> Result<PeerPass> {
-    TestPeerSession::default()
-        .pass(params, private_key, endpoint, metadata)
-        .await
 }
 
 struct PassOptions<'a> {
@@ -1727,7 +1678,7 @@ pub(crate) fn invalidate_sync_token(
 
 /// The base URL of a peer's HTTPS server, bracketing IPv6 hosts.
 pub(crate) fn peer_base(host: &str, port: u16) -> Result<String> {
-    let url = device_url(host, port, "https", "/").map_err(anyhow::Error::msg)?;
+    let url = device_url(host, port, DeviceScheme::Https, "/").map_err(anyhow::Error::msg)?;
     Ok(url.as_str().trim_end_matches('/').to_owned())
 }
 

@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, str::FromStr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
     Json,
@@ -22,7 +22,7 @@ pub struct RegisterRequest {
     fingerprint: String,
     alias: String,
     device_model: String,
-    device_type: String,
+    device_type: DeviceType,
 }
 
 /// To test this API, use:
@@ -33,7 +33,7 @@ pub struct RegisterRequest {
 ///    "fingerprint": "01:23:45:67:89:AB:CD:EF",
 ///    "alias": "Test Device",
 ///    "device_model": "NixOS Device",
-///    "device_type": "Desktop"
+///    "device_type": "desktop"
 ///  }'
 pub async fn register_handler(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -65,7 +65,7 @@ pub async fn register_handler(
                 request.fingerprint,
                 request.alias,
                 request.device_model,
-                DeviceType::from_str(&request.device_type)?,
+                request.device_type,
                 ip,
             )
             .await?;
@@ -86,7 +86,6 @@ fn verify_registration_key(public_key: &str, fingerprint: &str) -> Result<(), Ap
 #[derive(Debug)]
 pub enum AppError {
     Permission(PermissionError),
-    ParseDevice(discovery::utils::ParseDeviceTypeError),
     Internal(String),
     NotFound(String),
     Unauthorized(String),
@@ -97,12 +96,6 @@ pub enum AppError {
 impl From<PermissionError> for AppError {
     fn from(e: PermissionError) -> Self {
         AppError::Permission(e)
-    }
-}
-
-impl From<discovery::utils::ParseDeviceTypeError> for AppError {
-    fn from(e: discovery::utils::ParseDeviceTypeError) -> Self {
-        AppError::ParseDevice(e)
     }
 }
 
@@ -123,11 +116,6 @@ impl IntoResponse for AppError {
             AppError::Permission(e) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal", e.to_string())
             }
-            AppError::ParseDevice(e) => (
-                StatusCode::BAD_REQUEST,
-                "invalid_device_type",
-                e.to_string(),
-            ),
             AppError::Internal(e) => (StatusCode::INTERNAL_SERVER_ERROR, "internal", e),
             AppError::NotFound(e) => (StatusCode::NOT_FOUND, "not_found", e),
             AppError::Unauthorized(e) => (StatusCode::UNAUTHORIZED, "unauthorized", e),

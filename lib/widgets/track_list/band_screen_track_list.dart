@@ -26,7 +26,7 @@ class BandScreenTrackList extends StatelessWidget {
   final int totalCount;
   final InternalMediaFile? Function(int) getItem;
   final QueryList queries;
-  final int mode;
+  final PlaybackMode? mode;
 
   const BandScreenTrackList({
     super.key,
@@ -125,7 +125,7 @@ class BandViewTrackItem extends StatefulWidget {
   final int index;
   final InternalMediaFile item;
   final QueryList queries;
-  final int mode;
+  final PlaybackMode? mode;
   final int position;
 
   @override

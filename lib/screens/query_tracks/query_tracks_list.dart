@@ -22,7 +22,7 @@ import '../../providers/responsive_providers.dart';
 class QueryTrackListView extends StatefulWidget {
   final QueryList queries;
   final StartScreenLayoutManager layoutManager;
-  final int mode;
+  final PlaybackMode? mode;
 
   const QueryTrackListView({
     super.key,

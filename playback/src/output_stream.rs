@@ -23,10 +23,20 @@ pub struct RuneOutputStream {
     suspended: Cell<bool>,
     #[cfg(any(feature = "test-output", test))]
     test_stop: Option<Arc<AtomicBool>>,
-    // Whether the test output pulls samples, as a device stream does while it runs. Only the
-    // player's own tests stop it.
-    #[cfg(test)]
+    // Whether the fake output pulls samples, as a device stream does while it runs. Only a fake
+    // output made to stop with `suspend` has this (see [`FakeSuspend`]).
+    #[cfg(any(feature = "test-output", test))]
     test_running: Option<Arc<AtomicBool>>,
+}
+
+/// What a fake output stream does when it is suspended.
+#[cfg(any(feature = "test-output", test))]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum FakeSuspend {
+    /// It runs on, as a device stream does everywhere but on iOS.
+    RunsOn,
+    /// It stops, as on iOS, so that tests see what iOS does.
+    Stops,
 }
 
 #[derive(Clone)]
@@ -69,7 +79,7 @@ impl RuneOutputStream {
             suspended: Cell::new(false),
             #[cfg(any(feature = "test-output", test))]
             test_stop: None,
-            #[cfg(test)]
+            #[cfg(any(feature = "test-output", test))]
             test_running: None,
         };
         let handle = RuneOutputStreamHandle {
@@ -81,8 +91,8 @@ impl RuneOutputStream {
     /// Stops the stream while nothing plays. iOS takes an app's play state, which the lock screen
     /// and Control Center show, from whether the app's audio output runs, so a stream that runs on
     /// with silence shows a paused player as playing. No other platform reads the play state from
-    /// the output, so elsewhere the stream runs on as it always has. In the player's own tests the
-    /// test output stops too, so that they see what iOS does.
+    /// the output, so elsewhere the stream runs on as it always has. A fake output made with
+    /// [`FakeSuspend::Stops`] stops too, so that tests see what iOS does.
     ///
     /// Nothing pulls samples from a stopped stream, so a sink on it takes no seek until it runs.
     pub fn suspend(&self) -> Result<(), cpal::PauseStreamError> {
@@ -91,7 +101,7 @@ impl RuneOutputStream {
             stream.pause()?;
             self.suspended.set(true);
         }
-        #[cfg(test)]
+        #[cfg(any(feature = "test-output", test))]
         if let Some(running) = &self.test_running {
             running.store(false, Ordering::Relaxed);
             self.suspended.set(true);
@@ -108,7 +118,7 @@ impl RuneOutputStream {
         if let Some(stream) = &self._stream {
             stream.play()?;
         }
-        #[cfg(test)]
+        #[cfg(any(feature = "test-output", test))]
         if let Some(running) = &self.test_running {
             running.store(true, Ordering::Relaxed);
         }
@@ -153,11 +163,15 @@ impl RuneOutputStream {
     where
         E: FnMut(cpal::StreamError) + Send + 'static + Clone,
     {
+        Self::fake(FakeSuspend::RunsOn)
+    }
+
+    /// A fake output that pulls samples on a thread, and does `suspend` as told.
+    pub fn fake(suspend: FakeSuspend) -> Result<(Self, RuneOutputStreamHandle), StreamError> {
         let (mixer, mut source) = dynamic_mixer::mixer::<f32>(2, 48_000);
         let stop = Arc::new(AtomicBool::new(false));
         let running = Arc::new(AtomicBool::new(true));
-        #[cfg(test)]
-        let test_running = Some(running.clone());
+        let test_running = (suspend == FakeSuspend::Stops).then(|| running.clone());
         let cancel = stop.clone();
         thread::spawn(move || {
             while !cancel.load(Ordering::Relaxed) {
@@ -178,7 +192,6 @@ impl RuneOutputStream {
                 _stream: None,
                 suspended: Cell::new(false),
                 test_stop: Some(stop),
-                #[cfg(test)]
                 test_running,
             },
             handle,
@@ -392,4 +405,37 @@ fn supported_output_formats(
         formats.push(sf.with_sample_rate(min_rate));
         formats
     }))
+}
+
+/// How the player opens, stops and starts again its audio output. The player opens outputs this
+/// way so that its tests can count them and make them fail.
+pub(crate) trait Outputs: std::any::Any {
+    fn open(
+        &self,
+        on_error: Arc<dyn Fn(cpal::StreamError) + Send + Sync>,
+    ) -> Result<(RuneOutputStream, RuneOutputStreamHandle), StreamError>;
+
+    fn suspend(&self, stream: &RuneOutputStream) -> Result<(), cpal::PauseStreamError>;
+
+    fn resume(&self, stream: &RuneOutputStream) -> anyhow::Result<()>;
+}
+
+/// The device's output (a fake one in tests and `test-output` builds).
+pub(crate) struct DeviceOutputs;
+
+impl Outputs for DeviceOutputs {
+    fn open(
+        &self,
+        on_error: Arc<dyn Fn(cpal::StreamError) + Send + Sync>,
+    ) -> Result<(RuneOutputStream, RuneOutputStreamHandle), StreamError> {
+        RuneOutputStream::try_default_with_callback(move |error| on_error(error))
+    }
+
+    fn suspend(&self, stream: &RuneOutputStream) -> Result<(), cpal::PauseStreamError> {
+        stream.suspend()
+    }
+
+    fn resume(&self, stream: &RuneOutputStream) -> anyhow::Result<()> {
+        Ok(stream.resume()?)
+    }
 }

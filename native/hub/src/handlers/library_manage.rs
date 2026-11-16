@@ -112,9 +112,8 @@ impl Signal for ScanAudioLibraryRequest {
         broadcaster.broadcast(&LibraryTaskStateChanged {
             state: state.clone(),
         });
-        let run_id = match state {
-            LibraryTaskState::Running { run_id, .. } => run_id,
-            _ => anyhow::bail!("Task owner did not return a running scan"),
+        let LibraryTaskState::ScanRunning { run_id, .. } = state else {
+            anyhow::bail!("Task owner did not return a running scan");
         };
 
         // Clone all the data we need before spawning the task
@@ -246,22 +245,14 @@ impl Signal for ScanAudioLibraryRequest {
             })
             .await;
             let (outcome, progress, total) = match result {
-                Ok(Ok(count)) => (LibraryTaskOutcome::Finished, count as i32, count as i32),
+                Ok(Ok(count)) => (ScanOutcome::Finished, count as i32, count as i32),
                 Ok(Err(error)) => {
                     warn!("Scan failed for library record {worker_record_id}: {error:#}");
-                    (
-                        LibraryTaskOutcome::Failed(LibraryTaskError::ScanFailed),
-                        0,
-                        0,
-                    )
+                    (ScanOutcome::Failed(ScanFailure::ScanFailed), 0, 0)
                 }
                 Err(error) => {
                     warn!("Scan worker failed for library record {worker_record_id}: {error}");
-                    (
-                        LibraryTaskOutcome::Failed(LibraryTaskError::WorkerFailed),
-                        0,
-                        0,
-                    )
+                    (ScanOutcome::Failed(ScanFailure::WorkerFailed), 0, 0)
                 }
             };
             let state = worker_owner
@@ -269,9 +260,8 @@ impl Signal for ScanAudioLibraryRequest {
                 .unwrap_or_else(PoisonError::into_inner)
                 .end(
                     &worker_record_id,
-                    LibraryTaskKind::Scan,
                     &worker_run_id,
-                    outcome,
+                    LibraryTaskEnd::Scan(outcome),
                     progress,
                     total,
                 );
@@ -334,10 +324,10 @@ impl Signal for AnalyzeAudioLibraryRequest {
         broadcaster.broadcast(&LibraryTaskStateChanged {
             state: state.clone(),
         });
-        let run_id = match &state {
-            LibraryTaskState::Running { run_id, .. } => run_id.clone(),
-            _ => anyhow::bail!("Task owner did not return a running analysis"),
+        let LibraryTaskState::AnalysisRunning { run_id, .. } = &state else {
+            anyhow::bail!("Task owner did not return a running analysis");
         };
+        let run_id = run_id.clone();
         let fs_path = library.media_root.clone();
         #[cfg(target_os = "android")]
         let analysis_path = if fs_path.starts_with("content://") {
@@ -359,7 +349,7 @@ impl Signal for AnalyzeAudioLibraryRequest {
             let callback_record = worker_record.clone();
             let callback_run = worker_run.clone();
             let joined = task::spawn_blocking(move || {
-                let runtime = Runtime::new().map_err(|_| LibraryTaskError::WorkerFailed)?;
+                let runtime = Runtime::new().map_err(|_| AnalysisFailure::WorkerFailed)?;
                 runtime.block_on(async move {
                     let total = analysis_audio_library(
                         Arc::clone(&library.fsio),
@@ -385,30 +375,29 @@ impl Signal for AnalyzeAudioLibraryRequest {
                         Some(token.clone()),
                     )
                     .await
-                    .map_err(|_| LibraryTaskError::AnalysisFailed)?;
+                    .map_err(|_| AnalysisFailure::AnalysisFailed)?;
                     sync_recommendation(&library.main_db, &library.recommend_db)
                         .await
-                        .map_err(|_| LibraryTaskError::RecommendationSyncFailed)?;
+                        .map_err(|_| AnalysisFailure::RecommendationSyncFailed)?;
                     Ok(total as i32)
                 })
             })
             .await;
             let result = match joined {
                 Ok(result) => result,
-                Err(_) => Err(LibraryTaskError::WorkerFailed),
+                Err(_) => Err(AnalysisFailure::WorkerFailed),
             };
             let (outcome, progress, total) = match result {
-                Ok(total) => (LibraryTaskOutcome::Finished, total, total),
-                Err(error) => (LibraryTaskOutcome::Failed(error), 0, 0),
+                Ok(total) => (AnalysisOutcome::Finished, total, total),
+                Err(error) => (AnalysisOutcome::Failed(error), 0, 0),
             };
             let state = worker_owner
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .end(
                     &worker_record,
-                    LibraryTaskKind::Analyze,
                     &worker_run,
-                    outcome,
+                    LibraryTaskEnd::Analysis(outcome),
                     progress,
                     total,
                 );
@@ -457,10 +446,10 @@ impl Signal for DeduplicateAudioLibraryRequest {
         broadcaster.broadcast(&LibraryTaskStateChanged {
             state: state.clone(),
         });
-        let run_id = match &state {
-            LibraryTaskState::Running { run_id, .. } => run_id.clone(),
-            _ => return Ok(None),
+        let LibraryTaskState::DeduplicationRunning { run_id, .. } = &state else {
+            return Ok(None);
         };
+        let run_id = run_id.clone();
         let fs_path = library.media_root.clone();
         #[cfg(target_os = "android")]
         let deduplicate_path = if fs_path.starts_with("content://") {
@@ -484,7 +473,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
             let record_progress = worker_record.clone();
             let run_progress = worker_run.clone();
             let result = task::spawn_blocking(move || {
-                let runtime = Runtime::new().map_err(|_| LibraryTaskError::WorkerFailed)?;
+                let runtime = Runtime::new().map_err(|_| DeduplicationFailure::WorkerFailed)?;
                 runtime.block_on(async move {
                     let progress_owner = worker_owner_progress;
                     let progress_broadcaster = worker_broadcaster_progress;
@@ -518,7 +507,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
                         &record_store,
                     )
                     .await
-                    .map_err(|_| LibraryTaskError::FingerprintingFailed)?;
+                    .map_err(|_| DeduplicationFailure::FingerprintingFailed)?;
                     compare_all_pairs(
                         &library.main_db,
                         {
@@ -532,7 +521,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
                         &record_store,
                     )
                     .await
-                    .map_err(|_| LibraryTaskError::ComparisonFailed)?;
+                    .map_err(|_| DeduplicationFailure::ComparisonFailed)?;
                     if !token.is_cancelled() {
                         mark_duplicate_files(
                             &library.main_db,
@@ -543,19 +532,19 @@ impl Signal for DeduplicateAudioLibraryRequest {
                             &record_store,
                         )
                         .await
-                        .map_err(|_| LibraryTaskError::MarkingDuplicatesFailed)?;
+                        .map_err(|_| DeduplicationFailure::MarkingDuplicatesFailed)?;
                     }
-                    Ok::<(), LibraryTaskError>(())
+                    Ok::<(), DeduplicationFailure>(())
                 })
             })
             .await;
             let (outcome, progress) = match result {
-                Ok(Ok(())) => (LibraryTaskOutcome::Finished, 100),
-                Ok(Err(error)) => (LibraryTaskOutcome::Failed(error), 0),
+                Ok(Ok(())) => (DeduplicationOutcome::Finished, 100),
+                Ok(Err(error)) => (DeduplicationOutcome::Failed(error), 0),
                 Err(error) => {
                     log::error!("Deduplication worker failed: {error}");
                     (
-                        LibraryTaskOutcome::Failed(LibraryTaskError::WorkerFailed),
+                        DeduplicationOutcome::Failed(DeduplicationFailure::WorkerFailed),
                         0,
                     )
                 }
@@ -565,9 +554,8 @@ impl Signal for DeduplicateAudioLibraryRequest {
                 .unwrap_or_else(PoisonError::into_inner)
                 .end(
                     &worker_record,
-                    LibraryTaskKind::Deduplicate,
                     &worker_run,
-                    outcome,
+                    LibraryTaskEnd::Deduplication(outcome),
                     progress,
                     100,
                 );
@@ -741,16 +729,22 @@ mod scan_task_tests {
     async fn wait_for_task_outcome(
         capture: &Capture,
         task: LibraryTaskKind,
-    ) -> Result<(LibraryTaskOutcome, i32)> {
+    ) -> Result<(LibraryTaskEnd, i32)> {
         wait_until("library task outcome", || async {
-            Ok(capture.states().into_iter().find_map(|state| match state {
-                LibraryTaskState::Ended {
-                    task: ended_task,
-                    outcome,
-                    progress,
-                    ..
-                } if ended_task == task => Some((outcome, progress)),
-                _ => None,
+            Ok(capture.states().into_iter().find_map(|state| {
+                let ended = match state {
+                    LibraryTaskState::ScanEnded {
+                        outcome, progress, ..
+                    } => (LibraryTaskEnd::Scan(outcome), progress),
+                    LibraryTaskState::AnalysisEnded {
+                        outcome, progress, ..
+                    } => (LibraryTaskEnd::Analysis(outcome), progress),
+                    LibraryTaskState::DeduplicationEnded {
+                        outcome, progress, ..
+                    } => (LibraryTaskEnd::Deduplication(outcome), progress),
+                    _ => return None,
+                };
+                (ended.0.kind() == task).then_some(ended)
             }))
         })
         .await
@@ -781,7 +775,7 @@ mod scan_task_tests {
             wait_for_task_outcome(&capture, LibraryTaskKind::Analyze)
                 .await?
                 .0,
-            LibraryTaskOutcome::Failed(LibraryTaskError::AnalysisFailed)
+            LibraryTaskEnd::Analysis(AnalysisOutcome::Failed(AnalysisFailure::AnalysisFailed))
         );
         Ok(())
     }
@@ -811,7 +805,9 @@ mod scan_task_tests {
             wait_for_task_outcome(&capture, LibraryTaskKind::Deduplicate)
                 .await?
                 .0,
-            LibraryTaskOutcome::Failed(LibraryTaskError::FingerprintingFailed)
+            LibraryTaskEnd::Deduplication(DeduplicationOutcome::Failed(
+                DeduplicationFailure::FingerprintingFailed
+            ))
         );
         Ok(())
     }
@@ -855,7 +851,7 @@ mod scan_task_tests {
                 .await?;
             let (outcome, progress) =
                 wait_for_task_outcome(&capture, LibraryTaskKind::Analyze).await?;
-            assert_eq!(outcome, LibraryTaskOutcome::Finished);
+            assert_eq!(outcome, LibraryTaskEnd::Analysis(AnalysisOutcome::Finished));
             assert_eq!(progress, expected_progress);
             let analyses = media_analysis::Entity::find()
                 .all(library.main_db.as_ref())
@@ -1084,10 +1080,9 @@ mod scan_task_tests {
             if states.iter().any(|state| {
                 matches!(
                     state,
-                    LibraryTaskState::Ended {
+                    LibraryTaskState::ScanEnded {
                         record_id: ended_record,
-                        task: LibraryTaskKind::Scan,
-                        outcome: LibraryTaskOutcome::Finished,
+                        outcome: ScanOutcome::Finished,
                         ..
                     } if ended_record == &record_id
                 )
@@ -1101,12 +1096,70 @@ mod scan_task_tests {
                 .lock()
                 .unwrap()
                 .current(&record_id, LibraryTaskKind::Scan),
-            LibraryTaskState::Ended {
-                outcome: LibraryTaskOutcome::Finished,
+            LibraryTaskState::ScanEnded {
+                outcome: ScanOutcome::Finished,
                 progress: 1,
                 ..
             }
         ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_scan_reports_its_phases_and_ends_in_the_phase_it_reached() -> Result<()> {
+        let (_config, node_id, library) = open_test_library().await?;
+        let audio = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg");
+        std::fs::copy(audio, Path::new(&library.media_root).join("track.ogg"))?;
+        let capture = Arc::new(Capture::default());
+        let request = ScanAudioLibraryRequest {
+            call_id: None,
+            force: false,
+        };
+        request
+            .handle(
+                (
+                    Some(library),
+                    Arc::new(node_id),
+                    capture.clone(),
+                    Arc::new(RwLock::new(SyncSettings::default())),
+                    Arc::new(StdMutex::new(LibraryTaskOwner::default())),
+                ),
+                None,
+                &request,
+            )
+            .await?;
+        wait_for_task_outcome(&capture, LibraryTaskKind::Scan).await?;
+
+        let states = capture.states();
+        assert!(matches!(
+            states.first(),
+            Some(LibraryTaskState::ScanRunning {
+                phase: ScanTaskPhase::IndexFiles,
+                ..
+            })
+        ));
+        assert!(states.iter().any(|state| matches!(
+            state,
+            LibraryTaskState::ScanRunning {
+                phase: ScanTaskPhase::ScanCoverArts,
+                ..
+            }
+        )));
+        assert!(matches!(
+            states.last(),
+            Some(LibraryTaskState::ScanEnded {
+                phase: ScanTaskPhase::ScanCoverArts,
+                outcome: ScanOutcome::Finished,
+                ..
+            })
+        ));
+        assert!(states.iter().all(|state| !matches!(
+            state,
+            LibraryTaskState::AnalysisRunning { .. }
+                | LibraryTaskState::AnalysisEnded { .. }
+                | LibraryTaskState::DeduplicationRunning { .. }
+                | LibraryTaskState::DeduplicationEnded { .. }
+        )));
         Ok(())
     }
 
@@ -1118,9 +1171,8 @@ mod scan_task_tests {
             .lock()
             .unwrap()
             .start("library", LibraryTaskKind::Scan)?;
-        let run_id = match running {
-            LibraryTaskState::Running { run_id, .. } => run_id,
-            _ => anyhow::bail!("expected a running scan"),
+        let LibraryTaskState::ScanRunning { run_id, .. } = running else {
+            anyhow::bail!("expected a running scan");
         };
         let (stopped_tx, stopped_rx) = oneshot::channel();
         let (release_tx, release_rx) = oneshot::channel();
@@ -1157,9 +1209,8 @@ mod scan_task_tests {
             .unwrap();
         assert!(matches!(
             response.state,
-            LibraryTaskState::Ended {
-                task: LibraryTaskKind::Scan,
-                outcome: LibraryTaskOutcome::Cancelled,
+            LibraryTaskState::ScanEnded {
+                outcome: ScanOutcome::Cancelled,
                 ..
             }
         ));

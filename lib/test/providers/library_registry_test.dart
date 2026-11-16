@@ -27,7 +27,6 @@ OpenLibraryResponse _opened(String recordId, int callId) => OpenLibraryResponse(
   callId: Uint64.fromBigInt(BigInt.from(callId)),
   recordId: recordId,
   generation: Uint64.fromBigInt(BigInt.from(9)),
-  result: const OpenLibraryResultOpened(),
 );
 
 void main() {
@@ -98,9 +97,7 @@ void main() {
         removeRecord: (recordId) async {
           expect(recordId, 'record-1');
           sequence.add('remove');
-          return const RemoveLibraryRecordResponse(
-            outcome: RemoveLibraryRecordOutcomeRemoved(),
-          );
+          return const RemoveLibraryRecordResponse();
         },
       );
       addTearDown(provider.dispose);

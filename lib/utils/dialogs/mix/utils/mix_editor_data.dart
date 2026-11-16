@@ -14,7 +14,7 @@ class MixEditorData {
   final int randomTracks;
   final Set<String> directories;
   final double limit;
-  final String mode;
+  final PlaybackMode? mode;
   final String recommendation;
   final String sortBy;
   final bool sortOrder;
@@ -49,7 +49,7 @@ class MixEditorData {
     int? randomTracks,
     Set<String>? directories,
     double? limit,
-    String? mode,
+    PlaybackMode? Function()? mode,
     String? recommendation,
     String? sortBy,
     bool? sortOrder,
@@ -65,7 +65,7 @@ class MixEditorData {
       randomTracks: randomTracks ?? this.randomTracks,
       directories: directories ?? this.directories,
       limit: limit ?? this.limit,
-      mode: mode ?? this.mode,
+      mode: mode == null ? this.mode : mode(),
       recommendation: recommendation ?? this.recommendation,
       sortBy: sortBy ?? this.sortBy,
       sortOrder: sortOrder ?? this.sortOrder,
@@ -109,7 +109,7 @@ Future<MixEditorData> queryToMixEditorData(
   int randomTracks = 0;
   Set<String> directories = {};
   double limit = 0.0;
-  String mode = '99';
+  const PlaybackMode? mode = null;
   String recommendation = '';
   String sortBy = 'default';
   bool sortOrder = true;
@@ -157,25 +157,26 @@ Future<MixEditorData> queryToMixEditorData(
     }
   }
 
-  final List<(int, String)> artists =
-      (await fetchCollectionByIds(CollectionType.artist, artistsId))
-          .map((x) => (x.id, x.name))
-          .toList();
-  List<(int, String)> albums =
-      (await fetchCollectionByIds(CollectionType.album, albumsId))
-          .map((x) => (x.id, x.name))
-          .toList();
-  List<(int, String)> genres =
-      (await fetchCollectionByIds(CollectionType.genre, genresId))
-          .map((x) => (x.id, x.name))
-          .toList();
-  List<(int, String)> playlists =
-      (await fetchCollectionByIds(CollectionType.playlist, playlistsId))
-          .map((x) => (x.id, x.name))
-          .toList();
-  List<(int, String)> tracks = (await fetchMediaFileByIds(tracksId, false))
-      .map((x) => (x.id, x.title))
-      .toList();
+  final List<(int, String)> artists = (await fetchCollectionByIds(
+    CollectionType.artist,
+    artistsId,
+  )).map((x) => (x.id, x.name)).toList();
+  List<(int, String)> albums = (await fetchCollectionByIds(
+    CollectionType.album,
+    albumsId,
+  )).map((x) => (x.id, x.name)).toList();
+  List<(int, String)> genres = (await fetchCollectionByIds(
+    CollectionType.genre,
+    genresId,
+  )).map((x) => (x.id, x.name)).toList();
+  List<(int, String)> playlists = (await fetchCollectionByIds(
+    CollectionType.playlist,
+    playlistsId,
+  )).map((x) => (x.id, x.name)).toList();
+  List<(int, String)> tracks = (await fetchMediaFileByIds(
+    tracksId,
+    false,
+  )).map((x) => (x.id, x.title)).toList();
 
   return MixEditorData(
     title: title,

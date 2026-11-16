@@ -84,12 +84,54 @@ impl RealTimeFFT {
                 .max_by(|a, b| a.partial_cmp(b).unwrap())
                 .unwrap();
 
+            // Silence has no peak to normalize by, so it is all zeros.
+            let normalized = if max_value > 0.0 {
+                amp_spectrum.into_iter().map(|x| x / max_value).collect()
+            } else {
+                vec![0.0; amp_spectrum.len()]
+            };
+
             // Send the FFT result
-            fft_result_tx.send(amp_spectrum.into_iter().map(|x| x / max_value).collect());
+            fft_result_tx.send(normalized);
         });
     }
 
     pub fn subscribe(&self) -> SimpleReceiver<Vec<f32>> {
         self.fft_result_tx.subscribe()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    const DEADLINE: Duration = Duration::from_secs(30);
+
+    async fn next_spectrum(fft: &RealTimeFFT, samples: Vec<i16>) -> Vec<f32> {
+        let receiver = fft.subscribe();
+        fft.add_data(samples);
+        tokio::time::timeout(DEADLINE, receiver.recv())
+            .await
+            .expect("no spectrum arrived")
+            .expect("spectrum channel closed")
+    }
+
+    #[tokio::test]
+    async fn silence_gives_all_zeros() {
+        let fft = RealTimeFFT::new(64);
+        let spectrum = next_spectrum(&fft, vec![0, 0]).await;
+        assert_eq!(spectrum.len(), 64);
+        assert!(spectrum.iter().all(|value| *value == 0.0), "{spectrum:?}");
+    }
+
+    #[tokio::test]
+    async fn sound_is_normalized_to_a_peak_of_one() {
+        let fft = RealTimeFFT::new(64);
+        let spectrum = next_spectrum(&fft, vec![i16::MAX, i16::MAX]).await;
+        let peak = spectrum.iter().cloned().fold(0.0_f32, f32::max);
+        assert!((peak - 1.0).abs() < 1e-6, "{peak}");
+        assert!(spectrum.iter().all(|value| value.is_finite()));
     }
 }

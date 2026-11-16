@@ -10,6 +10,7 @@ String capabilityReasonText(BuildContext context, CapabilityReason reason) {
     CapabilityReason.ownerOnly => strings.capabilityOwnerOnly,
     CapabilityReason.peerTooOld => strings.capabilityPeerTooOld,
     CapabilityReason.accountRoleMissing => strings.capabilityAccountRoleMissing,
+    CapabilityReason.notAllowed => strings.requestPermissionDenied,
   };
 }
 

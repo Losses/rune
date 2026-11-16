@@ -163,7 +163,7 @@ class _RuneRouterFrameImplementationState
         safeOperatePlaybackWithMixQuery(
           context: context,
           queries: QueryList(),
-          playbackMode: 99,
+          playbackMode: null,
           hintPosition: -1,
           initialPlaybackId: -1,
           instantlyPlay: true,

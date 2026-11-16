@@ -140,61 +140,40 @@ sync_orm::owned_list_mapping! { pub struct MixClause, MixClauseMap for mix_queri
     order: position => mix_queries::Column::Position,
     reference_targets: ["tracks", "albums", "artists", "genres", "playlists"],
     reference_values: |value: &MixClause| {
-        mix_target_collection(&value.operator).zip(value.target_uuid).into_iter().collect::<Vec<_>>()
+        crate::mix_operator::MixOperator::from_syntax(&value.operator).ok().and_then(|operator| operator.target_collection()).map(|target| target.tag()).zip(value.target_uuid).into_iter().collect::<Vec<_>>()
     },
     limits: { position => (0, 127), operator => (1, 128), parameter => (0, 256) },
     validate: validate_mix_clause,
 } }
 fn validate_mix_clause(value: &MixClause) -> Result<(), DbErr> {
-    let valid = match value.operator.as_str() {
-        "lib::track" | "lib::album" | "lib::artist" | "lib::genre" | "lib::playlist" => {
-            value.target_uuid.is_some() && value.parameter.is_empty()
-        }
-        "lib::directory.deep" | "lib::directory.shallow" => {
-            value.target_uuid.is_none() && value.parameter.is_empty()
-        }
-        "lib::all"
-        | "lib::queue"
-        | "sort::track_number"
-        | "sort::last_modified"
-        | "sort::duration"
-        | "sort::playedthrough"
-        | "sort::skipped"
-        | "filter::liked"
-        | "filter::analyzed"
-        | "filter::with_cover_art" => {
+    use crate::mix_operator::{MixOperator, ParameterKind};
+    let operator = MixOperator::from_syntax(&value.operator)
+        .map_err(|error| DbErr::Custom(error.to_string()))?;
+    let valid = match operator.parameter_kind() {
+        ParameterKind::Reference(_) => value.target_uuid.is_some() && value.parameter.is_empty(),
+        ParameterKind::Directory => value.target_uuid.is_none() && value.parameter.is_empty(),
+        ParameterKind::Flag => {
             value.target_uuid.is_none() && matches!(value.parameter.as_str(), "true" | "false")
         }
-        "lib::random" | "pipe::recommend" => {
+        ParameterKind::Number => {
             value.target_uuid.is_none()
                 && value
                     .parameter
                     .parse::<i32>()
                     .is_ok_and(|number| number.to_string() == value.parameter)
         }
-        "pipe::limit" => {
+        ParameterKind::Limit => {
             value.target_uuid.is_none()
                 && value
                     .parameter
                     .parse::<u64>()
                     .is_ok_and(|number| number.to_string() == value.parameter)
         }
-        _ => false,
     };
     if valid {
         Ok(())
     } else {
         Err(DbErr::Custom("invalid mix clause".into()))
-    }
-}
-pub fn mix_target_collection(operator: &str) -> Option<&'static str> {
-    match operator {
-        "lib::track" => Some("tracks"),
-        "lib::album" => Some("albums"),
-        "lib::artist" => Some("artists"),
-        "lib::genre" => Some("genres"),
-        "lib::playlist" => Some("playlists"),
-        _ => None,
     }
 }
 sync_orm::derived_effect_mapping! { pub struct SearchDocument, SearchMap for search_index::Entity {

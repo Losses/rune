@@ -59,7 +59,7 @@ Future<void> startPlaying(
   final queries = await _buildCollectionQueries(collectionType, id);
   await operatePlaybackWithMixQuery(
     queries: queries,
-    playbackMode: 99,
+    playbackMode: null,
     hintPosition: -1,
     initialPlaybackId: 0,
     instantlyPlay: true,
@@ -84,7 +84,7 @@ Future<int> castCollection(
   var leftOutCount = 0;
   await operatePlaybackWithMixQuery(
     queries: queries,
-    playbackMode: 99,
+    playbackMode: null,
     hintPosition: -1,
     initialPlaybackId: 0,
     instantlyPlay: behavior.instantlyPlay,
@@ -148,7 +148,7 @@ Future<int> castTrack(int id, CastTarget castTo, bool playNext) async {
   var leftOutCount = 0;
   await operatePlaybackWithMixQuery(
     queries: await _buildCollectionQueries(CollectionType.track, id),
-    playbackMode: 99,
+    playbackMode: null,
     hintPosition: -1,
     initialPlaybackId: 0,
     instantlyPlay: behavior.instantlyPlay,
@@ -168,7 +168,7 @@ Future<void> addToQueue(
   final queries = QueryList(await buildQuery(collectionType, id));
   await operatePlaybackWithMixQuery(
     queries: queries,
-    playbackMode: 99,
+    playbackMode: null,
     hintPosition: -1,
     initialPlaybackId: 0,
     instantlyPlay: false,
@@ -192,7 +192,7 @@ Future<void> startRoaming(
   await safeOperatePlaybackWithMixQuery(
     context: context,
     queries: queries,
-    playbackMode: 99,
+    playbackMode: null,
     hintPosition: -1,
     initialPlaybackId: 0,
     instantlyPlay: true,

@@ -1,7 +1,6 @@
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::Result;
 use database::actions::mixes::{add_item_to_mix, executable_queries_on};
+use database::test_fixtures::causal_library as support;
 use database::{entities::*, sync::model::*};
 use migration::catalog_identity::ParentKind;
 use sea_orm::{

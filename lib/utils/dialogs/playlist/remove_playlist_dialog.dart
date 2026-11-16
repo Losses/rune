@@ -15,6 +15,7 @@ Future<bool?> showRemovePlaylistDialog(
   int playlistId,
 ) async {
   final result = await $showModal<bool>(
+    staysUsableWhenShrunk: false,
     context,
     (context, $close) =>
         RemovePlaylistDialog(playlistId: playlistId, $close: $close),

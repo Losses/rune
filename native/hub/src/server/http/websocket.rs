@@ -1,16 +1,16 @@
 use crate::access_policy::Action;
 use discovery::access_policy::{AccessPolicy, PeerIdentity};
 use std::time::Duration;
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
     Extension,
     extract::{
-        ConnectInfo, Query, State,
+        ConnectInfo, State,
         ws::{CloseFrame, Message as WsMessage, WebSocket, WebSocketUpgrade},
     },
     http::StatusCode,
-    http::{HeaderMap, HeaderName, HeaderValue},
+    http::{HeaderMap, HeaderName, HeaderValue, header::HOST},
     response::{IntoResponse, Response},
 };
 use futures_util::{SinkExt, StreamExt};
@@ -30,7 +30,7 @@ use crate::{
     request_error::{FailedCall, classify, request_failure_cause},
     server::{ServerState, sync_auth::AuthenticatedFingerprint},
 };
-use discovery::endpoint::{DEFAULT_DEVICE_PORT, device_url};
+use discovery::endpoint::{DeviceAddress, DeviceScheme};
 use discovery::protocol_version::{
     Compatibility, DEVICE_ALIAS_HEADER, PROTOCOL_VERSION, PROTOCOL_VERSION_HEADER, ProtocolVersion,
     compatibility,
@@ -79,7 +79,6 @@ fn is_capability_message(message: &[u8]) -> bool {
 pub async fn websocket_handler(
     ws: WebSocketUpgrade,
     Extension(AuthenticatedFingerprint(fingerprint)): Extension<AuthenticatedFingerprint>,
-    Query(params): Query<HashMap<String, String>>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<Arc<ServerState>>,
     headers: HeaderMap,
@@ -104,10 +103,13 @@ pub async fn websocket_handler(
         .get(&version_header)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| ProtocolVersion::parse(value).ok());
-    let host = params
-        .get("host")
-        .cloned()
-        .unwrap_or("127.0.0.1".to_owned());
+    // Controllers reach this device at the address they dialled, which the Host header
+    // carries together with the port.
+    let base_url = headers
+        .get(HOST)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<DeviceAddress>().ok())
+        .and_then(|address| address.url(DeviceScheme::Https, "/").ok());
     let user = state
         .permission_manager
         .read()
@@ -127,14 +129,15 @@ pub async fn websocket_handler(
                 return (StatusCode::UPGRADE_REQUIRED, response_headers).into_response();
             }
             info!("Connection authorized for {} @ {}", user.alias, addr);
-            let Ok(host) = device_url(&host, DEFAULT_DEVICE_PORT, "https", "/") else {
+            let Some(base_url) = base_url else {
                 return StatusCode::BAD_REQUEST.into_response();
             };
-            let host = host.to_string();
             let broadcast_rx = state.websocket_service.broadcast_tx.subscribe();
             (
                 response_headers,
-                ws.on_upgrade(move |socket| handle_socket(socket, state, user, host, broadcast_rx)),
+                ws.on_upgrade(move |socket| {
+                    handle_socket(socket, state, user, base_url, broadcast_rx)
+                }),
             )
                 .into_response()
         }
@@ -149,7 +152,7 @@ pub async fn handle_socket(
     socket: WebSocket,
     state: Arc<ServerState>,
     user: User,
-    host: String,
+    base_url: url::Url,
     mut broadcast_rx: Receiver<Vec<u8>>,
 ) {
     let mut changes = state.permission_manager.read().await.changes();
@@ -266,7 +269,7 @@ pub async fn handle_socket(
                             Some(Session {
                                 fingerprint: fingerprint.to_owned(),
                                 public_key: incoming_public_key.clone(),
-                                host: host.to_owned(),
+                                base_url: base_url.clone(),
                             }),
                             library_id,
                             &node,

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../utils/settings_manager.dart';
 import '../utils/api/get_ssl_certificate_fingerprint.dart';
+import '../utils/api/request_failure.dart';
 import '../bindings/bindings.dart';
 import '../constants/configurations.dart';
 
@@ -22,7 +23,6 @@ class BroadcastProvider extends ChangeNotifier {
   String? _fingerprint;
 
   bool _isServerRunning = false;
-  String? _serverError;
   String? _interface;
   late Completer<void> _initializationCompleter;
 
@@ -35,7 +35,6 @@ class BroadcastProvider extends ChangeNotifier {
   String? get deviceAlias => _deviceAlias;
   String? get fingerprint => _fingerprint;
   bool get isServerRunning => _isServerRunning;
-  String? get serverError => _serverError;
   String? get interface => _interface;
 
   BroadcastProvider() {
@@ -43,7 +42,6 @@ class BroadcastProvider extends ChangeNotifier {
       (_) => fetchUsers(),
     );
     _initializationCompleter = Completer<void>();
-    _setupServerResponseListeners();
     _initializeDevice().then((_) {
       _initializationCompleter.complete();
     });
@@ -72,41 +70,6 @@ class BroadcastProvider extends ChangeNotifier {
       _deviceAlias = _generateRandomAlias();
       await _settingsManager.setValue(kDeviceAliasKey, _deviceAlias);
     }
-  }
-
-  void _setupServerResponseListeners() {
-    StartServerResponse.rustSignalStream.listen((signal) {
-      final response = signal.message;
-      _isServerRunning = response.success;
-      _serverError = response.success ? null : response.error;
-      if (!response.success) {
-        stopBroadcast();
-      }
-      notifyListeners();
-    });
-
-    StopServerResponse.rustSignalStream.listen((signal) {
-      final response = signal.message;
-      if (response.success) {
-        _isServerRunning = false;
-        _serverError = null;
-        stopBroadcast();
-      } else {
-        _serverError = response.error;
-      }
-      notifyListeners();
-    });
-
-    ListClientsResponse.rustSignalStream.listen((signal) {
-      final response = signal.message;
-      if (response.success) {
-        _users = response.users;
-        notifyListeners();
-      } else {
-        _serverError = response.error;
-        notifyListeners();
-      }
-    });
   }
 
   Future<void> updateDeviceAlias(String newAlias) async {
@@ -165,27 +128,65 @@ class BroadcastProvider extends ChangeNotifier {
     });
   }
 
+  /// Start the server. A failure is left to the global handler.
   Future<void> startServer(String interface) async {
     if (_isServerRunning) return;
     await _initializationCompleter.future;
 
     _interface = interface;
-    _serverError = null;
     notifyListeners();
 
-    StartServerRequest(
-      interface: interface,
-      alias: _deviceAlias!,
-    ).sendSignalToRust();
+    try {
+      await awaitResponse(
+        'StartServerRequest',
+        StartServerResponse.rustSignalStream,
+        responseCallId: (response) => response.message.callId?.toInt(),
+        send: (callId) => StartServerRequest(
+          interface: interface,
+          alias: _deviceAlias!,
+          callId: callId,
+        ).sendSignalToRust(),
+      );
+    } on RequestFailure {
+      stopBroadcast();
+      rethrow;
+    }
+    _isServerRunning = true;
+    notifyListeners();
   }
 
+  /// Stop the server. A failure is left to the global handler.
   void stopServer() {
     if (!_isServerRunning) return;
-    StopServerRequest().sendSignalToRust();
+    unawaited(_stopServer());
   }
 
+  Future<void> _stopServer() async {
+    await awaitResponse(
+      'StopServerRequest',
+      StopServerResponse.rustSignalStream,
+      responseCallId: (response) => response.message.callId?.toInt(),
+      send: (callId) => StopServerRequest(callId: callId).sendSignalToRust(),
+    );
+    _isServerRunning = false;
+    stopBroadcast();
+    notifyListeners();
+  }
+
+  /// Reload the trusted devices. A failure is left to the global handler.
   void fetchUsers() {
-    ListClientsRequest().sendSignalToRust();
+    unawaited(_fetchUsers());
+  }
+
+  Future<void> _fetchUsers() async {
+    final response = await awaitResponse(
+      'ListClientsRequest',
+      ListClientsResponse.rustSignalStream,
+      responseCallId: (response) => response.message.callId?.toInt(),
+      send: (callId) => ListClientsRequest(callId: callId).sendSignalToRust(),
+    );
+    _users = response.message.users;
+    notifyListeners();
   }
 
   @override

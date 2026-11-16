@@ -1,9 +1,10 @@
 use crate::{
     messages::{
-        LibraryContentChanged, PlaybackState, PlaybackStatus, PlayingItemRef, PlaylistItem,
-        PlaylistUpdate, RequestErrorKind, RequestFailedResponse, RequestFailureCause,
+        LibraryContentChanged, PlaybackMode, PlaybackState, PlaybackStatus, PlayingItemRef,
+        PlaylistItem, PlaylistUpdate, RequestErrorKind, RequestFailedResponse, RequestFailureCause,
         SetRealtimeFFTEnabledRequest,
     },
+    node::ReconnectConfig,
     utils::Broadcaster,
     visualizer::RANDOM_COVERS,
 };
@@ -11,11 +12,12 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, SystemTime};
 use tokio::sync::{Semaphore, watch};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
+use visualizer::{Visualizer, VisualizerInputs};
 
 use anyhow::Result;
 use database::playing_item::PlayingItemMetadataSummary;
@@ -90,17 +92,114 @@ pub(crate) struct SubsonicBinding {
     jukebox_poll: Mutex<Option<CancellationToken>>,
     jukebox_state: Arc<Mutex<Option<JukeboxPollState>>>,
     playback_starts: Mutex<HashMap<String, u64>>,
-    visualizer_feed: Mutex<Option<CancellationToken>>,
+    visualizer_feed: Mutex<Option<ActiveFeed>>,
+    /// Counts feed link changes, so the node can republish the visualizer inputs.
+    feed_link_changes: watch::Sender<u64>,
+    /// The visualizer of the node this jukebox plays for, which its feed writes.
+    visualizer: Arc<Visualizer>,
+}
+
+/// The running visualizer feed connection loop.
+struct ActiveFeed {
+    cancel: CancellationToken,
+    link: Arc<Mutex<FeedLink>>,
+}
+
+/// Whether the feed is expected to deliver data. A feed that is starting counts
+/// as live, so opening the library does not flicker the scene; only a failed
+/// connect or a dropped connection makes it lost.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FeedLink {
+    Live,
+    Lost,
+}
+
+/// One feed connection ended.
+enum FeedSessionEnd {
+    Cancelled,
+    /// The server could not be reached or refused the subscription.
+    NotConnected,
+    /// A working connection ended.
+    Dropped,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 struct JukeboxPollState {
     jukebox: SubsonicJukebox,
+    /// The cached cover of the current song when this state was published.
+    cover_art_path: Option<String>,
     // The server exposes no queue revision, so this local revision is best effort.
     revision: u64,
 }
 
+/// What differs from the jukebox state published before.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum JukeboxChange {
+    /// The queue or the playback status changed.
+    Queue,
+    /// Only the cover of the current song became available.
+    CoverOnly,
+}
+
+fn current_song(jukebox: &SubsonicJukebox) -> Option<&SubsonicSong> {
+    jukebox
+        .status
+        .current_index
+        .and_then(|index| jukebox.playlist.songs.get(index as usize))
+}
+
+fn current_cover_id(jukebox: &SubsonicJukebox) -> Option<&str> {
+    current_song(jukebox)?.cover_art.as_deref()
+}
+
+/// Remembers what was published. `None` means the state lock is poisoned;
+/// `Some((revision, None))` means nothing changed.
+fn record_jukebox(
+    state: &Mutex<Option<JukeboxPollState>>,
+    jukebox: &SubsonicJukebox,
+    cover_art_path: Option<String>,
+) -> Option<(u64, Option<JukeboxChange>)> {
+    let mut state = state.lock().ok()?;
+    let (revision, change) = match state.as_ref() {
+        Some(current)
+            if current.jukebox == *jukebox && current.cover_art_path == cover_art_path =>
+        {
+            return Some((current.revision, None));
+        }
+        Some(current) if current.jukebox == *jukebox => {
+            (current.revision, JukeboxChange::CoverOnly)
+        }
+        Some(current) => (current.revision.saturating_add(1), JukeboxChange::Queue),
+        None => (1, JukeboxChange::Queue),
+    };
+    *state = Some(JukeboxPollState {
+        jukebox: jukebox.clone(),
+        cover_art_path,
+        revision,
+    });
+    Some((revision, Some(change)))
+}
+
 fn broadcast_jukebox(
+    broadcaster: &dyn Broadcaster,
+    library_id: Uuid,
+    jukebox: &SubsonicJukebox,
+    revision: u64,
+    cover_art_path: Option<String>,
+    change: JukeboxChange,
+) {
+    if change == JukeboxChange::Queue {
+        broadcast_jukebox_queue(broadcaster, library_id, jukebox, revision);
+    }
+    broadcaster.broadcast(&jukebox_playback_status(
+        library_id,
+        jukebox,
+        None,
+        cover_art_path,
+    ));
+}
+
+fn broadcast_jukebox_queue(
     broadcaster: &dyn Broadcaster,
     library_id: Uuid,
     jukebox: &SubsonicJukebox,
@@ -128,19 +227,15 @@ fn broadcast_jukebox(
         session_id: session_id.clone(),
         revision,
     });
-
-    broadcaster.broadcast(&jukebox_playback_status(library_id, jukebox, None));
 }
 
 fn jukebox_playback_status(
     library_id: Uuid,
     jukebox: &SubsonicJukebox,
     feed_position: Option<(PlaybackState, f32)>,
+    cover_art_path: Option<String>,
 ) -> PlaybackStatus {
-    let current = jukebox
-        .status
-        .current_index
-        .and_then(|index| jukebox.playlist.songs.get(index as usize));
+    let current = current_song(jukebox);
     let polled_position = jukebox.status.position_secs.unwrap_or_default() as f32;
     let position = feed_position.map_or(polled_position, |(_, position)| position);
     let duration = current
@@ -179,10 +274,123 @@ fn jukebox_playback_status(
             library_id: library_id.to_string(),
             track: song.id.clone(),
         }),
-        playback_mode: 0,
+        playback_mode: PlaybackMode::Sequential,
         ready: current.is_some(),
-        cover_art_path: None,
+        cover_art_path,
         lib_path: String::new(),
+    }
+}
+
+/// The only writer of a feed's link. The node republishes the visualizer inputs
+/// when it hears of a change.
+fn set_feed_link(
+    binding: &Weak<SubsonicBinding>,
+    link: &Mutex<FeedLink>,
+    cancellation: &CancellationToken,
+    next: FeedLink,
+) {
+    if cancellation.is_cancelled() {
+        return;
+    }
+    {
+        let Ok(mut current) = link.lock() else {
+            return;
+        };
+        if *current == next {
+            return;
+        }
+        *current = next;
+    }
+    if let Some(binding) = binding.upgrade() {
+        binding.feed_link_changes.send_modify(|count| *count += 1);
+    }
+}
+
+/// Connects to the feed and delivers its events until the connection ends.
+async fn run_feed_session(
+    binding: &Weak<SubsonicBinding>,
+    visualizer: &Visualizer,
+    client: &SubsonicClient,
+    probe: &subsonic::SubsonicProbe,
+    broadcaster: &Arc<dyn Broadcaster>,
+    link: &Mutex<FeedLink>,
+    cancellation: &CancellationToken,
+) -> FeedSessionEnd {
+    let connect = async {
+        let url = match client.rune_visualizer_feed_url(probe).await {
+            Ok(url) => url,
+            Err(error) => {
+                log::warn!("Could not resolve Subsonic visualizer feed: {error}");
+                return None;
+            }
+        };
+        match connect_async(url.as_str()).await {
+            Ok((socket, _)) => Some(socket),
+            Err(error) => {
+                log::warn!("Could not connect to Subsonic visualizer feed: {error}");
+                None
+            }
+        }
+    };
+    let socket = tokio::select! {
+        _ = cancellation.cancelled() => return FeedSessionEnd::Cancelled,
+        socket = connect => socket,
+    };
+    let Some(mut socket) = socket else {
+        return FeedSessionEnd::NotConnected;
+    };
+    let fft_payload = match rinf::serialize(&SetRealtimeFFTEnabledRequest {
+        enabled: true,
+        call_id: None,
+    }) {
+        Ok(payload) => payload,
+        Err(error) => {
+            log::warn!("Could not encode Subsonic visualizer feed request: {error}");
+            return FeedSessionEnd::NotConnected;
+        }
+    };
+    for (name, body) in [
+        ("SubscribeVisualizerFeedRequest", Vec::new()),
+        ("SetRealtimeFFTEnabledRequest", fft_payload),
+    ] {
+        let frame = encode_message(name, &body, None);
+        if let Err(error) = socket.send(Message::Binary(frame.into())).await {
+            log::warn!("Could not subscribe to Subsonic visualizer feed: {error}");
+            return FeedSessionEnd::NotConnected;
+        }
+    }
+    set_feed_link(binding, link, cancellation, FeedLink::Live);
+    loop {
+        tokio::select! {
+            _ = cancellation.cancelled() => {
+                let frame = encode_message("UnsubscribeVisualizerFeedRequest", &[], None);
+                let _ = socket.send(Message::Binary(frame.into())).await;
+                let _ = socket.close(None).await;
+                return FeedSessionEnd::Cancelled;
+            }
+            message = socket.next() => match message {
+                Some(Ok(Message::Binary(payload))) => {
+                    if let Err(error) = deliver_visualizer_feed_frame(
+                        visualizer,
+                        &payload,
+                        &**broadcaster,
+                        |status| {
+                            if let Some(binding) = binding.upgrade() {
+                                binding.broadcast_visualizer_feed_status(status);
+                            }
+                        },
+                    ) {
+                        log::debug!("Ignoring Subsonic visualizer feed frame: {error:#}");
+                    }
+                }
+                Some(Ok(Message::Close(_))) | None => return FeedSessionEnd::Dropped,
+                Some(Err(error)) => {
+                    log::debug!("Subsonic visualizer feed ended: {error}");
+                    return FeedSessionEnd::Dropped;
+                }
+                Some(Ok(_)) => {}
+            }
+        }
     }
 }
 
@@ -405,6 +613,7 @@ impl SubsonicBinding {
         library_id: Uuid,
         play_on_this_device: bool,
         broadcaster: Arc<dyn Broadcaster>,
+        visualizer: Arc<Visualizer>,
     ) -> Self {
         Self {
             library_id,
@@ -425,6 +634,8 @@ impl SubsonicBinding {
             jukebox_state: Arc::new(Mutex::new(None)),
             playback_starts: Mutex::new(HashMap::new()),
             visualizer_feed: Mutex::new(None),
+            feed_link_changes: watch::channel(0).0,
+            visualizer,
         }
     }
 
@@ -447,6 +658,7 @@ impl SubsonicBinding {
         let client = Arc::clone(&self.client);
         let library_id = self.library_id;
         let broadcaster = Arc::clone(&self.covers.broadcaster);
+        let covers = Arc::clone(&self.covers);
         let binding_state = Arc::clone(&self.jukebox_state);
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(3));
@@ -465,20 +677,30 @@ impl SubsonicBinding {
                         };
                         match result {
                             Ok(jukebox) => {
-                                let changed = {
-                                    let Ok(mut previous) = binding_state.lock() else { continue; };
-                                    let revision = match previous.as_ref() {
-                                        Some(current) if current.jukebox == jukebox => continue,
-                                        Some(current) => current.revision.saturating_add(1),
-                                        None => 1,
-                                    };
-                                    *previous = Some(JukeboxPollState {
-                                        jukebox: jukebox.clone(),
-                                        revision,
-                                    });
-                                    revision
+                                let cover_id = current_cover_id(&jukebox);
+                                let cover = match cover_id {
+                                    Some(id) => covers.cached_path(id).await.ok().flatten(),
+                                    None => None,
                                 };
-                                broadcast_jukebox(&*broadcaster, library_id, &jukebox, changed);
+                                let Some((revision, Some(change))) =
+                                    record_jukebox(&binding_state, &jukebox, cover.clone())
+                                else {
+                                    continue;
+                                };
+                                if change == JukeboxChange::Queue
+                                    && cover.is_none()
+                                    && let Some(id) = cover_id
+                                {
+                                    covers.schedule(Arc::clone(&client), id.to_owned());
+                                }
+                                broadcast_jukebox(
+                                    &*broadcaster,
+                                    library_id,
+                                    &jukebox,
+                                    revision,
+                                    cover,
+                                    change,
+                                );
                             }
                             Err(error) => log::debug!("Subsonic jukebox status poll failed: {error}"),
                         }
@@ -495,9 +717,34 @@ impl SubsonicBinding {
             token.cancel();
         }
         if let Ok(mut feed) = self.visualizer_feed.lock()
-            && let Some(token) = feed.take()
+            && let Some(active) = feed.take()
         {
-            token.cancel();
+            active.cancel.cancel();
+        }
+    }
+
+    /// Wakes once for every change of what the visualizer can use from this jukebox.
+    pub(crate) fn subscribe_feed_link_changes(&self) -> watch::Receiver<u64> {
+        self.feed_link_changes.subscribe()
+    }
+
+    /// What the visualizer can use from this jukebox right now.
+    pub(crate) fn visualizer_inputs(&self) -> VisualizerInputs {
+        if !self.probe.supports_rune_visualizer_feed() {
+            return VisualizerInputs::None;
+        }
+        let lost = self.visualizer_feed.lock().is_ok_and(|feed| {
+            feed.as_ref().is_some_and(|active| {
+                active
+                    .link
+                    .lock()
+                    .map_or(true, |link| *link == FeedLink::Lost)
+            })
+        });
+        if lost {
+            VisualizerInputs::None
+        } else {
+            VisualizerInputs::Full
         }
     }
 
@@ -510,12 +757,7 @@ impl SubsonicBinding {
         let Some(polled) = polled else {
             return;
         };
-        let current = polled
-            .jukebox
-            .status
-            .current_index
-            .and_then(|index| polled.jukebox.playlist.songs.get(index as usize));
-        let Some(current) = current else {
+        let Some(current) = current_song(&polled.jukebox) else {
             return;
         };
         let matches_current_track = matches!(
@@ -529,6 +771,7 @@ impl SubsonicBinding {
             self.library_id,
             &polled.jukebox,
             Some((status.state, status.progress_seconds)),
+            polled.cover_art_path.clone(),
         ));
     }
 
@@ -539,79 +782,52 @@ impl SubsonicBinding {
         let Ok(mut feed) = self.visualizer_feed.lock() else {
             return;
         };
-        if let Some(token) = feed.take() {
-            token.cancel();
+        if let Some(active) = feed.take() {
+            active.cancel.cancel();
         }
         let cancellation = self.covers.cancellation.child_token();
-        *feed = Some(cancellation.clone());
+        let link = Arc::new(Mutex::new(FeedLink::Live));
+        *feed = Some(ActiveFeed {
+            cancel: cancellation.clone(),
+            link: Arc::clone(&link),
+        });
         let client = Arc::clone(&self.client);
         let probe = self.probe.clone();
         let broadcaster = Arc::clone(&self.covers.broadcaster);
-        let binding = Arc::clone(self);
+        let visualizer = Arc::clone(&self.visualizer);
+        let binding = Arc::downgrade(self);
         tokio::spawn(async move {
-            let url = match client.rune_visualizer_feed_url(&probe).await {
-                Ok(url) => url,
-                Err(error) => {
-                    log::warn!("Could not resolve Subsonic visualizer feed: {error}");
-                    return;
-                }
+            // Same waits as a Rune peer's reconnect; a feed has no deadline because it
+            // lives as long as the jukebox is the current player.
+            let config = ReconnectConfig::default();
+            let backoff = || {
+                config
+                    .delays
+                    .into_iter()
+                    .chain(std::iter::repeat(config.interval))
             };
-            let (mut socket, _) = match connect_async(url.as_str()).await {
-                Ok(socket) => socket,
-                Err(error) => {
-                    log::warn!("Could not connect to Subsonic visualizer feed: {error}");
-                    return;
-                }
-            };
-            let fft_payload = match rinf::serialize(&SetRealtimeFFTEnabledRequest {
-                enabled: true,
-                call_id: None,
-            }) {
-                Ok(payload) => payload,
-                Err(error) => {
-                    log::warn!("Could not encode Subsonic visualizer feed request: {error}");
-                    return;
-                }
-            };
-            for (name, body) in [
-                ("SubscribeVisualizerFeedRequest", Vec::new()),
-                ("SetRealtimeFFTEnabledRequest", fft_payload),
-            ] {
-                let frame = encode_message(name, &body, None);
-                if let Err(error) = socket.send(Message::Binary(frame.into())).await {
-                    log::warn!("Could not subscribe to Subsonic visualizer feed: {error}");
-                    return;
-                }
-            }
+            let mut delays = backoff();
             loop {
+                let end = run_feed_session(
+                    &binding,
+                    &visualizer,
+                    &client,
+                    &probe,
+                    &broadcaster,
+                    &link,
+                    &cancellation,
+                )
+                .await;
+                match end {
+                    FeedSessionEnd::Cancelled => break,
+                    FeedSessionEnd::Dropped => delays = backoff(),
+                    FeedSessionEnd::NotConnected => {}
+                }
+                set_feed_link(&binding, &link, &cancellation, FeedLink::Lost);
+                let delay = delays.next().unwrap_or(config.interval);
                 tokio::select! {
-                    _ = cancellation.cancelled() => {
-                        let frame = encode_message(
-                            "UnsubscribeVisualizerFeedRequest",
-                            &[],
-                            None,
-                        );
-                        let _ = socket.send(Message::Binary(frame.into())).await;
-                        let _ = socket.close(None).await;
-                        break;
-                    }
-                    message = socket.next() => match message {
-                        Some(Ok(Message::Binary(payload))) => {
-                            if let Err(error) = deliver_visualizer_feed_frame(
-                                &payload,
-                                &*broadcaster,
-                                |status| binding.broadcast_visualizer_feed_status(status),
-                            ) {
-                                log::debug!("Ignoring Subsonic visualizer feed frame: {error:#}");
-                            }
-                        }
-                        Some(Ok(Message::Close(_))) | None => break,
-                        Some(Err(error)) => {
-                            log::debug!("Subsonic visualizer feed ended: {error}");
-                            break;
-                        }
-                        Some(Ok(_)) => {}
-                    }
+                    _ = cancellation.cancelled() => break,
+                    _ = tokio::time::sleep(delay) => {}
                 }
             }
         });
@@ -749,30 +965,28 @@ impl SubsonicBinding {
             .jukebox_get()
             .await
             .map_err(jukebox_error_for_refresh)?;
-        let (revision, changed) = {
-            let mut state = self
-                .jukebox_state
-                .lock()
-                .map_err(|_| anyhow::anyhow!("Subsonic jukebox state lock poisoned"))?;
-            let (revision, changed) = match state.as_ref() {
-                Some(current) if current.jukebox == jukebox => (current.revision, false),
-                Some(current) => (current.revision.saturating_add(1), true),
-                None => (1, true),
-            };
-            if changed {
-                *state = Some(JukeboxPollState {
-                    jukebox: jukebox.clone(),
-                    revision,
-                });
-            }
-            (revision, changed)
+        let cover_id = current_cover_id(&jukebox);
+        let cover = match cover_id {
+            Some(id) => self.covers.cached_path(id).await.ok().flatten(),
+            None => None,
         };
-        if changed {
+        let (revision, change) = record_jukebox(&self.jukebox_state, &jukebox, cover.clone())
+            .ok_or_else(|| anyhow::anyhow!("Subsonic jukebox state lock poisoned"))?;
+        if let Some(change) = change {
+            if change == JukeboxChange::Queue
+                && cover.is_none()
+                && let Some(id) = cover_id
+            {
+                self.covers
+                    .schedule(Arc::clone(&self.client), id.to_owned());
+            }
             broadcast_jukebox(
                 &*self.covers.broadcaster,
                 self.library_id,
                 &jukebox,
                 revision,
+                cover,
+                change,
             );
         }
         Ok((jukebox, revision))
@@ -1043,17 +1257,16 @@ mod visualizer_feed_tests {
     use tokio::{net::TcpListener, sync::Notify, time::timeout};
     use url::Url;
     use uuid::Uuid;
-    use visualizer::VisualizerInputs;
+    use visualizer::{Visualizer, VisualizerInputs};
 
     use super::SubsonicBinding;
     use crate::test_wait::TEST_DEADLINE;
     use crate::test_wait::wait_until;
-    use crate::visualizer::VISUALIZER;
     use crate::{
         backends::remote::{decode_message, encode_message},
         messages::{
-            PlaybackState, PlaybackStatus, PlayingItemRef, RealtimeFFT, VisualizerFeedChart,
-            VisualizerFeedCovers,
+            PlaybackMode, PlaybackState, PlaybackStatus, PlayingItemRef, RealtimeFFT,
+            VisualizerFeedChart, VisualizerFeedCovers,
         },
         utils::{Broadcaster, RinfRustSignal},
     };
@@ -1070,11 +1283,17 @@ mod visualizer_feed_tests {
         jukebox: Arc<Mutex<MockJukebox>>,
         feed_status: Arc<Mutex<PlaybackStatus>>,
         feed_release: Arc<Notify>,
+        /// Ends the feed connection from the server side.
+        feed_drop: Arc<Notify>,
+        /// Makes the server answer feed connections with an error.
+        refuse_feed: Arc<AtomicBool>,
         cover_calls: Arc<AtomicUsize>,
         cover_started: Arc<Notify>,
         release_cover: Arc<Notify>,
         delay_cover: Arc<AtomicBool>,
         fail_cover_once: Arc<AtomicBool>,
+        /// The cover id the jukebox's song carries, if any.
+        song_cover: Arc<Mutex<Option<String>>>,
     }
 
     #[derive(Clone)]
@@ -1215,7 +1434,7 @@ mod visualizer_feed_tests {
                 library_id: Uuid::new_v4().to_string(),
                 track: "track-1".into(),
             }),
-            playback_mode: 7,
+            playback_mode: PlaybackMode::Shuffle,
             ready: false,
             cover_art_path: Some("/feed/cover".into()),
             lib_path: "/feed/library".into(),
@@ -1273,11 +1492,14 @@ mod visualizer_feed_tests {
             })),
             feed_status: Arc::new(Mutex::new(default_feed_status())),
             feed_release: Arc::new(Notify::new()),
+            feed_drop: Arc::new(Notify::new()),
+            refuse_feed: Arc::new(AtomicBool::new(false)),
             cover_calls: Arc::new(AtomicUsize::new(0)),
             cover_started: Arc::new(Notify::new()),
             release_cover: Arc::new(Notify::new()),
             delay_cover: Arc::new(AtomicBool::new(false)),
             fail_cover_once: Arc::new(AtomicBool::new(false)),
+            song_cover: Arc::new(Mutex::new(None)),
         };
         let app = Router::new()
             .route("/rest/{*endpoint}", get(http))
@@ -1331,7 +1553,8 @@ mod visualizer_feed_tests {
             "jukeboxControl" => {
                 let jukebox = state.jukebox.lock().unwrap().clone();
                 let current_index = jukebox.current_index.map(|index| format!(r#", "currentIndex": {index}"#)).unwrap_or_default();
-                let entry = if jukebox.has_song { format!(r#", "entry": {{"id":"{}","title":"{}","duration":{}}}"#, jukebox.song_id, jukebox.title, jukebox.duration) } else { String::new() };
+                let cover = state.song_cover.lock().unwrap().as_ref().map(|id| format!(r#","coverArt":"{id}""#)).unwrap_or_default();
+                let entry = if jukebox.has_song { format!(r#", "entry": {{"id":"{}","title":"{}","duration":{}{cover}}}"#, jukebox.song_id, jukebox.title, jukebox.duration) } else { String::new() };
                 format!(r#"{{"subsonic-response":{{"status":"ok","jukeboxPlaylist":{{"playing":{},"position":0{current_index}{entry}}}}}}}"#, jukebox.playing)
             }
             _ => r#"{"subsonic-response":{"status":"ok","jukeboxStatus":{"playing":false}}}"#.into(),
@@ -1344,8 +1567,18 @@ mod visualizer_feed_tests {
         Query(query): Query<HashMap<String, String>>,
         ws: WebSocketUpgrade,
     ) -> impl IntoResponse {
+        if state.refuse_feed.load(Ordering::SeqCst) {
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
         *state.auth.lock().unwrap() = Some(query);
-        ws.on_upgrade(move |socket| feed_socket(socket, state))
+        ws.on_upgrade(move |socket| async move {
+            let dropped = state.feed_drop.clone();
+            tokio::select! {
+                _ = dropped.notified() => {}
+                _ = feed_socket(socket, state) => {}
+            }
+        })
+        .into_response()
     }
 
     async fn feed_socket(mut socket: WebSocket, state: MockState) {
@@ -1415,6 +1648,16 @@ mod visualizer_feed_tests {
         root: &TempDir,
         broadcaster: Arc<Signals>,
     ) -> Arc<SubsonicBinding> {
+        open_binding_for(url, root, broadcaster, Arc::new(Visualizer::new())).await
+    }
+
+    /// A binding whose feed writes `visualizer`, as a node's does.
+    async fn open_binding_for(
+        url: Url,
+        root: &TempDir,
+        broadcaster: Arc<Signals>,
+        visualizer: Arc<Visualizer>,
+    ) -> Arc<SubsonicBinding> {
         let client = SubsonicClient::new(
             url,
             SubsonicCredentials::Password {
@@ -1431,6 +1674,7 @@ mod visualizer_feed_tests {
             Uuid::new_v4(),
             false,
             broadcaster,
+            visualizer,
         ))
     }
 
@@ -1521,6 +1765,58 @@ mod visualizer_feed_tests {
             .unwrap();
         assert!(result.is_some());
         assert_eq!(state.cover_calls.load(Ordering::SeqCst), 2);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn jukebox_status_carries_the_cover_once_it_is_cached() {
+        let (url, state, server) = server(true, false).await;
+        *state.song_cover.lock().unwrap() = Some("cover-1".into());
+        state.delay_cover.store(true, Ordering::SeqCst);
+        let root = TempDir::new().unwrap();
+        let signals = Arc::new(Signals::default());
+        let binding = open_binding(url, &root, signals.clone()).await;
+        binding.start_jukebox_polling();
+
+        // The status goes out while the cover fetch is still held back.
+        wait_until("a jukebox status for the song", || async {
+            Ok(signals
+                .playback_statuses
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|status| status.title.as_deref() == Some("song"))
+                .then_some(()))
+        })
+        .await
+        .unwrap();
+        assert!(
+            signals
+                .playback_statuses
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|status| status.cover_art_path.is_none())
+        );
+
+        state.release_cover.notify_one();
+        let expected = binding.covers.path_for("cover-1");
+        let path = wait_until("a jukebox status with the cover", || async {
+            Ok(signals
+                .playback_statuses
+                .lock()
+                .unwrap()
+                .iter()
+                .find_map(|status| status.cover_art_path.clone()))
+        })
+        .await
+        .unwrap();
+        assert_eq!(std::path::Path::new(&path), expected);
+        assert!(std::fs::metadata(&path).unwrap().len() > 0);
+        assert_eq!(state.cover_calls.load(Ordering::SeqCst), 1);
+
+        binding.stop_jukebox_polling();
+        binding.covers.cancellation.cancel();
         server.abort();
     }
 
@@ -1643,22 +1939,11 @@ mod visualizer_feed_tests {
                 .unwrap()
                 .contains_key("t")
         );
-        let visualizer_item = state
-            .feed_status
-            .lock()
-            .unwrap()
-            .item_request
-            .as_ref()
-            .unwrap()
-            .clone();
-        let visualizer_identity: visualizer::ChartItem = visualizer_item.into();
-        wait_until("feed events reached the visualizer", || async {
+        // Which charts and covers a feed's visualizer keeps is the visualizer crate's to test.
+        wait_until("feed events reached the binding's visualizer", || async {
             let names = signals.names.lock().unwrap();
             let fft = names.iter().any(|name| name == "RealtimeFFT");
-            let feed_status = VISUALIZER.is_feed_playback();
-            let chart = VISUALIZER.has_feed_chart(&visualizer_identity);
-            let covers = VISUALIZER.feed_covers_match(&visualizer_identity, Some(&[4]), &[vec![5]]);
-            Ok((fft && feed_status && chart && covers).then_some(()))
+            Ok((fft && binding.visualizer.is_feed_playback()).then_some(()))
         })
         .await
         .unwrap();
@@ -1729,7 +2014,7 @@ mod visualizer_feed_tests {
                 library_id: "third-party-library".into(),
                 track: "song-a".into(),
             }),
-            playback_mode: 7,
+            playback_mode: PlaybackMode::Shuffle,
             ready: false,
             cover_art_path: Some("/third-party/cover".into()),
             lib_path: "/third-party/library".into(),
@@ -1762,7 +2047,7 @@ mod visualizer_feed_tests {
                     track: "song-a".into(),
                 })
         );
-        assert_eq!(status.playback_mode, 0);
+        assert_eq!(status.playback_mode, PlaybackMode::Sequential);
         assert!(status.ready);
         assert_eq!(status.cover_art_path, None);
         assert_eq!(status.lib_path, "");
@@ -1791,6 +2076,187 @@ mod visualizer_feed_tests {
         .await
         .unwrap();
         assert_eq!(signals.playback_statuses.lock().unwrap().len(), before);
+        binding.stop_jukebox_polling();
+        binding.covers.cancellation.cancel();
+        server.abort();
+    }
+
+    async fn feed_fft_count(signals: &Signals) -> usize {
+        signals
+            .names
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|name| *name == "RealtimeFFT")
+            .count()
+    }
+
+    #[tokio::test]
+    async fn feed_reconnects_after_the_server_closes_it() {
+        let (url, state, server) = server(true, true).await;
+        let root = TempDir::new().unwrap();
+        let signals = Arc::new(Signals::default());
+        let binding = open_binding(url, &root, signals.clone()).await;
+        binding.start_jukebox_polling();
+        wait_until("the first feed connection", || async {
+            Ok((state.connections.load(Ordering::SeqCst) == 1).then_some(()))
+        })
+        .await
+        .unwrap();
+        state.feed_release.notify_one();
+        wait_until("feed data from the first connection", || async {
+            Ok((feed_fft_count(&signals).await >= 1).then_some(()))
+        })
+        .await
+        .unwrap();
+        let before = feed_fft_count(&signals).await;
+
+        state.feed_drop.notify_one();
+        wait_until("the second feed connection", || async {
+            Ok((state.connections.load(Ordering::SeqCst) == 2).then_some(()))
+        })
+        .await
+        .unwrap();
+        state.feed_release.notify_one();
+        wait_until("feed data from the second connection", || async {
+            Ok((feed_fft_count(&signals).await > before).then_some(()))
+        })
+        .await
+        .unwrap();
+
+        binding.stop_jukebox_polling();
+        binding.covers.cancellation.cancel();
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn visualizer_inputs_drop_while_the_feed_is_down_and_return_after_it() {
+        let (url, state, server) = server(true, true).await;
+        let root = TempDir::new().unwrap();
+        let binding = open_binding(url, &root, Arc::new(Signals::default())).await;
+        let player = CurrentPlayer::SubsonicJukebox(binding.clone());
+        binding.start_jukebox_polling();
+        wait_until("the feed connection", || async {
+            Ok((state.connections.load(Ordering::SeqCst) == 1).then_some(()))
+        })
+        .await
+        .unwrap();
+        assert_eq!(player.visualizer_inputs(), VisualizerInputs::Full);
+
+        state.refuse_feed.store(true, Ordering::SeqCst);
+        state.feed_drop.notify_one();
+        wait_until("inputs to leave Full while the feed is down", || async {
+            Ok((player.visualizer_inputs() == VisualizerInputs::None).then_some(()))
+        })
+        .await
+        .unwrap();
+
+        state.refuse_feed.store(false, Ordering::SeqCst);
+        wait_until("inputs to return once the feed is back", || async {
+            Ok((player.visualizer_inputs() == VisualizerInputs::Full).then_some(()))
+        })
+        .await
+        .unwrap();
+        assert_eq!(state.connections.load(Ordering::SeqCst), 2);
+
+        binding.stop_jukebox_polling();
+        binding.covers.cancellation.cancel();
+        server.abort();
+    }
+
+    /// The node publishes the jukebox's inputs to the visualizer, so a feed that
+    /// drops or returns must reach the visualizer through the node.
+    #[tokio::test]
+    async fn node_publishes_the_jukebox_inputs_as_the_feed_drops_and_returns() {
+        use crate::node::NodeContext;
+        use crate::server::utils::device::RunMode;
+
+        let (url, state, server) = server(true, true).await;
+        let node_dir = TempDir::new().unwrap();
+        let path = node_dir.path().to_string_lossy().into_owned();
+        let node = NodeContext::new(
+            &path,
+            &path,
+            Arc::new(Signals::default()),
+            false,
+            RunMode::App,
+            Arc::new(::visualizer::Visualizer::new()),
+        )
+        .await
+        .unwrap();
+        let root = TempDir::new().unwrap();
+        let binding = open_binding_for(
+            url,
+            &root,
+            Arc::new(Signals::default()),
+            Arc::clone(node.visualizer()),
+        )
+        .await;
+        node.set_open_subsonic_catalog(None, binding.clone())
+            .await
+            .unwrap();
+        assert!(matches!(
+            node.current_player().unwrap(),
+            CurrentPlayer::SubsonicJukebox(_)
+        ));
+        wait_until("the feed connection", || async {
+            Ok((state.connections.load(Ordering::SeqCst) == 1).then_some(()))
+        })
+        .await
+        .unwrap();
+        wait_until("the visualizer to see the live feed", || async {
+            Ok((node.visualizer().status().inputs == VisualizerInputs::Full).then_some(()))
+        })
+        .await
+        .unwrap();
+
+        state.refuse_feed.store(true, Ordering::SeqCst);
+        state.feed_drop.notify_one();
+        wait_until("the visualizer to lose its inputs", || async {
+            Ok((node.visualizer().status().inputs == VisualizerInputs::None).then_some(()))
+        })
+        .await
+        .unwrap();
+
+        state.refuse_feed.store(false, Ordering::SeqCst);
+        wait_until("the visualizer to get its inputs back", || async {
+            Ok((node.visualizer().status().inputs == VisualizerInputs::Full).then_some(()))
+        })
+        .await
+        .unwrap();
+
+        node.close_ui(&node.token).await;
+        node.shutdown().await.unwrap();
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn feed_connect_failure_is_retried() {
+        let (url, state, server) = server(true, true).await;
+        state.refuse_feed.store(true, Ordering::SeqCst);
+        let root = TempDir::new().unwrap();
+        let binding = open_binding(url, &root, Arc::new(Signals::default())).await;
+        let player = CurrentPlayer::SubsonicJukebox(binding.clone());
+        binding.start_jukebox_polling();
+        wait_until("inputs to leave Full after the failed connect", || async {
+            Ok((player.visualizer_inputs() == VisualizerInputs::None).then_some(()))
+        })
+        .await
+        .unwrap();
+        assert_eq!(state.connections.load(Ordering::SeqCst), 0);
+
+        state.refuse_feed.store(false, Ordering::SeqCst);
+        wait_until("the retried feed connection", || async {
+            Ok((state.connections.load(Ordering::SeqCst) == 1).then_some(()))
+        })
+        .await
+        .unwrap();
+        wait_until("inputs to return", || async {
+            Ok((player.visualizer_inputs() == VisualizerInputs::Full).then_some(()))
+        })
+        .await
+        .unwrap();
+
         binding.stop_jukebox_polling();
         binding.covers.cancellation.cancel();
         server.abort();

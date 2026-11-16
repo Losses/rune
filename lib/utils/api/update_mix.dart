@@ -5,15 +5,13 @@ Future<Mix> updateMix(
   int mixId,
   String name,
   String group,
-  bool scriptletMode,
-  int mode,
+  PlaybackMode? mode,
   Iterable<(String, String)> queries,
 ) async {
   final updateRequest = UpdateMixRequest(
     mixId: mixId,
     name: name,
     group: group,
-    scriptletMode: scriptletMode,
     mode: mode,
     queries: queries
         .map((x) => MixQuery(operator: x.$1, parameter: x.$2))

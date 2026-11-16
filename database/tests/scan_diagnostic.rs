@@ -4,10 +4,9 @@
 //! before the second cover pass to demonstrate the timestamp mismatch.
 //! Self-contained regressions run normally; the real-library probe is opt-in.
 
-#[path = "support/fixtures.rs"]
-mod fixtures;
 use anyhow::{Context, Result};
 use database::actions::metadata::MissingHostFilePolicy;
+use database::test_fixtures::fixtures;
 use database::{
     actions::{
         cover_art::scan_cover_arts,

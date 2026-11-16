@@ -94,15 +94,17 @@ impl<M: SyncModel> SharePeer<M> {
     }
 
     async fn load_object(&self, prefix: &str, digest: &str) -> ProtocolResult<Vec<u8>> {
-        let cache_path = cache_path(&self.cache_dir, digest);
-        if let Ok(bytes) = fs::read(&cache_path)
-            && let Ok(decoded) = decode_content(digest, &bytes)
-        {
-            let _ =
-                fs::File::open(&cache_path).and_then(|file| file.set_modified(SystemTime::now()));
+        // The cached object can be megabytes: reading, decoding and touching it happen off
+        // the async workers.
+        let cached = {
+            let (directory, digest) = (self.cache_dir.clone(), digest.to_owned());
+            tokio::task::spawn_blocking(move || cache_read(&directory, &digest))
+                .await
+                .map_err(|error| SyncError::Storage(error.to_string()))?
+        };
+        if let Some(decoded) = cached {
             return Ok(decoded);
         }
-        let _ = fs::remove_file(&cache_path);
         let key = chunk_key(prefix, digest).map_err(format_error)?;
         let object = match self.store.get(&key).await {
             Ok(object) => object,
@@ -111,7 +113,10 @@ impl<M: SyncModel> SharePeer<M> {
         };
         let decoded = decode_content(digest, &object.bytes)
             .map_err(|_| SyncError::SnapshotSourceUnavailable)?;
-        cache_write(&self.cache_dir, digest, &object.bytes)?;
+        let (directory, digest, bytes) = (self.cache_dir.clone(), digest.to_owned(), object.bytes);
+        tokio::task::spawn_blocking(move || cache_write(&directory, &digest, &bytes))
+            .await
+            .map_err(|error| SyncError::Storage(error.to_string()))??;
         Ok(decoded)
     }
 }
@@ -645,6 +650,20 @@ fn gzip_bytes(bytes: &[u8]) -> ProtocolResult<Vec<u8>> {
 
 fn cache_path(directory: &Path, digest: &str) -> PathBuf {
     directory.join(format!("{digest}.gz"))
+}
+
+/// The decoded cached object, touched so that it counts as recently used. A cached file that
+/// cannot be read or does not decode is removed.
+fn cache_read(directory: &Path, digest: &str) -> Option<Vec<u8>> {
+    let path = cache_path(directory, digest);
+    if let Ok(bytes) = fs::read(&path)
+        && let Ok(decoded) = decode_content(digest, &bytes)
+    {
+        let _ = fs::File::open(&path).and_then(|file| file.set_modified(SystemTime::now()));
+        return Some(decoded);
+    }
+    let _ = fs::remove_file(&path);
+    None
 }
 
 fn cache_write(directory: &Path, digest: &str, bytes: &[u8]) -> ProtocolResult<()> {

@@ -80,6 +80,7 @@ Future<void> showContentDialog(
   final internalController = DirectoryTreeController(controller.value);
 
   final result = await $showModal<Set<String>>(
+    staysUsableWhenShrunk: false,
     context,
     (context, $close) => DirectoryPickerDialog(
       controller: internalController,

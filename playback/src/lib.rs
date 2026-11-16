@@ -26,7 +26,9 @@ pub use dummy_souvlaki::{MediaMetadata, MediaPlayback, MediaPosition};
 #[cfg(not(target_os = "android"))]
 pub use souvlaki::{MediaMetadata, MediaPlayback, MediaPosition};
 
-pub use internal::{OutputEvent, PlaybackMode, PlayerCommand, PlayerEvent};
+pub use internal::{InternalLog, OutputEvent, PlaybackMode, PlayerCommand, PlayerEvent};
+/// What the status and event subscriptions of a [`player::Playable`] return.
+pub use simple_channel::SimpleReceiver;
 
 #[cfg(target_os = "android")]
 pub mod android_utils;

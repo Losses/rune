@@ -3,13 +3,14 @@ import 'package:flutter/widgets.dart';
 import 'package:rune/bindings/bindings.dart';
 import 'package:rune/l10n/app_localizations.dart';
 import 'package:rune/providers/scrobble.dart';
+import 'package:rune/utils/api/request_failure.dart';
 
 void main() {
   late AppLocalizations strings;
 
-  AuthenticateSingleServiceResultFailure failureResult(
+  ScrobbleAuthenticationFailure failureResult(
     ScrobbleAuthenticationFailure failure,
-  ) => AuthenticateSingleServiceResultFailure(failure: failure);
+  ) => failure;
 
   setUpAll(() async {
     strings = await AppLocalizations.delegate.load(const Locale('en'));
@@ -102,6 +103,40 @@ void main() {
         strings,
       ),
       '${strings.loginFailedSubtitle}: HTTP 503: <redacted>',
+    );
+  });
+
+  test('a failed login request shows the text of its own failure', () {
+    RequestFailure failed(RequestFailureCause? cause, RequestErrorKind kind) =>
+        RequestFailure(
+          'AuthenticateSingleServiceRequest',
+          kind,
+          'detail',
+          cause,
+        );
+
+    expect(
+      scrobbleLoginFailureMessage(
+        failed(
+          const RequestFailureCauseScrobbleAuthentication(
+            failure: ScrobbleAuthenticationFailureCredentialsRejected(),
+          ),
+          RequestErrorKind.permissionDenied,
+        ),
+        strings,
+      ),
+      strings.scrobbleCredentialsRejected,
+    );
+    expect(
+      scrobbleLoginFailureMessage(
+        failed(null, RequestErrorKind.unavailable),
+        strings,
+      ),
+      strings.requestUnavailable,
+    );
+    expect(
+      scrobbleLoginFailureMessage(StateError('no answer'), strings),
+      strings.loginFailedSubtitle,
     );
   });
 }

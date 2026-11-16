@@ -16,8 +16,14 @@ import '../rune_clickable.dart';
 class LikeButton extends StatefulWidget {
   final PlayingItem? item;
   final Future<bool> Function(PlayingItem item)? fetchLikedStatus;
+  final Future<bool> Function(PlayingItem item, bool liked)? setLikedStatus;
 
-  const LikeButton({required this.item, this.fetchLikedStatus, super.key});
+  const LikeButton({
+    required this.item,
+    this.fetchLikedStatus,
+    this.setLikedStatus,
+    super.key,
+  });
 
   @override
   State<LikeButton> createState() => _LikeButtonState();
@@ -65,19 +71,14 @@ class _LikeButtonState extends State<LikeButton> {
   Future<void> _toggleLikedStatus() async {
     if (item == null) return;
 
-    final newLikedStatus = !liked;
-    try {
-      final success = await setLiked(item!, newLikedStatus);
-      if (success != null && mounted) {
-        setState(() {
-          liked = newLikedStatus;
-        });
-      }
-    } on RequestFailure catch (error) {
-      if (error.kind != RequestErrorKind.notFound &&
-          error.kind != RequestErrorKind.unavailable) {
-        rethrow;
-      }
+    final newLikedStatus = await (widget.setLikedStatus ?? setLiked)(
+      item!,
+      !liked,
+    );
+    if (mounted) {
+      setState(() {
+        liked = newLikedStatus;
+      });
     }
   }
 

@@ -12,9 +12,8 @@ void main() {
       final manager = LibraryManagerProvider(libraryTaskStates: states.stream);
       states.add(
         const LibraryTaskStateChanged(
-          state: LibraryTaskStateRunning(
+          state: LibraryTaskStateAnalysisRunning(
             recordId: 'library',
-            task: LibraryTaskKind.analyze,
             runId: 'run-1',
             progress: 2,
             total: 5,
@@ -31,13 +30,12 @@ void main() {
 
       states.add(
         const LibraryTaskStateChanged(
-          state: LibraryTaskStateEnded(
+          state: LibraryTaskStateAnalysisEnded(
             recordId: 'library',
-            task: LibraryTaskKind.analyze,
             runId: 'run-1',
             progress: 2,
             total: 5,
-            outcome: LibraryTaskOutcomeCancelled(),
+            outcome: AnalysisOutcomeCancelled(),
           ),
         ),
       );
@@ -46,6 +44,88 @@ void main() {
         manager.getAnalyzeTaskProgress('library')?.status,
         TaskStatus.cancelled,
       );
+
+      manager.dispose();
+      await states.close();
+    },
+  );
+
+  test(
+    'every task kind maps its own variants to the shared task status',
+    () async {
+      final states = StreamController<LibraryTaskStateChanged>();
+      final manager = LibraryManagerProvider(libraryTaskStates: states.stream);
+
+      states.add(
+        const LibraryTaskStateChanged(
+          state: LibraryTaskStateAnalysisEnded(
+            recordId: 'library',
+            runId: 'run-1',
+            progress: 0,
+            total: 0,
+            outcome: AnalysisOutcomeFailed(
+              value: AnalysisFailure.recommendationSyncFailed,
+            ),
+          ),
+        ),
+      );
+      states.add(
+        const LibraryTaskStateChanged(
+          state: LibraryTaskStateDeduplicationRunning(
+            recordId: 'library',
+            runId: 'run-2',
+            progress: 40,
+            total: 100,
+          ),
+        ),
+      );
+      await pumpEventQueue();
+      expect(
+        manager.getAnalyzeTaskProgress('library')?.status,
+        TaskStatus.failed,
+      );
+      expect(manager.getDeduplicateTaskProgress('library')?.progress, 40);
+      expect(
+        manager.getDeduplicateTaskProgress('library')?.status,
+        TaskStatus.working,
+      );
+
+      states.add(
+        const LibraryTaskStateChanged(
+          state: LibraryTaskStateDeduplicationEnded(
+            recordId: 'library',
+            runId: 'run-2',
+            progress: 0,
+            total: 100,
+            outcome: DeduplicationOutcomeFailed(
+              value: DeduplicationFailure.comparisonFailed,
+            ),
+          ),
+        ),
+      );
+      await pumpEventQueue();
+      expect(
+        manager.getDeduplicateTaskProgress('library')?.status,
+        TaskStatus.failed,
+      );
+
+      states.add(
+        const LibraryTaskStateChanged(
+          state: LibraryTaskStateScanEnded(
+            recordId: 'library',
+            runId: 'run-3',
+            progress: 2,
+            total: 9,
+            phase: ScanTaskPhase.scanCoverArts,
+            outcome: ScanOutcomeFailed(value: ScanFailure.workerFailed),
+          ),
+        ),
+      );
+      await pumpEventQueue();
+      final scan = manager.getScanTaskProgress('library');
+      expect(scan?.status, TaskStatus.failed);
+      expect(scan?.phase, ScanTaskPhase.scanCoverArts);
+      expect(scan?.error, 'Scan failed');
 
       manager.dispose();
       await states.close();

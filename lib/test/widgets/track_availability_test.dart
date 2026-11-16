@@ -67,7 +67,7 @@ void main() {
               index: 0,
               item: item(state),
               queries: const QueryList(),
-              mode: 0,
+              mode: PlaybackMode.sequential,
               fallbackFileIds: const [],
               coverArtPath: null,
               isAlbumQuery: true,

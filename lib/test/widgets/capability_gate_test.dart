@@ -260,6 +260,36 @@ Widget playbackControls(
 );
 
 void main() {
+  testWidgets('every capability reason has its own text', (tester) async {
+    final texts = <CapabilityReason, String>{};
+    await tester.pumpWidget(
+      FluentApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('en'),
+        home: Builder(
+          builder: (context) {
+            for (final reason in CapabilityReason.values) {
+              texts[reason] = capabilityReasonText(context, reason);
+            }
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+
+    expect(texts, {
+      CapabilityReason.notImplemented:
+          'This device does not support this control.',
+      CapabilityReason.ownerOnly: 'Only the device owner can do this.',
+      CapabilityReason.peerTooOld:
+          'Update Rune on the other device to use this feature.',
+      CapabilityReason.accountRoleMissing:
+          'Your account is not allowed to do this.',
+      CapabilityReason.notAllowed: 'This device is not allowed to do that.',
+    });
+  });
+
   testWidgets('hidden play and pause remove only the play-pause control', (
     tester,
   ) async {
@@ -403,7 +433,7 @@ PlaybackStatus _playbackStatus(PlaybackState state) => PlaybackStatus(
   progressSeconds: 0,
   progressPercentage: 0,
   duration: 10,
-  playbackMode: 0,
+  playbackMode: PlaybackMode.sequential,
   ready: true,
   libPath: '',
 );

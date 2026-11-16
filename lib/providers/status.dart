@@ -21,7 +21,7 @@ class PlaybackStatusState {
   double duration;
   int? index;
   String? item;
-  int? playbackMode;
+  PlaybackMode? playbackMode;
   String? coverArtPath;
   String? libPath;
 
@@ -42,19 +42,19 @@ class PlaybackStatusState {
   });
 
   PlaybackStatusState.from(PlaybackStatusState other)
-      : state = other.state,
-        ready = other.ready,
-        progressSeconds = other.progressSeconds,
-        progressPercentage = other.progressPercentage,
-        artist = other.artist,
-        album = other.album,
-        title = other.title,
-        duration = other.duration,
-        index = other.index,
-        item = other.item,
-        playbackMode = other.playbackMode,
-        coverArtPath = other.coverArtPath,
-        libPath = other.libPath;
+    : state = other.state,
+      ready = other.ready,
+      progressSeconds = other.progressSeconds,
+      progressPercentage = other.progressPercentage,
+      artist = other.artist,
+      album = other.album,
+      title = other.title,
+      duration = other.duration,
+      index = other.index,
+      item = other.item,
+      playbackMode = other.playbackMode,
+      coverArtPath = other.coverArtPath,
+      libPath = other.libPath;
 
   // Update from PlaybackStatus (machine generated)
   void updateFrom(PlaybackStatus newStatus) {
@@ -95,20 +95,20 @@ class PlaybackStatusState {
 
   @override
   int get hashCode => Object.hash(
-        state,
-        ready,
-        progressSeconds,
-        progressPercentage,
-        artist,
-        album,
-        title,
-        duration,
-        index,
-        item,
-        playbackMode,
-        coverArtPath,
-        libPath,
-      );
+    state,
+    ready,
+    progressSeconds,
+    progressPercentage,
+    artist,
+    album,
+    title,
+    duration,
+    index,
+    item,
+    playbackMode,
+    coverArtPath,
+    libPath,
+  );
 }
 
 class PlaybackStatusProvider with ChangeNotifier {
@@ -142,6 +142,9 @@ class PlaybackStatusProvider with ChangeNotifier {
         notifyListeners();
         _hasPendingNotification = false;
       });
+      // A post-frame callback runs only when a frame happens, and an idle
+      // window may not draw one.
+      SchedulerBinding.instance.scheduleFrame();
     }
   }
 
@@ -175,8 +178,8 @@ class PlaybackStatusProvider with ChangeNotifier {
         final newPlayingItem = newStatus.itemRequest != null
             ? PlayingItem.fromRequest(newStatus.itemRequest!)
             : newStatus.item?.isEmpty == true || newStatus.item == null
-                ? null
-                : PlayingItem.fromString(newStatus.item!);
+            ? null
+            : PlayingItem.fromString(newStatus.item!);
         _playingItem = newPlayingItem;
 
         if (isNewTrack) {

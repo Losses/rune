@@ -10,6 +10,7 @@ void showExportCoverWallDialog(
   String title,
 ) async {
   await $showModal<void>(
+    staysUsableWhenShrunk: false,
     context,
     (context, $close) => ExportCoverWallDialog(
       queries: queries,

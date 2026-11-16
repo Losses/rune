@@ -7,7 +7,6 @@ import '../../../utils/l10n.dart';
 import '../../../utils/router/navigation.dart';
 import '../../../utils/library_ui/library_ui_state.dart';
 import '../../../bindings/bindings.dart';
-import '../../../utils/library_registry_messages.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../utils/dialogs/subsonic/subsonic_relogin_dialog.dart';
 import '../../../widgets/settings/settings_button.dart';
@@ -125,12 +124,7 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
                               if (!context.mounted) return;
                               await showFailedToInitializeLibrary(
                                 context,
-                                error is LibraryRegistryFailure
-                                    ? libraryRegistryFailureMessage(
-                                        S.of(context),
-                                        error.kind,
-                                      )
-                                    : S.of(context).unknownError,
+                                libraryFailureMessage(S.of(context), error),
                               );
                             }
                           },

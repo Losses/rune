@@ -21,7 +21,10 @@ class FsSelfTestLayerResult {
   factory FsSelfTestLayerResult.fromJson(Map<String, dynamic> json) {
     return FsSelfTestLayerResult(
       layer: json['layer'] as String? ?? '',
-      outcome: switch ((json['ok'] as bool? ?? false, json['skipped'] as bool? ?? false)) {
+      outcome: switch ((
+        json['ok'] as bool? ?? false,
+        json['skipped'] as bool? ?? false,
+      )) {
         (true, false) => FsSelfTestLayerOutcome.passed,
         (false, false) => FsSelfTestLayerOutcome.failed,
         (_, true) => FsSelfTestLayerOutcome.skipped,
@@ -33,12 +36,12 @@ class FsSelfTestLayerResult {
 }
 
 class FsSelfTestResult {
-  final bool success;
+  final FsSelfTestOutcome outcome;
   final List<FsSelfTestLayerResult> layers;
   final WalSelfTestResult walProbe;
 
   const FsSelfTestResult({
-    required this.success,
+    required this.outcome,
     required this.layers,
     required this.walProbe,
   });
@@ -90,7 +93,7 @@ Future<FsSelfTestResult> runFsSelfTest(
     }
 
     return FsSelfTestResult(
-      success: response.success,
+      outcome: response.outcome,
       layers: layers,
       walProbe: WalSelfTestResult(
         supported: response.walProbe.supported,

@@ -8,7 +8,6 @@ import '../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../utils/dialogs/subsonic/subsonic_relogin_dialog.dart';
 import '../../providers/library_registry.dart';
 import '../../bindings/bindings.dart';
-import '../../utils/library_registry_messages.dart';
 
 import '../settings_neighbors/widgets/settings_tile_title.dart';
 
@@ -73,9 +72,7 @@ class _RemoteDestinationsListState extends State<RemoteDestinationsList> {
                         if (!context.mounted) return;
                         await showFailedToInitializeLibrary(
                           context,
-                          error is LibraryRegistryFailure
-                              ? libraryRegistryFailureMessage(s, error.kind)
-                              : s.unknownError,
+                          libraryFailureMessage(s, error),
                         );
                         return;
                       }
@@ -96,12 +93,7 @@ class _RemoteDestinationsListState extends State<RemoteDestinationsList> {
                               if (!context.mounted) return;
                               await showFailedToInitializeLibrary(
                                 context,
-                                error is LibraryRegistryFailure
-                                    ? libraryRegistryFailureMessage(
-                                        s,
-                                        error.kind,
-                                      )
-                                    : s.unknownError,
+                                libraryFailureMessage(s, error),
                               );
                             }
                           },

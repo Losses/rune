@@ -15,7 +15,7 @@ use symphonia::core::{
     probe::Hint,
 };
 
-use ::fsio::FsIo;
+use ::fsio::{FsIo, OpenMode};
 use ::fsio_media_source::FsioMediaSource;
 
 struct AudioReader {
@@ -28,7 +28,9 @@ struct AudioReader {
 impl AudioReader {
     fn new(fsio: &FsIo, path: &impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
-        let src = fsio.open(path, "r").context("failed to open file")?;
+        let src = fsio
+            .open(path, OpenMode::Read)
+            .context("failed to open file")?;
         let source = FsioMediaSource::new(src);
         let mss = MediaSourceStream::new(Box::new(source), Default::default());
 

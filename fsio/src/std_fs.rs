@@ -5,7 +5,29 @@ use async_trait::async_trait;
 use tokio::fs;
 use walkdir::WalkDir;
 
-use super::{FileIo, FileIoError, FileStream, FsNode};
+use super::{FileIo, FileIoError, FileStream, FsNode, OpenMode, StorageLocation};
+
+/// The canonical form of `path` with its metadata.
+fn canonical_node(path: &Path) -> Result<FsNode, FileIoError> {
+    let path = dunce::canonicalize(path).map_err(FileIoError::Io)?;
+    let metadata = std::fs::metadata(&path)?;
+    Ok(FsNode {
+        filename: path.file_name().unwrap().to_str().unwrap().to_string(),
+        raw_path: path.to_str().unwrap_or_default().to_string(),
+        path,
+        is_dir: metadata.is_dir(),
+        is_file: metadata.is_file(),
+        size: metadata.len(),
+    })
+}
+
+/// [`canonical_node`] on a blocking thread, for async callers.
+async fn canonical_node_async(path: &Path) -> Result<FsNode, FileIoError> {
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || canonical_node(&path))
+        .await
+        .map_err(|error| FileIoError::Io(std::io::Error::other(error)))?
+}
 
 pub(crate) struct StdFsIo;
 
@@ -21,16 +43,17 @@ impl FileIo for StdFsIo {
         "Std"
     }
 
-    fn open(&self, path: &Path, open_mode: &str) -> Result<Box<dyn FileStream>, FileIoError> {
-        let mut options = OpenOptions::new();
-        options.read(open_mode.contains('r'));
-        options.write(open_mode.contains('w'));
-        options.append(open_mode.contains('a'));
-        options.truncate(open_mode.contains('t'));
+    fn storage(&self) -> StorageLocation {
+        StorageLocation::Local
+    }
 
-        if open_mode.contains('w') || open_mode.contains('a') || open_mode.contains('t') {
-            options.create(true);
-        }
+    fn open(&self, path: &Path, open_mode: OpenMode) -> Result<Box<dyn FileStream>, FileIoError> {
+        let mut options = OpenOptions::new();
+        options.read(open_mode.reads());
+        options.write(open_mode.writes());
+        options.append(open_mode.appends());
+        options.truncate(open_mode.truncates());
+        options.create(open_mode.creates());
 
         let file = options.open(path)?;
         Ok(Box::new(file))
@@ -39,17 +62,14 @@ impl FileIo for StdFsIo {
     async fn open_async(
         &self,
         path: &Path,
-        open_mode: &str,
+        open_mode: OpenMode,
     ) -> Result<Box<dyn FileStream>, FileIoError> {
         let mut options = fs::OpenOptions::new();
-        options.read(open_mode.contains('r'));
-        options.write(open_mode.contains('w'));
-        options.append(open_mode.contains('a'));
-        options.truncate(open_mode.contains('t'));
-
-        if open_mode.contains('w') || open_mode.contains('a') || open_mode.contains('t') {
-            options.create(true);
-        }
+        options.read(open_mode.reads());
+        options.write(open_mode.writes());
+        options.append(open_mode.appends());
+        options.truncate(open_mode.truncates());
+        options.create(open_mode.creates());
 
         let file = options.open(path).await?;
         Ok(Box::new(file.into_std().await))
@@ -165,16 +185,7 @@ impl FileIo for StdFsIo {
     }
 
     fn canonicalize(&self, path: &Path) -> Result<FsNode, FileIoError> {
-        let path = self.canonicalize_path(path)?;
-        let metadata = std::fs::metadata(&path)?;
-        Ok(FsNode {
-            filename: path.file_name().unwrap().to_str().unwrap().to_string(),
-            raw_path: path.to_str().unwrap_or_default().to_string(),
-            path,
-            is_dir: metadata.is_dir(),
-            is_file: metadata.is_file(),
-            size: metadata.len(),
-        })
+        canonical_node(path)
     }
 
     fn canonicalize_str(&self, path: &str) -> Result<FsNode, FileIoError> {
@@ -199,19 +210,19 @@ impl FileIo for StdFsIo {
     }
 
     async fn ensure_file(&self, path: &Path) -> Result<FsNode, FileIoError> {
-        if !self.exists(path)? {
+        if !fs::try_exists(path).await? {
             if let Some(parent) = path.parent() {
-                self.create_dir_all(parent)?;
+                fs::create_dir_all(parent).await?;
             }
             self.write(path, &[]).await?;
         }
-        self.canonicalize(path)
+        canonical_node_async(path).await
     }
 
     async fn ensure_directory(&self, path: &Path) -> Result<FsNode, FileIoError> {
-        if !self.exists(path)? {
-            self.create_dir_all(path)?;
+        if !fs::try_exists(path).await? {
+            fs::create_dir_all(path).await?;
         }
-        self.canonicalize(path)
+        canonical_node_async(path).await
     }
 }

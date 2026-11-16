@@ -3,7 +3,6 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:collection/collection.dart';
 
 import '../../utils/l10n.dart';
-import '../../bindings/bindings.dart';
 import '../../utils/router/router_aware_flyout_controller.dart';
 import '../../utils/dialogs/scrobble/show_scrobble_login_dialog.dart';
 import '../../utils/dialogs/information/confirm.dart';
@@ -135,9 +134,7 @@ class _SettingsBoxScrobbleLoginState extends State<SettingsBoxScrobbleLogin> {
         context: context,
         title: s.loginFailed,
         subtitle: s.loginFailedSubtitle,
-        errorMessage: e is AuthenticateSingleServiceResultFailure
-            ? scrobbleAuthenticationFailureMessage(e, s)
-            : s.loginFailedSubtitle,
+        errorMessage: scrobbleLoginFailureMessage(e, s),
       );
     }
   }

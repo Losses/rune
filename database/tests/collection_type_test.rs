@@ -1,5 +1,3 @@
-#[path = "support/fixtures.rs"]
-mod fixtures;
 use ::database::{
     actions::{
         collection::{CollectionQuery, CollectionQueryType, UnifiedCollection},
@@ -10,6 +8,7 @@ use ::database::{
 };
 use anyhow::Result;
 use database::sync::model::{Collection, Genre, ObjectKey, Payload, RuneModel};
+use database::test_fixtures::fixtures;
 use migration::catalog_identity::ParentKind;
 use sea_orm::Database;
 use std::collections::HashSet;
@@ -84,8 +83,7 @@ async fn a_mix_with_genre_and_directory_queries_reads_back() -> Result<()> {
         &library.record_store(),
         "Genres and folders".to_owned(),
         "Mine".to_owned(),
-        false,
-        99,
+        None,
         false,
         vec![],
     )

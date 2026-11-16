@@ -2,7 +2,7 @@ import 'request_failure.dart';
 import '../../bindings/bindings.dart';
 import '../playing_item.dart';
 
-Future<bool?> setLiked(PlayingItem item, bool liked) async {
+Future<bool> setLiked(PlayingItem item, bool liked) async {
   final updateRequest = SetLikedRequest(
     item: (await playingItemRefs([item])).single,
     liked: liked,
@@ -14,7 +14,5 @@ Future<bool?> setLiked(PlayingItem item, bool liked) async {
     send: (callId) =>
         updateRequest.copyWith(callId: () => callId).sendSignalToRust(),
   );
-  final response = rustSignal.message;
-
-  return response.success ? liked : null;
+  return rustSignal.message.liked;
 }

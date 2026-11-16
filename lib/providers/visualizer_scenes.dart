@@ -52,6 +52,36 @@ class VisualizerScene {
       );
 }
 
+/// Where the order and the unchecked scenes are kept between runs.
+abstract class VisualizerSceneStore {
+  Future<List<String>?> loadOrder();
+  Future<List<String>?> loadDisabled();
+  Future<void> save(List<String> order, List<String> disabled);
+}
+
+class _SettingsSceneStore implements VisualizerSceneStore {
+  Future<List<String>?> _paths(String key) async {
+    final saved = await $settingsManager.getValue<List>(key);
+    if (saved == null) return null;
+    return [
+      for (final path in saved)
+        if (path is String) path,
+    ];
+  }
+
+  @override
+  Future<List<String>?> loadOrder() => _paths(kVisualizerScenesKey);
+
+  @override
+  Future<List<String>?> loadDisabled() => _paths(kVisualizerDisabledScenesKey);
+
+  @override
+  Future<void> save(List<String> order, List<String> disabled) async {
+    await $settingsManager.setValue(kVisualizerScenesKey, order);
+    await $settingsManager.setValue(kVisualizerDisabledScenesKey, disabled);
+  }
+}
+
 /// The scenes of the visualizer in the order the user arranged them, which
 /// "next" goes through, and which of them are checked. The scenes come from Rust; the
 /// rest is saved in the settings.
@@ -70,11 +100,45 @@ class VisualizerScenesProvider extends ChangeNotifier {
   VisualizerInputs _inputs = VisualizerInputs.none;
   Future<void>? _refreshing;
   bool _refreshAgain = false;
+  Future<void> _applying = Future.value();
+  final _firstList = Completer<void>();
+  final VisualizerSceneStore _store;
+  final void Function(SetVisualizerScenesRequest request) _sendScenes;
+  StreamSubscription<VisualizerScenesChanged>? _scenesChanged;
 
-  VisualizerScenesProvider() {
+  VisualizerScenesProvider()
+    : _store = _SettingsSceneStore(),
+      _sendScenes = _sendScenesToRust {
     if (isVisualizerSupported) {
+      _listen(
+        VisualizerScenesChanged.rustSignalStream.map((event) => event.message),
+      );
       _load();
     }
+  }
+
+  /// A provider that only listens to [scenesChanged], with its own store and
+  /// without Rust, the settings or the scene folder.
+  @visibleForTesting
+  VisualizerScenesProvider.listening({
+    required Stream<VisualizerScenesChanged> scenesChanged,
+    required VisualizerSceneStore store,
+    required void Function(SetVisualizerScenesRequest request) sendScenes,
+  }) : _store = store,
+       _sendScenes = sendScenes {
+    _listen(scenesChanged);
+  }
+
+  static void _sendScenesToRust(SetVisualizerScenesRequest request) =>
+      request.sendSignalToRust();
+
+  /// Whether the first list of scenes has arrived.
+  @visibleForTesting
+  bool get loaded => _loaded;
+
+  /// Rust sends the list when it is ready and whenever it changes.
+  void _listen(Stream<VisualizerScenesChanged> scenesChanged) {
+    _scenesChanged = scenesChanged.listen((event) => _apply(event.presets));
   }
 
   @visibleForTesting
@@ -83,7 +147,9 @@ class VisualizerScenesProvider extends ChangeNotifier {
     bool gpu = true,
   }) : _scenes = scenes,
        _gpu = gpu,
-       _loaded = true;
+       _loaded = true,
+       _store = _SettingsSceneStore(),
+       _sendScenes = _sendScenesToRust;
 
   List<VisualizerScene> get scenes => _scenes
       .where(
@@ -181,14 +247,12 @@ class VisualizerScenesProvider extends ChangeNotifier {
       );
       // Rust answers once the library is open, which can take a while (or
       // wait for the user to pick one); until then the cover wall page shows
-      // the plain wall. Signals sent before that wait for it, so these go once
-      // and the list is asked for until it comes.
+      // the plain wall. Signals sent before that wait for it. Rust sends the
+      // list when it is ready; asking once covers a list that already is.
       SetVisualizerLogRequest(enabled: _log).sendSignalToRust();
       SetVisualizerPresetDirsRequest(paths: [dir]).sendSignalToRust();
-      while (!_loaded) {
-        await refresh();
-        if (!_loaded) await Future.delayed(const Duration(seconds: 3));
-      }
+      await refresh();
+      await _firstList.future;
       // Scene files the system asked Rune to open; Rust is listening now.
       SceneFiles.opened.listen((file) async {
         final result = await importScene(file);
@@ -213,7 +277,7 @@ class VisualizerScenesProvider extends ChangeNotifier {
     final name = p.basenameWithoutExtension(file);
     final directory = await sceneDir();
     try {
-      final message = (await awaitResponse(
+      await awaitResponse(
         'ImportVisualizerSceneRequest',
         ImportVisualizerSceneResponse.rustSignalStream,
         timeout: const Duration(seconds: 30),
@@ -223,10 +287,9 @@ class VisualizerScenesProvider extends ChangeNotifier {
           dir: directory,
           callId: callId,
         ).sendSignalToRust(),
-      )).message;
-      if (message.error != null) {
-        return VisualizerImport(name, error: message.error);
-      }
+      );
+    } on RequestFailure catch (failure) {
+      return VisualizerImport(name, error: failure.detail);
     } on TimeoutException {
       return VisualizerImport(name, error: 'No answer from the visualizer');
     }
@@ -253,7 +316,7 @@ class VisualizerScenesProvider extends ChangeNotifier {
     if (!scene.imported) return null;
     final directory = await sceneDir();
     try {
-      final error = (await awaitResponse(
+      await awaitResponse(
         'RemoveVisualizerSceneRequest',
         RemoveVisualizerSceneResponse.rustSignalStream,
         timeout: const Duration(seconds: 10),
@@ -263,8 +326,9 @@ class VisualizerScenesProvider extends ChangeNotifier {
           dir: directory,
           callId: callId,
         ).sendSignalToRust(),
-      )).message.error;
-      if (error != null) return error;
+      );
+    } on RequestFailure catch (failure) {
+      return failure.detail;
     } on TimeoutException {
       return 'No answer from the visualizer';
     }
@@ -335,13 +399,17 @@ class VisualizerScenesProvider extends ChangeNotifier {
       return;
     }
 
+    await _apply(listed);
+  }
+
+  /// Applies a list of scenes, one at a time in the order they arrive.
+  Future<void> _apply(List<VisualizerPresetEntry> listed) =>
+      _applying = _applying.then((_) => _applyListed(listed));
+
+  Future<void> _applyListed(List<VisualizerPresetEntry> listed) async {
     // The settings are read once; after that the lists here are newer.
-    final storedOrder = _loaded
-        ? _order
-        : await _loadPaths(kVisualizerScenesKey);
-    final storedDisabled = _loaded
-        ? _disabled
-        : await _loadPaths(kVisualizerDisabledScenesKey);
+    final storedOrder = _loaded ? _order : await _store.loadOrder();
+    final storedDisabled = _loaded ? _disabled : await _store.loadDisabled();
     final byPath = {for (final entry in listed) entry.path: entry};
     final (order, disabled) = reconcileScenes(
       listed: listed.map((entry) => entry.path).toList(),
@@ -364,6 +432,7 @@ class VisualizerScenesProvider extends ChangeNotifier {
           ),
     ];
     _loaded = true;
+    if (!_firstList.isCompleted) _firstList.complete();
     await _save();
     notifyListeners();
     _sendChoice();
@@ -371,33 +440,21 @@ class VisualizerScenesProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _scenesChanged?.cancel();
     _imports.close();
     super.dispose();
   }
 
-  Future<List<String>?> _loadPaths(String key) async {
-    final saved = await $settingsManager.getValue<List>(key);
-    if (saved == null) return null;
-    return [
-      for (final path in saved)
-        if (path is String) path,
-    ];
-  }
-
-  Future<void> _save() async {
-    await $settingsManager.setValue(kVisualizerScenesKey, _order);
-    await $settingsManager.setValue(
-      kVisualizerDisabledScenesKey,
-      _disabled.toList(),
-    );
-  }
+  Future<void> _save() => _store.save(_order, _disabled.toList());
 
   void _sendChoice() {
-    SetVisualizerScenesRequest(
-      order: _order,
-      disabled: _disabled.toList(),
-      last: _lastScene,
-    ).sendSignalToRust();
+    _sendScenes(
+      SetVisualizerScenesRequest(
+        order: _order,
+        disabled: _disabled.toList(),
+        last: _lastScene,
+      ),
+    );
   }
 
   void _placeListed() {

@@ -555,13 +555,6 @@ fn next_overlay(running: Option<OverlayRun>, run: OverlayRun) -> OverlayRun {
 }
 
 impl OverlayRun {
-    /// An overlay of `kind` that starts at `start`, in the music `music` at `phrase`: to the end
-    /// of the phrase (see `crate::course::Phrase::beats_left`).
-    #[cfg(test)]
-    pub fn new(kind: Overlay, start: f64, phrase: &Phrase, music: &MusicValues) -> Self {
-        Self::with(CourseBinds::default(), kind, start, phrase, music)
-    }
-
     /// The same, with a course that reads the music by `binds` (`course.*` of `runtime.toml`).
     pub fn with(
         binds: CourseBinds,
@@ -902,20 +895,6 @@ impl Transitions {
                 },
             ],
         })
-    }
-
-    /// Whether any texture is held (none should be once a transition is over).
-    #[cfg(test)]
-    pub fn holds_textures(&self) -> bool {
-        self.targets.is_some()
-    }
-
-    /// Whether a picture is held besides the scene's frame.
-    #[cfg(test)]
-    pub fn has_held(&self) -> bool {
-        self.targets
-            .as_ref()
-            .is_some_and(|targets| targets.held.is_some())
     }
 
     /// Whether the picture of a dissolve was held (see [`Plan::Capture`]).
@@ -1271,6 +1250,27 @@ impl Params {
 
 #[cfg(test)]
 mod tests {
+    impl OverlayRun {
+        /// An overlay of `kind` that starts at `start`, in the music `music` at `phrase`: to the end
+        /// of the phrase (see `crate::course::Phrase::beats_left`).
+        pub fn new(kind: Overlay, start: f64, phrase: &Phrase, music: &MusicValues) -> Self {
+            Self::with(CourseBinds::default(), kind, start, phrase, music)
+        }
+    }
+    impl Transitions {
+        /// Whether any texture is held (none should be once a transition is over).
+        pub fn holds_textures(&self) -> bool {
+            self.targets.is_some()
+        }
+
+        /// Whether a picture is held besides the scene's frame.
+        pub fn has_held(&self) -> bool {
+            self.targets
+                .as_ref()
+                .is_some_and(|targets| targets.held.is_some())
+        }
+    }
+
     use super::*;
 
     #[test]
@@ -1710,7 +1710,8 @@ mod tests {
             // Still music: fewer pieces, never none at the peak.
             let still = overlay_frames(kind, 0.0);
             let still_peak = still.iter().map(|f| f.amount).fold(0.0, f32::max);
-            let least = crate::course::LEAST;
+            use crate::course::tests::LEAST;
+            let least = LEAST;
             assert!((still_peak - least * most).abs() < 1e-3, "{still_peak}");
         }
     }

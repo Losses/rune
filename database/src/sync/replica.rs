@@ -4,9 +4,10 @@ use super::model::Collection;
 use super::model::{ObjectKey, Payload, Record, RuneModel};
 use super::references::collect;
 use super::share::{
-    BaseCutRequest, PublishJournalRequest, ShareCapabilities, SharePullError, SharePullRequest,
-    SharePullResult, SharePushError, SharePushResult, ShareWriter, collect_own_prefix, cut_base,
-    load_or_create_state, publish_journal, pull, push_store_error,
+    BaseCutRequest, LostCreation, PublishJournalRequest, ShareCapabilities, SharePullError,
+    SharePullRequest, SharePullResult, SharePushError, SharePushResult, ShareWriter,
+    collect_own_prefix, cut_base, discard_lost_creation, load_or_create_state, publish_journal,
+    pull, push_store_error,
 };
 use crate::sync::{import, legacy};
 use anyhow::{Result, ensure};
@@ -275,12 +276,12 @@ impl LibrarySyncStore {
         cache_path: PathBuf,
         capabilities: ShareCapabilities,
     ) -> SharePullResult<Vec<sync::ReceiveProgress>> {
-        pull::<RuneModel>(SharePullRequest {
+        let result = pull::<RuneModel>(SharePullRequest {
             db: &self.db,
             local: &self.endpoint,
             sink: &self.endpoint,
             local_source: &self.endpoint,
-            store,
+            store: store.clone(),
             library_id,
             scope: sync::Scope {
                 collections: RuneModel::collections().into_iter().collect(),
@@ -289,10 +290,42 @@ impl LibrarySyncStore {
             cache_path,
             capabilities,
         })
-        .await
+        .await;
+        if matches!(result, Err(SharePullError::ShareChanged)) {
+            self.discard_lost_share_creation(&*store, library_id).await;
+        }
+        result
     }
     /// Pull every stream through Continuous, then publish this device's local journal tail.
     pub async fn push_share(
+        &self,
+        store: Arc<dyn ObjectStore>,
+        library_id: Uuid,
+        cache_path: PathBuf,
+        capabilities: ShareCapabilities,
+    ) -> SharePushResult<Option<Head>> {
+        let result = self
+            .push_share_pass(store.clone(), library_id, cache_path, capabilities)
+            .await;
+        if matches!(result, Err(SharePushError::ShareChanged)) {
+            self.discard_lost_share_creation(&*store, library_id).await;
+        }
+        result
+    }
+    /// Removes what this device wrote to a share whose library.json another library wrote after
+    /// this device created it. The share sync failure itself is reported by the caller.
+    async fn discard_lost_share_creation(&self, store: &dyn ObjectStore, library_id: Uuid) {
+        match discard_lost_creation(&self.db, store, &self.share_writer, library_id).await {
+            Ok(LostCreation::PrefixRemoved) => log::info!(
+                "Share for library {library_id} belongs to another library; removed this device's prefix"
+            ),
+            Ok(LostCreation::Kept) => (),
+            Err(error) => log::warn!(
+                "Could not remove this device's prefix from the share of another library: {error:#}"
+            ),
+        }
+    }
+    async fn push_share_pass(
         &self,
         store: Arc<dyn ObjectStore>,
         library_id: Uuid,

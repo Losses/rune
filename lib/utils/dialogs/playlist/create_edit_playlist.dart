@@ -11,6 +11,7 @@ Future<Playlist?> showCreateEditPlaylistDialog(
   int? playlistId,
 }) async {
   return await $showModal<Playlist?>(
+    staysUsableWhenShrunk: false,
     context,
     (context, $close) => CreateEditPlaylistDialog(
       playlistId: playlistId,

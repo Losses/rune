@@ -1,11 +1,7 @@
 #![cfg(feature = "sync-crash-probe")]
-use std::fs::OpenOptions;
-use std::path::PathBuf;
-use support::fixtures;
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::{Context, Result, ensure};
 use async_trait::async_trait;
+use database::test_fixtures::causal_library as support;
 use database::{
     entities::{media_file_likes, media_file_stats, media_files},
     sync::model::*,
@@ -16,12 +12,15 @@ use sea_orm::{
     PaginatorTrait, Statement, TransactionTrait,
     sea_query::{Alias, Query},
 };
+use std::fs::OpenOptions;
+use std::path::PathBuf;
 use std::{
     path::Path,
     process::{Command, Stdio},
     sync::Arc,
     time::{Duration, Instant},
 };
+use support::fixtures;
 use sync::{self as p, ReceiveStore};
 use sync_orm::{
     causal_capabilities::{CausalEndpoint, TransactionProjection},

@@ -2,15 +2,16 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import '../bindings/bindings.dart';
 import '../utils/api/play_mode.dart';
 
 void main() {
   test('sends the playback mode before a pending settings write', () {
     final pendingWrite = Completer<void>();
-    final sent = <int>[];
+    final sent = <PlaybackMode>[];
 
-    playMode(7, persist: (_) => pendingWrite.future, send: sent.add);
+    playMode(PlaybackMode.shuffle, persist: (_) => pendingWrite.future, send: sent.add);
 
-    expect(sent, [7]);
+    expect(sent, [PlaybackMode.shuffle]);
   });
 }

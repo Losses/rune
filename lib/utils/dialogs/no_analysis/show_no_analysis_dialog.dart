@@ -17,6 +17,7 @@ Future<String?> showNoAnalysisDialog(
   bool collection = false,
 ]) async {
   return $showModal<String>(
+    staysUsableWhenShrunk: false,
     context,
     (context, $close) => UnavailableDialogOnBand(
       $close: $close,

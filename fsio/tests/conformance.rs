@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 use std::path::Path;
 
-use fsio::{FileIoError, FsIo};
+use fsio::{FileIoError, FsIo, OpenMode, StorageLocation};
 
 fn std_fsio_in(temp: &tempfile::TempDir) -> (FsIo, std::path::PathBuf) {
     (FsIo::new(), temp.path().to_path_buf())
@@ -64,24 +64,72 @@ async fn std_open_modes() {
     let file = root.join("modes.bin");
 
     {
-        let mut w = fsio.open(&file, "w").unwrap();
+        let mut w = fsio.open(&file, OpenMode::Write).unwrap();
         w.write_all(b"abc").unwrap();
     }
     {
-        let mut a = fsio.open(&file, "a").unwrap();
+        let mut a = fsio.open(&file, OpenMode::Append).unwrap();
         a.write_all(b"def").unwrap();
     }
     {
-        let mut r = fsio.open(&file, "r").unwrap();
+        let mut r = fsio.open(&file, OpenMode::Read).unwrap();
         let mut buf = Vec::new();
         r.read_to_end(&mut buf).unwrap();
         assert_eq!(buf, b"abcdef");
     }
     {
-        let mut w = fsio.open_async(&file, "wt").await.unwrap();
+        let mut w = fsio
+            .open_async(&file, OpenMode::WriteTruncate)
+            .await
+            .unwrap();
         w.write_all(b"xy").unwrap();
     }
     assert_eq!(fsio.read(&file).unwrap(), b"xy");
+}
+
+#[test]
+fn local_backends_report_local_storage() {
+    assert_eq!(FsIo::new().storage(), StorageLocation::Local);
+    assert_eq!(FsIo::new_noop().storage(), StorageLocation::Local);
+}
+
+#[test]
+fn std_open_modes_keep_their_meaning() {
+    let temp = tempfile::tempdir().unwrap();
+    let (fsio, root) = std_fsio_in(&temp);
+    let file = root.join("kept.bin");
+
+    // Only a read of a missing file fails: every mode that writes creates it.
+    assert!(fsio.open(&file, OpenMode::Read).is_err());
+    for mode in [
+        OpenMode::Write,
+        OpenMode::WriteTruncate,
+        OpenMode::Append,
+        OpenMode::ReadWrite,
+    ] {
+        let missing = root.join(format!("created-{}.bin", mode.as_str()));
+        assert!(fsio.open(&missing, mode).is_ok(), "{mode:?} did not create");
+        assert!(fsio.exists(&missing).unwrap());
+    }
+
+    fsio.open(&file, OpenMode::Write)
+        .unwrap()
+        .write_all(b"abc")
+        .unwrap();
+    // Writing without truncating keeps what follows the written bytes.
+    fsio.open(&file, OpenMode::Write)
+        .unwrap()
+        .write_all(b"x")
+        .unwrap();
+    assert_eq!(fsio.read(&file).unwrap(), b"xbc");
+    {
+        let mut both = fsio.open(&file, OpenMode::ReadWrite).unwrap();
+        let mut first = [0u8; 1];
+        both.read_exact(&mut first).unwrap();
+        assert_eq!(&first, b"x");
+    }
+    fsio.open(&file, OpenMode::WriteTruncate).unwrap();
+    assert_eq!(fsio.read(&file).unwrap(), b"");
 }
 
 #[tokio::test]
@@ -165,7 +213,7 @@ async fn std_errors_on_missing_paths() {
         fsio.read_to_string(&missing),
         Err(FileIoError::Io(_))
     ));
-    assert!(fsio.open(&missing, "r").is_err());
+    assert!(fsio.open(&missing, OpenMode::Read).is_err());
     assert!(fsio.is_file(&missing).await.is_err());
     assert!(fsio.is_dir(&missing).await.is_err());
     assert!(!fsio.exists(&missing).unwrap());
@@ -210,7 +258,7 @@ async fn noop_stub_contract() {
     fsio.remove_file(path).await.unwrap();
     fsio.remove_dir_all(path).await.unwrap();
 
-    let mut stream = fsio.open(path, "rw").unwrap();
+    let mut stream = fsio.open(path, OpenMode::ReadWrite).unwrap();
     stream.write_all(b"ignored").unwrap();
 
     let node = fsio.ensure_file(path).await.unwrap();

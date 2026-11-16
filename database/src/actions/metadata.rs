@@ -29,7 +29,7 @@ use sea_orm::{
 };
 use tokio_util::sync::CancellationToken;
 
-use ::fsio::{FsIo, FsNode};
+use ::fsio::{FsIo, FsNode, OpenMode};
 use ::metadata::{
     describe::{FileDescription, describe_file},
     reader::get_metadata,
@@ -102,7 +102,7 @@ pub async fn get_existing_files_modified(
 /// Returns (files_to_process, skipped_count)
 pub fn filter_modified_files(
     descriptions: Vec<Option<FileDescription>>,
-    existing_modified_map: &std::collections::HashMap<(String, String), Option<String>>,
+    existing_change_tokens: &std::collections::HashMap<(String, String), Option<String>>,
 ) -> (Vec<Option<FileDescription>>, usize) {
     let mut filtered = Vec::new();
     let mut skipped_count = 0;
@@ -112,10 +112,10 @@ pub fn filter_modified_files(
             Some(desc) => {
                 let key = (desc.directory.clone(), desc.file_name.clone());
 
-                if let Some(db_last_modified) = existing_modified_map.get(&key) {
+                if let Some(stored_change_token) = existing_change_tokens.get(&key) {
                     // File exists in database, check if it's been modified
                     if change_token_is_current(
-                        db_last_modified.as_deref(),
+                        stored_change_token.as_deref(),
                         desc.change_token.as_deref(),
                     ) {
                         // File hasn't been modified, skip it
@@ -241,7 +241,7 @@ async fn sync_file_descriptions_inner(
             let old_hash = existing.as_ref().and_then(|file| file.content_hash.clone());
             let prepared = tokio::task::spawn_blocking(move || -> Result<_> {
                 prepared.get_crc(&fs)?;
-                let mut stream = fs.open(&prepared.raw_node.path, "r")?;
+                let mut stream = fs.open(&prepared.raw_node.path, OpenMode::Read)?;
                 let mut hasher = blake3::Hasher::new();
                 let size = std::io::copy(&mut stream, &mut hasher)?;
                 let size = i64::try_from(size).context("File size exceeds supported range")?;
@@ -872,12 +872,12 @@ where
                 })
                 .collect();
 
-            // Batch query existing files' last_modified timestamps
+            // Batch query the stored change tokens of existing files
             match get_existing_files_modified(main_db, file_keys).await {
-                Ok(existing_modified_map) => {
+                Ok(existing_change_tokens) => {
                     // Filter out unchanged files
                     let (filtered_descriptions, skipped_count) =
-                        filter_modified_files(descriptions, &existing_modified_map);
+                        filter_modified_files(descriptions, &existing_change_tokens);
 
                     skipped_files += skipped_count;
                     descriptions = filtered_descriptions;

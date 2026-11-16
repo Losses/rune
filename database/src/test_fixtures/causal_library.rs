@@ -1,12 +1,9 @@
-#![allow(dead_code)]
-
+pub use super::fixtures;
 use std::time::Instant;
-#[path = "fixtures.rs"]
-pub mod fixtures;
 
+use crate::entities::media_files;
+use crate::sync::{LibrarySyncStore, model::*};
 use anyhow::Result;
-use database::entities::media_files;
-use database::sync::{LibrarySyncStore, model::*};
 use http_request::sync::MetadataStore;
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{Database, DatabaseConnection, TransactionTrait};
@@ -36,7 +33,7 @@ pub fn memory(namespace: Uuid, actor: Uuid) -> Result<Peer> {
 
 pub struct SqlLibrary {
     pub db: DatabaseConnection,
-    pub library: LibrarySyncStore,
+    pub sync_store: LibrarySyncStore,
     pub peer: Peer,
     pub root: tempfile::TempDir,
 }
@@ -54,7 +51,7 @@ impl SqlLibrary {
             source_generation: identity.generation,
             scope_id: p::scope_id(scope)?,
         };
-        let local = self.library.identity().await?;
+        let local = self.sync_store.identity().await?;
         let tx = self.db.begin().await?;
         sync_orm::causal_progress::initialize_checkpoint_on(&tx, &local, &checkpoint, scope, &head)
             .await?;
@@ -82,11 +79,11 @@ impl SqlLibrary {
         actor: Uuid,
         db: DatabaseConnection,
     ) -> Result<Self> {
-        let library = fixtures::open_library(db.clone(), actor, Some(namespace)).await?;
-        let peer = Arc::new(library.endpoint());
+        let sync_store = fixtures::open_library(db.clone(), actor, Some(namespace)).await?;
+        let peer = Arc::new(sync_store.endpoint());
         Ok(Self {
             db,
-            library,
+            sync_store,
             peer,
             root,
         })
@@ -100,7 +97,7 @@ pub fn scope() -> Scope {
 }
 
 pub fn limits() -> p::SessionLimits {
-    let mut limits = database::sync::session_limits();
+    let mut limits = crate::sync::session_limits();
     limits.pages.max_scanned = 3;
     limits.pages.max_bytes = 65536;
     limits.apply.max_projection_items = 3;
@@ -206,7 +203,7 @@ pub async fn local_file(
     uuid: Uuid,
     name: &str,
 ) -> Result<media_files::Model> {
-    use database::entities::media_files;
+    use crate::entities::media_files;
     use sea_orm::{EntityTrait, Set};
     Ok(media_files::Entity::insert(media_files::ActiveModel {
         id: Set(id),
@@ -275,4 +272,16 @@ pub async fn fixture_like(
     });
     RuneModel::project(db, &key(Collection::Likes, track), Some(&payload)).await?;
     Ok(())
+}
+
+pub fn metadata_track(tags: Vec<MetadataTag>) -> Payload {
+    Payload::Track(Track {
+        extension: "flac".into(),
+        content_hash: None,
+        content_size: None,
+        duration: "1.23456789".to_owned().try_into().unwrap(),
+        sample_rate: 48000,
+        cover_art_id: None,
+        metadata: tags,
+    })
 }

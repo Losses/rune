@@ -1,8 +1,8 @@
+use playback::PlaybackMode;
 use support::fixtures;
 
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::Result;
+use database::test_fixtures::causal_library as support;
 use database::{
     actions::{mixes::create_mix, playlists},
     entities::{
@@ -98,8 +98,7 @@ async fn commands_publish_playlist_and_occurrence_removals() -> Result<()> {
         &record_store,
         "dependent".into(),
         "d".into(),
-        false,
-        0,
+        Some(PlaybackMode::Sequential),
         false,
         vec![("lib::playlist".into(), list.id.to_string())],
     )

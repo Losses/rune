@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/l10n.dart';
-import '../../../widgets/playback_controller/utils/playback_mode.dart';
+import '../../../bindings/bindings.dart';
 import '../../../widgets/playback_controller/playback_mode_button.dart';
 import '../../../widgets/settings/settings_block_title.dart';
 import '../../../constants/configurations.dart';
@@ -24,8 +24,9 @@ class PlaybackModeSettingState extends State<PlaybackModeSetting> {
   }
 
   Future<void> _loadDisabledModes() async {
-    final storedDisabledModes = await $settingsManager
-        .getValue<List<dynamic>>(kDisabledPlaybackModesKey);
+    final storedDisabledModes = await $settingsManager.getValue<List<dynamic>>(
+      kDisabledPlaybackModesKey,
+    );
     if (storedDisabledModes != null) {
       setState(() {
         disabledModes = storedDisabledModes
@@ -43,8 +44,7 @@ class PlaybackModeSettingState extends State<PlaybackModeSetting> {
         disabledModes.remove(mode);
       }
     });
-    List<int> modeIndexes =
-        disabledModes.map((mode) => modeToInt(mode)).toList();
+    List<int> modeIndexes = disabledModes.map((mode) => mode.index).toList();
     await $settingsManager.setValue(kDisabledPlaybackModesKey, modeIndexes);
   }
 

@@ -200,103 +200,126 @@ class LibraryManagerProvider with ChangeNotifier {
   Stream<RequestFailure> get failureFeedback => _failureFeedback.stream;
 
   void _applyLibraryTaskState(LibraryTaskState state) {
-    if (state case LibraryTaskStateRunning(
-      :final recordId,
-      :final task,
-      :final progress,
-      :final total,
-      :final scanPhase,
-    )) {
-      switch (task) {
-        case LibraryTaskKind.analyze:
-          _updateAnalyzeProgress(
+    switch (state) {
+      case LibraryTaskStateNotRunning():
+        return;
+      case LibraryTaskStateScanRunning(
+        :final recordId,
+        :final progress,
+        :final total,
+        :final phase,
+      ):
+        _updateScanProgress(
+          recordId,
+          progress,
+          total,
+          phase,
+          TaskStatus.working,
+          getScanTaskProgress(recordId)?.initialize ?? false,
+        );
+        CollectionCache().clearAll();
+      case LibraryTaskStateScanEnded(
+        :final recordId,
+        :final progress,
+        :final total,
+        :final phase,
+        :final outcome,
+      ):
+        _forgetTaskCalls(recordId, LibraryTaskKind.scan);
+        final status = switch (outcome) {
+          ScanOutcomeFinished() => TaskStatus.finished,
+          ScanOutcomeCancelled() => TaskStatus.cancelled,
+          _ => TaskStatus.failed,
+        };
+        _updateScanProgress(
+          recordId,
+          progress,
+          total,
+          phase,
+          status,
+          getScanTaskProgress(recordId)?.initialize ?? false,
+        );
+        if (outcome is ScanOutcomeFailed) {
+          getScanTaskProgress(recordId)?.error = 'Scan failed';
+        }
+        if (status == TaskStatus.finished &&
+            getScanTaskProgress(recordId)?.initialize == true) {
+          final nestedNavigator = _scanInitializeUsesLibraryNavigator.remove(
             recordId,
-            progress,
-            total,
-            TaskStatus.working,
-            getAnalyzeTaskProgress(recordId)?.isInitializeTask ??
-                _analysisInitializeIntent[recordId] ??
-                false,
           );
-        case LibraryTaskKind.deduplicate:
-          _updateDeduplicateProgress(
-            recordId,
-            progress,
-            total,
-            TaskStatus.working,
-          );
-        case LibraryTaskKind.scan:
-          _updateScanProgress(
-            recordId,
-            progress,
-            total,
-            scanPhase ?? ScanTaskPhase.indexFiles,
-            TaskStatus.working,
-            getScanTaskProgress(recordId)?.initialize ?? false,
-          );
-          CollectionCache().clearAll();
-      }
-      return;
-    }
-    if (state case LibraryTaskStateEnded(
-      :final recordId,
-      :final task,
-      :final progress,
-      :final total,
-      :final scanPhase,
-      :final outcome,
-    )) {
-      _forgetTaskCalls(recordId, task);
-      final status = switch (outcome) {
-        LibraryTaskOutcomeFinished() => TaskStatus.finished,
-        LibraryTaskOutcomeCancelled() => TaskStatus.cancelled,
-        _ => TaskStatus.failed,
-      };
-      switch (task) {
-        case LibraryTaskKind.analyze:
-          _updateAnalyzeProgress(
-            recordId,
-            progress,
-            total,
-            status,
-            getAnalyzeTaskProgress(recordId)?.isInitializeTask ??
-                _analysisInitializeIntent.remove(recordId) ??
-                false,
-          );
-          _analyzeCompleters.remove(recordId)?.complete();
-        case LibraryTaskKind.deduplicate:
-          _updateDeduplicateProgress(recordId, progress, total, status);
-          _deduplicateCompleters.remove(recordId)?.complete();
-        case LibraryTaskKind.scan:
-          _updateScanProgress(
-            recordId,
-            progress,
-            total,
-            scanPhase ?? ScanTaskPhase.indexFiles,
-            status,
-            getScanTaskProgress(recordId)?.initialize ?? false,
-          );
-          if (outcome is LibraryTaskOutcomeFailed) {
-            getScanTaskProgress(recordId)?.error = 'Scan failed';
-          }
-          if (status == TaskStatus.finished &&
-              getScanTaskProgress(recordId)?.initialize == true) {
-            final nestedNavigator = _scanInitializeUsesLibraryNavigator.remove(
-              recordId,
-            );
-            if (nestedNavigator != null) {
-              if (_navigate case final navigate?) {
-                navigate('/library');
-              } else if (nestedNavigator) {
-                $replace('/library');
-              } else {
-                $$replace('/library');
-              }
+          if (nestedNavigator != null) {
+            if (_navigate case final navigate?) {
+              navigate('/library');
+            } else if (nestedNavigator) {
+              $replace('/library');
+            } else {
+              $$replace('/library');
             }
           }
-          _scanCompleters.remove(recordId)?.complete(status);
-          CollectionCache().clearAll();
-      }
+        }
+        _scanCompleters.remove(recordId)?.complete(status);
+        CollectionCache().clearAll();
+      case LibraryTaskStateAnalysisRunning(
+        :final recordId,
+        :final progress,
+        :final total,
+      ):
+        _updateAnalyzeProgress(
+          recordId,
+          progress,
+          total,
+          TaskStatus.working,
+          getAnalyzeTaskProgress(recordId)?.isInitializeTask ??
+              _analysisInitializeIntent[recordId] ??
+              false,
+        );
+      case LibraryTaskStateAnalysisEnded(
+        :final recordId,
+        :final progress,
+        :final total,
+        :final outcome,
+      ):
+        _forgetTaskCalls(recordId, LibraryTaskKind.analyze);
+        final status = switch (outcome) {
+          AnalysisOutcomeFinished() => TaskStatus.finished,
+          AnalysisOutcomeCancelled() => TaskStatus.cancelled,
+          _ => TaskStatus.failed,
+        };
+        _updateAnalyzeProgress(
+          recordId,
+          progress,
+          total,
+          status,
+          getAnalyzeTaskProgress(recordId)?.isInitializeTask ??
+              _analysisInitializeIntent.remove(recordId) ??
+              false,
+        );
+        _analyzeCompleters.remove(recordId)?.complete();
+      case LibraryTaskStateDeduplicationRunning(
+        :final recordId,
+        :final progress,
+        :final total,
+      ):
+        _updateDeduplicateProgress(
+          recordId,
+          progress,
+          total,
+          TaskStatus.working,
+        );
+      case LibraryTaskStateDeduplicationEnded(
+        :final recordId,
+        :final progress,
+        :final total,
+        :final outcome,
+      ):
+        _forgetTaskCalls(recordId, LibraryTaskKind.deduplicate);
+        final status = switch (outcome) {
+          DeduplicationOutcomeFinished() => TaskStatus.finished,
+          DeduplicationOutcomeCancelled() => TaskStatus.cancelled,
+          _ => TaskStatus.failed,
+        };
+        _updateDeduplicateProgress(recordId, progress, total, status);
+        _deduplicateCompleters.remove(recordId)?.complete();
     }
   }
 

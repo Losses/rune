@@ -1,7 +1,7 @@
 //! Verified, bounded transfer of audio blobs.
 use crate::sync::model::BlobRef;
 use anyhow::{Context, Result, ensure};
-use fsio::FsIo;
+use fsio::{FsIo, OpenMode};
 use sea_orm::sea_query::Expr;
 use std::collections::HashSet;
 use std::path::Component;
@@ -49,7 +49,7 @@ pub fn validate_extension(extension: &str) -> Result<()> {
 
 /// Compute a full digest without loading the file into memory.
 pub fn hash_file(fsio: &FsIo, path: &Path) -> Result<BlobRef> {
-    let mut input = fsio.open(path, "r")?;
+    let mut input = fsio.open(path, OpenMode::Read)?;
     let mut hasher = blake3::Hasher::new();
     let mut size = 0u64;
     let mut buffer = [0u8; 64 * 1024];

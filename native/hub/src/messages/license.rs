@@ -10,10 +10,7 @@ pub struct RegisterLicenseRequest {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct RegisterLicenseResponse {
-    pub valid: bool,
-    pub license: Option<String>,
-    pub success: bool,
-    pub error: Option<String>,
+    pub license: String,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

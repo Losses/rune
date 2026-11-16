@@ -1,16 +1,17 @@
+use requests::NamedLibraries;
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
 use super::mix::MixQuery;
 use super::playback::PlayingItemRef;
 
-#[derive(Clone, Serialize, Deserialize, SignalPiece)]
+#[derive(Clone, Serialize, Deserialize, SignalPiece, NamedLibraries)]
 pub struct GetCoverArtIdsByMixQueriesRequestUnit {
     pub id: i32,
     pub queries: Vec<MixQuery>,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct GetCoverArtIdsByMixQueriesRequest {
     pub requests: Vec<GetCoverArtIdsByMixQueriesRequestUnit>,
     pub n: i32,
@@ -31,7 +32,7 @@ pub struct GetCoverArtIdsByMixQueriesResponse {
     pub call_id: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct GetPrimaryColorByTrackIdRequest {
     pub item: Option<PlayingItemRef>,
     #[serde(default)]

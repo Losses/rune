@@ -22,6 +22,7 @@ use database::{
 };
 use entities::media_cover_art::Column;
 use entities::media_cover_art::Entity;
+use fsio::OpenMode;
 use std::io::Error;
 use std::io::ErrorKind;
 use std::sync::Arc;
@@ -151,7 +152,7 @@ async fn get_blob(
         .ok_or(StatusCode::NOT_FOUND)?;
     let mut file = context
         .fsio
-        .open(&path, "r")
+        .open(&path, OpenMode::Read)
         .map_err(|_| StatusCode::NOT_FOUND)?;
     let size = file
         .seek(SeekFrom::End(0))

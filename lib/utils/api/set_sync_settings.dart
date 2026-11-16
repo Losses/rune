@@ -8,7 +8,7 @@ Future<void> setSyncSettings(
   MissingHostFilePolicy missingHostFile,
 ) async {
   final id = '${DateTime.now().microsecondsSinceEpoch}-${_sequence++}';
-  final response = awaitResponse(
+  await awaitResponse(
     'SetSyncSettingsRequest',
     SetSyncSettingsResponse.rustSignalStream.where(
       (event) => event.message.requestId == id,
@@ -22,6 +22,4 @@ Future<void> setSyncSettings(
     ).sendSignalToRust(),
     timeout: const Duration(seconds: 15),
   );
-  final error = (await response).message.error;
-  if (error != null) throw StateError(error);
 }

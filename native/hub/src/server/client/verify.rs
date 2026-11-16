@@ -9,9 +9,10 @@ use rustls::ClientConfig;
 use ::discovery::{
     client::{fetch_server_certificate, parse_certificate},
     config::get_config_dir,
+    utils::DeviceType,
 };
 
-use discovery::endpoint::DeviceAddress;
+use discovery::endpoint::{DeviceAddress, DeviceScheme};
 use hub::server::{
     api::{fetch_device_info, register_device},
     generate_or_load_certificates, get_or_generate_alias,
@@ -39,7 +40,7 @@ async fn verify_single_host(host: String, expected_fp: String) -> (String, Verif
         Ok(address) => address,
         Err(error) => return (host, VerificationResult::Error(error.to_string())),
     };
-    let url = match address.url("https", "/ping") {
+    let url = match address.url(DeviceScheme::Https, "/ping") {
         Ok(url) => url.to_string(),
         Err(error) => return (host, VerificationResult::Error(error.to_string())),
     };
@@ -172,7 +173,7 @@ pub async fn register_current_device(host: &str, config: Arc<ClientConfig>) -> R
         fingerprint,
         certificate_id,
         "RuneAudio".to_owned(),
-        "Headless".to_owned(),
+        DeviceType::Headless,
     )
     .await?;
 

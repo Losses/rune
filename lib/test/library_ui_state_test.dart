@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import '../bindings/bindings.dart';
 import '../l10n/app_localizations_en.dart';
+import '../utils/api/request_failure.dart';
 import '../utils/library_ui/library_ui_state.dart';
 
 void main() {
@@ -9,9 +10,14 @@ void main() {
     expect(peerLibrariesState(s, null).status, PeerLibrariesStatus.loading);
     final error = peerLibrariesState(
       s,
-      const ListPeerLibrariesResponse(
-        libraries: [],
-        errorKind: LibraryOpenErrorKind.remoteUnreachable,
+      null,
+      failure: const RequestFailure(
+        'ListPeerLibrariesRequest',
+        RequestErrorKind.unavailable,
+        'remote endpoint is unreachable',
+        RequestFailureCauseRemoteOpenFailed(
+          kind: LibraryOpenErrorKind.remoteUnreachable,
+        ),
       ),
     );
     expect(error.status, PeerLibrariesStatus.error);

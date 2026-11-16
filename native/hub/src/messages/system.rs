@@ -1,7 +1,10 @@
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
-use super::{CastLibraryState, LibraryTaskKind};
+use super::{
+    CastLibraryState, LibraryOpenErrorKind, LibraryTaskKind, OpenLibraryFailureKind,
+    RegisterLibraryFailureKind, RemoveLibraryRecordFailureKind, ScrobbleAuthenticationFailure,
+};
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct SystemInfoRequest {
@@ -63,6 +66,22 @@ pub enum RequestFailureCause {
     SubsonicNotAuthorized,
     LibraryTaskAlreadyRunning {
         task: LibraryTaskKind,
+    },
+    LicenseInvalid,
+    LibraryRegistrationFailed {
+        kind: RegisterLibraryFailureKind,
+    },
+    RemoteOpenFailed {
+        kind: LibraryOpenErrorKind,
+    },
+    LibraryOpenFailed {
+        kind: OpenLibraryFailureKind,
+    },
+    LibraryRecordRemovalFailed {
+        kind: RemoveLibraryRecordFailureKind,
+    },
+    ScrobbleAuthentication {
+        failure: ScrobbleAuthenticationFailure,
     },
 }
 

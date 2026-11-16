@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 
 import '../../../bindings/bindings.dart';
 import '../../../providers/library_registry.dart';
-import '../../../utils/library_registry_messages.dart';
 import '../../../utils/api/library_registry.dart';
 import '../../../utils/api/request_failure.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
@@ -74,6 +73,7 @@ class PeerLibrariesDialog extends StatefulWidget {
 
 class _PeerLibrariesDialogState extends State<PeerLibrariesDialog> {
   ListPeerLibrariesResponse? response;
+  RequestFailure? failure;
   bool failed = false;
   String? selectedLibraryId;
   final paths = <String, String>{};
@@ -93,7 +93,7 @@ class _PeerLibrariesDialogState extends State<PeerLibrariesDialog> {
     try {
       final result = await widget.loadLibraries(widget.client.fingerprint);
       if (mounted) setState(() => response = result);
-      if (result.errorKind == null && result.libraries.any((e) => e.added)) {
+      if (result.libraries.any((e) => e.added)) {
         await registry.refresh();
         if (mounted) {
           setState(() {
@@ -111,10 +111,7 @@ class _PeerLibrariesDialogState extends State<PeerLibrariesDialog> {
         }
       }
     } on RequestFailure catch (error) {
-      if (mounted) {
-        setState(() => failed = true);
-        await _showError(error);
-      }
+      if (mounted) setState(() => failure = error);
     } catch (error) {
       if (mounted) {
         setState(() => failed = true);
@@ -132,15 +129,8 @@ class _PeerLibrariesDialogState extends State<PeerLibrariesDialog> {
   Future<void> _add(PeerLibrary library) async {
     setState(() => busy.add(library.libraryId));
     try {
-      final result = await widget.addLibrary(
-        library,
-        widget.client.fingerprint,
-      );
+      await widget.addLibrary(library, widget.client.fingerprint);
       if (!mounted) return;
-      if (result.error != null) {
-        await _showErrorMessage(result.error!);
-        return;
-      }
       final registry = Provider.of<LibraryRegistryProvider>(
         context,
         listen: false,
@@ -177,12 +167,6 @@ class _PeerLibrariesDialogState extends State<PeerLibrariesDialog> {
     }
   }
 
-  Future<void> _showErrorMessage(String error) => showErrorDialog(
-    context: context,
-    title: S.of(context).deviceLibraries,
-    errorMessage: error,
-  );
-
   Future<void> _open(String path) async {
     final registry = Provider.of<LibraryRegistryProvider>(
       context,
@@ -194,9 +178,7 @@ class _PeerLibrariesDialogState extends State<PeerLibrariesDialog> {
       if (!mounted) return;
       await showFailedToInitializeLibrary(
         context,
-        error is LibraryRegistryFailure
-            ? libraryRegistryFailureMessage(S.of(context), error.kind)
-            : S.of(context).unknownError,
+        libraryFailureMessage(S.of(context), error),
       );
       if (mounted) $$replace('/');
       return;
@@ -208,7 +190,7 @@ class _PeerLibrariesDialogState extends State<PeerLibrariesDialog> {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
-    final state = peerLibrariesState(s, response);
+    final state = peerLibrariesState(s, response, failure: failure);
     return NoShortcuts(
       ContentDialog(
         title: Column(children: [SizedBox(height: 8), Text(s.deviceLibraries)]),

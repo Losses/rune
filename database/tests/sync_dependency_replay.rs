@@ -1,9 +1,8 @@
 use support::fixtures;
 
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::Result;
 use database::entities::{artists, media_files};
+use database::test_fixtures::causal_library as support;
 use database::{
     actions::{
         mixes::{executable_mix_queries, query_mix_media_files},
@@ -87,7 +86,7 @@ async fn reference_before_parent_survives_endpoint_restart_and_parent_removal() 
         .peer
         .apply_page(&first, support::limits().apply)
         .await?;
-    assert_eq!(local.library.pending_mixes().await?.len(), 1);
+    assert_eq!(local.sync_store.pending_mixes().await?.len(), 1);
     let restarted = fixtures::open_library(local.db.clone(), actor, Some(ns)).await?;
     let second = page(&source, &selected, first.next).await?;
     restarted
@@ -200,10 +199,10 @@ async fn changed_entry_does_not_show_stale_parent_while_waiting() -> Result<()> 
             );
         }
         if sequence == 3 {
-            assert_eq!(local.library.pending_references().await?.len(), 1);
+            assert_eq!(local.sync_store.pending_references().await?.len(), 1);
         }
     }
-    assert!(local.library.pending_references().await?.is_empty());
+    assert!(local.sync_store.pending_references().await?.is_empty());
     Ok(())
 }
 
@@ -259,7 +258,7 @@ async fn file_artist_keeps_membership_while_parents_arrive_and_return() -> Resul
             link = Some(rows[0].clone());
         }
         assert_eq!(
-            local.library.pending_references().await?.len(),
+            local.sync_store.pending_references().await?.len(),
             3 - sequence
         );
     }
@@ -275,7 +274,7 @@ async fn file_artist_keeps_membership_while_parents_arrive_and_return() -> Resul
         media_file_artists::Entity::find().one(&local.db).await?,
         link
     );
-    assert_eq!(local.library.pending_references().await?.len(), 1);
+    assert_eq!(local.sync_store.pending_references().await?.len(), 1);
     source
         .write_local(key(Collection::Artists, artist), artist_value())
         .await?;
@@ -288,7 +287,7 @@ async fn file_artist_keeps_membership_while_parents_arrive_and_return() -> Resul
         media_file_artists::Entity::find().one(&local.db).await?,
         link
     );
-    assert!(local.library.pending_references().await?.is_empty());
+    assert!(local.sync_store.pending_references().await?.is_empty());
     let artist_row = artists::Entity::find().one(&local.db).await?.unwrap();
     assert_eq!(
         query_mix_media_files(
@@ -334,7 +333,7 @@ async fn source_uuid_resolves_reference_without_a_second_identity_registry() -> 
         .apply_page(&first, support::limits().apply)
         .await?;
     assert!(get_liked(&local.db, 1).await?);
-    assert!(local.library.pending_references().await?.is_empty());
+    assert!(local.sync_store.pending_references().await?.is_empty());
     let second = page(&source, &selected, first.next).await?;
     local
         .peer

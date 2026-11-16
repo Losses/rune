@@ -1,23 +1,16 @@
 import 'request_failure.dart';
 import '../../bindings/bindings.dart';
 
-Future<bool> removeTrustedClient(String fingerprint) async {
+Future<void> removeTrustedClient(String fingerprint) async {
   final removeTrustRequest = RemoveTrustedClientRequest(
     fingerprint: fingerprint,
   );
 
-  final rustSignal = await awaitResponse(
+  await awaitResponse(
     'RemoveTrustedClientRequest',
     RemoveTrustedClientResponse.rustSignalStream,
     responseCallId: (response) => response.message.callId?.toInt(),
     send: (callId) =>
         removeTrustRequest.copyWith(callId: () => callId).sendSignalToRust(),
   );
-  final response = rustSignal.message;
-
-  if (!response.success) {
-    throw response.error;
-  }
-
-  return response.success;
 }

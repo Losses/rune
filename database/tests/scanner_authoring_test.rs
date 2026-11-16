@@ -1,6 +1,5 @@
-#[path = "support/fixtures.rs"]
-mod fixtures;
 use anyhow::Result;
+use database::test_fixtures::fixtures;
 use database::{
     actions::{
         index::{index_audio_library, index_media_files},

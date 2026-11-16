@@ -1,6 +1,6 @@
 use crate::access_policy::{Action, ConnectionLevel, LibraryGrants, SyncLevel};
 use discovery::access_policy::{AccessPolicy, PeerIdentity};
-use discovery::endpoint::{DEFAULT_DEVICE_PORT, DeviceAddress, device_url};
+use discovery::endpoint::{DEFAULT_DEVICE_PORT, DeviceAddress, DeviceScheme, device_url};
 use std::path::Path;
 use std::{
     collections::{BTreeMap, HashSet},
@@ -19,7 +19,6 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::sync_worker::{PeerEndpoint, peer_endpoints, send_authenticated_request};
-use super::utils::device::load_device_info;
 use super::{ServerManager, generate_or_load_certificates};
 use crate::backends::remote::select_renderer_host;
 use crate::backends::remote::{RemoteConnectError, token_error};
@@ -135,7 +134,7 @@ pub(crate) async fn list_renderer_candidates(
     node: Arc<NodeContext>,
     library_ids: Vec<Uuid>,
 ) -> Result<Vec<RendererCandidate>> {
-    let own = load_device_info(Path::new(&*node.config_path)).await?;
+    let own = node.device_info().await?;
     let (_, _, private_key) =
         generate_or_load_certificates(Path::new(&*node.config_path), &own.alias).await?;
     let endpoints = peer_endpoints(&node, &own.fingerprint).await;
@@ -213,7 +212,8 @@ async fn probe_renderer(
     let hosts = endpoints
         .iter()
         .map(|endpoint| {
-            device_url(&endpoint.host, endpoint.port, "https", "/").map(|url| url.to_string())
+            device_url(&endpoint.host, endpoint.port, DeviceScheme::Https, "/")
+                .map(|url| url.to_string())
         })
         .collect::<Result<Vec<_>, _>>()?;
     let selected = select_renderer_host(&node, hosts).await?;
@@ -355,7 +355,7 @@ pub(crate) async fn cast_library_state(node: &NodeContext, library_id: Uuid) -> 
         return CastLibraryState::Ready;
     };
 
-    let info = match load_device_info(Path::new(&*node.config_path)).await {
+    let info = match node.device_info().await {
         Ok(info) => info,
         Err(error) => {
             log::warn!("Could not load local identity for cast preflight: {error:#}");
@@ -508,9 +508,7 @@ pub(super) async fn list_peer_libraries(
     {
         return Err(RemoteConnectError::NotAuthorized);
     }
-    let own = load_device_info(Path::new(&*params.config_path))
-        .await
-        .map_err(token_error)?;
+    let own = params.device_info().await.map_err(token_error)?;
     let endpoints = peer_endpoints(params, &own.fingerprint)
         .await
         .into_iter()
@@ -571,14 +569,11 @@ pub(crate) async fn add_remote_library(
     access_level: DeviceSyncLevel,
 ) -> Result<String> {
     let mut registry = LibraryRegistry::load(config_dir)?;
-    let descriptor = create_replica(
-        config_dir,
-        &mut registry,
-        Uuid::parse_str(library_id)?,
-        alias,
-        fingerprint,
-    )
-    .await?;
+    let library_id = Uuid::parse_str(library_id).map_err(|error| {
+        ExpectedRequestError::invalid_input(format!("Invalid library id: {error}"))
+    })?;
+    let descriptor =
+        create_replica(config_dir, &mut registry, library_id, alias, fingerprint).await?;
     LibraryRegistry::set_access_level(
         config_dir,
         descriptor

@@ -1,8 +1,7 @@
 //! Cross-component convergence and session boundaries.
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::Result;
 use database::sync::model::*;
+use database::test_fixtures::causal_library as support;
 use support::{Peer, exchange_scoped};
 use sync::{self as p};
 use uuid::Uuid;

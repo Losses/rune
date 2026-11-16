@@ -511,15 +511,6 @@ impl LibraryPool {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) async fn ui_user_count(&self, library_id: Uuid) -> usize {
-        self.entries
-            .lock()
-            .await
-            .get(&library_id)
-            .map_or(0, |entry| entry.ui_users)
-    }
-
     /// Drop the pool's background-only connection after a record is removed.
     pub async fn release_background(&self, library_id: Uuid) {
         let mut entries = self.entries.lock().await;
@@ -594,6 +585,16 @@ async fn checkpoint_wal(db: &sea_orm::DatabaseConnection) -> Result<()> {
 #[cfg(all(test, not(target_os = "android")))]
 mod tests {
     use super::*;
+
+    impl LibraryPool {
+        pub(crate) async fn ui_user_count(&self, library_id: Uuid) -> usize {
+            self.entries
+                .lock()
+                .await
+                .get(&library_id)
+                .map_or(0, |entry| entry.ui_users)
+        }
+    }
     use crate::test_wait::{TEST_DEADLINE, wait_until};
     use database::{
         connection::create_redirect,

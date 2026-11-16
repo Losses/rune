@@ -98,7 +98,7 @@ class _FsSelfTestDialogState extends State<FsSelfTestDialog> {
       if (!mounted) return;
       setState(() {
         _finished = true;
-        _success = result.success;
+        _success = result.outcome == FsSelfTestOutcome.passed;
         if (result.layers.isNotEmpty) {
           _layers
             ..clear()

@@ -1,3 +1,4 @@
+use requests::NamedLibraries;
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
@@ -10,9 +11,6 @@ pub struct InitializeNodeRequest {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct InitializeNodeResponse {
-    pub success: bool,
-    pub error_kind: Option<super::RequestErrorKind>,
-    pub error: Option<String>,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -29,20 +27,22 @@ pub struct CloseLibraryResponse {
     pub call_id: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct ScanAudioLibraryRequest {
     pub force: bool,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(
+    Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq, NamedLibraries,
+)]
 pub enum ComputingDeviceRequest {
     Cpu,
     Gpu,
 }
 
-#[derive(Debug, Serialize, Deserialize, DartSignal)]
+#[derive(Debug, Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct AnalyzeAudioLibraryRequest {
     pub computing_device: ComputingDeviceRequest,
     pub workload_factor: f32,
@@ -50,7 +50,7 @@ pub struct AnalyzeAudioLibraryRequest {
     pub call_id: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct DeduplicateAudioLibraryRequest {
     pub similarity_threshold: f32,
     pub workload_factor: f32,
@@ -58,14 +58,16 @@ pub struct DeduplicateAudioLibraryRequest {
     pub call_id: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(
+    Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq, NamedLibraries,
+)]
 pub enum CancelTaskType {
     AnalyzeAudioLibrary,
     ScanAudioLibrary,
     DeduplicateAudioLibrary,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct CancelTaskRequest {
     pub record_id: String,
     pub r#type: CancelTaskType,

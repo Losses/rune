@@ -8,6 +8,7 @@ import '../../widgets/turntile/managed_turntile_screen_item.dart';
 import '../../widgets/track_list/small_screen_track_list_item.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
 import '../../utils/l10n.dart';
+import '../../bindings/bindings.dart';
 
 import '../navigation_bar/page_content_frame.dart';
 
@@ -15,7 +16,7 @@ class SmallScreenTrackList extends StatefulWidget {
   final int totalCount;
   final InternalMediaFile? Function(int) getItem;
   final QueryList queries;
-  final int mode;
+  final PlaybackMode? mode;
 
   const SmallScreenTrackList({
     super.key,

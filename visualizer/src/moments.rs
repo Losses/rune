@@ -23,10 +23,6 @@ use crate::scene::MusicValues;
 use crate::switching::pick_by_label;
 use crate::transition::Transition;
 
-/// The fewest bars between two effects, unless the second is at a strong moment. The default of
-/// `moments.gap` in `runtime.toml`, which the scheduler reads.
-#[cfg(test)]
-pub const GAP_BARS: f32 = 8.0;
 /// The effects that are strong: they play only at a strong moment. The rest are light.
 pub const STRONG: &[&str] = &["flash", "glitch", "mosaic", "cutin"];
 /// The transitions that may dress a cut, strong first, then light.
@@ -245,6 +241,9 @@ pub fn lens_effect(names: &[String], played: Played) -> Option<Lens> {
 
 #[cfg(test)]
 mod tests {
+    /// The fewest bars between two effects, unless the second is at a strong moment. The default of
+    /// `moments.gap` in `runtime.toml`, which the scheduler reads.
+    pub const GAP_BARS: f32 = 8.0;
 
     use super::*;
     use crate::bind::tests::embedded_with;

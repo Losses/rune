@@ -3,10 +3,11 @@ use database::library_registry::{
     CatalogPlacement, FsAdapter, InvalidRecord, LibraryAccess, LibraryConnectionAccess,
     LibraryRecord, ProtocolAdapter, RuneForwardMode, SubsonicOpenMode,
 };
+use requests::NamedLibraries;
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct GetOpenLibraryRequest {
     #[serde(default)]
     pub call_id: Option<u64>,
@@ -35,8 +36,6 @@ pub struct TestLibraryInitializedRequest {
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct TestLibraryInitializedResponse {
     pub path: String,
-    pub success: bool,
-    pub error: Option<String>,
     pub not_ready: bool,
     #[serde(default)]
     pub call_id: Option<u64>,
@@ -111,18 +110,8 @@ pub struct ReplaceSubsonicCredentialRequest {
     pub call_id: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ReplaceSubsonicCredentialResult {
-    Updated,
-    Rejected,
-    Unreachable,
-    InvalidRecord,
-    Storage,
-}
-
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct ReplaceSubsonicCredentialResponse {
-    pub result: ReplaceSubsonicCredentialResult,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -381,15 +370,8 @@ pub enum RemoveLibraryRecordFailureKind {
     RecordIsOpen,
 }
 
-#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
-pub enum RemoveLibraryRecordOutcome {
-    Removed,
-    Failed(RemoveLibraryRecordFailureKind),
-}
-
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct RemoveLibraryRecordResponse {
-    pub outcome: RemoveLibraryRecordOutcome,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -423,7 +405,6 @@ pub enum OpenDalShareDataDetection {
     ExistingLibrary { library_id: String },
     WritableEmpty,
     ReadOnly,
-    Failed(RegisterLibraryFailureKind),
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
@@ -440,14 +421,12 @@ pub enum RegisterLibraryOutcome {
     NeedsSubsonicMode {
         allowed: Vec<SubsonicOpenModeMessage>,
     },
-    Failed(RegisterLibraryFailureKind),
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct RegisterLibraryResponse {
     pub record: Option<LibraryRecordSummary>,
     pub outcome: RegisterLibraryOutcome,
-    pub detail: Option<String>,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -473,25 +452,12 @@ pub enum OpenLibraryFailureKind {
     Storage,
 }
 
-#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
-pub enum OpenLibraryResult {
-    Opened,
-    Failed(OpenLibraryFailure),
-}
-
-#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
-pub struct OpenLibraryFailure {
-    pub kind: OpenLibraryFailureKind,
-    pub detail: String,
-}
-
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct OpenLibraryResponse {
     #[serde(default)]
     pub call_id: Option<u64>,
     pub record_id: String,
     pub generation: u64,
-    pub result: OpenLibraryResult,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
@@ -557,6 +523,13 @@ pub struct ControllersUpdated {
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct DetachControllerRequest {
     pub id: String,
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+/// Sent once the controller is no longer attached.
+#[derive(Debug, Serialize, Deserialize, RustSignal)]
+pub struct DetachControllerResponse {
     #[serde(default)]
     pub call_id: Option<u64>,
 }

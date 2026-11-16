@@ -4,18 +4,18 @@ import '../../constants/configurations.dart';
 import '../settings_manager.dart';
 
 void playMode(
-  int mode, {
-  Future<void> Function(int mode)? persist,
-  void Function(int mode)? send,
+  PlaybackMode mode, {
+  Future<void> Function(PlaybackMode mode)? persist,
+  void Function(PlaybackMode mode)? send,
 }) async {
   (send ?? _sendPlaybackMode)(mode);
   await (persist ?? _persistPlaybackMode)(mode);
 }
 
-void _sendPlaybackMode(int mode) {
+void _sendPlaybackMode(PlaybackMode mode) {
   SetPlaybackModeRequest(mode: mode).sendSignalToRust();
 }
 
-Future<void> _persistPlaybackMode(int mode) {
-  return SettingsManager().setValue(kPlaybackModeKey, mode);
+Future<void> _persistPlaybackMode(PlaybackMode mode) {
+  return SettingsManager().setValue(kPlaybackModeKey, mode.index);
 }

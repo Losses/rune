@@ -1,7 +1,6 @@
-#[path = "support/fixtures.rs"]
-mod fixtures;
 use anyhow::Result;
 use database::connection::RecommendationDbConnection;
+use database::test_fixtures::fixtures;
 use database::{
     actions::{
         downloads::prepare_download,

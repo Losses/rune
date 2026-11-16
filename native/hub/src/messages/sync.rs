@@ -39,7 +39,6 @@ pub struct SetDownloadRuleRequest {
 pub struct SetDownloadRuleResponse {
     pub request_id: String,
     pub rule_id: String,
-    pub error: Option<String>,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -55,7 +54,6 @@ pub struct RemoveDownloadRuleRequest {
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct RemoveDownloadRuleResponse {
     pub request_id: String,
-    pub error: Option<String>,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -94,7 +92,6 @@ pub struct GetSyncSettingsResponse {
     pub request_id: String,
     pub listen: bool,
     pub missing_host_file: MissingHostFilePolicy,
-    pub error: Option<String>,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -109,7 +106,6 @@ pub struct SetSyncSettingsRequest {
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct SetSyncSettingsResponse {
     pub request_id: String,
-    pub error: Option<String>,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

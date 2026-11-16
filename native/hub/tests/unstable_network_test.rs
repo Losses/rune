@@ -25,8 +25,6 @@ use std::time::Instant;
 use support::fixtures;
 use tokio::net::TcpListener;
 type MetadataPeer = http_request::sync::MetadataPeer<RuneModel>;
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::{Context, Result};
 use axum::{
     body::{Body, Bytes, to_bytes},
@@ -35,6 +33,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
+use database::test_fixtures::causal_library as support;
 use fsio::FsIo;
 use futures::stream;
 use sea_orm::{

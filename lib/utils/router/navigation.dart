@@ -4,6 +4,7 @@ import '../../main.dart';
 import '../../widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 import '../../providers/router_path.dart';
 
+import '../dialogs/unavailable_dialog_on_band.dart';
 import 'history.dart';
 import 'modal_route_entry.dart';
 import 'route_entry.dart';
@@ -69,12 +70,19 @@ Future<T?> $showModal<T extends Object?>(
   bool barrierDismissible = false,
   bool dismissWithEsc = false,
   RouteTransitionsBuilder? transitionBuilder,
+  bool staysUsableWhenShrunk = true,
 }) {
+  // A dialog already open when the window shrinks stays mounted and scrolls,
+  // so what the user typed survives. Dialogs with their own answer to a small
+  // layout ([UnavailableDialogOnBand], [RemoveDialogOnBand]) opt out.
   Widget wrapped(BuildContext context) => ModalRouteWrapper(
     name: name ?? 'modal',
     arguments: arguments,
     canPop: canPop,
-    builder: builder,
+    builder: staysUsableWhenShrunk
+        ? (context, close) =>
+              ScrollableDialogFrame(child: builder(context, close))
+        : builder,
   );
   // Fluent's own transition when none is given.
   if (transitionBuilder == null) {

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../../utils/dialogs/unavailable_dialog_on_band.dart';
 import '../../../utils/router/navigation.dart';
 import '../../../utils/router/router_aware_flyout_controller.dart';
 import '../../ax_reveal/ax_reveal.dart';
@@ -89,37 +90,43 @@ Future<void> showLabRowsDialog(
   // rounding.
   final full = labLayoutOf(context, listen: false).paged;
 
+  // On a small screen the dialog fills the window and lays itself out to it, so its
+  // frame only keeps it from getting narrower than 320, not shorter than 480.
   return $showModal<void>(
+    staysUsableWhenShrunk: false,
     context,
-    (context, close) => FluentTheme(
-      data: theme,
-      child: ContentDialog(
-        constraints: full
-            ? const BoxConstraints.expand()
-            : BoxConstraints(
-                maxWidth: _dialogWidth,
-                minHeight: dialogHeight,
-                maxHeight: dialogHeight,
-              ),
-        // The panes reach the dialog's edges, inside its rounding, and
-        // bring their own materials: the dialog has none of its own, so that
-        // the acrylic of the views' pane shows what is behind it.
-        style: ContentDialogThemeData(
-          padding: EdgeInsets.zero,
-          bodyPadding: EdgeInsets.zero,
-          decoration: BoxDecoration(
-            borderRadius: full
-                ? BorderRadius.zero
-                : const BorderRadius.all(Radius.circular(_dialogRadius)),
+    (context, close) => ScrollableDialogFrame(
+      minimumHeight: 0,
+      child: FluentTheme(
+        data: theme,
+        child: ContentDialog(
+          constraints: full
+              ? const BoxConstraints.expand()
+              : BoxConstraints(
+                  maxWidth: _dialogWidth,
+                  minHeight: dialogHeight,
+                  maxHeight: dialogHeight,
+                ),
+          // The panes reach the dialog's edges, inside its rounding, and
+          // bring their own materials: the dialog has none of its own, so that
+          // the acrylic of the views' pane shows what is behind it.
+          style: ContentDialogThemeData(
+            padding: EdgeInsets.zero,
+            bodyPadding: EdgeInsets.zero,
+            decoration: BoxDecoration(
+              borderRadius: full
+                  ? BorderRadius.zero
+                  : const BorderRadius.all(Radius.circular(_dialogRadius)),
+            ),
           ),
-        ),
-        content: ClipRRect(
-          borderRadius: BorderRadius.circular(full ? 0 : _dialogRadius),
-          child: LabRowsDialog(
-            model: model,
-            columns: columns,
-            reveal: reveal,
-            onClose: () => close(null),
+          content: ClipRRect(
+            borderRadius: BorderRadius.circular(full ? 0 : _dialogRadius),
+            child: LabRowsDialog(
+              model: model,
+              columns: columns,
+              reveal: reveal,
+              onClose: () => close(null),
+            ),
           ),
         ),
       ),

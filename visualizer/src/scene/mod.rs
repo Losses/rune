@@ -26,6 +26,7 @@ use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 
@@ -246,6 +247,9 @@ pub struct FrameInput<'a> {
     pub song_seed: Option<u32>,
     /// The app's accent colour (linear), once the app has told it.
     pub accent: Option<[f32; 3]>,
+    /// When the frame is drawn on the machine's clock. The music's signals fade by the wall time
+    /// between frames, which a paused song's clock does not give (see [`inputs::WallClock`]).
+    pub wall: Instant,
 }
 
 /// A buffer of the manifest: one texture, or two taking turns when it is persistent.
@@ -557,10 +561,6 @@ pub struct Scene {
     /// Whether the bindings heard the director's cut in the last frame (`cut`): a cut, or the
     /// scene's first frame when it has a director.
     bound_cut: bool,
-    /// Tests only: each frame's seed comes from this and the frame's index instead of at random,
-    /// so that the same timeline draws the same pictures (see [`Scene::fix_seed`]).
-    #[cfg(test)]
-    fixed_seed: Option<u32>,
     _keep: Vec<wgpu::Texture>,
 }
 
@@ -904,26 +904,6 @@ fn post_defaults(manifest: &Manifest) -> Vec<u8> {
 }
 
 impl Scene {
-    /// Build the scene in `dir`, drawing frames of `output_size` in `output_format`.
-    #[cfg(test)]
-    pub fn load(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        dir: &Path,
-        output_format: wgpu::TextureFormat,
-        output_size: (u32, u32),
-        sample_rate: u32,
-    ) -> Result<Self> {
-        Self::load_from(
-            device,
-            queue,
-            Source::Dir(dir.to_path_buf()),
-            output_format,
-            output_size,
-            sample_rate,
-        )
-    }
-
     /// Build the scene `source` holds, drawing frames of `output_size` in `output_format`.
     pub fn load_from(
         device: &wgpu::Device,
@@ -1398,8 +1378,6 @@ impl Scene {
             bound_cut: false,
             on_disk: files.clone(),
             files,
-            #[cfg(test)]
-            fixed_seed: None,
             _keep: keep,
         })
     }
@@ -1597,13 +1575,6 @@ impl Scene {
     pub fn start_leak(&mut self) {
         self.stepper.taint();
         self.decider.lens_mut().start_leak(1.0);
-    }
-
-    /// Keep a flare at its full swell, called before each frame (a probe).
-    #[cfg(test)]
-    pub fn hold_flare(&mut self) {
-        self.stepper.taint();
-        self.decider.lens_mut().hold_flare();
     }
 
     /// Play a glitch or a mosaic over the picture from the next frame (a scene lab).
@@ -1960,23 +1931,6 @@ impl Scene {
         self.level = level;
     }
 
-    /// Tests only: seed each frame from `seed` and its index instead of at random (none: at random
-    /// again). The seed is all that differs between two runs of the same timeline: the scene's
-    /// choices and the grain.
-    #[cfg(test)]
-    pub(crate) fn fix_seed(&mut self, seed: Option<u32>) {
-        self.fixed_seed = seed;
-    }
-
-    /// Start the scene's music from nothing and let every frame after the first count as `dt`
-    /// wall seconds (see [`inputs::WallClock::fixed`]): the music's signals then depend on the
-    /// timeline alone, not on what scene was drawn before or how fast the GPU was.
-    #[cfg(test)]
-    pub(crate) fn fix_wall_dt(&mut self, dt: f64) {
-        self.wall = WallClock::fixed(dt);
-        self.heard = EventCounter::default();
-    }
-
     /// What the director tells the scene now (`struct Shot`), zeros without a director: its
     /// shot, with the count of cuts the scene was told, told to jump after a jump, and `since_step`
     /// song seconds older than the decider's last step (the steps come at 60 a second, the frames
@@ -2049,21 +2003,6 @@ impl Scene {
         self.analyzer.clear_feed_spectrum();
     }
 
-    /// Draw a frame into `target` (the output format and size). With `timestamps`, the first pass
-    /// writes query 0 at its beginning and the last query 1 at its end.
-    #[cfg(test)]
-    pub fn render(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        encoder: &mut wgpu::CommandEncoder,
-        target: &wgpu::TextureView,
-        input: &FrameInput,
-        timestamps: Option<&wgpu::QuerySet>,
-    ) {
-        self.render_timed(device, queue, encoder, target, input, timestamps, true);
-    }
-
     /// [`Scene::render`], where the frame's end timestamp (query 1) is written at the end of the
     /// last pass only if `stamp_end`: a pass drawn after the scene (see `crate::transition`) writes
     /// it instead, so that its cost is part of the frame's.
@@ -2107,10 +2046,6 @@ impl Scene {
             Some(song) => mix_seed(song, (input.song.0.max(0.0) / STEP).floor() as u32),
             None => rand::random::<u32>(),
         };
-        #[cfg(test)]
-        let seed = self.fixed_seed.map_or(seed, |fixed| {
-            fixed.wrapping_add(self.index.wrapping_mul(0x9e37_79b9))
-        });
         frame.extend(seed.to_le_bytes());
         let [r, g, b] = input.accent.unwrap_or_default();
         for v in [r, g, b, f32::from(u8::from(input.accent.is_some()))] {
@@ -2136,7 +2071,7 @@ impl Scene {
             levels,
             input.song,
             &mut self.heard,
-            self.wall.tick(),
+            self.wall.tick(input.wall),
         );
         queue.write_buffer(&self.music, 0, &music.bytes());
         self.music_values = music;

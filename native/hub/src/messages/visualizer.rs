@@ -236,12 +236,11 @@ pub struct ImportVisualizerSceneRequest {
     pub call_id: Option<u64>,
 }
 
-/// `path` is the folder of the imported scene, or `error` says why the file is not one.
+/// `path` is the folder of the imported scene; a file that is not one is a failed request.
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct ImportVisualizerSceneResponse {
     pub file: String,
-    pub path: Option<String>,
-    pub error: Option<String>,
+    pub path: String,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -259,7 +258,6 @@ pub struct RemoveVisualizerSceneRequest {
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct RemoveVisualizerSceneResponse {
     pub path: String,
-    pub error: Option<String>,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -420,6 +418,14 @@ pub struct ListVisualizerPresetsResponse {
     pub presets: Vec<VisualizerPresetEntry>,
     #[serde(default)]
     pub call_id: Option<u64>,
+}
+
+/// Sent whenever the list of scenes is ready or changes: when the scene folder has been read,
+/// and after a scene is imported or removed. Carries the same list as
+/// [`ListVisualizerPresetsResponse`].
+#[derive(Serialize, Deserialize, RustSignal)]
+pub struct VisualizerScenesChanged {
+    pub presets: Vec<VisualizerPresetEntry>,
 }
 
 /// Whether the visualizer copies what it sees in each frame for the in-app lab

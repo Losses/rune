@@ -1,6 +1,7 @@
 use database::actions::file::{
     AudioAvailability as FileAudioAvailability, AudioOrigin as FileAudioOrigin,
 };
+use requests::NamedLibraries;
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -8,7 +9,7 @@ use std::collections::HashMap;
 use super::album::Album;
 use super::artist::Artist;
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct FetchMediaFilesRequest {
     pub cursor: i32,
     pub page_size: i32,
@@ -73,7 +74,7 @@ pub struct MediaFile {
     pub audio_origin: AudioOrigin,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct FetchParsedMediaFileRequest {
     pub id: i32,
     #[serde(default)]
@@ -97,7 +98,7 @@ pub struct FetchMediaFilesResponse {
     pub call_id: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct FetchMediaFileByIdsRequest {
     pub ids: Vec<i32>,
     pub bake_cover_arts: bool,
@@ -121,7 +122,7 @@ pub struct MediaFileSummary {
     pub audio_availability: AudioAvailability,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct SearchMediaFileSummaryRequest {
     pub n: i32,
     #[serde(default)]
@@ -135,7 +136,7 @@ pub struct SearchMediaFileSummaryResponse {
     pub call_id: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct GetMediaFilesCountRequest {
     #[serde(default)]
     pub call_id: Option<u64>,

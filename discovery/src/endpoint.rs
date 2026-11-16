@@ -81,6 +81,22 @@ impl Display for DeviceAddress {
     }
 }
 
+/// URL scheme used to reach a Rune device.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeviceScheme {
+    Https,
+    Wss,
+}
+
+impl DeviceScheme {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Https => "https",
+            Self::Wss => "wss",
+        }
+    }
+}
+
 impl DeviceAddress {
     /// Hostname or IP address without port punctuation.
     pub fn host(&self) -> &str {
@@ -104,8 +120,8 @@ impl DeviceAddress {
     }
 
     /// Build an HTTPS or WSS URL for this device.
-    pub fn url(&self, scheme: &str, path: &str) -> Result<Url, EndpointUrlError> {
-        if !matches!(scheme, "https" | "wss") || !path.starts_with('/') {
+    pub fn url(&self, scheme: DeviceScheme, path: &str) -> Result<Url, EndpointUrlError> {
+        if !path.starts_with('/') {
             return Err(EndpointUrlError::Malformed("invalid device URL".into()));
         }
         let host = if self.host.parse::<IpAddr>().is_ok_and(|ip| ip.is_ipv6()) {
@@ -113,7 +129,7 @@ impl DeviceAddress {
         } else {
             self.host.clone()
         };
-        Url::parse(&format!("{scheme}://{host}:{}{path}", self.port))
+        Url::parse(&format!("{}://{host}:{}{path}", scheme.as_str(), self.port))
             .map_err(|error| EndpointUrlError::Malformed(error.to_string()))
     }
 }
@@ -122,7 +138,7 @@ impl DeviceAddress {
 pub fn device_url(
     host: &str,
     port: u16,
-    scheme: &str,
+    scheme: DeviceScheme,
     path: &str,
 ) -> Result<Url, EndpointUrlError> {
     DeviceAddress::new(host, port)?.url(scheme, path)
@@ -457,6 +473,31 @@ mod tests {
     use super::*;
 
     const FP: &str = "abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrst";
+
+    #[test]
+    fn device_urls_use_each_scheme_and_bracket_ipv6_hosts() {
+        let name = DeviceAddress::new("peer.example", 7000).unwrap();
+        assert_eq!(
+            name.url(DeviceScheme::Https, "/ping").unwrap().as_str(),
+            "https://peer.example:7000/ping"
+        );
+        assert_eq!(
+            name.url(DeviceScheme::Wss, "/ws?host=a").unwrap().as_str(),
+            "wss://peer.example:7000/ws?host=a"
+        );
+        let v6 = DeviceAddress::new("::1", 7000).unwrap();
+        assert_eq!(
+            v6.url(DeviceScheme::Wss, "/ws").unwrap().as_str(),
+            "wss://[::1]:7000/ws"
+        );
+        assert_eq!(
+            device_url("peer.example", 7000, DeviceScheme::Https, "/")
+                .unwrap()
+                .as_str(),
+            "https://peer.example:7000/"
+        );
+        assert!(name.url(DeviceScheme::Https, "no-slash").is_err());
+    }
 
     #[test]
     fn device_address_round_trips_and_defaults_port() {

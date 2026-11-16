@@ -16,7 +16,6 @@ import '../../../utils/dialogs/play_queue_dialog.dart';
 import '../../../utils/dialogs/play_on/play_on_dialog.dart';
 import '../../../utils/settings_manager.dart';
 import '../../../widgets/playback_controller/fullscreen_button.dart';
-import '../../../widgets/playback_controller/utils/playback_mode.dart';
 import '../../../providers/status.dart';
 import '../../../providers/volume.dart';
 import '../../../providers/full_screen.dart';
@@ -254,7 +253,9 @@ List<ControllerEntry> controllerItems = [
             ? null
             : () {
                 Navigator.pop(context);
-                status.state == PlaybackState.playing ? playPause() : playPlay();
+                status.state == PlaybackState.playing
+                    ? playPause()
+                    : playPlay();
               },
       );
     },
@@ -402,9 +403,8 @@ List<ControllerEntry> controllerItems = [
         listen: false,
       );
 
-      final PlaybackMode currentMode = PlaybackModeExtension.fromValue(
-        statusProvider.playbackStatus.playbackMode ?? 0,
-      );
+      final PlaybackMode currentMode =
+          statusProvider.playbackStatus.playbackMode ?? PlaybackMode.sequential;
 
       return modeToIcon(currentMode);
     },
@@ -417,9 +417,7 @@ List<ControllerEntry> controllerItems = [
       );
       final status = statusProvider.playbackStatus;
 
-      final currentMode = PlaybackModeExtension.fromValue(
-        status.playbackMode ?? 0,
-      );
+      final currentMode = status.playbackMode ?? PlaybackMode.sequential;
 
       return modeToLabel(context, currentMode);
     },
@@ -440,9 +438,7 @@ List<ControllerEntry> controllerItems = [
       );
       final status = statusProvider.playbackStatus;
 
-      final currentMode = PlaybackModeExtension.fromValue(
-        status.playbackMode ?? 0,
-      );
+      final currentMode = status.playbackMode ?? PlaybackMode.sequential;
 
       // Retrieve disabled modes
       List<dynamic>? storedDisabledModes = await SettingsManager()
@@ -477,7 +473,7 @@ List<ControllerEntry> controllerItems = [
             leading: Icon(modeToIcon(x), color: color),
             onPressed: () {
               Navigator.pop(context);
-              playMode(x.toValue());
+              playMode(x);
             },
           );
         }).toList(),
@@ -521,7 +517,9 @@ List<ControllerEntry> controllerItems = [
     shortcuts: null,
     onShortcut: null,
     tooltipBuilder: (context) {
-      final remotePath = Provider.of<LibraryOpenStateProvider>(context).isRemoteControl;
+      final remotePath = Provider.of<LibraryOpenStateProvider>(
+        context,
+      ).isRemoteControl;
       if (remotePath) {
         return S.of(context).playOnFixedToRemote;
       }

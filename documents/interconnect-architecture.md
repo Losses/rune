@@ -256,6 +256,8 @@ Own-prefix garbage collection runs through the same writer as push and deletes o
 - One writer per prefix also inside a device: push, acknowledgement-only head writes, roll-up, base cut and garbage collection go through one serialized writer.
 - Only a real 404 or a digest mismatch can trigger reconciliation, `library.json` creation, rotation or retirement. 423, 5xx, timeouts and failed listings are transient typed errors with backoff.
 - `library.json` is re-validated on every pass. If it disappears or names another library under an existing binding, the device stops with a typed state and never recreates it.
+- On a store without create-if-absent, `library.json` is written with a plain PUT and read back at once. No wait could tell whether another library is writing it at the same moment, so the rule is: the library that wrote `library.json` last owns the folder. The other device finds another library on its next pass and stops with the typed state. The two libraries never merge, because every head names its library and pull skips heads of another library.
+- A device that wrote `library.json` and finds another library there before its creation held removes its own prefix, the only prefix it writes. The creation holds once the device finds its own `library.json` again after it has written its first head. Nothing is removed when the device did not write `library.json`, after the creation held, when `library.json` is missing or names this library, or when a head in the prefix was written by another writer session.
 - A share sync failure reaches the UI as a typed state of that library.
 
 ### Storage primitives
@@ -352,6 +354,7 @@ Before a cast the controller checks the player (reachable, accepts any granted l
 
 - Every library call from another device names its library. A call without a `library_id` is rejected; it is never served from the library open in the UI.
 - Every call in the request catalogue has an access rule for calls from other devices. This-device calls (trust management, scrobbling sign-in, server control, logs, licences) are refused when they come from another device.
+- A call whose body names libraries, through its items, also declares in the catalogue what they mean: the call acts on each of them, so each is authorized with the call's access rule and must be the library the call names; or the player reads them under its own grants (load, cast, handoff). The libraries are found from the body's types and checked where the call is authorized, before any handler runs.
 - Short-lived tokens, issued only to approved devices after a signature challenge, authenticate the WebSocket, the file and media routes and sync.
 - The capability snapshot sent to a controller marks every call its grants do not allow as unavailable.
 

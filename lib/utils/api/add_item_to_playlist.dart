@@ -12,12 +12,10 @@ Future<String> addItemToPlaylist(
     position: position,
   );
 
-  final response = (await awaitResponse(
+  return (await awaitResponse(
     'AddItemToPlaylistRequest',
     AddItemToPlaylistResponse.rustSignalStream,
     responseCallId: (response) => response.message.callId?.toInt(),
     send: (callId) => request.copyWith(callId: () => callId).sendSignalToRust(),
-  )).message;
-  if (!response.success) throw StateError('Playlist insertion failed');
-  return response.occurrenceId;
+  )).message.occurrenceId;
 }

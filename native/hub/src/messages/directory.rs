@@ -1,3 +1,4 @@
+use requests::NamedLibraries;
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
@@ -8,7 +9,7 @@ pub struct DirectoryTreeResponse {
     pub children: Vec<DirectoryTreeResponse>,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct FetchDirectoryTreeRequest {
     #[serde(default)]
     pub call_id: Option<u64>,

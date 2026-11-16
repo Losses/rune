@@ -123,7 +123,7 @@ class _CollectionItemState extends State<CollectionItem> {
                 safeOperatePlaybackWithMixQuery(
                   context: context,
                   queries: widget.collection.queries,
-                  playbackMode: 99,
+                  playbackMode: null,
                   hintPosition: 0,
                   initialPlaybackId: widget.collection.id,
                   instantlyPlay: true,

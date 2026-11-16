@@ -15,7 +15,7 @@ use uuid::Uuid;
 use ::discovery::{
     client::CertValidator,
     config::get_config_dir,
-    endpoint::{DEFAULT_DEVICE_PORT, device_url},
+    endpoint::{DEFAULT_DEVICE_PORT, DeviceScheme, device_url},
 };
 use ::fsio::FsIo;
 use ::http_request::{
@@ -81,7 +81,7 @@ pub async fn get_media_metadata(
     let uri: Uri = device_url(
         host,
         DEFAULT_DEVICE_PORT,
-        "https",
+        DeviceScheme::Https,
         &format!("/media/{file_id}/metadata"),
     )
     .map_err(anyhow::Error::msg)?
@@ -130,7 +130,7 @@ pub async fn get_cover_art(host: &str, config: Arc<ClientConfig>, file_id: i64) 
     let uri: Uri = device_url(
         host,
         DEFAULT_DEVICE_PORT,
-        "https",
+        DeviceScheme::Https,
         &format!("/media/{file_id}/cover"),
     )
     .map_err(anyhow::Error::msg)?

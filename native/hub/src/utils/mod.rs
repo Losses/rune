@@ -214,17 +214,6 @@ pub async fn initialize_library_replica(
     Ok(library)
 }
 
-#[cfg(test)]
-impl GlobalParams {
-    /// The library a test fixture opened. Fixtures that build `GlobalParams`
-    /// for a local library always set it, so a missing one is a broken fixture.
-    pub fn test_library(&self) -> &LibraryHandle {
-        self.library
-            .as_ref()
-            .expect("test fixture opened no library")
-    }
-}
-
 impl Debug for GlobalParams {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GlobalParams")
@@ -459,7 +448,11 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
                 .cloned()
                 .context("Server manager is not initialized")?;
             request
-                .handle((node.config_path.clone(), manager), None, request)
+                .handle(
+                    (node.config_path.clone(), manager, node.run_mode),
+                    None,
+                    request,
+                )
                 .await
         }
     }
@@ -489,7 +482,11 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
             let node = node.current().await?;
             request
                 .handle(
-                    (Arc::clone(&node.device_scanner), node.config_path.clone()),
+                    (
+                        Arc::clone(&node.device_scanner),
+                        node.config_path.clone(),
+                        node.run_mode,
+                    ),
                     None,
                     request,
                 )
@@ -546,8 +543,10 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
         request: &SetVisualizerPresetDirsRequest,
     ) -> impl Future<Output = Result<Option<()>>> + Send {
         async move {
-            node.current().await?;
-            request.handle((), None, request).await
+            let node = node.current().await?;
+            request
+                .handle(Arc::clone(&node.gui_broadcaster), None, request)
+                .await
         }
     }
 
@@ -648,6 +647,7 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
                         Arc::clone(&node.sync_settings),
                         node.config_path.clone(),
                         node.server_manager.get().cloned(),
+                        node.run_mode,
                     ),
                     None,
                     request,
@@ -735,7 +735,11 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
             let node = node.current().await?;
             request
                 .handle(
-                    (node.config_path.clone(), Arc::clone(&node.cert_validator)),
+                    (
+                        node.config_path.clone(),
+                        Arc::clone(&node.cert_validator),
+                        node.run_mode,
+                    ),
                     None,
                     request,
                 )
@@ -811,7 +815,7 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
         node: &NodeSlot,
         request: &RegisterLocalLibraryRequest,
     ) -> impl Future<Output = Result<Option<RegisterLibraryResponse>>> + Send {
-        async move { Ok(Some(register_local_library(node, request).await)) }
+        async move { register_local_library(node, request).await.map(Some) }
     }
 
     fn handle_register_remote_control_request(
@@ -819,7 +823,7 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
         node: &NodeSlot,
         request: &RegisterRemoteControlRequest,
     ) -> impl Future<Output = Result<Option<RegisterLibraryResponse>>> + Send {
-        async move { Ok(Some(register_remote_control(node, request).await)) }
+        async move { register_remote_control(node, request).await.map(Some) }
     }
 
     fn handle_register_subsonic_library_request(
@@ -827,7 +831,7 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
         node: &NodeSlot,
         request: &RegisterSubsonicLibraryRequest,
     ) -> impl Future<Output = Result<Option<RegisterLibraryResponse>>> + Send {
-        async move { Ok(Some(register_subsonic_library(node, request).await)) }
+        async move { register_subsonic_library(node, request).await.map(Some) }
     }
 
     fn handle_replace_subsonic_credential_request(
@@ -836,12 +840,12 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
         request: &ReplaceSubsonicCredentialRequest,
     ) -> impl Future<Output = Result<Option<ReplaceSubsonicCredentialResponse>>> + Send {
         async move {
-            let result = match node.current().await {
-                Ok(node) => replace_subsonic_credential_on_node(request, &node).await,
-                Err(_) => ReplaceSubsonicCredentialResult::Storage,
-            };
+            let node = node
+                .current()
+                .await
+                .map_err(|_| credential_failure(RegisterLibraryFailureKind::Storage))?;
+            replace_subsonic_credential_on_node(request, &node).await?;
             Ok(Some(ReplaceSubsonicCredentialResponse {
-                result,
                 call_id: request.call_id,
             }))
         }
@@ -852,7 +856,7 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
         node: &NodeSlot,
         request: &RegisterOpenDalLibraryRequest,
     ) -> impl Future<Output = Result<Option<RegisterLibraryResponse>>> + Send {
-        async move { Ok(Some(register_opendal_library(node, request).await)) }
+        async move { register_opendal_library(node, request).await.map(Some) }
     }
 
     fn handle_detect_open_dal_share_data_request(
@@ -861,10 +865,15 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
         request: &DetectOpenDalShareDataRequest,
     ) -> impl Future<Output = Result<Option<DetectOpenDalShareDataResponse>>> + Send {
         async move {
-            let result = match node.current().await {
-                Ok(_) => detect_opendal_share_data(&request.service).await,
-                Err(_) => OpenDalShareDataDetection::Failed(RegisterLibraryFailureKind::Storage),
-            };
+            node.current().await.map_err(|_| {
+                registration_failure(
+                    RegisterLibraryFailureKind::Storage,
+                    "Could not access library storage",
+                )
+            })?;
+            let result = detect_opendal_share_data(&request.service)
+                .await
+                .map_err(|kind| registration_failure(kind, "Could not inspect the share"))?;
             Ok(Some(DetectOpenDalShareDataResponse {
                 result,
                 call_id: request.call_id,
@@ -878,24 +887,30 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
         request: &OpenLibraryRequest,
     ) -> impl Future<Output = Result<Option<OpenLibraryResponse>>> + Send {
         let scrobbler = Arc::clone(&self.scrobbler);
-        async move { Ok(Some(open_library_by_record(node, request, scrobbler).await)) }
+        async move {
+            open_library_by_record(node, request, scrobbler)
+                .await
+                .map(Some)
+        }
     }
 }
 
 async fn register_opendal_library(
     node_slot: &NodeSlot,
     request: &RegisterOpenDalLibraryRequest,
-) -> RegisterLibraryResponse {
+) -> Result<RegisterLibraryResponse> {
     match node_slot.current().await {
         Ok(node) => register_opendal_library_on_node(request, &node).await,
-        Err(_) => opendal_registration_failure(
+        Err(_) => Err(registration_failure(
             RegisterLibraryFailureKind::Storage,
             "Could not access library storage",
-        ),
+        )),
     }
 }
 
-async fn detect_opendal_share_data(service: &OpenDalLibraryService) -> OpenDalShareDataDetection {
+async fn detect_opendal_share_data(
+    service: &OpenDalLibraryService,
+) -> StdResult<OpenDalShareDataDetection, RegisterLibraryFailureKind> {
     let config = match service {
         OpenDalLibraryService::WebDav {
             endpoint,
@@ -924,14 +939,8 @@ async fn detect_opendal_share_data(service: &OpenDalLibraryService) -> OpenDalSh
             secret_access_key: secret_access_key.clone(),
         },
     };
-    let store = match OpenDalObjectStore::new(config) {
-        Ok(store) => store,
-        Err(_) => {
-            return OpenDalShareDataDetection::Failed(
-                RegisterLibraryFailureKind::OpenDalUnreachable,
-            );
-        }
-    };
+    let store = OpenDalObjectStore::new(config)
+        .map_err(|_| RegisterLibraryFailureKind::OpenDalUnreachable)?;
     let library = ObjectStore::get(&store, "library.json").await;
     let probe = if matches!(library, Err(StoreError::NotFound)) {
         let prefix = format!("devices/{}.1", Uuid::new_v4());
@@ -945,7 +954,7 @@ async fn detect_opendal_share_data(service: &OpenDalLibraryService) -> OpenDalSh
 fn classify_opendal_share_data(
     library: Result<ObjectValue, StoreError>,
     probe: Result<fsio::ObjectStoreCapabilities, StoreError>,
-) -> OpenDalShareDataDetection {
+) -> StdResult<OpenDalShareDataDetection, RegisterLibraryFailureKind> {
     match library {
         Ok(value) => match decode_library(&value.bytes) {
             Ok(library)
@@ -953,29 +962,27 @@ fn classify_opendal_share_data(
                     && library.model == RuneModel::model_id()
                     && library.schema == RuneModel::schema_id() =>
             {
-                OpenDalShareDataDetection::ExistingLibrary {
+                Ok(OpenDalShareDataDetection::ExistingLibrary {
                     library_id: library.library_id.to_string(),
-                }
+                })
             }
-            _ => OpenDalShareDataDetection::Failed(RegisterLibraryFailureKind::OpenDalShareInvalid),
+            _ => Err(RegisterLibraryFailureKind::OpenDalShareInvalid),
         },
-        Err(StoreError::PermissionDenied) => OpenDalShareDataDetection::ReadOnly,
-        Err(StoreError::Unauthorized) => OpenDalShareDataDetection::Failed(
-            RegisterLibraryFailureKind::OpenDalAuthenticationRejected,
-        ),
+        Err(StoreError::PermissionDenied) => Ok(OpenDalShareDataDetection::ReadOnly),
+        Err(StoreError::Unauthorized) => {
+            Err(RegisterLibraryFailureKind::OpenDalAuthenticationRejected)
+        }
         Err(StoreError::NotFound) => match probe {
             Ok(capabilities) if capabilities.write_probe => {
-                OpenDalShareDataDetection::WritableEmpty
+                Ok(OpenDalShareDataDetection::WritableEmpty)
             }
-            Ok(_) | Err(StoreError::PermissionDenied) => OpenDalShareDataDetection::ReadOnly,
-            Err(StoreError::Unauthorized) => OpenDalShareDataDetection::Failed(
-                RegisterLibraryFailureKind::OpenDalAuthenticationRejected,
-            ),
-            Err(_) => {
-                OpenDalShareDataDetection::Failed(RegisterLibraryFailureKind::OpenDalUnreachable)
+            Ok(_) | Err(StoreError::PermissionDenied) => Ok(OpenDalShareDataDetection::ReadOnly),
+            Err(StoreError::Unauthorized) => {
+                Err(RegisterLibraryFailureKind::OpenDalAuthenticationRejected)
             }
+            Err(_) => Err(RegisterLibraryFailureKind::OpenDalUnreachable),
         },
-        Err(_) => OpenDalShareDataDetection::Failed(RegisterLibraryFailureKind::OpenDalUnreachable),
+        Err(_) => Err(RegisterLibraryFailureKind::OpenDalUnreachable),
     }
 }
 
@@ -1007,7 +1014,7 @@ async fn read_share_library_id(
 pub(crate) async fn register_opendal_library_on_node(
     request: &RegisterOpenDalLibraryRequest,
     node: &Arc<NodeContext>,
-) -> RegisterLibraryResponse {
+) -> Result<RegisterLibraryResponse> {
     let (config, username) = match &request.service {
         OpenDalLibraryService::WebDav {
             endpoint,
@@ -1070,84 +1077,87 @@ pub(crate) async fn register_opendal_library_on_node(
     .await;
     let count = match probe {
         Err(_) => {
-            return opendal_registration_failure(
+            return Err(registration_failure(
                 RegisterLibraryFailureKind::OpenDalUnreachable,
                 "Could not reach the remote library",
-            );
+            ));
         }
         Ok(Err(FileIoError::PermissionDenied(_))) => {
-            return opendal_registration_failure(
+            return Err(registration_failure(
                 RegisterLibraryFailureKind::OpenDalAuthenticationRejected,
                 "The remote credentials were rejected",
-            );
+            ));
         }
         Ok(Err(FileIoError::Remote(_))) => {
-            return opendal_registration_failure(
+            return Err(registration_failure(
                 RegisterLibraryFailureKind::OpenDalUnreachable,
                 "Could not reach the remote library",
-            );
+            ));
         }
         Ok(Err(_)) => {
-            return opendal_registration_failure(
+            return Err(registration_failure(
                 RegisterLibraryFailureKind::OpenDalNotFolder,
                 "The selected remote root is not a folder",
-            );
+            ));
         }
         Ok(Ok(count)) => count,
     };
     if is_webdav && count == 0 {
-        return opendal_registration_failure(
+        return Err(registration_failure(
             RegisterLibraryFailureKind::OpenDalNotFolder,
             "The selected remote root is not a folder",
-        );
+        ));
     }
     let config_dir = Path::new(&*node.config_path);
     let existing_share_id = match read_share_library_id(config.clone()).await {
         Ok(library_id) => library_id,
         Err(kind) => {
-            return opendal_registration_failure(kind, "Could not inspect Rune share data");
+            return Err(registration_failure(
+                kind,
+                "Could not inspect Rune share data",
+            ));
         }
     };
     if existing_share_id.is_none() && request.share_data_choice == ShareDataChoice::KeepInShare {
         let store = match OpenDalObjectStore::new(config) {
             Ok(store) => store,
             Err(_) => {
-                return opendal_registration_failure(
+                return Err(registration_failure(
                     RegisterLibraryFailureKind::OpenDalUnreachable,
                     "Could not reach the remote library",
-                );
+                ));
             }
         };
         let prefix = format!("devices/{}.1", Uuid::new_v4());
         match store.probe(&prefix).await {
             Ok(capabilities) if capabilities.write_probe => {}
             Ok(_) | Err(StoreError::PermissionDenied) => {
-                return opendal_registration_failure(
+                return Err(registration_failure(
                     RegisterLibraryFailureKind::OpenDalReadOnly,
                     "Choose a writable folder to keep the index in the share",
-                );
+                ));
             }
             Err(StoreError::Unauthorized) => {
-                return opendal_registration_failure(
+                return Err(registration_failure(
                     RegisterLibraryFailureKind::OpenDalAuthenticationRejected,
                     "The remote credentials were rejected",
-                );
+                ));
             }
             Err(_) => {
-                return opendal_registration_failure(
+                return Err(registration_failure(
                     RegisterLibraryFailureKind::OpenDalUnreachable,
                     "Could not reach the remote library",
-                );
+                ));
             }
         }
     }
     let registry = match LibraryRegistry::load(config_dir) {
         Ok(registry) => registry,
         Err(_) => {
-            return opendal_registration_failure(
+            return Err(registration_failure(
                 RegisterLibraryFailureKind::Storage,
                 "Could not read library storage",
-            );
+            ));
         }
     };
     let existing = registry
@@ -1202,10 +1212,10 @@ pub(crate) async fn register_opendal_library_on_node(
                 && record.library_id != Some(library_id)
         });
         if conflicts_with_record || conflicts_with_invalid || changed_existing_share {
-            return opendal_registration_failure(
+            return Err(registration_failure(
                 RegisterLibraryFailureKind::OpenDalShareChanged,
                 "The share belongs to another library",
-            );
+            ));
         }
     }
     if let Some(mut record) = existing {
@@ -1229,19 +1239,18 @@ pub(crate) async fn register_opendal_library_on_node(
             {
                 Ok(record) => record,
                 Err(_) => {
-                    return opendal_registration_failure(
+                    return Err(registration_failure(
                         RegisterLibraryFailureKind::Storage,
                         "Could not update library storage",
-                    );
+                    ));
                 }
             };
         }
-        return RegisterLibraryResponse {
+        return Ok(RegisterLibraryResponse {
             call_id: None,
             record: Some((&record).into()),
             outcome: RegisterLibraryOutcome::Registered,
-            detail: None,
-        };
+        });
     }
     let (library_id, catalog) = if let Some(library_id) = existing_share_id {
         (library_id, CatalogPlacement::InShare(Uuid::new_v4()))
@@ -1269,10 +1278,10 @@ pub(crate) async fn register_opendal_library_on_node(
     {
         Ok(reference) => reference,
         Err(_) => {
-            return opendal_registration_failure(
+            return Err(registration_failure(
                 RegisterLibraryFailureKind::Storage,
                 "Could not store credentials",
-            );
+            ));
         }
     };
     let record = LibraryRecord {
@@ -1324,63 +1333,45 @@ pub(crate) async fn register_opendal_library_on_node(
         Ok(record) => record,
         Err(_) => {
             let _ = node.credentials.remove(credential).await;
-            return opendal_registration_failure(
+            return Err(registration_failure(
                 RegisterLibraryFailureKind::Storage,
                 "Could not write library storage",
-            );
+            ));
         }
     };
     if let Err(error) = publish_library_records_changed(node).await {
         log::warn!("Could not publish library record change: {error:#}");
     }
-    RegisterLibraryResponse {
+    Ok(RegisterLibraryResponse {
         call_id: None,
         record: Some((&record).into()),
         outcome: RegisterLibraryOutcome::Registered,
-        detail: None,
-    }
+    })
 }
 
-fn opendal_registration_failure(
+/// A failed library registration of `kind`; the detail goes to the logs.
+fn registration_failure(
     kind: RegisterLibraryFailureKind,
-    detail: &str,
-) -> RegisterLibraryResponse {
-    RegisterLibraryResponse {
-        call_id: None,
-        record: None,
-        outcome: RegisterLibraryOutcome::Failed(kind),
-        detail: Some(detail.into()),
-    }
+    detail: impl std::fmt::Display + Send + Sync + 'static,
+) -> anyhow::Error {
+    anyhow::Error::new(ExpectedRequestError::LibraryRegistrationFailed { kind }).context(detail)
 }
 
 async fn register_local_library(
     node_slot: &NodeSlot,
     request: &RegisterLocalLibraryRequest,
-) -> RegisterLibraryResponse {
-    let node = match node_slot.current().await {
-        Ok(node) => node,
-        Err(error) => {
-            return RegisterLibraryResponse {
-                call_id: None,
-                record: None,
-                outcome: RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::Storage),
-                detail: Some(format!("{error:#}")),
-            };
-        }
-    };
+) -> Result<RegisterLibraryResponse> {
+    let node = node_slot.current().await.map_err(|error| {
+        registration_failure(RegisterLibraryFailureKind::Storage, format!("{error:#}"))
+    })?;
     register_local_library_on_node(request, &node).await
 }
 
 pub(crate) async fn register_local_library_on_node(
     request: &RegisterLocalLibraryRequest,
     node: &Arc<NodeContext>,
-) -> RegisterLibraryResponse {
-    let fail = |kind, error: anyhow::Error| RegisterLibraryResponse {
-        call_id: None,
-        record: None,
-        outcome: RegisterLibraryOutcome::Failed(kind),
-        detail: Some(format!("{error:#}")),
-    };
+) -> Result<RegisterLibraryResponse> {
+    let fail = |kind, error: anyhow::Error| registration_failure(kind, format!("{error:#}"));
     let config = node.config_path.clone();
     let path = &request.path;
     #[cfg(not(target_os = "android"))]
@@ -1388,19 +1379,18 @@ pub(crate) async fn register_local_library_on_node(
     #[cfg(target_os = "android")]
     let fsio = match FsIo::new(Path::new(".rune/.android-fs.db"), path) {
         Ok(fsio) => fsio,
-        Err(error) => return fail(RegisterLibraryFailureKind::Storage, error.into()),
+        Err(error) => return Err(fail(RegisterLibraryFailureKind::Storage, error.into())),
     };
     let state = match check_library_state(&fsio, path) {
         Ok(state) => state,
-        Err(error) => return fail(RegisterLibraryFailureKind::InvalidSource, error),
+        Err(error) => return Err(fail(RegisterLibraryFailureKind::InvalidSource, error)),
     };
     if matches!(state, LibraryState::Uninitialized) && request.mode.is_none() {
-        return RegisterLibraryResponse {
+        return Ok(RegisterLibraryResponse {
             call_id: None,
             record: None,
             outcome: RegisterLibraryOutcome::NeedsInitializeMode,
-            detail: None,
-        };
+        });
     }
     let result = async {
         if request.mode == Some(LibraryInitializeMode::Redirected) {
@@ -1416,42 +1406,33 @@ pub(crate) async fn register_local_library_on_node(
             if let Err(error) = publish_library_records_changed(node).await {
                 log::warn!("Could not publish library record change: {error:#}");
             }
-            RegisterLibraryResponse {
+            Ok(RegisterLibraryResponse {
                 call_id: None,
                 record: Some((&record).into()),
                 outcome: RegisterLibraryOutcome::Registered,
-                detail: None,
-            }
+            })
         }
         Err(error) if error.downcast_ref::<InvalidRecord>().is_some() => {
-            fail(RegisterLibraryFailureKind::InvalidRecord, error)
+            Err(fail(RegisterLibraryFailureKind::InvalidRecord, error))
         }
-        Err(error) => fail(RegisterLibraryFailureKind::Storage, error),
+        Err(error) => Err(fail(RegisterLibraryFailureKind::Storage, error)),
     }
 }
 
 async fn register_remote_control(
     node_slot: &NodeSlot,
     request: &RegisterRemoteControlRequest,
-) -> RegisterLibraryResponse {
-    let node = match node_slot.current().await {
-        Ok(node) => node,
-        Err(error) => {
-            return RegisterLibraryResponse {
-                call_id: None,
-                record: None,
-                outcome: RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::Storage),
-                detail: Some(format!("{error:#}")),
-            };
-        }
-    };
+) -> Result<RegisterLibraryResponse> {
+    let node = node_slot.current().await.map_err(|error| {
+        registration_failure(RegisterLibraryFailureKind::Storage, format!("{error:#}"))
+    })?;
     register_remote_control_on_node(request, &node).await
 }
 
 pub(crate) async fn register_remote_control_on_node(
     request: &RegisterRemoteControlRequest,
     node: &Arc<NodeContext>,
-) -> RegisterLibraryResponse {
+) -> Result<RegisterLibraryResponse> {
     let hosts = node
         .cert_validator
         .read()
@@ -1459,12 +1440,10 @@ pub(crate) async fn register_remote_control_on_node(
         .get_hosts_for_fingerprint(&request.fingerprint)
         .await;
     if hosts.is_empty() {
-        return RegisterLibraryResponse {
-            call_id: None,
-            record: None,
-            outcome: RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::Untrusted),
-            detail: Some("Fingerprint is not trusted".into()),
-        };
+        return Err(registration_failure(
+            RegisterLibraryFailureKind::Untrusted,
+            "Fingerprint is not trusted",
+        ));
     }
     match LibraryRegistry::register_remote_control(
         Path::new(&*node.config_path),
@@ -1477,59 +1456,54 @@ pub(crate) async fn register_remote_control_on_node(
             if let Err(error) = publish_library_records_changed(node).await {
                 log::warn!("Could not publish library record change: {error:#}");
             }
-            RegisterLibraryResponse {
+            Ok(RegisterLibraryResponse {
                 call_id: None,
                 record: Some((&record).into()),
                 outcome: RegisterLibraryOutcome::Registered,
-                detail: None,
-            }
+            })
         }
-        Err(error) if error.downcast_ref::<InvalidRecord>().is_some() => RegisterLibraryResponse {
-            call_id: None,
-            record: None,
-            outcome: RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::InvalidRecord),
-            detail: Some(format!("{error:#}")),
-        },
-        Err(error) => RegisterLibraryResponse {
-            call_id: None,
-            record: None,
-            outcome: RegisterLibraryOutcome::Failed(RegisterLibraryFailureKind::Storage),
-            detail: Some(format!("{error:#}")),
-        },
+        Err(error) if error.downcast_ref::<InvalidRecord>().is_some() => Err(registration_failure(
+            RegisterLibraryFailureKind::InvalidRecord,
+            format!("{error:#}"),
+        )),
+        Err(error) => Err(registration_failure(
+            RegisterLibraryFailureKind::Storage,
+            format!("{error:#}"),
+        )),
     }
 }
 
 async fn register_subsonic_library(
     node_slot: &NodeSlot,
     request: &RegisterSubsonicLibraryRequest,
-) -> RegisterLibraryResponse {
+) -> Result<RegisterLibraryResponse> {
     match node_slot.current().await {
         Ok(node) => register_subsonic_library_with_node(request, &node).await,
-        Err(_) => subsonic_registration_failure(
+        Err(_) => Err(registration_failure(
             RegisterLibraryFailureKind::Storage,
             "Could not access library storage",
-        ),
+        )),
     }
 }
 
 pub(crate) async fn register_subsonic_library_with_node(
     request: &RegisterSubsonicLibraryRequest,
     node: &Arc<NodeContext>,
-) -> RegisterLibraryResponse {
+) -> Result<RegisterLibraryResponse> {
     register_subsonic_library_on_node(request, node).await
 }
 
 pub(crate) async fn register_subsonic_library_on_node(
     request: &RegisterSubsonicLibraryRequest,
     node: &Arc<NodeContext>,
-) -> RegisterLibraryResponse {
+) -> Result<RegisterLibraryResponse> {
     let endpoint = match validate_subsonic_endpoint(&request.endpoint) {
         Ok(endpoint) => endpoint,
         Err(()) => {
-            return subsonic_registration_failure(
+            return Err(registration_failure(
                 RegisterLibraryFailureKind::SubsonicNotSubsonic,
                 "The endpoint must be a valid HTTP or HTTPS URL",
-            );
+            ));
         }
     };
     let http = match reqwest::Client::builder()
@@ -1539,10 +1513,10 @@ pub(crate) async fn register_subsonic_library_on_node(
     {
         Ok(http) => http,
         Err(_) => {
-            return subsonic_registration_failure(
+            return Err(registration_failure(
                 RegisterLibraryFailureKind::Storage,
                 "Could not create the Subsonic client",
-            );
+            ));
         }
     };
     let client = SubsonicClient::new(
@@ -1555,12 +1529,12 @@ pub(crate) async fn register_subsonic_library_on_node(
     );
     let probe = match tokio::time::timeout(Duration::from_secs(5), client.probe()).await {
         Err(_) => {
-            return subsonic_registration_failure(
+            return Err(registration_failure(
                 RegisterLibraryFailureKind::SubsonicUnreachable,
                 "The Subsonic server did not respond in time",
-            );
+            ));
         }
-        Ok(Err(error)) => return subsonic_probe_failure(error),
+        Ok(Err(error)) => return Err(subsonic_probe_failure(error)),
         Ok(Ok(probe)) => probe,
     };
     let allowed = if probe.roles_known {
@@ -1576,28 +1550,27 @@ pub(crate) async fn register_subsonic_library_on_node(
         vec![SubsonicOpenMode::PlayOnThisDevice]
     };
     if allowed.is_empty() {
-        return subsonic_registration_failure(
+        return Err(registration_failure(
             RegisterLibraryFailureKind::SubsonicRoleMissing,
             "The account has no supported Subsonic role",
-        );
+        ));
     }
     let mode = match request.mode.map(SubsonicOpenMode::from) {
         Some(mode) if allowed.contains(&mode) => mode,
         Some(_) => {
-            return subsonic_registration_failure(
+            return Err(registration_failure(
                 RegisterLibraryFailureKind::SubsonicRoleMissing,
                 "The account does not have the role required by that mode",
-            );
+            ));
         }
         None => {
-            return RegisterLibraryResponse {
+            return Ok(RegisterLibraryResponse {
                 call_id: None,
                 record: None,
                 outcome: RegisterLibraryOutcome::NeedsSubsonicMode {
                     allowed: allowed.into_iter().map(Into::into).collect(),
                 },
-                detail: None,
-            };
+            });
         }
     };
 
@@ -1612,19 +1585,18 @@ pub(crate) async fn register_subsonic_library_on_node(
     .await
     {
         Ok(Some(record)) => {
-            return RegisterLibraryResponse {
+            return Ok(RegisterLibraryResponse {
                 call_id: None,
                 record: Some((&record).into()),
                 outcome: RegisterLibraryOutcome::Registered,
-                detail: None,
-            };
+            });
         }
         Ok(None) => {}
         Err(_) => {
-            return subsonic_registration_failure(
+            return Err(registration_failure(
                 RegisterLibraryFailureKind::Storage,
                 "Could not read library storage",
-            );
+            ));
         }
     }
 
@@ -1638,10 +1610,10 @@ pub(crate) async fn register_subsonic_library_on_node(
     {
         Ok(credential) => credential,
         Err(_) => {
-            return subsonic_registration_failure(
+            return Err(registration_failure(
                 RegisterLibraryFailureKind::Storage,
                 "Could not store credentials",
-            );
+            ));
         }
     };
     let record = LibraryRecord {
@@ -1659,10 +1631,10 @@ pub(crate) async fn register_subsonic_library_on_node(
     };
     if record.validate().is_err() {
         let _ = node.credentials.remove(credential).await;
-        return subsonic_registration_failure(
+        return Err(registration_failure(
             RegisterLibraryFailureKind::InvalidRecord,
             "The library record is invalid",
-        );
+        ));
     }
     let stored = LibraryRegistry::update(config, |registry| {
         registry.libraries.push(record.clone());
@@ -1673,35 +1645,35 @@ pub(crate) async fn register_subsonic_library_on_node(
         Ok(value) => value,
         Err(_) => {
             let _ = node.credentials.remove(credential).await;
-            return subsonic_registration_failure(
+            return Err(registration_failure(
                 RegisterLibraryFailureKind::Storage,
                 "Could not write library storage",
-            );
+            ));
         }
     };
     if let Err(error) = publish_library_records_changed(node).await {
         log::warn!("Could not publish library record change: {error:#}");
     }
-    RegisterLibraryResponse {
+    Ok(RegisterLibraryResponse {
         call_id: None,
         record: Some((&record).into()),
         outcome: RegisterLibraryOutcome::Registered,
-        detail: None,
-    }
+    })
 }
 
 pub(crate) async fn replace_subsonic_credential_on_node(
     request: &ReplaceSubsonicCredentialRequest,
     node: &Arc<NodeContext>,
-) -> ReplaceSubsonicCredentialResult {
+) -> Result<()> {
+    use RegisterLibraryFailureKind as Kind;
     let Ok(record_id) = Uuid::parse_str(&request.record_id).map(LibraryRecordId) else {
-        return ReplaceSubsonicCredentialResult::InvalidRecord;
+        return Err(credential_failure(Kind::InvalidRecord));
     };
     let record = match LibraryRegistry::load(Path::new(&*node.config_path))
         .and_then(|registry| registry.record(record_id).cloned())
     {
         Ok(record) => record,
-        Err(_) => return ReplaceSubsonicCredentialResult::InvalidRecord,
+        Err(_) => return Err(credential_failure(Kind::InvalidRecord)),
     };
     let ProtocolAdapter::SubsonicTranslate {
         endpoint,
@@ -1709,11 +1681,11 @@ pub(crate) async fn replace_subsonic_credential_on_node(
         ..
     } = &record.protocol
     else {
-        return ReplaceSubsonicCredentialResult::InvalidRecord;
+        return Err(credential_failure(Kind::InvalidRecord));
     };
     let endpoint = match validate_subsonic_endpoint(endpoint) {
         Ok(endpoint) => endpoint,
-        Err(()) => return ReplaceSubsonicCredentialResult::InvalidRecord,
+        Err(()) => return Err(credential_failure(Kind::InvalidRecord)),
     };
     let http = match reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(5))
@@ -1721,7 +1693,7 @@ pub(crate) async fn replace_subsonic_credential_on_node(
         .build()
     {
         Ok(http) => http,
-        Err(_) => return ReplaceSubsonicCredentialResult::Storage,
+        Err(_) => return Err(credential_failure(Kind::Storage)),
     };
     let client = SubsonicClient::new(
         endpoint,
@@ -1732,9 +1704,9 @@ pub(crate) async fn replace_subsonic_credential_on_node(
         http,
     );
     match timeout(Duration::from_secs(5), client.probe()).await {
-        Err(_) => return ReplaceSubsonicCredentialResult::Unreachable,
+        Err(_) => return Err(credential_failure(Kind::SubsonicUnreachable)),
         Ok(Err(SubsonicError::Transport(_) | SubsonicError::HttpStatus(_))) => {
-            return ReplaceSubsonicCredentialResult::Unreachable;
+            return Err(credential_failure(Kind::SubsonicUnreachable));
         }
         Ok(Err(SubsonicError::Server {
             kind:
@@ -1742,8 +1714,8 @@ pub(crate) async fn replace_subsonic_credential_on_node(
                 | SubsonicServerError::NotAuthorized
                 | SubsonicServerError::InvalidApiKey,
             ..
-        })) => return ReplaceSubsonicCredentialResult::Rejected,
-        Ok(Err(_)) => return ReplaceSubsonicCredentialResult::Rejected,
+        })) => return Err(credential_failure(Kind::SubsonicWrongCredentials)),
+        Ok(Err(_)) => return Err(credential_failure(Kind::SubsonicWrongCredentials)),
         Ok(Ok(_)) => {}
     }
     match node
@@ -1761,10 +1733,15 @@ pub(crate) async fn replace_subsonic_credential_on_node(
             if let Err(error) = publish_library_records_changed(node).await {
                 log::warn!("Could not publish library record change: {error:#}");
             }
-            ReplaceSubsonicCredentialResult::Updated
+            Ok(())
         }
-        Err(_) => ReplaceSubsonicCredentialResult::Storage,
+        Err(_) => Err(credential_failure(Kind::Storage)),
     }
+}
+
+/// A failed credential replacement, typed like a failed Subsonic registration.
+fn credential_failure(kind: RegisterLibraryFailureKind) -> anyhow::Error {
+    ExpectedRequestError::LibraryRegistrationFailed { kind }.into()
 }
 
 fn validate_subsonic_endpoint(raw: &str) -> Result<Url, ()> {
@@ -1808,7 +1785,7 @@ async fn existing_subsonic_record(
     Ok(None)
 }
 
-fn subsonic_probe_failure(error: SubsonicError) -> RegisterLibraryResponse {
+fn subsonic_probe_failure(error: SubsonicError) -> anyhow::Error {
     let kind = match error {
         SubsonicError::Transport(_) | SubsonicError::HttpStatus(_) => {
             RegisterLibraryFailureKind::SubsonicUnreachable
@@ -1842,57 +1819,33 @@ fn subsonic_probe_failure(error: SubsonicError) -> RegisterLibraryResponse {
         }
         _ => "The endpoint did not return a valid Subsonic response",
     };
-    subsonic_registration_failure(kind, detail)
-}
-
-fn subsonic_registration_failure(
-    kind: RegisterLibraryFailureKind,
-    detail: &'static str,
-) -> RegisterLibraryResponse {
-    RegisterLibraryResponse {
-        call_id: None,
-        record: None,
-        outcome: RegisterLibraryOutcome::Failed(kind),
-        detail: Some(detail.into()),
-    }
+    registration_failure(kind, detail)
 }
 
 async fn open_library_by_record(
     node_slot: &NodeSlot,
     request: &OpenLibraryRequest,
     scrobbler: Arc<Mutex<ScrobblingManager>>,
-) -> OpenLibraryResponse {
-    let node = match node_slot.current().await {
-        Ok(node) => node,
-        Err(error) => {
-            return OpenLibraryResponse {
-                call_id: request.call_id,
-                record_id: request.record_id.clone(),
-                generation: 0,
-                result: OpenLibraryResult::Failed(OpenLibraryFailure {
-                    kind: OpenLibraryFailureKind::Storage,
-                    detail: format!("{error:#}"),
-                }),
-            };
-        }
-    };
+) -> Result<OpenLibraryResponse> {
+    let node = node_slot
+        .current()
+        .await
+        .map_err(|error| open_failure(OpenLibraryFailureKind::Storage, error))?;
     open_library_by_record_on_node(request, node, scrobbler).await
+}
+
+/// A library that could not be opened, of `kind`; the error goes to the logs.
+fn open_failure(kind: OpenLibraryFailureKind, error: anyhow::Error) -> anyhow::Error {
+    anyhow::Error::new(ExpectedRequestError::LibraryOpenFailed { kind })
+        .context(format!("{error:#}"))
 }
 
 pub(crate) async fn open_library_by_record_on_node(
     request: &OpenLibraryRequest,
     node: Arc<NodeContext>,
     scrobbler: Arc<Mutex<ScrobblingManager>>,
-) -> OpenLibraryResponse {
-    let failed = |kind, error: anyhow::Error| OpenLibraryResponse {
-        call_id: request.call_id,
-        record_id: request.record_id.clone(),
-        generation: 0,
-        result: OpenLibraryResult::Failed(OpenLibraryFailure {
-            kind,
-            detail: format!("{error:#}"),
-        }),
-    };
+) -> Result<OpenLibraryResponse> {
+    let failed = |kind, error: anyhow::Error| Err(open_failure(kind, error));
     let record_id = match Uuid::parse_str(&request.record_id) {
         Ok(id) => LibraryRecordId(id),
         Err(error) => return failed(OpenLibraryFailureKind::RecordNotFound, error.into()),
@@ -2014,12 +1967,11 @@ pub(crate) async fn open_library_by_record_on_node(
             {
                 log::error!("Could not persist last open library record: {error:#}");
             }
-            OpenLibraryResponse {
+            Ok(OpenLibraryResponse {
                 call_id: request.call_id,
                 record_id: request.record_id.clone(),
                 generation,
-                result: OpenLibraryResult::Opened,
-            }
+            })
         }
         Err((kind, error)) => failed(kind, error),
     }
@@ -2096,6 +2048,7 @@ async fn open_subsonic_record(
         library_id,
         play_on_this_device,
         Arc::clone(&node.gui_broadcaster),
+        Arc::clone(node.visualizer()),
     ));
     node.set_open_subsonic_catalog(Some(record_id), binding)
         .await
@@ -2165,6 +2118,7 @@ pub(crate) async fn subsonic_binding_for_playback(
         library_id,
         *mode == SubsonicOpenMode::PlayOnThisDevice,
         Arc::clone(&node.gui_broadcaster),
+        Arc::clone(node.visualizer()),
     )))
 }
 
@@ -2416,7 +2370,7 @@ pub fn process_cover_art_path(
         .unwrap_or_default();
     format!(
         "{}/files/cache/{file_name}?library_id={library_id}",
-        session.host
+        session.base_url.as_str().trim_end_matches('/')
     )
 }
 
@@ -2626,8 +2580,22 @@ pub fn init_logging() {
 
 #[cfg(test)]
 mod moved_node_request_tests {
+    use super::GlobalParams;
+    use crate::library_pool::LibraryHandle;
+
+    impl GlobalParams {
+        /// The library a test fixture opened. Fixtures that build `GlobalParams`
+        /// for a local library always set it, so a missing one is a broken fixture.
+        pub fn test_library(&self) -> &LibraryHandle {
+            self.library
+                .as_ref()
+                .expect("test fixture opened no library")
+        }
+    }
+
     use std::{sync::Arc, time::Duration};
 
+    use crate::server::utils::device::RunMode;
     use anyhow::Result;
     use database::library_registry::{
         CatalogPlacement, FsAdapter, LibraryRecord, LibraryRecordId, LibraryRegistry,
@@ -2655,7 +2623,9 @@ mod moved_node_request_tests {
         let directory = tempfile::tempdir()?;
         let path = directory.path().to_string_lossy().into_owned();
         let node_slot = NodeSlot::new();
-        let node = node_slot.initialize(&path, &path, Arc::new(Quiet)).await?;
+        let node = node_slot
+            .initialize(&path, &path, Arc::new(Quiet), RunMode::App)
+            .await?;
         let handlers = ProductionNodeRequestHandlers::new(Arc::new(Mutex::new(
             ScrobblingManager::new(10, Duration::from_secs(5)),
         )));
@@ -2708,8 +2678,6 @@ mod moved_node_request_tests {
                 MissingHostFilePolicy::KeepAsRemote
             )
         ));
-        assert_eq!(open_response.error, closed_response.error);
-        assert!(open_response.error.is_none());
 
         node.close_ui(&params.main_token).await;
         node.shutdown().await?;
@@ -2730,7 +2698,7 @@ mod cover_art_url_tests {
         let remote_session = Session {
             public_key: "key".to_string(),
             fingerprint: "fingerprint".to_string(),
-            host: "https://peer.example".to_string(),
+            base_url: url::Url::parse("https://peer.example").unwrap(),
         };
 
         assert_eq!(process_cover_art_path(path, library_id, None), path);
@@ -2795,9 +2763,9 @@ mod opendal_share_data_detection_tests {
                 Ok(library_value(id)),
                 Ok(ObjectStoreCapabilities::default())
             ),
-            OpenDalShareDataDetection::ExistingLibrary {
+            Ok(OpenDalShareDataDetection::ExistingLibrary {
                 library_id: id.to_string()
-            },
+            }),
         );
     }
 
@@ -2809,7 +2777,7 @@ mod opendal_share_data_detection_tests {
         };
         assert_eq!(
             classify_opendal_share_data(Err(StoreError::NotFound), Ok(capabilities)),
-            OpenDalShareDataDetection::WritableEmpty,
+            Ok(OpenDalShareDataDetection::WritableEmpty),
         );
     }
 
@@ -2820,7 +2788,7 @@ mod opendal_share_data_detection_tests {
                 Err(StoreError::NotFound),
                 Err(StoreError::PermissionDenied)
             ),
-            OpenDalShareDataDetection::ReadOnly,
+            Ok(OpenDalShareDataDetection::ReadOnly),
         );
     }
 
@@ -2831,7 +2799,7 @@ mod opendal_share_data_detection_tests {
                 Err(StoreError::NotFound),
                 Err(StoreError::Transient("offline".into()))
             ),
-            OpenDalShareDataDetection::Failed(RegisterLibraryFailureKind::OpenDalUnreachable),
+            Err(RegisterLibraryFailureKind::OpenDalUnreachable),
         );
     }
 }

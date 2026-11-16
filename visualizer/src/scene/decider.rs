@@ -427,7 +427,7 @@ impl Decider {
         if let Some(director) = &self.director {
             let state = director.state();
             row.shot = Some(state.index);
-            row.size = Some(state.size);
+            row.size = Some(state.size.index());
             row.tier = Some(director.tier_index(music) as u32);
             row.pace = Some(director.pace() as u32);
             row.age = Some(state.age);

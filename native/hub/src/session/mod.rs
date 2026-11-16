@@ -40,7 +40,7 @@ use sea_orm::TransactionTrait;
 use tokio::{
     sync::{Mutex, mpsc},
     task::JoinHandle,
-    time::{Instant, sleep_until},
+    time::{Instant, sleep_until, timeout},
 };
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -65,7 +65,7 @@ use crate::{
         },
         record_library_item_played, report_item_played_through,
     },
-    visualizer::{VISUALIZER, feed_cover_bytes, playing_cover_changed},
+    visualizer::{feed_cover_bytes, playing_cover_changed},
 };
 use store::SessionState;
 
@@ -79,6 +79,9 @@ pub(crate) struct HandoffLoadParams {
     pub play: bool,
     pub playback_mode: Option<PlaybackMode>,
 }
+
+/// Builds the player a session plays through from the real one.
+pub(crate) type PlayerWrap = Box<dyn FnOnce(Player) -> Arc<Mutex<dyn Playable>> + Send>;
 
 pub struct PlayerSession {
     pub player: Arc<Mutex<dyn Playable>>,
@@ -96,6 +99,8 @@ pub struct PlayerSession {
 struct ControllerEntry {
     controller: AttachedController,
     cancel: CancellationToken,
+    /// Cancelled once the entry has left the list.
+    removed: CancellationToken,
 }
 
 #[derive(Clone)]
@@ -105,6 +110,9 @@ struct AttachedController {
     alias: String,
     connected_at: u64,
 }
+
+/// How long detaching a controller waits for its connection to finish closing.
+const DETACH_CONTROLLER_DEADLINE: Duration = Duration::from_secs(5);
 
 /// Owns one attached controller entry for the lifetime of its WebSocket.
 pub(crate) struct AttachedControllerGuard {
@@ -145,6 +153,7 @@ impl PlayerSession {
         self.controllers().push(ControllerEntry {
             controller,
             cancel: cancel.clone(),
+            removed: CancellationToken::new(),
         });
         self.broadcast_controllers_updated();
         AttachedControllerGuard {
@@ -174,12 +183,24 @@ impl PlayerSession {
             .collect()
     }
 
-    pub(crate) fn detach_controller(&self, id: Uuid) -> Result<()> {
-        let controllers = self.controllers();
-        let Some(entry) = controllers.iter().find(|entry| entry.controller.id == id) else {
-            return Err(ExpectedError::NotFound { what: "controller" }.into());
+    /// Closes the controller's connection and returns once it is no longer listed. When the
+    /// connection does not finish closing within `DETACH_CONTROLLER_DEADLINE`, the entry is
+    /// removed from the list here.
+    pub(crate) async fn detach_controller(&self, id: Uuid) -> Result<()> {
+        let removed = {
+            let controllers = self.controllers();
+            let Some(entry) = controllers.iter().find(|entry| entry.controller.id == id) else {
+                return Err(ExpectedError::NotFound { what: "controller" }.into());
+            };
+            entry.cancel.cancel();
+            entry.removed.clone()
         };
-        entry.cancel.cancel();
+        if timeout(DETACH_CONTROLLER_DEADLINE, removed.cancelled())
+            .await
+            .is_err()
+        {
+            self.remove_controller(id);
+        }
         Ok(())
     }
 
@@ -187,7 +208,13 @@ impl PlayerSession {
         let removed = {
             let mut controllers = self.controllers();
             let before = controllers.len();
-            controllers.retain(|entry| entry.controller.id != id);
+            controllers.retain(|entry| {
+                let keep = entry.controller.id != id;
+                if !keep {
+                    entry.removed.cancel();
+                }
+                keep
+            });
             controllers.len() != before
         };
         if removed {
@@ -412,10 +439,17 @@ impl PlayerSession {
             .collect())
     }
 
+    /// The player a session plays through, made of the real one. Production uses the real
+    /// player as it is; tests put a player of their own around it.
+    pub(crate) fn real_player() -> PlayerWrap {
+        Box::new(|player| Arc::new(Mutex::new(player)))
+    }
+
     pub(crate) async fn new(
         node: &Arc<NodeContext>,
         name: &str,
         os_media_controls: bool,
+        wrap_player: PlayerWrap,
     ) -> Result<Arc<Self>> {
         let path = Path::new(&*node.config_path)
             .join("sessions")
@@ -426,10 +460,7 @@ impl PlayerSession {
         let fsio = FsIo::new();
         #[cfg(target_os = "android")]
         let fsio = FsIo::new(Path::new(".rune/.android-fs.db"), "")?;
-        let player: Arc<Mutex<dyn Playable>> = Arc::new(Mutex::new(Player::new(
-            Arc::new(fsio),
-            Some(cancel.child_token()),
-        )));
+        let player = wrap_player(Player::new(Arc::new(fsio), Some(cancel.child_token())));
         player
             .lock()
             .await
@@ -479,11 +510,6 @@ impl PlayerSession {
             state.playback_mode(),
         );
         Ok(session)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn persistence_write_count(&self) -> usize {
-        self.persistence_writes.load(Ordering::Acquire)
     }
 
     /// Flush durable state and await the event listeners before terminating playback.
@@ -761,7 +787,7 @@ async fn handle_status_event(
                 }
             }
         }
-        playing_cover_changed(value.item.as_ref(), item_state.cover.as_deref());
+        playing_cover_changed(node, value.item.as_ref(), item_state.cover.as_deref());
         item_state.last_item = value.item.clone();
     }
     if value.state == PlaybackState::Playing && !item_state.track_started {
@@ -784,8 +810,8 @@ async fn handle_status_event(
     let playing = value.state == PlaybackState::Playing;
     // This device is the source: its player gives the spectrum and the chart is analysed here,
     // whether or not an item is loaded.
-    VISUALIZER.set_playing(playing);
-    VISUALIZER.set_playback(
+    node.visualizer().set_playing(playing);
+    node.visualizer().set_playback(
         value.path.as_deref(),
         value.position,
         playing,
@@ -837,7 +863,7 @@ async fn handle_status_event(
         && let Some(library) = &item_state.library
     {
         item_state.feed_item = Some(item.clone());
-        let chart = VISUALIZER.cached_chart(path).ok().flatten();
+        let chart = node.visualizer().cached_chart(path).ok().flatten();
         if let Some(chart) = chart {
             broadcaster.broadcast(&VisualizerFeedChart { item, chart });
         } else {
@@ -1215,5 +1241,16 @@ mod scrobbler_error_tests {
         assert!(detail.contains("token rejected"));
         assert!(detail.contains("status=401"));
         assert!(!detail.contains("secret-token-value"));
+    }
+}
+
+#[cfg(test)]
+mod test_access {
+    use super::*;
+
+    impl PlayerSession {
+        pub(crate) fn persistence_write_count(&self) -> usize {
+            self.persistence_writes.load(Ordering::Acquire)
+        }
     }
 }

@@ -133,6 +133,19 @@ fn get_multicast_interfaces() -> Vec<Interface> {
         .collect()
 }
 
+/// The announcement a device multicasts to describe itself to its neighbours.
+pub fn announcement_message(device_info: &DeviceInfo) -> serde_json::Value {
+    json!({
+        "alias": device_info.alias,
+        "version": device_info.version,
+        "deviceModel": device_info.device_model,
+        "deviceType": device_info.device_type,
+        "fingerprint": device_info.fingerprint,
+        "api_port": device_info.api_port,
+        "announce": true
+    })
+}
+
 impl DiscoveryService {
     /// Creates a new `DiscoveryService` instance, with persistence enabled.
     ///
@@ -399,16 +412,7 @@ impl DiscoveryService {
             interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
             let send_announcement_message = || async {
-                let announcement = json!({
-                    "alias": device_info.alias,
-                    "version": device_info.version,
-                    "deviceModel": device_info.device_model,
-                    "deviceType": device_info.device_type,
-                    "fingerprint": device_info.fingerprint,
-                    "api_port": device_info.api_port,
-                    "protocol": device_info.protocol,
-                    "announce": true
-                });
+                let announcement = announcement_message(&device_info);
                 if let Err(e) = Self::send_announcement(&sockets, &announcement).await {
                     error!("Announcement failed: {e}");
                 }

@@ -225,19 +225,6 @@ impl Looks {
         (0..self.picks.len()).find(|&i| self.promised[i] == Some(section) && !self.shown[i])
     }
 
-    /// Whether the song still owes look `index` a change, at this section start or a later one.
-    #[cfg(test)]
-    fn is_owed(&self, index: usize, music: &MusicValues) -> bool {
-        let section = music.section.max(0.0) as usize;
-        !self.shown.get(index).copied().unwrap_or(true)
-            && self
-                .promised
-                .get(index)
-                .copied()
-                .flatten()
-                .is_some_and(|last| last >= section)
-    }
-
     /// The looks that suit a section of `tier`, or all of them if none does.
     fn suiting(&self, tier: usize) -> Vec<usize> {
         let fit: Vec<usize> = (0..self.picks.len())
@@ -425,6 +412,20 @@ impl Looks {
 
 #[cfg(test)]
 mod tests {
+    impl Looks {
+        /// Whether the song still owes look `index` a change, at this section start or a later one.
+        fn is_owed(&self, index: usize, music: &MusicValues) -> bool {
+            let section = music.section.max(0.0) as usize;
+            !self.shown.get(index).copied().unwrap_or(true)
+                && self
+                    .promised
+                    .get(index)
+                    .copied()
+                    .flatten()
+                    .is_some_and(|last| last >= section)
+        }
+    }
+
     use super::*;
 
     fn look(name: &str, opens: bool, weight: f32) -> Look {

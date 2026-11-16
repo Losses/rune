@@ -1,9 +1,4 @@
 //! Real TCP metadata sessions with acknowledged writes whose replies are lost.
-use std::io::Error;
-use std::io::ErrorKind;
-use tokio::net::TcpListener;
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::{Context, Result, ensure};
 use axum::{
     body::{Body, to_bytes},
@@ -14,7 +9,11 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use database::sync::model::{Collection, Payload, Playlist, RuneModel};
+use database::test_fixtures::causal_library as support;
 use http_request::sync::router;
+use std::io::Error;
+use std::io::ErrorKind;
+use tokio::net::TcpListener;
 type MetadataPeer = http_request::sync::MetadataPeer<RuneModel>;
 use std::{
     collections::{BTreeMap, VecDeque},

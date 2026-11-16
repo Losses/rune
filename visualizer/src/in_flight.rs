@@ -57,11 +57,6 @@ impl<T> InFlight<T> {
         }
     }
 
-    #[cfg(test)]
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
@@ -139,6 +134,12 @@ impl<T> InFlight<T> {
 
 #[cfg(test)]
 mod tests {
+    impl<T> InFlight<T> {
+        pub fn len(&self) -> usize {
+            self.entries.len()
+        }
+    }
+
     use super::*;
 
     const MS: Duration = Duration::from_millis(1);

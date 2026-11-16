@@ -61,113 +61,140 @@ Widget _app(Widget child) {
 }
 
 void main() {
-  testWidgets('changing Connection preserves Sync in the saved grant', (
-    tester,
-  ) async {
+  final oneChoice = find.byWidgetPredicate((widget) => widget is ComboBox);
+
+  Future<List<SetDeviceGrantsRequest>> pickChoice(
+    WidgetTester tester, {
+    required GetDeviceGrantsResponse stored,
+    required String choice,
+  }) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    SetDeviceGrantsRequest? saved;
+    final saved = <SetDeviceGrantsRequest>[];
     await tester.pumpWidget(
       _app(
         SettingsDeviceAccessPage(
           client: _client,
-          loadGrants: (_) async => _response(
-            sync: DeviceSyncLevel.pull,
+          loadGrants: (_) async => stored,
+          saveGrants: (request) async => saved.add(request),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(oneChoice, findsOneWidget);
+    await tester.tap(oneChoice);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(choice).last);
+    await tester.pumpAndSettle();
+    return saved;
+  }
+
+  for (final (choice, from, connection, sync) in [
+    (
+      'Not Shared',
+      (DeviceConnectionLevel.view, DeviceSyncLevel.pull),
+      DeviceConnectionLevel.none,
+      DeviceSyncLevel.none,
+    ),
+    (
+      'Read Only',
+      (DeviceConnectionLevel.none, DeviceSyncLevel.none),
+      DeviceConnectionLevel.view,
+      DeviceSyncLevel.pull,
+    ),
+    (
+      'Read and Write',
+      (DeviceConnectionLevel.view, DeviceSyncLevel.pull),
+      DeviceConnectionLevel.viewEdit,
+      DeviceSyncLevel.pullPush,
+    ),
+  ]) {
+    testWidgets('choosing $choice sets both levels in one write', (
+      tester,
+    ) async {
+      final saved = await pickChoice(
+        tester,
+        stored: _response(
+          connection: from.$1,
+          sync: from.$2,
+          allConnection: DeviceConnectionLevel.view,
+          allSync: DeviceSyncLevel.pullPush,
+          overrides: const [
+            DeviceLibraryGrant(
+              libraryId: 'archive-id',
+              connection: DeviceConnectionLevel.viewEdit,
+              sync: DeviceSyncLevel.pullPush,
+            ),
+          ],
+          administer: true,
+        ),
+        choice: choice,
+      );
+
+      expect(saved, hasLength(1));
+      expect(
+        saved.single.grants,
+        DeviceGrantsChangeSet(
+          value: DeviceGrantsInfo(
+            control: true,
             allConnection: DeviceConnectionLevel.view,
             allSync: DeviceSyncLevel.pullPush,
-            overrides: const [
-              DeviceLibraryGrant(
+            libraries: [
+              const DeviceLibraryGrant(
                 libraryId: 'archive-id',
                 connection: DeviceConnectionLevel.viewEdit,
                 sync: DeviceSyncLevel.pullPush,
               ),
               DeviceLibraryGrant(
                 libraryId: 'music-id',
-                connection: DeviceConnectionLevel.view,
-                sync: DeviceSyncLevel.pull,
+                connection: connection,
+                sync: sync,
               ),
             ],
             administer: true,
           ),
-          saveGrants: (request) async => saved = request,
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+    });
+  }
 
-    await tester.tap(find.byType(ComboBox<DeviceConnectionLevel>));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('View & Edit').last);
-    await tester.pumpAndSettle();
-
-    expect(
-      saved!.grants,
-      const DeviceGrantsChangeSet(
-        value: DeviceGrantsInfo(
-          control: true,
-          allConnection: DeviceConnectionLevel.view,
-          allSync: DeviceSyncLevel.pullPush,
-          libraries: [
-            DeviceLibraryGrant(
-              libraryId: 'archive-id',
-              connection: DeviceConnectionLevel.viewEdit,
-              sync: DeviceSyncLevel.pullPush,
-            ),
-            DeviceLibraryGrant(
-              libraryId: 'music-id',
-              connection: DeviceConnectionLevel.viewEdit,
-              sync: DeviceSyncLevel.pull,
-            ),
-          ],
-          administer: true,
-        ),
-      ),
-    );
-  });
-
-  testWidgets('changing Sync preserves Connection in the saved grant', (
+  testWidgets('a pair set through the API is shown and not written back', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    SetDeviceGrantsRequest? saved;
+    final saved = <SetDeviceGrantsRequest>[];
     await tester.pumpWidget(
       _app(
         SettingsDeviceAccessPage(
           client: _client,
-          loadGrants: (_) async =>
-              _response(connection: DeviceConnectionLevel.viewEdit),
-          saveGrants: (request) async => saved = request,
+          loadGrants: (_) async => _response(
+            connection: DeviceConnectionLevel.view,
+            sync: DeviceSyncLevel.none,
+          ),
+          saveGrants: (request) async => saved.add(request),
         ),
       ),
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byType(ComboBox<DeviceSyncLevel>));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Pull & Push').last);
-    await tester.pumpAndSettle();
+    expect(find.text('Custom'), findsOneWidget);
+    expect(saved, isEmpty);
 
-    expect(
-      saved!.grants,
-      const DeviceGrantsChangeSet(
-        value: DeviceGrantsInfo(
-          control: true,
-          allConnection: null,
-          allSync: null,
-          libraries: [
-            DeviceLibraryGrant(
-              libraryId: 'music-id',
-              connection: DeviceConnectionLevel.viewEdit,
-              sync: DeviceSyncLevel.pullPush,
-            ),
-          ],
-          administer: false,
-        ),
-      ),
-    );
+    // Choosing the shown value again changes nothing.
+    await tester.tap(oneChoice);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Custom').last);
+    await tester.pumpAndSettle();
+    expect(saved, isEmpty);
+
+    await tester.tap(oneChoice);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Read Only').last);
+    await tester.pumpAndSettle();
+    expect(saved, hasLength(1));
   });
 
   testWidgets('device summaries identify Guest and My Device presets', (

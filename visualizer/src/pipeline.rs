@@ -1099,14 +1099,6 @@ impl Pipeline {
         self.scene.clear_feed_spectrum();
     }
 
-    /// Show the scene in the folder `dir`, waiting until it is built. The render loop builds
-    /// scenes on another thread instead (see [`Pipeline::scene_build_dir`]); tests wait.
-    #[cfg(test)]
-    pub fn load_scene(&mut self, dir: &Path) -> Result<()> {
-        self.load_source(Source::Dir(dir.to_path_buf()))
-            .with_context(|| format!("Scene {}", dir.display()))
-    }
-
     /// Show the built-in scene `name`, waiting until it is built.
     pub fn load_builtin_scene(&mut self, name: &str) -> Result<()> {
         self.load_source(builtin_source(name)?)
@@ -1339,6 +1331,12 @@ impl Pipeline {
     /// oldest of them. What comes back is the newest frame the GPU has finished since, if any; the
     /// frame just submitted usually comes out of [`Pipeline::wait_for_frame`] or the next call.
     pub fn render(&mut self, time: f64) -> Result<Rendered> {
+        self.render_at(time, Instant::now())
+    }
+
+    /// [`Pipeline::render`] for a frame drawn at `wall` on the machine's clock, which the music's
+    /// signals fade by (see [`crate::scene::FrameInput::wall`]).
+    pub fn render_at(&mut self, time: f64, wall: Instant) -> Result<Rendered> {
         if let Some(reason) = self.lost.get() {
             return Err(anyhow!("The GPU device was lost ({reason})"));
         }
@@ -1346,7 +1344,7 @@ impl Pipeline {
         if self.in_flight.is_full() {
             self.wait_for_oldest(None)?;
         }
-        let rendered = self.render_frame(time);
+        let rendered = self.render_frame(time, wall);
         self.timer.submitted(&self.device);
         match rendered? {
             Rendered::Nothing => self.finished(),
@@ -1531,7 +1529,7 @@ impl Pipeline {
         }
     }
 
-    fn render_frame(&mut self, time: f64) -> Result<Rendered> {
+    fn render_frame(&mut self, time: f64, wall: Instant) -> Result<Rendered> {
         let mut plan = self.plan_transition(time);
         if plan == Plan::None {
             plan = self.plan_dressed(time);
@@ -1566,7 +1564,7 @@ impl Pipeline {
                     (device, queue),
                     encoder,
                     view,
-                    time,
+                    (time, wall),
                     heard,
                 );
             });
@@ -1599,7 +1597,7 @@ impl Pipeline {
                             (&self.device, &self.queue),
                             encoder,
                             &view,
-                            time,
+                            (time, wall),
                             heard,
                         )
                     });
@@ -1641,7 +1639,7 @@ impl Pipeline {
                             (&self.device, &self.queue),
                             encoder,
                             &view,
-                            time,
+                            (time, wall),
                             heard,
                         )
                     });
@@ -1684,7 +1682,7 @@ impl Pipeline {
                             (device, queue),
                             encoder,
                             view,
-                            time,
+                            (time, wall),
                             heard,
                         );
                     })?;
@@ -1727,7 +1725,7 @@ impl Pipeline {
                 (device, queue),
                 encoder,
                 view,
-                time,
+                (time, wall),
                 heard,
             );
         })?;
@@ -1763,7 +1761,7 @@ fn draw(
     (device, queue): (&wgpu::Device, &wgpu::Queue),
     encoder: &mut wgpu::CommandEncoder,
     view: &wgpu::TextureView,
-    time: f64,
+    (time, wall): (f64, Instant),
     (rhythm, chart, song, song_chart, song_seed, accent): Heard,
 ) {
     let timestamps = timer.begin();
@@ -1780,6 +1778,7 @@ fn draw(
             song_chart,
             song_seed,
             accent,
+            wall,
         },
         timestamps,
         plan == Plan::None,
@@ -1885,6 +1884,15 @@ fn start_overlay(transitions: &mut Transitions, plan: Plan, scene: &Scene, time:
 
 #[cfg(test)]
 mod tests {
+    impl Pipeline {
+        /// Show the scene in the folder `dir`, waiting until it is built. The render loop builds
+        /// scenes on another thread instead (see [`Pipeline::scene_build_dir`]); tests wait.
+        pub fn load_scene(&mut self, dir: &Path) -> Result<()> {
+            self.load_source(Source::Dir(dir.to_path_buf()))
+                .with_context(|| format!("Scene {}", dir.display()))
+        }
+    }
+
     use super::*;
     use crate::bind;
     use crate::course::Phrase;
@@ -3212,13 +3220,11 @@ mod tests {
 /// Every probe draws at the phone's size on the same timeline: 60 frames a second, a steady
 /// 120 bpm in bars of four (so a scene grows, changes its view and its colours as it would with
 /// music), and each frame's seed fixed, so a scene draws the same frames on every run.
-/// The music's signals move on by wall time, not by the timeline's (`inputs::WallClock`), and
-/// a scene takes the music over from the one before it (`Scene::take_music_from`). Left alone,
-/// that made the first frames differ between runs, and between two draws of the same scene in one
-/// run (the second started from where the first ended): a mean difference of 1 to 3.5 in the first
-/// 20 frames that vanished on a repeat run, since only a cold run, with its shaders compiling, took
-/// long enough for the wall time of those frames to differ much. `load` therefore starts the
-/// music over with every frame counted as 1/60 s of wall time.
+/// The music's signals move on by wall time, not by the timeline's (`inputs::WallClock`). The
+/// probe therefore draws each frame at a wall time 1/60 s after the one before it
+/// (`Pipeline::render_at`), however long the GPU took: otherwise the signals would move by
+/// something different on every run, and a slow first frame (a shader compiled cold) would change
+/// them too.
 ///
 /// - `PROBE`: the scenes, built-in names or absolute scene folders, comma-separated (default
 ///   Growth). `probe_scene_compare` takes one, and the scene to compare it with in `PROBE_B`.
@@ -3349,9 +3355,7 @@ mod probe {
             .scene
             .set_level(&pipeline.device, &pipeline.queue, level);
         let seed = env_or("PROBE_SEED", "1").parse().expect("a seed");
-        pipeline.scene.fix_seed(Some(seed));
         pipeline.set_song_seed(Some(seed));
-        pipeline.scene.fix_wall_dt(1.0 / FPS);
         pipeline.take_frame_times();
     }
 
@@ -3408,10 +3412,16 @@ mod probe {
         let size = pipeline.size();
         // A read-back frame comes out of the call after the one that drew it (the probe waits
         // for each), so one call more than there are frames.
+        let wall = Instant::now();
         for i in 0..=last + 1 {
             before(pipeline, i);
             pipeline.set_rhythm(&rhythm_at(i));
-            let rendered = pipeline.render(START + f64::from(i) / FPS).unwrap();
+            let rendered = pipeline
+                .render_at(
+                    START + f64::from(i) / FPS,
+                    wall + Duration::from_secs_f64(f64::from(i) / FPS),
+                )
+                .unwrap();
             pipeline
                 .device
                 .poll(wgpu::PollType::wait_indefinitely())

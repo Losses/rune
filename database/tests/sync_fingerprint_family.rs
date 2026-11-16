@@ -1,7 +1,5 @@
-use support::fixtures;
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::Result;
+use database::test_fixtures::causal_library as support;
 use database::{
     actions::fingerprint::{
         ComputedFingerprint, ComputedSimilarity, Configuration, assign_computed_fingerprint,
@@ -23,6 +21,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
+use support::fixtures;
 use sync_orm::row_policy::BinaryValue;
 use uuid::Uuid;
 

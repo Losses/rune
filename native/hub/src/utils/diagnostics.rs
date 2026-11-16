@@ -240,6 +240,7 @@ pub async fn receive_fs_self_test() {
     info!("FS self-test listener started");
 
     while let Some(dart_signal) = receiver.recv().await {
+        let call_id = dart_signal.message.call_id;
         let path = dart_signal.message.path;
         let db_path = dart_signal.message.db_path;
         info!("Running filesystem self-test on: {path}");
@@ -264,25 +265,39 @@ pub async fn receive_fs_self_test() {
             }
         };
 
-        let success = results.iter().all(|r| r.skipped || r.ok);
         let wal_probe = run_wal_self_test(&path, &db_path).await;
-        let report_json = match serde_json::to_string(&results) {
-            Ok(json) => json,
-            Err(e) => {
-                error!("Failed to serialize self-test report: {e:?}");
-                "[]".to_string()
-            }
-        };
+        let response = self_test_response(call_id, &results, wal_probe);
+        let outcome = response.outcome;
+        response.send_signal_to_dart();
 
-        RunFsSelfTestResponse {
-            call_id: None,
-            success,
-            report_json,
-            wal_probe,
+        info!("Filesystem self-test finished: {outcome:?}");
+    }
+}
+
+/// The reply to one self-test request: it names the request's call and
+/// passes when every layer passed or was skipped.
+fn self_test_response(
+    call_id: Option<u64>,
+    results: &[FsSelfTestLayerResult],
+    wal_probe: WalSelfTestResult,
+) -> RunFsSelfTestResponse {
+    let outcome = if results.iter().all(|r| r.skipped || r.ok) {
+        FsSelfTestOutcome::Passed
+    } else {
+        FsSelfTestOutcome::Failed
+    };
+    let report_json = match serde_json::to_string(results) {
+        Ok(json) => json,
+        Err(e) => {
+            error!("Failed to serialize self-test report: {e:?}");
+            "[]".to_string()
         }
-        .send_signal_to_dart();
-
-        info!("Filesystem self-test finished, success: {success}");
+    };
+    RunFsSelfTestResponse {
+        call_id,
+        outcome,
+        report_json,
+        wal_probe,
     }
 }
 
@@ -323,6 +338,27 @@ mod tests {
             progress_for(false, true).outcome,
             FsSelfTestLayerOutcome::Skipped
         );
+    }
+
+    #[test]
+    fn self_test_reply_names_its_call_and_passes_only_without_failed_layers() {
+        let layer = |ok, skipped| FsSelfTestLayerResult {
+            layer: "layer".into(),
+            ok,
+            skipped,
+            elapsed_ms: 1,
+            detail: String::new(),
+        };
+        let wal = || WalSelfTestResult {
+            supported: true,
+            detail: None,
+        };
+        let passed = self_test_response(Some(7), &[layer(true, false), layer(false, true)], wal());
+        assert_eq!(passed.call_id, Some(7));
+        assert_eq!(passed.outcome, FsSelfTestOutcome::Passed);
+        let failed = self_test_response(Some(8), &[layer(true, false), layer(false, false)], wal());
+        assert_eq!(failed.call_id, Some(8));
+        assert_eq!(failed.outcome, FsSelfTestOutcome::Failed);
     }
 
     #[tokio::test]

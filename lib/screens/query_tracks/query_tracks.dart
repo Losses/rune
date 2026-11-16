@@ -8,12 +8,13 @@ import '../../utils/query_list.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../providers/responsive_providers.dart';
+import '../../bindings/bindings.dart';
 
 import 'query_tracks_list.dart';
 
 class QueryTracksPage extends StatefulWidget {
   final QueryList queries;
-  final int mode;
+  final PlaybackMode? mode;
   final String? title;
 
   const QueryTracksPage({

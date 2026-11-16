@@ -134,7 +134,6 @@ async fn main() -> anyhow::Result<()> {
         device_type: Some(DeviceType::Headless),
         fingerprint,
         api_port,
-        protocol: "http".to_string(),
         protocol_version: Some(discovery::protocol_version::PROTOCOL_VERSION),
         capabilities: None,
     };

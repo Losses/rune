@@ -41,6 +41,64 @@ pub struct FsNode {
     pub size: u64,
 }
 
+/// Where a backend keeps its files, which decides how reads fail and how streams are read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StorageLocation {
+    /// On this device: the file system or a document provider on it.
+    Local,
+    /// Behind a network connection that can drop or reject access.
+    Remote,
+}
+
+/// How a file is opened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenMode {
+    /// Read an existing file.
+    Read,
+    /// Write, creating the file if missing, keeping what it holds.
+    Write,
+    /// Write from the start, creating the file if missing and emptying it.
+    WriteTruncate,
+    /// Write at the end, creating the file if missing.
+    Append,
+    /// Read and write an existing file, creating it if missing.
+    ReadWrite,
+}
+
+impl OpenMode {
+    /// The mode as the platform APIs that take one spell it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Read => "r",
+            Self::Write => "w",
+            Self::WriteTruncate => "wt",
+            Self::Append => "a",
+            Self::ReadWrite => "rw",
+        }
+    }
+
+    pub fn reads(self) -> bool {
+        matches!(self, Self::Read | Self::ReadWrite)
+    }
+
+    pub fn writes(self) -> bool {
+        matches!(self, Self::Write | Self::WriteTruncate | Self::ReadWrite)
+    }
+
+    pub fn appends(self) -> bool {
+        self == Self::Append
+    }
+
+    pub fn truncates(self) -> bool {
+        self == Self::WriteTruncate
+    }
+
+    /// Whether opening creates a file that is missing.
+    pub fn creates(self) -> bool {
+        self != Self::Read
+    }
+}
+
 pub trait FileStream: Read + Write + Seek + Send + Sync {
     /// Persist file contents and metadata before publication.
     fn sync_all(&mut self) -> Result<(), FileIoError>;
@@ -54,12 +112,14 @@ impl FileStream for std::fs::File {
 
 #[async_trait]
 pub trait FileIo: Send + Sync {
+    /// A name for logs and messages, not for deciding anything.
     fn name(&self) -> &'static str;
-    fn open(&self, path: &Path, open_mode: &str) -> Result<Box<dyn FileStream>, FileIoError>;
+    fn storage(&self) -> StorageLocation;
+    fn open(&self, path: &Path, open_mode: OpenMode) -> Result<Box<dyn FileStream>, FileIoError>;
     async fn open_async(
         &self,
         path: &Path,
-        open_mode: &str,
+        open_mode: OpenMode,
     ) -> Result<Box<dyn FileStream>, FileIoError>;
     fn read(&self, path: &Path) -> Result<Vec<u8>, FileIoError>;
     fn read_to_string(&self, path: &Path) -> Result<String, FileIoError>;
@@ -86,9 +146,10 @@ pub trait FileIo: Send + Sync {
     /// Seconds since the UNIX epoch of the last modification.
     fn modified_time(&self, path: &Path) -> Result<u64, FileIoError>;
     /// Stable backend-provided signal used to skip unchanged files during scans.
-    /// Backends without a stronger signal use modification time.
-    fn change_token(&self, path: &Path) -> Result<String, FileIoError> {
-        self.modified_time(path).map(|time| time.to_string())
+    /// Backends without a stronger signal use modification time. `None` means
+    /// the backend offers no signal, so the file must be treated as changed.
+    fn change_token(&self, path: &Path) -> Result<Option<String>, FileIoError> {
+        self.modified_time(path).map(|time| Some(time.to_string()))
     }
     async fn ensure_file(&self, path: &Path) -> Result<FsNode, FileIoError>;
     async fn ensure_directory(&self, path: &Path) -> Result<FsNode, FileIoError>;

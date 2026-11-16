@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use ndk_saf::{from_tree_url, open_content_url, AndroidFile, AndroidFileOps};
 use rusqlite::{params, Connection};
 
-use super::{FileIo, FileIoError, FileStream, FsNode};
+use super::{FileIo, FileIoError, FileStream, FsNode, OpenMode, StorageLocation};
 
 pub(crate) struct AndroidFsIo {
     db: Arc<Mutex<Connection>>,
@@ -255,23 +255,27 @@ impl AndroidFsIo {
     /// Synchronous open shared by `open` and `open_async`. Building a fresh
     /// tokio runtime and block_on-ing here would panic when the caller is
     /// already on a runtime thread; everything below is synchronous JNI.
-    fn open_sync(&self, path: &Path, open_mode: &str) -> Result<Box<dyn FileStream>, FileIoError> {
+    fn open_sync(
+        &self,
+        path: &Path,
+        open_mode: OpenMode,
+    ) -> Result<Box<dyn FileStream>, FileIoError> {
         // Skip DocumentFile construction entirely: opening only needs the
         // content URI, so this is a single provider IPC.
-        let creates = open_mode.contains('w') || open_mode.contains('a') || open_mode.contains('t');
+        let creates = open_mode.creates();
         let uri = match self.get_uri(path) {
             Ok(uri) => uri,
             Err(FileIoError::PathNotFound(_)) if creates => self.create_file_for_write(path)?,
             Err(e) => return Err(e),
         };
-        match open_content_url(&uri, open_mode) {
+        match open_content_url(&uri, open_mode.as_str()) {
             Ok(file) => Ok(Box::new(file)),
             Err(first_error) => {
                 // The cached URI may be stale (the file was replaced outside the
                 // app); evict it and re-resolve live once before giving up.
                 self.evict_cache(path);
                 let uri = self.get_uri(path)?;
-                let file = open_content_url(&uri, open_mode).map_err(|second_error| {
+                let file = open_content_url(&uri, open_mode.as_str()).map_err(|second_error| {
                     FileIoError::Saf(format!(
                         "{second_error} (initial attempt with cached URI: {first_error})"
                     ))
@@ -355,21 +359,25 @@ impl FileIo for AndroidFsIo {
         AndroidFsIo::refresh_cache(self)
     }
 
-    fn open(&self, path: &Path, open_mode: &str) -> Result<Box<dyn FileStream>, FileIoError> {
+    fn storage(&self) -> StorageLocation {
+        StorageLocation::Local
+    }
+
+    fn open(&self, path: &Path, open_mode: OpenMode) -> Result<Box<dyn FileStream>, FileIoError> {
         self.open_sync(path, open_mode)
     }
 
     async fn open_async(
         &self,
         path: &Path,
-        open_mode: &str,
+        open_mode: OpenMode,
     ) -> Result<Box<dyn FileStream>, FileIoError> {
         self.open_sync(path, open_mode)
     }
 
     fn read(&self, path: &Path) -> Result<Vec<u8>, FileIoError> {
         use std::io::Read;
-        let mut file = self.open(path, "r")?;
+        let mut file = self.open(path, OpenMode::Read)?;
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
         Ok(buffer)
@@ -382,7 +390,7 @@ impl FileIo for AndroidFsIo {
 
     async fn write(&self, path: &Path, contents: &[u8]) -> Result<(), FileIoError> {
         use std::io::Write;
-        let mut file = self.open_async(path, "w").await?;
+        let mut file = self.open_async(path, OpenMode::Write).await?;
         file.write_all(contents)?;
         Ok(())
     }

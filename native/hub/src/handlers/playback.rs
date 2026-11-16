@@ -22,13 +22,13 @@ use ::database::{
 };
 use ::playback::PlayerCommand;
 use ::playback::player::{
-    HandoffBlockId as PlayerHandoffBlockId, LibraryItem, Playable, PlaybackSource,
-    PlaybackState as PlayerPlaybackState, PlayerStatus, PlayingItem, PlaylistEdit, PlaylistLoad,
-    PlaylistPlacement,
+    HandoffBlockId as PlayerHandoffBlockId, LibraryItem, PausedPlayback, Playable, PlaybackSource,
+    PlaybackState as PlayerPlaybackState, PlayerCommandError, PlayerStatus, PlayingItem,
+    PlaylistEdit, PlaylistLoad, PlaylistPlacement,
 };
 
 use crate::backends::remote::{RendererLink, RendererLinkUse};
-use crate::node::HandoffPlaybackEvent;
+use crate::node::{HandoffPlaybackEvent, HandoffPlaybackReport};
 use crate::request_error::{ExpectedRequestError, player_command_error};
 use crate::server::libraries::{cast_library_state, cast_library_states, parse_library_ids};
 use crate::subsonic_binding::SubsonicBinding;
@@ -37,7 +37,6 @@ use crate::{
     library_pool::{LibraryHandle, LibraryPool},
     messages::*,
     node::NodeContext,
-    rpc::{TargetRequest, dispatch_gui_request},
     session::{HandoffLoadParams, PlayerSession},
     utils::{
         GlobalParams, ParamsExtractor, files_to_playback_request, find_nearest_index,
@@ -89,32 +88,6 @@ pub(crate) fn reject_remote_independent_item(
     Ok(())
 }
 
-pub(crate) async fn authorize_item_library<R: TargetRequest>(
-    node: &Arc<NodeContext>,
-    session: Option<&Session>,
-    addressed_library_id: Option<Uuid>,
-    item: &PlayingItemRef,
-) -> Result<()> {
-    let (Some(session), PlayingItemRef::LibraryTrack { library_id, .. }) = (session, item) else {
-        return Ok(());
-    };
-    let item_library_id = Uuid::parse_str(library_id).map_err(|error| {
-        ExpectedRequestError::invalid_input(format!("Invalid library id: {error}"))
-    })?;
-    node.authorize_request(session, R::wire_name(), None, Some(item_library_id))
-        .await?;
-    let addressed_library_id = addressed_library_id.ok_or(ExpectedRequestError::Unavailable {
-        what: "addressed library id",
-    })?;
-    if item_library_id != addressed_library_id {
-        return Err(ExpectedRequestError::invalid_input(
-            "request library does not match the item's library",
-        )
-        .into());
-    }
-    Ok(())
-}
-
 /// Convert many requests against one library with a single id lookup.
 pub async fn playing_items_from_requests(
     requests: &[PlayingItemRef],
@@ -144,9 +117,9 @@ async fn resolve_open_subsonic_tracks(
 struct PlaylistEditOptions {
     mode: PlaylistOperateMode,
     start_index: Option<usize>,
-    playback_mode: Option<u32>,
+    playback_mode: Option<PlaybackMode>,
     position: Option<Duration>,
-    play: Option<bool>,
+    play: LoadPlay,
 }
 
 fn edit_playlist(
@@ -171,10 +144,10 @@ fn edit_playlist(
         .map(|start_index| PlaylistLoad {
             start_index,
             position: position.unwrap_or_default(),
-            play: if position.is_some() || play.is_some() {
-                play.unwrap_or(playback_mode.is_some())
-            } else {
-                true
+            play: match play {
+                LoadPlay::Play => true,
+                LoadPlay::Pause => false,
+                LoadPlay::Auto => position.is_none() || playback_mode.is_some(),
             },
         });
     let changed = (mode == PlaylistOperateMode::Replace && !player.get_playlist().is_empty())
@@ -184,7 +157,7 @@ fn edit_playlist(
         PlaylistEdit {
             tracks: prepared.to_vec(),
             placement,
-            playback_mode: playback_mode.filter(|mode| *mode != 99).map(Into::into),
+            playback_mode: playback_mode.map(Into::into),
             load,
             block: None,
         },
@@ -214,6 +187,32 @@ pub async fn playing_item_requests(
         .collect()
 }
 
+/// The row ids of the tracks, named by the caller, that belong to `library`.
+pub(crate) async fn queue_file_ids(
+    items: &[PlayingItemRef],
+    library: &LibraryHandle,
+) -> Result<Vec<i32>> {
+    let library_id = library.library_id.to_string();
+    let mut track_uuids = Vec::new();
+    for item in items {
+        if let PlayingItemRef::LibraryTrack {
+            library_id: item_library,
+            track,
+        } = item
+            && *item_library == library_id
+        {
+            track_uuids.push(Uuid::parse_str(track).map_err(|error| {
+                ExpectedRequestError::invalid_input(format!("Invalid excluded track: {error}"))
+            })?);
+        }
+    }
+    let ids = file_ids_by_uuid(&library.main_db, &track_uuids).await?;
+    Ok(track_uuids
+        .iter()
+        .filter_map(|uuid| ids.get(uuid).copied())
+        .collect())
+}
+
 struct ResolvedMixQuery {
     playing_items: Vec<PlayingItemRef>,
     start_index: Option<usize>,
@@ -222,7 +221,7 @@ struct ResolvedMixQuery {
 async fn resolve_mix_query(
     request: &ResolveMixQueryRequest,
     library: &LibraryHandle,
-    params: &GlobalParams,
+    pool: &Arc<LibraryPool>,
 ) -> Result<ResolvedMixQuery> {
     let fallback_items =
         playing_items_from_requests(&request.fallback_playing_items, Some(library)).await?;
@@ -232,30 +231,7 @@ async fn resolve_mix_query(
             .get_file_handle(&library.fsio, &library.main_db, &fallback_items)
             .await?
     } else {
-        let queue = if request.exclude_current_queue {
-            let snapshot = dispatch_gui_request(params, &SessionSnapshotRequest { call_id: None })
-                .await?
-                .context("Current player did not return a session snapshot")?;
-            let track_uuids = snapshot
-                .items
-                .into_iter()
-                .filter_map(|item| match item {
-                    PlayingItemRef::LibraryTrack { library_id, track }
-                        if library_id == library.library_id.to_string() =>
-                    {
-                        Uuid::parse_str(&track).ok()
-                    }
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
-            let ids = file_ids_by_uuid(&library.main_db, &track_uuids).await?;
-            track_uuids
-                .iter()
-                .filter_map(|uuid| ids.get(uuid).copied())
-                .collect()
-        } else {
-            Vec::new()
-        };
+        let queue = queue_file_ids(&request.excluded.items, library).await?;
         let excluded_tracks = queue.iter().copied().collect::<HashSet<_>>();
         query_mix_media_files(
             &library.main_db,
@@ -319,7 +295,7 @@ async fn resolve_mix_query(
             nearest_index
         }
     };
-    let playing_items = playing_item_requests(&items, &params.library_pool, None).await;
+    let playing_items = playing_item_requests(&items, pool, None).await;
 
     Ok(ResolvedMixQuery {
         playing_items,
@@ -748,20 +724,20 @@ impl Signal for SetMixWithOthersRequest {
 }
 
 impl ParamsExtractor for ResolveMixQueryRequest {
-    type Params = GlobalParams;
+    type Params = (Option<LibraryHandle>, Arc<LibraryPool>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        all_params.clone()
+        (all_params.library.clone(), all_params.library_pool.clone())
     }
 }
 
 impl Signal for ResolveMixQueryRequest {
-    type Params = GlobalParams;
+    type Params = (Option<LibraryHandle>, Arc<LibraryPool>);
     type Response = ResolveMixQueryResponse;
 
     async fn handle(
         &self,
-        params: Self::Params,
+        (library, pool): Self::Params,
         session: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -771,8 +747,8 @@ impl Signal for ResolveMixQueryRequest {
         for item in &request.fallback_playing_items {
             reject_remote_independent_item(session.as_ref(), item)?;
         }
-        let library = require_library(params.library.clone())?;
-        let resolved = resolve_mix_query(request, &library, &params).await?;
+        let library = require_library(library)?;
+        let resolved = resolve_mix_query(request, &library, &pool).await?;
         let start_index = resolved
             .start_index
             .map(u32::try_from)
@@ -1334,7 +1310,7 @@ async fn apply_resolved_items_load(
     };
     if let Some(block) = block {
         let position = position.unwrap_or_default();
-        let play = request.play.unwrap_or(true);
+        let play = request.play != LoadPlay::Pause;
         node.session()?
             .handoff_load_queue(HandoffLoadParams {
                 expected_revision: request.expected_revision,
@@ -1343,10 +1319,7 @@ async fn apply_resolved_items_load(
                 start_index,
                 position,
                 play,
-                playback_mode: request
-                    .playback_mode
-                    .filter(|mode| *mode != 99)
-                    .map(Into::into),
+                playback_mode: request.playback_mode.map(Into::into),
             })
             .await?;
     } else {
@@ -1914,9 +1887,12 @@ async fn pause_handoff_source(
         })
     } else {
         let session = node.session()?;
-        let was_playing =
-            session.player.lock().await.get_status().state == PlayerPlaybackState::Playing;
-        apply_player_command(&session.player, PlayerCommand::Pause).await?;
+        // The player answers after the commands already sent, such as a Play pressed just before
+        // the handoff, and counts a track that is loading to play as playing.
+        let paused = { session.player.lock().await.pause_reporting() };
+        let was_playing = paused.await.map_err(|_| {
+            anyhow::Error::new(player_command_error(PlayerCommandError::ThreadUnavailable))
+        })? == PausedPlayback::Playing;
         let snapshot = match session_snapshot(node, &session).await {
             Ok(snapshot) => snapshot,
             Err(error) => {
@@ -1988,7 +1964,11 @@ fn handoff_load(
         expected_revision: None,
         playback_mode: Some(snapshot.playback_mode),
         position_seconds: Some(snapshot.position_seconds),
-        play: Some(snapshot.playing),
+        play: if snapshot.playing {
+            LoadPlay::Play
+        } else {
+            LoadPlay::Pause
+        },
     }
 }
 
@@ -2004,6 +1984,12 @@ async fn hand_off_to_renderer(
         .connect_renderer(target, RendererLinkUse::Control)
         .await?;
     let mut events = node.subscribe_handoff_playback_events();
+    // The target starts the handed-off track as the load asks: playing, or paused at its place.
+    let expected_state = if load.play != LoadPlay::Pause {
+        PlaybackState::Playing
+    } else {
+        PlaybackState::Paused
+    };
     let handoff = HandoffLoadRequest {
         block: block.into(),
         load,
@@ -2017,6 +2003,7 @@ async fn hand_off_to_renderer(
         }
     };
     let target_item = response.handoff_item;
+    let target_link = connected_link.id();
     let previous_player = node.current_player_snapshot()?;
     node.install_renderer_link(connected_link, alias)?;
     node.transition_current_player(previous_player, node.current_player()?)
@@ -2031,7 +2018,15 @@ async fn hand_off_to_renderer(
     {
         warn!("Handoff succeeded, but renderer state refresh failed: {error:#}");
     }
-    if let Err(error) = wait_for_handoff_start(&mut events, &target_item, expected_position).await {
+    if let Err(error) = wait_for_handoff_start(
+        &mut events,
+        target_link,
+        &target_item,
+        expected_position,
+        expected_state,
+    )
+    .await
+    {
         let rollback = link
             .call(&TakeBackHandoffBlockRequest {
                 block: block.into(),
@@ -2088,10 +2083,15 @@ async fn hand_off_to_this_device(
     Ok(())
 }
 
+/// Waits for the target to report the handed-off track at the handed-off place in the expected
+/// state, playing or paused, or to report it unavailable. Only the reports that came over
+/// `target_link` count.
 async fn wait_for_handoff_start(
     events: &mut broadcast::Receiver<HandoffPlaybackEvent>,
+    target_link: Uuid,
     expected_item: &PlayingItemRef,
     expected_position: f64,
+    expected_state: PlaybackState,
 ) -> Result<()> {
     tokio::time::timeout(HANDOFF_START_TIMEOUT, async {
         loop {
@@ -2105,8 +2105,11 @@ async fn wait_for_handoff_start(
                     .into());
                 }
             };
-            match event {
-                HandoffPlaybackEvent::Playlist(items) => {
+            if event.link != target_link {
+                continue;
+            }
+            match event.report {
+                HandoffPlaybackReport::Playlist(items) => {
                     if items.iter().any(|item| {
                         same_handoff_item(&item.item, expected_item) && item.unavailable.is_some()
                     }) {
@@ -2116,12 +2119,12 @@ async fn wait_for_handoff_start(
                         .into());
                     }
                 }
-                HandoffPlaybackEvent::Status(status) => {
+                HandoffPlaybackReport::Status(status) => {
                     if status
                         .item_request
                         .as_ref()
                         .is_some_and(|item| same_handoff_item(item, expected_item))
-                        && status.state == PlaybackState::Playing
+                        && status.state == expected_state
                         && status.ready
                         && (f64::from(status.progress_seconds) - expected_position).abs() <= 1.5
                     {
@@ -2137,7 +2140,7 @@ async fn wait_for_handoff_start(
             what: "handoff playback start",
         })
         .context(format!(
-            "expected item {expected_item:?} at {expected_position}s"
+            "expected item {expected_item:?} {expected_state:?} at {expected_position}s"
         ))
     })?
 }
@@ -2156,33 +2159,98 @@ mod handoff_confirmation_tests {
         let expected_item = PlayingItemRef::IndependentFile {
             path: "slow-start.ogg".into(),
         };
+        let target_link = Uuid::new_v4();
         let (sender, mut events) = broadcast::channel(1);
         let delayed_sender = sender.clone();
         let delayed_item = expected_item.clone();
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(100)).await;
-            let _ = delayed_sender.send(HandoffPlaybackEvent::Status(Box::new(PlaybackStatus {
-                session_id: "slow-start".into(),
-                state: PlaybackState::Playing,
-                progress_seconds: 42.0,
-                progress_percentage: 0.0,
-                artist: None,
-                album: None,
-                title: None,
-                duration: 0.0,
-                index: Some(0),
-                item: None,
-                item_request: Some(delayed_item),
-                playback_mode: 0,
-                ready: true,
-                cover_art_path: None,
-                lib_path: String::new(),
-            })));
+            let _ = delayed_sender.send(HandoffPlaybackEvent {
+                link: target_link,
+                report: HandoffPlaybackReport::Status(Box::new(playing_status(delayed_item, 42.0))),
+            });
         });
 
         let started = Instant::now();
-        wait_for_handoff_start(&mut events, &expected_item, 42.0).await?;
+        wait_for_handoff_start(
+            &mut events,
+            target_link,
+            &expected_item,
+            42.0,
+            PlaybackState::Playing,
+        )
+        .await?;
         assert!(started.elapsed() >= Duration::from_millis(100));
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn only_the_target_link_confirms_or_fails_a_handoff() -> Result<()> {
+        let expected_item = PlayingItemRef::IndependentFile {
+            path: "handed-off.ogg".into(),
+        };
+        let target_link = Uuid::new_v4();
+        let (sender, mut events) = broadcast::channel(4);
+        // The track playing at the handed-off place over another link, such as the renderer
+        // handed off from, is not the target starting it.
+        sender
+            .send(HandoffPlaybackEvent {
+                link: Uuid::new_v4(),
+                report: HandoffPlaybackReport::Status(Box::new(playing_status(
+                    expected_item.clone(),
+                    42.0,
+                ))),
+            })
+            .map_err(|_| anyhow::anyhow!("handoff event channel closed"))?;
+        sender
+            .send(HandoffPlaybackEvent {
+                link: target_link,
+                report: HandoffPlaybackReport::Playlist(vec![PlaylistItem {
+                    unavailable: Some(PlaylistUnavailableReason::Unreadable),
+                    item: expected_item.clone(),
+                    artist: String::new(),
+                    album: String::new(),
+                    title: String::new(),
+                    duration: 0.0,
+                }]),
+            })
+            .map_err(|_| anyhow::anyhow!("handoff event channel closed"))?;
+
+        let error = wait_for_handoff_start(
+            &mut events,
+            target_link,
+            &expected_item,
+            42.0,
+            PlaybackState::Playing,
+        )
+        .await
+        .expect_err("a status from another link confirmed the handoff");
+        assert!(matches!(
+            error.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::Unavailable {
+                what: "handed-off track"
+            })
+        ));
+        Ok(())
+    }
+
+    fn playing_status(item: PlayingItemRef, progress_seconds: f32) -> PlaybackStatus {
+        PlaybackStatus {
+            session_id: "handoff".into(),
+            state: PlaybackState::Playing,
+            progress_seconds,
+            progress_percentage: 0.0,
+            artist: None,
+            album: None,
+            title: None,
+            duration: 0.0,
+            index: Some(0),
+            item: None,
+            item_request: Some(item),
+            playback_mode: PlaybackMode::Sequential,
+            ready: true,
+            cover_art_path: None,
+            lib_path: String::new(),
+        }
     }
 }

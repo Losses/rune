@@ -121,6 +121,7 @@ tracing-logcat = "0.1.0"
 swift-rs = { version = "1.0.7", features = ["build"] }
 
 [dev-dependencies]
+database = { path = "../../database", features = ["test-fixtures"] }
 fsio = { path = "../../fsio", features = ["test-fixtures"] }
 playback = { path = "../../playback", features = ["test-output"] }
 tokio = { version = "1.44.2", features = ["test-util"] }
@@ -131,6 +132,7 @@ rust_decimal = "1.36.0"
 rust_decimal_macros = "1.36.0"
 migration = { path = "../../migration" }
 tempfile = "3.17.1"
+rcgen = "0.13.2"
 
 [lints]
 workspace = true

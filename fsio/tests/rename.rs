@@ -1,6 +1,6 @@
 #![cfg(not(target_os = "android"))]
 
-use fsio::FsIo;
+use fsio::{FsIo, OpenMode};
 
 #[tokio::test]
 async fn verified_file_can_be_published_by_same_directory_rename() {
@@ -9,7 +9,10 @@ async fn verified_file_can_be_published_by_same_directory_rename() {
     let partial = root.path().join("audio.part");
     let published = root.path().join("audio.ogg");
     fs.write(&partial, b"verified content").await.unwrap();
-    fs.open(&partial, "rw").unwrap().sync_all().unwrap();
+    fs.open(&partial, OpenMode::ReadWrite)
+        .unwrap()
+        .sync_all()
+        .unwrap();
     fs.rename_file(&partial, &published).await.unwrap();
     assert!(!fs.exists(&partial).unwrap());
     assert_eq!(fs.read(&published).unwrap(), b"verified content");

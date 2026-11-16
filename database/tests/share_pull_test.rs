@@ -1,5 +1,4 @@
-#[path = "support/causal_library.rs"]
-mod support;
+use database::test_fixtures::causal_library as support;
 
 use anyhow::{Context, Result, ensure};
 use database::sync::model::{Collection, ObjectKey, RuneModel};
@@ -48,15 +47,15 @@ async fn age_base_observation(
     age_ms: i64,
 ) -> Result<()> {
     source
-        .library
+        .sync_store
         .pull_share(
             published.store.clone(),
-            source.library.identity().await?.namespace,
+            source.sync_store.identity().await?.namespace,
             cache_path(),
             Default::default(),
         )
         .await?;
-    let identity = source.library.identity().await?;
+    let identity = source.sync_store.identity().await?;
     let now_ms = chrono::Utc::now().timestamp_millis();
     let mut state = load_or_create_state(
         &source.db,
@@ -93,7 +92,7 @@ async fn publish_base(
     store: Arc<MemoryObjectStore>,
     covers: BTreeMap<String, Checkpoint>,
 ) -> Result<Published> {
-    let endpoint = source.library.endpoint();
+    let endpoint = source.sync_store.endpoint();
     let identity = SyncPeer::identity(&endpoint).await?;
     let mut state = load_or_create_state(
         &source.db,
@@ -427,10 +426,10 @@ impl ObjectStore for FailAtRead {
 async fn pull(published: &Published, target: &SqlLibrary) -> Result<()> {
     let store: Arc<dyn ObjectStore> = published.store.clone();
     target
-        .library
+        .sync_store
         .pull_share(
             store,
-            target.library.identity().await?.namespace,
+            target.sync_store.identity().await?.namespace,
             cache_path(),
             Default::default(),
         )
@@ -516,7 +515,7 @@ async fn local_journal_pushes_a_segment_then_another_device_pulls_it() -> Result
     let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     let target = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     source
-        .library
+        .sync_store
         .write_local(
             ObjectKey {
                 collection: Collection::Playlists,
@@ -529,7 +528,7 @@ async fn local_journal_pushes_a_segment_then_another_device_pulls_it() -> Result
     let store = Arc::new(MemoryObjectStore::default());
     let mut published = publish_base(&source, store.clone(), Default::default()).await?;
     source
-        .library
+        .sync_store
         .write_local(
             ObjectKey {
                 collection: Collection::Playlists,
@@ -652,8 +651,8 @@ async fn local_journal_pushes_a_segment_then_another_device_pulls_it() -> Result
         id: Uuid::from_u128(44),
     };
     assert_eq!(
-        target.library.get(&key).await?,
-        source.library.get(&key).await?
+        target.sync_store.get(&key).await?,
+        source.sync_store.get(&key).await?
     );
     Ok(())
 }
@@ -665,7 +664,7 @@ async fn push_pass_pulls_before_reading_and_publishing_the_local_tail() -> Resul
     let remote = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     let target = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     source
-        .library
+        .sync_store
         .write_local(
             ObjectKey {
                 collection: Collection::Playlists,
@@ -681,7 +680,7 @@ async fn push_pass_pulls_before_reading_and_publishing_the_local_tail() -> Resul
         id: Uuid::from_u128(149),
     };
     remote
-        .library
+        .sync_store
         .write_local(remote_key.clone(), support::playlist("remote stream"))
         .await?;
     let _published_remote = publish_base(&remote, store.clone(), Default::default()).await?;
@@ -690,11 +689,11 @@ async fn push_pass_pulls_before_reading_and_publishing_the_local_tail() -> Resul
         id: Uuid::from_u128(148),
     };
     source
-        .library
+        .sync_store
         .write_local(key.clone(), support::playlist("push pass local tail"))
         .await?;
     let head = source
-        .library
+        .sync_store
         .push_share(
             store.clone(),
             namespace,
@@ -709,21 +708,21 @@ async fn push_pass_pulls_before_reading_and_publishing_the_local_tail() -> Resul
         .context("push pass did not publish the local journal")?;
     assert_eq!(head.head.seq, published.head.head.seq + 1);
     assert_eq!(
-        source.library.get(&remote_key).await?,
-        remote.library.get(&remote_key).await?
+        source.sync_store.get(&remote_key).await?,
+        remote.sync_store.get(&remote_key).await?
     );
     let target_result = target
-        .library
+        .sync_store
         .pull_share(store, namespace, cache_path(), Default::default())
         .await;
     target_result.map_err(|error| anyhow::anyhow!("target pull: {error}"))?;
     assert_eq!(
-        target.library.get(&key).await?,
-        source.library.get(&key).await?
+        target.sync_store.get(&key).await?,
+        source.sync_store.get(&key).await?
     );
     assert_eq!(
-        target.library.get(&remote_key).await?,
-        remote.library.get(&remote_key).await?
+        target.sync_store.get(&remote_key).await?,
+        remote.sync_store.get(&remote_key).await?
     );
     Ok(())
 }
@@ -734,7 +733,7 @@ async fn stale_base_is_replaced_by_own_stream_cut() -> Result<()> {
     let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     let store = Arc::new(MemoryObjectStore::default());
     source
-        .library
+        .sync_store
         .write_local(
             ObjectKey {
                 collection: Collection::Playlists,
@@ -767,10 +766,10 @@ async fn stale_base_is_replaced_by_own_stream_cut() -> Result<()> {
     )?;
     let old_base_key = share::base_key(&published.prefix, &published.head.bases[0].base_id)?;
     source
-        .library
+        .sync_store
         .pull_share(store.clone(), namespace, cache_path(), Default::default())
         .await?;
-    let identity = source.library.identity().await?;
+    let identity = source.sync_store.identity().await?;
     let mut state = load_or_create_state(
         &source.db,
         identity.replica,
@@ -796,7 +795,7 @@ async fn stale_base_is_replaced_by_own_stream_cut() -> Result<()> {
     save_state(&source.db, &state).await?;
 
     let head = source
-        .library
+        .sync_store
         .push_share(store.clone(), namespace, cache_path(), Default::default())
         .await?
         .context("stale base was not replaced")?;
@@ -830,7 +829,7 @@ async fn stale_base_is_replaced_by_own_stream_cut() -> Result<()> {
     );
     let mut state = load_or_create_state(
         &source.db,
-        source.library.identity().await?.replica,
+        source.sync_store.identity().await?.replica,
         namespace,
         cache_path(),
         chrono::Utc::now().timestamp_millis(),
@@ -855,11 +854,11 @@ async fn stale_base_is_replaced_by_own_stream_cut() -> Result<()> {
         id: Uuid::from_u128(914),
     };
     source
-        .library
+        .sync_store
         .write_local(tail_key.clone(), support::playlist("tail after base cut"))
         .await?;
     source
-        .library
+        .sync_store
         .push_share(store.clone(), namespace, cache_path(), Default::default())
         .await?;
     ensure!(
@@ -868,11 +867,11 @@ async fn stale_base_is_replaced_by_own_stream_cut() -> Result<()> {
     );
     let target = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     target
-        .library
+        .sync_store
         .pull_share(store, namespace, cache_path(), Default::default())
         .await?;
     ensure!(
-        target.library.get(&tail_key).await? == source.library.get(&tail_key).await?,
+        target.sync_store.get(&tail_key).await? == source.sync_store.get(&tail_key).await?,
         "new device did not apply the base plus its tail"
     );
     Ok(())
@@ -889,12 +888,12 @@ async fn first_share_push_creates_a_base_before_its_head() -> Result<()> {
         id: Uuid::from_u128(916),
     };
     source
-        .library
+        .sync_store
         .write_local(key.clone(), support::playlist("first share base"))
         .await?;
 
     let head = source
-        .library
+        .sync_store
         .push_share(store.clone(), namespace, cache_path(), Default::default())
         .await?
         .context("first push did not create a base")?;
@@ -903,11 +902,11 @@ async fn first_share_push_creates_a_base_before_its_head() -> Result<()> {
         "first share head does not reference its base"
     );
     target
-        .library
+        .sync_store
         .pull_share(store, namespace, cache_path(), Default::default())
         .await?;
     ensure!(
-        target.library.get(&key).await? == source.library.get(&key).await?,
+        target.sync_store.get(&key).await? == source.sync_store.get(&key).await?,
         "first base did not initialize a new device"
     );
     Ok(())
@@ -919,7 +918,7 @@ async fn only_the_elected_keeper_cuts_a_retained_base() -> Result<()> {
     let a = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     let b = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     let store = Arc::new(MemoryObjectStore::default());
-    a.library
+    a.sync_store
         .write_local(
             ObjectKey {
                 collection: Collection::Playlists,
@@ -928,7 +927,7 @@ async fn only_the_elected_keeper_cuts_a_retained_base() -> Result<()> {
             support::playlist("keeper A"),
         )
         .await?;
-    b.library
+    b.sync_store
         .write_local(
             ObjectKey {
                 collection: Collection::Playlists,
@@ -950,7 +949,7 @@ async fn only_the_elected_keeper_cuts_a_retained_base() -> Result<()> {
             (&b, &published_b, &a, &published_a)
         };
     let non_keeper_head = non_keeper
-        .library
+        .sync_store
         .push_share(store.clone(), namespace, cache_path(), Default::default())
         .await?;
     let non_keeper_head =
@@ -960,7 +959,7 @@ async fn only_the_elected_keeper_cuts_a_retained_base() -> Result<()> {
         "non-keeper cut the base"
     );
     let keeper_head = keeper
-        .library
+        .sync_store
         .push_share(store, namespace, cache_path(), Default::default())
         .await?
         .context("elected keeper did not cut the stale base")?;
@@ -978,7 +977,7 @@ async fn interrupted_base_cut_leaves_orphans_for_delayed_own_gc() -> Result<()> 
     let store = Arc::new(MemoryObjectStore::default());
     let foreign = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     foreign
-        .library
+        .sync_store
         .write_local(
             ObjectKey {
                 collection: Collection::Playlists,
@@ -997,14 +996,14 @@ async fn interrupted_base_cut_leaves_orphans_for_delayed_own_gc() -> Result<()> 
         id: Uuid::from_u128(917),
     };
     source
-        .library
+        .sync_store
         .write_local(key.clone(), support::playlist("before interrupted cut"))
         .await?;
     source
-        .library
+        .sync_store
         .pull_share(store.clone(), namespace, cache_path(), Default::default())
         .await?;
-    let identity = source.library.identity().await?;
+    let identity = source.sync_store.identity().await?;
     let state = load_or_create_state(
         &source.db,
         identity.replica,
@@ -1015,7 +1014,7 @@ async fn interrupted_base_cut_leaves_orphans_for_delayed_own_gc() -> Result<()> 
     .await?;
     let prefix = format!("{}.{}", state.stream, state.generation);
     let export = export_base(
-        &source.library.endpoint(),
+        &source.sync_store.endpoint(),
         BaseExportOptions {
             own_prefix: prefix.clone(),
             ..BaseExportOptions::default()
@@ -1039,7 +1038,7 @@ async fn interrupted_base_cut_leaves_orphans_for_delayed_own_gc() -> Result<()> 
         StoreError::Transient("injected manifest failure".into()),
     );
     let interrupted = source
-        .library
+        .sync_store
         .push_share(store.clone(), namespace, cache_path(), Default::default())
         .await;
     if interrupted.is_ok() {
@@ -1071,11 +1070,11 @@ async fn interrupted_base_cut_leaves_orphans_for_delayed_own_gc() -> Result<()> 
 
     store.clear_error_for_kind(StoreOperation::Put, StoreObjectKind::Base);
     source
-        .library
+        .sync_store
         .write_local(key, support::playlist("replacement snapshot"))
         .await?;
     let replacement = source
-        .library
+        .sync_store
         .push_share(store.clone(), namespace, cache_path(), Default::default())
         .await?
         .context("replacement base was not published")?;
@@ -1143,7 +1142,7 @@ async fn interrupted_base_cut_leaves_orphans_for_delayed_own_gc() -> Result<()> 
     }
     save_state(&source.db, &state).await?;
     source
-        .library
+        .sync_store
         .push_share(store.clone(), namespace, cache_path(), Default::default())
         .await?;
     for orphan in orphan_keys {
@@ -1231,10 +1230,10 @@ async fn concurrent_devices_publish_distinct_streams_and_a_third_device_converge
         collection: Collection::Playlists,
         id: Uuid::from_u128(141),
     };
-    a.library
+    a.sync_store
         .write_local(key_a.clone(), support::playlist("authored on A"))
         .await?;
-    b.library
+    b.sync_store
         .write_local(key_b.clone(), support::playlist("authored on B"))
         .await?;
     let identity_a = SyncPeer::identity(&published_a.endpoint).await?;
@@ -1268,8 +1267,14 @@ async fn concurrent_devices_publish_distinct_streams_and_a_third_device_converge
     published_a.head = result_a?.context("A had no local event to publish")?;
     published_b.head = result_b?.context("B had no local event to publish")?;
     pull(&published_a, &c).await?;
-    assert_eq!(c.library.get(&key_a).await?, a.library.get(&key_a).await?);
-    assert_eq!(c.library.get(&key_b).await?, b.library.get(&key_b).await?);
+    assert_eq!(
+        c.sync_store.get(&key_a).await?,
+        a.sync_store.get(&key_a).await?
+    );
+    assert_eq!(
+        c.sync_store.get(&key_b).await?,
+        b.sync_store.get(&key_b).await?
+    );
     Ok(())
 }
 
@@ -1280,7 +1285,7 @@ async fn relayed_event_is_filtered_from_the_receiving_devices_own_stream() -> Re
     let b = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     for (library, id) in [(&a, 144), (&b, 145)] {
         library
-            .library
+            .sync_store
             .write_local(
                 ObjectKey {
                     collection: Collection::Playlists,
@@ -1297,7 +1302,7 @@ async fn relayed_event_is_filtered_from_the_receiving_devices_own_stream() -> Re
         collection: Collection::Playlists,
         id: Uuid::from_u128(142),
     };
-    a.library
+    a.sync_store
         .write_local(key.clone(), support::playlist("relay once"))
         .await?;
     let identity_a = SyncPeer::identity(&published_a.endpoint).await?;
@@ -1369,7 +1374,7 @@ async fn publication_survives_a_torn_alternate_head_slot() -> Result<()> {
         id: Uuid::from_u128(143),
     };
     source
-        .library
+        .sync_store
         .write_local(key, support::playlist("survive torn slot"))
         .await?;
     let identity = SyncPeer::identity(&published.endpoint).await?;
@@ -1407,7 +1412,7 @@ async fn changed_library_file_is_typed_and_never_recreated() -> Result<()> {
     let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     let target = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     source
-        .library
+        .sync_store
         .write_local(
             ObjectKey {
                 collection: Collection::Playlists,
@@ -1431,7 +1436,7 @@ async fn changed_library_file_is_typed_and_never_recreated() -> Result<()> {
         .await
         .map_err(|error| anyhow::anyhow!("replace library.json: {error:?}"))?;
     let error = target
-        .library
+        .sync_store
         .pull_share(store.clone(), namespace, cache_path(), Default::default())
         .await
         .unwrap_err();
@@ -1489,7 +1494,7 @@ async fn device_pulls_exported_base_segments_and_incremental_segment() -> Result
     let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     let target = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     source
-        .library
+        .sync_store
         .write_local(
             ObjectKey {
                 collection: Collection::Playlists,
@@ -1508,17 +1513,17 @@ async fn device_pulls_exported_base_segments_and_incremental_segment() -> Result
             id: Uuid::from_u128(id),
         };
         let actual = target
-            .library
+            .sync_store
             .get(&key)
             .await?
             .context("pulled playlist missing")?;
-        assert_eq!(Some(actual), source.library.get(&key).await?);
+        assert_eq!(Some(actual), source.sync_store.get(&key).await?);
     }
 
     append_segment(&mut published, 3, "incremental").await?;
     pull(&published, &target).await?;
     let actual = target
-        .library
+        .sync_store
         .get(&ObjectKey {
             collection: Collection::Playlists,
             id: Uuid::from_u128(3),
@@ -1528,7 +1533,7 @@ async fn device_pulls_exported_base_segments_and_incremental_segment() -> Result
     assert_eq!(
         Some(actual),
         source
-            .library
+            .sync_store
             .get(&ObjectKey {
                 collection: Collection::Playlists,
                 id: Uuid::from_u128(3),
@@ -1544,7 +1549,7 @@ async fn pulls_read_only_new_segments_and_skip_equal_base_bucket_chunks() -> Res
     let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     let target = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     source
-        .library
+        .sync_store
         .write_local(
             ObjectKey {
                 collection: Collection::Playlists,
@@ -1643,7 +1648,7 @@ async fn malformed_share_keys_and_covers_return_typed_errors() -> Result<()> {
         .await
         .map_err(|error| anyhow::anyhow!("put malformed key: {error:?}"))?;
     let result = target
-        .library
+        .sync_store
         .pull_share(store.clone(), namespace, cache_path(), Default::default())
         .await;
     assert!(matches!(result, Err(SharePullError::Invalid(_))));
@@ -1666,7 +1671,7 @@ async fn malformed_share_keys_and_covers_return_typed_errors() -> Result<()> {
         .await
         .map_err(|error| anyhow::anyhow!("put malformed head cover: {error:?}"))?;
     let result = target
-        .library
+        .sync_store
         .pull_share(store, namespace, cache_path(), Default::default())
         .await;
     assert!(matches!(result, Err(SharePullError::Invalid(_))));
@@ -1684,7 +1689,7 @@ async fn assert_target_consistent_at_checkpoint(
         source_generation: published.head.generation,
         scope_id: p::scope_id(&full_scope())?,
     };
-    let checkpoint = p::ReceiveStore::checkpoint(&target.library.endpoint(), &key).await?;
+    let checkpoint = p::ReceiveStore::checkpoint(&target.sync_store.endpoint(), &key).await?;
     let base_key = ObjectKey {
         collection: Collection::Playlists,
         id: Uuid::from_u128(10),
@@ -1693,8 +1698,8 @@ async fn assert_target_consistent_at_checkpoint(
         collection: Collection::Playlists,
         id: Uuid::from_u128(11),
     };
-    let base_value = target.library.get(&base_key).await?;
-    let segment_value = target.library.get(&segment_key).await?;
+    let base_value = target.sync_store.get(&base_key).await?;
+    let segment_value = target.sync_store.get(&segment_key).await?;
     match checkpoint {
         None => {
             assert!(base_value.is_none());
@@ -1732,7 +1737,7 @@ async fn transient_read_at_every_pull_step_preserves_consistency_and_retry_conve
     let namespace = Uuid::new_v4();
     let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     source
-        .library
+        .sync_store
         .write_local(
             ObjectKey {
                 collection: Collection::Playlists,
@@ -1753,7 +1758,7 @@ async fn transient_read_at_every_pull_step_preserves_consistency_and_retry_conve
     let count_target = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     let counted: Arc<dyn ObjectStore> = counter.clone();
     count_target
-        .library
+        .sync_store
         .pull_share(counted, namespace, cache_path(), Default::default())
         .await
         .map_err(|error| anyhow::anyhow!("counting successful share pull: {error}"))?;
@@ -1769,7 +1774,7 @@ async fn transient_read_at_every_pull_step_preserves_consistency_and_retry_conve
         });
         let failing_store: Arc<dyn ObjectStore> = failing;
         let result = target
-            .library
+            .sync_store
             .pull_share(failing_store, namespace, cache_path(), Default::default())
             .await;
         assert!(
@@ -1785,8 +1790,8 @@ async fn transient_read_at_every_pull_step_preserves_consistency_and_retry_conve
                 id: Uuid::from_u128(id),
             };
             assert_eq!(
-                target.library.get(&key).await?,
-                source.library.get(&key).await?,
+                target.sync_store.get(&key).await?,
+                source.sync_store.get(&key).await?,
                 "retry after read step {fail_at} did not converge for {id}"
             );
         }
@@ -1797,7 +1802,7 @@ async fn transient_read_at_every_pull_step_preserves_consistency_and_retry_conve
             scope_id: p::scope_id(&full_scope())?,
         };
         assert_eq!(
-            p::ReceiveStore::checkpoint(&target.library.endpoint(), &checkpoint_key).await?,
+            p::ReceiveStore::checkpoint(&target.sync_store.endpoint(), &checkpoint_key).await?,
             Some(p::ReceiveProgress {
                 sequence: published.head.head.seq,
                 anchor: published.head.head.anchor,
@@ -1813,7 +1818,7 @@ async fn deleted_floor_base_reconciles_from_another_live_base() -> Result<()> {
     let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     let target = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     source
-        .library
+        .sync_store
         .write_local(
             ObjectKey {
                 collection: Collection::Playlists,
@@ -1891,7 +1896,7 @@ async fn deleted_floor_base_reconciles_from_another_live_base() -> Result<()> {
     );
 
     let before = target
-        .library
+        .sync_store
         .get(&ObjectKey {
             collection: Collection::Playlists,
             id: Uuid::from_u128(21),
@@ -1900,7 +1905,7 @@ async fn deleted_floor_base_reconciles_from_another_live_base() -> Result<()> {
     assert!(before.is_none(), "target unexpectedly has post-floor data");
     pull(&published, &target).await?;
     let recovered = target
-        .library
+        .sync_store
         .get(&ObjectKey {
             collection: Collection::Playlists,
             id: Uuid::from_u128(21),
@@ -1918,11 +1923,187 @@ async fn deleted_floor_base_reconciles_from_another_live_base() -> Result<()> {
         scope_id: p::scope_id(&full_scope())?,
     };
     assert_eq!(
-        p::ReceiveStore::checkpoint(&target.library.endpoint(), &checkpoint).await?,
+        p::ReceiveStore::checkpoint(&target.sync_store.endpoint(), &checkpoint).await?,
         Some(p::ReceiveProgress {
             sequence: published.head.head.seq,
             anchor: published.head.head.anchor,
         })
+    );
+    Ok(())
+}
+
+async fn share_prefix_keys(store: &MemoryObjectStore, prefix: &str) -> Result<Vec<String>> {
+    store
+        .list_prefix(&format!("devices/{prefix}/"))
+        .await
+        .map_err(|error| anyhow::anyhow!("list prefix {prefix}: {error:?}"))
+}
+
+/// Another library's upload of library.json lands after this share was created.
+async fn hand_share_to_another_library(store: &MemoryObjectStore) -> Result<Uuid> {
+    let other = Uuid::new_v4();
+    let library = LibraryFile {
+        format: share::FORMAT_VERSION,
+        library_id: other,
+        model: RuneModel::model_id().to_owned(),
+        schema: RuneModel::schema_id().to_owned(),
+    };
+    store
+        .put(&share::library_key(), &share::encode_library(&library)?)
+        .await
+        .map_err(|error| anyhow::anyhow!("replace library.json: {error:?}"))?;
+    Ok(other)
+}
+
+async fn publish_first_share_pass(
+    device: &SqlLibrary,
+    store: &Arc<MemoryObjectStore>,
+    namespace: Uuid,
+    id: u128,
+) -> Result<String> {
+    device
+        .sync_store
+        .write_local(
+            ObjectKey {
+                collection: Collection::Playlists,
+                id: Uuid::from_u128(id),
+            },
+            support::playlist("share creation race"),
+        )
+        .await?;
+    device
+        .sync_store
+        .push_share(store.clone(), namespace, cache_path(), Default::default())
+        .await?;
+    let prefix = device.sync_store.share_prefix(cache_path()).await?;
+    ensure!(
+        !share_prefix_keys(store, &prefix).await?.is_empty(),
+        "the device published nothing to its prefix"
+    );
+    Ok(prefix)
+}
+
+#[tokio::test]
+async fn device_that_lost_the_share_creation_removes_only_its_own_prefix() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let store = Arc::new(MemoryObjectStore::default());
+    // The creator writes library.json with a plain PUT, as on a store without conditional
+    // create, and publishes in the same pass. Another device of the library joins after it.
+    let creator = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let creator_prefix = publish_first_share_pass(&creator, &store, namespace, 1701).await?;
+    let joiner = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let joiner_prefix = publish_first_share_pass(&joiner, &store, namespace, 1702).await?;
+
+    // Another library's upload of library.json lands late, and that library publishes too.
+    let other_namespace = hand_share_to_another_library(&store).await?;
+    let other = SqlLibrary::new(other_namespace, Uuid::new_v4()).await?;
+    let other_prefix = publish_first_share_pass(&other, &store, other_namespace, 1703).await?;
+    let joiner_keys = share_prefix_keys(&store, &joiner_prefix).await?;
+    let other_keys = share_prefix_keys(&store, &other_prefix).await?;
+
+    // The creator meets the other library on its next pass and removes what it wrote.
+    assert_eq!(
+        creator
+            .sync_store
+            .pull_share(store.clone(), namespace, cache_path(), Default::default())
+            .await
+            .unwrap_err(),
+        SharePullError::ShareChanged
+    );
+    assert_eq!(
+        share_prefix_keys(&store, &creator_prefix).await?,
+        Vec::<String>::new()
+    );
+
+    // A device that did not create library.json keeps its prefix, and so does the other library,
+    // which owns the share and keeps syncing.
+    assert_eq!(
+        joiner
+            .sync_store
+            .pull_share(store.clone(), namespace, cache_path(), Default::default())
+            .await
+            .unwrap_err(),
+        SharePullError::ShareChanged
+    );
+    assert_eq!(
+        share_prefix_keys(&store, &joiner_prefix).await?,
+        joiner_keys
+    );
+    assert_eq!(share_prefix_keys(&store, &other_prefix).await?, other_keys);
+    other
+        .sync_store
+        .pull_share(
+            store.clone(),
+            other_namespace,
+            cache_path(),
+            Default::default(),
+        )
+        .await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn device_keeps_its_prefix_once_its_share_creation_held() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let store = Arc::new(MemoryObjectStore::default());
+    let creator = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let creator_prefix = publish_first_share_pass(&creator, &store, namespace, 1711).await?;
+    // The next pass after the first publication still finds this library's library.json.
+    creator
+        .sync_store
+        .pull_share(store.clone(), namespace, cache_path(), Default::default())
+        .await?;
+    let creator_keys = share_prefix_keys(&store, &creator_prefix).await?;
+
+    hand_share_to_another_library(&store).await?;
+    assert_eq!(
+        creator
+            .sync_store
+            .pull_share(store.clone(), namespace, cache_path(), Default::default())
+            .await
+            .unwrap_err(),
+        SharePullError::ShareChanged
+    );
+    assert_eq!(
+        share_prefix_keys(&store, &creator_prefix).await?,
+        creator_keys
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn share_prefix_whose_head_another_writer_session_wrote_is_never_removed() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let store = Arc::new(MemoryObjectStore::default());
+    let replica = Uuid::new_v4();
+    let creator = SqlLibrary::new(namespace, replica).await?;
+    let creator_prefix = publish_first_share_pass(&creator, &store, namespace, 1721).await?;
+    let creator_keys = share_prefix_keys(&store, &creator_prefix).await?;
+    // This database now holds another writer session than the one that wrote the prefix's head,
+    // as a restored copy of the device does.
+    let mut state = load_or_create_state(
+        &creator.db,
+        replica,
+        namespace,
+        cache_path(),
+        chrono::Utc::now().timestamp_millis(),
+    )
+    .await?;
+    state.writer_session = Uuid::new_v4();
+    save_state(&creator.db, &state).await?;
+
+    hand_share_to_another_library(&store).await?;
+    assert_eq!(
+        creator
+            .sync_store
+            .pull_share(store.clone(), namespace, cache_path(), Default::default())
+            .await
+            .unwrap_err(),
+        SharePullError::ShareChanged
+    );
+    assert_eq!(
+        share_prefix_keys(&store, &creator_prefix).await?,
+        creator_keys
     );
     Ok(())
 }

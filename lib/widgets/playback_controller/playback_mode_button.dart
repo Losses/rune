@@ -5,7 +5,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../utils/l10n.dart';
 import '../../utils/api/play_mode.dart';
 import '../../utils/settings_manager.dart';
-import '../../widgets/playback_controller/utils/playback_mode.dart';
+import '../../bindings/bindings.dart';
 import '../../providers/status.dart';
 import '../../providers/request_capabilities.dart';
 import '../capability_gate.dart';
@@ -35,19 +35,6 @@ String modeToLabel(BuildContext context, PlaybackMode mode) {
       return S.of(context).repeatOne;
     case PlaybackMode.shuffle:
       return S.of(context).shuffle;
-  }
-}
-
-int modeToInt(PlaybackMode mode) {
-  switch (mode) {
-    case PlaybackMode.sequential:
-      return 0;
-    case PlaybackMode.repeatAll:
-      return 1;
-    case PlaybackMode.repeatOne:
-      return 2;
-    case PlaybackMode.shuffle:
-      return 3;
   }
 }
 
@@ -97,9 +84,9 @@ class PlaybackModeButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<PlaybackStatusProvider>(
       builder: (context, playbackStatusProvider, child) {
-        final PlaybackMode currentMode = PlaybackModeExtension.fromValue(
-          playbackStatusProvider.playbackStatus.playbackMode ?? 0,
-        );
+        final PlaybackMode currentMode =
+            playbackStatusProvider.playbackStatus.playbackMode ??
+            PlaybackMode.sequential;
 
         return CapabilityGate(
           capability: capabilityForRequest(
@@ -109,7 +96,7 @@ class PlaybackModeButton extends StatelessWidget {
           child: RuneClickable(
             onPressed: () async {
               final next = await getNextEnabledMode(currentMode);
-              playMode(next.toValue());
+              playMode(next);
             },
             child: Icon(modeToIcon(currentMode), shadows: shadows),
           ),

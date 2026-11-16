@@ -13,9 +13,12 @@ pub enum RequestCapability {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, SignalPiece)]
 pub enum CapabilityReason {
     NotImplemented,
+    /// Only this device itself can make the call.
     OwnerOnly,
     PeerTooOld,
     AccountRoleMissing,
+    /// The grants this controller holds do not allow the call, though the owner could grant it.
+    NotAllowed,
 }
 
 /// One field per request in the catalogue (`native/requests`), named after it.

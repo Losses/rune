@@ -1,7 +1,6 @@
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::Result;
 use database::sync::{model::*, references};
+use database::test_fixtures::causal_library as support;
 use uuid::Uuid;
 
 #[tokio::test]
@@ -33,7 +32,7 @@ async fn reference_pages_release_reads_and_observe_parent_arrival() -> Result<()
             )
             .await?;
     }
-    let store = library.library.record_store();
+    let store = library.sync_store.record_store();
     let first = references::page(&library.db, &store, Collection::TrackAlbums, None, 1).await?;
     assert!(!first.done);
     assert_eq!(first.missing.len(), 1);

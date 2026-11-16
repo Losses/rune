@@ -37,7 +37,6 @@ pub struct SetLibraryBackgroundSyncRequest {
 
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct SetLibraryBackgroundSyncResponse {
-    pub error: Option<String>,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:rune/bindings/bindings.dart';
 import 'package:rune/l10n/app_localizations.dart';
 import 'package:rune/providers/library_registry.dart';
+import 'package:rune/utils/api/request_failure.dart';
 import 'package:rune/utils/dialogs/subsonic/subsonic_relogin_dialog.dart';
 
 LibraryRecordSummary _record() => const LibraryRecordSummary(
@@ -15,19 +16,20 @@ LibraryRecordSummary _record() => const LibraryRecordSummary(
 );
 
 OpenLibraryResponse _openResponse(int callId, {required bool authorized}) =>
-    OpenLibraryResponse(
-      callId: Uint64.fromBigInt(BigInt.from(callId)),
-      recordId: 'subsonic-record',
-      generation: Uint64.fromBigInt(BigInt.one),
-      result: authorized
-          ? const OpenLibraryResultOpened()
-          : const OpenLibraryResultFailed(
-              value: OpenLibraryFailure(
-                kind: OpenLibraryFailureKind.remoteNotAuthorized,
-                detail: 'The Subsonic credentials were rejected',
-              ),
+    authorized
+        ? OpenLibraryResponse(
+            callId: Uint64.fromBigInt(BigInt.from(callId)),
+            recordId: 'subsonic-record',
+            generation: Uint64.fromBigInt(BigInt.one),
+          )
+        : throw const RequestFailure(
+            'OpenLibraryRequest',
+            RequestErrorKind.permissionDenied,
+            'The Subsonic credentials were rejected',
+            RequestFailureCauseLibraryOpenFailed(
+              kind: OpenLibraryFailureKind.remoteNotAuthorized,
             ),
-    );
+          );
 
 LibraryRegistryProvider _registry({required bool succeed}) {
   var attempts = 0;
@@ -41,11 +43,16 @@ LibraryRegistryProvider _registry({required bool succeed}) {
       callId,
       authorized: attempts++ > 0,
     ),
-    replaceCredential: (_, _, _) async => ReplaceSubsonicCredentialResponse(
-      result: succeed
-          ? ReplaceSubsonicCredentialResult.updated
-          : ReplaceSubsonicCredentialResult.rejected,
-    ),
+    replaceCredential: (_, _, _) async => succeed
+        ? const ReplaceSubsonicCredentialResponse()
+        : throw const RequestFailure(
+            'ReplaceSubsonicCredentialRequest',
+            RequestErrorKind.permissionDenied,
+            'Library registration failed: SubsonicWrongCredentials',
+            RequestFailureCauseLibraryRegistrationFailed(
+              kind: RegisterLibraryFailureKind.subsonicWrongCredentials,
+            ),
+          ),
   );
 }
 
@@ -88,6 +95,38 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(registry.openRecordId, 'subsonic-record');
+  });
+
+  testWidgets('a rejected sign-in shows why and keeps the library closed', (
+    tester,
+  ) async {
+    final registry = _registry(succeed: false);
+    addTearDown(registry.dispose);
+    await registry.ready;
+    await tester.pumpWidget(
+      _app(
+        Builder(
+          builder: (context) => FilledButton(
+            onPressed: () => openLibraryWithSubsonicRelogin(
+              context,
+              registry,
+              'subsonic-record',
+            ).catchError((_) {}),
+            child: const Text('Open'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextBox).first, 'alice');
+    await tester.enterText(find.byType(TextBox).last, 'wrong-password');
+    await tester.tap(find.text('Login'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Login Failed'), findsOneWidget);
+    expect(find.text('Check the username and password.'), findsOneWidget);
+    expect(registry.openRecordId, isNull);
   });
 
   testWidgets('cancel leaves the library closed', (tester) async {

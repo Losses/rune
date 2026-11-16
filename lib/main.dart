@@ -23,6 +23,7 @@ import 'utils/api/close_library.dart';
 import 'utils/api/request_failure.dart';
 import 'utils/dialogs/failed_to_initialize_library.dart';
 import 'utils/remote_connection_messages.dart';
+import 'utils/share_sync_messages.dart';
 import 'utils/router/navigation.dart';
 import 'utils/locale.dart';
 import 'utils/rune_log.dart';
@@ -89,6 +90,7 @@ import 'providers/controllers.dart';
 import 'providers/renderer_attachment.dart';
 import 'providers/request_capabilities.dart';
 import 'providers/renderer_link_loss.dart';
+import 'providers/library_share_sync.dart';
 import 'providers/remote_library_reconnect.dart';
 import 'providers/responsive_providers.dart';
 
@@ -111,14 +113,7 @@ void main(List<String> arguments) async {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final context = rootNavigatorKey.currentState?.overlay?.context;
         if (context != null && context.mounted) {
-          displayInfoBar(
-            context,
-            builder: (_, close) => InfoBar(
-              title: Text(requestFailureMessage(S.of(context), error)),
-              severity: InfoBarSeverity.error,
-              onClose: close,
-            ),
-          );
+          showRequestFailureInfoBar(context, error);
         }
       });
       WidgetsBinding.instance.ensureVisualUpdate();
@@ -148,7 +143,7 @@ void main(List<String> arguments) async {
   // failure here is not fatal: opening a library retries and reports it.
   try {
     final configPath = await getSettingsPath();
-    final nodeResponse = (await awaitResponse(
+    await awaitResponse(
       'InitializeNodeRequest',
       InitializeNodeResponse.rustSignalStream,
       responseCallId: (response) => response.message.callId?.toInt(),
@@ -156,10 +151,7 @@ void main(List<String> arguments) async {
         configPath: configPath,
         callId: callId,
       ).sendSignalToRust(),
-    )).message;
-    if (!nodeResponse.success) {
-      error$('Could not initialize this device: ${nodeResponse.error}');
-    }
+    );
   } on TimeoutException {
     error$('Device initialization did not answer within 30 seconds');
   } on RequestFailure catch (failure) {
@@ -601,6 +593,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
   bool _shouldCallUpdate = false;
   late final RemoteConnectionLossHandler _remoteLoss;
   late final RendererLinkLossHandler _rendererLinkLoss;
+  late final LibraryShareSyncNotice _shareSyncNotice;
   late final RemoteLibraryReconnectNotice _remoteReconnect;
   LibraryOpenStateProvider? _libraryState;
   String? _noticeOpenRecordId;
@@ -641,22 +634,13 @@ class RuneLifecycleState extends State<RuneLifecycle> {
         }
         final noticeContext = rootNavigatorKey.currentState?.overlay?.context;
         if (noticeContext == null || !mounted || !noticeContext.mounted) return;
-        displayInfoBar(
+        showRequestFailureInfoBar(
           noticeContext,
-          builder: (_, close) => InfoBar(
-            title: Text(
-              requestFailureMessage(
-                S.of(noticeContext),
-                RequestFailure(
-                  failure.request,
-                  failure.kind,
-                  failure.detail,
-                  failure.cause,
-                ),
-              ),
-            ),
-            severity: InfoBarSeverity.error,
-            onClose: close,
+          RequestFailure(
+            failure.request,
+            failure.kind,
+            failure.detail,
+            failure.cause,
           ),
         );
       },
@@ -690,6 +674,25 @@ class RuneLifecycleState extends State<RuneLifecycle> {
         });
       },
     );
+    _shareSyncNotice = LibraryShareSyncNotice(
+      updates: LibrarySyncStatusUpdated.rustSignalStream.map(
+        (signal) => signal.message,
+      ),
+      showNotice: (failure) {
+        final context = rootNavigatorKey.currentState?.overlay?.context;
+        if (context == null || !context.mounted) return;
+        final message = shareSyncFailureMessage(S.of(context), failure);
+        if (message == null) return;
+        displayInfoBar(
+          context,
+          builder: (_, close) => InfoBar(
+            title: Text(message),
+            severity: InfoBarSeverity.warning,
+            onClose: close,
+          ),
+        );
+      },
+    );
     _rendererLinkLoss = RendererLinkLossHandler(
       losses: RendererLinkLost.rustSignalStream.map((signal) => signal.message),
       showNotice: (alias) {
@@ -716,7 +719,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
               ("filter::analyzed", "true"),
               ("pipe::recommend", "-1"),
             ]),
-            playbackMode: 99,
+            playbackMode: null,
             hintPosition: -1,
             initialPlaybackId: -1,
             instantlyPlay: true,
@@ -736,9 +739,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
     if (!_startupReloginChecked) {
       _startupReloginChecked = true;
       libraryPath.initialOpen.then((_) {
-        final failure = libraryPath.initialOpenFailure;
-        if (!mounted ||
-            failure?.kind != OpenLibraryFailureKind.remoteNotAuthorized) {
+        if (!mounted || !needsLibraryRelogin(libraryPath.initialOpenFailure)) {
           return;
         }
         final recordId = libraryPath.registry.lastOpenRecordId;
@@ -782,6 +783,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
 
     _remoteLoss.dispose();
     _rendererLinkLoss.dispose();
+    _shareSyncNotice.dispose();
     _requestFailureSubscription?.cancel();
     _libraryState?.removeListener(_libraryChanged);
     _remoteReconnect.dispose();

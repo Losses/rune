@@ -5,19 +5,28 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:rinf/rinf.dart';
 
 import '../bindings/bindings.dart';
+import '../l10n/app_localizations.dart';
 import '../utils/api/request_failure.dart';
 import '../utils/api/call_id.dart';
 import '../utils/api/library_registry.dart' as library_api;
-import '../utils/rune_log.dart';
 import '../utils/dialogs/select_library_mode/show_select_library_mode_dialog.dart';
 import '../utils/file_storage/mac_secure_manager.dart';
 
-class LibraryRegistryFailure implements Exception {
-  const LibraryRegistryFailure(this.kind, this.detail);
+/// What to tell the user about a failed library action.
+String libraryFailureMessage(AppLocalizations s, Object error) =>
+    error is RequestFailure ? requestFailureMessage(s, error) : s.unknownError;
 
-  final Object kind;
-  final String detail;
-}
+/// Whether a library could not open because its account was not authorized,
+/// which a new sign-in can fix.
+bool needsLibraryRelogin(Object? error) => switch (error) {
+  RequestFailure(
+    cause: RequestFailureCauseLibraryOpenFailed(
+      kind: OpenLibraryFailureKind.remoteNotAuthorized,
+    ),
+  ) =>
+    true,
+  _ => false,
+};
 
 Future<LibraryRecordSummary?> registerAndOpenLocalFolder(
   BuildContext context,
@@ -172,11 +181,6 @@ class LibraryRegistryProvider extends ChangeNotifier {
             ).sendSignalToRust(),
           )).message
         : await _openRecord(recordId, nextCallId().toInt());
-    if (response.result case OpenLibraryResultFailed(:final value)) {
-      final failure = value;
-      error$('Could not open library record: ${failure.detail}');
-      throw LibraryRegistryFailure(failure.kind, failure.detail);
-    }
     _openRecordId = response.recordId;
     _openGeneration = response.generation.toInt();
     _lastOpenRecordId = response.recordId;
@@ -247,11 +251,6 @@ class LibraryRegistryProvider extends ChangeNotifier {
   RegisterLibraryResponse _acceptRegisterResponse(
     RegisterLibraryResponse response,
   ) {
-    if (response.outcome case RegisterLibraryOutcomeFailed(:final value)) {
-      final detail = response.detail ?? value.toString();
-      error$('Could not register library: $detail');
-      throw LibraryRegistryFailure(value, detail);
-    }
     if (response.record != null) {
       _records = [
         ..._records.where((r) => r.recordId != response.record!.recordId),
@@ -278,20 +277,18 @@ class LibraryRegistryProvider extends ChangeNotifier {
       _openRecordId = null;
       _openGeneration = null;
     }
-    final response = _removeRecord == null
-        ? (await awaitResponse(
-            'RemoveLibraryRecordRequest',
-            RemoveLibraryRecordResponse.rustSignalStream,
-            responseCallId: (response) => response.message.callId?.toInt(),
-            send: (callId) => RemoveLibraryRecordRequest(
-              recordId: recordId,
-              callId: callId,
-            ).sendSignalToRust(),
-          )).message
-        : await _removeRecord(recordId);
-    if (response.outcome case RemoveLibraryRecordOutcomeFailed(:final value)) {
-      error$('Could not remove library record: $value');
-      throw LibraryRegistryFailure(value, value.toString());
+    if (_removeRecord == null) {
+      await awaitResponse(
+        'RemoveLibraryRecordRequest',
+        RemoveLibraryRecordResponse.rustSignalStream,
+        responseCallId: (response) => response.message.callId?.toInt(),
+        send: (callId) => RemoveLibraryRecordRequest(
+          recordId: recordId,
+          callId: callId,
+        ).sendSignalToRust(),
+      );
+    } else {
+      await _removeRecord(recordId);
     }
     _records = _records.where((record) => record.recordId != recordId).toList();
     _invalidRecords = _invalidRecords

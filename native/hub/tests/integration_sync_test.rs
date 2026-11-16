@@ -1,10 +1,9 @@
-use tokio::net::TcpListener;
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::Result;
 use database::sync::model::RuneModel;
 use database::sync::model::*;
+use database::test_fixtures::causal_library as support;
 use http_request::sync::router;
+use tokio::net::TcpListener;
 type MetadataPeer = http_request::sync::MetadataPeer<RuneModel>;
 use support::{SqlLibrary, key};
 use sync::{self as p, SyncPeer};

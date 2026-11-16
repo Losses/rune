@@ -19,6 +19,13 @@ enum RequestAccess {
 }
 
 #[derive(Clone, Copy, PartialEq)]
+enum BodyLibraries {
+    NoLibrary,
+    Authorized,
+    PlayerReads,
+}
+
+#[derive(Clone, Copy, PartialEq)]
 enum RequestReceiver {
     Library,
     NodeLoop,
@@ -30,8 +37,17 @@ struct RequestResponse {
     response: Option<String>,
     scope: RequestScope,
     access: RequestAccess,
+    body_libraries: BodyLibraries,
     introduced_minor: Option<u32>,
     receiver: RequestReceiver,
+}
+
+fn body_libraries_tokens(body_libraries: BodyLibraries) -> proc_macro2::TokenStream {
+    match body_libraries {
+        BodyLibraries::NoLibrary => quote! { BodyLibraries::NoLibrary },
+        BodyLibraries::Authorized => quote! { BodyLibraries::Authorized },
+        BodyLibraries::PlayerReads => quote! { BodyLibraries::PlayerReads },
+    }
 }
 
 fn snake_case(value: &str) -> String {
@@ -53,6 +69,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("AttachRendererResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -61,6 +78,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -69,6 +87,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("ListRenderersResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -77,6 +96,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("HandoffResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -85,6 +105,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("GetDeviceGrantsResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -93,6 +114,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("SetDeviceGrantsResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -101,14 +123,16 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("ListControllersResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
             request: "DetachControllerRequest".to_string(),
-            response: None,
+            response: Some("DetachControllerResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -117,6 +141,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("ListLocalLibrariesResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -125,6 +150,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("ListLibraryRecordsResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -133,6 +159,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("RemoveLibraryRecordResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -141,6 +168,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("SetLibraryBackgroundSyncResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -149,6 +177,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("RegisterLibraryResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -157,6 +186,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("RegisterLibraryResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -165,6 +195,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("RegisterLibraryResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -173,6 +204,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("RegisterLibraryResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -181,6 +213,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("DetectOpenDalShareDataResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -189,6 +222,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("OpenLibraryResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -197,6 +231,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("ReplaceSubsonicCredentialResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -205,6 +240,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("InitializeNodeResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Standalone,
         },
@@ -213,6 +249,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("RunFsSelfTestResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Standalone,
         },
@@ -221,6 +258,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("ListPeerLibrariesResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -229,6 +267,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("AddRemoteLibraryResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -238,6 +277,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("GetSyncSettingsResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -246,6 +286,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("SetSyncSettingsResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -254,6 +295,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("SetDownloadRuleResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -262,6 +304,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("RemoveDownloadRuleResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -270,6 +313,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("TestLibraryInitializedResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -278,6 +322,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("CloseLibraryResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -286,6 +331,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("CancelTaskResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::Administer,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -294,6 +340,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Library,
             access: RequestAccess::Administer,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -302,6 +349,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Library,
             access: RequestAccess::Administer,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -310,6 +358,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Library,
             access: RequestAccess::Administer,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -319,6 +368,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("VolumeResponse".to_string()),
             scope: RequestScope::Session,
             access: RequestAccess::Control,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -327,6 +377,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -335,6 +386,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -343,6 +395,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -351,6 +404,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -359,6 +413,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -367,6 +422,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -375,6 +431,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -383,6 +440,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -391,6 +449,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -399,6 +458,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -407,6 +467,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -415,6 +476,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -424,6 +486,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -433,6 +496,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -441,6 +505,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -449,6 +514,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -457,6 +523,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -465,6 +532,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -473,6 +541,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -481,6 +550,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -489,6 +559,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -497,6 +568,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -505,6 +577,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -513,6 +586,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("ImportVisualizerSceneResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -521,6 +595,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("RemoveVisualizerSceneResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -529,6 +604,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -537,6 +613,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -545,6 +622,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -553,6 +631,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -561,6 +640,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("VisualizerLabResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -569,6 +649,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("VisualizerPlanResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -577,6 +658,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("VisualizerSupportResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -585,6 +667,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("VisualizerStatusResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -593,6 +676,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("ListVisualizerPresetsResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -601,6 +685,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("ListVisualizerCreditsResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -609,6 +694,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -618,6 +704,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -627,6 +714,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("IfAnalyzeExistsResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -635,6 +723,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("GetAnalyzeCountResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -644,6 +733,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("FetchMediaFilesResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -652,6 +742,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("FetchMediaFileByIdsResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -660,6 +751,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("FetchParsedMediaFileResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -668,6 +760,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("SearchMediaFileSummaryResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -677,6 +770,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("GetMediaFilesCountResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -685,6 +779,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("GetLyricByTrackIdResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::Authorized,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -694,6 +789,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("CollectionGroupSummaryResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -702,6 +798,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("FetchCollectionGroupsResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -710,6 +807,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("FetchCollectionByIdsResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -718,6 +816,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("SearchCollectionSummaryResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -727,6 +826,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("GetCoverArtIdsByMixQueriesResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -735,6 +835,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("GetPrimaryColorByTrackIdResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::Authorized,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -744,6 +845,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("FetchAllPlaylistsResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -752,6 +854,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("CreatePlaylistResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -760,6 +863,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("CreateM3u8PlaylistResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -768,6 +872,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("UpdatePlaylistResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -776,6 +881,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("RemovePlaylistResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -784,6 +890,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("AddItemToPlaylistResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -792,6 +899,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("ReorderPlaylistItemPositionResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -800,6 +908,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("FetchPlaylistOccurrencesResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -808,6 +917,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("GetPlaylistByIdResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -817,6 +927,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("FetchAllMixesResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -825,6 +936,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("CreateMixResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -833,6 +945,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("UpdateMixResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -841,6 +954,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("RemoveMixResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -849,6 +963,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("AddItemToMixResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -857,6 +972,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("GetMixByIdResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -865,6 +981,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("MixQueryResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -873,6 +990,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("FetchMixQueriesResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -881,6 +999,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("ResolveMixQueryResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::Authorized,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -889,6 +1008,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("CastResolvedItemsResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::Control,
+            body_libraries: BodyLibraries::PlayerReads,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -897,6 +1017,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("RemotePlaylistRevisionResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::Control,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -905,6 +1026,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("LoadResolvedItemsResponse".to_string()),
             scope: RequestScope::Session,
             access: RequestAccess::Control,
+            body_libraries: BodyLibraries::PlayerReads,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -913,6 +1035,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("HandoffLoadResponse".to_string()),
             scope: RequestScope::Session,
             access: RequestAccess::Control,
+            body_libraries: BodyLibraries::PlayerReads,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -921,6 +1044,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("SessionSnapshotResponse".to_string()),
             scope: RequestScope::Session,
             access: RequestAccess::Control,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -929,6 +1053,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("CastPreflightResponse".to_string()),
             scope: RequestScope::Session,
             access: RequestAccess::Control,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -937,6 +1062,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Session,
             access: RequestAccess::Control,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -945,6 +1071,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("SessionSnapshotResponse".to_string()),
             scope: RequestScope::Session,
             access: RequestAccess::Control,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -953,6 +1080,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("PlaylistRevisionResponse".to_string()),
             scope: RequestScope::Session,
             access: RequestAccess::Control,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -962,6 +1090,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("SetLikedResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
+            body_libraries: BodyLibraries::Authorized,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -970,6 +1099,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("GetLikedResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::Authorized,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -979,6 +1109,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("ComplexQueryResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -987,6 +1118,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("SearchForResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -996,6 +1128,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("FetchDirectoryTreeResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -1005,6 +1138,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("AuthenticateSingleServiceResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -1013,6 +1147,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -1021,6 +1156,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -1030,6 +1166,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("ListLogResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -1038,6 +1175,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("ClearLogResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -1046,6 +1184,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("RemoveLogResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -1055,6 +1194,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("SystemInfoResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -1064,6 +1204,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("RegisterLicenseResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -1072,6 +1213,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("ValidateLicenseResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -1081,6 +1223,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -1089,6 +1232,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -1097,6 +1241,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -1105,6 +1250,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -1113,6 +1259,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("GetDiscoveredDeviceResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -1121,6 +1268,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("StartServerResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -1129,6 +1277,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("StopServerResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -1137,6 +1286,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("ListClientsResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -1145,6 +1295,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("GetOpenLibraryResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::Control,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -1153,6 +1304,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("GetSslCertificateFingerprintResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -1161,6 +1313,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("AddTrustedServerResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -1169,6 +1322,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("RemoveTrustedClientResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -1177,6 +1331,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("UpdateClientStatusResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -1185,6 +1340,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("EditHostsResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -1193,6 +1349,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("RemoveTrustedServerResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -1201,6 +1358,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("ServerAvailabilityTestResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -1209,6 +1367,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("RegisterDeviceOnServerResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -1217,6 +1376,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("CheckDeviceOnServerResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -1225,6 +1385,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("ConnectResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -1233,6 +1394,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("FetchServerCertificateResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
         },
@@ -1241,6 +1403,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("FetchRemoteFileResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -1249,6 +1412,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("RemoveItemFromPlaylistResponse".to_string()),
             scope: RequestScope::Library,
             access: RequestAccess::ConnectionEdit,
+            body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
         },
@@ -1388,10 +1552,12 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             RequestAccess::ConnectionEdit => quote! { RequestAccess::ConnectionEdit },
             RequestAccess::Administer => quote! { RequestAccess::Administer },
         };
+        let body_libraries = body_libraries_tokens(entry.body_libraries);
         quote! {
             impl TargetRequest for #request {
                 const SCOPE: RequestScope = #scope;
                 const ACCESS: RequestAccess = #access;
+                const BODY_LIBRARIES: BodyLibraries = #body_libraries;
                 const INTRODUCED_MINOR: u32 = #introduced_minor;
 
                 fn slot(slots: &RequestSlots) -> Slot {
@@ -1634,7 +1800,9 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             }
         }
 
-        fn answer_node_request<T>(
+        /// Answer one request outside the GUI listeners: its reply or its typed failure,
+        /// tagged with its call id.
+        pub(crate) fn answer_node_request<T>(
             request: &T,
             result: Result<Option<T::Response>>,
             emit: &impl Fn(&dyn RinfRustSignal),
@@ -1754,6 +1922,18 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         pub enum RequestAccess { NodeLocal, Control, ConnectionView, ConnectionEdit, Administer }
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub enum RequestScope { Node, Session, Library }
+        /// What the libraries named in a request's body mean for a call from another device.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub enum BodyLibraries {
+            /// The body names no library.
+            NoLibrary,
+            /// The request acts on every library its body names: each one is authorized with
+            /// the request's access rule and must be the library the frame names.
+            Authorized,
+            /// The body names items for this device's player, which reads them under its own
+            /// standing grants on their libraries; the request's access rule covers naming them.
+            PlayerReads,
+        }
         pub fn request_access(name: &str) -> Option<RequestAccess> {
             match name { #(#accesses)* _ => None }
         }
@@ -1774,6 +1954,16 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             &[#(stringify!(#non_local_requests)),*]
         }
 
+        /// Each non-local request's declared body rule, and whether its body type names a library.
+        #[cfg(test)]
+        pub(crate) fn body_library_declarations() -> &'static [(&'static str, BodyLibraries, bool)] {
+            &[#((
+                stringify!(#non_local_requests),
+                <#non_local_requests as TargetRequest>::BODY_LIBRARIES,
+                <#non_local_requests as crate::rpc::NamedLibraries>::NAMES_LIBRARY,
+            )),*]
+        }
+
         #[macro_export]
         macro_rules! for_all_requests0 {
             ($m:tt) => {
@@ -1787,4 +1977,75 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
     };
 
     TokenStream::from(expanded)
+}
+
+/// Derive `NamedLibraries` from a message's fields: the message names a library when one
+/// of its fields does, and visiting it visits every field.
+#[proc_macro_derive(NamedLibraries)]
+pub fn derive_named_libraries(input: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(input as syn::DeriveInput);
+    let name = &input.ident;
+    let named_libraries = quote! { crate::rpc::NamedLibraries };
+    let (field_types, visit) = match &input.data {
+        syn::Data::Struct(data) => {
+            let members = data.fields.members();
+            (
+                data.fields
+                    .iter()
+                    .map(|field| &field.ty)
+                    .collect::<Vec<_>>(),
+                quote! { #(#named_libraries::visit_libraries(&self.#members, visit);)* },
+            )
+        }
+        syn::Data::Enum(data) => {
+            let arms = data.variants.iter().map(|variant| {
+                let ident = &variant.ident;
+                let members = variant.fields.members();
+                let bindings: Vec<_> = (0..variant.fields.len())
+                    .map(|index| format_ident!("field_{index}"))
+                    .collect();
+                quote! {
+                    Self::#ident { #(#members: #bindings),* } => {
+                        #(#named_libraries::visit_libraries(#bindings, visit);)*
+                    }
+                }
+            });
+            (
+                data.variants
+                    .iter()
+                    .flat_map(|variant| variant.fields.iter().map(|field| &field.ty))
+                    .collect(),
+                quote! { match self { #(#arms)* } },
+            )
+        }
+        syn::Data::Union(_) => {
+            return syn::Error::new_spanned(name, "NamedLibraries cannot be derived for a union")
+                .to_compile_error()
+                .into();
+        }
+    };
+    let mut seen = HashSet::new();
+    let field_types: Vec<_> = field_types
+        .into_iter()
+        .filter(|ty| seen.insert(quote! { #ty }.to_string()))
+        .collect();
+    let names_library = match field_types.split_first() {
+        None => quote! { false },
+        Some((first, rest)) => quote! {
+            <#first as #named_libraries>::NAMES_LIBRARY
+                #(|| <#rest as #named_libraries>::NAMES_LIBRARY)*
+        },
+    };
+    let unused_visit = seen.is_empty().then(|| quote! { let _ = visit; });
+    quote! {
+        impl #named_libraries for #name {
+            const NAMES_LIBRARY: bool = #names_library;
+
+            fn visit_libraries<'a>(&'a self, visit: &mut dyn FnMut(&'a str)) {
+                #unused_visit
+                #visit
+            }
+        }
+    }
+    .into()
 }

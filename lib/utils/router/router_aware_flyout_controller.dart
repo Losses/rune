@@ -13,13 +13,21 @@ class RouterAwareFlyoutController {
   /// The underlying flyout controller
   final FlyoutController _controller = FlyoutController();
 
+  bool _disposed = false;
+
+  /// Whether the owner has let go of this controller.
+  bool get isDisposed => _disposed;
+
   /// Whether the flyout is currently open
   bool get isOpen => _controller.isOpen;
 
   /// Whether the controller is attached to a target
   bool get isAttached => _controller.isAttached;
 
-  /// Register this controller with the navigation history when a flyout is opened
+  /// Register this controller with the navigation history when a flyout is opened.
+  ///
+  /// Menus load their data first and open afterwards, and the widget that owns
+  /// the controller can be gone by then. Nothing is shown in that case.
   Future<T?> showFlyout<T>({
     required WidgetBuilder builder,
     bool barrierDismissible = true,
@@ -39,6 +47,8 @@ class RouterAwareFlyoutController {
     RouteSettings? settings,
     GestureRecognizer? barrierRecognizer,
   }) async {
+    if (_disposed) return null;
+
     // We need to register the modal entry before showing the flyout
     final modalEntry = ContextMenuRouteEntry(
       name: 'flyout',
@@ -97,6 +107,8 @@ class RouterAwareFlyoutController {
 
   /// Disposes of resources used by this controller
   void dispose() {
+    _disposed = true;
+
     // Close any open flyout
     if (_controller.isOpen) {
       try {

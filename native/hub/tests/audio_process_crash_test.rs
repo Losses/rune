@@ -1,9 +1,8 @@
 #![cfg(all(feature = "sync-crash-probe", unix))]
 
-#[path = "support/fixtures.rs"]
-mod fixtures;
 use anyhow::{Context, Result, ensure};
 use database::sync::model::*;
+use database::test_fixtures::fixtures;
 use database::{
     actions::{
         downloads::set_download_rule,

@@ -1,6 +1,5 @@
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::Result;
+use database::test_fixtures::causal_library as support;
 use database::{
     actions::{
         downloads::{prepare_download, remove_download_rule, set_download_rule},

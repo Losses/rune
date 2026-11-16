@@ -1,8 +1,7 @@
 use support::fixtures;
 
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::Result;
+use database::test_fixtures::causal_library as support;
 use database::{
     actions::stats::{get_liked, increase_skipped, set_liked},
     entities::media_file_stats,
@@ -25,7 +24,7 @@ async fn device_rows_replay_and_likes_are_independent_and_atomic() -> Result<()>
             Some(support::track()),
         )
         .await?;
-    let store = local.library.record_store();
+    let store = local.sync_store.record_store();
     set_liked(db, &store, 1, true).await?;
     increase_skipped(db, &store, 1, a).await?;
     support::fixture_statistics(db, 1, b, 4, 7, "receipt").await?;
@@ -54,9 +53,9 @@ async fn device_rows_replay_and_likes_are_independent_and_atomic() -> Result<()>
     );
     first?;
     second?;
-    local.library.import_existing(a).await?;
+    local.sync_store.import_existing(a).await?;
     let head = local.peer.head().await?;
-    local.library.import_existing(a).await?;
+    local.sync_store.import_existing(a).await?;
     assert_eq!(local.peer.head().await?, head);
     let foreign = support::key(
         Collection::PlaybackStatistics,

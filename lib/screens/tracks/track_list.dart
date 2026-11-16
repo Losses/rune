@@ -152,7 +152,7 @@ class TrackListViewState extends State<TrackListView> {
               totalCount: _totalCount,
               getItem: _getItem,
               queries: queries,
-              mode: 99,
+              mode: null,
             ),
           );
         }
@@ -163,7 +163,7 @@ class TrackListViewState extends State<TrackListView> {
             totalCount: _totalCount,
             getItem: _getItem,
             queries: queries,
-            mode: 99,
+            mode: null,
           );
         }
 
@@ -172,7 +172,7 @@ class TrackListViewState extends State<TrackListView> {
             totalCount: _totalCount,
             getItem: _getItem,
             queries: queries,
-            mode: 99,
+            mode: null,
           );
         }
 
@@ -180,7 +180,7 @@ class TrackListViewState extends State<TrackListView> {
           totalCount: _totalCount,
           getItem: _getItem,
           queries: queries,
-          mode: 99,
+          mode: null,
         );
       },
     );

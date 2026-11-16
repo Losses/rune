@@ -24,14 +24,6 @@ class _ServerControlSettingState extends State<ServerControlSetting> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (broadcast.serverError != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8.0),
-            child: Text(
-              '${s.error}: ${broadcast.serverError}',
-              style: TextStyle(color: Colors.red),
-            ),
-          ),
         Button(
           onPressed: () => broadcast.isServerRunning
               ? broadcast.stopServer()

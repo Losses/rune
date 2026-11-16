@@ -25,7 +25,7 @@ Future<void> setDownloadRule(
   final (queries, mixId) = offlineSelectionFor(type, id);
   final requestId =
       '${DateTime.now().microsecondsSinceEpoch}-${_requestSequence++}';
-  final response = awaitResponse(
+  await awaitResponse(
     'SetDownloadRuleRequest',
     SetDownloadRuleResponse.rustSignalStream.where(
       (event) => event.message.requestId == requestId,
@@ -41,6 +41,4 @@ Future<void> setDownloadRule(
     ).sendSignalToRust(),
     timeout: const Duration(seconds: 15),
   );
-  final error = (await response).message.error;
-  if (error != null) throw StateError(error);
 }

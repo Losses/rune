@@ -45,7 +45,6 @@ pub(crate) enum CurrentPlayer {
     Local,
     RunePeer {
         link: Option<Arc<RendererLink>>,
-        attached: bool,
         reconnecting: Option<String>,
     },
     SubsonicJukebox(Arc<SubsonicBinding>),
@@ -303,13 +302,7 @@ impl CurrentPlayer {
         match self {
             Self::Local => VisualizerInputs::Full,
             Self::RunePeer { .. } => VisualizerInputs::Full,
-            Self::SubsonicJukebox(binding) => {
-                if binding.probe.supports_rune_visualizer_feed() {
-                    VisualizerInputs::Full
-                } else {
-                    VisualizerInputs::None
-                }
-            }
+            Self::SubsonicJukebox(binding) => binding.visualizer_inputs(),
         }
     }
 
@@ -347,7 +340,6 @@ mod tests {
         );
         let player = CurrentPlayer::RunePeer {
             link: None,
-            attached: true,
             reconnecting: None,
         };
         assert_eq!(player.visualizer_inputs(), VisualizerInputs::Full);

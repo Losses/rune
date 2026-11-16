@@ -426,15 +426,6 @@ impl PresetList {
         self.entries.iter().any(|e| e.preset.location == *location)
     }
 
-    /// The number of scenes that come from folders.
-    #[cfg(test)]
-    pub fn folder_len(&self) -> usize {
-        self.entries
-            .iter()
-            .filter(|e| matches!(e.preset.location, Location::Folder(_)))
-            .count()
-    }
-
     /// Every scene, by group and then by name, ignoring case.
     pub fn infos(&self) -> Vec<PresetInfo> {
         let mut infos: Vec<PresetInfo> = self
@@ -529,6 +520,15 @@ impl PresetList {
 
 #[cfg(test)]
 mod tests {
+    impl PresetList {
+        /// The number of scenes that come from folders.
+        pub fn folder_len(&self) -> usize {
+            self.entries
+                .iter()
+                .filter(|e| matches!(e.preset.location, Location::Folder(_)))
+                .count()
+        }
+    }
 
     use rand::{SeedableRng, rngs::StdRng};
     #[cfg(unix)]

@@ -106,8 +106,6 @@ pub struct StartServerRequest {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct StartServerResponse {
-    pub success: bool,
-    pub error: String,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -120,8 +118,6 @@ pub struct StopServerRequest {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct StopServerResponse {
-    pub success: bool,
-    pub error: String,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -134,9 +130,7 @@ pub struct ListClientsRequest {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct ListClientsResponse {
-    pub success: bool,
     pub users: Vec<ClientSummary>,
-    pub error: String,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -171,8 +165,6 @@ pub struct RemoveTrustedClientRequest {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct RemoveTrustedClientResponse {
-    pub success: bool,
-    pub error: String,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -188,8 +180,6 @@ pub struct UpdateClientStatusRequest {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct UpdateClientStatusResponse {
-    pub success: bool,
-    pub error: String,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -204,8 +194,6 @@ pub struct EditHostsRequest {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct EditHostsResponse {
-    pub success: bool,
-    pub error: String,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -219,8 +207,6 @@ pub struct AddTrustedServerRequest {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct AddTrustedServerResponse {
-    pub success: bool,
-    pub error: String,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -234,8 +220,6 @@ pub struct RemoveTrustedServerRequest {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct RemoveTrustedServerResponse {
-    pub success: bool,
-    pub error: String,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -279,8 +263,6 @@ pub struct RegisterDeviceOnServerRequest {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct RegisterDeviceOnServerResponse {
-    pub success: bool,
-    pub error: String,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -296,9 +278,7 @@ pub struct CheckDeviceOnServerRequest {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct CheckDeviceOnServerResponse {
-    pub success: bool,
-    pub error: String,
-    pub status: Option<ClientStatus>,
+    pub status: ClientStatus,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -317,8 +297,6 @@ pub struct ConnectRequest {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct ConnectResponse {
-    pub success: bool,
-    pub error: String,
     pub connected_host: String,
     #[serde(default)]
     pub call_id: Option<u64>,
@@ -333,9 +311,7 @@ pub struct FetchServerCertificateRequest {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct FetchServerCertificateResponse {
-    pub success: bool,
     pub fingerprint: String,
-    pub error: String,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -349,9 +325,7 @@ pub struct FetchRemoteFileRequest {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct FetchRemoteFileResponse {
-    pub success: bool,
     pub local_path: String,
-    pub error: String,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

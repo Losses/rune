@@ -3,7 +3,7 @@ use database::{
     actions::file::{MAX_BLOB_BYTES, blob_path, blob_path_for_track, hash_file, validate_digest},
     sync::model::BlobRef,
 };
-use fsio::FsIo;
+use fsio::{FsIo, OpenMode};
 use std::time::Duration;
 use std::{
     io::Write,
@@ -106,7 +106,7 @@ async fn download_to_path(
         if let Some(length) = response.content_length() {
             ensure!(length == blob.size, "blob size mismatch");
         }
-        let mut output = fsio.open(&temp.path, "wt")?;
+        let mut output = fsio.open(&temp.path, OpenMode::WriteTruncate)?;
         let mut size = 0u64;
         let mut hash = blake3::Hasher::new();
         while let Some(chunk) = tokio::time::timeout(Duration::from_secs(30), response.chunk())

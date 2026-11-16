@@ -525,20 +525,6 @@ pub enum LabCommand {
     SceneBindings(String),
 }
 
-/// The name of a shot size, from the number `struct Shot` has.
-fn shot_size(size: u32) -> ShotSize {
-    [
-        ShotSize::Wide,
-        ShotSize::Medium,
-        ShotSize::Close,
-        ShotSize::Detail,
-        ShotSize::Top,
-    ]
-    .get(size as usize)
-    .copied()
-    .unwrap_or(ShotSize::Wide)
-}
-
 /// The letter of a section label, from the number the music's values have (0 for "A").
 pub(crate) fn label_name(label: f64) -> String {
     let letter = b'A' + (label.max(0.0) as u32).min(25) as u8;
@@ -587,7 +573,7 @@ impl InspectDirector {
         Self {
             shot_index: state.index,
             shot_name: view.shot_name,
-            size: shot_size(state.size),
+            size: state.size,
             cuts: state.cuts,
             fill: state.fill,
             hard: state.hard == 1,

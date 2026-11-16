@@ -503,6 +503,125 @@ async fn share_base_reconciles_then_continues_from_its_cover() {
     );
 }
 
+/// Reading a cached share object must not stop the async runtime. Every cached object is
+/// replaced by a named pipe, which a read only completes once something writes to it. On this
+/// current-thread runtime the writers are tasks of the runtime itself, so the read finishes only
+/// if it leaves the runtime free to run them. A watchdog thread ends a stalled read after a
+/// deadline, so a runtime that blocks fails the test instead of hanging it.
+#[cfg(unix)]
+#[tokio::test]
+async fn reading_a_cached_share_object_leaves_the_runtime_free() {
+    use std::{
+        fs::OpenOptions,
+        process::Command,
+        sync::atomic::{AtomicBool, Ordering},
+        sync::mpsc,
+    };
+
+    // Opening a named pipe for reading and writing never waits, and releases whoever waits
+    // on its other end.
+    fn release(pipe: &std::path::Path) {
+        let _ = OpenOptions::new().read(true).write(true).open(pipe);
+    }
+
+    let fixture = base_peer_fixture(3).await;
+    let cache = share_cache_dir();
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        share_prefix(&fixture.identity),
+        cache.clone(),
+    )
+    .unwrap();
+    advance_to_complete(&peer, &fresh_receiver()).await;
+
+    let mut pipes = Vec::new();
+    for entry in std::fs::read_dir(&cache).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("gz") {
+            continue;
+        }
+        let bytes = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert!(
+            Command::new("mkfifo")
+                .arg(&path)
+                .status()
+                .unwrap()
+                .success()
+        );
+        pipes.push((path, bytes));
+    }
+    assert!(!pipes.is_empty(), "the first reconciliation cached nothing");
+
+    let finished = Arc::new(AtomicBool::new(false));
+    let stalled = Arc::new(AtomicBool::new(false));
+    let (done_tx, done_rx) = mpsc::channel::<()>();
+    let watchdog = {
+        let (stalled, paths) = (
+            stalled.clone(),
+            pipes
+                .iter()
+                .map(|(path, _)| path.clone())
+                .collect::<Vec<_>>(),
+        );
+        std::thread::spawn(move || {
+            if done_rx.recv_timeout(Duration::from_secs(30)) == Err(mpsc::RecvTimeoutError::Timeout)
+            {
+                stalled.store(true, Ordering::SeqCst);
+                while done_rx.try_recv() == Err(mpsc::TryRecvError::Empty) {
+                    paths.iter().for_each(|path| release(path));
+                    std::thread::yield_now();
+                }
+            }
+        })
+    };
+    let writers: Vec<_> = pipes
+        .iter()
+        .cloned()
+        .map(|(path, bytes)| {
+            let finished = finished.clone();
+            tokio::spawn(async move {
+                use tokio::io::AsyncWriteExt;
+                while !finished.load(Ordering::SeqCst) {
+                    let Ok(mut pipe) = tokio::fs::OpenOptions::new().write(true).open(&path).await
+                    else {
+                        break;
+                    };
+                    let _ = pipe.write_all(&bytes).await;
+                }
+            })
+        })
+        .collect();
+
+    let target = fresh_receiver();
+    advance_to_complete(&peer, &target).await;
+
+    finished.store(true, Ordering::SeqCst);
+    for (path, _) in &pipes {
+        release(path);
+    }
+    for writer in writers {
+        let _ = writer.await;
+    }
+    drop(done_tx);
+    watchdog.join().unwrap();
+    assert!(
+        !stalled.load(Ordering::SeqCst),
+        "reading a cached object stopped the runtime"
+    );
+    for id in 100..103 {
+        let key = SyncObjectKey {
+            collection: Collection::Notes,
+            id: Uuid::from_u128(id),
+        };
+        assert_eq!(
+            target.get(&key).await.unwrap(),
+            fixture.source.get(&key).await.unwrap()
+        );
+    }
+}
+
 #[tokio::test]
 async fn equal_base_buckets_use_precomputed_summaries_without_chunk_reads() {
     let fixture = base_peer_fixture(2).await;

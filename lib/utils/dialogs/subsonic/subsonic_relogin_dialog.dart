@@ -1,6 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../bindings/bindings.dart';
+import '../../api/request_failure.dart';
 import '../../l10n.dart';
 import '../../router/navigation.dart';
 import '../information/error.dart';
@@ -55,23 +55,22 @@ class _SubsonicReloginDialogState extends State<_SubsonicReloginDialog> {
   Future<void> _login() async {
     setState(() => _loading = true);
     try {
-      final result = await widget.registry.replaceSubsonicCredential(
+      await widget.registry.replaceSubsonicCredential(
         widget.recordId,
         widget.controller.usernameController.text,
         widget.controller.passwordController.text,
       );
       if (!mounted) return;
-      if (result.result == ReplaceSubsonicCredentialResult.updated) {
-        widget.close(true);
-      } else {
-        final s = S.of(context);
-        await showErrorDialog(
-          context: context,
-          title: s.loginFailed,
-          subtitle: s.loginFailedSubtitle,
-          errorMessage: s.loginFailedSubtitle,
-        );
-      }
+      widget.close(true);
+    } on RequestFailure catch (failure) {
+      if (!mounted) return;
+      final s = S.of(context);
+      await showErrorDialog(
+        context: context,
+        title: s.loginFailed,
+        subtitle: s.loginFailedSubtitle,
+        errorMessage: requestFailureMessage(s, failure),
+      );
     } catch (_) {
       if (!mounted) return;
       final s = S.of(context);
@@ -113,11 +112,8 @@ Future<void> openLibraryWithSubsonicRelogin(
 ) async {
   try {
     await registry.open(recordId);
-  } on LibraryRegistryFailure catch (error) {
-    if (error.kind != OpenLibraryFailureKind.remoteNotAuthorized ||
-        !context.mounted) {
-      rethrow;
-    }
+  } on RequestFailure catch (error) {
+    if (!needsLibraryRelogin(error) || !context.mounted) rethrow;
     final updated = await showSubsonicReloginDialog(
       context,
       registry,

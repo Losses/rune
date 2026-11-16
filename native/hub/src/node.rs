@@ -31,7 +31,7 @@ use playback::{
     player::{HandoffBlockId as PlayerHandoffBlockId, PlaybackState},
     sfx_player::SfxPlayer,
 };
-use rinf::{DartSignal, RustSignal};
+use rinf::DartSignal;
 use tokio::{
     sync::{Mutex, RwLock, broadcast},
     task::JoinHandle,
@@ -41,15 +41,16 @@ use tokio_util::sync::CancellationToken;
 use crate::access_policy::{Action, Denial, RuneAccessPolicy};
 use crate::backends::remote::{RemoteConnectError, RendererLink, RendererLinkUse};
 use crate::macros::{
-    RequestAccess, RequestScope, StandaloneRequestReceiver, capability_snapshot, request_access,
-    request_scope,
+    RequestAccess, RequestScope, StandaloneRequestReceiver, answer_node_request,
+    capability_snapshot, request_access, request_scope,
 };
 use crate::request_error::{ExpectedRequestError, player_command_error};
 use crate::request_owner::{CurrentPlayer, Implementation, OpenLibrary};
 use crate::rpc::{Slot, TargetRequest};
 use crate::server::sync_worker::SyncTokenStore;
+use crate::session::PlayerWrap;
 use crate::subsonic_binding::SubsonicBinding;
-use crate::visualizer::VISUALIZER;
+use crate::visualizer::NodeVisualizer;
 use crate::{Session, session::PlayerSession};
 use crate::{
     library_pool::{LibraryHandle, LibraryPool},
@@ -57,22 +58,26 @@ use crate::{
         AttachedRenderer, CapabilityReason, ClientStatus, ClientSummary,
         IncommingClientPermissionNotification, InitializeNodeRequest, InitializeNodeResponse,
         LibraryTaskKind, LibraryTaskStateChanged, PauseRequest, PlaybackStatus, PlaylistItem,
-        PlaylistUpdate, ProtocolUpdateSide, RefreshSessionRequest, RemoteLibraryReconnecting,
-        RemoteLossKind, RendererAttachmentChanged, RendererLinkLost, RequestCapabilities,
-        RequestCapability, TrustListUpdated, TrustedClientsChanged, TrustedServerCertificate,
+        ProtocolUpdateSide, RefreshSessionRequest, RemoteLibraryReconnecting, RemoteLossKind,
+        RendererAttachmentChanged, RendererLinkLost, RequestCapabilities, RequestCapability,
+        TrustListUpdated, TrustedClientsChanged, TrustedServerCertificate,
     },
-    request_error::classify,
-    server::{ServerManager, WebSocketService, utils::device::load_device_info},
+    server::{
+        ServerManager, WebSocketService,
+        utils::device::{RunMode, load_device_info},
+    },
     utils::{
         Broadcaster, GlobalParams, LibraryTaskOwner, LocalGuiBroadcaster, RemoteEventScope,
         RinfRustSignal, nid::get_or_create_node_id, sync_settings::SyncSettings,
     },
 };
+use ::visualizer::Visualizer;
 use database::library_registry::LibraryRecordId;
 use discovery::DiscoveryParams;
 use discovery::access_policy::{AccessPolicy, PeerIdentity};
 use discovery::endpoint::DEFAULT_DEVICE_PORT;
 use discovery::protocol_version::{PROTOCOL_VERSION, ProtocolVersion};
+use discovery::utils::DeviceInfo;
 
 static NODE: NodeSlot = NodeSlot::new();
 
@@ -130,6 +135,7 @@ enum LibraryBinding {
 pub struct NodeContext {
     protocol_version: StdMutex<ProtocolVersion>,
     pub config_path: Arc<String>,
+    pub run_mode: RunMode,
     pub node_id: Arc<String>,
     pub library_pool: Arc<LibraryPool>,
     pub credentials: Arc<CredentialStore>,
@@ -147,6 +153,7 @@ pub struct NodeContext {
     current_player: Arc<StdMutex<CurrentPlayer>>,
     open_generation: AtomicU64,
     reconnect_config: ReconnectConfig,
+    visualizer: NodeVisualizer,
     #[cfg(test)]
     reconnect_attempts: AtomicUsize,
     pub token: Arc<CancellationToken>,
@@ -161,8 +168,6 @@ pub struct NodeContext {
     handoff_generation: AtomicU64,
     handoff_gate: Mutex<()>,
     handoff_blocks: Mutex<HashMap<String, PlayerHandoffBlockId>>,
-    #[cfg(test)]
-    handoff_pause_failures: AtomicUsize,
 }
 
 impl Debug for NodeContext {
@@ -177,33 +182,31 @@ struct NodeBroadcaster {
     current_player: Arc<StdMutex<CurrentPlayer>>,
     local: Arc<dyn Broadcaster>,
     remote: Arc<WebSocketService>,
-    handoff_playback_events: broadcast::Sender<HandoffPlaybackEvent>,
+}
+
+/// A report a renderer sent over one link, for a handoff that waits for that renderer to start
+/// the handed-off track. Only renderer links publish them: this device's own session reports the
+/// same track at the same place while it is handed off, and must never stand in for the target.
+#[derive(Clone)]
+pub(crate) struct HandoffPlaybackEvent {
+    pub(crate) link: Uuid,
+    pub(crate) report: HandoffPlaybackReport,
 }
 
 #[derive(Clone)]
-pub(crate) enum HandoffPlaybackEvent {
+pub(crate) enum HandoffPlaybackReport {
     Status(Box<PlaybackStatus>),
     Playlist(Vec<PlaylistItem>),
 }
 
 impl Broadcaster for NodeBroadcaster {
     fn broadcast(&self, message: &dyn RinfRustSignal) {
-        if let Some(status) = message.as_any().downcast_ref::<PlaybackStatus>() {
-            let _ = self
-                .handoff_playback_events
-                .send(HandoffPlaybackEvent::Status(Box::new(status.clone())));
-        } else if let Some(playlist) = message.as_any().downcast_ref::<PlaylistUpdate>() {
-            let _ = self
-                .handoff_playback_events
-                .send(HandoffPlaybackEvent::Playlist(playlist.items.clone()));
-        }
         let remote_event = message.remote_event();
         let suppress_local_status = self
             .current_player
             .lock()
             .is_ok_and(|player| player.suppresses_local_session_events())
-            && remote_event == Some(RemoteEventScope::Session)
-            && message.name() != "RequestCapabilities";
+            && remote_event == Some(RemoteEventScope::Session);
         if !suppress_local_status {
             self.local.broadcast(message);
         }
@@ -272,28 +275,40 @@ impl NodeContext {
     /// `os_media_controls` registers the local session with the OS (MPRIS, SMTC).
     /// Only the app and the headless server enable it; tests must not touch the
     /// desktop session.
+    ///
+    /// `visualizer` is the one every writer of this node's visualizer state uses: the app passes
+    /// its own, and every other node gets an instance of its own.
     pub(crate) async fn new(
         config_path: &str,
         db_path: &str,
         broadcaster: Arc<dyn Broadcaster>,
         os_media_controls: bool,
+        run_mode: RunMode,
+        visualizer: Arc<Visualizer>,
     ) -> Result<Arc<Self>> {
         Self::with_reconnect_config(
             config_path,
             db_path,
             broadcaster,
             os_media_controls,
+            run_mode,
             ReconnectConfig::default(),
+            PlayerSession::real_player(),
+            visualizer,
         )
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn with_reconnect_config(
         config_path: &str,
         db_path: &str,
         broadcaster: Arc<dyn Broadcaster>,
         os_media_controls: bool,
+        run_mode: RunMode,
         reconnect_config: ReconnectConfig,
+        wrap_player: PlayerWrap,
+        visualizer: Arc<Visualizer>,
     ) -> Result<Arc<Self>> {
         #[cfg(unix)]
         raise_nofile_soft_limit();
@@ -314,6 +329,7 @@ impl NodeContext {
         let node = Arc::new(Self {
             protocol_version: StdMutex::new(PROTOCOL_VERSION),
             config_path: Arc::new(config_path.to_owned()),
+            run_mode,
             library_pool: LibraryPool::new_with_credentials(
                 Path::new(config_path),
                 Path::new(db_path),
@@ -331,7 +347,6 @@ impl NodeContext {
                 current_player: current_player.clone(),
                 local: broadcaster.clone(),
                 remote: websocket_service.clone(),
-                handoff_playback_events: handoff_playback_events.clone(),
             }),
             gui_broadcaster: broadcaster,
             handoff_playback_events,
@@ -341,6 +356,7 @@ impl NodeContext {
             current_player,
             open_generation: AtomicU64::new(0),
             reconnect_config,
+            visualizer: NodeVisualizer::new(visualizer),
             #[cfg(test)]
             reconnect_attempts: AtomicUsize::new(0),
             token: Arc::new(CancellationToken::new()),
@@ -355,8 +371,6 @@ impl NodeContext {
             handoff_generation: AtomicU64::new(0),
             handoff_gate: Mutex::new(()),
             handoff_blocks: Mutex::new(HashMap::new()),
-            #[cfg(test)]
-            handoff_pause_failures: AtomicUsize::new(0),
         });
         let policy = node.access_policy.clone();
         let revoked_tokens = node.sync_tokens.clone();
@@ -391,14 +405,14 @@ impl NodeContext {
             .set(manager.clone())
             .map_err(|_| anyhow::anyhow!("Node server already initialized"))?;
         node.local_session
-            .set(PlayerSession::new(&node, "local", os_media_controls).await?)
+            .set(PlayerSession::new(&node, "local", os_media_controls, wrap_player).await?)
             .map_err(|_| anyhow::anyhow!("Local session already initialized"))?;
         node.refresh_current_player(node.current_player()?)?;
         node.start_notifications().await;
         manager.start_worker().await?;
         if node.sync_settings.read().await.listen {
             let result = async {
-                let device_info = load_device_info(Path::new(config_path)).await?;
+                let device_info = node.device_info().await?;
                 manager
                     .start_sync(
                         ([0, 0, 0, 0], DEFAULT_DEVICE_PORT).into(),
@@ -413,6 +427,11 @@ impl NodeContext {
         }
         node.publish_capabilities()?;
         Ok(node)
+    }
+
+    /// What this device tells other devices about itself.
+    pub async fn device_info(&self) -> Result<DeviceInfo> {
+        load_device_info(Path::new(&*self.config_path), self.run_mode).await
     }
 
     async fn start_notifications(&self) {
@@ -528,17 +547,6 @@ impl NodeContext {
             return Ok(false);
         }
 
-        #[cfg(test)]
-        if self
-            .handoff_pause_failures
-            .try_update(Ordering::AcqRel, Ordering::Acquire, |remaining| {
-                remaining.checked_sub(1)
-            })
-            .is_ok()
-        {
-            anyhow::bail!("test pause failure");
-        }
-
         match source.call(&PauseRequest { call_id: None }).await {
             Ok(()) => Ok(true),
             Err(first_error) => {
@@ -554,12 +562,6 @@ impl NodeContext {
                     .or(Err(first_error))
             }
         }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn fail_next_handoff_pauses(&self, attempts: usize) {
-        self.handoff_pause_failures
-            .store(attempts, Ordering::Release);
     }
 
     pub async fn session_queue_for_library(&self, library_id: Uuid) -> Result<Vec<i32>> {
@@ -821,7 +823,6 @@ impl NodeContext {
                 ..
             }) => CurrentPlayer::RunePeer {
                 link: renderer_link.clone(),
-                attached: false,
                 reconnecting: reconnect.as_ref().map(|task| task.alias.clone()),
             },
             UiLibrary::Open(OpenLibraryState {
@@ -835,7 +836,6 @@ impl NodeContext {
             _ => match renderer_link {
                 Some(link) => CurrentPlayer::RunePeer {
                     link: Some(link),
-                    attached: true,
                     reconnecting: None,
                 },
                 None => CurrentPlayer::Local,
@@ -855,7 +855,13 @@ impl NodeContext {
     ) -> RequestCapabilities {
         capabilities.for_each_capability_mut(|access, capability| {
             let allowed = match access {
-                RequestAccess::NodeLocal => false,
+                // Calls that only this device makes cannot be granted.
+                RequestAccess::NodeLocal => {
+                    *capability = RequestCapability::Disabled {
+                        reason: CapabilityReason::OwnerOnly,
+                    };
+                    return;
+                }
                 RequestAccess::Control => self.access_policy.check(peer, &Action::Control).is_ok(),
                 RequestAccess::ConnectionView => library_id.is_some_and(|library_id| {
                     self.access_policy
@@ -873,7 +879,7 @@ impl NodeContext {
             };
             if !allowed {
                 *capability = RequestCapability::Disabled {
-                    reason: CapabilityReason::OwnerOnly,
+                    reason: CapabilityReason::NotAllowed,
                 };
             }
         });
@@ -895,12 +901,33 @@ impl NodeContext {
             .map_err(|_| anyhow::anyhow!("Current player lock poisoned"))
     }
 
+    /// The visualizer this node's session, feeds and current player write.
+    pub(crate) fn visualizer(&self) -> &Arc<Visualizer> {
+        self.visualizer.visualizer()
+    }
+
+    pub(crate) fn node_visualizer(&self) -> &NodeVisualizer {
+        &self.visualizer
+    }
+
     fn refresh_current_player(&self, player: CurrentPlayer) -> Result<()> {
-        VISUALIZER.set_inputs(player.visualizer_inputs());
-        *self
+        let mut current = self
             .current_player
             .lock()
-            .map_err(|_| anyhow::anyhow!("Current player lock poisoned"))? = player;
+            .map_err(|_| anyhow::anyhow!("Current player lock poisoned"))?;
+        *current = player;
+        self.visualizer().set_inputs(current.visualizer_inputs());
+        Ok(())
+    }
+
+    /// Publishes the current player's visualizer inputs again, for when what that player
+    /// can feed changed while it stayed the current player.
+    fn republish_current_player_inputs(&self) -> Result<()> {
+        let current = self
+            .current_player
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Current player lock poisoned"))?;
+        self.visualizer().set_inputs(current.visualizer_inputs());
         Ok(())
     }
 
@@ -911,29 +938,13 @@ impl NodeContext {
     ) -> Result<()> {
         let leaving_local = matches!(
             (&previous, &current),
-            (
-                CurrentPlayer::Local,
-                CurrentPlayer::RunePeer { attached: true, .. }
-            ) | (
-                CurrentPlayer::Local,
-                CurrentPlayer::RunePeer {
-                    attached: false,
-                    ..
-                }
-            ) | (CurrentPlayer::Local, CurrentPlayer::SubsonicJukebox(_))
+            (CurrentPlayer::Local, CurrentPlayer::RunePeer { .. })
+                | (CurrentPlayer::Local, CurrentPlayer::SubsonicJukebox(_))
         );
         let returning_local = matches!(
             (&previous, &current),
-            (
-                CurrentPlayer::RunePeer { attached: true, .. },
-                CurrentPlayer::Local
-            ) | (
-                CurrentPlayer::RunePeer {
-                    attached: false,
-                    ..
-                },
-                CurrentPlayer::Local
-            ) | (CurrentPlayer::SubsonicJukebox(_), CurrentPlayer::Local)
+            (CurrentPlayer::RunePeer { .. }, CurrentPlayer::Local)
+                | (CurrentPlayer::SubsonicJukebox(_), CurrentPlayer::Local)
         );
         let renderer_lost = matches!(
             (&previous, &current),
@@ -994,16 +1005,33 @@ impl NodeContext {
     }
 
     pub(crate) async fn set_open_subsonic_catalog(
-        &self,
+        self: &Arc<Self>,
         record_id: Option<LibraryRecordId>,
         binding: Arc<SubsonicBinding>,
     ) -> Result<u64> {
-        self.set_open_catalog(
-            record_id,
-            Some(binding.library_id),
-            LibraryBinding::Subsonic(binding),
-        )
-        .await
+        let mut feed_changes = binding.subscribe_feed_link_changes();
+        let library_id = binding.library_id;
+        let generation = self
+            .set_open_catalog(
+                record_id,
+                Some(library_id),
+                LibraryBinding::Subsonic(binding),
+            )
+            .await?;
+        // The visualizer inputs are published only from the current player. A feed that
+        // drops or returns publishes them again. The task ends when the binding is dropped.
+        let node = Arc::downgrade(self);
+        tokio::spawn(async move {
+            while feed_changes.changed().await.is_ok() {
+                let Some(node) = node.upgrade() else {
+                    break;
+                };
+                if let Err(error) = node.republish_current_player_inputs() {
+                    log::warn!("Could not republish the visualizer inputs: {error:#}");
+                }
+            }
+        });
+        Ok(generation)
     }
 
     pub(crate) fn subsonic_binding(
@@ -1451,25 +1479,18 @@ impl NodeSlot {
         &self,
         request: &InitializeNodeRequest,
         broadcaster: Arc<dyn Broadcaster>,
-    ) -> InitializeNodeResponse {
+    ) -> Result<InitializeNodeResponse> {
         let path = &request.config_path;
-        let result = self.initialize(path, path, broadcaster).await;
-        let (error_kind, error) = match result {
-            Ok(_) => (None, None),
-            Err(error) => (Some(classify(&error)), Some(format!("{error:#}"))),
-        };
-        InitializeNodeResponse {
-            call_id: None,
-            success: error.is_none(),
-            error_kind,
-            error,
-        }
+        self.initialize(path, path, broadcaster, RunMode::App)
+            .await?;
+        Ok(InitializeNodeResponse { call_id: None })
     }
     pub async fn initialize(
         &self,
         config_path: &str,
         db_path: &str,
         broadcaster: Arc<dyn Broadcaster>,
+        run_mode: RunMode,
     ) -> Result<Arc<NodeContext>> {
         let mut slot = self.0.lock().await;
         if let Some(node) = slot.as_ref() {
@@ -1481,7 +1502,15 @@ impl NodeSlot {
             );
             return Ok(node.clone());
         }
-        let node = NodeContext::new(config_path, db_path, broadcaster, true).await?;
+        let node = NodeContext::new(
+            config_path,
+            db_path,
+            broadcaster,
+            true,
+            run_mode,
+            Arc::clone(&crate::visualizer::VISUALIZER),
+        )
+        .await?;
         *slot = Some(node.clone());
         Ok(node)
     }
@@ -1491,17 +1520,29 @@ pub async fn initialize_node(
     config_path: &str,
     db_path: &str,
     broadcaster: Arc<dyn Broadcaster>,
+    run_mode: RunMode,
 ) -> Result<Arc<NodeContext>> {
-    NODE.initialize(config_path, db_path, broadcaster).await
+    NODE.initialize(config_path, db_path, broadcaster, run_mode)
+        .await
 }
 
 pub async fn receive_initialize_node() {
     let receiver = InitializeNodeRequest::get_dart_signal_receiver();
+    let emit = |signal: &dyn RinfRustSignal| signal.send_to_dart();
     while let Some(signal) = receiver.recv().await {
-        NODE.handle(&signal.message, Arc::new(LocalGuiBroadcaster))
-            .await
-            .send_signal_to_dart();
+        answer_initialize_node(&NODE, &signal.message, Arc::new(LocalGuiBroadcaster), &emit).await;
     }
+}
+
+/// Initialize the node for one request and answer it like a catalogue request.
+async fn answer_initialize_node(
+    slot: &NodeSlot,
+    request: &InitializeNodeRequest,
+    broadcaster: Arc<dyn Broadcaster>,
+    emit: &impl Fn(&dyn RinfRustSignal),
+) {
+    let result = slot.handle(request, broadcaster).await.map(Some);
+    answer_node_request(request, result, emit);
 }
 
 impl StandaloneRequestReceiver for InitializeNodeRequest {
@@ -1533,6 +1574,7 @@ mod tests {
     };
 
     use super::{NodeBroadcaster, NodeContext};
+    use crate::server::utils::device::RunMode;
     use crate::{
         messages::{LibraryContentChanged, TrustListUpdated},
         request_owner::CurrentPlayer,
@@ -1554,7 +1596,15 @@ mod tests {
         let dir = tempfile::tempdir()?;
         let path = dir.path().to_string_lossy();
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let node = NodeContext::new(&path, &path, Arc::new(Quiet(Some(tx))), false).await?;
+        let node = NodeContext::new(
+            &path,
+            &path,
+            Arc::new(Quiet(Some(tx))),
+            false,
+            RunMode::App,
+            Arc::new(::visualizer::Visualizer::new()),
+        )
+        .await?;
         let manager = node.permission_manager.read().await;
         manager
             .add_user(
@@ -1594,16 +1644,12 @@ mod tests {
 
     #[test]
     fn only_controller_signals_reach_remote_clients() {
-        use tokio::sync::broadcast;
-
         let remote = Arc::new(WebSocketService::new());
         let mut received = remote.broadcast_tx.subscribe();
-        let (handoff_playback_events, _) = broadcast::channel(1);
         let broadcaster = NodeBroadcaster {
             current_player: Arc::new(StdMutex::new(CurrentPlayer::Local)),
             local: Arc::new(Quiet(None)),
             remote,
-            handoff_playback_events,
         };
         broadcaster.broadcast(&TrustListUpdated {
             certificates: Vec::new(),
@@ -1611,5 +1657,66 @@ mod tests {
         assert!(received.try_recv().is_err());
         broadcaster.broadcast(&LibraryContentChanged { path: "a".into() });
         assert!(received.try_recv().is_ok());
+    }
+
+    #[tokio::test]
+    async fn node_initialization_answers_name_their_call_and_failures_are_typed()
+    -> anyhow::Result<()> {
+        use super::{NodeSlot, answer_initialize_node};
+        use crate::messages::{
+            InitializeNodeRequest, InitializeNodeResponse, RequestErrorKind, RequestFailedResponse,
+        };
+        use crate::utils::sync_settings::SyncSettings;
+
+        let first = tempfile::tempdir()?;
+        let second = tempfile::tempdir()?;
+        SyncSettings {
+            listen: false,
+            ..SyncSettings::default()
+        }
+        .save(first.path())?;
+        let slot = NodeSlot::new();
+        let answers = StdMutex::new(Vec::new());
+        let emit = |signal: &dyn RinfRustSignal| {
+            let any = signal.as_any();
+            let answer = if let Some(response) = any.downcast_ref::<InitializeNodeResponse>() {
+                (response.call_id, None)
+            } else if let Some(failure) = any.downcast_ref::<RequestFailedResponse>() {
+                (failure.call_id, Some(failure.kind))
+            } else {
+                panic!("unexpected answer {}", signal.name());
+            };
+            answers.lock().unwrap().push(answer);
+        };
+
+        let request = |path: &std::path::Path, call_id| InitializeNodeRequest {
+            config_path: path.to_string_lossy().into_owned(),
+            call_id: Some(call_id),
+        };
+        answer_initialize_node(
+            &slot,
+            &request(first.path(), 7),
+            Arc::new(Quiet(None)),
+            &emit,
+        )
+        .await;
+        // The node exists, so another configuration path is refused.
+        answer_initialize_node(
+            &slot,
+            &request(second.path(), 8),
+            Arc::new(Quiet(None)),
+            &emit,
+        )
+        .await;
+
+        assert_eq!(
+            *answers.lock().unwrap(),
+            [
+                (Some(7), None),
+                (Some(8), Some(RequestErrorKind::InvalidInput))
+            ]
+        );
+        slot.current().await?.shutdown().await?;
+        Ok(())
     }
 }

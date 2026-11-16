@@ -1,7 +1,6 @@
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::Result;
 use database::sync::model::*;
+use database::test_fixtures::causal_library as support;
 use support::{exchange_scoped, key, memory, playlist};
 use sync::{self as p};
 use uuid::Uuid;

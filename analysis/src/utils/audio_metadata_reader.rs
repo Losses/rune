@@ -13,13 +13,13 @@ use symphonia::core::{
 
 use anyhow::{Context, Result};
 
-use ::fsio::FsIo;
+use ::fsio::{FsIo, OpenMode};
 use ::fsio_media_source::FsioMediaSource;
 
 pub fn get_format(fsio: &FsIo, file_path: &str) -> Result<Box<dyn FormatReader>> {
     // Open the media source.
     let mut src = fsio
-        .open(Path::new(file_path), "r")
+        .open(Path::new(file_path), OpenMode::Read)
         .with_context(|| "failed to open media")?;
 
     let mut header_byte = [0; 1];

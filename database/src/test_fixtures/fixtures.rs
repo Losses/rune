@@ -1,11 +1,9 @@
-#![allow(dead_code)]
-
-use anyhow::Result;
-use database::connection::initialize_db;
-use database::{
+use crate::connection::initialize_db;
+use crate::{
     actions::metadata::{MissingHostFilePolicy, ScanOptions, scan_audio_library},
     sync::{LibrarySyncStore, SeaOrmSyncStore, model::RuneModel},
 };
+use anyhow::Result;
 use fsio::FsIo;
 use http_request::sync::MetadataPeer;
 use migration::{Migrator, MigratorTrait, initialize_node_id};
@@ -17,7 +15,7 @@ use std::{
 use uuid::Uuid;
 
 pub fn asset_directory() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets")
 }
 
 pub fn audio_fixture() -> PathBuf {
@@ -75,6 +73,22 @@ pub async fn scan_library(
         store,
     )
     .await
+}
+
+pub async fn scan_audio_fixtures(
+    fs: &FsIo,
+    db: &DatabaseConnection,
+    actor: &str,
+    root: &Path,
+    store: &SeaOrmSyncStore,
+    names: &[&str],
+) -> Result<()> {
+    let source = audio_fixture();
+    for name in names {
+        std::fs::copy(&source, root.join(name))?;
+    }
+    scan_library(fs, db, actor, root, store).await?;
+    Ok(())
 }
 
 pub async fn memory_database(actor: Uuid) -> Result<DatabaseConnection> {

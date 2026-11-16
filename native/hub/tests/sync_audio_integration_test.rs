@@ -1,16 +1,16 @@
-#[path = "support/fixtures.rs"]
-mod fixtures;
 use anyhow::Result;
 use axum::body::Body;
 use axum::http::Response;
+use database::actions::mixes::mix_playback_mode;
 use database::sync::model::*;
+use database::test_fixtures::fixtures;
 use database::{
     actions::{
         cover_art::assign_inspected,
         downloads::set_download_rule,
         file::is_materialized,
         metadata::get_parsed_file_by_id,
-        mixes::{create_mix, update_mix},
+        mixes::{MixModeUpdate, create_mix, update_mix},
         playlists::{add_item_to_playlist, create_playlist, get_all_playlists},
         stats::{get_liked, set_liked},
     },
@@ -29,6 +29,7 @@ use hub::server::sync::{
     library_router,
 };
 use migration::catalog_identity::ParentKind;
+use playback::PlaybackMode;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use std::sync::{
     Arc,
@@ -319,8 +320,7 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
                     &local.record_store(),
                     "Offline mix".into(),
                     "O".into(),
-                    false,
-                    0,
+                    Some(PlaybackMode::Sequential),
                     false,
                     vec![("lib::track".into(), id.to_string())],
                 )
@@ -398,8 +398,7 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
                 mix.id,
                 Some(mix.name.clone()),
                 Some(mix.group.clone()),
-                Some(mix.scriptlet_mode),
-                Some(mix.mode.unwrap_or(0)),
+                mix_playback_mode(mix)?.map_or(MixModeUpdate::KeepPlayerMode, MixModeUpdate::Set),
                 Some(mix.locked),
                 Some(vec![("lib::track".into(), other.to_string())]),
             )

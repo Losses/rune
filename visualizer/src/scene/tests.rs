@@ -176,6 +176,7 @@ fn frame(
             song_chart: None,
             song_seed: None,
             accent: None,
+            wall: Instant::now(),
         },
         None,
     );
@@ -439,6 +440,7 @@ fn a_scene_sees_the_accent_colour() {
             song_chart: None,
             song_seed: None,
             accent: Some(argb_to_linear(0xff0080ff)),
+            wall: Instant::now(),
         },
         None,
     );
@@ -478,6 +480,7 @@ fn a_scene_reads_the_covers_atlas() {
                 song_chart: None,
                 song_seed: None,
                 accent: None,
+                wall: Instant::now(),
             },
             None,
         );
@@ -1078,4 +1081,45 @@ fn a_scene_without_inputs_or_binds_is_as_it_was() {
     let dir = counter("no-inputs");
     let scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
     assert!(scene.bindings().is_empty());
+}
+
+impl Scene {
+    /// Build the scene in `dir`, drawing frames of `output_size` in `output_format`.
+    pub fn load(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        dir: &Path,
+        output_format: wgpu::TextureFormat,
+        output_size: (u32, u32),
+        sample_rate: u32,
+    ) -> Result<Self> {
+        Self::load_from(
+            device,
+            queue,
+            Source::Dir(dir.to_path_buf()),
+            output_format,
+            output_size,
+            sample_rate,
+        )
+    }
+
+    /// Keep a flare at its full swell, called before each frame (a probe).
+    pub fn hold_flare(&mut self) {
+        self.stepper.taint();
+        self.decider.lens_mut().hold_flare();
+    }
+
+    /// Draw a frame into `target` (the output format and size). With `timestamps`, the first pass
+    /// writes query 0 at its beginning and the last query 1 at its end.
+    pub fn render(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        input: &FrameInput,
+        timestamps: Option<&wgpu::QuerySet>,
+    ) {
+        self.render_timed(device, queue, encoder, target, input, timestamps, true);
+    }
 }

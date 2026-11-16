@@ -1,7 +1,7 @@
 import 'request_failure.dart';
 import '../../bindings/bindings.dart';
 
-Future<RegisterLicenseResponse> registerLicense(String path) async {
+Future<String> registerLicense(String path) async {
   final rustSignal = await awaitResponse(
     'RegisterLicenseRequest',
     RegisterLicenseResponse.rustSignalStream,
@@ -10,5 +10,5 @@ Future<RegisterLicenseResponse> registerLicense(String path) async {
         RegisterLicenseRequest(path: path, callId: callId).sendSignalToRust(),
   );
 
-  return rustSignal.message;
+  return rustSignal.message.license;
 }

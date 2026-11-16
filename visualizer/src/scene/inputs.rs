@@ -217,37 +217,16 @@ pub struct EventCounter {
 pub struct WallClock {
     /// When the last frame was.
     last: Option<Instant>,
-    /// A test that draws a timeline as fast as the GPU goes: the wall seconds every frame after
-    /// the first counts as. The signals (the tempo's glide, the clock, the drive, the envelopes)
-    /// would otherwise move by something different on every run, and a slow first frame (a shader
-    /// compiled cold) would change them too.
-    #[cfg(test)]
-    fixed: Option<f64>,
 }
 
 impl WallClock {
-    /// A clock that counts every frame after the first as `dt` wall seconds, however long it took
-    /// to draw.
-    #[cfg(test)]
-    pub(crate) fn fixed(dt: f64) -> Self {
-        Self {
-            fixed: Some(dt),
-            ..Self::default()
-        }
-    }
-
-    /// Wall seconds since the last call (0 on the first), at most [`MAX_WALL_DT`]. The time is
-    /// taken once per frame: asking again would give the time since this very call.
-    pub fn tick(&mut self) -> f64 {
-        let now = Instant::now();
+    /// Wall seconds from the last call to `now` (0 on the first), at most [`MAX_WALL_DT`]. `now`
+    /// is the frame's wall time (see `FrameInput::wall`), once per frame: asking again would give
+    /// the time since this very call.
+    pub fn tick(&mut self, now: Instant) -> f64 {
         let dt = self.last.map_or(0.0, |before| {
             now.saturating_duration_since(before).as_secs_f64()
         });
-        #[cfg(test)]
-        let dt = match self.fixed {
-            Some(fixed) if self.last.is_some() => fixed,
-            _ => dt,
-        };
         self.last = Some(now);
         dt.min(MAX_WALL_DT)
     }
@@ -398,8 +377,33 @@ pub fn music(
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
     use crate::chart::trusted_rhythm;
+
+    #[test]
+    fn the_wall_clock_counts_the_time_between_frames_and_caps_a_long_pause() {
+        let start = Instant::now();
+        let mut clock = WallClock::default();
+        assert_eq!(
+            clock.tick(start),
+            0.0,
+            "the first frame has no time before it"
+        );
+        let dt = clock.tick(start + Duration::from_millis(16));
+        assert!((dt - 0.016).abs() < 1e-9, "{dt}");
+        let after_pause = clock.tick(start + Duration::from_secs(3600));
+        assert_eq!(
+            after_pause, MAX_WALL_DT,
+            "a long pause counts as at most the cap"
+        );
+        assert_eq!(
+            clock.tick(start),
+            0.0,
+            "a clock that went back counts nothing"
+        );
+    }
 
     #[test]
     fn a_slow_frame_still_counts_every_beat() {

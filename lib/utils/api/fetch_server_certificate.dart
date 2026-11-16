@@ -13,11 +13,5 @@ Future<String> fetchServerCertificate(String host) async {
     send: (callId) =>
         removeTrustRequest.copyWith(callId: () => callId).sendSignalToRust(),
   );
-  final response = rustSignal.message;
-
-  if (!response.success) {
-    throw response.error;
-  }
-
-  return response.fingerprint;
+  return rustSignal.message.fingerprint;
 }

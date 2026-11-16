@@ -22,7 +22,7 @@ class SmallScreenTrackListItem extends StatefulWidget {
   final InternalMediaFile item;
   final int index;
   final QueryList queries;
-  final int mode;
+  final PlaybackMode? mode;
   final String? coverArtPath;
   final List<int> fallbackFileIds;
   final int position;

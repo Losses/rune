@@ -1,13 +1,12 @@
 //! Eight replicas converge using only the scheduled graph before arbitrary-pair checks.
-use migration::catalog_identity::ParentKind;
-use std::time::Instant;
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::{Context, Result, ensure};
 use database::actions::mixes::executable_queries_on;
+use database::test_fixtures::causal_library as support;
 use database::{entities::*, sync::model::*};
+use migration::catalog_identity::ParentKind;
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder};
 use std::collections::{BTreeMap, BTreeSet};
+use std::time::Instant;
 use support::{Peer, SqlLibrary, exchange, key, playlist};
 use sync::{Candidate, ReceiveProgress};
 use uuid::Uuid;
@@ -391,7 +390,7 @@ async fn sqlite_scenario(shape: usize, seed: u64) -> Result<()> {
             .context("album link missing")?;
         assert_eq!(album.track_uuid, id(88).to_string());
         assert_eq!(album.track_number, Some(4));
-        assert!(local.library.pending_references().await?.is_empty());
+        assert!(local.sync_store.pending_references().await?.is_empty());
         let queries = executable_queries_on(&local.db, &id(95).to_string()).await?;
         assert_eq!(queries, vec![("lib::track".into(), track.id.to_string())]);
         assert_eq!(

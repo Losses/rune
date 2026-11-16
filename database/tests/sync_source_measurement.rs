@@ -1,9 +1,8 @@
 use support::fixtures;
 
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::{Context, Result};
 use database::sync::model::*;
+use database::test_fixtures::causal_library as support;
 use sea_orm::{
     ConnectionTrait, ExprTrait,
     sea_query::{Alias, Expr, Query},

@@ -15,8 +15,6 @@
 //!   jerky and a smooth clock was limp; this is both continuous and on the
 //!   beat. Without a followed beat it pushes on the hits.
 
-#[cfg(test)]
-use crate::bind::RuntimeBindings;
 use crate::bind::{CourseBinds, MomentBinds, Said};
 use crate::scene::MusicValues;
 use crate::switching::FOLLOWED;
@@ -26,30 +24,14 @@ use crate::switching::FOLLOWED;
 
 /// Where the course is at its most, as a share of its length.
 pub const PEAK: f32 = 1.0 / 3.0;
-/// The phrase the length is counted to: a course ends on the next boundary of this many bars,
-/// counted from the section's start, and lasts at least [`MIN_BARS`] (so one that starts in a
-/// phrase's last bar runs on to the end of the next), at most [`MAX_BARS`].
-#[cfg(test)]
-pub const PHRASE_BARS: u32 = 4;
-#[cfg(test)]
-pub const MIN_BARS: u32 = 2;
-#[cfg(test)]
-pub const MAX_BARS: u32 = 8;
 /// Without a followed beat a course lasts this many seconds, and a beat counts as
 /// [`UNFOLLOWED_BEAT_SECONDS`] (for the smoothing).
 pub const UNFOLLOWED_SECONDS: f32 = 4.0;
 pub const UNFOLLOWED_BEAT_SECONDS: f32 = 0.5;
-/// The least of the music's part of the amount: at no intensity the effect is at this share of
-/// what it is at full intensity, so it never vanishes mid-way.
-#[cfg(test)]
-pub const LEAST: f32 = 0.35;
 /// How sharp the push on each beat is: the ease of the beat time is `1 - e^(-k x)`, scaled to end
 /// at 1; at 10, 86% of a beat's motion is in its first fifth, and it moves at most 10 times as
 /// fast as the plain beat time.
 pub const PUSH_SHARPNESS: f32 = 10.0;
-/// The push of a beat with no hit, of the push of a full hit: every beat moves a little.
-#[cfg(test)]
-pub const PUSH_LEAST: f32 = 0.3;
 /// The accent of a push rises over about this much of a beat and settles over the rest of it.
 const ACCENT_RISE: f32 = 0.05;
 const ACCENT_SETTLE: f32 = 4.0;
@@ -117,12 +99,6 @@ pub struct Phrase {
 }
 
 impl Phrase {
-    /// Take in a frame's music: a section start counts again from 0.
-    #[cfg(test)]
-    pub fn tick(&mut self, music: &MusicValues) {
-        self.tick_with(&RuntimeBindings::embedded().moments, music);
-    }
-
     /// The same, where `moments` say what a section start is.
     pub fn tick_with(&mut self, moments: &MomentBinds, music: &MusicValues) {
         if moments.section_start(music) {
@@ -137,24 +113,9 @@ impl Phrase {
         }
     }
 
-    /// Whole bars since the section started.
-    #[cfg(test)]
-    pub fn bars(&self) -> u32 {
-        self.bars
-    }
-
     /// Where in the section it is: whole bars since its start, and beats since the last bar.
     pub fn place(&self) -> (u32, u32) {
         (self.bars, self.beats)
-    }
-
-    /// The beats of a course that starts now: to the next [`PHRASE_BARS`] boundary from the
-    /// section's start that is at least [`MIN_BARS`] away (counting what of the bar has gone
-    /// by), and at most [`MAX_BARS`]. Without a followed beat, [`UNFOLLOWED_SECONDS`] in beats of
-    /// [`UNFOLLOWED_BEAT_SECONDS`].
-    #[cfg(test)]
-    pub fn beats_left(&self, music: &MusicValues) -> f32 {
-        self.beats_left_with(&CourseBinds::default(), music)
     }
 
     /// The same by the `course.length` of `binds`: counted in bars where its source is, else a
@@ -200,12 +161,6 @@ pub struct Course {
 }
 
 impl Course {
-    /// A course that starts now, in the music `music` at `phrase`.
-    #[cfg(test)]
-    pub fn new(phrase: &Phrase, music: &MusicValues) -> Self {
-        Self::with(CourseBinds::default(), phrase, music)
-    }
-
     /// The same, reading the music by `binds`.
     pub fn with(binds: CourseBinds, phrase: &Phrase, music: &MusicValues) -> Self {
         let phase = binds.phase(music);
@@ -297,12 +252,6 @@ impl Course {
         self.push * accent_shape(self.since_push)
     }
 
-    /// Its length in beats.
-    #[cfg(test)]
-    pub fn length(&self) -> f32 {
-        self.length
-    }
-
     /// This course started again as `fresh` (a course that starts now) would, without a jump: it
     /// takes the new length and goes back on the rising side to where its shape is `share` (the
     /// shape it has now, or less for a stronger start), and rises again from there.
@@ -313,19 +262,59 @@ impl Course {
             ..self
         }
     }
-
-    /// The course at its peak, as a probe holds it.
-    #[cfg(test)]
-    pub fn at_peak(self) -> Self {
-        Self {
-            age: PEAK * self.length,
-            ..self
-        }
-    }
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    /// The phrase the length is counted to: a course ends on the next boundary of this many bars,
+    /// counted from the section's start, and lasts at least [`MIN_BARS`] (so one that starts in a
+    /// phrase's last bar runs on to the end of the next), at most [`MAX_BARS`].
+    pub const PHRASE_BARS: u32 = 4;
+    pub const MIN_BARS: u32 = 2;
+    pub const MAX_BARS: u32 = 8;
+    /// The least of the music's part of the amount: at no intensity the effect is at this share of
+    /// what it is at full intensity, so it never vanishes mid-way.
+    pub const LEAST: f32 = 0.35;
+    /// The push of a beat with no hit, of the push of a full hit: every beat moves a little.
+    pub const PUSH_LEAST: f32 = 0.3;
+    impl Phrase {
+        /// Take in a frame's music: a section start counts again from 0.
+        pub fn tick(&mut self, music: &MusicValues) {
+            self.tick_with(&RuntimeBindings::embedded().moments, music);
+        }
+
+        /// Whole bars since the section started.
+        pub fn bars(&self) -> u32 {
+            self.bars
+        }
+
+        /// The beats of a course that starts now: to the next [`PHRASE_BARS`] boundary from the
+        /// section's start that is at least [`MIN_BARS`] away (counting what of the bar has gone
+        /// by), and at most [`MAX_BARS`]. Without a followed beat, [`UNFOLLOWED_SECONDS`] in beats of
+        /// [`UNFOLLOWED_BEAT_SECONDS`].
+        pub fn beats_left(&self, music: &MusicValues) -> f32 {
+            self.beats_left_with(&CourseBinds::default(), music)
+        }
+    }
+    impl Course {
+        /// A course that starts now, in the music `music` at `phrase`.
+        pub fn new(phrase: &Phrase, music: &MusicValues) -> Self {
+            Self::with(CourseBinds::default(), phrase, music)
+        }
+
+        /// Its length in beats.
+        pub fn length(&self) -> f32 {
+            self.length
+        }
+
+        /// The course at its peak, as a probe holds it.
+        pub fn at_peak(self) -> Self {
+            Self {
+                age: PEAK * self.length,
+                ..self
+            }
+        }
+    }
 
     use super::*;
     use crate::bind::RuntimeBindings;

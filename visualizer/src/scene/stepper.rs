@@ -441,15 +441,16 @@ impl Stepper {
         let last = f64::from(self.steps.saturating_sub(1)) * STEP;
         (time - last).max(0.0)
     }
-
-    #[cfg(test)]
-    fn snapshot_steps(&self) -> Vec<u32> {
-        self.snapshots.iter().map(|(s, _)| *s).collect()
-    }
 }
 
 #[cfg(test)]
 mod tests {
+    impl Stepper {
+        fn snapshot_steps(&self) -> Vec<u32> {
+            self.snapshots.iter().map(|(s, _)| *s).collect()
+        }
+    }
+
     use super::*;
     use crate::scene::MusicValues;
     use crate::scene::Pace;

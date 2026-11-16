@@ -38,7 +38,7 @@ final Map<String, WidgetBuilder> routes = {
         [("lib::artist", arguments.id.toString())],
       ),
       title: arguments.title,
-      mode: 99,
+      mode: null,
     );
   },
   '/albums': (context) => const collections.CollectionPage(
@@ -59,7 +59,7 @@ final Map<String, WidgetBuilder> routes = {
         ],
       ),
       title: arguments.title,
-      mode: 99,
+      mode: null,
     );
   },
   '/genres': (context) => const collections.CollectionPage(
@@ -80,7 +80,7 @@ final Map<String, WidgetBuilder> routes = {
         ],
       ),
       title: arguments.title,
-      mode: 99,
+      mode: null,
     );
   },
   '/playlists': (context) => const collections.CollectionPage(
@@ -98,7 +98,7 @@ final Map<String, WidgetBuilder> routes = {
         [("lib::playlist", arguments.id.toString())],
       ),
       title: arguments.title,
-      mode: 99,
+      mode: null,
     );
   },
   '/mixes': (context) => const collections.CollectionPage(

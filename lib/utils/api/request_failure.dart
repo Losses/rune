@@ -1,7 +1,12 @@
 import 'dart:async';
 
+import 'package:fluent_ui/fluent_ui.dart';
+
 import '../../bindings/bindings.dart';
 import '../../l10n/app_localizations.dart';
+import '../l10n.dart';
+import '../library_registry_messages.dart';
+import '../remote_connection_messages.dart';
 import 'call_id.dart';
 
 class RequestFailure implements Exception {
@@ -85,6 +90,15 @@ String requestFailureMessage(AppLocalizations s, RequestFailure failure) =>
       RequestFailureCauseReconnecting(:final alias) =>
         s.remoteLibraryReconnecting(alias),
       RequestFailureCauseStorageBusy() => s.requestStorageBusy,
+      RequestFailureCauseLicenseInvalid() => s.registerInvalidSubtitle,
+      RequestFailureCauseLibraryRegistrationFailed(:final kind) =>
+        libraryRegistryFailureMessage(s, kind),
+      RequestFailureCauseRemoteOpenFailed(:final kind) =>
+        remoteOpenErrorMessage(s, kind),
+      RequestFailureCauseLibraryOpenFailed(:final kind) =>
+        libraryRegistryFailureMessage(s, kind),
+      RequestFailureCauseLibraryRecordRemovalFailed(:final kind) =>
+        libraryRegistryFailureMessage(s, kind),
       RequestFailureCauseCertificateMismatch() => s.requestCertificateMismatch,
       RequestFailureCausePublicKeyMismatch() => s.requestPublicKeyMismatch,
       RequestFailureCauseRegistrationConflict() =>
@@ -108,6 +122,18 @@ String requestFailureMessage(AppLocalizations s, RequestFailure failure) =>
         RequestErrorKind.internal => s.unknownError,
       },
     };
+
+/// Show a request failure in the app's error notice.
+void showRequestFailureInfoBar(BuildContext context, RequestFailure failure) {
+  displayInfoBar(
+    context,
+    builder: (_, close) => InfoBar(
+      title: Text(requestFailureMessage(S.of(context), failure)),
+      severity: InfoBarSeverity.error,
+      onClose: close,
+    ),
+  );
+}
 
 String requestErrorText(AppLocalizations s, Object error) =>
     error is RequestFailure ? requestFailureMessage(s, error) : 'Error: $error';

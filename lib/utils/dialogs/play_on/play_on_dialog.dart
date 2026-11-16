@@ -8,6 +8,7 @@ import '../../../utils/api/library_registry.dart';
 import '../../../utils/api/renderers.dart';
 import '../../../utils/api/request_failure.dart';
 import '../../../utils/l10n.dart';
+import '../unavailable_dialog_on_band.dart';
 import '../../../providers/renderer_attachment.dart';
 import '../../../providers/playlist.dart';
 import '../../../providers/library_open_state.dart';
@@ -53,14 +54,16 @@ Future<void> showPlayOnDialog(
   final namesFuture = loadLibraryNames();
   await showDialog<void>(
     context: context,
-    builder: (dialogContext) => _PlayOnDialog(
-      loader: loader,
-      handoff: handoff,
-      libraryNamesFuture: namesFuture,
-      libraryIds: libraryIds,
-      attachment: attachment,
-      castMode: cast != null,
-      cast: cast,
+    builder: (dialogContext) => ScrollableDialogFrame(
+      child: _PlayOnDialog(
+        loader: loader,
+        handoff: handoff,
+        libraryNamesFuture: namesFuture,
+        libraryIds: libraryIds,
+        attachment: attachment,
+        castMode: cast != null,
+        cast: cast,
+      ),
     ),
   );
 }

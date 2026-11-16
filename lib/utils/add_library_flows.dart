@@ -16,7 +16,6 @@ import 'dialogs/information/error.dart';
 import 'dialogs/information/information.dart';
 import '../screens/settings_neighbors/utils/show_search_remote_device_dialog.dart';
 import 'l10n.dart';
-import 'library_registry_messages.dart';
 import 'router/navigation.dart';
 import 'rune_log.dart';
 
@@ -56,9 +55,7 @@ Future<void> addLocalFolderLibrary(
     if (!context.mounted) return;
     await showFailedToInitializeLibrary(
       context,
-      error is LibraryRegistryFailure
-          ? libraryRegistryFailureMessage(S.of(context), error.kind)
-          : S.of(context).unknownError,
+      libraryFailureMessage(S.of(context), error),
     );
     if (navigateIfFailed) $$replace('/');
   }

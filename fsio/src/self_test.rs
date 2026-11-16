@@ -8,7 +8,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use sync::share::StoreError;
 
-use super::{FileIoError, FsIo};
+use super::{FileIoError, FsIo, OpenMode};
 
 /// Probe share-object write and conditional capabilities under the caller's device prefix.
 pub async fn probe_share_object_store(
@@ -73,7 +73,7 @@ fn pattern_byte(offset: usize) -> u8 {
 
 async fn read_all(fsio: &FsIo, path: &Path) -> Result<Vec<u8>, FileIoError> {
     use std::io::Read;
-    let mut file = fsio.open_async(path, "r").await?;
+    let mut file = fsio.open_async(path, OpenMode::Read).await?;
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer).map_err(FileIoError::Io)?;
     Ok(buffer)
@@ -146,7 +146,7 @@ async fn layer_streaming_io(fsio: &FsIo, root: &Path) -> LayerOutput {
     let result = async {
         let write_start = Instant::now();
         {
-            let mut file = fsio.open_async(&file_path, "wt").await?;
+            let mut file = fsio.open_async(&file_path, OpenMode::WriteTruncate).await?;
             for chunk_index in 0..CHUNK_COUNT {
                 let chunk: Vec<u8> = (0..CHUNK_SIZE)
                     .map(|i| pattern_byte(chunk_index * CHUNK_SIZE + i))

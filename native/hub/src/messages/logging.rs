@@ -53,7 +53,6 @@ pub struct ClearLogRequest {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct ClearLogResponse {
-    pub success: bool,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -68,7 +67,6 @@ pub struct RemoveLogRequest {
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct RemoveLogResponse {
     pub id: i32,
-    pub success: bool,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

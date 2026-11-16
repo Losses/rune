@@ -1,5 +1,4 @@
-#[path = "support/causal_library.rs"]
-mod support;
+use database::test_fixtures::causal_library as support;
 
 use anyhow::Result;
 use database::{

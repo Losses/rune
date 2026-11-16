@@ -3,17 +3,17 @@ use std::sync::Arc;
 use axum::{Json, extract::State};
 
 use crate::server::{ServerState, utils::device::SanitizedDeviceInfo};
-use discovery::{capabilities::Capabilities, utils::DeviceInfo};
+use discovery::{
+    capabilities::Capabilities,
+    utils::{DeviceInfo, DeviceType},
+};
 
 fn sanitize_device_info(original: &DeviceInfo) -> SanitizedDeviceInfo {
     SanitizedDeviceInfo {
         alias: original.alias.clone(),
         version: original.version.clone(),
         device_model: original.device_model.clone(),
-        device_type: match original.device_type {
-            Some(x) => x.to_string(),
-            None => "Unknown".to_string(),
-        },
+        device_type: original.device_type.unwrap_or(DeviceType::Unknown),
         protocol_version: original.protocol_version,
         capabilities: Some(Capabilities::rune_native()),
     }

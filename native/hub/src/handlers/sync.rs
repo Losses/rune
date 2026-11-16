@@ -7,7 +7,7 @@ use crate::{
         LibraryContentChanged, RemoveDownloadRuleRequest, RemoveDownloadRuleResponse,
         SetDownloadRuleRequest, SetDownloadRuleResponse,
     },
-    server::utils::device::load_device_info,
+    server::utils::device::{RunMode, load_device_info},
     utils::{
         Broadcaster, GlobalParams, ParamsExtractor, require_library, sync_settings::SyncSettings,
     },
@@ -71,33 +71,24 @@ impl Signal for SetDownloadRuleRequest {
         request: &Self,
     ) -> Result<Option<Self::Response>> {
         let library = require_library(p.library.clone())?;
-        let result = async {
-            let id = set_download_rule(
-                &library.main_db,
-                request
-                    .queries
-                    .iter()
-                    .map(|q| (q.operator.clone(), q.parameter.clone()))
-                    .collect(),
-                request.mix_id,
-                request.enabled,
-            )
-            .await?;
-            if !request.enabled && request.delete_unselected_files {
-                p.cleanup(&library).await?;
-            }
-            Ok::<_, anyhow::Error>(id)
+        let rule_id = set_download_rule(
+            &library.main_db,
+            request
+                .queries
+                .iter()
+                .map(|q| (q.operator.clone(), q.parameter.clone()))
+                .collect(),
+            request.mix_id,
+            request.enabled,
+        )
+        .await?;
+        if !request.enabled && request.delete_unselected_files {
+            p.cleanup(&library).await?;
         }
-        .await;
-        let (rule_id, error) = match result {
-            Ok(id) => (id, None),
-            Err(error) => (String::new(), Some(format!("{error:#}"))),
-        };
         Ok(Some(Self::Response {
             call_id: None,
             request_id: request.request_id.clone(),
             rule_id,
-            error,
         }))
     }
 }
@@ -117,18 +108,13 @@ impl Signal for RemoveDownloadRuleRequest {
         request: &Self,
     ) -> Result<Option<Self::Response>> {
         let library = require_library(p.library.clone())?;
-        let result = async {
-            remove_download_rule(&library.main_db, &request.rule_id).await?;
-            if request.delete_unselected_files {
-                p.cleanup(&library).await?;
-            }
-            Ok::<_, anyhow::Error>(())
+        remove_download_rule(&library.main_db, &request.rule_id).await?;
+        if request.delete_unselected_files {
+            p.cleanup(&library).await?;
         }
-        .await;
         Ok(Some(Self::Response {
             call_id: None,
             request_id: request.request_id.clone(),
-            error: result.err().map(|e| format!("{e:#}")),
         }))
     }
 }
@@ -154,7 +140,6 @@ impl Signal for crate::messages::GetSyncSettingsRequest {
             request_id: request.request_id.clone(),
             listen: settings.listen,
             missing_host_file: settings.missing_host_file.into(),
-            error: None,
         }))
     }
 }
@@ -163,12 +148,14 @@ impl ParamsExtractor for crate::messages::SetSyncSettingsRequest {
         Arc<tokio::sync::RwLock<SyncSettings>>,
         Arc<String>,
         Option<Arc<crate::server::ServerManager>>,
+        RunMode,
     );
     fn extract_params(&self, params: &GlobalParams) -> Self::Params {
         (
             params.sync_settings.clone(),
             params.config_path.clone(),
             params.server_manager.get().cloned(),
+            params.node.run_mode,
         )
     }
 }
@@ -177,49 +164,45 @@ impl Signal for crate::messages::SetSyncSettingsRequest {
         Arc<tokio::sync::RwLock<SyncSettings>>,
         Arc<String>,
         Option<Arc<crate::server::ServerManager>>,
+        RunMode,
     );
     type Response = crate::messages::SetSyncSettingsResponse;
     async fn handle(
         &self,
-        (settings, config, manager): Self::Params,
+        (settings, config, manager, run_mode): Self::Params,
         _: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
-        let result: Result<()> = async {
-            let policy = request.missing_host_file.into();
-            let mut current = settings.write().await;
-            let changed = current.listen != request.listen;
-            let next = SyncSettings {
-                listen: request.listen,
-                missing_host_file: policy,
-            };
-            next.save(Path::new(&**config))?;
-            *current = next;
-            if changed {
-                let manager = manager.ok_or(ExpectedRequestError::Unavailable {
-                    what: "server manager",
-                })?;
-                if request.listen {
-                    if !manager.is_running() {
-                        let info = load_device_info(Path::new(&**config)).await?;
-                        manager
-                            .start_sync(
-                                ([0, 0, 0, 0], DEFAULT_DEVICE_PORT).into(),
-                                discovery::DiscoveryParams { device_info: info },
-                            )
-                            .await?;
-                    }
-                } else if manager.is_running() {
-                    manager.stop().await?;
+        let policy = request.missing_host_file.into();
+        let mut current = settings.write().await;
+        let changed = current.listen != request.listen;
+        let next = SyncSettings {
+            listen: request.listen,
+            missing_host_file: policy,
+        };
+        next.save(Path::new(&**config))?;
+        *current = next;
+        if changed {
+            let manager = manager.ok_or(ExpectedRequestError::Unavailable {
+                what: "server manager",
+            })?;
+            if request.listen {
+                if !manager.is_running() {
+                    let info = load_device_info(Path::new(&**config), run_mode).await?;
+                    manager
+                        .start_sync(
+                            ([0, 0, 0, 0], DEFAULT_DEVICE_PORT).into(),
+                            discovery::DiscoveryParams { device_info: info },
+                        )
+                        .await?;
                 }
+            } else if manager.is_running() {
+                manager.stop().await?;
             }
-            Ok(())
         }
-        .await;
         Ok(Some(Self::Response {
             call_id: None,
             request_id: request.request_id.clone(),
-            error: result.err().map(|error| format!("{error:#}")),
         }))
     }
 }

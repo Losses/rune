@@ -28,7 +28,7 @@ use symphonia::core::{
     probe::Hint,
 };
 
-use ::fsio::FsIo;
+use ::fsio::{FsIo, OpenMode};
 use ::fsio_media_source::FsioMediaSource;
 
 use crate::front::SR;
@@ -78,7 +78,7 @@ pub fn decode_with(
     sink: &mut dyn FnMut(&[f32]),
 ) -> Result<()> {
     let src = fsio
-        .open(path, "r")
+        .open(path, OpenMode::Read)
         .with_context(|| format!("failed to open {}", path.display()))?;
     let mss = MediaSourceStream::new(Box::new(FsioMediaSource::new(src)), Default::default());
     let mut hint = Hint::new();

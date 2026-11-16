@@ -229,16 +229,14 @@ class _MixStudioDialogImplementationState
           widget.mixId!,
           _controller.titleController.text,
           _controller.groupController.text,
-          false,
-          int.parse(_controller.modeController.selectedValue ?? '99'),
+          editorData.mode,
           queries,
         );
       } else {
         response = await createMix(
           _controller.titleController.text,
           _controller.groupController.text,
-          false,
-          int.parse(_controller.modeController.selectedValue ?? '99'),
+          editorData.mode,
           queries,
         );
       }

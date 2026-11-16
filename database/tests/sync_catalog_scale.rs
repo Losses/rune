@@ -1,13 +1,12 @@
 use support::fixtures;
 
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::Result;
 use database::entities::{
     albums, artists, genres, media_file_albums, media_file_artists, media_file_genres,
     media_file_playlists, media_files, playlists,
 };
 use database::sync::model::*;
+use database::test_fixtures::causal_library as support;
 use migration::catalog_identity::{self, ParentKind};
 use sea_orm::{EntityTrait, PaginatorTrait};
 use std::{

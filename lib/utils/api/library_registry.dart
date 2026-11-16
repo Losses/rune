@@ -130,11 +130,8 @@ Future<ListLocalLibrariesResponse> listLocalLibraries() async {
   return (await response).message;
 }
 
-Future<SetLibraryBackgroundSyncResponse> setLibraryBackgroundSync(
-  String libraryId,
-  bool enabled,
-) async {
-  final response = awaitResponse(
+Future<void> setLibraryBackgroundSync(String libraryId, bool enabled) async {
+  await awaitResponse(
     'SetLibraryBackgroundSyncRequest',
     SetLibraryBackgroundSyncResponse.rustSignalStream,
     timeout: _timeout,
@@ -145,5 +142,4 @@ Future<SetLibraryBackgroundSyncResponse> setLibraryBackgroundSync(
       callId: callId,
     ).sendSignalToRust(),
   );
-  return (await response).message;
 }

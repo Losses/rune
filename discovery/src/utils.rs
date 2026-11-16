@@ -1,4 +1,4 @@
-use std::{fmt, str::FromStr};
+use std::fmt;
 
 use chrono::{DateTime, Utc};
 use rustls::{
@@ -38,32 +38,6 @@ impl fmt::Display for DeviceType {
     }
 }
 
-#[derive(Debug)]
-pub struct ParseDeviceTypeError;
-
-impl fmt::Display for ParseDeviceTypeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "failed to parse device type")
-    }
-}
-
-impl std::error::Error for ParseDeviceTypeError {}
-
-impl FromStr for DeviceType {
-    type Err = ParseDeviceTypeError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "mobile" => Ok(DeviceType::Mobile),
-            "desktop" => Ok(DeviceType::Desktop),
-            "web" => Ok(DeviceType::Web),
-            "headless" => Ok(DeviceType::Headless),
-            "server" => Ok(DeviceType::Server),
-            _ => Ok(DeviceType::Unknown),
-        }
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceInfo {
@@ -73,7 +47,6 @@ pub struct DeviceInfo {
     pub device_type: Option<DeviceType>,
     pub fingerprint: String,
     pub api_port: u16,
-    pub protocol: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protocol_version: Option<ProtocolVersion>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

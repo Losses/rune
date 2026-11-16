@@ -1,6 +1,3 @@
-use tokio::net::TcpListener;
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::Result;
 use axum::{
     body::{Body, to_bytes},
@@ -10,6 +7,7 @@ use axum::{
 };
 use database::entities::{media_files, media_metadata};
 use database::sync::model::{Collection, ObjectKey, Payload};
+use database::test_fixtures::causal_library as support;
 use http_request::sync::router;
 use hub::server::sync::client::sync_library;
 use sea_orm::{EntityTrait, PaginatorTrait, Set, TransactionTrait};
@@ -22,6 +20,7 @@ use std::{
     time::Instant,
 };
 use support::SqlLibrary;
+use tokio::net::TcpListener;
 use uuid::Uuid;
 #[derive(Default)]
 struct Traffic {
@@ -85,7 +84,7 @@ async fn metadata_initial_incremental_and_idle_rounds() -> Result<()> {
         .await?;
         tx.commit().await?;
     }
-    source.library.import_basic().await?;
+    source.sync_store.import_basic().await?;
     eprintln!(
         "environment={} {} profile={} storage=sqlite::memory: tracks={count} metadata_tags={count} preparation_ms={}",
         OS,
@@ -178,17 +177,18 @@ async fn metadata_initial_incremental_and_idle_rounds() -> Result<()> {
         collection: Collection::Tracks,
         id: Uuid::from_u128(1),
     };
-    let Payload::Track(mut value) = source.library.get(&key).await?.unwrap().value.unwrap() else {
+    let Payload::Track(mut value) = source.sync_store.get(&key).await?.unwrap().value.unwrap()
+    else {
         unreachable!()
     };
     value.metadata[0].value = "Edited track".into();
     source
-        .library
+        .sync_store
         .write_local(key.clone(), Some(Payload::Track(value.clone())))
         .await?;
     synchronize().await?;
     assert_eq!(
-        target.library.get(&key).await?.unwrap().value,
+        target.sync_store.get(&key).await?.unwrap().value,
         Some(Payload::Track(value))
     );
     eprintln!(

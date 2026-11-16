@@ -40,11 +40,23 @@ LoginRequestItem itemFromMap(Map<String, dynamic> json) {
   );
 }
 
+/// What a failed login shows: the text of the service's failure, or the
+/// generic text of any other failed request.
+String scrobbleLoginFailureMessage(Object error, AppLocalizations strings) {
+  if (error is RequestFailure) {
+    return switch (error.cause) {
+      RequestFailureCauseScrobbleAuthentication(:final failure) =>
+        scrobbleAuthenticationFailureMessage(failure, strings),
+      _ => requestFailureMessage(strings, error),
+    };
+  }
+  return strings.loginFailedSubtitle;
+}
+
 String scrobbleAuthenticationFailureMessage(
-  AuthenticateSingleServiceResultFailure result,
+  ScrobbleAuthenticationFailure failure,
   AppLocalizations strings,
 ) {
-  final failure = result.failure;
   return switch (failure) {
     ScrobbleAuthenticationFailureCredentialsRejected() =>
       strings.scrobbleCredentialsRejected,
@@ -165,7 +177,7 @@ class ScrobbleProvider with ChangeNotifier {
         credentialRef: stored.credentialRef!,
       ),
     );
-    final rustSignal = await awaitResponse(
+    await awaitResponse(
       'AuthenticateSingleServiceRequest',
       AuthenticateSingleServiceResponse.rustSignalStream,
       responseCallId: (response) => response.message.callId?.toInt(),
@@ -174,11 +186,6 @@ class ScrobbleProvider with ChangeNotifier {
         callId: callId,
       ).sendSignalToRust(),
     );
-    final response = rustSignal.message;
-
-    // Handle the response
-    final result = response.result;
-    if (result is AuthenticateSingleServiceResultFailure) throw result;
   }
 
   Future<void> login(LoginRequestItem credentials) async {
@@ -210,12 +217,7 @@ class ScrobbleProvider with ChangeNotifier {
         callId: callId,
       ).sendSignalToRust(),
     );
-    final response = rustSignal.message;
-
-    final result = response.result;
-    if (result is AuthenticateSingleServiceResultFailure) throw result;
-    final reference =
-        (result as AuthenticateSingleServiceResultSuccess).credentialRef;
+    final reference = rustSignal.message.credentialRef;
     final replacement = LoginRequestItem(
       serviceId: credentials.serviceId,
       username: credentials.username,

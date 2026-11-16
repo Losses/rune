@@ -46,7 +46,9 @@ use crate::utils::init_logging;
 pub struct Session {
     pub public_key: String,
     pub fingerprint: String,
-    pub host: String,
+    /// Base URL of the device the controller connected to, as that controller
+    /// addressed it. Cover and file URLs handed to the controller are built on it.
+    pub base_url: url::Url,
 }
 
 pub trait Signal: Sized {

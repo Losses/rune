@@ -11,6 +11,7 @@ Future<Mix?> showMixStudioDialog(
   int? mixId,
 }) async {
   return await $showModal<Mix?>(
+    staysUsableWhenShrunk: false,
     context,
     (context, $close) => MixStudioDialog(
       mixId: mixId,

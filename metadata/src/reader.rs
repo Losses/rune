@@ -6,7 +6,7 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::{MetadataOptions, MetadataRevision, StandardTagKey, Value};
 use symphonia::core::probe::{Hint, ProbeResult};
 
-use ::fsio::{FsIo, FsNode};
+use ::fsio::{FsIo, FsNode, OpenMode};
 use ::fsio_media_source::FsioMediaSource;
 
 fn create_standard_tag_key_maps() -> (
@@ -215,7 +215,7 @@ pub fn push_tags(
 fn probe_audio_file(fsio: &FsIo, file_path: &Path) -> Result<ProbeResult> {
     // Open the media source via FsIo (works with SAF content URI, std fs, etc.)
     let src = fsio
-        .open(file_path, "r")
+        .open(file_path, OpenMode::Read)
         .map_err(|e| anyhow::anyhow!("Failed to open file {:?}: {e}", file_path))?;
 
     // Create the media source stream.

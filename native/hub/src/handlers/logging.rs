@@ -89,10 +89,7 @@ impl Signal for ClearLogRequest {
             .await
             .with_context(|| "Failed to clear logs")?;
 
-        Ok(Some(ClearLogResponse {
-            call_id: None,
-            success: true,
-        }))
+        Ok(Some(ClearLogResponse { call_id: None }))
     }
 }
 
@@ -123,7 +120,6 @@ impl Signal for RemoveLogRequest {
         Ok(Some(RemoveLogResponse {
             call_id: None,
             id: request.id,
-            success: true,
         }))
     }
 }

@@ -1,7 +1,5 @@
 //! Deterministic business commands interleaved with bounded metadata sessions.
 
-#[path = "support/fixtures.rs"]
-mod fixtures;
 use anyhow::{Context, Result, ensure};
 use axum::{
     body::{Body, to_bytes},
@@ -10,6 +8,7 @@ use axum::{
     middleware::{self, Next},
     response::{IntoResponse, Response},
 };
+use database::test_fixtures::fixtures;
 use database::{
     actions::{file::get_media_files, mixes, playlists, stats},
     entities::{media_file_stats, media_files, playlists as playlist_rows},
@@ -17,6 +16,7 @@ use database::{
 };
 use http_request::sync::{MetadataPeer, MetadataStore, router};
 use migration::{Migrator, MigratorTrait};
+use playback::PlaybackMode;
 use sea_orm::{ColumnTrait, Database, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use std::time::Duration;
 use std::{
@@ -449,8 +449,7 @@ async fn business_scenario() -> Result<()> {
         &c_store,
         "temporary mix".into(),
         "m".into(),
-        false,
-        0,
+        Some(PlaybackMode::Sequential),
         false,
         vec![("lib::track".into(), c2.to_string())],
     )
@@ -461,8 +460,7 @@ async fn business_scenario() -> Result<()> {
         mix.id,
         Some("updated mix".into()),
         None,
-        None,
-        None,
+        mixes::MixModeUpdate::Unchanged,
         None,
         None,
     )
@@ -472,8 +470,7 @@ async fn business_scenario() -> Result<()> {
         &c_store,
         "missing reference".into(),
         "m".into(),
-        false,
-        0,
+        Some(PlaybackMode::Sequential),
         false,
         vec![("lib::playlist".into(), transient.id.to_string())],
     )

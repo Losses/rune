@@ -1,3 +1,4 @@
+use requests::NamedLibraries;
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
@@ -17,7 +18,7 @@ pub struct LyricContentLineSection {
     pub content: String,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct GetLyricByTrackIdRequest {
     pub item: Option<PlayingItemRef>,
     #[serde(default)]

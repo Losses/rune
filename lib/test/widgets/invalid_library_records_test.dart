@@ -12,6 +12,7 @@ import 'package:rune/providers/responsive_providers.dart';
 import 'package:rune/screens/home/home.dart';
 import 'package:rune/screens/home/widgets/welcome.dart';
 import 'package:rune/screens/settings_library/settings_library.dart';
+import 'package:rune/utils/api/request_failure.dart';
 
 const _invalidRecord = InvalidLibraryRecordSummary(
   recordId: 'invalid-1',
@@ -52,15 +53,12 @@ void main() {
           invalidRecords: [_invalidRecord],
           lastOpenRecord: 'invalid-1',
         ),
-        openRecord: (recordId, callId) async => OpenLibraryResponse(
-          callId: Uint64.fromBigInt(BigInt.from(callId)),
-          recordId: recordId,
-          generation: Uint64.fromBigInt(BigInt.zero),
-          result: const OpenLibraryResultFailed(
-            value: OpenLibraryFailure(
-              kind: OpenLibraryFailureKind.invalidRecord,
-              detail: 'Native record fields are invalid',
-            ),
+        openRecord: (recordId, callId) async => throw const RequestFailure(
+          'OpenLibraryRequest',
+          RequestErrorKind.invalidInput,
+          'Native record fields are invalid',
+          RequestFailureCauseLibraryOpenFailed(
+            kind: OpenLibraryFailureKind.invalidRecord,
           ),
         ),
       );
@@ -107,9 +105,7 @@ void main() {
       ),
       removeRecord: (recordId) async {
         removed.add(recordId);
-        return const RemoveLibraryRecordResponse(
-          outcome: RemoveLibraryRecordOutcomeRemoved(),
-        );
+        return const RemoveLibraryRecordResponse();
       },
     );
     final broadcast = _Broadcast();

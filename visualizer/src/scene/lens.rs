@@ -74,12 +74,6 @@ pub struct LensFrame {
 }
 
 impl LensFrame {
-    /// Whether the post pass has anything to do beyond its normal work.
-    #[cfg(test)]
-    pub fn is_idle(&self) -> bool {
-        self.flare <= 0.0 && self.leak <= 0.0
-    }
-
     /// The uniform `struct Lens` of `post.wgsl`.
     pub fn bytes(&self) -> [u8; LENS_SIZE as usize] {
         let mut bytes = [0; LENS_SIZE as usize];
@@ -352,17 +346,6 @@ impl Lens {
         });
     }
 
-    /// Keep a flare at its full swell from now on, as long as this is called before each frame
-    /// (a probe's look at a steady flare).
-    #[cfg(test)]
-    pub fn hold_flare(&mut self) {
-        self.flare_angle = flare_angle(&self.music, self.flares);
-        self.flare = Some(Run {
-            strength: 1.0,
-            course: self.course().at_peak(),
-        });
-    }
-
     /// The names of the effects that start at a moment: those the scene listed and those a lab
     /// forced.
     fn listed(&self) -> Vec<String> {
@@ -499,6 +482,24 @@ impl Lens {
 
 #[cfg(test)]
 mod tests {
+    impl LensFrame {
+        /// Whether the post pass has anything to do beyond its normal work.
+        pub fn is_idle(&self) -> bool {
+            self.flare <= 0.0 && self.leak <= 0.0
+        }
+    }
+    impl Lens {
+        /// Keep a flare at its full swell from now on, as long as this is called before each frame
+        /// (a probe's look at a steady flare).
+        pub fn hold_flare(&mut self) {
+            self.flare_angle = flare_angle(&self.music, self.flares);
+            self.flare = Some(Run {
+                strength: 1.0,
+                course: self.course().at_peak(),
+            });
+        }
+    }
+
     use super::*;
     use std::collections::HashSet;
 
@@ -744,7 +745,8 @@ mod tests {
             most.flare = most.flare.max(f.flare);
             most.leak = most.leak.max(f.leak);
         }
-        let least = crate::course::LEAST;
+        use crate::course::tests::LEAST;
+        let least = LEAST;
         assert!(
             (most.flare - least * FLARE_PEAK).abs() < 0.01,
             "{}",

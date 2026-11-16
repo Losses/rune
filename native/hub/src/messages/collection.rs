@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 
+use requests::NamedLibraries;
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
 use super::mix::MixQuery;
 
-#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(
+    Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq, NamedLibraries,
+)]
 pub enum CollectionType {
     Album,
     Artist,
@@ -16,7 +19,7 @@ pub enum CollectionType {
     Directory,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct FetchCollectionGroupSummaryRequest {
     pub collection_type: CollectionType,
     #[serde(default)]
@@ -37,7 +40,7 @@ pub struct CollectionGroupSummaryResponse {
     pub call_id: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct FetchCollectionGroupsRequest {
     pub collection_type: CollectionType,
     pub bake_cover_arts: bool,
@@ -69,7 +72,7 @@ pub struct FetchCollectionGroupsResponse {
     pub call_id: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct FetchCollectionByIdsRequest {
     pub collection_type: CollectionType,
     pub bake_cover_arts: bool,
@@ -86,7 +89,7 @@ pub struct FetchCollectionByIdsResponse {
     pub call_id: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct SearchCollectionSummaryRequest {
     pub collection_type: Option<CollectionType>,
     pub bake_cover_arts: Option<bool>,

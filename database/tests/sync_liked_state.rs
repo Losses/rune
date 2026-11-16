@@ -1,6 +1,5 @@
-#[path = "support/fixtures.rs"]
-mod fixtures;
 use anyhow::Result;
+use database::test_fixtures::fixtures;
 use database::{
     actions::stats::{get_liked, increase_played_through, increase_skipped, set_liked},
     entities::media_files,

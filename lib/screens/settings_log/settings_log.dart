@@ -106,6 +106,7 @@ class SettingsLogPageState extends State<SettingsLogPage> {
   void _removeLog(int index) async {
     final id = _logs[index].id;
     final result = await $showModal<bool>(
+      staysUsableWhenShrunk: false,
       context,
       (context, $close) => RemoveDialogOnBand(
         $close: $close,
@@ -146,6 +147,7 @@ class SettingsLogPageState extends State<SettingsLogPage> {
 
   void _clearLog() async {
     final result = await $showModal<bool>(
+      staysUsableWhenShrunk: false,
       context,
       (context, $close) => RemoveDialogOnBand(
         $close: $close,

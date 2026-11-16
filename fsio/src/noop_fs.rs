@@ -5,7 +5,7 @@ use std::{
 
 use async_trait::async_trait;
 
-use crate::{FileIo, FileIoError, FileStream, FsNode};
+use crate::{FileIo, FileIoError, FileStream, FsNode, OpenMode, StorageLocation};
 
 pub struct NoOpFsIo;
 
@@ -73,14 +73,18 @@ impl FileIo for NoOpFsIo {
         "NoOp"
     }
 
-    fn open(&self, _path: &Path, _open_mode: &str) -> Result<Box<dyn FileStream>, FileIoError> {
+    fn storage(&self) -> StorageLocation {
+        StorageLocation::Local
+    }
+
+    fn open(&self, _path: &Path, _open_mode: OpenMode) -> Result<Box<dyn FileStream>, FileIoError> {
         Ok(Box::new(NoOpStream::new()))
     }
 
     async fn open_async(
         &self,
         _path: &Path,
-        _open_mode: &str,
+        _open_mode: OpenMode,
     ) -> Result<Box<dyn FileStream>, FileIoError> {
         Ok(Box::new(NoOpStream::new()))
     }

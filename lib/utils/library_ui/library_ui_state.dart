@@ -2,8 +2,8 @@ import 'package:flutter/foundation.dart';
 
 import '../../bindings/bindings.dart';
 import '../../l10n/app_localizations.dart';
+import '../api/request_failure.dart';
 import '../platform.dart';
-import '../remote_connection_messages.dart';
 
 enum PeerLibrariesStatus { loading, error, empty, rows }
 
@@ -20,16 +20,17 @@ class PeerLibrariesState {
 
 PeerLibrariesState peerLibrariesState(
   AppLocalizations s,
-  ListPeerLibrariesResponse? response,
-) {
-  if (response == null) {
-    return const PeerLibrariesState(PeerLibrariesStatus.loading);
-  }
-  if (response.errorKind != null) {
+  ListPeerLibrariesResponse? response, {
+  RequestFailure? failure,
+}) {
+  if (failure != null) {
     return PeerLibrariesState(
       PeerLibrariesStatus.error,
-      error: remoteOpenErrorMessage(s, response.errorKind),
+      error: requestFailureMessage(s, failure),
     );
+  }
+  if (response == null) {
+    return const PeerLibrariesState(PeerLibrariesStatus.loading);
   }
   if (response.libraries.isEmpty) {
     return const PeerLibrariesState(PeerLibrariesStatus.empty);

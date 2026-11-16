@@ -11,21 +11,24 @@ Future<List<AttachedControllerInfo>> listControllers() async {
   return response.message.controllers;
 }
 
-Future<void> detachController(String id) async {
-  late Uint64 callId;
-  await awaitResponse<void>(
+/// Completes once the hub has detached the controller.
+Future<void> detachController(
+  String id, {
+  Stream<DetachControllerResponse>? responses,
+  void Function(DetachControllerRequest request)? send,
+}) async {
+  await awaitResponse(
     'DetachControllerRequest',
-    ControllersUpdated.rustSignalStream
-        .map((event) => event.message)
-        .where(
-          (update) =>
-              update.controllers.every((controller) => controller.id != id),
-        )
-        .map((_) {}),
-    responseCallId: (_) => callId.toInt(),
-    send: (requestCallId) {
-      callId = requestCallId;
-      DetachControllerRequest(id: id, callId: requestCallId).sendSignalToRust();
+    responses ??
+        DetachControllerResponse.rustSignalStream.map((event) => event.message),
+    responseCallId: (response) => response.callId?.toInt(),
+    send: (callId) {
+      final request = DetachControllerRequest(id: id, callId: callId);
+      if (send != null) {
+        send(request);
+      } else {
+        request.sendSignalToRust();
+      }
     },
   );
 }

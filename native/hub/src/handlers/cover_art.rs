@@ -6,7 +6,6 @@ use tokio::runtime::Runtime;
 
 use anyhow::Result;
 use futures::future::join_all;
-use uuid::Uuid;
 
 use tokio::task;
 
@@ -14,9 +13,7 @@ use ::database::playing_item::dispatcher::PlayingItemActionDispatcher;
 
 use crate::{
     Session, Signal,
-    handlers::playback::{
-        authorize_item_library, playing_item_from_request, reject_remote_independent_item,
-    },
+    handlers::playback::{playing_item_from_request, reject_remote_independent_item},
     library_pool::LibraryHandle,
     messages::*,
     utils::{GlobalParams, ParamsExtractor, query_cover_arts, require_library},
@@ -99,24 +96,20 @@ impl Signal for GetCoverArtIdsByMixQueriesRequest {
 }
 
 impl ParamsExtractor for GetPrimaryColorByTrackIdRequest {
-    type Params = (Option<LibraryHandle>, Arc<NodeContext>, Option<Uuid>);
+    type Params = Option<LibraryHandle>;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (
-            all_params.library.clone(),
-            all_params.node.clone(),
-            all_params.library_id,
-        )
+        all_params.library.clone()
     }
 }
 
 impl Signal for GetPrimaryColorByTrackIdRequest {
-    type Params = (Option<LibraryHandle>, Arc<NodeContext>, Option<Uuid>);
+    type Params = Option<LibraryHandle>;
     type Response = GetPrimaryColorByTrackIdResponse;
 
     async fn handle(
         &self,
-        (library, node, addressed_library_id): Self::Params,
+        library: Self::Params,
         session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -125,13 +118,6 @@ impl Signal for GetPrimaryColorByTrackIdRequest {
 
         if let Some(item) = item {
             reject_remote_independent_item(session.as_ref(), &item)?;
-            authorize_item_library::<GetPrimaryColorByTrackIdRequest>(
-                &node,
-                session.as_ref(),
-                addressed_library_id,
-                &item,
-            )
-            .await?;
             let parsed_item = playing_item_from_request(item.clone(), Some(&library)).await?;
             let response = task::spawn_blocking(move || {
                 let runtime = Runtime::new().unwrap();

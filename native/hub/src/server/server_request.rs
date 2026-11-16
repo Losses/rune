@@ -4,10 +4,10 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::macros::RequestScope;
+use crate::macros::{BodyLibraries, RequestScope};
 use crate::node::NodeContext;
 use crate::request_error::{ExpectedRequestError, FailedCall};
-use crate::rpc::TargetRequest;
+use crate::rpc::{NamedLibraries, TargetRequest};
 use crate::utils::ParamsExtractor;
 use crate::{RequestCallId, ResponseCallId, Session, Signal, TypedRequest};
 
@@ -22,6 +22,7 @@ where
     R: TargetRequest
         + Signal<Response = <R as TypedRequest>::Response, Params = <R as ParamsExtractor>::Params>
         + ParamsExtractor
+        + NamedLibraries
         + RequestCallId,
     <R as TypedRequest>::Response: Serialize,
     <R as TypedRequest>::Response: ResponseCallId,
@@ -56,6 +57,9 @@ where
         ui_params
     };
     let request = decode().context("Failed to deserialize request")?;
+    if let Some(session) = &session {
+        authorize_body_libraries(node, session, addressed_library, &request).await?;
+    }
     let response = request
         .handle(request.extract_params(&params), session, &request)
         .await
@@ -70,4 +74,40 @@ where
         }
         _ => Ok((String::new(), Vec::new())),
     }
+}
+
+/// Authorize the libraries a request's body names, as its catalogue entry declares.
+async fn authorize_body_libraries<R: TargetRequest + NamedLibraries>(
+    node: &NodeContext,
+    session: &Session,
+    addressed_library: Option<Uuid>,
+    request: &R,
+) -> Result<()> {
+    match R::BODY_LIBRARIES {
+        BodyLibraries::NoLibrary | BodyLibraries::PlayerReads => return Ok(()),
+        BodyLibraries::Authorized => {}
+    }
+    let mut named = Vec::new();
+    request.visit_libraries(&mut |library_id| {
+        if !named.contains(&library_id) {
+            named.push(library_id);
+        }
+    });
+    for library_id in named {
+        let library_id = Uuid::parse_str(library_id).map_err(|error| {
+            ExpectedRequestError::invalid_input(format!("Invalid library id: {error}"))
+        })?;
+        node.authorize_request(session, R::wire_name(), None, Some(library_id))
+            .await?;
+        let addressed_library = addressed_library.ok_or(ExpectedRequestError::Unavailable {
+            what: "addressed library id",
+        })?;
+        if library_id != addressed_library {
+            return Err(ExpectedRequestError::invalid_input(
+                "request library does not match the item's library",
+            )
+            .into());
+        }
+    }
+    Ok(())
 }

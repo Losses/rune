@@ -20,6 +20,8 @@ implement_rinf_rust_signal_trait!(IncommingClientPermissionNotification);
 
 implement_rinf_rust_signal_trait!(TrustedClientsChanged);
 
+implement_rinf_rust_signal_trait!(VisualizerScenesChanged);
+
 implement_rinf_rust_signal_trait!(RequestFailedResponse);
 
 crate::declare_remote_events!(
@@ -31,5 +33,22 @@ crate::declare_remote_events!(
     VisualizerFeedCovers => Session,
     LibraryContentChanged => Library,
     LibraryTaskStateChanged => Library,
-    RequestCapabilities => Session,
 );
+
+#[cfg(test)]
+mod tests {
+    use super::REMOTE_EVENT_DECLARATIONS;
+    use std::collections::HashSet;
+
+    /// A repeated declaration is silently dead, because lookup takes the first.
+    #[test]
+    fn every_remote_event_is_declared_once() {
+        let mut seen = HashSet::new();
+        let repeated: Vec<&str> = REMOTE_EVENT_DECLARATIONS
+            .iter()
+            .filter(|declaration| !seen.insert(declaration.type_id))
+            .map(|declaration| declaration.name)
+            .collect();
+        assert!(repeated.is_empty(), "declared more than once: {repeated:?}");
+    }
+}

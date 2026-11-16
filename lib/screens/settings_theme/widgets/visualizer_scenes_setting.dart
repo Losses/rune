@@ -5,6 +5,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 import 'package:reorderables/reorderables.dart';
 
+import '../../../utils/dialogs/unavailable_dialog_on_band.dart';
 import '../../../providers/visualizer_scenes.dart';
 import '../../../utils/build_draggable_feedback.dart';
 import '../../../utils/l10n.dart';
@@ -128,19 +129,21 @@ class VisualizerScenesSetting extends StatelessWidget {
     final s = S.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => ContentDialog(
-        title: Text(s.visualizerDeleteScene),
-        content: Text(s.visualizerDeleteSceneConfirm(scene.name)),
-        actions: [
-          FilledButton(
-            child: Text(s.delete),
-            onPressed: () => Navigator.pop(context, true),
-          ),
-          Button(
-            child: Text(s.cancel),
-            onPressed: () => Navigator.pop(context, false),
-          ),
-        ],
+      builder: (context) => ScrollableDialogFrame(
+        child: ContentDialog(
+          title: Text(s.visualizerDeleteScene),
+          content: Text(s.visualizerDeleteSceneConfirm(scene.name)),
+          actions: [
+            FilledButton(
+              child: Text(s.delete),
+              onPressed: () => Navigator.pop(context, true),
+            ),
+            Button(
+              child: Text(s.cancel),
+              onPressed: () => Navigator.pop(context, false),
+            ),
+          ],
+        ),
       ),
     );
     if (confirmed != true) return;

@@ -25,14 +25,15 @@ impl std::str::FromStr for PlaybackMode {
     }
 }
 
-impl From<PlaybackMode> for u32 {
-    fn from(val: PlaybackMode) -> Self {
-        match val {
-            PlaybackMode::Sequential => 0,
-            PlaybackMode::RepeatOne => 1,
-            PlaybackMode::RepeatAll => 2,
-            PlaybackMode::Shuffle => 3,
-            PlaybackMode::NoChange => 99,
+impl PlaybackMode {
+    /// The mode to ask for, or `None` to keep the player's current one.
+    pub fn requested(&self) -> Option<hub::messages::PlaybackMode> {
+        match self {
+            PlaybackMode::Sequential => Some(hub::messages::PlaybackMode::Sequential),
+            PlaybackMode::RepeatOne => Some(hub::messages::PlaybackMode::RepeatOne),
+            PlaybackMode::RepeatAll => Some(hub::messages::PlaybackMode::RepeatAll),
+            PlaybackMode::Shuffle => Some(hub::messages::PlaybackMode::Shuffle),
+            PlaybackMode::NoChange => None,
         }
     }
 }
@@ -241,4 +242,20 @@ pub struct ReplArgs {
     /// Library ID to browse on the service.
     #[arg(long, value_name = "UUID")]
     pub library_id: Uuid,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PlaybackMode;
+
+    #[test]
+    fn no_change_asks_for_no_mode_and_each_other_name_for_its_own() {
+        use hub::messages::PlaybackMode as Wire;
+        let parsed = |name: &str| name.parse::<PlaybackMode>().unwrap().requested();
+        assert_eq!(parsed("nochange"), None);
+        assert_eq!(parsed("sequential"), Some(Wire::Sequential));
+        assert_eq!(parsed("repeatone"), Some(Wire::RepeatOne));
+        assert_eq!(parsed("repeatall"), Some(Wire::RepeatAll));
+        assert_eq!(parsed("shuffle"), Some(Wire::Shuffle));
+    }
 }

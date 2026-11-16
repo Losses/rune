@@ -1,8 +1,11 @@
 use database::actions::collection::CollectionQueryType;
+use requests::NamedLibraries;
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, SignalPiece)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, SignalPiece, NamedLibraries,
+)]
 pub enum SearchField {
     Track,
     Artist,
@@ -41,7 +44,7 @@ impl From<SearchField> for CollectionQueryType {
     }
 }
 
-#[derive(Serialize, Deserialize, DartSignal)]
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct SearchForRequest {
     #[serde(default)]
     pub call_id: Option<u64>,

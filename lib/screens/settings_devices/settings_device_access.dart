@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../bindings/bindings.dart';
+import '../../l10n/app_localizations.dart';
 import '../../utils/api/device_grants.dart';
 import '../../utils/api/request_failure.dart';
 import '../../utils/dialogs/information/error.dart';
@@ -114,71 +115,7 @@ class _SettingsDeviceAccessPageState extends State<SettingsDeviceAccessPage> {
                     ),
                     _sectionTitle(s.deviceAccessLibraries),
                     for (final library in current.libraries) ...[
-                      SettingsBoxComboBox<DeviceConnectionLevel>(
-                        title: library.alias,
-                        subtitle: s.deviceConnection,
-                        value: library.connection,
-                        items: [
-                          SettingsBoxComboBoxItem(
-                            value: DeviceConnectionLevel.none,
-                            title: s.deviceConnectionOff,
-                          ),
-                          SettingsBoxComboBoxItem(
-                            value: DeviceConnectionLevel.view,
-                            title: s.deviceConnectionView,
-                          ),
-                          SettingsBoxComboBoxItem(
-                            value: DeviceConnectionLevel.viewEdit,
-                            title: s.deviceConnectionViewEdit,
-                          ),
-                        ],
-                        onChanged: saving
-                            ? null
-                            : (value) {
-                                if (value != null &&
-                                    value != library.connection) {
-                                  _save(
-                                    library: DeviceLibraryGrant(
-                                      libraryId: library.libraryId,
-                                      connection: value,
-                                      sync: library.sync,
-                                    ),
-                                  );
-                                }
-                              },
-                      ),
-                      SettingsBoxComboBox<DeviceSyncLevel>(
-                        title: library.alias,
-                        subtitle: s.deviceSync,
-                        value: library.sync,
-                        items: [
-                          SettingsBoxComboBoxItem(
-                            value: DeviceSyncLevel.none,
-                            title: s.deviceSyncOff,
-                          ),
-                          SettingsBoxComboBoxItem(
-                            value: DeviceSyncLevel.pull,
-                            title: s.deviceSyncPull,
-                          ),
-                          SettingsBoxComboBoxItem(
-                            value: DeviceSyncLevel.pullPush,
-                            title: s.deviceSyncPullPush,
-                          ),
-                        ],
-                        onChanged: saving
-                            ? null
-                            : (value) {
-                                if (value != null && value != library.sync) {
-                                  _save(
-                                    library: DeviceLibraryGrant(
-                                      libraryId: library.libraryId,
-                                      connection: library.connection,
-                                      sync: value,
-                                    ),
-                                  );
-                                }
-                              },
-                      ),
+                      _libraryAccess(s, library),
                     ],
                   ],
                 ],
@@ -190,8 +127,76 @@ class _SettingsDeviceAccessPageState extends State<SettingsDeviceAccessPage> {
     );
   }
 
+  // One choice per library sets both levels. A stored pair outside the three
+  // choices is shown as Custom and is only replaced when the user picks one.
+  Widget _libraryAccess(AppLocalizations s, DeviceLibraryAccess library) {
+    final current = _LibraryAccess.of(library);
+    return SettingsBoxComboBox<_LibraryAccess>(
+      title: library.alias,
+      subtitle: '',
+      value: current,
+      items: [
+        for (final choice in _LibraryAccess.values)
+          if (choice != _LibraryAccess.custom || current == choice)
+            SettingsBoxComboBoxItem(value: choice, title: choice.title(s)),
+      ],
+      onChanged: saving
+          ? null
+          : (choice) {
+              final grant = choice?.grant(library.libraryId);
+              if (grant != null && choice != current) _save(library: grant);
+            },
+    );
+  }
+
   Widget _sectionTitle(String title) => Padding(
     padding: const EdgeInsets.only(top: 8, bottom: 2, left: 6, right: 6),
     child: Text(title),
   );
+}
+
+/// The access a device page offers for a library. Each choice stands for one
+/// connection level and one sync level; finer pairs come only from the API or
+/// the grants file and show as [custom].
+enum _LibraryAccess {
+  notShared,
+  readOnly,
+  readWrite,
+  custom;
+
+  static _LibraryAccess of(DeviceLibraryAccess library) =>
+      switch ((library.connection, library.sync)) {
+        (DeviceConnectionLevel.none, DeviceSyncLevel.none) => notShared,
+        (DeviceConnectionLevel.view, DeviceSyncLevel.pull) => readOnly,
+        (DeviceConnectionLevel.viewEdit, DeviceSyncLevel.pullPush) => readWrite,
+        _ => custom,
+      };
+
+  String title(AppLocalizations s) => switch (this) {
+    notShared => s.deviceAccessNotShared,
+    readOnly => s.readOnly,
+    readWrite => s.deviceAccessReadWrite,
+    custom => s.customDeviceAccess,
+  };
+
+  /// The grant that setting this choice writes, or null for [custom], which
+  /// cannot be picked.
+  DeviceLibraryGrant? grant(String libraryId) => switch (this) {
+    notShared => DeviceLibraryGrant(
+      libraryId: libraryId,
+      connection: DeviceConnectionLevel.none,
+      sync: DeviceSyncLevel.none,
+    ),
+    readOnly => DeviceLibraryGrant(
+      libraryId: libraryId,
+      connection: DeviceConnectionLevel.view,
+      sync: DeviceSyncLevel.pull,
+    ),
+    readWrite => DeviceLibraryGrant(
+      libraryId: libraryId,
+      connection: DeviceConnectionLevel.viewEdit,
+      sync: DeviceSyncLevel.pullPush,
+    ),
+    custom => null,
+  };
 }

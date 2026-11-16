@@ -11,6 +11,7 @@ Future<Mix?> showCreateEditMixDialog(
   (String, String)? operator,
 }) async {
   return await $showModal<Mix?>(
+    staysUsableWhenShrunk: false,
     context,
     (context, $close) => CreateEditMixDialog(
       mixId: mixId,

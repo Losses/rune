@@ -51,7 +51,7 @@ class TrackSearchItemState extends SearchCardState<TrackSearchItem> {
     safeOperatePlaybackWithMixQuery(
       context: context,
       queries: const QueryList([]),
-      playbackMode: 99,
+      playbackMode: null,
       hintPosition: 0,
       initialPlaybackId: widget.item.id,
       operateMode: PlaylistOperateMode.replace,

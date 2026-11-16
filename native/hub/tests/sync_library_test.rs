@@ -1,4 +1,6 @@
 use anyhow::Result;
+use database::entities::*;
+use database::test_fixtures::causal_library as support;
 use database::{
     actions::{
         collection::CollectionQueryType,
@@ -24,6 +26,7 @@ use database::{
     },
 };
 use fsio::FsIo;
+use playback::PlaybackMode;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, Database, EntityTrait, IntoActiveModel,
     ModelTrait, QueryFilter, Set, TransactionTrait, sea_query::Expr,
@@ -31,9 +34,6 @@ use sea_orm::{
 use std::sync::Arc;
 use support::fixtures;
 use sync::{CheckpointKey, ReceiveStore, SyncStore};
-#[path = "support/causal_library.rs"]
-mod support;
-use database::entities::*;
 use uuid::Uuid;
 
 async fn setup() -> Result<(sea_orm::DatabaseConnection, tempfile::TempDir)> {
@@ -1077,8 +1077,7 @@ async fn saved_mix_uses_stable_references_across_local_ids() -> Result<()> {
         &a.record_store(),
         "Portable mix".into(),
         "S".into(),
-        false,
-        2,
+        Some(PlaybackMode::RepeatAll),
         false,
         clauses.clone(),
     )
@@ -1197,8 +1196,7 @@ async fn mix_waits_for_dependencies_and_directory_paths_stay_local() -> Result<(
         &target.record_store(),
         "Private directory".into(),
         "Group".into(),
-        false,
-        0,
+        Some(PlaybackMode::Sequential),
         false,
         vec![("lib::directory.deep".into(), "/private/music".into())],
     )

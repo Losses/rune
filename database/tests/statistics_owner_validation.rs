@@ -1,6 +1,5 @@
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::Result;
+use database::test_fixtures::causal_library as support;
 use database::{
     actions::stats::increase_played_through, entities::media_file_stats, sync::model::*,
 };
@@ -56,7 +55,7 @@ async fn statistics_owner_is_checked_and_relays_preserve_the_author() -> Result<
     let before = media_file_stats::Entity::find().one(&b.db).await?.unwrap();
     let head = b.peer.head().await?;
     assert!(
-        increase_played_through(&b.db, &b.library.record_store(), 1, owner)
+        increase_played_through(&b.db, &b.sync_store.record_store(), 1, owner)
             .await
             .is_err()
     );
@@ -95,7 +94,7 @@ async fn statistics_owner_is_checked_and_relays_preserve_the_author() -> Result<
         source_generation: identity.generation,
         scope_id: p::scope_id(&scope)?,
     };
-    let b_identity = b.library.identity().await?;
+    let b_identity = b.sync_store.identity().await?;
     let tx = b.db.begin().await?;
     sync_orm::causal_progress::initialize_checkpoint_on(
         &tx,
@@ -156,7 +155,7 @@ async fn statistics_owner_is_checked_and_relays_preserve_the_author() -> Result<
     assert_eq!(b.peer.head().await?, head);
     assert!(b.peer.get(&object).await?.is_none());
     assert_eq!(b.peer.checkpoint(&checkpoint).await?, Some(after));
-    increase_played_through(&a.db, &a.library.record_store(), 1, owner).await?;
+    increase_played_through(&a.db, &a.sync_store.record_store(), 1, owner).await?;
     exchange(&a.peer, &b.peer).await?;
     assert_eq!(b.peer.get(&object).await?.unwrap().revision.actor, owner);
     exchange(&b.peer, &c.peer).await?;

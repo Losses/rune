@@ -21,6 +21,7 @@ fn main() -> Result<()> {
         .add_instructions(&rustc)?
         .emit()?;
     emit_git_commit();
+    emit_app_version()?;
 
     let target = std::env::var("TARGET").unwrap();
 
@@ -29,6 +30,22 @@ fn main() -> Result<()> {
         build_apple_bridge()?;
     }
 
+    Ok(())
+}
+
+/// Hands the hub the version the app declares in its manifest, so devices announce the version
+/// users see rather than this crate's own.
+fn emit_app_version() -> Result<()> {
+    let manifest = Path::new(&env::var("CARGO_MANIFEST_DIR")?).join("../../pubspec.yaml");
+    println!("cargo:rerun-if-changed={}", manifest.display());
+    let text = std::fs::read_to_string(&manifest)?;
+    let version = text
+        .lines()
+        .find_map(|line| line.strip_prefix("version:"))
+        .map(|value| value.trim().split('+').next().unwrap_or_default().trim())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("pubspec.yaml has no version"))?;
+    println!("cargo:rustc-env=RUNE_APP_VERSION={version}");
     Ok(())
 }
 

@@ -1,7 +1,7 @@
 import 'request_failure.dart';
 import '../../bindings/bindings.dart';
 
-Future<(bool, bool, String?)> testLibraryInitialized(String path) async {
+Future<bool> testLibraryInitialized(String path) async {
   while (true) {
     final rustSignal = await awaitResponse(
       'TestLibraryInitializedRequest',
@@ -17,7 +17,7 @@ Future<(bool, bool, String?)> testLibraryInitialized(String path) async {
     final response = rustSignal.message;
 
     if (response.path == path) {
-      return (response.success, !response.notReady, response.error);
+      return !response.notReady;
     }
   }
 }

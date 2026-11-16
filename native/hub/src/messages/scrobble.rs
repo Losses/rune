@@ -19,29 +19,19 @@ pub enum ScrobbleSecretInput {
     },
 }
 
-#[derive(Clone, Serialize, Deserialize, SignalPiece)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, SignalPiece)]
 pub enum LastFmApiCredentialField {
     ApiKey,
     ApiSecret,
 }
 
-#[derive(Clone, Serialize, Deserialize, SignalPiece)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, SignalPiece)]
 pub enum ScrobbleAuthenticationFailure {
     CredentialsRejected,
     ServiceUnreachable,
     LastFmApiCredentialsMissing { field: LastFmApiCredentialField },
     LastFmApiCredentialsInvalid,
     Other { detail: String },
-}
-
-#[derive(Clone, Serialize, Deserialize, SignalPiece)]
-pub enum AuthenticateSingleServiceResult {
-    Success {
-        credential_ref: String,
-    },
-    Failure {
-        failure: ScrobbleAuthenticationFailure,
-    },
 }
 
 #[derive(Clone, Serialize, Deserialize, SignalPiece)]
@@ -60,7 +50,7 @@ pub struct AuthenticateSingleServiceRequest {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct AuthenticateSingleServiceResponse {
-    pub result: AuthenticateSingleServiceResult,
+    pub credential_ref: String,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

@@ -1,6 +1,5 @@
-#[path = "support/fixtures.rs"]
-mod fixtures;
 use anyhow::Result;
+use database::test_fixtures::fixtures;
 use database::{
     actions::{
         analysis::if_analyze_exists, fingerprint::has_fingerprint, metadata::sync_file_descriptions,

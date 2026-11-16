@@ -194,7 +194,6 @@ impl Signal for RemovePlaylistRequest {
         Ok(Some(RemovePlaylistResponse {
             call_id: None,
             playlist_id: request.playlist_id,
-            success: true,
         }))
     }
 }
@@ -239,7 +238,6 @@ impl Signal for AddItemToPlaylistRequest {
         });
         Ok(Some(AddItemToPlaylistResponse {
             call_id: None,
-            success: true,
             occurrence_id: entry.source_uuid,
         }))
     }
@@ -281,10 +279,7 @@ impl Signal for ReorderPlaylistItemPositionRequest {
         broadcaster.broadcast(&LibraryContentChanged {
             path: library.display_name.clone(),
         });
-        Ok(Some(ReorderPlaylistItemPositionResponse {
-            call_id: None,
-            success: true,
-        }))
+        Ok(Some(ReorderPlaylistItemPositionResponse { call_id: None }))
     }
 }
 

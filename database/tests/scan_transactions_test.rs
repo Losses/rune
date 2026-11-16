@@ -1,8 +1,7 @@
-#[path = "support/fixtures.rs"]
-mod fixtures;
 use analysis::utils::computing_device::ComputingDevice;
 use anyhow::Result;
 use database::sync::SeaOrmSyncStore;
+use database::test_fixtures::fixtures;
 use database::{
     actions::{analysis::analysis_audio_library, metadata::sync_file_descriptions},
     connection::initialize_db,

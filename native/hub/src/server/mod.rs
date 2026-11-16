@@ -193,6 +193,7 @@ pub(crate) async fn register_gated_handler(
 mod tests {
     use super::{WebSocketService, register_gated_handler};
     use crate::node::NodeContext;
+    use crate::server::utils::device::RunMode;
     use std::sync::Arc;
     use tempfile::TempDir;
     use tokio::time::{Duration, timeout};
@@ -200,9 +201,16 @@ mod tests {
     async fn test_node() -> (TempDir, Arc<NodeContext>) {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().to_str().unwrap();
-        let node = NodeContext::new(path, path, Arc::new(WebSocketService::new()), false)
-            .await
-            .unwrap();
+        let node = NodeContext::new(
+            path,
+            path,
+            Arc::new(WebSocketService::new()),
+            false,
+            RunMode::App,
+            Arc::new(::visualizer::Visualizer::new()),
+        )
+        .await
+        .unwrap();
         (dir, node)
     }
 

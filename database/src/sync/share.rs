@@ -12,7 +12,6 @@ use std::{
     path::PathBuf,
     str::FromStr,
     sync::Arc,
-    time::Duration,
 };
 use sync::{
     Coordinator, Event, ReceiveProgress, SessionAdvance, StoreIdentity, SyncError, SyncModel,
@@ -40,6 +39,8 @@ use uuid::Uuid;
 
 const STATE_TABLE: &str = "device_share_state";
 const LIBRARY_BINDINGS_TABLE: &str = "device_share_bindings";
+// Libraries whose library.json this device wrote with a plain PUT and has not yet seen hold.
+const UNCONFIRMED_CREATIONS_TABLE: &str = "device_share_unconfirmed_creations";
 
 /// Per-library state lives in local SQLite and is never part of the sync model.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -973,11 +974,16 @@ async fn validate_share_library_inner<M: SyncModel>(
                     Err(error) => return Err(store_error(error)),
                 }
             } else {
+                // Without create-if-absent, a library that writes library.json at the same
+                // moment cannot be told apart: the last write owns the folder, and the other
+                // device meets ShareChanged on its next validation.
+                record_unconfirmed_creation(db, library_id)
+                    .await
+                    .map_err(internal_error)?;
                 match store.put(&key, &bytes).await {
                     Ok(_) => (),
                     Err(error) => return Err(store_error(error)),
                 }
-                tokio::time::sleep(Duration::from_secs(5)).await;
             }
             store.get(&key).await.map_err(store_error)?
         }
@@ -994,7 +1000,165 @@ async fn validate_share_library_inner<M: SyncModel>(
     if record_binding {
         record_library_binding(db, library_id).await?;
     }
+    confirm_creation_after_publication(db, library_id)
+        .await
+        .map_err(internal_error)?;
     Ok(library)
+}
+
+async fn record_unconfirmed_creation(db: &DatabaseConnection, library_id: Uuid) -> Result<()> {
+    let statement = Query::insert()
+        .into_table(Alias::new(UNCONFIRMED_CREATIONS_TABLE))
+        .columns([Alias::new("library_id")])
+        .values_panic([library_id.to_string().into()])
+        .on_conflict(
+            OnConflict::column(Alias::new("library_id"))
+                .do_nothing()
+                .to_owned(),
+        )
+        .to_owned();
+    db.execute(&statement).await?;
+    Ok(())
+}
+
+async fn creation_unconfirmed(db: &DatabaseConnection, library_id: Uuid) -> Result<bool> {
+    let query = Query::select()
+        .column(Alias::new("library_id"))
+        .from(Alias::new(UNCONFIRMED_CREATIONS_TABLE))
+        .and_where(Expr::col(Alias::new("library_id")).eq(library_id.to_string()))
+        .to_owned();
+    Ok(db.query_one(&query).await?.is_some())
+}
+
+async fn forget_unconfirmed_creation(db: &DatabaseConnection, library_id: Uuid) -> Result<()> {
+    let statement = Query::delete()
+        .from_table(Alias::new(UNCONFIRMED_CREATIONS_TABLE))
+        .and_where(Expr::col(Alias::new("library_id")).eq(library_id.to_string()))
+        .to_owned();
+    db.execute(&statement).await?;
+    Ok(())
+}
+
+// A creation holds once library.json still names this library on a validation after this device
+// published its first head, which is the next pass after that publication. Only until then does
+// this device remove its own prefix when another library wrote library.json last.
+async fn confirm_creation_after_publication(
+    db: &DatabaseConnection,
+    library_id: Uuid,
+) -> Result<()> {
+    if !creation_unconfirmed(db, library_id).await? {
+        return Ok(());
+    }
+    if load_state(db, library_id)
+        .await?
+        .is_some_and(|state| state.head_counter > 0)
+    {
+        forget_unconfirmed_creation(db, library_id).await?;
+    }
+    Ok(())
+}
+
+async fn load_state(db: &DatabaseConnection, library_id: Uuid) -> Result<Option<ShareState>> {
+    let query = Query::select()
+        .column(Alias::new("state_json"))
+        .from(Alias::new(STATE_TABLE))
+        .and_where(Expr::col(Alias::new("library_id")).eq(library_id.to_string()))
+        .to_owned();
+    let Some(row) = db.query_one(&query).await? else {
+        return Ok(None);
+    };
+    let encoded: String = row.try_get_by_index(0)?;
+    let state: ShareState = serde_json::from_str(&encoded).context("decode local share state")?;
+    Ok(Some(state))
+}
+
+/// What became of this device's own prefix after a share validation failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LostCreation {
+    /// This device wrote library.json, another library wrote it later, and everything this
+    /// device had written to the share is gone.
+    PrefixRemoved,
+    /// Nothing was removed: this device did not lose a creation race, or what is in its prefix
+    /// was not written by this device.
+    Kept,
+}
+
+/// After the share named another library, removes this device's own prefix when this device
+/// created library.json and the creation had not yet held: another library wrote the file last
+/// and owns the folder. Only keys of this device's current prefix are deleted, only when every
+/// head there was written by this device's writer session, and nothing at all when library.json
+/// is missing or names this library.
+pub async fn discard_lost_creation(
+    db: &DatabaseConnection,
+    store: &dyn ObjectStore,
+    writer: &ShareWriter,
+    library_id: Uuid,
+) -> Result<LostCreation> {
+    ensure_tables(db).await?;
+    if !creation_unconfirmed(db, library_id).await? {
+        return Ok(LostCreation::Kept);
+    }
+    let owner = match store.get(&library_key()).await {
+        Ok(value) => decode_library(&value.bytes)?,
+        Err(StoreError::NotFound) => return Ok(LostCreation::Kept),
+        Err(error) => anyhow::bail!("read library.json: {error:?}"),
+    };
+    if owner.library_id == library_id {
+        return Ok(LostCreation::Kept);
+    }
+    let _guard = writer.lock().await;
+    let Some(state) = load_state(db, library_id).await? else {
+        forget_unconfirmed_creation(db, library_id).await?;
+        return Ok(LostCreation::Kept);
+    };
+    let prefix = DevicePrefix {
+        stream: state.stream,
+        generation: state.generation,
+    };
+    let listed = store
+        .list_prefix(&format!("devices/{prefix}/"))
+        .await
+        .map_err(|error| anyhow::anyhow!("list own prefix: {error:?}"))?;
+    let mut heads = Vec::new();
+    let mut objects = Vec::new();
+    for key in listed {
+        let object_prefix = match parse_key(&key)? {
+            ObjectKey::Head { prefix, .. } => {
+                heads.push(key.clone());
+                prefix
+            }
+            ObjectKey::Segment { prefix, .. }
+            | ObjectKey::Base { prefix, .. }
+            | ObjectKey::Chunk { prefix, .. } => {
+                objects.push(key.clone());
+                prefix
+            }
+            _ => anyhow::bail!("own-prefix listing returned {key}"),
+        };
+        ensure!(
+            object_prefix == prefix,
+            "own-prefix listing returned a foreign object {key}"
+        );
+    }
+    for key in &heads {
+        let head = match store.get(key).await {
+            Ok(value) => decode_head(&value.bytes)?,
+            Err(StoreError::NotFound) => continue,
+            Err(error) => anyhow::bail!("read own head {key}: {error:?}"),
+        };
+        if head.writer_session != state.writer_session || head.library_id != library_id {
+            return Ok(LostCreation::Kept);
+        }
+    }
+    // Heads go first, so no head is left naming objects that are already gone.
+    for key in heads.iter().chain(&objects) {
+        match store.delete(key).await {
+            Ok(()) | Err(StoreError::NotFound) => (),
+            Err(error) => anyhow::bail!("delete own object {key}: {error:?}"),
+        }
+    }
+    forget_unconfirmed_creation(db, library_id).await?;
+    Ok(LostCreation::PrefixRemoved)
 }
 
 async fn record_library_binding(db: &DatabaseConnection, library_id: Uuid) -> SharePullResult<()> {
@@ -1899,7 +2063,11 @@ async fn adopt_manifest_covers<M: SyncModel>(
 }
 
 async fn ensure_tables(db: &DatabaseConnection) -> Result<()> {
-    for table in [STATE_TABLE, LIBRARY_BINDINGS_TABLE] {
+    for table in [
+        STATE_TABLE,
+        LIBRARY_BINDINGS_TABLE,
+        UNCONFIRMED_CREATIONS_TABLE,
+    ] {
         let mut create = Table::create();
         create.if_not_exists().table(Alias::new(table));
         if table == STATE_TABLE {
@@ -1953,7 +2121,8 @@ mod tests {
     use crate::sync::model::RuneModel;
     use migration::{Migrator, MigratorTrait};
     use sea_orm::Database;
-    use sync::share::{MemoryObjectStore, StoreOperation};
+    use std::time::Duration;
+    use sync::share::{ConditionalGet, MemoryObjectStore, ObjectValue, StoreOperation};
 
     #[tokio::test]
     async fn bound_library_removed_reports_changed_without_recreating() -> Result<()> {
@@ -2118,6 +2287,193 @@ mod tests {
                 .unwrap_err(),
             SharePullError::ShareChanged
         );
+        Ok(())
+    }
+
+    /// The shared store as one device sees it. Its upload of library.json can be held until the
+    /// test lets it land, as a slow upload is, and the view notes how long after the upload landed
+    /// the device read library.json back.
+    struct DeviceStoreView {
+        store: Arc<MemoryObjectStore>,
+        held_upload: Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>,
+        upload_landed: std::sync::Mutex<Option<std::time::Instant>>,
+        read_back_after: std::sync::Mutex<Option<Duration>>,
+    }
+
+    impl DeviceStoreView {
+        fn new(
+            store: Arc<MemoryObjectStore>,
+            held_upload: Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>,
+        ) -> Self {
+            Self {
+                store,
+                held_upload,
+                upload_landed: std::sync::Mutex::new(None),
+                read_back_after: std::sync::Mutex::new(None),
+            }
+        }
+
+        fn read_back_after(&self) -> Option<Duration> {
+            *self.read_back_after.lock().unwrap()
+        }
+    }
+
+    impl ObjectStore for DeviceStoreView {
+        fn get<'a>(
+            &'a self,
+            key: &'a str,
+        ) -> sync::protocol::BoxFuture<'a, ObjectValue, StoreError> {
+            Box::pin(async move {
+                if key == library_key()
+                    && let Some(landed) = *self.upload_landed.lock().unwrap()
+                {
+                    self.read_back_after
+                        .lock()
+                        .unwrap()
+                        .get_or_insert(landed.elapsed());
+                }
+                self.store.get(key).await
+            })
+        }
+
+        fn get_if_none_match<'a>(
+            &'a self,
+            key: &'a str,
+            tag: &'a ObjectTag,
+        ) -> sync::protocol::BoxFuture<'a, ConditionalGet, StoreError> {
+            self.store.get_if_none_match(key, tag)
+        }
+
+        fn put<'a>(
+            &'a self,
+            key: &'a str,
+            bytes: &'a [u8],
+        ) -> sync::protocol::BoxFuture<'a, ObjectTag, StoreError> {
+            Box::pin(async move {
+                if key != library_key() {
+                    return self.store.put(key, bytes).await;
+                }
+                if let Some((started, lands)) = &self.held_upload {
+                    started.notify_one();
+                    lands.notified().await;
+                }
+                let tag = self.store.put(key, bytes).await;
+                *self.upload_landed.lock().unwrap() = Some(std::time::Instant::now());
+                tag
+            })
+        }
+
+        fn create<'a>(
+            &'a self,
+            key: &'a str,
+            bytes: &'a [u8],
+        ) -> sync::protocol::BoxFuture<'a, ObjectTag, StoreError> {
+            self.store.create(key, bytes)
+        }
+
+        fn put_if_match<'a>(
+            &'a self,
+            key: &'a str,
+            tag: &'a ObjectTag,
+            bytes: &'a [u8],
+        ) -> sync::protocol::BoxFuture<'a, ObjectTag, StoreError> {
+            self.store.put_if_match(key, tag, bytes)
+        }
+
+        fn delete<'a>(&'a self, key: &'a str) -> sync::protocol::BoxFuture<'a, (), StoreError> {
+            self.store.delete(key)
+        }
+
+        fn list_prefix<'a>(
+            &'a self,
+            prefix: &'a str,
+        ) -> sync::protocol::BoxFuture<'a, Vec<String>, StoreError> {
+            self.store.list_prefix(prefix)
+        }
+    }
+
+    #[tokio::test]
+    async fn concurrent_creators_without_conditional_create_leave_the_share_to_the_last_writer()
+    -> Result<()> {
+        let store = Arc::new(MemoryObjectStore::default());
+        let first_db = Database::connect("sqlite::memory:").await?;
+        Migrator::up(&first_db, None).await?;
+        let second_db = Database::connect("sqlite::memory:").await?;
+        Migrator::up(&second_db, None).await?;
+        let first_library = Uuid::new_v4();
+        let second_library = Uuid::new_v4();
+        let started = Arc::new(tokio::sync::Notify::new());
+        let lands = Arc::new(tokio::sync::Notify::new());
+        let first_view = DeviceStoreView::new(store.clone(), None);
+        let second_view = Arc::new(DeviceStoreView::new(
+            store.clone(),
+            Some((started.clone(), lands.clone())),
+        ));
+
+        // Both devices find no library.json on a store that cannot create only if absent, and
+        // the second device's upload lands after the first device has read the file back.
+        let second = tokio::spawn({
+            let second_view = second_view.clone();
+            async move {
+                let result = validate_share_library::<RuneModel>(
+                    &second_db,
+                    &*second_view,
+                    second_library,
+                    ShareCapabilities::default(),
+                )
+                .await;
+                (second_db, result)
+            }
+        });
+        started.notified().await;
+        validate_share_library::<RuneModel>(
+            &first_db,
+            &first_view,
+            first_library,
+            ShareCapabilities::default(),
+        )
+        .await
+        .unwrap();
+        lands.notify_one();
+        let (second_db, second) = second.await?;
+        second.unwrap();
+
+        // A device reads library.json back as soon as its upload lands, with no wait that could
+        // only guess whether another upload is still on its way.
+        for view in [&first_view, &*second_view] {
+            assert!(
+                view.read_back_after()
+                    .is_some_and(|after| after < Duration::from_secs(5)),
+                "library.json was read back {:?} after the upload",
+                view.read_back_after()
+            );
+        }
+
+        // The library that wrote library.json last owns the share. The other device is told on
+        // its next validation.
+        assert_eq!(
+            decode_library(&store.get(&library_key()).await.unwrap().bytes)?.library_id,
+            second_library
+        );
+        assert_eq!(
+            validate_share_library::<RuneModel>(
+                &first_db,
+                &*store,
+                first_library,
+                ShareCapabilities::default(),
+            )
+            .await
+            .unwrap_err(),
+            SharePullError::ShareChanged
+        );
+        validate_share_library::<RuneModel>(
+            &second_db,
+            &*store,
+            second_library,
+            ShareCapabilities::default(),
+        )
+        .await
+        .unwrap();
         Ok(())
     }
 }

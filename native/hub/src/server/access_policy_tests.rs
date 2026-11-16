@@ -5,19 +5,23 @@ mod access_policy_tests {
     use crate::Session;
     use crate::access_policy::{Action, ConnectionLevel, Denial, DeviceGrants, SyncLevel};
     use crate::backends::remote::connect_remote;
-    use crate::macros::{RequestAccess, request_access, request_scope};
+    use crate::macros::{
+        BodyLibraries, RequestAccess, RequestScope, body_library_declarations, request_access,
+        request_scope,
+    };
     use crate::messages::{CastLibraryState, RendererAvailability};
     use crate::messages::{DeviceGrantsChange, DeviceGrantsInfo, RemoveTrustedClientRequest};
     use crate::messages::{
         GetLikedRequest, GetLyricByTrackIdRequest, GetPrimaryColorByTrackIdRequest,
         PlayingItemRef, SetLikedRequest,
     };
+    use crate::messages::{ExcludedItems, ResolveMixQueryRequest};
     use crate::request_error::ExpectedRequestError;
     use crate::server::libraries::{
         cast_library_state, list_peer_libraries, list_renderer_candidates,
     };
     use crate::server::sync::client::LibrarySession;
-    use crate::server::sync_worker::TestPeerSession;
+    use crate::server::sync_worker::share_worker_tests::TestPeerSession;
     use crate::test_wait::{TEST_DEADLINE, wait_until};
     use database::actions::{file::file_ids_by_uuid, stats::{get_liked, set_liked}};
     use database::entities::{media_cover_art, media_files};
@@ -89,12 +93,12 @@ mod access_policy_tests {
         let session = Session {
             fingerprint: user.fingerprint.clone(),
             public_key: user.public_key.clone(),
-            host: "127.0.0.1".into(),
+            base_url: url::Url::parse("https://127.0.0.1:7863/").unwrap(),
         };
         let second_session = Session {
             fingerprint: user.fingerprint.clone(),
             public_key: user.public_key.clone(),
-            host: "127.0.0.1".into(),
+            base_url: url::Url::parse("https://127.0.0.1:7863/").unwrap(),
         };
         let item = PlayingItemRef::LibraryTrack {
             library_id: library_b.to_string(),
@@ -147,7 +151,7 @@ mod access_policy_tests {
                 Some(Session {
                     fingerprint: user.fingerprint.clone(),
                     public_key: user.public_key.clone(),
-                    host: "127.0.0.1".into(),
+                    base_url: url::Url::parse("https://127.0.0.1:7863/").unwrap(),
                 }),
                 Some(pair.id),
                 &node,
@@ -169,7 +173,7 @@ mod access_policy_tests {
                 Some(Session {
                     fingerprint: user.fingerprint,
                     public_key: user.public_key,
-                    host: "127.0.0.1".into(),
+                    base_url: url::Url::parse("https://127.0.0.1:7863/").unwrap(),
                 }),
                 Some(pair.id),
                 &node,
@@ -208,6 +212,72 @@ mod access_policy_tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn resolve_mix_query_cannot_name_an_item_of_an_ungranted_library() -> Result<()> {
+        let pair = PolicyPair::new().await?;
+        let second_dir = tempfile::tempdir()?;
+        let second = fixture_open_local_library(&pair.a, second_dir.path()).await?;
+        let library_b = second.global_params.library_id.context("second library id")?;
+        let peer = info(&pair.b).await?;
+        let mut grants = DeviceGrants::guest();
+        grants.connection.all_libraries = None;
+        grants.connection.libraries = BTreeMap::from([(pair.id, ConnectionLevel::View)]);
+        pair.a
+            .global_params
+            .node
+            .access_policy
+            .set(&peer.fingerprint, grants)?;
+        let user = pair
+            .a
+            .global_params
+            .node
+            .permission_manager
+            .read()
+            .await
+            .verify_by_fingerprint(&peer.fingerprint)
+            .await
+            .context("approved controller")?;
+        let request = ResolveMixQueryRequest {
+            queries: Vec::new(),
+            hint_position: -1,
+            initial_playback_item: None,
+            instantly_play: false,
+            fallback_playing_items: vec![PlayingItemRef::LibraryTrack {
+                library_id: library_b.to_string(),
+                track: Uuid::new_v4().to_string(),
+            }],
+            excluded: ExcludedItems::default(),
+            call_id: Some(105),
+        };
+        let node = Arc::clone(&pair.a.global_params.node);
+        let (_, result) = node
+            .websocket_service
+            .handle_addressed_message(
+                "ResolveMixQueryRequest",
+                rinf::serialize(&request)?,
+                Some(Session {
+                    fingerprint: user.fingerprint,
+                    public_key: user.public_key,
+                    base_url: url::Url::parse("https://127.0.0.1:7863/").unwrap(),
+                }),
+                Some(pair.id),
+                &node,
+            )
+            .await
+            .context("ResolveMixQueryRequest route")?;
+
+        let error = result.expect_err("an item of an ungranted library must be refused");
+        assert_eq!(classify(&error), RequestErrorKind::PermissionDenied);
+        assert!(matches!(
+            error.downcast_ref::<Denial>(),
+            Some(Denial::Action {
+                action: Action::ConnectionView { library_id }
+            }) if *library_id == library_b
+        ), "{error:#}");
+        pair.close().await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn guest_set_liked_request_returns_typed_connection_edit_denial() -> Result<()> {
         let pair = PolicyPair::new().await?;
         let peer = info(&pair.b).await?;
@@ -229,7 +299,7 @@ mod access_policy_tests {
         let session = Session {
             fingerprint: user.fingerprint,
             public_key: user.public_key,
-            host: "127.0.0.1".into(),
+            base_url: url::Url::parse("https://127.0.0.1:7863/").unwrap(),
         };
 
         let node = Arc::clone(&pair.a.global_params.node);
@@ -832,7 +902,7 @@ mod access_policy_tests {
             call_id: None,
             fingerprint: fingerprint_b.clone(),
         };
-        let response = request
+        request
             .handle(
                 request.extract_params(&pair.a.global_params),
                 None,
@@ -840,7 +910,6 @@ mod access_policy_tests {
             )
             .await?
             .context("remove device response")?;
-        assert!(response.success, "{}", response.error);
 
         assert!(
             pair.a
@@ -1584,6 +1653,28 @@ mod access_policy_tests {
         }
     }
 
+    #[test]
+    fn every_request_body_that_names_a_library_declares_its_rule() {
+        for &(name, declared, names_library) in body_library_declarations() {
+            if names_library {
+                assert_ne!(
+                    declared,
+                    BodyLibraries::NoLibrary,
+                    "{name}'s body names a library, but its catalogue entry declares no rule"
+                );
+            } else {
+                assert_eq!(
+                    declared,
+                    BodyLibraries::NoLibrary,
+                    "{name}'s body names no library, but its catalogue entry declares one"
+                );
+            }
+            if declared == BodyLibraries::Authorized {
+                assert_eq!(request_scope(name), Some(RequestScope::Library), "{name}");
+            }
+        }
+    }
+
     #[tokio::test]
     async fn access_policy_presets_overrides_and_trust_lifecycle() -> Result<()> {
         let dir = tempfile::tempdir()?;
@@ -1607,13 +1698,10 @@ mod access_policy_tests {
             status: ClientStatus::Approved,
             preset: Some(DevicePreset::Guest),
         };
-        assert!(
-            request
-                .handle(request.extract_params(&a.global_params), None, &request)
-                .await?
-                .context("approval")?
-                .success
-        );
+        request
+            .handle(request.extract_params(&a.global_params), None, &request)
+            .await?
+            .context("approval")?;
         assert_eq!(
             a.global_params.node.access_policy.grants(&fingerprint)?,
             DeviceGrants::guest()

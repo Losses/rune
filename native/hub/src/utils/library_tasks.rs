@@ -12,8 +12,7 @@ use uuid::Uuid;
 
 use crate::{
     messages::{
-        LibraryTaskKind, LibraryTaskOutcome, LibraryTaskState, LibraryTaskStateChanged,
-        ScanTaskPhase,
+        LibraryTaskEnd, LibraryTaskKind, LibraryTaskState, LibraryTaskStateChanged, ScanTaskPhase,
     },
     request_error::ExpectedRequestError,
     utils::Broadcaster,
@@ -53,13 +52,27 @@ impl LibraryTaskOwner {
             }
             let _ = done_tx.send(true);
         });
-        let state = LibraryTaskState::Running {
-            record_id: record_id.to_owned(),
-            task,
-            run_id,
-            progress: 0,
-            total: 0,
-            scan_phase: (task == LibraryTaskKind::Scan).then_some(ScanTaskPhase::IndexFiles),
+        let record_id = record_id.to_owned();
+        let state = match task {
+            LibraryTaskKind::Scan => LibraryTaskState::ScanRunning {
+                record_id,
+                run_id,
+                progress: 0,
+                total: 0,
+                phase: ScanTaskPhase::IndexFiles,
+            },
+            LibraryTaskKind::Analyze => LibraryTaskState::AnalysisRunning {
+                record_id,
+                run_id,
+                progress: 0,
+                total: 0,
+            },
+            LibraryTaskKind::Deduplicate => LibraryTaskState::DeduplicationRunning {
+                record_id,
+                run_id,
+                progress: 0,
+                total: 0,
+            },
         };
         self.tasks.insert(
             key,
@@ -82,8 +95,7 @@ impl LibraryTaskOwner {
             LibraryTaskKind::Deduplicate,
         ] {
             if let Some(entry) = self.tasks.get(&(record_id.to_owned(), task))
-                && (matches!(entry.state, LibraryTaskState::Running { .. })
-                    || !*entry.worker.done.borrow())
+                && (entry.state.is_running() || !*entry.worker.done.borrow())
             {
                 return Err(ExpectedRequestError::LibraryTaskAlreadyRunning { task });
             }
@@ -99,7 +111,7 @@ impl LibraryTaskOwner {
         worker: JoinHandle<()>,
     ) {
         if let Some(entry) = self.tasks.get_mut(&(record_id.to_owned(), task))
-            && state_run_id(&entry.state) == Some(run_id)
+            && entry.state.run_id() == Some(run_id)
             && let Some(attach) = entry.worker.attach.take()
         {
             let _ = attach.send(worker);
@@ -115,20 +127,30 @@ impl LibraryTaskOwner {
         total: i32,
     ) -> Option<LibraryTaskState> {
         let entry = self.tasks.get_mut(&(record_id.to_owned(), task))?;
-        if state_run_id(&entry.state) != Some(run_id)
-            || !matches!(entry.state, LibraryTaskState::Running { .. })
-        {
+        if entry.state.run_id() != Some(run_id) {
             return None;
         }
-        let scan_phase = state_scan_phase(&entry.state);
-        entry.state = LibraryTaskState::Running {
-            record_id: record_id.to_owned(),
-            task,
-            run_id: run_id.to_owned(),
-            progress,
-            total,
-            scan_phase,
-        };
+        match &mut entry.state {
+            LibraryTaskState::ScanRunning {
+                progress: now,
+                total: all,
+                ..
+            }
+            | LibraryTaskState::AnalysisRunning {
+                progress: now,
+                total: all,
+                ..
+            }
+            | LibraryTaskState::DeduplicationRunning {
+                progress: now,
+                total: all,
+                ..
+            } => {
+                *now = progress;
+                *all = total;
+            }
+            _ => return None,
+        }
         Some(entry.state.clone())
     }
 
@@ -141,57 +163,29 @@ impl LibraryTaskOwner {
         let entry = self
             .tasks
             .get_mut(&(record_id.to_owned(), LibraryTaskKind::Scan))?;
-        if state_run_id(&entry.state) != Some(run_id)
-            || !matches!(entry.state, LibraryTaskState::Running { .. })
-        {
+        if entry.state.run_id() != Some(run_id) {
             return None;
         }
-        if let LibraryTaskState::Running {
-            record_id,
-            task,
-            run_id,
-            progress,
-            total,
-            ..
-        } = entry.state.clone()
-        {
-            entry.state = LibraryTaskState::Running {
-                record_id,
-                task,
-                run_id,
-                progress,
-                total,
-                scan_phase: Some(scan_phase),
-            };
-        }
+        let LibraryTaskState::ScanRunning { phase, .. } = &mut entry.state else {
+            return None;
+        };
+        *phase = scan_phase;
         Some(entry.state.clone())
     }
 
     pub fn end(
         &mut self,
         record_id: &str,
-        task: LibraryTaskKind,
         run_id: &str,
-        outcome: LibraryTaskOutcome,
+        end: LibraryTaskEnd,
         progress: i32,
         total: i32,
     ) -> Option<LibraryTaskState> {
-        let entry = self.tasks.get_mut(&(record_id.to_owned(), task))?;
-        if state_run_id(&entry.state) != Some(run_id)
-            || !matches!(entry.state, LibraryTaskState::Running { .. })
-        {
+        let entry = self.tasks.get_mut(&(record_id.to_owned(), end.kind()))?;
+        if entry.state.run_id() != Some(run_id) || !entry.state.is_running() {
             return None;
         }
-        let scan_phase = state_scan_phase(&entry.state);
-        entry.state = LibraryTaskState::Ended {
-            record_id: record_id.to_owned(),
-            task,
-            run_id: run_id.to_owned(),
-            progress,
-            total,
-            scan_phase,
-            outcome,
-        };
+        entry.state = entry.state.clone().ended(end, Some((progress, total)));
         Some(entry.state.clone())
     }
 
@@ -203,26 +197,9 @@ impl LibraryTaskOwner {
         let (state, mut worker_done) = {
             let mut owner = owner.lock().unwrap_or_else(PoisonError::into_inner);
             let entry = owner.tasks.get_mut(&(record_id.to_owned(), task))?;
-            if let LibraryTaskState::Running {
-                record_id,
-                task,
-                run_id,
-                progress,
-                total,
-                scan_phase,
-            } = entry.state.clone()
-            {
+            if entry.state.is_running() {
                 entry.worker.token.cancel();
-                let state = LibraryTaskState::Ended {
-                    record_id,
-                    task,
-                    run_id,
-                    progress,
-                    total,
-                    scan_phase,
-                    outcome: LibraryTaskOutcome::Cancelled,
-                };
-                entry.state = state.clone();
+                entry.state = entry.state.clone().cancelled();
             }
             (entry.state.clone(), Some(entry.worker.done.clone()))
         };
@@ -248,28 +225,10 @@ impl LibraryTaskOwner {
             let mut states = Vec::new();
             let mut workers = Vec::new();
             for entry in owner.tasks.values_mut() {
-                if matches!(entry.state, LibraryTaskState::Running { .. }) {
+                if entry.state.is_running() {
                     entry.worker.token.cancel();
-                    if let LibraryTaskState::Running {
-                        record_id,
-                        task,
-                        run_id,
-                        progress,
-                        total,
-                        scan_phase,
-                    } = entry.state.clone()
-                    {
-                        entry.state = LibraryTaskState::Ended {
-                            record_id,
-                            task,
-                            run_id,
-                            progress,
-                            total,
-                            scan_phase,
-                            outcome: LibraryTaskOutcome::Cancelled,
-                        };
-                        states.push(entry.state.clone());
-                    }
+                    entry.state = entry.state.clone().cancelled();
+                    states.push(entry.state.clone());
                 }
                 if !*entry.worker.done.borrow() {
                     workers.push(entry.worker.done.clone());
@@ -294,27 +253,10 @@ async fn wait_for_worker(worker_done: &mut watch::Receiver<bool>) {
     }
 }
 
-fn state_run_id(state: &LibraryTaskState) -> Option<&str> {
-    match state {
-        LibraryTaskState::NotRunning { .. } => None,
-        LibraryTaskState::Running { run_id, .. } | LibraryTaskState::Ended { run_id, .. } => {
-            Some(run_id)
-        }
-    }
-}
-
-fn state_scan_phase(state: &LibraryTaskState) -> Option<ScanTaskPhase> {
-    match state {
-        LibraryTaskState::Running { scan_phase, .. }
-        | LibraryTaskState::Ended { scan_phase, .. } => *scan_phase,
-        LibraryTaskState::NotRunning { .. } => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::messages::LibraryTaskError;
+    use crate::messages::{AnalysisOutcome, DeduplicationOutcome, ScanFailure, ScanOutcome};
     use crate::test_wait::TEST_DEADLINE;
     use crate::utils::RinfRustSignal;
     use std::sync::Arc;
@@ -325,11 +267,79 @@ mod tests {
 
     fn running(state: LibraryTaskState) -> (String, String) {
         match state {
-            LibraryTaskState::Running {
+            LibraryTaskState::ScanRunning {
+                record_id, run_id, ..
+            }
+            | LibraryTaskState::AnalysisRunning {
+                record_id, run_id, ..
+            }
+            | LibraryTaskState::DeduplicationRunning {
                 record_id, run_id, ..
             } => (record_id, run_id),
             state => panic!("expected running state, got {state:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn each_task_kind_starts_in_its_own_variant() {
+        let mut owner = LibraryTaskOwner::default();
+        let (scan, _) = owner.start("scan-library", LibraryTaskKind::Scan).unwrap();
+        let (analysis, _) = owner
+            .start("analysis-library", LibraryTaskKind::Analyze)
+            .unwrap();
+        let (deduplication, _) = owner
+            .start("dedup-library", LibraryTaskKind::Deduplicate)
+            .unwrap();
+        assert!(matches!(
+            scan,
+            LibraryTaskState::ScanRunning {
+                phase: ScanTaskPhase::IndexFiles,
+                ..
+            }
+        ));
+        assert!(matches!(analysis, LibraryTaskState::AnalysisRunning { .. }));
+        assert!(matches!(
+            deduplication,
+            LibraryTaskState::DeduplicationRunning { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_scan_phase_is_set_only_on_a_running_scan() {
+        let mut owner = LibraryTaskOwner::default();
+        let (analysis, _) = owner.start("library", LibraryTaskKind::Analyze).unwrap();
+        let (_, run_id) = running(analysis);
+        assert!(
+            owner
+                .set_scan_phase("library", &run_id, ScanTaskPhase::ScanCoverArts)
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_task_ends_it_in_its_own_variant() {
+        let owner = Mutex::new(LibraryTaskOwner::default());
+        let (state, token) = owner
+            .lock()
+            .unwrap()
+            .start("library", LibraryTaskKind::Analyze)
+            .unwrap();
+        let (_, run_id) = running(state);
+        let worker = tokio::spawn(async move { token.cancelled().await });
+        owner
+            .lock()
+            .unwrap()
+            .attach_worker("library", LibraryTaskKind::Analyze, &run_id, worker);
+        let cancelled = LibraryTaskOwner::cancel(&owner, "library", LibraryTaskKind::Analyze)
+            .await
+            .unwrap();
+        assert!(matches!(
+            cancelled,
+            LibraryTaskState::AnalysisEnded {
+                outcome: AnalysisOutcome::Cancelled,
+                ..
+            }
+        ));
     }
 
     #[tokio::test]
@@ -410,17 +420,16 @@ mod tests {
         let ended = owner
             .end(
                 "library",
-                LibraryTaskKind::Scan,
                 &run_id,
-                LibraryTaskOutcome::Failed(LibraryTaskError::ScanFailed),
+                LibraryTaskEnd::Scan(ScanOutcome::Failed(ScanFailure::ScanFailed)),
                 2,
                 4,
             )
             .unwrap();
         assert!(matches!(
             ended,
-            LibraryTaskState::Ended {
-                outcome: LibraryTaskOutcome::Failed(LibraryTaskError::ScanFailed),
+            LibraryTaskState::ScanEnded {
+                outcome: ScanOutcome::Failed(ScanFailure::ScanFailed),
                 progress: 2,
                 total: 4,
                 ..
@@ -443,8 +452,8 @@ mod tests {
             .unwrap();
         assert!(matches!(
             state,
-            LibraryTaskState::Running {
-                scan_phase: Some(ScanTaskPhase::ScanCoverArts),
+            LibraryTaskState::ScanRunning {
+                phase: ScanTaskPhase::ScanCoverArts,
                 ..
             }
         ));
@@ -495,9 +504,8 @@ mod tests {
         let _ = release_tx.send(());
         assert!(matches!(
             response_rx.recv().await.unwrap(),
-            LibraryTaskState::Ended {
-                task: LibraryTaskKind::Scan,
-                outcome: LibraryTaskOutcome::Cancelled,
+            LibraryTaskState::ScanEnded {
+                outcome: ScanOutcome::Cancelled,
                 ..
             }
         ));
@@ -523,9 +531,8 @@ mod tests {
             .unwrap()
             .end(
                 "library",
-                LibraryTaskKind::Analyze,
                 &run_id,
-                LibraryTaskOutcome::Finished,
+                LibraryTaskEnd::Analysis(AnalysisOutcome::Finished),
                 4,
                 4,
             )
@@ -554,9 +561,8 @@ mod tests {
         );
         owner.lock().unwrap().end(
             "library",
-            LibraryTaskKind::Analyze,
             &first_run,
-            LibraryTaskOutcome::Cancelled,
+            LibraryTaskEnd::Analysis(AnalysisOutcome::Cancelled),
             1,
             4,
         );
@@ -627,8 +633,8 @@ mod tests {
                 .lock()
                 .unwrap()
                 .current("library", LibraryTaskKind::Deduplicate),
-            LibraryTaskState::Ended {
-                outcome: LibraryTaskOutcome::Cancelled,
+            LibraryTaskState::DeduplicationEnded {
+                outcome: DeduplicationOutcome::Cancelled,
                 ..
             }
         ));

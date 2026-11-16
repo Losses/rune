@@ -16,7 +16,8 @@ use crate::{
     Session, Signal, flutter_bridge,
     library_pool::LibraryHandle,
     messages::*,
-    utils::{GlobalParams, ParamsExtractor, require_library},
+    request_error::ExpectedRequestError,
+    utils::{Broadcaster, GlobalParams, ParamsExtractor, require_library},
     visualizer::{VISUALIZER, provide_covers},
 };
 
@@ -103,10 +104,10 @@ impl Signal for StartVisualizerRequest {
         let _turn = STARTING_OR_STOPPING.lock().await;
         crate::visualizer_log::write_to(Arc::clone(&library.main_db));
         provide_covers(
+            &node,
             Arc::clone(&library.fsio),
             Arc::clone(&library.main_db),
             Arc::clone(&library.recommend_db),
-            node,
             library.library_id,
             player.lock().await.get_status().item,
         );
@@ -193,23 +194,28 @@ impl Signal for ResizeVisualizerRequest {
 }
 
 impl ParamsExtractor for SetVisualizerPresetDirsRequest {
-    type Params = ();
+    type Params = Arc<dyn Broadcaster>;
 
-    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        Arc::clone(&all_params.node.gui_broadcaster)
+    }
 }
 
 impl Signal for SetVisualizerPresetDirsRequest {
-    type Params = ();
+    type Params = Arc<dyn Broadcaster>;
     type Response = ();
 
     async fn handle(
         &self,
-        _: Self::Params,
+        broadcaster: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let dirs: Vec<PathBuf> = dart_signal.paths.iter().map(PathBuf::from).collect();
-        report("scan_scenes", VISUALIZER.set_preset_dirs(&dirs).map(|_| ()))
+        let result = report("scan_scenes", VISUALIZER.set_preset_dirs(&dirs).map(|_| ()));
+        // The list is ready now, also when a folder could not be read: the other scenes are.
+        announce_scenes(broadcaster.as_ref());
+        result
     }
 }
 
@@ -448,18 +454,20 @@ impl Signal for SetVisualizerScenesRequest {
 }
 
 impl ParamsExtractor for ImportVisualizerSceneRequest {
-    type Params = ();
+    type Params = Arc<dyn Broadcaster>;
 
-    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        Arc::clone(&all_params.node.gui_broadcaster)
+    }
 }
 
 impl Signal for ImportVisualizerSceneRequest {
-    type Params = ();
+    type Params = Arc<dyn Broadcaster>;
     type Response = ImportVisualizerSceneResponse;
 
     async fn handle(
         &self,
-        _: Self::Params,
+        broadcaster: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -472,42 +480,43 @@ impl Signal for ImportVisualizerSceneRequest {
                 .await
                 .unwrap_or_else(|e| Err(anyhow::anyhow!("The import stopped unexpectedly: {e}")))
         };
-        let (path, error) = match imported {
+        let path = match imported {
             Ok(path) => {
                 let imported = format!("Imported {} into {}", file.display(), path.display());
                 log::info!("{imported}");
                 crate::visualizer_log::diagnostic("import_scene", imported);
-                rescan(&dir);
-                (Some(path.to_string_lossy().into_owned()), None)
+                rescan(&dir, broadcaster.as_ref());
+                path.to_string_lossy().into_owned()
             }
             Err(e) => {
                 log::error!("Failed to import the scene {}: {e:#}", file.display());
                 crate::visualizer_log::error("import_scene", format!("{}: {e:#}", file.display()));
-                (None, Some(format!("{e:#}")))
+                return Err(ExpectedRequestError::invalid_input(format!("{e:#}")).into());
             }
         };
         Ok(Some(ImportVisualizerSceneResponse {
             call_id: None,
             file: dart_signal.file.clone(),
             path,
-            error,
         }))
     }
 }
 
 impl ParamsExtractor for RemoveVisualizerSceneRequest {
-    type Params = ();
+    type Params = Arc<dyn Broadcaster>;
 
-    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        Arc::clone(&all_params.node.gui_broadcaster)
+    }
 }
 
 impl Signal for RemoveVisualizerSceneRequest {
-    type Params = ();
+    type Params = Arc<dyn Broadcaster>;
     type Response = RemoveVisualizerSceneResponse;
 
     async fn handle(
         &self,
-        _: Self::Params,
+        broadcaster: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -520,31 +529,55 @@ impl Signal for RemoveVisualizerSceneRequest {
                 .await
                 .unwrap_or_else(|e| Err(anyhow::anyhow!("The removal stopped unexpectedly: {e}")))
         };
-        let error = match removed {
+        match removed {
             Ok(()) => {
                 log::info!("Deleted the scene {}", path.display());
-                rescan(&dir);
-                None
+                rescan(&dir, broadcaster.as_ref());
             }
             Err(e) => {
                 log::error!("Failed to delete the scene {}: {e:#}", path.display());
                 crate::visualizer_log::error("remove_scene", format!("{}: {e:#}", path.display()));
-                Some(format!("{e:#}"))
+                return Err(e);
             }
-        };
+        }
         Ok(Some(RemoveVisualizerSceneResponse {
             call_id: None,
             path: dart_signal.path.clone(),
-            error,
         }))
     }
 }
 
-/// List the scenes of `dir` again after a scene came or went.
-fn rescan(dir: &std::path::Path) {
+/// List the scenes of `dir` again after a scene came or went, and tell the app.
+fn rescan(dir: &std::path::Path, broadcaster: &dyn Broadcaster) {
     if let Err(e) = VISUALIZER.set_preset_dirs(&[dir.to_path_buf()]) {
         VISUALIZER.report_error("scan_scenes", format!("{e:#}"));
     }
+    announce_scenes(broadcaster);
+}
+
+/// Every scene the visualizer lists now.
+fn scene_entries() -> Vec<VisualizerPresetEntry> {
+    VISUALIZER
+        .list_presets()
+        .into_iter()
+        .map(|info| VisualizerPresetEntry {
+            name: info.name,
+            path: info.location.to_string(),
+            group: info.group,
+            builtin: matches!(info.location, Location::Builtin(_)),
+            inputs: match info.inputs {
+                SceneInputs::Spectrum => VisualizerSceneInputs::Spectrum,
+                SceneInputs::SpectrumAndChart => VisualizerSceneInputs::SpectrumAndChart,
+            },
+        })
+        .collect()
+}
+
+/// Tell the app that the list of scenes is ready or changed, with the list.
+fn announce_scenes(broadcaster: &dyn Broadcaster) {
+    broadcaster.broadcast(&VisualizerScenesChanged {
+        presets: scene_entries(),
+    });
 }
 
 impl ParamsExtractor for SetVisualizerLogRequest {
@@ -639,23 +672,9 @@ impl Signal for ListVisualizerPresetsRequest {
         _session: Option<Session>,
         _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        let presets = VISUALIZER
-            .list_presets()
-            .into_iter()
-            .map(|info| VisualizerPresetEntry {
-                name: info.name,
-                path: info.location.to_string(),
-                group: info.group,
-                builtin: matches!(info.location, Location::Builtin(_)),
-                inputs: match info.inputs {
-                    SceneInputs::Spectrum => VisualizerSceneInputs::Spectrum,
-                    SceneInputs::SpectrumAndChart => VisualizerSceneInputs::SpectrumAndChart,
-                },
-            })
-            .collect();
         Ok(Some(ListVisualizerPresetsResponse {
             call_id: None,
-            presets,
+            presets: scene_entries(),
         }))
     }
 }
@@ -976,7 +995,48 @@ mod tests {
         VisualizerShotSize, VisualizerSupport, VisualizerTransport,
     };
 
+    use super::{Arc, Broadcaster, SetVisualizerPresetDirsRequest, VisualizerScenesChanged};
     use super::{VISUALIZER, VisualizerStatusRequest, message_runtime_status, message_support};
+
+    #[derive(Default)]
+    struct Capture(std::sync::Mutex<Vec<VisualizerScenesChanged>>);
+
+    impl Broadcaster for Capture {
+        fn broadcast(&self, message: &dyn crate::utils::RinfRustSignal) {
+            if message.name() == "VisualizerScenesChanged"
+                && let Ok(bytes) = message.encode_to_vec()
+                && let Ok(event) = rinf::deserialize::<VisualizerScenesChanged>(&bytes)
+            {
+                self.0.lock().unwrap().push(event);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn setting_the_scene_folders_announces_the_scene_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let capture = Arc::new(Capture::default());
+        let request = SetVisualizerPresetDirsRequest {
+            paths: vec![dir.path().to_string_lossy().into_owned()],
+            call_id: None,
+        };
+        request
+            .handle(capture.clone(), None, &request)
+            .await
+            .unwrap();
+
+        let announced = capture.0.lock().unwrap();
+        let [event] = announced.as_slice() else {
+            panic!("expected one announcement, got {}", announced.len());
+        };
+        assert!(event.presets.iter().any(|preset| preset.builtin));
+        assert!(
+            event
+                .presets
+                .iter()
+                .any(|preset| preset.path == "app:cover-wall")
+        );
+    }
 
     #[test]
     fn visualizer_support_handler_encodes_each_case() {

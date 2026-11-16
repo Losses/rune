@@ -393,11 +393,10 @@ struct PlayingCover {
     version: u64,
 }
 
+/// The feed item whose covers the atlas holds.
 #[derive(Clone)]
 struct FeedCovers {
     item: ChartItem,
-    current: Option<Vec<u8>>,
-    random: Vec<Vec<u8>>,
 }
 
 impl Shared {
@@ -853,33 +852,9 @@ impl Visualizer {
         chart.encode().map(Some)
     }
 
-    /// Whether the current renderer feed has installed the chart for `identity`.
-    pub fn has_feed_chart(&self, item: &ChartItem) -> bool {
-        matches!(
-            &lock(&self.shared.playback).source,
-            ChartSource::Remote { item: current, chart: Some(_) } if current == item
-        )
-    }
-
     /// Whether playback is currently owned by a remote renderer feed.
     pub fn is_feed_playback(&self) -> bool {
         lock(&self.shared.playback).source.is_remote()
-    }
-
-    /// Whether the encoded playing and wall covers for `identity` reached this visualizer.
-    pub fn feed_covers_match(
-        &self,
-        item: &ChartItem,
-        current: Option<&[u8]>,
-        random: &[Vec<u8>],
-    ) -> bool {
-        lock(&self.shared.feed_covers)
-            .as_ref()
-            .is_some_and(|covers| {
-                &covers.item == item
-                    && covers.current.as_deref() == current
-                    && covers.random == random
-            })
     }
 
     /// Give the cover atlas for the current remote renderer item to the visualizer.
@@ -904,11 +879,7 @@ impl Visualizer {
         ) {
             return Ok(());
         }
-        *lock(&self.shared.feed_covers) = Some(FeedCovers {
-            item: item.clone(),
-            current: current.clone(),
-            random: random.clone(),
-        });
+        *lock(&self.shared.feed_covers) = Some(FeedCovers { item: item.clone() });
 
         let atlas_job = self.shared.covers_job.fetch_add(1, Ordering::Relaxed) + 1;
         let shared = Arc::clone(&self.shared);
@@ -2293,6 +2264,129 @@ fn publish(shared: &Shared, width: u32, height: u32, data: FrameData) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn feed_item(track: &str) -> ChartItem {
+        ChartItem::LibraryTrack {
+            library_id: "library".into(),
+            track: track.into(),
+        }
+    }
+
+    fn feed_chart_bytes() -> Vec<u8> {
+        let analysis = serde_json::from_str(
+            r#"{
+                "version": 1, "title": "t", "audio": "/a.wav", "duration": 2,
+                "analysis_seconds": 1, "analyzer": "test",
+                "tempo": {"bpm": 120, "confidence": 0.9, "feel": 5.0},
+                "beats": [{"t": 0.5, "bar": 0, "pos": 0, "strength": 1, "confidence": 0.8}],
+                "meter": {"beats_per_bar": 4, "confidence": 0.7},
+                "sections": [],
+                "streams": {
+                    "low": {"name": "x", "events": []},
+                    "mid": {"name": "x", "events": []},
+                    "high": {"name": "x", "events": []},
+                    "harmonic": {"name": "x", "events": []},
+                    "phrase": {"name": "x", "events": []}
+                },
+                "lead": [],
+                "curves": {"hop": 0.5, "loudness": [0], "brightness": [0], "percussive": [0],
+                           "beat_conf": [0], "feel": [4]}
+            }"#,
+        )
+        .unwrap();
+        Chart::from_analysis(analysis).encode().unwrap()
+    }
+
+    /// The feed item whose chart the visualizer holds, if any.
+    fn feed_chart_item(visualizer: &Visualizer) -> Option<ChartItem> {
+        match &lock(&visualizer.shared.playback).source {
+            ChartSource::Remote {
+                item,
+                chart: Some(_),
+            } => Some(item.clone()),
+            _ => None,
+        }
+    }
+
+    /// The feed item whose covers the visualizer holds.
+    fn feed_covers_item(visualizer: &Visualizer) -> Option<ChartItem> {
+        lock(&visualizer.shared.feed_covers)
+            .as_ref()
+            .map(|covers| covers.item.clone())
+    }
+
+    #[test]
+    fn a_feed_chart_is_kept_only_for_the_feed_item_playing() {
+        let visualizer = Visualizer::new();
+        let (first, next) = (feed_item("first"), feed_item("next"));
+        let chart = feed_chart_bytes();
+        // No feed item plays yet, so a chart has nothing to belong to.
+        visualizer.set_feed_chart(first.clone(), &chart).unwrap();
+        assert_eq!(feed_chart_item(&visualizer), None);
+
+        visualizer.set_feed_playback(Some(first.clone()), Duration::ZERO, true);
+        visualizer.set_feed_chart(next.clone(), &chart).unwrap();
+        assert_eq!(feed_chart_item(&visualizer), None);
+        visualizer.set_feed_chart(first.clone(), &chart).unwrap();
+        assert_eq!(feed_chart_item(&visualizer), Some(first.clone()));
+        // Another report of the same item keeps its chart.
+        visualizer.set_feed_playback(Some(first.clone()), Duration::from_secs(1), true);
+        assert_eq!(feed_chart_item(&visualizer), Some(first.clone()));
+
+        // The next item drops the old chart, and a late chart of the old item is ignored.
+        visualizer.set_feed_playback(Some(next.clone()), Duration::ZERO, true);
+        assert_eq!(feed_chart_item(&visualizer), None);
+        visualizer.set_feed_chart(first, &chart).unwrap();
+        assert_eq!(feed_chart_item(&visualizer), None);
+        visualizer.set_feed_chart(next.clone(), &chart).unwrap();
+        assert_eq!(feed_chart_item(&visualizer), Some(next));
+        assert!(
+            visualizer
+                .set_feed_chart(feed_item("bad"), b"not a chart")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn feed_covers_are_kept_only_for_the_feed_item_playing_and_within_their_limits() {
+        let visualizer = Visualizer::new();
+        let (first, next) = (feed_item("first"), feed_item("next"));
+        visualizer.set_feed_playback(Some(first.clone()), Duration::ZERO, true);
+        visualizer
+            .set_feed_covers(&next, Some(vec![1]), vec![vec![2]])
+            .unwrap();
+        assert_eq!(feed_covers_item(&visualizer), None);
+        visualizer
+            .set_feed_covers(&first, Some(vec![4]), vec![vec![5]])
+            .unwrap();
+        assert_eq!(feed_covers_item(&visualizer), Some(first.clone()));
+
+        // Too many covers, or too many bytes, are refused and leave the kept ones.
+        assert!(
+            visualizer
+                .set_feed_covers(&first, None, vec![vec![0]; 64])
+                .is_err()
+        );
+        assert!(
+            visualizer
+                .set_feed_covers(&first, Some(vec![0; 16 * 1024 * 1024 + 1]), Vec::new())
+                .is_err()
+        );
+        assert_eq!(feed_covers_item(&visualizer), Some(first));
+
+        // The next item drops the old item's covers.
+        visualizer.set_feed_playback(Some(next), Duration::ZERO, true);
+        assert_eq!(feed_covers_item(&visualizer), None);
+    }
+
+    #[test]
+    fn local_playback_ends_the_feed() {
+        let visualizer = Visualizer::new();
+        visualizer.set_feed_playback(Some(feed_item("first")), Duration::ZERO, true);
+        assert!(visualizer.is_feed_playback());
+        visualizer.set_playback(None, Duration::ZERO, false, None);
+        assert!(!visualizer.is_feed_playback());
+    }
 
     #[test]
     fn spectrum_only_with_only_chart_scenes_is_hidden() {

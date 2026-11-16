@@ -12,7 +12,7 @@ use opendal_http_transport_reqwest::ReqwestTransport;
 use rustls::{ClientConfig, RootCertStore};
 use tokio::runtime::Handle;
 
-use crate::{FileIo, FileIoError, FileStream, FsNode};
+use crate::{FileIo, FileIoError, FileStream, FsNode, OpenMode, StorageLocation};
 
 /// Credentials and location for a read-only OpenDAL filesystem.
 #[derive(Clone)]
@@ -421,8 +421,12 @@ impl FileIo for OpenDalFsIo {
         "OpenDAL"
     }
 
-    fn open(&self, path: &Path, open_mode: &str) -> Result<Box<dyn FileStream>, FileIoError> {
-        if open_mode.is_empty() || open_mode != "r" {
+    fn storage(&self) -> StorageLocation {
+        StorageLocation::Remote
+    }
+
+    fn open(&self, path: &Path, open_mode: OpenMode) -> Result<Box<dyn FileStream>, FileIoError> {
+        if open_mode != OpenMode::Read {
             return Err(FileIoError::NotSupported("remote write access".into()));
         }
         let key = self.key(path)?;
@@ -441,12 +445,11 @@ impl FileIo for OpenDalFsIo {
     async fn open_async(
         &self,
         path: &Path,
-        open_mode: &str,
+        open_mode: OpenMode,
     ) -> Result<Box<dyn FileStream>, FileIoError> {
         let this = self.clone();
         let path = path.to_path_buf();
-        let mode = open_mode.to_string();
-        tokio::task::spawn_blocking(move || this.open(&path, &mode))
+        tokio::task::spawn_blocking(move || this.open(&path, open_mode))
             .await
             .map_err(|_| remote_error("open"))?
     }
@@ -557,15 +560,14 @@ impl FileIo for OpenDalFsIo {
                 .unwrap_or_default()
         })
     }
-    fn change_token(&self, path: &Path) -> Result<String, FileIoError> {
+    fn change_token(&self, path: &Path) -> Result<Option<String>, FileIoError> {
         let key = self.key(path)?;
         self.run("stat", |op| op.stat(&key)).map(|meta| {
-            meta.etag().map(str::to_owned).unwrap_or_else(|| {
+            meta.etag().map(str::to_owned).or_else(|| {
                 meta.last_modified()
                     .map(SystemTime::from)
                     .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
                     .map(|duration| duration.as_secs().to_string())
-                    .unwrap_or_default()
             })
         })
     }

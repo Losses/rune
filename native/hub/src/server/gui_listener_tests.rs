@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::fixture;
 use crate::backends::local::gui_request::{GuiRequest, listen_gui_with_io};
-use crate::macros::{RequestAccess, RequestScope, RequestSlots};
+use crate::macros::{BodyLibraries, RequestAccess, RequestScope, RequestSlots};
 use crate::messages::{
     CrashResponse, RequestErrorKind, RequestFailedResponse, RequestFailureCause, SearchForRequest,
     VolumeRequest, VolumeResponse,
@@ -121,6 +121,7 @@ impl TypedRequest for DelayedRequest {
 impl TargetRequest for DelayedRequest {
     const SCOPE: RequestScope = RequestScope::Node;
     const ACCESS: RequestAccess = RequestAccess::NodeLocal;
+    const BODY_LIBRARIES: BodyLibraries = BodyLibraries::NoLibrary;
     const INTRODUCED_MINOR: u32 = 0;
     fn slot(_: &RequestSlots) -> Slot {
         Slot::Native

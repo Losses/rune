@@ -1,5 +1,4 @@
-#[path = "support/fixtures.rs"]
-mod fixtures;
+use database::test_fixtures::fixtures;
 
 use std::time::Duration;
 use std::{
@@ -130,7 +129,7 @@ async fn assert_scan_change_detection(
     let prior_token = original_change_token.clone().context("missing token")?;
     assert_ne!(
         spawn_blocking(move || check_fs.change_token(Path::new("track.ogg"))).await??,
-        prior_token,
+        Some(prior_token),
         "{backend} fixture did not change its ETag"
     );
     let changed_token = spawn_blocking({
@@ -152,7 +151,7 @@ async fn assert_scan_change_detection(
         .context("missing rescanned file")?;
     assert_ne!(
         original_change_token, updated.change_token,
-        "{backend} ETag did not change: {:?} -> {:?}, current token {changed_token}, processed {rescanned}",
+        "{backend} ETag did not change: {:?} -> {:?}, current token {changed_token:?}, processed {rescanned}",
         original_change_token, updated.change_token
     );
     assert!(read_count() > after_initial, "changed object was not read");
@@ -677,6 +676,44 @@ async fn webdav_file_without_stored_change_token_is_processed_on_each_scan() -> 
     assert!(
         webdav.read_ranges().len() > initial_reads,
         "file without a change token was skipped on its next scan"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn object_store_reporting_no_change_signal_stores_no_token_and_rescans() -> Result<()> {
+    let bytes = std::fs::read(fixtures::audio_fixture())?;
+    let server =
+        S3Fixture::start_without_object_metadata(vec![("track.ogg".into(), bytes)]).await?;
+    let fs = FsIo::new_opendal(s3_config(&server), Handle::current())?;
+    let actor = Uuid::from_u128(0x217);
+    let db = fixtures::memory_database(actor).await?;
+    let store = fixtures::open_library(db.clone(), actor, None).await?;
+    fixtures::scan_library(
+        &fs,
+        &db,
+        &actor.to_string(),
+        Path::new(""),
+        &store.record_store(),
+    )
+    .await?;
+    let file = media_files::Entity::find()
+        .one(&db)
+        .await?
+        .context("missing scanned file")?;
+    assert_eq!(file.change_token, None);
+    let initial_reads = server.read_ranges().len();
+    fixtures::scan_library(
+        &fs,
+        &db,
+        &actor.to_string(),
+        Path::new(""),
+        &store.record_store(),
+    )
+    .await?;
+    assert!(
+        server.read_ranges().len() > initial_reads,
+        "file the server gives no change signal for was skipped on its next scan"
     );
     Ok(())
 }

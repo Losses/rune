@@ -17,7 +17,6 @@ import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../utils/dialogs/information/error.dart';
 import '../../../utils/dialogs/subsonic/subsonic_relogin_dialog.dart';
 import '../../../utils/l10n.dart';
-import '../../../utils/library_registry_messages.dart';
 import '../../../utils/library_ui/library_ui_state.dart';
 import '../../../utils/file_storage/mac_secure_manager.dart';
 import '../../../utils/router/navigation.dart';
@@ -68,7 +67,7 @@ class AddLibraryGuideDependencies {
   final Future<void> Function(String)? openRecord;
   final Future<void> Function(String)? scanLibrary;
   final Future<String?> Function()? pickLocalFolder;
-  final Future<(bool, bool, String?)> Function(String)? testLocalLibrary;
+  final Future<bool> Function(String)? testLocalLibrary;
   final Future<RegisterLibraryResponse> Function(
     String,
     String,
@@ -117,6 +116,7 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
   ClientSummary? _device;
   int _step = 1;
   ListPeerLibrariesResponse? _libraries;
+  RequestFailure? _librariesFailure;
   bool? _canControl;
   String? _selectedChoice;
   String? _selectedLibraryId;
@@ -139,25 +139,27 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
     return NoShortcuts(
       ContentDialog(
         title: Column(children: [SizedBox(height: 8), Text(s.addLibrary)]),
-        content: switch (_step) {
-          1 => _sourceContent(s),
-          2 =>
-            _selected == AddLibrarySource.subsonic
-                ? _subsonicContent(s)
-                : _selected == AddLibrarySource.webDav
-                ? _webDavContent(s)
-                : _selected == AddLibrarySource.s3
-                ? _s3Content(s)
-                : _deviceContent(s),
-          3 => _libraryContent(s),
-          4 =>
-            _selected == AddLibrarySource.subsonic
-                ? _subsonicModesContent(s)
-                : _deviceUsageContent(s),
-          5 => _localModeContent(s),
-          6 => _shareModeContent(s),
-          _ => const SizedBox.shrink(),
-        },
+        content: SingleChildScrollView(
+          child: switch (_step) {
+            1 => _sourceContent(s),
+            2 =>
+              _selected == AddLibrarySource.subsonic
+                  ? _subsonicContent(s)
+                  : _selected == AddLibrarySource.webDav
+                  ? _webDavContent(s)
+                  : _selected == AddLibrarySource.s3
+                  ? _s3Content(s)
+                  : _deviceContent(s),
+            3 => _libraryContent(s),
+            4 =>
+              _selected == AddLibrarySource.subsonic
+                  ? _subsonicModesContent(s)
+                  : _deviceUsageContent(s),
+            5 => _localModeContent(s),
+            6 => _shareModeContent(s),
+            _ => const SizedBox.shrink(),
+          },
+        ),
         actions: [
           if (_step > 1)
             Button(
@@ -394,22 +396,25 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
             ).pickDirectory)();
     if (!mounted || path == null) return;
     try {
-      final result =
+      final initialized =
           await (widget.dependencies.testLocalLibrary ??
               testLibraryInitialized)(path);
       if (!mounted) return;
-      if (!result.$1) {
-        await showFailedToInitializeLibrary(context, result.$3);
-        return;
-      }
       _localPath = path;
-      if (result.$2) {
+      if (initialized) {
         await _registerLocalFolder(null, scanAfterOpen: false);
       } else {
         setState(() {
           _step = 5;
           _selectedChoice = null;
         });
+      }
+    } on RequestFailure catch (failure) {
+      if (mounted) {
+        await showFailedToInitializeLibrary(
+          context,
+          requestFailureMessage(S.of(context), failure),
+        );
       }
     } catch (_) {
       if (mounted) {
@@ -439,9 +444,6 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
       final response =
           await (widget.dependencies.registerLocal ??
               registry.registerLocalFolder)(path, alias, mode);
-      if (response.outcome case RegisterLibraryOutcomeFailed(:final value)) {
-        throw LibraryRegistryFailure(value, response.detail ?? '');
-      }
       final record = response.record;
       if (record == null) throw StateError('Registration returned no record');
       await MacSecureManager().saveBookmark(path);
@@ -468,9 +470,7 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
       if (mounted) {
         await showFailedToInitializeLibrary(
           context,
-          error is LibraryRegistryFailure
-              ? libraryRegistryFailureMessage(S.of(context), error.kind)
-              : S.of(context).unknownError,
+          libraryFailureMessage(S.of(context), error),
         );
         if (widget.navigateIfFailed) $$replace('/');
       }
@@ -507,9 +507,6 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
         });
         return;
       }
-      if (response.outcome case RegisterLibraryOutcomeFailed(:final value)) {
-        throw LibraryRegistryFailure(value, response.detail ?? '');
-      }
       final record = response.record;
       if (record == null) throw StateError('Registration returned no record');
       await _openRecord(record.recordId);
@@ -518,9 +515,7 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
       await showErrorDialog(
         context: context,
         title: S.of(context).addLibrary,
-        errorMessage: error is LibraryRegistryFailure
-            ? libraryRegistryFailureMessage(S.of(context), error.kind)
-            : S.of(context).unknownError,
+        errorMessage: libraryFailureMessage(S.of(context), error),
       );
     }
   }
@@ -590,8 +585,6 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
           case OpenDalShareDataDetectionWritableEmpty():
             if (mounted) setState(() => _step = 6);
             return;
-          case OpenDalShareDataDetectionFailed(:final value):
-            throw LibraryRegistryFailure(value, '');
           case OpenDalShareDataDetectionExistingLibrary():
             // The choice is not used here; registration always joins the library in the share.
             shareDataChoice = ShareDataChoice.thisDeviceOnly;
@@ -607,10 +600,6 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
             alias,
             selectedShareDataChoice,
           );
-      final outcome = response.outcome;
-      if (outcome case RegisterLibraryOutcomeFailed(:final value)) {
-        throw LibraryRegistryFailure(value, response.detail ?? '');
-      }
       final record = response.record;
       if (record == null) throw StateError('Registration returned no record');
       // Like a new local folder, a new WebDAV or S3 library starts empty and
@@ -627,9 +616,7 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
       await showErrorDialog(
         context: context,
         title: S.of(context).addLibrary,
-        errorMessage: error is LibraryRegistryFailure
-            ? libraryRegistryFailureMessage(S.of(context), error.kind)
-            : S.of(context).unknownError,
+        errorMessage: libraryFailureMessage(S.of(context), error),
       );
     } finally {
       if (mounted) setState(() => _registeringOpenDal = false);
@@ -733,7 +720,10 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
       return const Center(child: ProgressRing());
     }
     final response = _libraries;
-    final state = response == null ? null : peerLibrariesState(s, response);
+    final failure = _librariesFailure;
+    final state = response == null && failure == null
+        ? null
+        : peerLibrariesState(s, response, failure: failure);
     if (state == null || state.status == PeerLibrariesStatus.error) {
       return Text(state?.error ?? s.unknownError);
     }
@@ -779,6 +769,7 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
       _step = 3;
       _loading = true;
       _libraries = null;
+      _librariesFailure = null;
       _canControl = false;
     });
     try {
@@ -794,6 +785,13 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
         _canControl = (results[1] as GetDeviceGrantsResponse).grants.control;
         _loading = false;
       });
+    } on RequestFailure catch (failure) {
+      if (mounted) {
+        setState(() {
+          _librariesFailure = failure;
+          _loading = false;
+        });
+      }
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
@@ -807,13 +805,6 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
         library,
         device.fingerprint,
       );
-      if (result.error != null) {
-        throw RequestFailure(
-          'AddRemoteLibraryRequest',
-          RequestErrorKind.internal,
-          result.error!,
-        );
-      }
       await _openRecord(result.recordId);
     } catch (error) {
       if (mounted) {
@@ -847,9 +838,7 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
         await showErrorDialog(
           context: context,
           title: S.of(context).addLibrary,
-          errorMessage: error is LibraryRegistryFailure
-              ? libraryRegistryFailureMessage(S.of(context), error.kind)
-              : requestErrorText(S.of(context), error),
+          errorMessage: libraryFailureMessage(S.of(context), error),
         );
       }
     } finally {
@@ -874,9 +863,7 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
       if (!mounted) return false;
       await showFailedToInitializeLibrary(
         context,
-        error is LibraryRegistryFailure
-            ? libraryRegistryFailureMessage(S.of(context), error.kind)
-            : S.of(context).unknownError,
+        libraryFailureMessage(S.of(context), error),
       );
       return false;
     }

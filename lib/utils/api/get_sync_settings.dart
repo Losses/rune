@@ -17,7 +17,5 @@ Future<GetSyncSettingsResponse> getSyncSettings() async {
     ).sendSignalToRust(),
     timeout: const Duration(seconds: 15),
   );
-  final result = (await response).message;
-  if (result.error != null) throw StateError(result.error!);
-  return result;
+  return (await response).message;
 }

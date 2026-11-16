@@ -7,7 +7,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error;
 
 pub use crate::macros::RequestScope;
-use crate::macros::{RequestAccess, RequestSlots, RequestTranslator};
+use crate::macros::{BodyLibraries, RequestAccess, RequestSlots, RequestTranslator};
 use crate::request_error::ExpectedRequestError;
 use crate::utils::{GlobalParams, ParamsExtractor};
 use crate::{Signal, TypedRequest};
@@ -38,6 +38,7 @@ pub enum Slot {
 pub trait TargetRequest: TypedRequest {
     const SCOPE: RequestScope;
     const ACCESS: RequestAccess;
+    const BODY_LIBRARIES: BodyLibraries;
     const INTRODUCED_MINOR: u32;
 
     fn slot(slots: &RequestSlots) -> Slot;
@@ -60,6 +61,50 @@ pub trait TargetRequest: TypedRequest {
 
 pub(crate) type RequestTranslationFuture<'a, T> =
     Pin<Box<dyn Future<Output = Result<Option<T>>> + Send + 'a>>;
+
+/// The libraries a message names, found from its type. Messages derive it with
+/// `requests::NamedLibraries`; only a type that holds a library id implements it by hand.
+pub trait NamedLibraries {
+    /// Whether any value of this type can name a library.
+    const NAMES_LIBRARY: bool;
+
+    /// Visit the id of every library this value names, as it appears on the wire.
+    fn visit_libraries<'a>(&'a self, visit: &mut dyn FnMut(&'a str));
+}
+
+macro_rules! names_no_library {
+    ($($type:ty),*) => {
+        $(
+            impl NamedLibraries for $type {
+                const NAMES_LIBRARY: bool = false;
+
+                fn visit_libraries<'a>(&'a self, _visit: &mut dyn FnMut(&'a str)) {}
+            }
+        )*
+    };
+}
+
+names_no_library!(bool, i32, u32, u64, f32, f64, String);
+
+impl<T: NamedLibraries> NamedLibraries for Option<T> {
+    const NAMES_LIBRARY: bool = T::NAMES_LIBRARY;
+
+    fn visit_libraries<'a>(&'a self, visit: &mut dyn FnMut(&'a str)) {
+        if let Some(value) = self {
+            value.visit_libraries(visit);
+        }
+    }
+}
+
+impl<T: NamedLibraries> NamedLibraries for Vec<T> {
+    const NAMES_LIBRARY: bool = T::NAMES_LIBRARY;
+
+    fn visit_libraries<'a>(&'a self, visit: &mut dyn FnMut(&'a str)) {
+        for value in self {
+            value.visit_libraries(visit);
+        }
+    }
+}
 
 pub(crate) async fn dispatch_gui_request<R>(
     params: &GlobalParams,

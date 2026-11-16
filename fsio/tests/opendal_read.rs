@@ -2,7 +2,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::time::Duration;
 
-use fsio::{FileIoError, FsIo, OpenDalConfig};
+use fsio::{FileIoError, FsIo, OpenDalConfig, OpenMode, StorageLocation};
 use tokio::runtime::Handle;
 use tokio::task::spawn_blocking;
 
@@ -48,7 +48,9 @@ async fn assert_read_contract(config: OpenDalConfig) {
             blocking_fs.read(Path::new("nested/audio.mp3")).unwrap(),
             AUDIO
         );
-        let mut stream = blocking_fs.open(Path::new(&audio.raw_path), "r").unwrap();
+        let mut stream = blocking_fs
+            .open(Path::new(&audio.raw_path), OpenMode::Read)
+            .unwrap();
         stream.seek(SeekFrom::Start(7)).unwrap();
         let mut slice = [0; 4];
         stream.read_exact(&mut slice).unwrap();
@@ -90,6 +92,28 @@ async fn webdav_read_and_seek_contract() {
             .unwrap();
         assert_read_contract(webdav_config(&server, "pass")).await;
         assert!(server.write_requests().is_empty());
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn s3_change_token_is_absent_only_when_the_server_reports_nothing() {
+    tokio::time::timeout(DEADLINE, async {
+        let files = vec![("audio.mp3".to_owned(), AUDIO.to_vec())];
+        let with_metadata = S3Fixture::start(files.clone()).await.unwrap();
+        let without_metadata = S3Fixture::start_without_object_metadata(files)
+            .await
+            .unwrap();
+        let token = |server: S3Fixture| async move {
+            let fs = FsIo::new_opendal(s3_config(&server), Handle::current()).unwrap();
+            spawn_blocking(move || fs.change_token(Path::new("audio.mp3")))
+                .await
+                .unwrap()
+                .unwrap()
+        };
+        assert!(token(with_metadata).await.is_some());
+        assert_eq!(token(without_metadata).await, None);
     })
     .await
     .unwrap();
@@ -144,7 +168,7 @@ async fn write_attempts_return_not_supported() {
             Err(FileIoError::NotSupported(_))
         ));
         assert!(matches!(
-            fs.open(Path::new("x"), "w"),
+            fs.open(Path::new("x"), OpenMode::Write),
             Err(FileIoError::NotSupported(_))
         ));
         assert!(matches!(
@@ -236,7 +260,9 @@ async fn large_remote_reads_and_end_seek_use_ranges() {
         for fs in [webdav_fs, s3_fs] {
             let blocking_fs = fs.clone();
             spawn_blocking(move || {
-                let mut stream = blocking_fs.open(Path::new("large.bin"), "r").unwrap();
+                let mut stream = blocking_fs
+                    .open(Path::new("large.bin"), OpenMode::Read)
+                    .unwrap();
                 stream.seek(SeekFrom::End(-8)).unwrap();
                 let mut tail = [0; 8];
                 stream.read_exact(&mut tail).unwrap();
@@ -280,4 +306,11 @@ async fn paged_directory_listing_returns_every_entry() {
     })
     .await
     .unwrap();
+}
+
+#[tokio::test]
+async fn opendal_reports_remote_storage() {
+    let server = WebDavFixture::start(Vec::new()).await.unwrap();
+    let fs = FsIo::new_opendal(webdav_config(&server, "pass"), Handle::current()).unwrap();
+    assert_eq!(fs.storage(), StorageLocation::Remote);
 }

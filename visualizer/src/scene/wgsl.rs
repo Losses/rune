@@ -555,7 +555,7 @@ inputs = ["prev:trail"]
             ShotState {
                 index: 0,
                 cuts: 0,
-                size: 0,
+                size: crate::scene::ShotSize::Wide,
                 roll: 0.0,
                 seed: 0.0,
                 age: 0.0,

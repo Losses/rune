@@ -162,8 +162,7 @@ async fn mass_missing_host_files_are_not_removed() -> Result<()> {
     Ok(())
 }
 
-#[path = "support/causal_library.rs"]
-mod support;
+use database::test_fixtures::causal_library as support;
 #[tokio::test]
 async fn missing_host_removal_reaches_another_replica() -> Result<()> {
     let namespace = Uuid::new_v4();
@@ -173,7 +172,7 @@ async fn missing_host_removal_reaches_another_replica() -> Result<()> {
     let path = a.root.path().join("track.ogg");
     std::fs::copy(fixtures::audio_fixture(), &path)?;
     let fs = FsIo::new();
-    let store = a.library.record_store();
+    let store = a.sync_store.record_store();
     let id = scan_audio_file(&fs, &a.db, &node.to_string(), a.root.path(), &path, &store).await?;
     let uuid = media_files::Entity::find_by_id(id)
         .one(&a.db)

@@ -7,6 +7,7 @@ import '../../l10n/app_localizations.dart';
 import '../../providers/library_registry.dart';
 import '../../providers/responsive_providers.dart';
 import '../../screens/settings_server/widgets/peer_libraries_dialog.dart';
+import '../../utils/api/request_failure.dart';
 
 void main() {
   testWidgets(
@@ -39,7 +40,7 @@ void main() {
       await tester.tap(find.text('Add'));
       await tester.pumpAndSettle();
       expect(find.byType(ContentDialog), findsNWidgets(2));
-      expect(find.text('The peer rejected the request.'), findsOneWidget);
+      expect(find.text('The request is invalid.'), findsOneWidget);
       expect(find.byType(InfoBar), findsNothing);
     },
   );
@@ -68,9 +69,10 @@ class _Harness extends StatelessWidget {
         ),
       ],
     ),
-    addLibrary: (_, _) async => const AddRemoteLibraryResponse(
-      recordId: '',
-      error: 'The peer rejected the request.',
+    addLibrary: (_, _) async => throw const RequestFailure(
+      'AddRemoteLibraryRequest',
+      RequestErrorKind.invalidInput,
+      'Invalid library id',
     ),
   );
 }

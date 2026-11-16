@@ -138,6 +138,9 @@ pub async fn operate_playback_with_mix_query_request(
             parameter,
         })
         .collect();
+    let snapshot: SessionSnapshotResponse = connection
+        .request(&SessionSnapshotRequest { call_id: None })
+        .await?;
     let resolved: ResolveMixQueryResponse = connection
         .request(&ResolveMixQueryRequest {
             call_id: None,
@@ -146,20 +149,22 @@ pub async fn operate_playback_with_mix_query_request(
             initial_playback_item: None,
             instantly_play: instant_play,
             fallback_playing_items: vec![],
-            exclude_current_queue: true,
+            excluded: ExcludedItems {
+                items: snapshot.items,
+            },
         })
         .await?;
     let _: LoadResolvedItemsResponse = connection
         .request(&LoadResolvedItemsRequest {
             position_seconds: None,
-            play: None,
+            play: LoadPlay::Auto,
 
             call_id: None,
             items: resolved.playing_items.clone(),
             start_index: resolved.start_index,
             mode: operate_mode.into(),
             expected_revision: None,
-            playback_mode: instant_play.then(|| playback_mode.into()),
+            playback_mode: instant_play.then(|| playback_mode.requested()).flatten(),
         })
         .await?;
     Ok(resolved)
@@ -169,6 +174,9 @@ pub async fn send_mix_query_request(
     queries: Vec<(String, String)>,
     connection: &WSConnection,
 ) -> Result<MixQueryResponse> {
+    let snapshot: SessionSnapshotResponse = connection
+        .request(&SessionSnapshotRequest { call_id: None })
+        .await?;
     let request = MixQueryRequest {
         call_id: None,
         queries: queries
@@ -181,6 +189,9 @@ pub async fn send_mix_query_request(
         cursor: 0,
         page_size: 9999,
         bake_cover_arts: false,
+        queue: CallerQueue {
+            items: snapshot.items,
+        },
     };
 
     connection.request(&request).await
@@ -214,9 +225,12 @@ pub async fn send_set_playback_mode_request(
     playback_mode: PlaybackMode,
     connection: &WSConnection,
 ) -> Result<()> {
+    let Some(mode) = playback_mode.requested() else {
+        return Ok(());
+    };
     let request = SetPlaybackModeRequest {
         call_id: None,
-        mode: playback_mode.into(),
+        mode,
     };
 
     connection.request_simple(&request).await

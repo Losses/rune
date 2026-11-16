@@ -1,3 +1,4 @@
+import '../config/mode_select_items.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../../utils/dialogs/mix/widgets/number_section.dart';
@@ -21,13 +22,18 @@ class MixEditorController extends ChangeNotifier {
   final TextEditingController randomTrackController = TextEditingController();
   final DirectoryTreeController directoryController = DirectoryTreeController();
   final SliderController limitController = SliderController();
-  final SelectInputController modeController = SelectInputController('99');
-  final SelectInputController recommendationController =
-      SelectInputController('');
-  final SelectInputController sortOrderController =
-      SelectInputController('true');
-  final SelectInputController sortByController =
-      SelectInputController('default');
+  final SelectInputController modeController = SelectInputController(
+    keepModeSelectValue,
+  );
+  final SelectInputController recommendationController = SelectInputController(
+    '',
+  );
+  final SelectInputController sortOrderController = SelectInputController(
+    'true',
+  );
+  final SelectInputController sortByController = SelectInputController(
+    'default',
+  );
   final SelectInputController likedController = SelectInputController('false');
 
   MixEditorController() {
@@ -124,7 +130,7 @@ class MixEditorController extends ChangeNotifier {
       randomTracks: bestInt(randomTrackController.value.text),
       directories: directoryController.value ?? {},
       limit: limitController.value,
-      mode: modeController.selectedValue ?? '99',
+      mode: playbackModeFromSelectValue(modeController.selectedValue),
       recommendation: recommendationController.selectedValue ?? '99',
       sortBy: sortByController.selectedValue ?? 'default',
       sortOrder: sortOrderController.selectedValue != 'false',
@@ -138,37 +144,42 @@ class MixEditorController extends ChangeNotifier {
 
     artistsController.clearItems();
     for (var artist in data.artists) {
-      artistsController
-          .addItem(AutoSuggestBoxItem<int>(value: artist.$1, label: artist.$2));
+      artistsController.addItem(
+        AutoSuggestBoxItem<int>(value: artist.$1, label: artist.$2),
+      );
     }
 
     albumsController.clearItems();
     for (var album in data.albums) {
-      albumsController
-          .addItem(AutoSuggestBoxItem<int>(value: album.$1, label: album.$2));
+      albumsController.addItem(
+        AutoSuggestBoxItem<int>(value: album.$1, label: album.$2),
+      );
     }
 
     genresController.clearItems();
     for (var genre in data.genres) {
-      genresController
-          .addItem(AutoSuggestBoxItem<int>(value: genre.$1, label: genre.$2));
+      genresController.addItem(
+        AutoSuggestBoxItem<int>(value: genre.$1, label: genre.$2),
+      );
     }
 
     playlistsController.clearItems();
     for (var playlist in data.playlists) {
       playlistsController.addItem(
-          AutoSuggestBoxItem<int>(value: playlist.$1, label: playlist.$2));
+        AutoSuggestBoxItem<int>(value: playlist.$1, label: playlist.$2),
+      );
     }
 
     tracksController.clearItems();
     for (var track in data.tracks) {
-      tracksController
-          .addItem(AutoSuggestBoxItem<int>(value: track.$1, label: track.$2));
+      tracksController.addItem(
+        AutoSuggestBoxItem<int>(value: track.$1, label: track.$2),
+      );
     }
 
     directoryController.value = data.directories;
     limitController.value = data.limit;
-    modeController.selectedValue = data.mode;
+    modeController.selectedValue = modeSelectValue(data.mode);
     recommendationController.selectedValue = data.recommendation;
     sortByController.selectedValue = data.sortBy;
     sortOrderController.selectedValue = data.sortOrder.toString();

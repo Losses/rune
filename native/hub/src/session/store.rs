@@ -16,6 +16,8 @@ use playback::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::messages::PlaybackMode as WirePlaybackMode;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub(crate) enum StoredItem {
@@ -100,7 +102,7 @@ pub(crate) struct SessionState {
     pub handoff_blocks: Vec<HandoffBlock>,
     pub index: Option<usize>,
     pub position: Duration,
-    pub mode: u32,
+    pub mode: WirePlaybackMode,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -156,14 +158,14 @@ impl From<StoredInterruptedItem> for InterruptedItem {
 impl Default for SessionState {
     fn default() -> Self {
         Self {
-            version: 5,
+            version: 6,
             session_id: Uuid::new_v4(),
             queue_revision: 0,
             queue: Vec::new(),
             handoff_blocks: Vec::new(),
             index: None,
             position: Duration::ZERO,
-            mode: 0,
+            mode: WirePlaybackMode::Sequential,
         }
     }
 }
@@ -195,8 +197,8 @@ impl SessionState {
                     .get("version")
                     .and_then(serde_json::Value::as_u64)
                     .unwrap_or_default();
-                if version == 5 {
-                    return serde_json::from_value(value).context("Read player session v5");
+                if version == 6 {
+                    return serde_json::from_value(value).context("Read player session v6");
                 }
                 log::info!(
                     "Player session store has unsupported version {version}; starting empty"
@@ -226,7 +228,7 @@ impl SessionState {
             .collect::<HashSet<_>>();
         self.handoff_blocks
             .retain(|block| live_blocks.contains(&block.id));
-        self.version = 5;
+        self.version = 6;
     }
     pub fn update_cursor(&mut self, status: &PlayerStatus) {
         self.index = status.index;
@@ -259,9 +261,29 @@ impl SessionState {
 #[cfg(test)]
 mod tests {
     use super::{HandoffBlock, SessionState, StoredInterruptedItem, StoredItem, Uuid};
+    use playback::PlaybackMode;
     use playback::player::{
         HandoffBlockId, InterruptedItem, PlayingItem, QueueEntry, SubsonicItem,
     };
+
+    #[test]
+    fn the_stored_playback_mode_is_read_back_as_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("session.json");
+        for mode in [
+            PlaybackMode::Sequential,
+            PlaybackMode::RepeatOne,
+            PlaybackMode::RepeatAll,
+            PlaybackMode::Shuffle,
+        ] {
+            let state = SessionState {
+                mode: mode.into(),
+                ..SessionState::default()
+            };
+            state.write(&path).unwrap();
+            assert_eq!(SessionState::read(&path).unwrap().playback_mode(), mode);
+        }
+    }
 
     #[test]
     fn subsonic_queue_item_roundtrips_as_secret_free_identity() {
@@ -301,7 +323,7 @@ mod tests {
         assert_eq!(state.queue_revision, 0);
         let saved: serde_json::Value =
             serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-        assert_eq!(saved["version"], 5);
+        assert_eq!(saved["version"], 6);
     }
 
     #[test]

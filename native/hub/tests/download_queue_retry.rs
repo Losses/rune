@@ -1,5 +1,8 @@
+use anyhow::Result;
 use axum::body::Body;
 use axum::http::Response;
+use axum::{Router, extract::Path, http::StatusCode, routing::get};
+use database::test_fixtures::causal_library as support;
 use database::{
     actions::{
         downloads::{DownloadReport, set_download_rule},
@@ -13,29 +16,25 @@ use database::{
         model::{BlobRef, Collection, ObjectKey},
     },
 };
+use fsio::FsIo;
+use futures::StreamExt;
 use http_request::sync::MetadataPeer;
 use hub::server::sync::downloads::{
     DownloadAudioContext, download_requested_audio, download_requested_audio_until,
 };
 use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set};
 use std::collections::HashMap;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+};
 use std::time::Duration;
 use support::fixtures;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 use tokio::time::Instant;
-#[path = "support/causal_library.rs"]
-mod support;
-use anyhow::Result;
-use axum::{Router, extract::Path, http::StatusCode, routing::get};
-use fsio::FsIo;
-use futures::StreamExt;
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set};
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, AtomicUsize, Ordering},
-};
 use uuid::Uuid;
 
 struct Fixture {

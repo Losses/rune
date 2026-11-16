@@ -5,6 +5,7 @@ use anyhow::Result;
 use crate::{
     Session, Signal,
     messages::*,
+    request_error::ExpectedRequestError,
     utils::{GlobalParams, ParamsExtractor},
 };
 use sha2::{Digest, Sha256};
@@ -101,19 +102,12 @@ impl Signal for RegisterLicenseRequest {
     ) -> Result<Option<Self::Response>> {
         let path = &dart_signal.path;
 
-        // Read the file content
-        let file_content = match read_file_content(path).await {
-            Ok(content) => content,
-            Err(e) => {
-                return Ok(Some(RegisterLicenseResponse {
-                    call_id: None,
-                    valid: false,
-                    license: None,
-                    success: false,
-                    error: Some(format!("{e:#?}")),
-                }));
-            }
-        };
+        let file_content = read_file_content(path).await.map_err(|error| {
+            anyhow::Error::from(ExpectedRequestError::Unavailable {
+                what: "license file",
+            })
+            .context(error)
+        })?;
 
         // Compute the SHA256 hash of the file content
         let mut hasher = Sha256::new();
@@ -126,15 +120,13 @@ impl Signal for RegisterLicenseRequest {
         let result = hasher.finalize();
         let validation_hash = format!("{result:x}");
 
-        // Validate the License
-        let valid = LICENSES.contains(&validation_hash.as_str());
+        if !LICENSES.contains(&validation_hash.as_str()) {
+            return Err(ExpectedRequestError::LicenseInvalid.into());
+        }
 
         Ok(Some(RegisterLicenseResponse {
             call_id: None,
-            valid,
-            license: Some(license_hash),
-            success: true,
-            error: None,
+            license: license_hash,
         }))
     }
 }
@@ -209,5 +201,48 @@ impl Signal for ValidateLicenseRequest {
         };
 
         Ok(Some(response))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::{Result, bail};
+
+    use crate::Signal;
+    use crate::messages::{RegisterLicenseRequest, RequestErrorKind, RequestFailureCause};
+    use crate::request_error::{classify, request_failure_cause};
+
+    async fn register(path: &std::path::Path) -> Result<anyhow::Error> {
+        let request = RegisterLicenseRequest {
+            path: path.to_string_lossy().into_owned(),
+            call_id: None,
+        };
+        match request.handle((), None, &request).await {
+            Ok(_) => bail!("{} is not a license and must be refused", path.display()),
+            Err(error) => Ok(error),
+        }
+    }
+
+    #[tokio::test]
+    async fn an_invalid_key_is_refused_with_its_own_cause() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let key = dir.path().join("not-a-key.flac");
+        std::fs::write(&key, b"not a license")?;
+        let error = register(&key).await?;
+        assert_eq!(classify(&error), RequestErrorKind::InvalidInput);
+        assert_eq!(
+            request_failure_cause(&error),
+            Some(RequestFailureCause::LicenseInvalid)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_key_file_is_refused_as_unavailable() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let error = register(&dir.path().join("missing.flac")).await?;
+        assert_eq!(classify(&error), RequestErrorKind::Unavailable, "{error:#}");
+        assert_eq!(request_failure_cause(&error), None);
+        Ok(())
     }
 }

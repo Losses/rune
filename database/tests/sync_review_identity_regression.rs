@@ -1,8 +1,5 @@
-use support::fixtures;
-use sync::protocol::SyncError;
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::Result;
+use database::test_fixtures::causal_library as support;
 use database::{
     actions::{metadata::scan_audio_file, stats::set_liked},
     entities::media_files,
@@ -12,6 +9,8 @@ use fsio::FsIo;
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{Database, EntityTrait};
 use std::sync::Arc;
+use support::fixtures;
+use sync::protocol::SyncError;
 use uuid::Uuid;
 
 #[tokio::test]

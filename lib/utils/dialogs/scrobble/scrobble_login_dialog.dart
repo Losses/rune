@@ -62,9 +62,7 @@ class ScrobbleLoginDialogState extends State<ScrobbleLoginDialog> {
         context: context,
         title: s.loginFailed,
         subtitle: s.loginFailedSubtitle,
-        errorMessage: e is AuthenticateSingleServiceResultFailure
-            ? scrobbleAuthenticationFailureMessage(e, s)
-            : s.loginFailedSubtitle,
+        errorMessage: scrobbleLoginFailureMessage(e, s),
       );
     }
 

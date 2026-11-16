@@ -178,6 +178,14 @@ pub struct ClearHandoffBlocksResult {
     pub items: Vec<QueueEntry>,
 }
 
+/// What a pause stopped: playback that was playing or about to start, as a track loading to
+/// play is, or nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PausedPlayback {
+    Playing,
+    NotPlaying,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OnlineInLibraryFile {
     pub host: String,
@@ -478,6 +486,8 @@ pub trait Playable: Send {
         interrupted: InterruptedItem,
     ) -> oneshot::Receiver<Option<TakeBackBlockResult>>;
     fn clear_handoff_blocks(&self) -> oneshot::Receiver<ClearHandoffBlocksResult>;
+    /// Pauses, and answers what the pause stopped.
+    fn pause_reporting(&self) -> oneshot::Receiver<PausedPlayback>;
     fn restore(
         &self,
         tracks: Vec<(PlayingItem, PlaybackSource)>,
@@ -645,6 +655,7 @@ impl Player {
                 fsio,
                 pcm_tap,
                 source_resolver,
+                Arc::new(crate::output_stream::DeviceOutputs),
             );
             // Create a new Tokio runtime for asynchronous tasks
             let runtime = Runtime::new().expect("Failed to create Tokio runtime");
@@ -993,6 +1004,11 @@ impl Playable for Player {
         self.command(PlayerCommand::ClearHandoffBlocks { response });
         receiver
     }
+    fn pause_reporting(&self) -> oneshot::Receiver<PausedPlayback> {
+        let (response, receiver) = oneshot::channel();
+        self.command(PlayerCommand::PauseReporting { response });
+        receiver
+    }
     fn restore(
         &self,
         tracks: Vec<(PlayingItem, PlaybackSource)>,
@@ -1202,6 +1218,11 @@ impl Playable for MockPlayer {
             changed: false,
             items: Vec::new(),
         });
+        receiver
+    }
+    fn pause_reporting(&self) -> oneshot::Receiver<PausedPlayback> {
+        let (sender, receiver) = oneshot::channel();
+        let _ = sender.send(PausedPlayback::NotPlaying);
         receiver
     }
     fn remove_from_playlist(&self, _index: usize) {}

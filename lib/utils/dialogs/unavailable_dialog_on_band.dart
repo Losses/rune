@@ -60,29 +60,43 @@ class _UnavailableDialogOnBandState extends State<UnavailableDialogOnBand> {
           );
         }
         _hasShownDialog = true;
-        // Keep one stable subtree as the viewport changes. On very small windows the
-        // dialog remains reachable in both directions rather than unmounting its form.
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            final width = max(320.0, constraints.maxWidth);
-            final height = max(
-              dialogMinimumViewportHeight,
-              constraints.maxHeight,
-            );
-            return SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: SizedBox(
-                width: width,
-                child: SingleChildScrollView(
-                  child: SizedBox(
-                    width: width,
-                    height: height,
-                    child: widget.child,
-                  ),
-                ),
-              ),
-            );
-          },
+        return ScrollableDialogFrame(child: widget.child);
+      },
+    );
+  }
+}
+
+/// Keeps a dialog that is already open usable when the window shrinks: one
+/// stable subtree, laid out at least 320 px wide and
+/// [dialogMinimumViewportHeight] high, that scrolls in both directions rather
+/// than unmounting its form or overflowing.
+class ScrollableDialogFrame extends StatelessWidget {
+  const ScrollableDialogFrame({
+    super.key,
+    required this.child,
+    this.minimumHeight = dialogMinimumViewportHeight,
+  });
+
+  final Widget child;
+
+  /// The least height the dialog is laid out at; a dialog that fills the window
+  /// by design passes 0 and is only kept from getting narrower than 320.
+  final double minimumHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = max(320.0, constraints.maxWidth);
+        final height = max(minimumHeight, constraints.maxHeight);
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: width,
+            child: SingleChildScrollView(
+              child: SizedBox(width: width, height: height, child: child),
+            ),
+          ),
         );
       },
     );

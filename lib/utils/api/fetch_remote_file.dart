@@ -9,11 +9,5 @@ Future<String> fetchRemoteFile(String url) async {
     send: (callId) =>
         FetchRemoteFileRequest(url: url, callId: callId).sendSignalToRust(),
   );
-  final response = rustSignal.message;
-
-  if (!response.success) {
-    throw response.error;
-  }
-
-  return response.localPath;
+  return rustSignal.message.localPath;
 }

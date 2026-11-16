@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 mod cli;
 
 use std::path::Path;
@@ -14,7 +16,11 @@ use cli::{
     broadcast::handle_broadcast, chpwd::handle_chpwd, permission::handle_permission,
     server::handle_server,
 };
-use hub::{node::initialize_node, server::WebSocketService, utils::GlobalParams};
+use hub::{
+    node::initialize_node,
+    server::{WebSocketService, utils::device::RunMode},
+    utils::GlobalParams,
+};
 
 use ::database::connection::check_storage_mode;
 use ::database::library_registry::{LibraryRegistry, resolve_library};
@@ -108,7 +114,13 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
     #[cfg(target_os = "android")]
     let fsio = Arc::new(FsIo::new(Path::new(".rune/.android-fs.db"), &lib_path)?);
 
-    let node = initialize_node(config_path, config_path, Arc::new(WebSocketService::new())).await?;
+    let node = initialize_node(
+        config_path,
+        config_path,
+        Arc::new(WebSocketService::new()),
+        RunMode::Server,
+    )
+    .await?;
     let node_id = node.node_id.clone();
 
     let mode = check_storage_mode(&fsio, lib_path)?;

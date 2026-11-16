@@ -1,6 +1,7 @@
 use super::*;
 use crate::library_pool::{LibraryHandle, LibraryResources};
 use crate::node::NodeContext;
+use crate::server::utils::device::RunMode;
 use crate::test_wait::{TEST_DEADLINE, wait_until};
 use crate::utils::{Broadcaster, RinfRustSignal};
 use database::connection::RecommendationDbConnection;
@@ -368,14 +369,36 @@ impl WorkerHub {
     }
 }
 
+/// A node generates an RSA device certificate on first start, which takes seconds in a
+/// debug build, and the share worker never uses it. Starting from an elliptic-curve
+/// identity written beforehand, made in milliseconds, avoids that wait.
+fn write_quick_identity(directory: &std::path::Path) -> Result<()> {
+    let key = rcgen::KeyPair::generate()?;
+    let certificate =
+        rcgen::CertificateParams::new(vec!["share-test".to_owned()])?.self_signed(&key)?;
+    std::fs::write(directory.join("cid"), "R-share-test")?;
+    std::fs::write(directory.join("certificate.pem"), certificate.pem())?;
+    std::fs::write(directory.join("private_key.pem"), key.serialize_pem())?;
+    Ok(())
+}
+
 async fn register_worker_library(
     directory: &tempfile::TempDir,
     namespace: Uuid,
     library: &support::SqlLibrary,
 ) -> Result<(Arc<NodeContext>, Arc<QuietBroadcaster>, LibraryHandle)> {
     let path = directory.path().to_string_lossy().into_owned();
+    write_quick_identity(directory.path())?;
     let broadcaster = Arc::new(QuietBroadcaster::default());
-    let node = NodeContext::new(&path, &path, broadcaster.clone(), false).await?;
+    let node = NodeContext::new(
+        &path,
+        &path,
+        broadcaster.clone(),
+        false,
+        RunMode::App,
+        Arc::new(::visualizer::Visualizer::new()),
+    )
+    .await?;
     let record = test_record(namespace);
     std::fs::write(
         directory.path().join("libraries.json"),
@@ -389,7 +412,7 @@ async fn register_worker_library(
         library_id: namespace,
         display_name: "SH15 test library".into(),
         main_db: Arc::new(library.db.clone()),
-        library_sync: library.library.clone(),
+        library_sync: library.sync_store.clone(),
         recommend_db: Arc::new(RecommendationDbConnection::new()),
         fsio: Arc::new(fsio::FsIo::new()),
         media_root: library.root.path().to_string_lossy().into_owned(),
@@ -459,7 +482,7 @@ async fn worker_hub_on_share_prepared(
 
 async fn wait_for_key_on_hubs(hubs: &[WorkerHub], key: &ObjectKey) -> Result<()> {
     wait_until("share key to reach every hub", || async {
-        let records = try_join_all(hubs.iter().map(|hub| hub.library.library.get(key))).await?;
+        let records = try_join_all(hubs.iter().map(|hub| hub.library.sync_store.get(key))).await?;
         let present = records.iter().all(Option::is_some);
         Ok(present.then_some(()))
     })
@@ -470,7 +493,7 @@ async fn wait_for_keys_on_hubs(hubs: &[WorkerHub], keys: &[ObjectKey]) -> Result
     wait_until("share keys to reach every hub", || async {
         let records = try_join_all(
             hubs.iter()
-                .flat_map(|hub| keys.iter().map(|key| hub.library.library.get(key))),
+                .flat_map(|hub| keys.iter().map(|key| hub.library.sync_store.get(key))),
         )
         .await?;
         let present = records.iter().all(Option::is_some);
@@ -483,7 +506,7 @@ async fn key_presence_on_hubs(hubs: &[WorkerHub], key: &ObjectKey) -> Result<Str
     let mut states = Vec::with_capacity(hubs.len());
     for (index, hub) in hubs.iter().enumerate() {
         let replica = hub.library.peer.identity().await?.replica;
-        let present = hub.library.library.get(key).await?.is_some();
+        let present = hub.library.sync_store.get(key).await?.is_some();
         states.push(format!("hub#{index} replica={replica} present={present}"));
     }
     Ok(states.join(", "))
@@ -494,7 +517,7 @@ async fn key_presence_matrix(hubs: &[WorkerHub], keys: &[ObjectKey]) -> Result<S
     for (writer, key) in keys.iter().enumerate() {
         for (index, hub) in hubs.iter().enumerate() {
             let replica = hub.library.peer.identity().await?.replica;
-            let present = hub.library.library.get(key).await?.is_some();
+            let present = hub.library.sync_store.get(key).await?.is_some();
             states.push(format!(
                 "writer#{writer} key={} hub#{index} replica={replica} present={present}",
                 key.id
@@ -861,32 +884,32 @@ async fn worker_factory_share_passes_converge_and_relay_edits() -> Result<()> {
         id: Uuid::new_v4(),
     };
     first
-        .library
+        .sync_store
         .write_local(key.clone(), support::playlist("from first device"))
         .await?;
-    sync_pass(&first.library, namespace, &session)
+    sync_pass(&first.sync_store, namespace, &session)
         .await
         .unwrap();
-    sync_pass(&second.library, namespace, &session)
+    sync_pass(&second.sync_store, namespace, &session)
         .await
         .unwrap();
-    assert!(second.library.get(&key).await?.is_some());
+    assert!(second.sync_store.get(&key).await?.is_some());
 
     let next_key = ObjectKey {
         collection: Collection::Playlists,
         id: Uuid::new_v4(),
     };
     first
-        .library
+        .sync_store
         .write_local(next_key.clone(), support::playlist("later edit"))
         .await?;
-    sync_pass(&first.library, namespace, &session)
+    sync_pass(&first.sync_store, namespace, &session)
         .await
         .unwrap();
-    sync_pass(&second.library, namespace, &session)
+    sync_pass(&second.sync_store, namespace, &session)
         .await
         .unwrap();
-    assert!(second.library.get(&next_key).await?.is_some());
+    assert!(second.sync_store.get(&next_key).await?.is_some());
     Ok(())
 }
 
@@ -897,7 +920,7 @@ async fn read_only_share_reports_typed_failure_without_objects() -> Result<()> {
     let store = Arc::new(MemoryObjectStore::default());
     store.inject_error(StoreOperation::Put, StoreError::PermissionDenied);
     let session = memory_session(&store).await;
-    let result = sync_pass(&library.library, namespace, &session).await;
+    let result = sync_pass(&library.sync_store, namespace, &session).await;
     assert_eq!(result, Err(ShareSyncFailure::ReadOnlyShare));
     assert!(store.list_prefix("").await.unwrap().is_empty());
     Ok(())
@@ -916,7 +939,15 @@ async fn share_worker_skips_redirected_catalog_before_opening_a_store() -> Resul
     let directory = tempfile::tempdir()?;
     let path = directory.path().to_string_lossy().into_owned();
     let broadcaster = Arc::new(QuietBroadcaster::default());
-    let node = NodeContext::new(&path, &path, broadcaster, false).await?;
+    let node = NodeContext::new(
+        &path,
+        &path,
+        broadcaster,
+        false,
+        RunMode::App,
+        Arc::new(::visualizer::Visualizer::new()),
+    )
+    .await?;
     std::fs::write(
         directory.path().join("libraries.json"),
         serde_json::to_vec(&json!({
@@ -930,7 +961,7 @@ async fn share_worker_skips_redirected_catalog_before_opening_a_store() -> Resul
             library_id,
             display_name: record.alias.clone(),
             main_db: Arc::new(library.db.clone()),
-            library_sync: library.library.clone(),
+            library_sync: library.sync_store.clone(),
             recommend_db: Arc::new(RecommendationDbConnection::new()),
             fsio: Arc::new(fsio::FsIo::new()),
             media_root: library.root.path().to_string_lossy().into_owned(),
@@ -1071,7 +1102,7 @@ async fn sh15_three_hub_concurrent_push_obeys_backend_capabilities() -> Result<(
         };
         seed_hub
             .library
-            .library
+            .sync_store
             .write_local(seed_key.clone(), support::playlist("three hub shared seed"))
             .await?;
         let mut hubs = vec![seed_hub];
@@ -1114,15 +1145,15 @@ async fn sh15_three_hub_concurrent_push_obeys_backend_capabilities() -> Result<(
         let (first_write, second_write, third_write) = tokio::join!(
             hubs[0]
                 .library
-                .library
+                .sync_store
                 .write_local(first_key.clone(), support::playlist("writer one")),
             hubs[1]
                 .library
-                .library
+                .sync_store
                 .write_local(second_key.clone(), support::playlist("writer two")),
             hubs[2]
                 .library
-                .library
+                .sync_store
                 .write_local(third_key.clone(), support::playlist("writer three")),
         );
         first_write?;
@@ -1180,7 +1211,7 @@ async fn sh15_read_only_real_share_reports_typed_status_and_writes_nothing() -> 
         fixture.reject_writes();
         let hubs = hubs_on_share(namespace, 3).await;
         assert_eq!(
-            sync_pass(&hubs[0].library, namespace, &session).await,
+            sync_pass(&hubs[0].sync_store, namespace, &session).await,
             Err(ShareSyncFailure::ReadOnlyShare)
         );
         let objects = session.store.list_prefix("devices/").await.unwrap();
@@ -1217,11 +1248,11 @@ async fn sh15_crash_after_segment_put_recovers_without_a_gap_or_duplicate() -> R
             collection: Collection::Playlists,
             id: Uuid::new_v4(),
         };
-        seed.library
+        seed.sync_store
             .write_local(seed_key.clone(), support::playlist("crash recovery seed"))
             .await?;
         let push_started = Instant::now();
-        detailed_sync_pass(&seed.library, namespace, &session).await?;
+        detailed_sync_pass(&seed.sync_store, namespace, &session).await?;
         let seed_push = push_started.elapsed();
         let hub_start_started = Instant::now();
         let mut hubs = worker_hubs_on_share_sessions(namespace, vec![crash_session]).await?;
@@ -1242,7 +1273,7 @@ async fn sh15_crash_after_segment_put_recovers_without_a_gap_or_duplicate() -> R
         let crash_started = Instant::now();
         hubs[0]
             .library
-            .library
+            .sync_store
             .write_local(key.clone(), support::playlist("committed after restart"))
             .await?;
         let cache_path = PathBuf::from(hubs[0].node.config_path.as_str())
@@ -1250,7 +1281,7 @@ async fn sh15_crash_after_segment_put_recovers_without_a_gap_or_duplicate() -> R
             .join(namespace.to_string());
         let pending = hubs[0]
             .library
-            .library
+            .sync_store
             .share_pending_changes(cache_path)
             .await?;
         anyhow::ensure!(
@@ -1294,13 +1325,13 @@ async fn sh15_crash_after_segment_put_recovers_without_a_gap_or_duplicate() -> R
         hubs[0].restart_node().await?;
         let recovery_restart = recovery_started.elapsed();
         let recovery_push_started = Instant::now();
-        detailed_sync_pass(&receiver.library, namespace, &session).await?;
+        detailed_sync_pass(&receiver.sync_store, namespace, &session).await?;
         anyhow::ensure!(
-            receiver.library.get(&seed_key).await?.is_some(),
+            receiver.sync_store.get(&seed_key).await?.is_some(),
             "recovery left a gap before the changed playlist"
         );
         anyhow::ensure!(
-            receiver.library.get(&key).await?.is_some(),
+            receiver.sync_store.get(&key).await?.is_some(),
             "recovery did not reach the independent replica"
         );
         let recovery_push = recovery_push_started.elapsed();
@@ -1333,19 +1364,19 @@ async fn sh15_torn_older_head_slot_is_survived_on_webdav_and_s3() -> Result<()> 
         let namespace = Uuid::new_v4();
         let (_fixture, session) = real_share(backend).await;
         let hubs = hubs_on_share(namespace, 3).await;
-        detailed_sync_pass(&hubs[0].library, namespace, &session).await?;
+        detailed_sync_pass(&hubs[0].sync_store, namespace, &session).await?;
         let key = ObjectKey {
             collection: Collection::Playlists,
             id: Uuid::new_v4(),
         };
         hubs[0]
-            .library
+            .sync_store
             .write_local(
                 key.clone(),
                 support::playlist("head survives a torn peer slot"),
             )
             .await?;
-        sync_pass(&hubs[0].library, namespace, &session)
+        sync_pass(&hubs[0].sync_store, namespace, &session)
             .await
             .map_err(|failure| anyhow::anyhow!("{failure:?}"))?;
         let head_zero = session
@@ -1362,10 +1393,10 @@ async fn sh15_torn_older_head_slot_is_survived_on_webdav_and_s3() -> Result<()> 
             .await
             .map_err(|error| anyhow::anyhow!("{error:?}"))?;
 
-        sync_pass(&hubs[1].library, namespace, &session)
+        sync_pass(&hubs[1].sync_store, namespace, &session)
             .await
             .map_err(|failure| anyhow::anyhow!("{failure:?}"))?;
-        assert!(hubs[1].library.get(&key).await?.is_some());
+        assert!(hubs[1].sync_store.get(&key).await?.is_some());
     }
     Ok(())
 }
@@ -1381,10 +1412,10 @@ async fn sh15_new_device_catches_up_from_a_shared_base_on_webdav_and_s3() -> Res
             id: Uuid::new_v4(),
         };
         source
-            .library
+            .sync_store
             .write_local(key.clone(), support::playlist("new device base catch-up"))
             .await?;
-        detailed_sync_pass(&source.library, namespace, &session).await?;
+        detailed_sync_pass(&source.sync_store, namespace, &session).await?;
         let source_identity = source.peer.identity().await?;
         let (source_head_key, source_head) =
             latest_head_for_replica(&*session.store, source_identity.replica).await?;
@@ -1395,8 +1426,8 @@ async fn sh15_new_device_catches_up_from_a_shared_base_on_webdav_and_s3() -> Res
             .parse::<DevicePrefix>()?;
 
         let base_owner = support::SqlLibrary::new(namespace, Uuid::new_v4()).await?;
-        detailed_sync_pass(&base_owner.library, namespace, &session).await?;
-        assert!(base_owner.library.get(&key).await?.is_some());
+        detailed_sync_pass(&base_owner.sync_store, namespace, &session).await?;
+        assert!(base_owner.sync_store.get(&key).await?.is_some());
         let base_identity = base_owner.peer.identity().await?;
         let (_, base_head) =
             latest_head_for_replica(&*session.store, base_identity.replica).await?;
@@ -1408,7 +1439,7 @@ async fn sh15_new_device_catches_up_from_a_shared_base_on_webdav_and_s3() -> Res
             chrono::Utc::now().timestamp_millis(),
         )
         .await?;
-        let base_endpoint = base_owner.library.endpoint();
+        let base_endpoint = base_owner.sync_store.endpoint();
         let writer = ShareWriter::default();
         let base_head = cut_base(BaseCutRequest {
             db: &base_owner.db,
@@ -1439,8 +1470,8 @@ async fn sh15_new_device_catches_up_from_a_shared_base_on_webdav_and_s3() -> Res
             .await
             .map_err(|error| anyhow::anyhow!("delete source floor base: {error:?}"))?;
         let new_device = support::SqlLibrary::new(namespace, Uuid::new_v4()).await?;
-        detailed_sync_pass(&new_device.library, namespace, &session).await?;
-        assert!(new_device.library.get(&key).await?.is_some());
+        detailed_sync_pass(&new_device.sync_store, namespace, &session).await?;
+        assert!(new_device.sync_store.get(&key).await?.is_some());
     }
     Ok(())
 }
@@ -1475,7 +1506,7 @@ async fn sh15_conditional_head_put_retries_a_s3_409() -> Result<()> {
     let namespace = Uuid::new_v4();
     let (fixture, session) = real_share(ShareBackend::S3).await;
     let library = support::SqlLibrary::new(namespace, Uuid::new_v4()).await?;
-    detailed_sync_pass(&library.library, namespace, &session).await?;
+    detailed_sync_pass(&library.sync_store, namespace, &session).await?;
     session
         .store
         .list_prefix("devices/")
@@ -1486,11 +1517,11 @@ async fn sh15_conditional_head_put_retries_a_s3_409() -> Result<()> {
         id: Uuid::new_v4(),
     };
     library
-        .library
+        .sync_store
         .write_local(key, support::playlist("retry conditional head conflict"))
         .await?;
     fixture.conflict_next_conditional_put();
-    detailed_sync_pass(&library.library, namespace, &session).await?;
+    detailed_sync_pass(&library.sync_store, namespace, &session).await?;
     anyhow::ensure!(
         !fixture.conditional_put_conflict_pending(),
         "share writer never encountered the injected conditional 409"
@@ -1509,17 +1540,17 @@ async fn sh15_reader_recovers_from_another_live_base_after_floor_base_delete() -
             id: Uuid::new_v4(),
         };
         first
-            .library
+            .sync_store
             .write_local(
                 key.clone(),
                 support::playlist("preserved by another owner's base"),
             )
             .await?;
-        detailed_sync_pass(&first.library, namespace, &session).await?;
+        detailed_sync_pass(&first.sync_store, namespace, &session).await?;
 
         let second = support::SqlLibrary::new(namespace, Uuid::new_v4()).await?;
-        detailed_sync_pass(&second.library, namespace, &session).await?;
-        assert!(second.library.get(&key).await?.is_some());
+        detailed_sync_pass(&second.sync_store, namespace, &session).await?;
+        assert!(second.sync_store.get(&key).await?.is_some());
 
         let first_replica = first.peer.identity().await?.replica;
         let listed = session
@@ -1580,7 +1611,7 @@ async fn sh15_reader_recovers_from_another_live_base_after_floor_base_delete() -
             chrono::Utc::now().timestamp_millis(),
         )
         .await?;
-        let endpoint = first.library.endpoint();
+        let endpoint = first.sync_store.endpoint();
         let writer = ShareWriter::default();
         let next_head = cut_base(BaseCutRequest {
             db: &first.db,
@@ -1606,9 +1637,9 @@ async fn sh15_reader_recovers_from_another_live_base_after_floor_base_delete() -
         };
 
         let reader = support::SqlLibrary::new(namespace, Uuid::new_v4()).await?;
-        detailed_sync_pass(&reader.library, namespace, &racing_session).await?;
+        detailed_sync_pass(&reader.sync_store, namespace, &racing_session).await?;
         assert!(delete_store.deleted.load(Ordering::SeqCst));
-        assert!(reader.library.get(&key).await?.is_some());
+        assert!(reader.sync_store.get(&key).await?.is_some());
     }
     Ok(())
 }
@@ -1619,7 +1650,7 @@ async fn sh15_clone_restore_and_double_restore_use_new_generations() -> Result<(
         let namespace = Uuid::new_v4();
         let (_fixture, session) = real_share(backend).await;
         let library = support::SqlLibrary::new(namespace, Uuid::new_v4()).await?;
-        detailed_sync_pass(&library.library, namespace, &session).await?;
+        detailed_sync_pass(&library.sync_store, namespace, &session).await?;
         let identity = library.peer.identity().await?;
         let cache_path = library.root.path().join("share-cache");
         let state = load_or_create_state(
@@ -1638,13 +1669,13 @@ async fn sh15_clone_restore_and_double_restore_use_new_generations() -> Result<(
             id: Uuid::new_v4(),
         };
         library
-            .library
+            .sync_store
             .write_local(
                 key,
                 support::playlist("original writer advances after clone"),
             )
             .await?;
-        detailed_sync_pass(&library.library, namespace, &session).await?;
+        detailed_sync_pass(&library.sync_store, namespace, &session).await?;
         let mut active_state = load_or_create_state(
             &library.db,
             identity.replica,
@@ -1659,12 +1690,12 @@ async fn sh15_clone_restore_and_double_restore_use_new_generations() -> Result<(
         active_state.local_cursor = 0;
         active_state.observed_objects.clear();
         save_state(&library.db, &active_state).await?;
-        detailed_sync_pass(&library.library, namespace, &session).await?;
+        detailed_sync_pass(&library.sync_store, namespace, &session).await?;
 
         let restored = support::SqlLibrary::new(namespace, identity.replica).await?;
         save_state(&restored.db, &backup).await?;
 
-        detailed_sync_pass(&restored.library, namespace, &session).await?;
+        detailed_sync_pass(&restored.sync_store, namespace, &session).await?;
         let rotated = load_or_create_state(
             &restored.db,
             identity.replica,
@@ -1679,7 +1710,7 @@ async fn sh15_clone_restore_and_double_restore_use_new_generations() -> Result<(
         // Restoring the same backup a second time must also be recognized as a
         // restore, even though the share already contains a newer generation.
         save_state(&restored.db, &backup).await?;
-        detailed_sync_pass(&restored.library, namespace, &session).await?;
+        detailed_sync_pass(&restored.sync_store, namespace, &session).await?;
         let restored_again = load_or_create_state(
             &restored.db,
             identity.replica,
@@ -1714,7 +1745,7 @@ async fn sh15_two_writers_race_one_head_slot_on_each_backend() -> Result<()> {
         }
         let actor = Uuid::new_v4();
         let first = support::SqlLibrary::new(namespace, actor).await?;
-        detailed_sync_pass(&first.library, namespace, &session).await?;
+        detailed_sync_pass(&first.sync_store, namespace, &session).await?;
         let second =
             support::fixtures::open_library(first.db.clone(), actor, Some(namespace)).await?;
         let prime_key = ObjectKey {
@@ -1722,10 +1753,10 @@ async fn sh15_two_writers_race_one_head_slot_on_each_backend() -> Result<()> {
             id: Uuid::new_v4(),
         };
         first
-            .library
+            .sync_store
             .write_local(prime_key, support::playlist("prime both head slots"))
             .await?;
-        detailed_sync_pass(&first.library, namespace, &session).await?;
+        detailed_sync_pass(&first.sync_store, namespace, &session).await?;
         let existing_heads = session
             .store
             .list_prefix("devices/")
@@ -1757,14 +1788,14 @@ async fn sh15_two_writers_race_one_head_slot_on_each_backend() -> Result<()> {
             id: Uuid::new_v4(),
         };
         first
-            .library
+            .sync_store
             .write_local(
                 key.clone(),
                 support::playlist("both writers race one prefix"),
             )
             .await?;
         let (first_result, second_result) = tokio::join!(
-            sync_pass(&first.library, namespace, &race_session),
+            sync_pass(&first.sync_store, namespace, &race_session),
             sync_pass(&second, namespace, &race_session),
         );
         anyhow::ensure!(first_result.is_ok() || second_result.is_ok());
@@ -1772,7 +1803,7 @@ async fn sh15_two_writers_race_one_head_slot_on_each_backend() -> Result<()> {
             race_store.waiting.load(Ordering::SeqCst) >= 2,
             "writers did not meet in the conditional head overwrite window"
         );
-        detailed_sync_pass(&first.library, namespace, &race_session).await?;
+        detailed_sync_pass(&first.sync_store, namespace, &race_session).await?;
         let head_keys = session
             .store
             .list_prefix("devices/")
@@ -1783,8 +1814,8 @@ async fn sh15_two_writers_race_one_head_slot_on_each_backend() -> Result<()> {
             .collect::<Vec<_>>();
         anyhow::ensure!(head_keys.iter().any(|key| key.ends_with("/head.0.json")));
         let reader = support::SqlLibrary::new(namespace, Uuid::new_v4()).await?;
-        detailed_sync_pass(&reader.library, namespace, &session).await?;
-        assert!(reader.library.get(&key).await?.is_some());
+        detailed_sync_pass(&reader.sync_store, namespace, &session).await?;
+        assert!(reader.sync_store.get(&key).await?.is_some());
     }
     Ok(())
 }
@@ -1800,10 +1831,10 @@ async fn sh15_new_base_reuses_every_unchanged_chunk() -> Result<()> {
             id: Uuid::new_v4(),
         };
         library
-            .library
+            .sync_store
             .write_local(key, support::playlist("reused base chunk"))
             .await?;
-        detailed_sync_pass(&library.library, namespace, &session).await?;
+        detailed_sync_pass(&library.sync_store, namespace, &session).await?;
         let listed = session
             .store
             .list_prefix("devices/")
@@ -1844,7 +1875,7 @@ async fn sh15_new_base_reuses_every_unchanged_chunk() -> Result<()> {
             chrono::Utc::now().timestamp_millis(),
         )
         .await?;
-        let endpoint = library.library.endpoint();
+        let endpoint = library.sync_store.endpoint();
         let writer = ShareWriter::default();
         let next = cut_base(BaseCutRequest {
             db: &library.db,
@@ -1886,15 +1917,15 @@ async fn sh15_initial_base_cut_races_own_prefix_gc_safely() -> Result<()> {
             id: Uuid::new_v4(),
         };
         library
-            .library
+            .sync_store
             .write_local(
                 key.clone(),
                 support::playlist("base cut and GC share one writer"),
             )
             .await?;
         let (first, second) = tokio::join!(
-            sync_pass(&library.library, namespace, &session),
-            sync_pass(&library.library, namespace, &session),
+            sync_pass(&library.sync_store, namespace, &session),
+            sync_pass(&library.sync_store, namespace, &session),
         );
         anyhow::ensure!(first.is_ok() || second.is_ok());
         let library_file: LibraryFile = serde_json::from_slice(
@@ -1911,8 +1942,8 @@ async fn sh15_initial_base_cut_races_own_prefix_gc_safely() -> Result<()> {
             library_file.library_id == namespace,
             "non-conditional library.json creation left an invalid binding"
         );
-        detailed_sync_pass(&library.library, namespace, &session).await?;
-        assert!(library.library.get(&key).await?.is_some());
+        detailed_sync_pass(&library.sync_store, namespace, &session).await?;
+        assert!(library.sync_store.get(&key).await?.is_some());
         let heads = session
             .store
             .list_prefix("devices/")
@@ -1938,28 +1969,28 @@ async fn sh15_retired_device_return_uses_a_fresh_generation() -> Result<()> {
             id: Uuid::new_v4(),
         };
         first
-            .library
+            .sync_store
             .write_local(
                 shared_key,
                 support::playlist("retired owner has shared data"),
             )
             .await?;
-        detailed_sync_pass(&first.library, namespace, &session).await?;
+        detailed_sync_pass(&first.sync_store, namespace, &session).await?;
         let returning = support::SqlLibrary::new(namespace, Uuid::new_v4()).await?;
-        detailed_sync_pass(&returning.library, namespace, &session).await?;
+        detailed_sync_pass(&returning.sync_store, namespace, &session).await?;
         let returning_identity = returning.peer.identity().await?;
         let offline_key = ObjectKey {
             collection: Collection::Playlists,
             id: Uuid::new_v4(),
         };
         first
-            .library
+            .sync_store
             .write_local(
                 offline_key.clone(),
                 support::playlist("published while the device was offline"),
             )
             .await?;
-        detailed_sync_pass(&first.library, namespace, &session).await?;
+        detailed_sync_pass(&first.sync_store, namespace, &session).await?;
         let listed = session
             .store
             .list_prefix("devices/")
@@ -2014,7 +2045,7 @@ async fn sh15_retired_device_return_uses_a_fresh_generation() -> Result<()> {
             now_ms,
         )
         .await?;
-        let endpoint = first.library.endpoint();
+        let endpoint = first.sync_store.endpoint();
         let writer = ShareWriter::default();
         let first_head = cut_base(BaseCutRequest {
             db: &first.db,
@@ -2042,8 +2073,8 @@ async fn sh15_retired_device_return_uses_a_fresh_generation() -> Result<()> {
             }
         }
         save_state(&first.db, &first_state).await?;
-        detailed_sync_pass(&first.library, namespace, &session).await?;
-        detailed_sync_pass(&first.library, namespace, &session).await?;
+        detailed_sync_pass(&first.sync_store, namespace, &session).await?;
+        detailed_sync_pass(&first.sync_store, namespace, &session).await?;
         let first_heads = session
             .store
             .list_prefix(&format!("devices/{first_prefix}/"))
@@ -2069,7 +2100,7 @@ async fn sh15_retired_device_return_uses_a_fresh_generation() -> Result<()> {
         assert!(returning_objects.is_empty());
 
         let old_generation = returning_head.generation;
-        detailed_sync_pass(&returning.library, namespace, &session).await?;
+        detailed_sync_pass(&returning.sync_store, namespace, &session).await?;
         let state = load_or_create_state(
             &returning.db,
             returning_identity.replica,
@@ -2079,7 +2110,7 @@ async fn sh15_retired_device_return_uses_a_fresh_generation() -> Result<()> {
         )
         .await?;
         assert_ne!(state.generation, old_generation);
-        assert!(returning.library.get(&offline_key).await?.is_some());
+        assert!(returning.sync_store.get(&offline_key).await?.is_some());
     }
     Ok(())
 }
@@ -2090,7 +2121,7 @@ async fn replaced_library_file_is_a_typed_share_change() -> Result<()> {
     let library = support::SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     let store = Arc::new(MemoryObjectStore::default());
     let session = memory_session(&store).await;
-    sync_pass(&library.library, namespace, &session)
+    sync_pass(&library.sync_store, namespace, &session)
         .await
         .unwrap();
     let replacement = LibraryFile {
@@ -2104,7 +2135,7 @@ async fn replaced_library_file_is_a_typed_share_change() -> Result<()> {
         .await
         .unwrap();
     assert_eq!(
-        sync_pass(&library.library, namespace, &session).await,
+        sync_pass(&library.sync_store, namespace, &session).await,
         Err(ShareSyncFailure::ShareChanged)
     );
     assert_eq!(
@@ -2126,7 +2157,7 @@ async fn cancellation_drops_an_in_flight_share_pass() -> Result<()> {
     let session = memory_session(&store).await;
     let cache = std::env::temp_dir().join(format!("hub-share-{}", Uuid::new_v4()));
     let cancel = CancellationToken::new();
-    let library_sync = library.library.clone();
+    let library_sync = library.sync_store.clone();
     let session = session.clone();
     let task_cancel = cancel.clone();
     let task = tokio::spawn(async move {
@@ -2174,4 +2205,191 @@ fn repeated_share_failures_back_off_to_the_cap() {
             Duration::from_secs(30),
         ]
     );
+}
+
+mod revocation_tests {
+    use super::*;
+    use discovery::server::UserStatus;
+    use discovery::utils::DeviceType;
+
+    /// A node with `fingerprint` approved and `host` its trusted host.
+    async fn node_with_trusted_peer(
+        directory: &tempfile::TempDir,
+        fingerprint: &str,
+        host: &str,
+    ) -> Result<Arc<NodeContext>> {
+        let path = directory.path().to_string_lossy().into_owned();
+        let node = NodeContext::new(
+            &path,
+            &path,
+            Arc::new(QuietBroadcaster::default()),
+            false,
+            RunMode::App,
+            Arc::new(::visualizer::Visualizer::new()),
+        )
+        .await?;
+        {
+            let permissions = node.permission_manager.read().await;
+            permissions
+                .add_user(
+                    "key".into(),
+                    fingerprint.into(),
+                    "peer".into(),
+                    "test".into(),
+                    DeviceType::Desktop,
+                    "127.0.0.1".into(),
+                )
+                .await?;
+            permissions
+                .change_user_status(fingerprint, UserStatus::Approved)
+                .await?;
+        }
+        node.cert_validator
+            .read()
+            .await
+            .replace_hosts_for_fingerprint(fingerprint, vec![host.into()])
+            .await?;
+        Ok(node)
+    }
+
+    /// Starts the watcher, and checks it keeps waiting while nothing changes.
+    async fn watch(
+        node: &Arc<NodeContext>,
+        fingerprint: &str,
+        host: &str,
+    ) -> tokio::task::JoinHandle<()> {
+        let weak = Arc::downgrade(node);
+        let (fingerprint, host) = (fingerprint.to_owned(), host.to_owned());
+        let watcher =
+            tokio::spawn(async move { wait_for_revocation(weak, &fingerprint, &host).await });
+        for _ in 0..20 {
+            tokio::task::yield_now().await;
+        }
+        assert!(!watcher.is_finished(), "an approved peer is not revoked");
+        watcher
+    }
+
+    /// With the clock stopped from here on, only a change can end the watcher before a second of
+    /// the clock has passed: a timer would need it to move.
+    async fn ends_within_a_tick(watcher: &tokio::task::JoinHandle<()>) -> Result<()> {
+        let started = tokio::time::Instant::now();
+        wait_until("the watcher to end", || async {
+            Ok(watcher.is_finished().then_some(()))
+        })
+        .await?;
+        let waited = started.elapsed();
+        anyhow::ensure!(
+            waited < Duration::from_millis(500),
+            "the watcher ended only after {waited:?}"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn revoking_a_peer_ends_the_watcher_at_once() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let node = node_with_trusted_peer(&directory, "peer-a", "127.0.0.1:1").await?;
+        let watcher = watch(&node, "peer-a", "127.0.0.1:1").await;
+        tokio::time::pause();
+
+        node.permission_manager
+            .read()
+            .await
+            .change_user_status("peer-a", UserStatus::Blocked)
+            .await?;
+
+        ends_within_a_tick(&watcher).await?;
+        node.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn removing_the_trusted_host_ends_the_watcher_at_once() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let node = node_with_trusted_peer(&directory, "peer-b", "127.0.0.1:2").await?;
+        let watcher = watch(&node, "peer-b", "127.0.0.1:2").await;
+        tokio::time::pause();
+
+        node.cert_validator
+            .read()
+            .await
+            .replace_hosts_for_fingerprint("peer-b", vec!["127.0.0.1:3".into()])
+            .await?;
+
+        ends_within_a_tick(&watcher).await?;
+        node.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn the_watcher_ends_with_its_node() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let node = node_with_trusted_peer(&directory, "peer-c", "127.0.0.1:4").await?;
+        let watcher = watch(&node, "peer-c", "127.0.0.1:4").await;
+        tokio::time::pause();
+
+        node.shutdown().await?;
+        drop(node);
+
+        ends_within_a_tick(&watcher).await?;
+        Ok(())
+    }
+}
+
+impl SyncTokenStore {
+    pub(crate) fn insert_stale_for_test(&self, fingerprint: &str, base: &str) {
+        self.insert(fingerprint, base, "unknown-to-peer".to_owned());
+    }
+}
+
+#[derive(Default)]
+pub(in crate::server) struct TestPeerSession {
+    locks: ReplicaLocks,
+}
+
+impl TestPeerSession {
+    pub(in crate::server) async fn pass(
+        &self,
+        params: Arc<GlobalParams>,
+        private_key: &str,
+        endpoint: PeerEndpoint,
+        metadata: bool,
+    ) -> Result<PeerPass> {
+        let global = params.node.clone();
+        let credentials = LocalCredentials {
+            fingerprint: global.device_info().await?.fingerprint,
+            private_key: private_key.into(),
+        };
+        let library = global
+            .library_pool
+            .acquire_background(params.library_id.unwrap())
+            .await?;
+        let notify: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
+        classify_peer_pass(
+            sync_one(
+                &global,
+                &library,
+                &notify,
+                &endpoint,
+                PassOptions {
+                    credentials: &credentials,
+                    metadata,
+                    locks: &self.locks,
+                    cancel: &params.node.token,
+                },
+            )
+            .await,
+        )
+    }
+}
+
+pub(in crate::server) async fn test_peer_pass(
+    params: Arc<GlobalParams>,
+    private_key: &str,
+    endpoint: PeerEndpoint,
+    metadata: bool,
+) -> Result<PeerPass> {
+    TestPeerSession::default()
+        .pass(params, private_key, endpoint, metadata)
+        .await
 }

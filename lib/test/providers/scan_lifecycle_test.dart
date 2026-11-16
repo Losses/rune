@@ -53,13 +53,12 @@ void main() {
       final wait = manager.waitForScanToComplete(recordId);
       states.add(
         const LibraryTaskStateChanged(
-          state: LibraryTaskStateRunning(
+          state: LibraryTaskStateScanRunning(
             recordId: recordId,
-            task: LibraryTaskKind.scan,
             runId: 'node-run',
             progress: 3,
             total: 8,
-            scanPhase: ScanTaskPhase.scanCoverArts,
+            phase: ScanTaskPhase.scanCoverArts,
           ),
         ),
       );
@@ -71,13 +70,13 @@ void main() {
       );
       states.add(
         const LibraryTaskStateChanged(
-          state: LibraryTaskStateEnded(
+          state: LibraryTaskStateScanEnded(
             recordId: recordId,
-            task: LibraryTaskKind.scan,
             runId: 'node-run',
             progress: 8,
             total: 8,
-            outcome: LibraryTaskOutcomeFinished(),
+            phase: ScanTaskPhase.indexFiles,
+            outcome: ScanOutcomeFinished(),
           ),
         ),
       );
@@ -111,23 +110,23 @@ void main() {
       await manager.scanLibrary('test-record', isInitializeTask: true);
       states.add(
         const LibraryTaskStateChanged(
-          state: LibraryTaskStateRunning(
+          state: LibraryTaskStateScanRunning(
             recordId: 'test-record',
-            task: LibraryTaskKind.scan,
             runId: 'node-run',
             progress: 0,
             total: 0,
+            phase: ScanTaskPhase.indexFiles,
           ),
         ),
       );
       const ended = LibraryTaskStateChanged(
-        state: LibraryTaskStateEnded(
+        state: LibraryTaskStateScanEnded(
           recordId: 'test-record',
-          task: LibraryTaskKind.scan,
           runId: 'node-run',
           progress: 1,
           total: 1,
-          outcome: LibraryTaskOutcomeFinished(),
+          phase: ScanTaskPhase.indexFiles,
+          outcome: ScanOutcomeFinished(),
         ),
       );
       states
@@ -152,13 +151,13 @@ void main() {
     await manager.scanLibrary('test-record', isInitializeTask: true);
     states.add(
       const LibraryTaskStateChanged(
-        state: LibraryTaskStateEnded(
+        state: LibraryTaskStateScanEnded(
           recordId: 'test-record',
-          task: LibraryTaskKind.scan,
           runId: 'node-run',
           progress: 0,
           total: 0,
-          outcome: LibraryTaskOutcomeFailed(value: LibraryTaskError.scanFailed),
+          phase: ScanTaskPhase.indexFiles,
+          outcome: ScanOutcomeFailed(value: ScanFailure.scanFailed),
         ),
       ),
     );
@@ -255,13 +254,12 @@ void main() {
     addTearDown(manager.dispose);
     states.add(
       const LibraryTaskStateChanged(
-        state: LibraryTaskStateRunning(
+        state: LibraryTaskStateScanRunning(
           recordId: 'test-record',
-          task: LibraryTaskKind.scan,
           runId: 'node-run',
           progress: 3,
           total: 8,
-          scanPhase: ScanTaskPhase.scanCoverArts,
+          phase: ScanTaskPhase.scanCoverArts,
         ),
       ),
     );

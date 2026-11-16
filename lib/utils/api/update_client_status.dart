@@ -1,12 +1,12 @@
 import 'request_failure.dart';
 import '../../bindings/bindings.dart';
 
-Future<bool> updateClientStatus(
+Future<void> updateClientStatus(
   String fingerprint,
   ClientStatus status, {
   DevicePreset? preset,
 }) async {
-  final rustSignal = await awaitResponse(
+  await awaitResponse(
     'UpdateClientStatusRequest',
     UpdateClientStatusResponse.rustSignalStream,
     responseCallId: (response) => response.message.callId?.toInt(),
@@ -17,11 +17,4 @@ Future<bool> updateClientStatus(
       callId: callId,
     ).sendSignalToRust(),
   );
-  final response = rustSignal.message;
-
-  if (!response.success) {
-    throw response.error;
-  }
-
-  return response.success;
 }

@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
+use crate::request_error::ExpectedRequestError;
 use crate::{
     Session, Signal,
     messages::*,
@@ -122,6 +123,15 @@ fn authentication_failure(
     }
 }
 
+fn credentials_failure() -> anyhow::Error {
+    ExpectedRequestError::ScrobbleAuthentication {
+        failure: ScrobbleAuthenticationFailure::Other {
+            detail: "Could not read or store scrobble credentials".into(),
+        },
+    }
+    .into()
+}
+
 impl ParamsExtractor for AuthenticateSingleServiceRequest {
     type Params = (Arc<NodeContext>, Arc<Mutex<dyn ScrobblingServiceManager>>);
 
@@ -150,29 +160,13 @@ impl Signal for AuthenticateSingleServiceRequest {
         let (reference, credential, replaces) =
             match credential_for_request(&node.credentials, request).await {
                 Ok(credential) => credential,
-                Err(_) => {
-                    return Ok(Some(AuthenticateSingleServiceResponse {
-                        call_id: None,
-                        result: AuthenticateSingleServiceResult::Failure {
-                            failure: ScrobbleAuthenticationFailure::Other {
-                                detail: "Could not read or store scrobble credentials".into(),
-                            },
-                        },
-                    }));
-                }
+                Err(_) => return Err(credentials_failure()),
             };
         let secrets = match secrets_from_credential(&credential) {
             Ok(secrets) => secrets,
             Err(_) => {
                 let _ = node.credentials.remove(reference).await;
-                return Ok(Some(AuthenticateSingleServiceResponse {
-                    call_id: None,
-                    result: AuthenticateSingleServiceResult::Failure {
-                        failure: ScrobbleAuthenticationFailure::Other {
-                            detail: "Could not read or store scrobble credentials".into(),
-                        },
-                    },
-                }));
+                return Err(credentials_failure());
             }
         };
 
@@ -204,21 +198,17 @@ impl Signal for AuthenticateSingleServiceRequest {
                 }
                 Ok(Some(AuthenticateSingleServiceResponse {
                     call_id: None,
-                    result: AuthenticateSingleServiceResult::Success {
-                        credential_ref: reference.to_string(),
-                    },
+                    credential_ref: reference.to_string(),
                 }))
             }
             Err(error) => {
                 if matches!(request.secret_input, ScrobbleSecretInput::Password { .. }) {
                     let _ = node.credentials.remove(reference).await;
                 }
-                Ok(Some(AuthenticateSingleServiceResponse {
-                    call_id: None,
-                    result: AuthenticateSingleServiceResult::Failure {
-                        failure: authentication_failure(error, &secrets),
-                    },
-                }))
+                Err(ExpectedRequestError::ScrobbleAuthentication {
+                    failure: authentication_failure(error, &secrets),
+                }
+                .into())
             }
         }
     }

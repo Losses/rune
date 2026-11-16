@@ -270,6 +270,17 @@ pub enum ShotSize {
 }
 
 impl ShotSize {
+    /// The number `struct Shot` gives the scene as `size`.
+    pub fn index(self) -> u32 {
+        match self {
+            Self::Wide => 0,
+            Self::Medium => 1,
+            Self::Close => 2,
+            Self::Detail => 3,
+            Self::Top => 4,
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Self::Wide => "wide",

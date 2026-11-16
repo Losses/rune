@@ -121,6 +121,7 @@ void openCollectionItemContextMenu(
   String title, [
   void Function()? refreshList,
   bool? readonly,
+  Future<List<Mix>> Function() loadMixes = getAllMixes,
 ]) async {
   final targetContext = contextAttachKey.currentContext;
 
@@ -158,7 +159,7 @@ void openCollectionItemContextMenu(
 
   late final List<Mix> mixes;
   try {
-    mixes = await getAllMixes();
+    mixes = await loadMixes();
   } on RequestFailure catch (error) {
     if (context.mounted) {
       await showErrorDialog(

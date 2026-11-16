@@ -1,14 +1,13 @@
-use database::actions::metadata::MissingHostFilePolicy;
-use support::fixtures;
-#[path = "support/causal_library.rs"]
-mod support;
 use anyhow::Result;
+use database::actions::metadata::MissingHostFilePolicy;
+use database::test_fixtures::causal_library as support;
 use database::{
     actions::index::index_audio_library,
     entities::{albums, media_file_albums},
     sync::model::*,
 };
 use sea_orm::{EntityTrait, PaginatorTrait};
+use support::fixtures;
 use support::{SqlLibrary, key};
 use sync::{self as p};
 use uuid::Uuid;
@@ -85,17 +84,24 @@ async fn cleanup_during_partial_sync_does_not_delete_source_album() -> Result<()
         0
     );
     let head = target.peer.head().await?;
-    let actor = target.library.record_store().author().to_string();
+    let actor = target.sync_store.record_store().author().to_string();
     fixtures::cleanup_scan(
         &fsio::FsIo::new(),
         &target.db,
         &actor,
         target.root.path(),
-        &target.library.record_store(),
+        &target.sync_store.record_store(),
         MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
-    index_audio_library(&target.db, &actor, 16, None, &target.library.record_store()).await?;
+    index_audio_library(
+        &target.db,
+        &actor,
+        16,
+        None,
+        &target.sync_store.record_store(),
+    )
+    .await?;
     assert_eq!(target.peer.head().await?, head);
     assert_eq!(albums::Entity::find().count(&target.db).await?, 1);
     support::exchange_scoped(&target.peer, &source.peer, scope.clone()).await?;

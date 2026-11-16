@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../utils/api/request_failure.dart';
 import '../utils/rune_log.dart';
 import 'library_registry.dart';
 import '../bindings/bindings.dart';
@@ -29,7 +30,7 @@ class LibraryOpenStateProvider with ChangeNotifier {
 
   final LibraryRegistryProvider registry;
   late final Future<bool> initialOpen;
-  LibraryRegistryFailure? initialOpenFailure;
+  RequestFailure? initialOpenFailure;
 
   LibraryRecordSummary? get openRecord => registry.openRecord;
   bool get isRemoteControl =>
@@ -76,7 +77,7 @@ class LibraryOpenStateProvider with ChangeNotifier {
         return true;
       }
     } on Object catch (error) {
-      if (error is LibraryRegistryFailure) initialOpenFailure = error;
+      if (error is RequestFailure) initialOpenFailure = error;
       error$('Could not restore the last library: $error');
     }
     return false;

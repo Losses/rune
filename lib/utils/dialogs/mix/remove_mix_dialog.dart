@@ -12,6 +12,7 @@ import '../remove_dialog_on_band.dart';
 
 Future<bool?> showRemoveMixDialog(BuildContext context, int mixId) async {
   final result = await $showModal<bool>(
+    staysUsableWhenShrunk: false,
     context,
     (context, $close) => RemoveMixDialog(mixId: mixId, $close: $close),
     dismissWithEsc: true,

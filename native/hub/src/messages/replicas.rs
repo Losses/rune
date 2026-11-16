@@ -1,7 +1,7 @@
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
-use super::{DeviceConnectionLevel, DeviceSyncLevel, LibraryOpenErrorKind};
+use super::{DeviceConnectionLevel, DeviceSyncLevel};
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct ListPeerLibrariesRequest {
@@ -22,7 +22,6 @@ pub struct PeerLibrary {
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct ListPeerLibrariesResponse {
     pub libraries: Vec<PeerLibrary>,
-    pub error_kind: Option<LibraryOpenErrorKind>,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -41,7 +40,6 @@ pub struct AddRemoteLibraryRequest {
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct AddRemoteLibraryResponse {
     pub record_id: String,
-    pub error: Option<String>,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

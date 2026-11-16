@@ -2,7 +2,7 @@
 use super::{access::materialized_path, content::MANAGED_AUDIO_DIRECTORY};
 use crate::entities::media_files;
 use anyhow::{Result, ensure};
-use fsio::{FileStream, FsIo};
+use fsio::{FileStream, FsIo, OpenMode};
 use sea_orm::{
     ColumnTrait, Condition, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
     sea_query::Expr,
@@ -94,7 +94,7 @@ impl ManagedAudioVerifier {
                 let path = materialized_path(db, fsio, root, row.id)
                     .await?
                     .ok_or_else(|| anyhow::anyhow!("managed audio is missing"))?;
-                Ok::<_, anyhow::Error>(fsio.open(&path, "r")?)
+                Ok::<_, anyhow::Error>(fsio.open(&path, OpenMode::Read)?)
             }
             .await;
             match input {
