@@ -135,12 +135,16 @@ class PlaybackStatusProvider with ChangeNotifier {
     statusSubscription.cancel();
   }
 
+  // Updates that arrive together reach the listeners once, at the start of
+  // the next frame. That frame is asked for here: when nothing else draws, a
+  // post-frame callback would wait, and the page would show the old status
+  // until something else drew.
   void _scheduleNotification() {
     if (!_hasPendingNotification) {
       _hasPendingNotification = true;
-      SchedulerBinding.instance.addPostFrameCallback((_) {
-        notifyListeners();
+      SchedulerBinding.instance.scheduleFrameCallback((_) {
         _hasPendingNotification = false;
+        notifyListeners();
       });
       // A post-frame callback runs only when a frame happens, and an idle
       // window may not draw one.
