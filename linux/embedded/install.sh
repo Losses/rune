@@ -37,7 +37,12 @@ mkdir -p "$INSTALL_DIR"
 cp -r "$SCRIPT_DIR/bin" "$INSTALL_DIR/"
 cp -r "$SCRIPT_DIR/lib" "$INSTALL_DIR/"
 cp -r "$SCRIPT_DIR/data" "$INSTALL_DIR/"
-chmod +x "$INSTALL_DIR/bin/flutter-pi"
+chmod +x "$INSTALL_DIR/bin/flutter-pi" "$INSTALL_DIR/bin/rune-gpu-devfreq"
+
+# The kiosk's settings, kept when they are already there
+if [ ! -f /etc/rune-kiosk.conf ]; then
+    cp "$SCRIPT_DIR/rune-kiosk.conf" /etc/rune-kiosk.conf
+fi
 
 # Install systemd service
 sed -e "s|User=dietpi|User=$TARGET_USER|g" \

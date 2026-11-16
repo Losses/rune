@@ -13,15 +13,17 @@ Environment=XDG_DATA_HOME=/home/dietpi/.local/share
 Environment=LD_PRELOAD=/opt/rune-embedded/lib/libhub.so
 Environment=LD_LIBRARY_PATH=/opt/rune-embedded/lib
 
-# Set GPU governor to performance on start
-ExecStartPre=-/bin/sh -c 'test -w /sys/class/devfreq/fde60000.gpu/governor && echo performance > /sys/class/devfreq/fde60000.gpu/governor'
+# The text box cursor and the GPU governor: see /etc/rune-kiosk.conf.
+EnvironmentFile=-/etc/rune-kiosk.conf
+
+# These run as root ("+"), and the kiosk starts or stops even if they fail ("-").
+ExecStartPre=-+/opt/rune-embedded/bin/rune-gpu-devfreq apply
 
 # Run flutter-pi directly on DRM/KMS
 ExecStart=/opt/rune-embedded/bin/flutter-pi --release /opt/rune-embedded/data
 
-# Restore GPU governor to simple_ondemand on stop
-ExecStopPost=-/bin/sh -c 'test -w /sys/class/devfreq/fde60000.gpu/governor && echo simple_ondemand > /sys/class/devfreq/fde60000.gpu/governor'
-ExecStopPost=-/bin/sh -c 'systemctl --no-block start lightdm.service'
+ExecStopPost=-+/opt/rune-embedded/bin/rune-gpu-devfreq restore
+ExecStopPost=-+/bin/sh -c 'systemctl --no-block start lightdm.service'
 
 Restart=on-failure
 RestartSec=3
