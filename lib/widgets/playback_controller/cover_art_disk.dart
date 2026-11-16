@@ -100,6 +100,27 @@ class CoverArtDiskState extends State<CoverArtDisk>
     return current + diff * t;
   }
 
+  // Below these the disk is where it goes: it stops moving until the music
+  // plays, a drag starts, or where it goes changes.
+  static const double _restAngle = 1e-3;
+  static const double _restOffset = 0.1;
+
+  double _angleDistance(double current, double target) {
+    double diff = (target - current) % (2 * pi);
+    if (diff > pi) diff -= 2 * pi;
+    return diff.abs();
+  }
+
+  bool _atRest(bool playing) {
+    return !playing &&
+        !_isDragging &&
+        _angleDistance(_currentRotation, _targetRotation) < _restAngle &&
+        (_finalOffsetX - (0 - _baseOffsetX + _targetDragOffsetX)).abs() <
+            _restOffset &&
+        (_finalOffsetY - (0 - _baseOffsetY + _targetDragOffsetY)).abs() <
+            _restOffset;
+  }
+
   void _onTick(Duration _) {
     final now = DateTime.now();
     if (_lastUpdateTime != null) {
@@ -107,14 +128,28 @@ class CoverArtDiskState extends State<CoverArtDisk>
         context,
         listen: false,
       ).playbackStatus;
+      final playing = status.state == PlaybackState.playing;
       final elapsed =
           now.difference(_lastUpdateTime!).inMicroseconds /
           Duration.microsecondsPerSecond;
 
-      if (status.state == PlaybackState.playing) {
+      if (playing) {
         // Update target angle
         _targetRotation += radiansPerSecond * elapsed;
         _targetRotation %= (2 * pi);
+      }
+
+      if (_atRest(playing)) {
+        // The ticker restarts from build, which every change that moves the
+        // disk goes through.
+        setState(() {
+          _currentRotation = _targetRotation;
+          _finalOffsetX = 0 - _baseOffsetX + _targetDragOffsetX;
+          _finalOffsetY = 0 - _baseOffsetY + _targetDragOffsetY;
+        });
+        _ticker.stop();
+        _lastUpdateTime = null;
+        return;
       }
 
       setState(() {
@@ -367,6 +402,10 @@ class CoverArtDiskState extends State<CoverArtDisk>
         : notReady || _isSwitching
         ? screen.height / 2 + size * 1.2
         : (screen.height / 2) + screen.height / 6;
+
+    if (!_ticker.isTicking && !_atRest(status.state == PlaybackState.playing)) {
+      _ticker.start();
+    }
 
     const radius = 512;
 
