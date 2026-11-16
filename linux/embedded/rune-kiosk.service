@@ -2,6 +2,11 @@
 Description=Rune Player DRM/KMS Kiosk
 After=network.target sound.target lightdm.service seatd.service
 Conflicts=lightdm.service
+# A kiosk that keeps crashing gives the screen back to the desktop: after five
+# starts within a minute, the next restart fails the unit.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+OnFailure=lightdm.service
 
 [Service]
 Type=simple
@@ -23,7 +28,8 @@ ExecStartPre=-+/opt/rune-embedded/bin/rune-gpu-devfreq apply
 ExecStart=/opt/rune-embedded/bin/flutter-pi --release /opt/rune-embedded/data
 
 ExecStopPost=-+/opt/rune-embedded/bin/rune-gpu-devfreq restore
-ExecStopPost=-+/bin/sh -c 'systemctl --no-block start lightdm.service'
+# Back to the desktop unless the kiosk is restarting: see rune-kiosk-desktop.
+ExecStopPost=-+/opt/rune-embedded/bin/rune-kiosk-desktop %n lightdm.service
 
 Restart=on-failure
 RestartSec=3
