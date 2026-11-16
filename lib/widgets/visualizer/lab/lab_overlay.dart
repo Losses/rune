@@ -16,6 +16,7 @@ import '../../../utils/kept_clear.dart';
 import '../../playback_controller/constants/playback_controller_height.dart';
 import '../../capability_gate.dart';
 import '../visualizer_controller.dart';
+import '../visualizer_dark_theme.dart';
 
 import 'lab_cards.dart';
 import 'lab_data.dart';
@@ -198,12 +199,7 @@ class _LabBodyState extends State<LabBody> with WidgetsBindingObserver {
   FluentThemeData _darkTheme(FluentThemeData theme) {
     if (!identical(_darkFor, theme)) {
       _darkFor = theme;
-      _dark = FluentThemeData(
-        brightness: Brightness.dark,
-        accentColor: theme.accentColor,
-        visualDensity: theme.visualDensity,
-        fontFamily: theme.typography.body?.fontFamily,
-      );
+      _dark = darkVariantOf(theme);
     }
     return _dark!;
   }

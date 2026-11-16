@@ -18,6 +18,7 @@ import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import 'package:system_tray/system_tray.dart';
 
 import 'l10n/app_localizations.dart';
+import 'utils/blink_cursor_option.dart';
 import 'utils/l10n.dart';
 import 'utils/api/close_library.dart';
 import 'utils/api/request_failure.dart';
@@ -159,6 +160,11 @@ void main(List<String> arguments) async {
   }
   // Scene files the app was opened with, or is asked to open later.
   SceneFiles.start(arguments);
+
+  appTheme.cursorBlinks = cursorBlinksAtLaunch(
+    arguments,
+    kIsWeb ? const {} : Platform.environment,
+  );
 
   String? profile = arguments.contains('--profile')
       ? arguments[arguments.indexOf('--profile') + 1]
@@ -534,16 +540,13 @@ class _RuneState extends State<Rune> {
           debugShowCheckedModeBanner: false,
           color: appTheme.color,
           themeMode: appTheme.mode,
-          theme: FluentThemeData(
+          theme: appTheme.themeData(
+            Brightness.light,
             fontFamily: getWindowsFont(appTheme),
-            accentColor: appTheme.color,
-            visualDensity: VisualDensity.standard,
           ),
-          darkTheme: FluentThemeData(
+          darkTheme: appTheme.themeData(
+            Brightness.dark,
             fontFamily: getWindowsFont(appTheme),
-            brightness: Brightness.dark,
-            accentColor: appTheme.color,
-            visualDensity: VisualDensity.standard,
           ),
           locale: appTheme.locale,
           localizationsDelegates: AppLocalizations.localizationsDelegates,

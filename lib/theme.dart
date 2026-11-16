@@ -6,6 +6,7 @@ import 'package:system_theme/system_theme.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:material_color_utilities/material_color_utilities.dart';
 
+import 'utils/blink_cursor_option.dart';
 import 'utils/color_brightness.dart';
 import 'utils/rune_log.dart';
 
@@ -57,6 +58,21 @@ class AppTheme extends ChangeNotifier {
   }
 
   final PaneDisplayMode displayMode = PaneDisplayMode.top;
+
+  /// Whether text box cursors blink on a timer instead of fading, as the app
+  /// was launched (see [cursorBlinksAtLaunch]).
+  bool cursorBlinks = false;
+
+  /// The app's theme for [brightness].
+  FluentThemeData themeData(Brightness brightness, {String? fontFamily}) {
+    return FluentThemeData(
+      fontFamily: fontFamily,
+      brightness: brightness,
+      accentColor: color,
+      visualDensity: VisualDensity.standard,
+      cursorOpacityAnimates: !cursorBlinks,
+    );
+  }
 
   WindowEffect windowEffect =
       (Platform.isLinux || Platform.isAndroid || Platform.isIOS)

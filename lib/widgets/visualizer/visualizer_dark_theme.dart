@@ -3,6 +3,17 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../providers/visualizer_scenes.dart';
 
+/// The dark variant of [theme], with its accent, density, font and cursor.
+FluentThemeData darkVariantOf(FluentThemeData theme) {
+  return FluentThemeData(
+    brightness: Brightness.dark,
+    accentColor: theme.accentColor,
+    visualDensity: theme.visualDensity,
+    fontFamily: theme.typography.body?.fontFamily,
+    cursorOpacityAnimates: theme.cursorOpacityAnimates,
+  );
+}
+
 /// Scenes draw on black, so while the cover wall shows one, [child] uses the
 /// dark variant of the app theme even in light mode: dark overlays and light
 /// text stay readable over the picture.
@@ -28,16 +39,6 @@ class VisualizerDarkTheme extends StatelessWidget {
 
     // Always under a theme of its own, so that switching to the dark one does
     // not rebuild [child] from scratch (which would restart the visualizer).
-    return FluentTheme(
-      data: dark
-          ? FluentThemeData(
-              brightness: Brightness.dark,
-              accentColor: theme.accentColor,
-              visualDensity: theme.visualDensity,
-              fontFamily: theme.typography.body?.fontFamily,
-            )
-          : theme,
-      child: child,
-    );
+    return FluentTheme(data: dark ? darkVariantOf(theme) : theme, child: child);
   }
 }
