@@ -24,8 +24,9 @@ EnvironmentFile=-/etc/rune-kiosk.conf
 # These run as root ("+"), and the kiosk starts or stops even if they fail ("-").
 ExecStartPre=-+/opt/rune-embedded/bin/rune-gpu-devfreq apply
 
-# Run flutter-pi directly on DRM/KMS
-ExecStart=/opt/rune-embedded/bin/flutter-pi --release /opt/rune-embedded/data
+# Run flutter-pi directly on DRM/KMS. --partial-repaint redraws only what
+# changed each frame; without EGL_EXT_buffer_age flutter-pi draws everything.
+ExecStart=/opt/rune-embedded/bin/flutter-pi --partial-repaint --release /opt/rune-embedded/data
 
 ExecStopPost=-+/opt/rune-embedded/bin/rune-gpu-devfreq restore
 # Back to the desktop unless the kiosk is restarting: see rune-kiosk-desktop.

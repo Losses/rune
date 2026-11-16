@@ -167,6 +167,9 @@ git -C "$WORK_DIR/flutter-pi" checkout --quiet "$FLUTTER_PI_REV"
 # with -rdynamic, which exports that API to the app.
 cp "$ROOT_DIR/linux/embedded/desktop_stubs.c" "$WORK_DIR/flutter-pi/src/plugins/desktop_stubs.c"
 git -C "$WORK_DIR/flutter-pi" apply "$ROOT_DIR/linux/embedded/flutter-pi.patch"
+# --partial-repaint: Flutter draws only what changed since the buffer it draws
+# into was last shown, instead of the whole screen every frame.
+git -C "$WORK_DIR/flutter-pi" apply "$ROOT_DIR/linux/embedded/flutter-pi-partial-repaint.patch"
 
 CMAKE_FLAGS=(-DCMAKE_BUILD_TYPE=Release -DENABLE_TESTS=OFF)
 if [ "$IS_CROSS" = true ]; then
