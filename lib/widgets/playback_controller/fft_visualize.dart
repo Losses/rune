@@ -185,7 +185,6 @@ class FFTVisualizeState extends State<FFTVisualize>
   @override
   Widget build(BuildContext context) {
     final color = FluentTheme.of(context).accentColor;
-    final resolution = MediaQuery.devicePixelRatioOf(context);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -196,9 +195,7 @@ class FFTVisualizeState extends State<FFTVisualize>
           alignment: widget.alignment,
           child: SizedBox(
             height: parentHeight * 2,
-            child: CustomPaint(
-              painter: FFTPainter(_bars, color, _glow, resolution: resolution),
-            ),
+            child: CustomPaint(painter: FFTPainter(_bars, color, _glow)),
           ),
         );
       },
@@ -244,15 +241,15 @@ class _WindowVisibilityObserver extends WidgetsBindingObserver {
 /// the glow reaches, so a quiet spectrum repaints a low strip.
 ///
 /// The shader draws into an image of the area, which is then drawn over it
-/// scaled: at the screen's own resolution that is the same picture, and an
-/// image of fewer pixels spares the GPU. A blur of 12 leaves no detail finer
-/// than a few pixels, so at a third of the screen's resolution the shader works
-/// out a ninth of the pixels and no pixel moves by more than 2 levels of 255
-/// (lib/test/widgets/spectrum_glow_test.dart). On a Radxa ZERO 3 at its 400
-/// MHz GPU floor, the glow at the full resolution made the GPU miss about one
-/// frame a second while music played, and at a third none.
+/// scaled up. A blur of 12 leaves no detail finer than a few pixels, so the
+/// image has [resolution] pixels for each logical pixel, 4 for each deviation:
+/// a third, on every screen. The shader then works out a ninth of the pixels,
+/// and no pixel moves by more than 2 levels of 255 from the glow at the full
+/// resolution (lib/test/widgets/spectrum_glow_test.dart). On a Radxa ZERO 3 at
+/// its 400 MHz GPU floor, the glow at the full resolution made the GPU miss
+/// about one frame a second while music played, and at a third none.
 class SpectrumGlow {
-  SpectrumGlow(this._shader);
+  SpectrumGlow(this._shader, {this.resolution = 4 / blurSigma});
 
   static const double blurSigma = 12.0;
   static const double glowOpacity = 0.87;
@@ -263,6 +260,9 @@ class SpectrumGlow {
 
   final ui.FragmentShader _shader;
 
+  /// The pixels of the glow's image for each logical pixel.
+  final double resolution;
+
   /// The image the last frame drew, kept until the next one replaces it.
   ui.Image? _lastImage;
 
@@ -272,15 +272,8 @@ class SpectrumGlow {
       ? null
       : Size(_lastImage!.width.toDouble(), _lastImage!.height.toDouble());
 
-  /// Draws the glow of [values] over [size], worked out in an image of
-  /// [resolution] pixels for each logical pixel.
-  void paint(
-    Canvas canvas,
-    Size size,
-    List<double> values,
-    Color color, {
-    required double resolution,
-  }) {
+  /// Draws the glow of [values] over [size].
+  void paint(Canvas canvas, Size size, List<double> values, Color color) {
     if (values.isEmpty) return;
 
     final barWidth = size.width / values.length;
@@ -306,8 +299,8 @@ class SpectrumGlow {
     if (tallest == 0) return;
 
     // The image covers the area the blur filter drew into, grown to whole
-    // pixels of the image, so that at the screen's own resolution its pixels
-    // are the screen's.
+    // pixels of the image, so that at a resolution of 1 on a screen of 1 pixel
+    // for each logical pixel, its pixels are the screen's.
     final reach = 3 * blurSigma;
     final left = ((-barWidth / 2 - reach) * resolution).floor();
     final top = ((middle - tallest - reach) * resolution).floor();
@@ -349,8 +342,7 @@ class SpectrumGlow {
 }
 
 class FFTPainter extends CustomPainter {
-  FFTPainter(this.bars, this.color, this.glow, {required this.resolution})
-    : super(repaint: bars);
+  FFTPainter(this.bars, this.color, this.glow) : super(repaint: bars);
 
   final FFTBars bars;
   final Color color;
@@ -358,18 +350,13 @@ class FFTPainter extends CustomPainter {
   /// The glow, or null while its shader loads.
   final SpectrumGlow? glow;
 
-  /// The pixels of the glow's image for each logical pixel (see
-  /// SpectrumGlow.paint).
-  final double resolution;
-
   @override
   void paint(Canvas canvas, Size size) =>
-      glow?.paint(canvas, size, bars.values, color, resolution: resolution);
+      glow?.paint(canvas, size, bars.values, color);
 
   @override
   bool shouldRepaint(FFTPainter oldDelegate) =>
       oldDelegate.bars != bars ||
       oldDelegate.color != color ||
-      oldDelegate.glow != glow ||
-      oldDelegate.resolution != resolution;
+      oldDelegate.glow != glow;
 }

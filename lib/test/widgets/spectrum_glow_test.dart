@@ -108,7 +108,7 @@ void main() {
       () => ui.FragmentProgram.fromAsset('lib/shaders/spectrum.frag'),
     ))!;
     final glow = SpectrumGlow(program.fragmentShader());
-    final fullGlow = SpectrumGlow(program.fragmentShader());
+    final fullGlow = SpectrumGlow(program.fragmentShader(), resolution: 1);
     addTearDown(glow.dispose);
     addTearDown(fullGlow.dispose);
     final results = <String, _Difference>{};
@@ -137,22 +137,12 @@ void main() {
       final drawn = await _pixels(tester, before);
 
       await tester.pumpWidget(
-        _framed(
-          after,
-          CustomPaint(
-            painter: FFTPainter(bars, _color, glow, resolution: 1 / 3),
-          ),
-        ),
+        _framed(after, CustomPaint(painter: FFTPainter(bars, _color, glow))),
       );
       final drawing = await _pixels(tester, after);
 
       await tester.pumpWidget(
-        _framed(
-          full,
-          CustomPaint(
-            painter: FFTPainter(bars, _color, fullGlow, resolution: 1),
-          ),
-        ),
+        _framed(full, CustomPaint(painter: FFTPainter(bars, _color, fullGlow))),
       );
       final fullDrawing = await _pixels(tester, full);
 
@@ -174,8 +164,8 @@ void main() {
       isTrue,
       reason: '$results',
     );
-    // Working the glow out at a third of the resolution and scaling it back
-    // up moves no pixel by more than 2 levels, which the image's rounding to
+    // Working the glow out at a third of the resolution, as the app does, and
+    // scaling it back up moves no pixel by more than 2 levels, which the image's rounding to
     // whole levels before and after the scaling accounts for (few pixels move
     // by 2: under 0.02% over 16 spectra, the bars a fraction of a pixel off or
     // not). Drawing the small image a pixel and a half off, or scaling it up
@@ -187,13 +177,13 @@ void main() {
     );
   });
 
-  testWidgets('the glow is worked out in an image of the bars\' area at the '
-      'resolution it is drawn at', (tester) async {
+  testWidgets('the glow is worked out in an image of the bars\' area at its '
+      'resolution, a third of a pixel for each logical pixel unless told', (
+    tester,
+  ) async {
     final program = (await tester.runAsync(
       () => ui.FragmentProgram.fromAsset('lib/shaders/spectrum.frag'),
     ))!;
-    final glow = SpectrumGlow(program.fragmentShader());
-    addTearDown(glow.dispose);
     final bars = FFTBars()..values = cases['a lone bar']!;
     addTearDown(bars.dispose);
 
@@ -202,22 +192,25 @@ void main() {
     // 36: from -41 to 671 across and from -4 to 164 down, 712 by 168. At a
     // third it is grown to whole pixels of the image, from -42 to 672 and
     // from -6 to 165: 238 by 57.
-    final sizes = <double, Size?>{};
-    for (final resolution in [2.0, 1.0, 1 / 3]) {
+    final sizes = <String, Size?>{};
+    for (final (name, glow) in [
+      ('2', SpectrumGlow(program.fragmentShader(), resolution: 2)),
+      ('1', SpectrumGlow(program.fragmentShader(), resolution: 1)),
+      ('default', SpectrumGlow(program.fragmentShader())),
+    ]) {
+      addTearDown(glow.dispose);
       await tester.pumpWidget(
         _framed(
-          Key('$resolution'),
-          CustomPaint(
-            painter: FFTPainter(bars, _color, glow, resolution: resolution),
-          ),
+          Key(name),
+          CustomPaint(painter: FFTPainter(bars, _color, glow)),
         ),
       );
-      sizes[resolution] = glow.lastImageSize;
+      sizes[name] = glow.lastImageSize;
     }
     expect(sizes, {
-      2.0: const Size(1424, 336),
-      1.0: const Size(712, 168),
-      1 / 3: const Size(238, 57),
+      '2': const Size(1424, 336),
+      '1': const Size(712, 168),
+      'default': const Size(238, 57),
     });
   });
 }
