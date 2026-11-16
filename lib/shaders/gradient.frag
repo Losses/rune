@@ -17,21 +17,50 @@ uniform vec3 u_color2;
 
 uniform float u_is_dark;
 
+// The cosine and sine of the two hue shifts, which are the same for every
+// pixel: the slow sway (sin(u_time) * MPI / 30) and the final shift by
+// u_params.z degrees.
+uniform vec2 u_hue_sway;
+uniform vec2 u_hue_turn;
+
+// The gradients of the Perlin noise at the corners of the lattice cells the
+// window covers. The noise is read at (scale_uv, u_time); scale_uv stays
+// within (-1, 1) while u_params2.y (the scale) is below 2, so x and y lie in
+// the cells from -1 to 1, and the time is the same for every pixel. The app
+// computes the gradients of the 3 x 3 corners (x and y from -1 to 1) at
+// floor(u_time) (u_lattice0_*) and the next integer (u_lattice1_*), normalized,
+// with the hash this shader used to compute for every pixel. The names give
+// x then y: m is -1, o is 0, p is 1.
+uniform vec3 u_lattice0_mm;
+uniform vec3 u_lattice0_om;
+uniform vec3 u_lattice0_pm;
+uniform vec3 u_lattice0_mo;
+uniform vec3 u_lattice0_oo;
+uniform vec3 u_lattice0_po;
+uniform vec3 u_lattice0_mp;
+uniform vec3 u_lattice0_op;
+uniform vec3 u_lattice0_pp;
+uniform vec3 u_lattice1_mm;
+uniform vec3 u_lattice1_om;
+uniform vec3 u_lattice1_pm;
+uniform vec3 u_lattice1_mo;
+uniform vec3 u_lattice1_oo;
+uniform vec3 u_lattice1_po;
+uniform vec3 u_lattice1_mp;
+uniform vec3 u_lattice1_op;
+uniform vec3 u_lattice1_pp;
+
 const float MPI = 6.28318530718;
-
-const float PI = 3.14159265358979323846;
-
-float degreesToRadians(float degrees) {
-    return degrees * (PI / 180.0);
-}
 
 // cos mix
 vec3 palette(in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d, in float e) {
     return a + b * cos(6.28318 * (c * t + d)) * e;
 }
 
-// hue shift
-vec3 hueShift(vec3 color, float hueAdjust) {
+// hue shift: turns the chroma of the color in YIQ by the angle whose cosine
+// and sine are cs. This is the hue + angle of the polar form, without its
+// atan and sqrt.
+vec3 hueShift(vec3 color, vec2 cs) {
     const vec3 kRGBToYPrime = vec3(0.299, 0.587, 0.114);
     const vec3 kRGBToI = vec3(0.596, -0.275, -0.321);
     const vec3 kRGBToQ = vec3(0.212, -0.523, 0.311);
@@ -41,15 +70,11 @@ vec3 hueShift(vec3 color, float hueAdjust) {
     const vec3 kYIQToB = vec3(1.0, -1.107, 1.704);
 
     float YPrime = dot(color, kRGBToYPrime);
-    float I = dot(color, kRGBToI);
-    float Q = dot(color, kRGBToQ);
-    float hue = atan(Q, I);
-    float chroma = sqrt(I * I + Q * Q);
+    float I0 = dot(color, kRGBToI);
+    float Q0 = dot(color, kRGBToQ);
 
-    hue += hueAdjust;
-
-    Q = chroma * sin(hue);
-    I = chroma * cos(hue);
+    float I = I0 * cs.x - Q0 * cs.y;
+    float Q = I0 * cs.y + Q0 * cs.x;
 
     vec3 yIQ = vec3(YPrime, I, Q);
 
@@ -57,61 +82,30 @@ vec3 hueShift(vec3 color, float hueAdjust) {
 }
 
 // noise
-vec4 permute(vec4 x) { return mod(((x * 34.0) + 1.0) * x, 289.0); }
-vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
 vec3 fade(vec3 t) { return t * t * t * (t * (t * 6.0 - 15.0) + 10.0); }
 
-float cnoise(vec3 P) {
-    vec3 Pi0 = floor(P);
-    vec3 Pi1 = Pi0 + vec3(1.0);
-    Pi0 = mod(Pi0, 289.0);
-    Pi1 = mod(Pi1, 289.0);
-    vec3 Pf0 = fract(P);
+// The gradient at corner (x, y) of the cell whose lower corner is at
+// (cell.x - 1, cell.y - 1), cell being 0 or 1 on each side: the corner one of
+// a, b, c and d (x and y from the cell's lower corner, then up).
+vec3 corner(vec2 cell, vec3 a, vec3 b, vec3 c, vec3 d) {
+    return mix(mix(a, b, cell.x), mix(c, d, cell.x), cell.y);
+}
+
+// Classic Perlin noise at (P, t), with the corner gradients from the lattice
+// uniforms.
+float cnoise(vec2 P, float t) {
+    vec3 Pf0 = vec3(fract(P), fract(t));
     vec3 Pf1 = Pf0 - vec3(1.0);
-    vec4 ix = vec4(Pi0.x, Pi1.x, Pi0.x, Pi1.x);
-    vec4 iy = vec4(Pi0.yy, Pi1.yy);
-    vec4 iz0 = Pi0.zzzz;
-    vec4 iz1 = Pi1.zzzz;
+    vec2 cell = floor(P) + vec2(1.0);
 
-    vec4 ixy = permute(permute(ix) + iy);
-    vec4 ixy0 = permute(ixy + iz0);
-    vec4 ixy1 = permute(ixy + iz1);
-
-    vec4 gx0 = ixy0 / 7.0;
-    vec4 gy0 = fract(floor(gx0) / 7.0) - 0.5;
-    gx0 = fract(gx0);
-    vec4 gz0 = vec4(0.5) - abs(gx0) - abs(gy0);
-    vec4 sz0 = step(gz0, vec4(0.0));
-    gx0 -= sz0 * (step(0.0, gx0) - 0.5);
-    gy0 -= sz0 * (step(0.0, gy0) - 0.5);
-
-    vec4 gx1 = ixy1 / 7.0;
-    vec4 gy1 = fract(floor(gx1) / 7.0) - 0.5;
-    gx1 = fract(gx1);
-    vec4 gz1 = vec4(0.5) - abs(gx1) - abs(gy1);
-    vec4 sz1 = step(gz1, vec4(0.0));
-    gx1 -= sz1 * (step(0.0, gx1) - 0.5);
-    gy1 -= sz1 * (step(0.0, gy1) - 0.5);
-
-    vec3 g000 = vec3(gx0.x, gy0.x, gz0.x);
-    vec3 g100 = vec3(gx0.y, gy0.y, gz0.y);
-    vec3 g010 = vec3(gx0.z, gy0.z, gz0.z);
-    vec3 g110 = vec3(gx0.w, gy0.w, gz0.w);
-    vec3 g001 = vec3(gx1.x, gy1.x, gz1.x);
-    vec3 g101 = vec3(gx1.y, gy1.y, gz1.y);
-    vec3 g011 = vec3(gx1.z, gy1.z, gz1.z);
-    vec3 g111 = vec3(gx1.w, gy1.w, gz1.w);
-
-    vec4 norm0 = taylorInvSqrt(vec4(dot(g000, g000), dot(g010, g010), dot(g100, g100), dot(g110, g110)));
-    g000 *= norm0.x;
-    g010 *= norm0.y;
-    g100 *= norm0.z;
-    g110 *= norm0.w;
-    vec4 norm1 = taylorInvSqrt(vec4(dot(g001, g001), dot(g011, g011), dot(g101, g101), dot(g111, g111)));
-    g001 *= norm1.x;
-    g011 *= norm1.y;
-    g101 *= norm1.z;
-    g111 *= norm1.w;
+    vec3 g000 = corner(cell, u_lattice0_mm, u_lattice0_om, u_lattice0_mo, u_lattice0_oo);
+    vec3 g100 = corner(cell, u_lattice0_om, u_lattice0_pm, u_lattice0_oo, u_lattice0_po);
+    vec3 g010 = corner(cell, u_lattice0_mo, u_lattice0_oo, u_lattice0_mp, u_lattice0_op);
+    vec3 g110 = corner(cell, u_lattice0_oo, u_lattice0_po, u_lattice0_op, u_lattice0_pp);
+    vec3 g001 = corner(cell, u_lattice1_mm, u_lattice1_om, u_lattice1_mo, u_lattice1_oo);
+    vec3 g101 = corner(cell, u_lattice1_om, u_lattice1_pm, u_lattice1_oo, u_lattice1_po);
+    vec3 g011 = corner(cell, u_lattice1_mo, u_lattice1_oo, u_lattice1_mp, u_lattice1_op);
+    vec3 g111 = corner(cell, u_lattice1_oo, u_lattice1_po, u_lattice1_op, u_lattice1_pp);
 
     float n000 = dot(g000, Pf0);
     float n100 = dot(g100, vec3(Pf1.x, Pf0.yz));
@@ -154,7 +148,7 @@ void main() {
     scale_uv *= SCALE;
 
     // noise
-    float noise = cnoise(vec3(scale_uv, u_time)) * NOISE_FACTOR;
+    float noise = cnoise(scale_uv, u_time) * NOISE_FACTOR;
 
     // mouse
     float c_d = distance(scale_uv.x, .5);
@@ -178,7 +172,7 @@ void main() {
     );
 
     if (u_is_dark > .5) {
-        vec3 shift_col = hueShift(col, sin(u_time) * MPI / 30.);
+        vec3 shift_col = hueShift(col, u_hue_sway);
 
         col = mix(
             col, 
@@ -187,7 +181,7 @@ void main() {
         );
 
         // // final shift
-        col = hueShift(col, degreesToRadians(HUE));
+        col = hueShift(col, u_hue_turn);
         col *= BRIGHTNESS;
 
         float bw_col = (col.r + col.g + col.b) * .3;
