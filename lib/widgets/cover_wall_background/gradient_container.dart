@@ -13,12 +13,11 @@ const double _hue = 180.0;
 // The shader's 2 pi, for the sway of the hue.
 const double _shaderTau = 6.28318530718;
 
-/// Sets the uniforms of lib/shaders/gradient.frag for one drawing of [image],
+/// Sets the uniforms of lib/shaders/gradient_field.frag for one drawing
 /// [size] large, at [time], with the pointer at [mouse] in the drawing's
 /// coordinates. [lattice] keeps the noise gradients between drawings.
 void setGradientUniforms(
   ui.FragmentShader shader, {
-  required ui.Image image,
   required Size size,
   required double time,
   required Offset mouse,
@@ -30,7 +29,6 @@ void setGradientUniforms(
   required NoiseLattice lattice,
 }) {
   shader
-    ..setImageSampler(0, image)
     // resolution
     ..setFloat(0, size.width)
     ..setFloat(1, size.height)
@@ -85,6 +83,112 @@ void setGradientUniforms(
   }
 }
 
+/// Draws the cover wall: the covers in grey, tinted by a field of slowly
+/// moving colour.
+///
+/// The colour field (lib/shaders/gradient_field.frag) is laid out in the
+/// wall's own coordinates and changes over a large part of it, whatever its
+/// size. So it is worked out on a grid at most [fieldSize] pixels along the
+/// wall's longer side, into an image that lib/shaders/gradient.frag scales
+/// back up and lays over the covers, which keep their full resolution. On a
+/// grid of 320 no pixel moves by more than a level of 255, from 21:9 to a phone
+/// held upright (lib/test/widgets/gradient_shader_test.dart), so every platform
+/// draws it so: the GPU works the field out for at most 321 by 321 pixels
+/// instead of every pixel of the wall.
+class CoverWallGradient {
+  CoverWallGradient(this._field, this._composite, {this.fieldSize = 320});
+
+  static Future<CoverWallGradient> load() async {
+    final (field, composite) = await (
+      ui.FragmentProgram.fromAsset('lib/shaders/gradient_field.frag'),
+      ui.FragmentProgram.fromAsset('lib/shaders/gradient.frag'),
+    ).wait;
+    return CoverWallGradient(
+      field.fragmentShader(),
+      composite.fragmentShader(),
+    );
+  }
+
+  final ui.FragmentShader _field;
+  final ui.FragmentShader _composite;
+  final int fieldSize;
+
+  /// The field the last frame drew, kept until the next one replaces it.
+  ui.Image? _lastField;
+
+  /// Draws [covers] over [size] at [time], with the pointer at [mouse].
+  void paint(
+    Canvas canvas,
+    Size size,
+    ui.Image covers, {
+    required double time,
+    required Offset mouse,
+    required GradientParams gradientParams,
+    required EffectParams effectParams,
+    required Color color,
+    required Color color2,
+    required bool isDark,
+    required NoiseLattice lattice,
+  }) {
+    setGradientUniforms(
+      _field,
+      size: size,
+      time: time,
+      mouse: mouse,
+      gradientParams: gradientParams,
+      effectParams: effectParams,
+      color: color,
+      color2: color2,
+      isDark: isDark,
+      lattice: lattice,
+    );
+    // The field shader reads the coordinates before the scaling and moving, so
+    // pixel i of the small image is the field at i grid cells. The first and
+    // the last pixels sit on the edges of the drawing and beyond, so that
+    // every point of the drawing lies between pixels and is interpolated, and
+    // the field covers the whole image, so no pixel is partly transparent.
+    final cell = max(1.0, max(size.width, size.height) / fieldSize);
+    final width = (size.width / cell).ceil() + 1;
+    final height = (size.height / cell).ceil() + 1;
+    final recorder = ui.PictureRecorder();
+    Canvas(recorder)
+      ..scale(1 / cell)
+      ..translate(cell / 2, cell / 2)
+      ..drawRect(
+        Rect.fromLTWH(-cell / 2, -cell / 2, width * cell, height * cell),
+        Paint()..shader = _field,
+      );
+    final picture = recorder.endRecording();
+    final field = picture.toImageSync(width, height);
+    picture.dispose();
+
+    _composite
+      // resolution
+      ..setFloat(0, size.width)
+      ..setFloat(1, size.height)
+      // u_field_scale
+      ..setFloat(2, size.width / (width * cell))
+      ..setFloat(3, size.height / (height * cell))
+      // u_field_offset
+      ..setFloat(4, 0.5 / width)
+      ..setFloat(5, 0.5 / height)
+      // u_is_dark
+      ..setFloat(6, isDark ? 1 : 0)
+      ..setImageSampler(0, covers)
+      ..setImageSampler(1, field, filterQuality: FilterQuality.low);
+    canvas.drawRect(Offset.zero & size, Paint()..shader = _composite);
+
+    _lastField?.dispose();
+    _lastField = field;
+  }
+
+  void dispose() {
+    _lastField?.dispose();
+    _field.dispose();
+    _composite.dispose();
+  }
+}
+
 class GradientParams {
   final double multX;
   final double multY;
@@ -133,7 +237,7 @@ class GradientContainer extends StatefulWidget {
 
 class GradientContainerState extends State<GradientContainer>
     with SingleTickerProviderStateMixin {
-  late final Future<(ui.FragmentProgram, ui.FragmentShader)> _shaderProgram;
+  late final Future<CoverWallGradient> _gradient;
 
   // The gradient moves every frame, and the pointer moves it too. Both reach
   // the shader through these notifiers, which draw the shader layer again
@@ -154,9 +258,13 @@ class GradientContainerState extends State<GradientContainer>
   @override
   void initState() {
     super.initState();
-    _shaderProgram = _loadShader();
-    _shaderProgram.then((_) {
-      if (mounted) _ticker.start();
+    _gradient = CoverWallGradient.load();
+    _gradient.then((gradient) {
+      if (mounted) {
+        _ticker.start();
+      } else {
+        gradient.dispose();
+      }
     }, onError: (_) {});
 
     // Listen to mouse position updates
@@ -166,19 +274,6 @@ class GradientContainerState extends State<GradientContainer>
   void _onTick(Duration elapsed) {
     // A tenth of a unit each second.
     _time.value = elapsed.inMicroseconds / Duration.microsecondsPerSecond / 10;
-  }
-
-  Future<(ui.FragmentProgram, ui.FragmentShader)> _loadShader() async {
-    try {
-      final fragmentProgram = await ui.FragmentProgram.fromAsset(
-        'lib/shaders/gradient.frag',
-      );
-      final fragmentShader = fragmentProgram.fragmentShader();
-
-      return (fragmentProgram, fragmentShader);
-    } catch (e) {
-      rethrow;
-    }
   }
 
   void _updateMousePosition(PointerEvent event) {
@@ -193,13 +288,14 @@ class GradientContainerState extends State<GradientContainer>
     );
     _time.dispose();
     _globalMousePosition.dispose();
+    _gradient.then((gradient) => gradient.dispose(), onError: (_) {});
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<(ui.FragmentProgram, ui.FragmentShader)>(
-      future: _shaderProgram,
+    return FutureBuilder<CoverWallGradient>(
+      future: _gradient,
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
           return widget.child;
@@ -210,8 +306,7 @@ class GradientContainerState extends State<GradientContainer>
         // NoiseLattice).
         assert(widget.effectParams.scale < 2);
 
-        final shader = snapshot.data!;
-        final fragmentShader = shader.$2;
+        final gradient = snapshot.data!;
 
         return ShaderSampler(
           (ui.Image image, Size size, Canvas canvas) {
@@ -222,10 +317,10 @@ class GradientContainerState extends State<GradientContainer>
                 globalMousePosition != null && renderBox != null
                 ? renderBox.globalToLocal(globalMousePosition)
                 : Offset.zero;
-            setGradientUniforms(
-              fragmentShader,
-              image: image,
-              size: size,
+            gradient.paint(
+              canvas,
+              size,
+              image,
               time: _time.value,
               mouse: mousePosition,
               gradientParams: widget.gradientParams,
@@ -234,11 +329,6 @@ class GradientContainerState extends State<GradientContainer>
               color2: widget.color2,
               isDark: isDark,
               lattice: _lattice,
-            );
-
-            canvas.drawRect(
-              Offset.zero & size,
-              Paint()..shader = fragmentShader,
             );
           },
           repaint: _shaderInputs,

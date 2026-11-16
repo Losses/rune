@@ -134,6 +134,7 @@ flutter:
 
   shaders:
     - lib/shaders/gradient.frag
+    - lib/shaders/gradient_field.frag
     - lib/shaders/lens_flare.frag
     - lib/shaders/spectrum.frag
 

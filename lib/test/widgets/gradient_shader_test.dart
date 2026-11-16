@@ -1,3 +1,5 @@
+import 'dart:math';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -207,41 +209,97 @@ Future<ui.Image> _covers() {
   return recorder.endRecording().toImage(_width, _height);
 }
 
+/// The gradient on a grid of [fieldSize] pixels, or the app's without one.
+Future<CoverWallGradient> _gradient({int? fieldSize}) async {
+  final field = await ui.FragmentProgram.fromAsset(
+    'lib/shaders/gradient_field.frag',
+  );
+  final composite = await ui.FragmentProgram.fromAsset(
+    'lib/shaders/gradient.frag',
+  );
+  return fieldSize == null
+      ? CoverWallGradient(field.fragmentShader(), composite.fragmentShader())
+      : CoverWallGradient(
+          field.fragmentShader(),
+          composite.fragmentShader(),
+          fieldSize: fieldSize,
+        );
+}
+
+Future<Uint8List> _draw(
+  CoverWallGradient gradient,
+  ui.Image covers,
+  Size size, {
+  required double time,
+  required Offset mouse,
+  required bool isDark,
+  required NoiseLattice lattice,
+}) async {
+  final recorder = ui.PictureRecorder();
+  gradient.paint(
+    Canvas(recorder),
+    size,
+    covers,
+    time: time,
+    mouse: mouse,
+    gradientParams: gradientParams,
+    effectParams: effectParams,
+    color: _color,
+    color2: _color2,
+    isDark: isDark,
+    lattice: lattice,
+  );
+  final image = await recorder.endRecording().toImage(
+    size.width.toInt(),
+    size.height.toInt(),
+  );
+  return (await image.toByteData(
+    format: ui.ImageByteFormat.rawRgba,
+  ))!.buffer.asUint8List();
+}
+
+/// Squares of every brightness, white among them, at the size of a screen.
+Future<ui.Image> _screenOfCovers() {
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  for (var i = 0; i < 10; i++) {
+    for (var j = 0; j < 8; j++) {
+      final level = ((i * 8 + j) * 37) % 256;
+      canvas.drawRect(
+        Rect.fromLTWH(i * 64.0, j * 60.0, 64, 60),
+        Paint()..color = Color.fromARGB(255, level, 255 - level, level ~/ 2),
+      );
+    }
+  }
+  canvas.drawRect(
+    const Rect.fromLTWH(256, 180, 128, 120),
+    Paint()..color = const Color(0xFFFFFFFF),
+  );
+  return recorder.endRecording().toImage(640, 480);
+}
+
 void main() {
   testWidgets('the gradient draws what it drew when the shader hashed its '
-      'noise for every pixel', (tester) async {
+      'noise for every pixel, and before its colour field was worked out on '
+      'a grid of its own', (tester) async {
     await tester.runAsync(() async {
-      final program = await ui.FragmentProgram.fromAsset(
-        'lib/shaders/gradient.frag',
-      );
+      // The drawing is smaller than the field's grid, so the field is worked
+      // out for every pixel, as the single shader did.
+      final gradient = await _gradient(fieldSize: _width);
       final covers = await _covers();
       final lattice = NoiseLattice();
 
       for (var d = 0; d < _drawings.length; d++) {
         final (time, mouse, isDark) = _drawings[d];
-        final shader = program.fragmentShader();
-        setGradientUniforms(
-          shader,
-          image: covers,
-          size: const Size(_width + 0.0, _height + 0.0),
+        final bytes = await _draw(
+          gradient,
+          covers,
+          const Size(_width + 0.0, _height + 0.0),
           time: time,
           mouse: mouse,
-          gradientParams: gradientParams,
-          effectParams: effectParams,
-          color: _color,
-          color2: _color2,
           isDark: isDark,
           lattice: lattice,
         );
-        final recorder = ui.PictureRecorder();
-        Canvas(recorder).drawRect(
-          const Rect.fromLTWH(0, 0, _width + 0.0, _height + 0.0),
-          Paint()..shader = shader,
-        );
-        final image = await recorder.endRecording().toImage(_width, _height);
-        final bytes = (await image.toByteData(
-          format: ui.ImageByteFormat.rawRgba,
-        ))!.buffer.asUint8List();
 
         for (var j = 0; j < 5; j++) {
           for (var i = 0; i < 6; i++) {
@@ -259,6 +317,76 @@ void main() {
           }
         }
       }
+      gradient.dispose();
+    });
+  });
+
+  testWidgets('working the colour field out on its grid of 320 pixels changes '
+      'no pixel of a screen of covers by more than a level, whatever the '
+      'screen\'s shape', (tester) async {
+    await tester.runAsync(() async {
+      final app = await _gradient();
+      final covers = await _screenOfCovers();
+      final lattice = NoiseLattice();
+      final results = <String>[];
+
+      // The field is laid out in the wall's own coordinates, so the grid along
+      // the shorter side is what counts: 241 cells at 4:3, 138 at 21:9 and 149
+      // on a phone held upright. 650 by 490 is not a whole number of grid
+      // cells, so the field image reaches past the drawing.
+      for (final size in const [
+        Size(650, 490),
+        Size(1680, 720),
+        Size(390, 844),
+      ]) {
+        final exact = await _gradient(
+          fieldSize: max(size.width, size.height).toInt(),
+        );
+        for (final (time, mouse, isDark) in [
+          (0.37, Offset(size.width / 2, size.height / 2), true),
+          (37.25, Offset(size.width * 0.15, size.height * 0.8), true),
+          (123.45, Offset(size.width * 0.9, size.height * 0.1), true),
+          (286.5, const Offset(-1000, -1000), true),
+          (37.25, Offset(size.width * 0.15, size.height * 0.8), false),
+          (123.45, Offset(size.width * 0.9, size.height * 0.1), false),
+        ]) {
+          final want = await _draw(
+            exact,
+            covers,
+            size,
+            time: time,
+            mouse: mouse,
+            isDark: isDark,
+            lattice: lattice,
+          );
+          final got = await _draw(
+            app,
+            covers,
+            size,
+            time: time,
+            mouse: mouse,
+            isDark: isDark,
+            lattice: lattice,
+          );
+          var largest = 0, overOne = 0;
+          for (var p = 0; p < want.length; p += 4) {
+            var pixel = 0;
+            for (var c = 0; c < 4; c++) {
+              pixel = max(pixel, (want[p + c] - got[p + c]).abs());
+            }
+            largest = max(largest, pixel);
+            if (pixel > 1) overOne++;
+          }
+          results.add(
+            '$size t $time dark $isDark: largest $largest, over 1: $overOne',
+          );
+          expect(largest, lessThanOrEqualTo(1), reason: results.last);
+        }
+        exact.dispose();
+      }
+      // Moving the field image half a grid cell, scaling it up without
+      // filtering, or a grid of 160 pixels breaks this bound.
+      app.dispose();
     });
   });
 }
