@@ -1,8 +1,9 @@
-import 'dart:async';
 import 'dart:ui' as ui;
 
+import 'package:flutter/scheduler.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter_shaders/flutter_shaders.dart';
+
+import 'shader_sampler.dart';
 
 class GradientParams {
   final double multX;
@@ -50,11 +51,21 @@ class GradientContainer extends StatefulWidget {
   GradientContainerState createState() => GradientContainerState();
 }
 
-class GradientContainerState extends State<GradientContainer> {
-  late Future<(ui.FragmentProgram, FragmentShader)> _shaderProgram;
-  late Timer _timer;
-  double _time = 0.0;
-  Offset? _globalMousePosition;
+class GradientContainerState extends State<GradientContainer>
+    with SingleTickerProviderStateMixin {
+  late final Future<(ui.FragmentProgram, ui.FragmentShader)> _shaderProgram;
+
+  // The gradient moves every frame, and the pointer moves it too. Both reach
+  // the shader through these notifiers, which draw the shader layer again
+  // without a rebuild (see ShaderSampler). The ticker follows the frame clock
+  // and stops while the page is hidden, for example under another page.
+  late final Ticker _ticker = createTicker(_onTick);
+  final ValueNotifier<double> _time = ValueNotifier(0.0);
+  final ValueNotifier<Offset?> _globalMousePosition = ValueNotifier(null);
+  late final Listenable _shaderInputs = Listenable.merge([
+    _time,
+    _globalMousePosition,
+  ]);
 
   final GlobalKey _containerKey = GlobalKey();
 
@@ -62,19 +73,20 @@ class GradientContainerState extends State<GradientContainer> {
   void initState() {
     super.initState();
     _shaderProgram = _loadShader();
-
-    // Start a timer to update the time every frame
-    _timer = Timer.periodic(const Duration(milliseconds: 16), (Timer timer) {
-      setState(() {
-        _time += 0.016 / 10; // Increment time by 16 milliseconds
-      });
-    });
+    _shaderProgram.then((_) {
+      if (mounted) _ticker.start();
+    }, onError: (_) {});
 
     // Listen to mouse position updates
     WidgetsBinding.instance.pointerRouter.addGlobalRoute(_updateMousePosition);
   }
 
-  Future<(ui.FragmentProgram, FragmentShader)> _loadShader() async {
+  void _onTick(Duration elapsed) {
+    // A tenth of a unit each second.
+    _time.value = elapsed.inMicroseconds / Duration.microsecondsPerSecond / 10;
+  }
+
+  Future<(ui.FragmentProgram, ui.FragmentShader)> _loadShader() async {
     try {
       final fragmentProgram = await ui.FragmentProgram.fromAsset(
         'lib/shaders/gradient.frag',
@@ -88,23 +100,23 @@ class GradientContainerState extends State<GradientContainer> {
   }
 
   void _updateMousePosition(PointerEvent event) {
-    setState(() {
-      _globalMousePosition = event.position;
-    });
+    _globalMousePosition.value = event.position;
   }
 
   @override
   void dispose() {
-    _timer.cancel();
+    _ticker.dispose();
     WidgetsBinding.instance.pointerRouter.removeGlobalRoute(
       _updateMousePosition,
     );
+    _time.dispose();
+    _globalMousePosition.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<(ui.FragmentProgram, FragmentShader)>(
+    return FutureBuilder<(ui.FragmentProgram, ui.FragmentShader)>(
       future: _shaderProgram,
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
@@ -116,13 +128,14 @@ class GradientContainerState extends State<GradientContainer> {
         final shader = snapshot.data!;
         final fragmentShader = shader.$2;
 
-        return AnimatedSampler(
+        return ShaderSampler(
           (ui.Image image, Size size, Canvas canvas) {
             final renderBox =
                 _containerKey.currentContext?.findRenderObject() as RenderBox?;
+            final globalMousePosition = _globalMousePosition.value;
             final mousePosition =
-                _globalMousePosition != null && renderBox != null
-                ? renderBox.globalToLocal(_globalMousePosition!)
+                globalMousePosition != null && renderBox != null
+                ? renderBox.globalToLocal(globalMousePosition)
                 : Offset.zero;
             fragmentShader
               ..setImageSampler(0, image)
@@ -130,7 +143,7 @@ class GradientContainerState extends State<GradientContainer> {
               ..setFloat(0, size.width)
               ..setFloat(1, size.height)
               // u_time
-              ..setFloat(2, _time)
+              ..setFloat(2, _time.value)
               // u_mouse
               ..setFloat(3, mousePosition.dx)
               ..setFloat(4, mousePosition.dy)
@@ -170,6 +183,7 @@ class GradientContainerState extends State<GradientContainer> {
               Paint()..shader = fragmentShader,
             );
           },
+          repaint: _shaderInputs,
           key: _containerKey,
           child: widget.child,
         );
