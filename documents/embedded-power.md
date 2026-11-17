@@ -56,6 +56,12 @@ Each setting can be emptied in `/etc/rune-kiosk.conf` to leave that part of the 
 
 After changing the service or a helper, check on a board that start, restart, a crash, stop and a crash loop still hand the screen over, and that the CPU limit and the controllers come back after a stop.
 
+## A device tree overlay for the board
+
+Unbinding a driver leaves some of a controller's clocks running: the Ethernet clock stayed enabled. `linux/embedded/boards/radxa-zero-3w-power.dts` disables the Ethernet controller, the four USB 2 hosts with their PHY, and the eMMC controller in the device tree, so they never start and their clocks stay gated. Its header says how to build and install it. With it the idle kiosk settled at 55.7 °C after nine minutes, against 57.2 °C with the controllers unbound by the service. The touchscreen and the kiosk work as before, and `rune-unused-devices` finds nothing left to unbind.
+
+The overlay belongs to the board and its system image, so the bundle does not install it.
+
 ## Tried without effect
 
 With the kiosk idle under its settings the SoC settles at 57 °C after five minutes, against 62 to 63 °C before them. On top of that, each of these was held for five minutes, and together they lowered the SoC by half a degree, which is within the noise:
@@ -68,7 +74,8 @@ They are left out of `RUNE_UNUSED_DEVICES`.
 
 ## Still open
 
-- About 1.5 W of the board's own draw is unexplained. The USB 3 PHY stays powered though the touchscreen uses USB 2 signals only, and the Ethernet clock stays enabled after its driver is unbound. Both need a device tree that disables them outright, and a restart to check.
+- Most of the board's own draw, about 1.5 W, is unexplained.
+- The USB 3 PHY stays powered though the touchscreen uses USB 2 signals only. An overlay that disabled the PHY (`combphy1_usq`) and gave the host controller the USB 2 PHY alone with `maximum-speed = "high-speed"` brought the controller up, and the touchscreen was no longer found on it. It was taken out again.
 - The screen's backlight is the largest single consumer. Dimming it and turning it off with the screen need a panel with a backlight input.
 - Handhelds built on the same RK3566 advertise about six hours on a 12 to 13 Wh battery, which is about 2 W with the screen on. They use a DSI panel and a device tree written for the device. These figures come from memory of their specifications and were not checked; if they hold, that is the mark for a player built on this SoC.
 - The kiosk is never fully idle. Paused on the library home page the process uses about 15 % of a core. A 20 second profile puts about a third of that in the backend: the loops in `native/hub/src/server/sync_worker.rs` (`verify_managed_audio`, `run_share_worker`, `run_loop`, `maintain_metadata`, `schedule_peers`) wake every second and run SQLite transactions. Their threads carry the name `io.flutter.ui`, inherited from the thread that started them, so per-thread figures count them as the UI thread. The home page also flips its cover tiles every eight seconds, which draws about 32 frames each time.
