@@ -58,7 +58,7 @@ class SettingsLogPageState extends State<SettingsLogPage> {
       final newLogs = await listLogs(_cursor, _pageSize);
       if (newLogs.isNotEmpty) {
         setState(() {
-          _cursor += newLogs.length;
+          _cursor += 1;
           _logs.addAll(newLogs);
         });
       }
