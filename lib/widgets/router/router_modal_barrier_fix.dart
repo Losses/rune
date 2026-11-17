@@ -12,11 +12,9 @@ class RouterModalBarrierFix extends StatelessWidget {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        ModalBarrier(
-          dismissible: true,
-          color: Colors.transparent,
-          onDismiss: () {},
-        ),
+        // Hit empty margins before the Navigator's modal barrier. In RuneStack
+        // the playback controls share this space and handle the tap gestures.
+        const AbsorbPointer(child: SizedBox.expand()),
         child,
       ],
     );
