@@ -811,22 +811,15 @@ impl SubsonicClient {
             .bytes()
             .await
             .map_err(|error| SubsonicError::Transport(error.without_url().to_string()))?;
-        let envelope: RawEnvelope = serde_json::from_slice(&bytes)
-            .map_err(|error| SubsonicError::Malformed(error.to_string()))?;
+        let envelope: RawEnvelope = serde_json::from_slice(&bytes).map_err(|error| {
+            SubsonicError::Malformed(self.redact_secrets(&query, &error.to_string()))
+        })?;
         if envelope.response.status == "failed" {
             let error = envelope
                 .response
                 .error
                 .ok_or_else(|| SubsonicError::Malformed("failed response omitted error".into()))?;
-            let mut message = error.message;
-            if let SubsonicCredentials::Password { password, .. } = &self.credentials {
-                message = message.replace(password, "[REDACTED]");
-            }
-            for (key, secret) in &query {
-                if matches!(*key, "t" | "s" | "apiKey") {
-                    message = message.replace(secret, "[REDACTED]");
-                }
-            }
+            let message = self.redact_secrets(&query, &error.message);
             if endpoint == "jukeboxControl"
                 && matches!(error.code, 0 | 70)
                 && message.to_ascii_lowercase().contains("jukebox")
@@ -841,8 +834,37 @@ impl SubsonicClient {
         if envelope.response.status != "ok" {
             return Err(SubsonicError::Malformed("unknown response status".into()));
         }
-        serde_json::from_value(serde_json::Value::Object(envelope.response.data))
-            .map_err(|error| SubsonicError::Malformed(error.to_string()))
+        serde_json::from_value(serde_json::Value::Object(envelope.response.data)).map_err(|error| {
+            SubsonicError::Malformed(self.redact_secrets(&query, &error.to_string()))
+        })
+    }
+
+    fn redact_secrets(&self, query: &[(&str, String)], text: &str) -> String {
+        let mut redacted = text.to_owned();
+        let mut redact = |secret: &str| {
+            if secret.is_empty() {
+                return;
+            }
+            redacted = redacted.replace(secret, "[REDACTED]");
+            if let Ok(json_literal) = serde_json::to_string(secret)
+                && let Some(escaped) = json_literal
+                    .strip_prefix('"')
+                    .and_then(|value| value.strip_suffix('"'))
+                && escaped != secret
+            {
+                redacted = redacted.replace(escaped, "[REDACTED]");
+            }
+        };
+        for (key, secret) in query {
+            if matches!(*key, "t" | "s" | "apiKey") {
+                redact(secret);
+            }
+        }
+        match &self.credentials {
+            SubsonicCredentials::Password { password, .. } => redact(password),
+            SubsonicCredentials::ApiKey { key } => redact(key),
+        }
+        redacted
     }
 }
 
