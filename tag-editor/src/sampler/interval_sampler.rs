@@ -358,7 +358,7 @@ mod tests {
     use std::io;
 
     use symphonia::core::{
-        errors::{Error, Result as SymphoniaResult},
+        errors::{Error, Result as SymphoniaResult, end_of_stream_error},
         formats::{Cue, FormatOptions, Packet, SeekMode, SeekTo, SeekedTo, Track},
         io::MediaSourceStream,
         meta::Metadata,
@@ -431,7 +431,7 @@ mod tests {
 
     #[test]
     fn packet_end_of_stream_completes_normally() -> Result<()> {
-        process_first_packet(|_| symphonia::core::errors::end_of_stream_error())
+        process_first_packet(|_| end_of_stream_error())
     }
 
     #[test]
