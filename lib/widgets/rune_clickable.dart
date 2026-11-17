@@ -88,8 +88,8 @@ class _RuneClickableState extends State<RuneClickable> {
         ActivateIntent:
             CallbackAction(onInvoke: (e) => widget.onPressed?.call()),
       },
-      child: Listener(
-        onPointerUp: (_) => widget.onPressed?.call(),
+      child: GestureDetector(
+        onTap: widget.onPressed,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           padding: EdgeInsets.all(widget.padding),
