@@ -684,8 +684,10 @@ async function main() {
 
   console.log("==> Rune Release Automation Tool");
 
-  // 1. Ensure .gitignore has notes files
-  ensureGitignoreHasNotesFiles();
+  // 1. Ensure .gitignore has notes files unless Git is managed manually.
+  if (!options.skipGit) {
+    ensureGitignoreHasNotesFiles();
+  }
 
   // 2. Locate or create release notes text file
   const notesPath = findReleaseNotesFile(options.notesFile);
@@ -754,6 +756,9 @@ async function main() {
       console.log(`\n[dry-run] Dry run completed successfully.`);
       return;
     }
+
+    console.log("\n[skip-git] Version files updated; Git operations skipped.");
+    return;
   }
 
   // 7. Git commit and tag
