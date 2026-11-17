@@ -1,7 +1,6 @@
-use std::fs::{self, File};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use anyhow::{Context, Result, bail};
 use log::error;
 use prettytable::{Table, row};
 use rust_decimal::prelude::ToPrimitive;
@@ -11,21 +10,29 @@ use database::actions::mixes::query_mix_media_files;
 use database::connection::{MainDbConnection, RecommendationDbConnection};
 use database::entities::media_files;
 
-use crate::recommend::check_and_correct_extension;
+use crate::export::{OUTPUT_REQUIRED, UNSUPPORTED_FORMAT, save_as_m3u8};
 
 pub struct RecommendMixOptions<'a> {
+    /// The canonical root of the library.
+    pub library: &'a Path,
     pub mix_parameters: &'a str,
     pub num: usize,
     pub format: Option<&'a str>,
     pub output: Option<&'a PathBuf>,
 }
 
+/// Runs the mix query in `mix_parameters` and shows its tracks in a table, or saves them as an
+/// M3U8 playlist.
+///
+/// Fails when the query cannot be run, the format is not `m3u8`, or the playlist cannot be
+/// saved.
 pub async fn mixes(
     main_db: &MainDbConnection,
     recommend_db: &RecommendationDbConnection,
     options: RecommendMixOptions<'_>,
-) {
+) -> Result<()> {
     let RecommendMixOptions {
+        library,
         mix_parameters,
         num,
         format,
@@ -55,82 +62,21 @@ pub async fn mixes(
         .collect();
 
     let files: Vec<media_files::Model> =
-        match query_mix_media_files(main_db, recommend_db, mix_parameters_vec, 0, num, &[]).await {
-            Ok(recommendations) => recommendations,
-            Err(e) => {
-                eprintln!("Failed to get recommendations: {e}");
-                return;
-            }
-        };
+        query_mix_media_files(main_db, recommend_db, mix_parameters_vec, 0, num, &[])
+            .await
+            .context("Failed to get recommendations")?;
 
     match format {
         Some("m3u8") => {
-            save_mixes_as_m3u8(output, &files).await;
+            let saved = save_as_m3u8(library, output.context(OUTPUT_REQUIRED)?, &files)?;
+            println!("Recommendations saved to M3U8 file: {}", saved.display());
         }
-        Some(_) => {
-            eprintln!("Unsupported format. Supported formats are 'json' and 'm3u8'.");
-        }
+        Some(_) => bail!(UNSUPPORTED_FORMAT),
         _none => {
             display_mixes_in_table(main_db, &files).await;
         }
     }
-}
-
-pub async fn save_mixes_as_m3u8(output: Option<&PathBuf>, files: &Vec<media_files::Model>) {
-    let output_path = match output {
-        Some(path) => path,
-        _none => {
-            eprintln!("Output file path is required when format is specified");
-            return;
-        }
-    };
-
-    let corrected_path = check_and_correct_extension(output_path, "m3u8");
-    if corrected_path != *output_path {
-        eprintln!("Warning: Output file extension corrected to .m3u8");
-    }
-
-    if let Some(parent) = corrected_path.parent()
-        && let Err(e) = fs::create_dir_all(parent)
-    {
-        eprintln!("Failed to create directories: {e}");
-        return;
-    }
-
-    let mut file = match File::create(&corrected_path) {
-        Ok(file) => file,
-        Err(e) => {
-            eprintln!("Failed to create file: {e}");
-            return;
-        }
-    };
-
-    if let Err(e) = file.write_all("#EXTM3U\n".as_bytes()) {
-        eprintln!("Failed to write to file: {e}");
-        return;
-    }
-
-    for file_info in files {
-        let relative_path = Path::new(&file_info.directory).join(&file_info.file_name);
-        let relative_to_output =
-            match pathdiff::diff_paths(&relative_path, corrected_path.parent().unwrap()) {
-                Some(path) => path,
-                None => {
-                    eprintln!("Failed to calculate relative path");
-                    return;
-                }
-            };
-
-        if let Err(e) = writeln!(file, "{}", relative_to_output.display()) {
-            eprintln!("Failed to write to file: {e}");
-            return;
-        }
-    }
-
-    println!(
-        "Recommendations saved to M3U8 file: {}",
-        corrected_path.to_str().unwrap()
-    );
+    Ok(())
 }
 
 fn format_time(seconds: f64) -> String {

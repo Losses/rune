@@ -464,7 +464,7 @@ async fn main() {
             format,
             output,
         } => {
-            recommend_music(
+            if let Err(error) = recommend_music(
                 &main_db,
                 &analysis_db,
                 RecommendMusicOptions {
@@ -477,7 +477,11 @@ async fn main() {
                     output: output.as_ref(),
                 },
             )
-            .await;
+            .await
+            {
+                error!("Recommendation failed: {error:#}");
+                std::process::exit(1);
+            }
         }
         Commands::Mix {
             mix_parameters,
@@ -485,17 +489,22 @@ async fn main() {
             format,
             output,
         } => {
-            mixes(
+            if let Err(error) = mixes(
                 &main_db,
                 &analysis_db,
                 RecommendMixOptions {
+                    library: &canonicalized_path,
                     mix_parameters,
                     num: *num,
                     format: format.as_ref().map(|x| x.as_str()),
                     output: output.as_ref(),
                 },
             )
-            .await;
+            .await
+            {
+                error!("Mix failed: {error:#}");
+                std::process::exit(1);
+            }
         }
         Commands::Search { query, num } => match search_for(&main_db, query, None, *num).await {
             Ok(results) => {

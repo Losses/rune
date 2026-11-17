@@ -36,5 +36,8 @@ http-request = { path = "../http-request" }
 sync = { path = "../sync" }
 sea-orm = "2.0.4"
 
+[dev-dependencies]
+tempfile = "3.17.1"
+
 [lints]
 workspace = true
