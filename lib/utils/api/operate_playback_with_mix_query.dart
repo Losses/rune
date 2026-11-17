@@ -39,19 +39,32 @@ List<PlayingItemRef> queueItemsToExclude({
   return [for (final entry in queue ?? const <PlaylistItem>[]) entry.item];
 }
 
+/// The items a playback action has converted for its resolve request: the
+/// track to start with, when it names one, then its fallback tracks. An action
+/// that names no track to start with has a `null` [initialPlaybackId], and no
+/// catalog row stands in for one.
+List<PlayingItem> playbackItemsToResolve({
+  required int? initialPlaybackId,
+  required List<PlayingItem> fallbackPlayingItems,
+}) => [
+  if (initialPlaybackId != null) PlayingItem.inLibrary(initialPlaybackId),
+  ...fallbackPlayingItems,
+];
+
 /// The track a playback action starts with and its fallback tracks, as a
-/// resolve request carries them. An action that names no track to start with
-/// has a `null` [initialPlaybackId]: it gets no start item, and no catalog row
-/// is looked up for one.
+/// resolve request carries them. Without a start track the request has no
+/// initial item.
 Future<({PlayingItemRef? initial, List<PlayingItemRef> fallback})>
 playbackStartItems({
   required int? initialPlaybackId,
   required List<PlayingItem> fallbackPlayingItems,
 }) async {
-  final refs = await playingItemRefs([
-    if (initialPlaybackId != null) PlayingItem.inLibrary(initialPlaybackId),
-    ...fallbackPlayingItems,
-  ]);
+  final refs = await playingItemRefs(
+    playbackItemsToResolve(
+      initialPlaybackId: initialPlaybackId,
+      fallbackPlayingItems: fallbackPlayingItems,
+    ),
+  );
   if (initialPlaybackId == null) return (initial: null, fallback: refs);
   return (initial: refs.first, fallback: refs.sublist(1));
 }
