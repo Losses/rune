@@ -26,7 +26,8 @@ use std::sync::Arc;
 
 use educe::Educe;
 use parking_lot::Mutex;
-use tracing::{debug, instrument, trace, warn};
+use rangemap::RangeSet;
+use tracing::{instrument, trace};
 
 use super::{StorageProvider, StorageReader, StorageWriter};
 use crate::WrapIoResult;
@@ -90,10 +91,10 @@ where
             ))?;
 
         let shared_info = Arc::new(AssertUnwindSafe(Mutex::new(SharedInfo {
-            read: 0,
-            written: 0,
             read_position: 0,
             write_position: 0,
+            stored: RangeSet::new(),
+            written_end: 0,
             size: buffer_size,
         })));
         let reader = BoundedStorageReader {
@@ -108,16 +109,51 @@ where
     }
 }
 
+/// Positions are absolute offsets in the stream, and a seek moves only a position: there is no
+/// separate count of transferred bytes to keep in step with them.
+///
+/// `stored` holds the positions whose slots in the ring hold what the writer stored for them, so
+/// no two of them share a slot and there are at most `size` of them. Only writes change it, never a
+/// seek: a write adds its positions and drops every other position whose slot it reused. A reader
+/// reads from its position to the end of the stored range there, so it never gets a byte that was
+/// not written for that position: not one a writer skipped, nor one whose slot now holds another
+/// position. A position that is not stored and is more than a ring below the furthest write,
+/// `written_end`, can no longer be held, and reading it is an error.
 #[derive(Debug)]
 struct SharedInfo {
-    read: usize,
-    written: usize,
     read_position: usize,
     write_position: usize,
+    stored: RangeSet<usize>,
+    written_end: usize,
     size: usize,
 }
 
 impl SharedInfo {
+    /// Records that the writer stored the positions `start..end`, at most `size` of them.
+    fn record_write(&mut self, start: usize, end: usize) {
+        let size = self.size as i128;
+        let (start_i, end_i) = (start as i128, end as i128);
+        let mut reused = Vec::new();
+        for range in self.stored.iter() {
+            let (low, high) = (range.start as i128, range.end as i128);
+            // Positions a whole number of rings away from `start..end` share its slots.
+            let first = (low - end_i).div_euclid(size) + 1;
+            let last = (high - start_i - 1).div_euclid(size);
+            for rings in (first..=last).filter(|rings| *rings != 0) {
+                let from = low.max(start_i + rings * size);
+                let to = high.min(end_i + rings * size);
+                if from < to {
+                    reused.push(from as usize..to as usize);
+                }
+            }
+        }
+        for range in reused {
+            self.stored.remove(range);
+        }
+        self.stored.insert(start..end);
+        self.written_end = self.written_end.max(end);
+    }
+
     fn mapped_read_position(&self, val: usize) -> usize {
         (val + (self.read_position % self.size)) % self.size
     }
@@ -158,26 +194,20 @@ where
             ));
         }
 
-        let available_len = shared_info
-            .write_position
-            .saturating_sub(shared_info.read_position);
-
-        if available_len > shared_info.size {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!(
-                    "read position {} is too far behind write position {}, size {}",
-                    shared_info.read_position, shared_info.write_position, shared_info.size
-                ),
-            ));
-        }
-
-        if shared_info.read >= shared_info.written {
-            debug!("read bytes >= written bytes, ending read");
+        let Some(stored) = shared_info.stored.get(&shared_info.read_position) else {
+            if shared_info.read_position < shared_info.written_end.saturating_sub(shared_info.size)
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "read position {} is too far behind write position {}, size {}",
+                        shared_info.read_position, shared_info.written_end, shared_info.size
+                    ),
+                ));
+            }
             return Ok(0);
-        }
-
-        let size = shared_info.size.min(shared_info.write_position);
+        };
+        let available_len = stored.end - shared_info.read_position;
         let available_buf_size = available_len.min(buf.len());
 
         trace!(buf_len = buf.len(), "original buf len");
@@ -193,9 +223,8 @@ where
         trace!(
             start,
             end,
-            size,
             buf_len = buf.len(),
-            read = shared_info.read,
+            read_position = shared_info.read_position,
             "bounded read"
         );
 
@@ -209,8 +238,9 @@ where
                 .wrap_err("error reading mapped positions")?;
         } else {
             // buffer is non-contiguous, need to read the first segment and then wrap around to the
-            // start to read the rest
-            let first_seg_len = size - start;
+            // start to read the rest. The stored range runs past the end of the ring, so every
+            // slot up to its end holds one of its positions.
+            let first_seg_len = shared_info.size - start;
             self.inner
                 .read_exact(&mut buf[..first_seg_len])
                 .wrap_err("error reading first mapped segment")?;
@@ -224,7 +254,6 @@ where
 
         let buf_len = buf.len();
         shared_info.read_position += buf_len;
-        shared_info.read += buf_len;
 
         Ok(buf_len)
     }
@@ -239,24 +268,33 @@ where
         trace!("reader seek");
         let mut shared_info = self.shared_info.lock();
         let new_position = handle_seek(position, shared_info.read_position)?;
-        // If we performed a backwards seek,we need to adjust the absolute read position.
-        // Otherwise, if we've moved the read position back, but keep incrementing the
-        // read counter, it may look like we've read more bytes than we've written.
-        shared_info.read -= shared_info.read_position.saturating_sub(new_position);
         shared_info.read_position = new_position;
         Ok(new_position as u64)
     }
 }
 
+/// Resolves a seek target to an absolute position. A target before the start of the stream, or
+/// one that does not fit in a `usize`, is an [`io::ErrorKind::InvalidInput`] error, and seeking
+/// from the end is unsupported because the length of the stream is not known.
 fn handle_seek(position: SeekFrom, current_position: usize) -> io::Result<usize> {
-    match position {
-        SeekFrom::Start(position) => Ok(position as usize),
-        SeekFrom::Current(from_current) => Ok((current_position as i64 + from_current) as usize),
-        SeekFrom::End(_) => Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "seek from end not supported",
-        )),
-    }
+    let new_position = match position {
+        SeekFrom::Start(position) => usize::try_from(position).ok(),
+        SeekFrom::Current(from_current) => {
+            usize::try_from(current_position as i128 + i128::from(from_current)).ok()
+        }
+        SeekFrom::End(_) => {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "seek from end not supported",
+            ));
+        }
+    };
+    new_position.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("invalid seek to {position:?} from position {current_position}"),
+        )
+    })
 }
 
 /// Write handle created by a [`BoundedStorageReader`]. Writes to a fixed-size circular buffer.
@@ -288,6 +326,16 @@ where
         if buf.is_empty() {
             return Ok(0);
         }
+        let Some(write_end) = shared_info.write_position.checked_add(buf.len()) else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "a write of {} bytes at position {} goes past the largest position",
+                    buf.len(),
+                    shared_info.write_position
+                ),
+            ));
+        };
 
         let start = shared_info.mapped_write_position(0);
         // is_empty check above prevents subtraction with overflow here
@@ -296,7 +344,7 @@ where
             start,
             end,
             buf_len = buf.len(),
-            written = shared_info.written,
+            write_position = shared_info.write_position,
             "bounded write"
         );
 
@@ -321,8 +369,9 @@ where
         }
 
         let buf_len = buf.len();
-        shared_info.write_position += buf_len;
-        shared_info.written += buf_len;
+        let write_start = shared_info.write_position;
+        shared_info.record_write(write_start, write_end);
+        shared_info.write_position = write_end;
 
         self.inner.flush().wrap_err("error flushing during write")?;
 
@@ -343,7 +392,6 @@ where
         trace!("writer seek");
         let mut shared_info = self.shared_info.lock();
         let new_position = handle_seek(position, shared_info.write_position)?;
-        shared_info.written -= shared_info.write_position.saturating_sub(new_position);
         shared_info.write_position = new_position;
         Ok(new_position as u64)
     }
