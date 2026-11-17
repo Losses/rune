@@ -673,21 +673,31 @@ function buildGitHubReleaseNotes(info: VersionInfo, categories: ReleaseCategory[
   return parts.join("\n");
 }
 
-async function runRelease(options: CliOptions) {
+async function main() {
+  const args = process.argv.slice(2);
+  const options = parseCliArgs(args);
+
+  if (options.help) {
+    printHelp();
+    process.exit(0);
+  }
+
   console.log("==> Rune Release Automation Tool");
+
+  // 1. Ensure .gitignore has notes files unless Git is managed manually.
+  if (!options.skipGit) {
+    ensureGitignoreHasNotesFiles();
+  }
 
   // 2. Locate or create release notes text file
   const notesPath = findReleaseNotesFile(options.notesFile);
   if (!notesPath) {
-    if (!options.skipGit) {
-      ensureGitignoreHasNotesFiles();
-    }
     const createdPath = createTemplateNotesFile();
     console.log(`\n[notice] Release notes file not found.`);
     console.log(`Created template: ${createdPath}`);
     console.log(`Please edit this file with your categorized changes, then re-run:`);
     console.log(`  bun scripts/release.ts ${options.version || ""}\n`);
-    return;
+    process.exit(0);
   }
 
   // 3. Parse and strictly validate release notes
@@ -698,20 +708,6 @@ async function runRelease(options: CliOptions) {
   // 4. Determine version information
   const prevTag = getLatestTagOrVersion();
   const info = computeVersionInfo(options.version);
-  const changelogPath = path.join(ROOT_DIR, "CHANGELOG.md");
-  if (fs.existsSync(changelogPath)) {
-    const heading = `## [${info.rawVersion}]`;
-    const exists = fs.readFileSync(changelogPath, "utf-8").split(/\r?\n/)
-      .some(line => line === heading || line.startsWith(`${heading} `));
-    if (exists) {
-      throw new Error(`Release ${info.rawVersion} already exists in CHANGELOG.md; no files updated.`);
-    }
-  }
-
-  if (!options.skipGit) {
-    ensureGitignoreHasNotesFiles();
-  }
-
   console.log(`--------------------------------------------------`);
   console.log(`Tag Version:       ${info.tagVersion}`);
   console.log(`Raw Version:       ${info.rawVersion}`);
@@ -822,34 +818,6 @@ async function runRelease(options: CliOptions) {
   }
 
   console.log(`\n🎉 Release ${info.tagVersion} finished successfully!`);
-}
-
-async function main() {
-  const options = parseCliArgs(process.argv.slice(2));
-  if (options.help) {
-    printHelp();
-    return;
-  }
-
-  // Atomic creation gives every process using this checkout the same write gate.
-  // Keep the lock on abnormal termination: inspect the checkout before removing it.
-  const lockPath = path.join(ROOT_DIR, ".release.lock");
-  let lock: number;
-  try {
-    lock = fs.openSync(lockPath, "wx");
-  } catch (error: any) {
-    if (error.code === "EEXIST") {
-      throw new Error("Another release holds .release.lock. If it was interrupted, inspect the checkout before removing the lock.");
-    }
-    throw error;
-  }
-  try {
-    fs.writeFileSync(lock, `${process.pid}\n`);
-    await runRelease(options);
-  } finally {
-    fs.closeSync(lock);
-    fs.unlinkSync(lockPath);
-  }
 }
 
 main().catch((err) => {

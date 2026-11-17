@@ -8,7 +8,7 @@ import * as path from "node:path";
 // Native executables intercept commands on Windows as well as Unix.
 const tools = fs.mkdtempSync(path.join(os.tmpdir(), "rune-release-tools-"));
 const suffix = process.platform === "win32" ? ".exe" : "";
-beforeAll(async () => {
+beforeAll(() => {
   const source = path.join(tools, "recorder.ts");
   fs.writeFileSync(source, `import * as fs from "node:fs";
 import * as path from "node:path";
@@ -16,12 +16,6 @@ import { spawnSync } from "node:child_process";
 const name = path.basename(process.execPath).replace(/\\.exe$/i, "");
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.COMMAND_LOG!, name + " " + args.join(" ") + "\\n");
-if (name === "git" && args[0] === "describe" && process.env.RELEASE_BARRIER) {
-  fs.writeFileSync(process.env.RELEASE_BARRIER + ".ready", "");
-  while (!fs.existsSync(process.env.RELEASE_BARRIER + ".release")) {
-    await Bun.sleep(10);
-  }
-}
 if (name === "git" && args[0] !== "push") {
   const result = spawnSync(process.env.REAL_GIT!, args, { stdio: "inherit" });
   if (result.error) throw result.error;
@@ -67,14 +61,12 @@ function fixture() {
   const notes = "[Bugs]\n- Preserve maintainer control over publication\n";
   write("RELEASE_NOTES.txt", notes);
   fs.writeFileSync(commandLog, "");
-  const argv = (version: string, flags: string[]) => [process.execPath, path.join(repo, "scripts/release.ts"), version, ...flags];
   const run = (version: string, ...flags: string[]) => {
-    const [exe, ...args] = argv(version, flags);
-    const result = spawnSync(exe, args, { cwd: root, env, encoding: "utf8", timeout: 30_000 });
+    const result = spawnSync(process.execPath, [path.join(repo, "scripts/release.ts"), version, ...flags], { cwd: root, env, encoding: "utf8", timeout: 30_000 });
     expect(result.error).toBeUndefined();
     return result;
   };
-  return { root, repo, env, git, read, write, notes, run, argv,
+  return { repo, git, read, write, notes, run,
     commands: () => fs.readFileSync(commandLog, "utf8").trim().split("\n"),
     clean: () => fs.rmSync(root, { recursive: true, force: true }),
   };
@@ -114,7 +106,6 @@ for (const flags of [["--skip-git"], ["--skip-git", "--no-push"], ["--dry-run"],
         expect(f.git("rev-parse", "v2.0.0")).toBe(f.git("rev-parse", "HEAD"));
         expect(f.git("status", "--porcelain")).toBe("");
       }
-      expect(fs.existsSync(path.join(f.repo, ".release.lock"))).toBe(false);
     } finally { f.clean(); }
   });
 }
@@ -131,7 +122,7 @@ test("skip-git preserves incomplete and absent gitignore", () => {
   } finally { f.clean(); }
 });
 
-test("skip-git template creation preserves gitignore and releases the lock", () => {
+test("skip-git template creation preserves gitignore", () => {
   const f = fixture();
   try {
     fs.unlinkSync(path.join(f.repo, "RELEASE_NOTES.txt"));
@@ -139,52 +130,5 @@ test("skip-git template creation preserves gitignore and releases the lock", () 
     expect(f.run("2.0.0", "--skip-git").status).toBe(0);
     expect(f.read(".gitignore")).toBe("build/\n");
     expect(f.read("pubspec.yaml")).toContain("version: 1.0.0\n");
-    expect(fs.existsSync(path.join(f.repo, ".release.lock"))).toBe(false);
   } finally { f.clean(); }
 });
-
-test("repeated version is rejected before any release files change", () => {
-  const f = fixture();
-  try {
-    fs.mkdirSync(path.join(f.repo, "assets/source/linux"), { recursive: true });
-    f.write("assets/source/linux/rune.metainfo.xml", "<component><releases></releases></component>\n");
-    expect(f.run("2.0.0", "--skip-git").status).toBe(0);
-    const files = ["pubspec.yaml", "CHANGELOG.md", "assets/source/linux/rune.metainfo.xml", ".gitignore", "RELEASE_NOTES.txt"];
-    const before = files.map(f.read);
-    const result = f.run("2.0.0", "--skip-git");
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain("already exists in CHANGELOG.md");
-    expect(files.map(f.read)).toEqual(before);
-    // A rejected run releases the lock for the next version.
-    expect(f.run("2.0.1", "--skip-git").status).toBe(0);
-  } finally { f.clean(); }
-});
-
-test("overlapping release is refused before writing", async () => {
-  const f = fixture();
-  const barrier = path.join(f.root, "barrier");
-  const first = Bun.spawn(f.argv("2.0.0", ["--skip-git"]), {
-    cwd: f.root, env: { ...f.env, RELEASE_BARRIER: barrier }, stdout: "pipe", stderr: "pipe",
-  });
-  try {
-    const deadline = Date.now() + 10_000;
-    while (!fs.existsSync(`${barrier}.ready`)) {
-      if (first.exitCode !== null) throw new Error(await new Response(first.stderr).text());
-      if (Date.now() > deadline) throw new Error("Release did not reach Git barrier");
-      await Bun.sleep(10);
-    }
-    const second = f.run("3.0.0", "--skip-git");
-    expect(second.status).toBe(1);
-    expect(second.stderr).toContain("Another release holds .release.lock");
-    expect(f.read("pubspec.yaml")).toContain("version: 1.0.0\n");
-    fs.writeFileSync(`${barrier}.release`, "");
-    expect(await first.exited).toBe(0);
-    expect(f.read("pubspec.yaml")).toContain("version: 2.0.0\n");
-    expect(f.read("CHANGELOG.md")).not.toContain("3.0.0");
-    expect(f.run("3.0.0", "--skip-git").status).toBe(0);
-  } finally {
-    fs.writeFileSync(`${barrier}.release`, "");
-    await first.exited;
-    f.clean();
-  }
-}, 20_000);
