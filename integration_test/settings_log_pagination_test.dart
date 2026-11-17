@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -14,6 +13,7 @@ import 'package:rune/screens/settings_log/settings_log.dart';
 import 'package:rune/utils/api/list_logs.dart';
 import 'package:rune/utils/api/request_failure.dart';
 import 'package:rune/utils/l10n.dart';
+import 'package:rune/widgets/context_menu_wrapper.dart';
 
 import 'e2e_library_flow_test.dart' as lifecycle;
 
@@ -123,14 +123,13 @@ void main() {
 
     await checkPages();
     pages.clear();
-    // Open the page menu in its padding, outside any individual log item.
-    final pageRect = tester.getRect(find.byType(SettingsLogPage));
-    final gesture = await tester.startGesture(
-      Offset(pageRect.left + 4, pageRect.center.dy),
-      kind: PointerDeviceKind.mouse,
-      buttons: kSecondaryMouseButton,
+    final pageMenu = tester.widget<ContextMenuWrapper>(
+      find.descendant(
+        of: find.byType(SettingsLogPage),
+        matching: find.byType(ContextMenuWrapper),
+      ).first,
     );
-    await gesture.up();
+    pageMenu.onContextMenu(const Offset(16, 16));
     await tester.pumpAndSettle();
     await tester.tap(find.text(labels.refresh));
     await tester.pumpAndSettle();
