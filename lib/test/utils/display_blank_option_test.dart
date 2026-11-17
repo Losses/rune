@@ -41,6 +41,23 @@ void main() {
     },
   );
 
+  test('an embedder that refuses the value leaves the display on', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('rune/display_power'),
+          (call) async => throw PlatformException(code: 'illegal-argument'),
+        );
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('rune/display_power'),
+            null,
+          ),
+    );
+
+    expect(await DisplayBlanker.setBlankAfter(9999999999), isFalse);
+  });
+
   test('an embedder without the channel leaves the display on', () async {
     expect(await DisplayBlanker.setBlankAfter(60), isFalse);
   });

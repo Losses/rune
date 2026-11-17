@@ -31,12 +31,16 @@ class DisplayBlanker {
   static const MethodChannel _channel = MethodChannel('rune/display_power');
 
   /// Sets the seconds without input after which the display goes off. 0 keeps
-  /// it on. Returns whether an embedder took the setting.
+  /// it on. Returns whether an embedder took the setting; one that is missing
+  /// or refuses the value leaves the display on, and does not throw.
   static Future<bool> setBlankAfter(int seconds) async {
     try {
       await _channel.invokeMethod<void>('setBlankAfter', seconds);
       return true;
     } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      // The embedder refused the value, such as a time too long for it.
       return false;
     }
   }
