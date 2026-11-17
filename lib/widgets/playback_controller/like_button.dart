@@ -32,6 +32,7 @@ class LikeButton extends StatefulWidget {
 class _LikeButtonState extends State<LikeButton> {
   bool liked = false;
   late PlayingItem? item;
+  int _requestGeneration = 0;
 
   @override
   void initState() {
@@ -45,17 +46,21 @@ class _LikeButtonState extends State<LikeButton> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.item != widget.item) {
       item = widget.item;
+      liked = false;
       _fetchLikedStatus();
     }
   }
 
   Future<void> _fetchLikedStatus() async {
-    if (item == null) return;
+    final generation = ++_requestGeneration;
+    final requestItem = item;
+    if (requestItem == null) return;
 
     try {
       final isLiked =
-          await (widget.fetchLikedStatus?.call(item!) ?? getLiked(item!));
-      if (mounted) {
+          await (widget.fetchLikedStatus?.call(requestItem) ??
+              getLiked(requestItem));
+      if (mounted && generation == _requestGeneration) {
         setState(() {
           liked = isLiked;
         });
@@ -69,13 +74,15 @@ class _LikeButtonState extends State<LikeButton> {
   }
 
   Future<void> _toggleLikedStatus() async {
-    if (item == null) return;
+    final generation = ++_requestGeneration;
+    final requestItem = item;
+    if (requestItem == null) return;
 
     final newLikedStatus = await (widget.setLikedStatus ?? setLiked)(
-      item!,
+      requestItem,
       !liked,
     );
-    if (mounted) {
+    if (mounted && generation == _requestGeneration) {
       setState(() {
         liked = newLikedStatus;
       });
