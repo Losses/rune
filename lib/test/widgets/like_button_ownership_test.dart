@@ -9,6 +9,7 @@ import '../../bindings/bindings.dart';
 import '../../providers/library_open_state.dart';
 import '../../utils/playing_item.dart';
 import '../../widgets/playback_controller/like_button.dart';
+import '../../widgets/rune_clickable.dart';
 
 const a = PlayingItem.libraryItem(libraryId: 'library', fileUuid: 'a');
 const b = PlayingItem.libraryItem(libraryId: 'library', fileUuid: 'b');
@@ -52,6 +53,11 @@ void main() {
     await show(a);
     expect(heart, findsOneWidget);
     expect(reads, [a]);
+    final likeControl = find.ancestor(
+      of: heart,
+      matching: find.byType(RuneClickable),
+    );
+    final previousToggle = tester.widget<RuneClickable>(likeControl).onPressed!;
     await tester.tap(heart);
     await tester.pump();
     expect(writes, [(a, true)]);
@@ -59,6 +65,8 @@ void main() {
     await show(independent);
     expect(heart, findsNothing);
     expect(reads, [a]);
+    previousToggle();
+    await tester.pump();
     expect(writes, [(a, true)]);
 
     await show(a);
