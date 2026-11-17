@@ -6,11 +6,14 @@
 #                              frequency, then set RUNE_CPU_MAX_FREQ (kHz)
 #   rune-cpu-cpufreq restore   put back what apply remembered
 #
-# When RUNE_CPU_MAX_FREQ is empty or missing, or the machine has no cpufreq
-# policies, both do nothing. What apply remembers stays in /run until restore
+# RUNE_CPU_MAX_FREQ comes from /etc/rune-kiosk.conf or, left out there, from
+# the chip's profile: see rune-soc-profile. When it is empty or missing, or the
+# machine has no cpufreq policies, both do nothing. What apply remembers stays in /run until restore
 # puts it back, so a kiosk restarted after a failure does not take its own
 # setting for the machine's.
 set -u
+
+. "$(dirname "$0")/rune-soc-profile"
 
 max_freq="${RUNE_CPU_MAX_FREQ:-}"
 policies="/sys/devices/system/cpu/cpufreq"

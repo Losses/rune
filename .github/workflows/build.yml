@@ -501,6 +501,8 @@ jobs:
           test -f "$bundle/bin/rune-gpu-devfreq"
           test -f "$bundle/bin/rune-cpu-cpufreq"
           test -f "$bundle/bin/rune-unused-devices"
+          test -f "$bundle/bin/rune-soc-profile"
+          test -f "$bundle/soc/rockchip,rk3566.conf"
           test -f "$bundle/rune-kiosk.conf"
 
       - uses: benjlevesque/short-sha@v3.0

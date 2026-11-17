@@ -37,6 +37,8 @@ mkdir -p "$INSTALL_DIR"
 cp -r "$SCRIPT_DIR/bin" "$INSTALL_DIR/"
 cp -r "$SCRIPT_DIR/lib" "$INSTALL_DIR/"
 cp -r "$SCRIPT_DIR/data" "$INSTALL_DIR/"
+rm -rf "$INSTALL_DIR/soc"
+cp -r "$SCRIPT_DIR/soc" "$INSTALL_DIR/"
 chmod +x "$INSTALL_DIR/bin/flutter-pi" "$INSTALL_DIR/bin/rune-gpu-devfreq" "$INSTALL_DIR/bin/rune-cpu-cpufreq" \
     "$INSTALL_DIR/bin/rune-unused-devices" "$INSTALL_DIR/bin/rune-kiosk-desktop"
 

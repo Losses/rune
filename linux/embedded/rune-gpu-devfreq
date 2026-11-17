@@ -8,10 +8,13 @@
 #   rune-gpu-devfreq restore   put back what apply remembered
 #
 # RUNE_GPU_DEVFREQ is the device, a directory under /sys/class/devfreq; when it
-# is empty or missing, both do nothing. What apply remembers stays in /run until
+# is empty or missing, both do nothing. Settings that /etc/rune-kiosk.conf
+# leaves out come from the chip's profile: see rune-soc-profile. What apply remembers stays in /run until
 # restore puts it back, so a kiosk restarted after a failure does not take its
 # own setting for the machine's.
 set -u
+
+. "$(dirname "$0")/rune-soc-profile"
 
 device="${RUNE_GPU_DEVFREQ:-}"
 saved="/run/rune-kiosk-gpu-devfreq"

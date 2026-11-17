@@ -201,6 +201,8 @@ cp "$ROOT_DIR/linux/embedded/install.sh" "$BUNDLE_DIR/"
 cp "$ROOT_DIR/linux/embedded/rune-gpu-devfreq" "$BUNDLE_DIR/bin/"
 cp "$ROOT_DIR/linux/embedded/rune-cpu-cpufreq" "$BUNDLE_DIR/bin/"
 cp "$ROOT_DIR/linux/embedded/rune-unused-devices" "$BUNDLE_DIR/bin/"
+cp "$ROOT_DIR/linux/embedded/rune-soc-profile" "$BUNDLE_DIR/bin/"
+cp -r "$ROOT_DIR/linux/embedded/soc" "$BUNDLE_DIR/"
 cp "$ROOT_DIR/linux/embedded/rune-kiosk-desktop" "$BUNDLE_DIR/bin/"
 chmod +x "$BUNDLE_DIR/install.sh" "$BUNDLE_DIR/bin/rune-gpu-devfreq" "$BUNDLE_DIR/bin/rune-cpu-cpufreq" \
     "$BUNDLE_DIR/bin/rune-unused-devices" "$BUNDLE_DIR/bin/rune-kiosk-desktop"

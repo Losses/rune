@@ -15,6 +15,8 @@
 # switched off come back.
 set -u
 
+. "$(dirname "$0")/rune-soc-profile"
+
 # Whether something is connected to the device at this sysfs path.
 in_use() {
     for net in "$1"/net/*; do

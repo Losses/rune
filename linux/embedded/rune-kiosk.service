@@ -18,8 +18,8 @@ Environment=XDG_DATA_HOME=/home/dietpi/.local/share
 Environment=LD_PRELOAD=/opt/rune-embedded/lib/libhub.so
 Environment=LD_LIBRARY_PATH=/opt/rune-embedded/lib
 
-# The text box cursor, the GPU governor, the CPU frequency limit and the
-# controllers switched off: see /etc/rune-kiosk.conf.
+# The text box cursor, and what replaces the chip's measured GPU governor and
+# CPU frequency limit: see /etc/rune-kiosk.conf.
 EnvironmentFile=-/etc/rune-kiosk.conf
 
 # These run as root ("+"), and the kiosk starts or stops even if they fail ("-").

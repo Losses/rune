@@ -1,6 +1,6 @@
 # Embedded power and heat
 
-This records what a Radxa ZERO 3W running the Rune kiosk draws and why it runs hot, measured on 2026-11-17, and what `rune-kiosk.service` does about it. The settings are in `linux/embedded/rune-kiosk.conf`.
+This records what a Radxa ZERO 3W running the Rune kiosk draws and why it runs hot, measured on 2026-11-17, and what `rune-kiosk.service` does about it.
 
 ## The board
 
@@ -49,16 +49,24 @@ Full load, for scale:
 While `rune-kiosk.service` runs, three helpers in `/opt/rune-embedded/bin` change the machine, and each puts back what it found when the kiosk stops. A restart or a crash keeps the remembered values in `/run`.
 
 - `rune-gpu-devfreq` sets the GPU governor and its minimum frequency.
-- `rune-cpu-cpufreq` limits every CPU to `RUNE_CPU_MAX_FREQ`, 816 MHz by default. Work that fills the CPU, such as scanning or analysing a library, takes longer under the limit.
-- `rune-unused-devices` unbinds the controllers in `RUNE_UNUSED_DEVICES` from their drivers: by default the Ethernet controller and the four USB 2 hosts of the ZERO 3W. A controller with a network link up or a USB device plugged in stays on.
+- `rune-cpu-cpufreq` limits every CPU to `RUNE_CPU_MAX_FREQ`. Work that fills the CPU, such as scanning or analysing a library, takes longer under the limit.
+- `rune-unused-devices` unbinds the controllers in `RUNE_UNUSED_DEVICES` from their drivers. A controller with a network link up or a USB device plugged in stays on.
 
-Each setting can be emptied in `/etc/rune-kiosk.conf` to leave that part of the machine alone. The installer keeps an existing `/etc/rune-kiosk.conf`, so a board installed before these settings existed needs them copied in from the bundle's `rune-kiosk.conf`.
+## Which machine gets which values
 
-After changing the service or a helper, check on a board that start, restart, a crash, stop and a crash loop still hand the screen over, and that the CPU limit and the controllers come back after a stop.
+The numbers above were measured on one chip, and a limit that suits it can make another one slow. So the values are kept by chip, and the device tree says which chip a machine has.
+
+- `/opt/rune-embedded/soc/<name>.conf` holds the values measured for a chip, where `<name>` is an entry of `/proc/device-tree/compatible`, such as `rockchip,rk3566`. The helpers read the profile of every entry the machine lists. A machine whose chip has no profile is left as it is.
+- `/etc/rune-kiosk.conf` gives none of these settings as installed. A value given there replaces the chip's, and an empty value leaves that part of the machine alone.
+- Which controllers have nothing wired to them depends on the board, which a chip profile cannot know, so no profile sets `RUNE_UNUSED_DEVICES`. The service unbound the ZERO 3W's Ethernet controller and four USB 2 hosts for the readings above; the overlay below now does that for the board.
+
+To add a chip, measure it as described here and add its profile to `linux/embedded/soc`. The RK3566 profile has the GPU settings and the 816 MHz limit. The RK3568 profile has the GPU settings only, since the limit was not measured there.
+
+After changing the service or a helper, check on a board that start, restart, a crash, stop and a crash loop still hand the screen over, and that the CPU limit and the GPU settings come back after a stop.
 
 ## A device tree overlay for the board
 
-Unbinding a driver leaves some of a controller's clocks running: the Ethernet clock stayed enabled. `linux/embedded/boards/radxa-zero-3w-power.dts` disables the Ethernet controller, the four USB 2 hosts with their PHY, and the eMMC controller in the device tree, so they never start and their clocks stay gated. Its header says how to build and install it. With it the idle kiosk settled at 55.7 °C after nine minutes, against 57.2 °C with the controllers unbound by the service. The touchscreen and the kiosk work as before, and `rune-unused-devices` finds nothing left to unbind.
+Unbinding a driver leaves some of a controller's clocks running: the Ethernet clock stayed enabled. `linux/embedded/boards/radxa-zero-3w-power.dts` disables the Ethernet controller, the four USB 2 hosts with their PHY, and the eMMC controller in the device tree, so they never start and their clocks stay gated. Its header says how to build and install it. With it the idle kiosk settled at 55.7 °C after nine minutes, against 57.2 °C with the controllers unbound by the service. The touchscreen and the kiosk work as before.
 
 The overlay belongs to the board and its system image, so the bundle does not install it.
 
@@ -70,7 +78,7 @@ With the kiosk idle under its settings the SoC settles at 57 °C after five minu
 - The eMMC controller unbound (`sdhci-dwcmshc/fe310000.sdhci`). This board has no eMMC and boots from the SD card.
 - The USB OTG controller unbound (`dwc3/fcc00000.dwc3`).
 
-They are left out of `RUNE_UNUSED_DEVICES`.
+They are left out of the overlay.
 
 ## Still open
 
