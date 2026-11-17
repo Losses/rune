@@ -33,6 +33,7 @@ class _LikeButtonState extends State<LikeButton> {
   bool liked = false;
   late PlayingItem? item;
   int _requestGeneration = 0;
+  final Map<PlayingItem, int> _pendingWrites = {};
 
   @override
   void initState() {
@@ -78,14 +79,30 @@ class _LikeButtonState extends State<LikeButton> {
     final requestItem = item;
     if (requestItem == null) return;
 
-    final newLikedStatus = await (widget.setLikedStatus ?? setLiked)(
-      requestItem,
-      !liked,
-    );
-    if (mounted && generation == _requestGeneration) {
+    _pendingWrites[requestItem] = (_pendingWrites[requestItem] ?? 0) + 1;
+    late bool newLikedStatus;
+    try {
+      newLikedStatus = await (widget.setLikedStatus ?? setLiked)(
+        requestItem,
+        !liked,
+      );
+    } finally {
+      final remaining = _pendingWrites[requestItem]! - 1;
+      if (remaining == 0) {
+        _pendingWrites.remove(requestItem);
+      } else {
+        _pendingWrites[requestItem] = remaining;
+      }
+    }
+    if (!mounted) return;
+    if (generation == _requestGeneration) {
       setState(() {
         liked = newLikedStatus;
       });
+    } else if (item == requestItem &&
+        !_pendingWrites.containsKey(requestItem)) {
+      // A write may have committed after the read made on returning to this item.
+      _fetchLikedStatus();
     }
   }
 

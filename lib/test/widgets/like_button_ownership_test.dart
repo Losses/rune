@@ -21,20 +21,22 @@ void main() {
         (tester) async {
           final pending = Completer<bool>();
           final writes = <(PlayingItem, bool)>[];
+          final persisted = <PlayingItem, bool>{a: false, b: false};
           var reads = 0;
           var holdToggle = pendingToggle;
           Future<bool> fetch(PlayingItem item) {
             if (++reads == 1 && !pendingToggle) return pending.future;
-            return Future.value(false);
+            return Future.value(persisted[item]!);
           }
 
-          Future<bool> toggle(PlayingItem item, bool liked) {
+          Future<bool> toggle(PlayingItem item, bool liked) async {
             writes.add((item, liked));
             if (holdToggle) {
               holdToggle = false;
-              return pending.future;
+              await pending.future;
             }
-            return Future.value(liked);
+            persisted[item] = liked;
+            return liked;
           }
 
           Future<void> show(PlayingItem item) async {
@@ -67,11 +69,18 @@ void main() {
 
           pending.complete(true);
           await tester.pump();
-          expect(tester.widget<Icon>(find.byIcon(Symbols.favorite)).fill, 0);
+          final currentLiked = returnToA && pendingToggle;
+          expect(
+            tester.widget<Icon>(find.byIcon(Symbols.favorite)).fill,
+            currentLiked ? 1 : 0,
+          );
           await tester.tap(find.byIcon(Symbols.favorite));
           await tester.pump();
-          expect(writes.last, (returnToA ? a : b, true));
-          expect(tester.widget<Icon>(find.byIcon(Symbols.favorite)).fill, 1);
+          expect(writes.last, (returnToA ? a : b, !currentLiked));
+          expect(
+            tester.widget<Icon>(find.byIcon(Symbols.favorite)).fill,
+            currentLiked ? 0 : 1,
+          );
         },
       );
     }
