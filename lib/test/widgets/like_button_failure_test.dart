@@ -12,9 +12,8 @@ import '../../utils/playing_item.dart';
 import '../../widgets/playback_controller/like_button.dart';
 
 void main() {
-  // The track is gone from its library, or the item has no liked state (such
-  // as an independent file). Either failure reaches the global handler, which
-  // shows its localized message.
+  // A rejected write reaches the global handler, which shows its localized
+  // message.
   for (final kind in [
     RequestErrorKind.notFound,
     RequestErrorKind.invalidInput,

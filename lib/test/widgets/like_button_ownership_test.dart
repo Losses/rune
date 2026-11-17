@@ -14,6 +14,57 @@ const a = PlayingItem.libraryItem(libraryId: 'library', fileUuid: 'a');
 const b = PlayingItem.libraryItem(libraryId: 'library', fileUuid: 'b');
 
 void main() {
+  testWidgets('independent files have no Like button or liked-state request', (
+    tester,
+  ) async {
+    const independent = PlayingItem.independentFile('/music/independent.ogg');
+    final reads = <PlayingItem>[];
+    final writes = <(PlayingItem, bool)>[];
+    var persisted = false;
+
+    Future<void> show(PlayingItem item) async {
+      await tester.pumpWidget(
+        ChangeNotifierProvider<LibraryOpenStateProvider>(
+          create: (_) => _LibraryOpenStateProvider(),
+          child: FluentApp(
+            home: LikeButton(
+              item: item,
+              fetchLikedStatus: (requested) async {
+                reads.add(requested);
+                return persisted;
+              },
+              setLikedStatus: (requested, liked) async {
+                writes.add((requested, liked));
+                return persisted = liked;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    final heart = find.byIcon(Symbols.favorite);
+    await show(independent);
+    expect(heart, findsNothing);
+    expect(reads, isEmpty);
+
+    await show(a);
+    expect(heart, findsOneWidget);
+    expect(reads, [a]);
+    await tester.tap(heart);
+    await tester.pump();
+    expect(writes, [(a, true)]);
+
+    await show(independent);
+    expect(heart, findsNothing);
+    expect(reads, [a]);
+    expect(writes, [(a, true)]);
+
+    await show(a);
+    expect(tester.widget<Icon>(heart).fill, 1);
+    expect(reads, [a, a]);
+  });
   for (final returnToA in [false, true]) {
     for (final pendingToggle in [false, true]) {
       testWidgets(
