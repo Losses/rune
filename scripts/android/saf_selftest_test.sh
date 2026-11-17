@@ -13,6 +13,7 @@ cp "$repo_root/assets/startup_0.ogg" "$fixture_repo/assets/"
 
 export PATH="$temp_dir/bin:$PATH"
 export EXPECTED_FIXTURE="$fixture_repo/assets/startup_0.ogg"
+export PUSHED_FIXTURE="$temp_dir/pushed.ogg"
 export EXPECTED_LOG="$temp_dir/expected.log"
 printf 'I/hub: self-test passed\n' > "$EXPECTED_LOG"
 
@@ -32,6 +33,7 @@ case "$*" in
       exit 1
     fi
     [[ "$3" == /sdcard/Documents/rune-selftest/startup_0.ogg ]]
+    cp "$2" "$PUSHED_FIXTURE"
     ;;
   "logcat -d")
     cat "$EXPECTED_LOG"
@@ -54,8 +56,9 @@ check_run() (
     printf 'Expected one log in scripts/android after running from %s\n' "$PWD" >&2
     exit 1
   fi
+  cmp "$EXPECTED_FIXTURE" "$PUSHED_FIXTURE"
   cmp "$EXPECTED_LOG" "${logs[0]}"
-  rm "${logs[0]}"
+  rm "$PUSHED_FIXTURE" "${logs[0]}"
 )
 
 check_run "$fixture_repo" scripts/android/saf_selftest.sh
