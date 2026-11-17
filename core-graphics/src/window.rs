@@ -24,20 +24,19 @@ pub type CGWindowID = u32;
 pub type CGWindowSharingType = u32;
 pub const kCGWindowSharingNone: CGWindowSharingType = 0;
 pub const kCGWindowSharingReadOnly: CGWindowSharingType = 1;
-pub const kCGWindowSharingReadWrite: CGWindowSharingType = 1;
+pub const kCGWindowSharingReadWrite: CGWindowSharingType = 2;
 
 pub type CGWindowBackingType = u32;
 pub const kCGWindowBackingStoreRetained: CGWindowBackingType = 0;
 pub const kCGWindowBackingStoreNonretained: CGWindowBackingType = 1;
 pub const kCGWindowBackingStoreBuffered: CGWindowBackingType = 2;
 
-pub type CGWindowListOption = u32;
-pub const kCGWindowListOptionAll: CGWindowListOption = 1 << 0;
-pub const kCGWindowListOptionOnScreenOnly: CGWindowListOption = 1 << 1;
-pub const kCGWindowListOptionOnScreenAboveWindow: CGWindowListOption = 1 << 2;
-pub const kCGWindowListOptionOnScreenBelowWindow: CGWindowListOption = 1 << 3;
-pub const kCGWindowListOptionIncludingWindow: CGWindowListOption = 1 << 4;
-pub const kCGWindowListOptionExcludeDesktopElements: CGWindowListOption = 1 << 5;
+pub use display::{
+    kCGWindowListExcludeDesktopElements as kCGWindowListOptionExcludeDesktopElements,
+    kCGWindowListOptionAll, kCGWindowListOptionIncludingWindow,
+    kCGWindowListOptionOnScreenAboveWindow, kCGWindowListOptionOnScreenBelowWindow,
+    kCGWindowListOptionOnScreenOnly, CGWindowListOption,
+};
 
 pub type CGWindowImageOption = u32;
 pub const kCGWindowImageDefault: CGWindowImageOption = 0;
