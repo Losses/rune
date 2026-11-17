@@ -37,6 +37,7 @@ sync = { path = "../sync" }
 sea-orm = "2.0.4"
 
 [dev-dependencies]
+playback = { path = "../playback", features = ["test-output"] }
 tempfile = "3.17.1"
 
 [lints]
