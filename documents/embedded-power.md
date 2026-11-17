@@ -56,10 +56,20 @@ Each setting can be emptied in `/etc/rune-kiosk.conf` to leave that part of the 
 
 After changing the service or a helper, check on a board that start, restart, a crash, stop and a crash loop still hand the screen over, and that the CPU limit and the controllers come back after a stop.
 
+## Tried without effect
+
+With the kiosk idle under its settings the SoC settles at 57 °C after five minutes, against 62 to 63 °C before them. On top of that, each of these was held for five minutes, and together they lowered the SoC by half a degree, which is within the noise:
+
+- Wi-Fi power saving on (`iwconfig wlan0 power on`). The module is a separate chip, so a saving there may not reach the SoC sensor; the meter showed no step either.
+- The eMMC controller unbound (`sdhci-dwcmshc/fe310000.sdhci`). This board has no eMMC and boots from the SD card.
+- The USB OTG controller unbound (`dwc3/fcc00000.dwc3`).
+
+They are left out of `RUNE_UNUSED_DEVICES`.
+
 ## Still open
 
-- About 1.5 W of the board's own draw is unexplained. Still powered with nothing using them: the USB 3 PHY and the OTG controller, the eMMC controller, and the Wi-Fi module with power saving off. The Ethernet clock stays enabled after its driver is unbound, so a device tree that disables these outright may save more than unbinding does.
+- About 1.5 W of the board's own draw is unexplained. The USB 3 PHY stays powered though the touchscreen uses USB 2 signals only, and the Ethernet clock stays enabled after its driver is unbound. Both need a device tree that disables them outright, and a restart to check.
 - The screen's backlight is the largest single consumer. Dimming it and turning it off with the screen need a panel with a backlight input.
 - Handhelds built on the same RK3566 advertise about six hours on a 12 to 13 Wh battery, which is about 2 W with the screen on. They use a DSI panel and a device tree written for the device. These figures come from memory of their specifications and were not checked; if they hold, that is the mark for a player built on this SoC.
-- With the picture still, the kiosk's UI thread uses about 6 % of a core and the process about 11 %.
+- The kiosk is never fully idle. Paused on the library home page the process uses about 15 % of a core. A 20 second profile puts about a third of that in the backend: the loops in `native/hub/src/server/sync_worker.rs` (`verify_managed_audio`, `run_share_worker`, `run_loop`, `maintain_metadata`, `schedule_peers`) wake every second and run SQLite transactions. Their threads carry the name `io.flutter.ui`, inherited from the thread that started them, so per-thread figures count them as the UI thread. The home page also flips its cover tiles every eight seconds, which draws about 32 frames each time.
 - Nothing suspends the board when playback is paused for a long time.
