@@ -28,6 +28,12 @@ use crate::{
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 static POOLS: OnceLock<StdMutex<HashMap<PathBuf, Weak<LibraryPool>>>> = OnceLock::new();
 
+/// The folder the user chose for a library on this device is not there: unplugged, moved or
+/// deleted. The library is not opened, since opening would create an empty one in its place.
+#[derive(Debug, thiserror::Error)]
+#[error("Media folder is missing: {0}")]
+pub struct MediaFolderMissing(pub String);
+
 /// Connections and storage belonging to one library. Keep a handle alive while using them.
 pub struct LibraryResources {
     pub library_id: Uuid,
@@ -328,6 +334,15 @@ impl LibraryPool {
             .to_str()
             .context("Library path is not UTF-8")?
             .to_owned();
+        // Opening creates the database and the folders above it, so a folder the user chose
+        // that is unplugged or was moved would come back as an empty library. A replica's
+        // folder is the app's own and is made here.
+        if descriptor.local_folder_path() == Some(path.as_str())
+            && !path.starts_with("content://")
+            && !root.is_dir()
+        {
+            return Err(MediaFolderMissing(path.clone()).into());
+        }
         let fsio = Arc::new(match descriptor.fs.first() {
             Some(FsAdapter::WebDav {
                 endpoint,
@@ -711,6 +726,41 @@ mod tests {
             &same_pool.acquire(id).await?.main_db
         ));
         assert!(f.pool.acquire(Uuid::new_v4()).await.is_err());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_missing_media_folder_is_reported_and_not_made_again() -> Result<()> {
+        let f = Fixture::new(false).await?;
+        let id = f.descriptor.catalog_library_id().unwrap();
+        drop(f.pool.acquire(id).await?);
+        *f.pool.entries.lock().await[&id]
+            .last_released
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Instant::now() - f.pool.idle_timeout;
+        f.pool.close_idle().await?;
+        let aside = f.dir.path().join("media.offline");
+        fs::rename(&f.root, &aside)?;
+        let database = fs::read(aside.join(".rune/.0.db"))?;
+
+        for opened in [
+            f.pool.acquire_background(id).await,
+            f.pool.acquire(id).await,
+            f.pool.acquire_ui(id).await,
+        ] {
+            let error = opened
+                .err()
+                .context("a library without its folder opened")?;
+            assert!(
+                error.downcast_ref::<MediaFolderMissing>().is_some(),
+                "{error:#}"
+            );
+        }
+
+        assert!(!Path::new(&f.root).exists());
+        assert_eq!(fs::read(aside.join(".rune/.0.db"))?, database);
+        fs::rename(&aside, &f.root)?;
+        assert_eq!(f.pool.acquire_ui(id).await?.media_root, f.root);
         Ok(())
     }
 

@@ -67,7 +67,7 @@ use crate::backends::{
     local::local_player_loop,
     remote::{RemoteConnectError, open_remote_library_for_fingerprint},
 };
-use crate::library_pool::{LibraryHandle, LibraryPool};
+use crate::library_pool::{LibraryHandle, LibraryPool, MediaFolderMissing};
 use crate::macros::NodeRequestHandlers;
 use crate::messages::*;
 use crate::request_error::ExpectedRequestError;
@@ -2219,7 +2219,14 @@ async fn open_catalog_record(
         .library_pool
         .acquire_ui(library_id)
         .await
-        .map_err(|error| (OpenLibraryFailureKind::Storage, error))?;
+        .map_err(|error| {
+            let kind = if error.downcast_ref::<MediaFolderMissing>().is_some() {
+                OpenLibraryFailureKind::MediaFolderMissing
+            } else {
+                OpenLibraryFailureKind::Storage
+            };
+            (kind, error)
+        })?;
     let generation = run_local_open(Ok(opened), Some(record.record_id), node, &scrobbler)
         .await
         .map_err(|error| (OpenLibraryFailureKind::Storage, error))?;

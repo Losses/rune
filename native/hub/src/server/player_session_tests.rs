@@ -11220,6 +11220,79 @@ async fn subsonic_registration_receiver_dispatches_to_node_handler() -> Result<(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_library_whose_folder_was_moved_is_not_opened_as_an_empty_one() -> Result<()> {
+    use crate::library_pool::MediaFolderMissing;
+    use crate::messages::{
+        LibraryInitializeMode, OpenLibraryFailureKind, OpenLibraryRequest, RegisterLibraryOutcome,
+        RegisterLocalLibraryRequest,
+    };
+    use database::library_registry::{LibraryRecordId, LibraryRegistry};
+    use scrobbling::manager::ScrobblingManager;
+    use tokio::sync::Mutex;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture_with_broadcaster(
+        dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        Arc::new(RecordedSignals::default()),
+    )
+    .await?;
+    let node = fixture.global_params.node.clone();
+    let folder = dir.path().join("Music");
+    std::fs::create_dir_all(&folder)?;
+    std::fs::write(folder.join("track.ogg"), "audio")?;
+    let registered = register_local_library_on_node(
+        &RegisterLocalLibraryRequest {
+            call_id: None,
+            path: folder.to_string_lossy().into_owned(),
+            alias: "Music".into(),
+            mode: Some(LibraryInitializeMode::Portable),
+        },
+        &node,
+    )
+    .await?;
+    assert_eq!(registered.outcome, RegisterLibraryOutcome::Registered);
+    let record_id = registered.record.context("registered record")?.record_id;
+    let library_id = LibraryRegistry::load(PathBuf::from(&*node.config_path).as_path())?
+        .record(LibraryRecordId(Uuid::parse_str(&record_id)?))?
+        .library_id
+        .context("local library id")?;
+    let aside = dir.path().join("Music.offline");
+    std::fs::rename(&folder, &aside)?;
+
+    // Background work reaches the library before the user opens it.
+    let background = node.library_pool.acquire_background(library_id).await;
+    let error = background
+        .err()
+        .context("background work opened a library without its folder")?;
+    assert!(
+        error.downcast_ref::<MediaFolderMissing>().is_some(),
+        "{error:#}"
+    );
+    let opened = open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: Some(1),
+            record_id,
+        },
+        node.clone(),
+        Arc::new(Mutex::new(ScrobblingManager::new(
+            10,
+            Duration::from_secs(5),
+        ))),
+    )
+    .await;
+    assert_eq!(
+        opened_failure_kind(opened)?,
+        OpenLibraryFailureKind::MediaFolderMissing
+    );
+
+    assert!(!folder.exists());
+    assert_eq!(std::fs::read(aside.join("track.ogg"))?, b"audio");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> Result<()> {
     use crate::messages::{
         InvalidRecordReasonSummary, LibraryInitializeMode, LibraryRecordKindSummary,
