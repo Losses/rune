@@ -1,0 +1,400 @@
+diff --git a/src/flutter-pi.c b/src/flutter-pi.c
+index 98801ac..4d5533e 100644
+--- a/src/flutter-pi.c
++++ b/src/flutter-pi.c
+@@ -297,6 +297,34 @@ struct flutterpi {
+ 
+     /// Only used with partial_repaint, and only on the raster thread.
+     struct damage_history damage_history;
++
++    /**
++     * @brief Switching the display off after a time without input. The app sets
++     * the time on the BLANK_CHANNEL. All of it is used on the platform thread only.
++     */
++    struct {
++        /// Seconds without input after which the display goes off; 0 for never,
++        /// which it is until the app sets a time.
++        int after_seconds;
++
++        /// The display is off, and Flutter was told the app is paused.
++        bool blanked;
++
++        /// The display was just switched on again: pointer events are still
++        /// dropped until a touch starts while no other touch is down, so the
++        /// rest of the waking tap does not reach Flutter.
++        bool wake_pending;
++
++        /// How many pointers are down, counting the ones not passed on.
++        int pointers_down;
++
++        /// When the last input arrived, and when the last touch started while
++        /// the display was off (0 for none). CLOCK_MONOTONIC, in microseconds.
++        uint64_t last_input_usec;
++        uint64_t last_dark_tap_usec;
++
++        sd_event_source *timer;
++    } blank;
+ };
+ 
+ struct device_id_and_fd {
+@@ -308,6 +336,20 @@ struct device_id_and_fd {
+ /// TODO: Remove this
+ struct flutterpi *flutterpi;
+ 
++/**
++ * The app sets the time without input after which the display goes off, with the
++ * standard method call setBlankAfter(int seconds) on this channel; 0 keeps it on.
++ *
++ * When the time is up, flutter is told the app is paused, so it schedules no more
++ * frames, and the display is switched off. Two taps in a row switch it on again.
++ * Those taps, and every touch while the display is off, are not passed on to
++ * flutter. A key press switches the display on as well.
++ */
++#define BLANK_CHANNEL "rune/display_power"
++
++static int on_blank_method_call(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle);
++static int blank_set_after(struct flutterpi *flutterpi, int seconds);
++
+ static bool runs_platform_tasks_on_current_thread(void *userdata);
+ 
+ /*********************
+@@ -1559,6 +1601,13 @@ static int flutterpi_run(struct flutterpi *flutterpi) {
+         return EINVAL;
+     }
+ 
++    if (flutterpi->drmdev != NULL) {
++        ok = plugin_registry_set_receiver(BLANK_CHANNEL, kStandardMethodCall, on_blank_method_call);
++        if (ok != 0) {
++            LOG_ERROR("Could not listen on \"" BLANK_CHANNEL "\". The display stays on. plugin_registry_set_receiver: %s\n", strerror(ok));
++        }
++    }
++
+     engine = create_flutter_engine(
+         flutterpi->vk_renderer,
+         flutterpi->flutter.paths,
+@@ -1772,16 +1821,289 @@ void flutterpi_schedule_exit(struct flutterpi *flutterpi) {
+     return;
+ }
+ 
++/************
++ * BLANKING *
++ ************/
++/// Two touches that start within this time of each other, while the display is off, switch it on.
++#define BLANK_DOUBLE_TAP_USEC 500000
++
++/// The display goes off this long after flutter was told the app is paused, so
++/// that a frame flutter was already drawing is still shown.
++#define BLANK_POWER_OFF_DELAY_USEC 300000
++
++static uint64_t blank_now_usec(void) {
++    return get_monotonic_time() / 1000;
++}
++
++/// Whether some connected display has a DPMS property to switch it off with.
++static bool blank_can_power_off(struct flutterpi *flutterpi) {
++    struct drm_connector *connector;
++
++    if (flutterpi->drmdev == NULL) {
++        return false;
++    }
++
++    for_each_connector_in_drmdev(flutterpi->drmdev, connector) {
++        if (connector->variable_state.connection_state == kConnected_DrmConnectionState && connector->ids.dpms != DRM_ID_NONE) {
++            return true;
++        }
++    }
++
++    return false;
++}
++
++/// Switches every connected display on or off, through the connector's DPMS property.
++static void blank_set_display_power(struct flutterpi *flutterpi, bool on) {
++    struct drm_connector *connector;
++    int ok;
++
++    if (flutterpi->drmdev == NULL) {
++        return;
++    }
++
++    for_each_connector_in_drmdev(flutterpi->drmdev, connector) {
++        if (connector->variable_state.connection_state != kConnected_DrmConnectionState || connector->ids.dpms == DRM_ID_NONE) {
++            continue;
++        }
++
++        ok = drmModeConnectorSetProperty(
++            drmdev_get_fd(flutterpi->drmdev),
++            connector->id,
++            connector->ids.dpms,
++            on ? DRM_MODE_DPMS_ON : DRM_MODE_DPMS_OFF
++        );
++        if (ok < 0) {
++            LOG_ERROR("Could not switch the display %s. drmModeConnectorSetProperty: %s\n", on ? "on" : "off", strerror(errno));
++        }
++    }
++}
++
++/// Tells Flutter whether the app can be seen. A paused app schedules no frames.
++static void blank_send_lifecycle(struct flutterpi *flutterpi, const char *state) {
++    int ok;
++
++    ok = flutterpi_send_platform_message(flutterpi, "flutter/lifecycle", (const uint8_t *) state, strlen(state), NULL);
++    if (ok != 0) {
++        LOG_ERROR("Could not tell flutter the app is %s. flutterpi_send_platform_message: %s\n", state, strerror(ok));
++    }
++}
++
++static void blank_arm_timer(struct flutterpi *flutterpi) {
++    if (flutterpi->blank.timer == NULL) {
++        return;
++    }
++
++    sd_event_source_set_time(flutterpi->blank.timer, flutterpi->blank.last_input_usec + flutterpi->blank.after_seconds * UINT64_C(1000000));
++    sd_event_source_set_enabled(flutterpi->blank.timer, SD_EVENT_ONESHOT);
++}
++
++static int on_blank_power_off(void *userdata) {
++    struct flutterpi *flutterpi;
++
++    ASSERT_NOT_NULL(userdata);
++    flutterpi = userdata;
++
++    // Woken up again in the meantime?
++    if (flutterpi->blank.blanked) {
++        blank_set_display_power(flutterpi, false);
++    }
++
++    return 0;
++}
++
++static void blank_display(struct flutterpi *flutterpi) {
++    flutterpi->blank.blanked = true;
++    flutterpi->blank.wake_pending = false;
++    flutterpi->blank.last_dark_tap_usec = 0;
++
++    blank_send_lifecycle(flutterpi, "AppLifecycleState.paused");
++    flutterpi_post_platform_task_with_time(on_blank_power_off, flutterpi, blank_now_usec() + BLANK_POWER_OFF_DELAY_USEC);
++}
++
++static void unblank_display(struct flutterpi *flutterpi) {
++    flutterpi->blank.blanked = false;
++    flutterpi->blank.wake_pending = true;
++    flutterpi->blank.last_input_usec = blank_now_usec();
++
++    blank_set_display_power(flutterpi, true);
++    blank_send_lifecycle(flutterpi, "AppLifecycleState.resumed");
++    blank_arm_timer(flutterpi);
++}
++
++static int on_blank_timer(sd_event_source *s, uint64_t usec, void *userdata) {
++    struct flutterpi *flutterpi;
++
++    (void) s;
++    (void) usec;
++    ASSERT_NOT_NULL(userdata);
++    flutterpi = userdata;
++
++    if (flutterpi->blank.blanked || flutterpi->blank.after_seconds <= 0) {
++        return 0;
++    }
++
++    if (blank_now_usec() - flutterpi->blank.last_input_usec >= flutterpi->blank.after_seconds * UINT64_C(1000000)) {
++        // Pausing flutter while the display stays lit would look frozen.
++        if (blank_can_power_off(flutterpi)) {
++            blank_display(flutterpi);
++        }
++    } else {
++        blank_arm_timer(flutterpi);
++    }
++
++    return 0;
++}
++
++/// Sets the time without input after which the display goes off; 0 keeps it on.
++static int blank_set_after(struct flutterpi *flutterpi, int seconds) {
++    int ok;
++
++    flutterpi->blank.after_seconds = seconds;
++    flutterpi->blank.last_input_usec = blank_now_usec();
++
++    if (seconds == 0) {
++        if (flutterpi->blank.timer != NULL) {
++            sd_event_source_set_enabled(flutterpi->blank.timer, SD_EVENT_OFF);
++        }
++        if (flutterpi->blank.blanked) {
++            unblank_display(flutterpi);
++            flutterpi->blank.wake_pending = false;
++        }
++    } else if (flutterpi->blank.timer == NULL) {
++        ok = sd_event_add_time(
++            flutterpi->event_loop,
++            &flutterpi->blank.timer,
++            CLOCK_MONOTONIC,
++            flutterpi->blank.last_input_usec + seconds * UINT64_C(1000000),
++            100000,
++            on_blank_timer,
++            flutterpi
++        );
++        if (ok < 0) {
++            LOG_ERROR("Could not start the timer that switches the display off. sd_event_add_time: %s\n", strerror(-ok));
++            flutterpi->blank.after_seconds = 0;
++            flutterpi->blank.timer = NULL;
++            return -ok;
++        }
++    } else if (!flutterpi->blank.blanked) {
++        blank_arm_timer(flutterpi);
++    }
++
++    return 0;
++}
++
++/// The app sets the time without input after which the display goes off.
++static int on_blank_method_call(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
++    int64_t seconds;
++    int ok;
++
++    (void) channel;
++
++    if (!streq(object->method, "setBlankAfter")) {
++        return platch_respond_not_implemented(responsehandle);
++    }
++
++    if (!STDVALUE_IS_INT(object->std_arg) || STDVALUE_AS_INT(object->std_arg) < 0 || STDVALUE_AS_INT(object->std_arg) > INT_MAX / 2) {
++        return platch_respond_illegal_arg_std(responsehandle, "Expected a number of seconds, 0 to keep the display on.");
++    }
++    seconds = STDVALUE_AS_INT(object->std_arg);
++
++    ok = blank_set_after(flutterpi, (int) seconds);
++    if (ok != 0) {
++        return platch_respond_error_std(responsehandle, "timer", "Could not start the timer.", NULL);
++    }
++
++    return platch_respond_success_std(responsehandle, NULL);
++}
++
++/// A key was pressed or released: counts as input, and switches the display on.
++static void blank_on_key(struct flutterpi *flutterpi) {
++    if (flutterpi->blank.after_seconds <= 0) {
++        return;
++    }
++
++    if (flutterpi->blank.blanked) {
++        unblank_display(flutterpi);
++    } else {
++        flutterpi->blank.last_input_usec = blank_now_usec();
++    }
++}
++
++/**
++ * @brief Decides which pointer events flutter gets, while the app has set a time on the BLANK_CHANNEL.
++ *
++ * Copies the events to pass on into @param out, which has room for @param n_events,
++ * and returns how many there are. Devices being added and removed are always
++ * passed on, so flutter knows the pointers of the events that follow later.
++ */
++static size_t blank_filter_pointer_events(struct flutterpi *flutterpi, const FlutterPointerEvent *events, size_t n_events, FlutterPointerEvent *out) {
++    size_t n_out = 0;
++    uint64_t now = blank_now_usec();
++
++    for (size_t i = 0; i < n_events; i++) {
++        const FlutterPointerEvent *event = events + i;
++        bool starts_alone = false;
++
++        if (event->phase == kAdd || event->phase == kRemove) {
++            out[n_out++] = *event;
++            continue;
++        }
++
++        if (event->phase == kDown) {
++            starts_alone = flutterpi->blank.pointers_down == 0;
++            flutterpi->blank.pointers_down++;
++        } else if ((event->phase == kUp || event->phase == kCancel) && flutterpi->blank.pointers_down > 0) {
++            flutterpi->blank.pointers_down--;
++        }
++
++        if (flutterpi->blank.blanked) {
++            if (event->phase == kDown) {
++                if (flutterpi->blank.last_dark_tap_usec != 0 && now - flutterpi->blank.last_dark_tap_usec <= BLANK_DOUBLE_TAP_USEC) {
++                    unblank_display(flutterpi);
++                } else {
++                    flutterpi->blank.last_dark_tap_usec = now;
++                }
++            }
++            continue;
++        }
++
++        if (flutterpi->blank.wake_pending) {
++            if (event->phase != kDown || !starts_alone) {
++                continue;
++            }
++            flutterpi->blank.wake_pending = false;
++        }
++
++        flutterpi->blank.last_input_usec = now;
++        out[n_out++] = *event;
++    }
++
++    return n_out;
++}
++
+ /**************
+  * USER INPUT *
+  **************/
+ static void on_flutter_pointer_event(void *userdata, const FlutterPointerEvent *events, size_t n_events) {
+     FlutterEngineResult engine_result;
+     struct flutterpi *flutterpi;
++    FlutterPointerEvent *passed_on = NULL;
+ 
+     ASSERT_NOT_NULL(userdata);
+     flutterpi = userdata;
+ 
++    if (flutterpi->blank.after_seconds > 0 && n_events > 0) {
++        passed_on = malloc(n_events * sizeof *passed_on);
++        if (passed_on != NULL) {
++            n_events = blank_filter_pointer_events(flutterpi, events, n_events, passed_on);
++            events = passed_on;
++        }
++        if (n_events == 0) {
++            free(passed_on);
++            return;
++        }
++    }
++
+     /// TODO: make this atomic
+     flutterpi->flutter.next_frame_request_is_secondary = true;
+ 
+@@ -1793,6 +2115,8 @@ static void on_flutter_pointer_event(void *userdata, const FlutterPointerEvent *
+         );
+         //flutterpi_schedule_exit(flutterpi);
+     }
++
++    free(passed_on);
+ }
+ 
+ static void on_utf8_character(void *userdata, uint8_t *character) {
+@@ -1834,7 +2158,7 @@ on_gtk_keyevent(void *userdata, uint32_t unicode_scalar_values, uint32_t key_cod
+     int ok;
+ 
+     flutterpi = userdata;
+-    (void) flutterpi;
++    blank_on_key(flutterpi);
+ 
+ #ifdef BUILD_RAW_KEYBOARD_PLUGIN
+     ok = rawkb_send_gtk_keyevent(unicode_scalar_values, key_code, scan_code, modifiers, is_down);
+@@ -2939,6 +3263,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
+     fpi->texture_registry = texture_registry;
+     fpi->libseat = libseat;
+     fpi->partial_repaint = partial_repaint;
++    memset(&fpi->blank, 0, sizeof fpi->blank);
+     memset(&fpi->damage_history, 0, sizeof fpi->damage_history);
+     return fpi;
+ 
+@@ -3039,6 +3364,9 @@ void flutterpi_destroy(struct flutterpi *flutterpi) {
+         UNREACHABLE();
+ #endif
+     }
++    if (flutterpi->blank.timer != NULL) {
++        sd_event_source_unref(flutterpi->blank.timer);
++    }
+     tracer_unref(flutterpi->tracer);
+     drmdev_unref(flutterpi->drmdev);
+     locales_destroy(flutterpi->locales);

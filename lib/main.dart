@@ -19,6 +19,7 @@ import 'package:system_tray/system_tray.dart';
 
 import 'l10n/app_localizations.dart';
 import 'utils/blink_cursor_option.dart';
+import 'utils/display_blank_option.dart';
 import 'utils/l10n.dart';
 import 'utils/api/close_library.dart';
 import 'utils/api/request_failure.dart';
@@ -165,6 +166,15 @@ void main(List<String> arguments) async {
     arguments,
     kIsWeb ? const {} : Platform.environment,
   );
+
+  // The kiosk's flutter-pi switches the display off after a time without
+  // input, and tells Flutter the app is paused while it is off.
+  final blankAfter = blankAfterAtLaunch(
+    kIsWeb ? const {} : Platform.environment,
+  );
+  if (blankAfter != null) {
+    await DisplayBlanker.setBlankAfter(blankAfter);
+  }
 
   String? profile = arguments.contains('--profile')
       ? arguments[arguments.indexOf('--profile') + 1]

@@ -170,6 +170,9 @@ git -C "$WORK_DIR/flutter-pi" apply "$ROOT_DIR/linux/embedded/flutter-pi.patch"
 # --partial-repaint: Flutter draws only what changed since the buffer it draws
 # into was last shown, instead of the whole screen every frame.
 git -C "$WORK_DIR/flutter-pi" apply "$ROOT_DIR/linux/embedded/flutter-pi-partial-repaint.patch"
+# The display goes off after the time the app sets on the rune/display_power
+# channel, and Flutter is told the app is paused meanwhile.
+git -C "$WORK_DIR/flutter-pi" apply "$ROOT_DIR/linux/embedded/flutter-pi-display-blank.patch"
 
 CMAKE_FLAGS=(-DCMAKE_BUILD_TYPE=Release -DENABLE_TESTS=OFF)
 if [ "$IS_CROSS" = true ]; then

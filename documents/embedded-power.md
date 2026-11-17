@@ -52,6 +52,17 @@ While `rune-kiosk.service` runs, three helpers in `/opt/rune-embedded/bin` chang
 - `rune-cpu-cpufreq` limits every CPU to `RUNE_CPU_MAX_FREQ`. Work that fills the CPU, such as scanning or analysing a library, takes longer under the limit.
 - `rune-unused-devices` unbinds the controllers in `RUNE_UNUSED_DEVICES` from their drivers. A controller with a network link up or a USB device plugged in stays on.
 
+## Switching the display off
+
+Of the 4 W the whole setup idles at, 2 W goes when the HDMI signal is off, which is the largest single saving found. The kiosk's flutter-pi switches the display off after a time without a touch.
+
+- The app sets the time with the method call `setBlankAfter(seconds)` on the channel `rune/display_power` (`DisplayBlanker` in `lib/utils/display_blank_option.dart`), at start, from `RUNE_BLANK_AFTER` in `/etc/rune-kiosk.conf`, 60 by default. A settings page can call the same method later. 0 keeps the display on. Another embedder does not answer, and the display stays on.
+- When the time is up flutter-pi sends `AppLifecycleState.paused`, so Flutter schedules no frames, and switches the display off through the connector's DPMS property a third of a second later. A display with no DPMS property is left on and Flutter is not paused.
+- While the display is off, every touch is dropped. Two touches starting within half a second of each other switch it on, send `AppLifecycleState.resumed`, and are dropped too, along with the rest of that tap, so the double tap does not press whatever lies under it. A key press wakes the display as well. The touchscreen reports touches with the HDMI signal off: 388 events in 20 seconds of tapping.
+- The patch is `linux/embedded/flutter-pi-display-blank.patch`, applied by `scripts/build_embedded.sh` after the partial repaint patch.
+
+On the ZERO 3W with a 15 second timeout set for the test: the display went off 15 seconds after the last touch; for the next 20 seconds no frames were presented and the process used under 10 % of a core (against 60 frames a second and about 100 % with the cover wall on); a single tap did nothing; a double tap on the Tracks tile woke the display and left the home page as it was, and the next tap opened Tracks; the display went off again after the same time. The backend's own wake-ups stay: see below.
+
 ## Which machine gets which values
 
 The numbers above were measured on one chip, and a limit that suits it can make another one slow. So the values are kept by chip, and the device tree says which chip a machine has.
@@ -88,3 +99,4 @@ They are left out of the overlay.
 - Handhelds built on the same RK3566 advertise about six hours on a 12 to 13 Wh battery, which is about 2 W with the screen on. They use a DSI panel and a device tree written for the device. These figures come from memory of their specifications and were not checked; if they hold, that is the mark for a player built on this SoC.
 - The kiosk is never fully idle. Paused on the library home page the process uses about 15 % of a core. A 20 second profile puts about a third of that in the backend: the loops in `native/hub/src/server/sync_worker.rs` (`verify_managed_audio`, `run_share_worker`, `run_loop`, `maintain_metadata`, `schedule_peers`) wake every second and run SQLite transactions. Their threads carry the name `io.flutter.ui`, inherited from the thread that started them, so per-thread figures count them as the UI thread. The home page also flips its cover tiles every eight seconds, which draws about 32 frames each time.
 - Nothing suspends the board when playback is paused for a long time.
+- With the display off the backend's sync loops are the remaining wake-ups. They could check only while the display is on, with a sync started by hand running to the end either way.
