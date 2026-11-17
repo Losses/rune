@@ -17,6 +17,13 @@ This is stream-download 0.24.5 from crates.io, with its original licenses, used 
   `src/lib.rs`): if the downloader stops without finishing, including by panic or task
   drop, the download is marked failed and blocked readers wake with an I/O error instead of
   waiting forever.
+- Memory storage reads (`src/storage/memory.rs`): the storage records the ranges a writer
+  stored, and a read stops at the end of the written range at the reader's position. A
+  count of all bytes written let a reader past a partial write, a writer seek or an
+  overwrite read preallocated zeros as data, and a read after seeking past the end of the
+  buffer panicked. A seek before the start is an `InvalidInput` error instead of wrapping.
+  Tests: `src/storage/memory_tests.rs`; on unpatched 0.24.5 all but the sequential control
+  fail.
 
 Regression tests: `src/source/lifecycle_tests.rs` (on unpatched 0.24.5 the cached-seek,
 zero-prefetch and downloader-panic tests fail; the two gap tests guard the 0.22.4 panic), run from this directory with
