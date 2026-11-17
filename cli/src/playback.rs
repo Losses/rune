@@ -63,13 +63,24 @@ async fn play_files(
                     error!("Invalid file UUID {}: {error}", file.source_uuid);
                     return None;
                 }
+                let path = canonicalized_path.join(file.directory).join(file.file_name);
+                let path = match canonicalize(&path) {
+                    Ok(path) => path,
+                    Err(error) => {
+                        error!(
+                            "Failed to canonicalize file {} at {}: {error}",
+                            file.id,
+                            path.display()
+                        );
+                        return None;
+                    }
+                };
                 Some((
                     PlayingItem::LibraryTrack {
                         library_id: library_uuid,
                         track: file.source_uuid,
                     },
-                    canonicalize(canonicalized_path.join(file.directory).join(file.file_name))
-                        .unwrap(),
+                    path,
                 ))
             })
             .collect(),
