@@ -1,6 +1,6 @@
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use rubato::{FftFixedInOut, Resampler};
 use symphonia::core::{
     audio::{AudioBuffer, AudioBufferRef, Signal},
@@ -41,7 +41,7 @@ pub struct IntervalSampler {
     is_cancelled: bool,
 
     // Channels for sending and receiving sample events
-    sender: Sender<SampleEvent>,
+    sender: Option<Sender<SampleEvent>>,
     pub receiver: Receiver<SampleEvent>,
 }
 
@@ -74,13 +74,21 @@ impl IntervalSampler {
             }),
             is_cancelled: false,
 
-            sender,
+            sender: Some(sender),
             receiver,
         }
     }
 
-    // Main processing function to read and process audi
+    /// Processes the file once and closes the event channel on return.
+    ///
+    /// The receiver can still drain queued events. Create a new sampler to
+    /// process another file or retry after an error or cancellation.
     pub fn process(&mut self, fsio: &FsIo) -> Result<()> {
+        let sender = self
+            .sender
+            .take()
+            .context("Sampler has already been used")?;
+
         // Get the audio format from the file path
         let mut format = get_format(fsio, &self.file_path)?;
 
@@ -107,7 +115,14 @@ impl IntervalSampler {
         let mut decoder = fsio_media_source::get_codecs().make(&track.codec_params, &dec_opts)?;
 
         // Process the audio stream using the format reader, decoder, and resampler
-        self.process_audio_stream(&mut format, &mut decoder, track_id, sample_rate, duration)?;
+        self.process_audio_stream(
+            &mut format,
+            &mut decoder,
+            track_id,
+            sample_rate,
+            duration,
+            &sender,
+        )?;
 
         Ok(())
     }
@@ -119,6 +134,7 @@ impl IntervalSampler {
         resampler: &mut FftFixedInOut<f64>,
         output_buffer: &mut [Vec<f64>],
         sample_index: &mut usize,
+        sender: &Sender<SampleEvent>,
     ) -> Result<()>
     where
         T: Sample + IntoSample<f64>,
@@ -158,7 +174,7 @@ impl IntervalSampler {
                     let input_frames = vec![chunk];
                     resampler.process_into_buffer(&input_frames, output_buffer, None)?;
 
-                    self.sender.send(SampleEvent {
+                    sender.send(SampleEvent {
                         sample_index: *sample_index,
                         total_samples: (self.interval / self.sample_duration) as usize,
                         data: output_buffer[0].clone(),
@@ -188,6 +204,7 @@ impl IntervalSampler {
         track_id: u32,
         sample_rate: u32,
         duration: f64,
+        sender: &Sender<SampleEvent>,
     ) -> Result<()> {
         // Create a resampler for converting audio to the target sample rate
         let mut resampler = FftFixedInOut::<f64>::new(
@@ -232,6 +249,7 @@ impl IntervalSampler {
                         &mut resampler,
                         &mut output_buffer,
                         &mut sample_index,
+                        sender,
                     )?;
                 }
                 AudioBufferRef::U16(buf) => {
@@ -241,6 +259,7 @@ impl IntervalSampler {
                         &mut resampler,
                         &mut output_buffer,
                         &mut sample_index,
+                        sender,
                     )?;
                 }
                 AudioBufferRef::U24(buf) => {
@@ -250,6 +269,7 @@ impl IntervalSampler {
                         &mut resampler,
                         &mut output_buffer,
                         &mut sample_index,
+                        sender,
                     )?;
                 }
                 AudioBufferRef::U32(buf) => {
@@ -259,6 +279,7 @@ impl IntervalSampler {
                         &mut resampler,
                         &mut output_buffer,
                         &mut sample_index,
+                        sender,
                     )?;
                 }
                 AudioBufferRef::S8(buf) => {
@@ -268,6 +289,7 @@ impl IntervalSampler {
                         &mut resampler,
                         &mut output_buffer,
                         &mut sample_index,
+                        sender,
                     )?;
                 }
                 AudioBufferRef::S16(buf) => {
@@ -277,6 +299,7 @@ impl IntervalSampler {
                         &mut resampler,
                         &mut output_buffer,
                         &mut sample_index,
+                        sender,
                     )?;
                 }
                 AudioBufferRef::S24(buf) => {
@@ -286,6 +309,7 @@ impl IntervalSampler {
                         &mut resampler,
                         &mut output_buffer,
                         &mut sample_index,
+                        sender,
                     )?;
                 }
                 AudioBufferRef::S32(buf) => {
@@ -295,6 +319,7 @@ impl IntervalSampler {
                         &mut resampler,
                         &mut output_buffer,
                         &mut sample_index,
+                        sender,
                     )?;
                 }
                 AudioBufferRef::F32(buf) => {
@@ -304,6 +329,7 @@ impl IntervalSampler {
                         &mut resampler,
                         &mut output_buffer,
                         &mut sample_index,
+                        sender,
                     )?;
                 }
                 AudioBufferRef::F64(buf) => {
@@ -313,6 +339,7 @@ impl IntervalSampler {
                         &mut resampler,
                         &mut output_buffer,
                         &mut sample_index,
+                        sender,
                     )?;
                 }
             }
