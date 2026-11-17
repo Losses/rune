@@ -499,6 +499,8 @@ jobs:
           done
           test -f "$bundle/data/app.so"
           test -f "$bundle/bin/rune-gpu-devfreq"
+          test -f "$bundle/bin/rune-cpu-cpufreq"
+          test -f "$bundle/bin/rune-unused-devices"
           test -f "$bundle/rune-kiosk.conf"
 
       - uses: benjlevesque/short-sha@v3.0

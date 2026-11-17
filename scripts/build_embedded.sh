@@ -199,8 +199,11 @@ cp "$ROOT_DIR/linux/embedded/rune-kiosk.service" "$BUNDLE_DIR/"
 cp "$ROOT_DIR/linux/embedded/rune-kiosk.conf" "$BUNDLE_DIR/"
 cp "$ROOT_DIR/linux/embedded/install.sh" "$BUNDLE_DIR/"
 cp "$ROOT_DIR/linux/embedded/rune-gpu-devfreq" "$BUNDLE_DIR/bin/"
+cp "$ROOT_DIR/linux/embedded/rune-cpu-cpufreq" "$BUNDLE_DIR/bin/"
+cp "$ROOT_DIR/linux/embedded/rune-unused-devices" "$BUNDLE_DIR/bin/"
 cp "$ROOT_DIR/linux/embedded/rune-kiosk-desktop" "$BUNDLE_DIR/bin/"
-chmod +x "$BUNDLE_DIR/install.sh" "$BUNDLE_DIR/bin/rune-gpu-devfreq" "$BUNDLE_DIR/bin/rune-kiosk-desktop"
+chmod +x "$BUNDLE_DIR/install.sh" "$BUNDLE_DIR/bin/rune-gpu-devfreq" "$BUNDLE_DIR/bin/rune-cpu-cpufreq" \
+    "$BUNDLE_DIR/bin/rune-unused-devices" "$BUNDLE_DIR/bin/rune-kiosk-desktop"
 
 echo ">> 7. Packaging bundle..."
 VERSION="$(git describe --tags --always || echo "latest")"

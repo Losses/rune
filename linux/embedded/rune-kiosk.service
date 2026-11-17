@@ -18,17 +18,22 @@ Environment=XDG_DATA_HOME=/home/dietpi/.local/share
 Environment=LD_PRELOAD=/opt/rune-embedded/lib/libhub.so
 Environment=LD_LIBRARY_PATH=/opt/rune-embedded/lib
 
-# The text box cursor and the GPU governor: see /etc/rune-kiosk.conf.
+# The text box cursor, the GPU governor, the CPU frequency limit and the
+# controllers switched off: see /etc/rune-kiosk.conf.
 EnvironmentFile=-/etc/rune-kiosk.conf
 
 # These run as root ("+"), and the kiosk starts or stops even if they fail ("-").
 ExecStartPre=-+/opt/rune-embedded/bin/rune-gpu-devfreq apply
+ExecStartPre=-+/opt/rune-embedded/bin/rune-cpu-cpufreq apply
+ExecStartPre=-+/opt/rune-embedded/bin/rune-unused-devices apply
 
 # Run flutter-pi directly on DRM/KMS. --partial-repaint redraws only what
 # changed each frame; without EGL_EXT_buffer_age flutter-pi draws everything.
 ExecStart=/opt/rune-embedded/bin/flutter-pi --partial-repaint --release /opt/rune-embedded/data
 
 ExecStopPost=-+/opt/rune-embedded/bin/rune-gpu-devfreq restore
+ExecStopPost=-+/opt/rune-embedded/bin/rune-cpu-cpufreq restore
+ExecStopPost=-+/opt/rune-embedded/bin/rune-unused-devices restore
 # Back to the desktop unless the kiosk is restarting: see rune-kiosk-desktop.
 ExecStopPost=-+/opt/rune-embedded/bin/rune-kiosk-desktop %n lightdm.service
 
