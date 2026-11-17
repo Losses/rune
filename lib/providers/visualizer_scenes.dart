@@ -254,11 +254,16 @@ class VisualizerScenesProvider extends ChangeNotifier {
       await refresh();
       await _firstList.future;
       // Scene files the system asked Rune to open; Rust is listening now.
-      SceneFiles.opened.listen((file) async {
-        final result = await importScene(file);
-        await _dropCopy(file);
-        _imports.add(result);
-      });
+      SceneFiles.opened.listen(
+        (file) => SceneFiles.importOpened(file, (file) async {
+          final result = await importScene(file);
+          _imports.add(result);
+          return switch (result) {
+            VisualizerImported() || VisualizerImportRejected() => true,
+            VisualizerImportUnanswered() => false,
+          };
+        }),
+      );
       await _probeGpu();
     } catch (e) {
       error$('Failed to load the visualizer scenes: $e');
@@ -289,26 +294,12 @@ class VisualizerScenesProvider extends ChangeNotifier {
         ).sendSignalToRust(),
       );
     } on RequestFailure catch (failure) {
-      return VisualizerImport(name, error: failure.detail);
+      return VisualizerImportRejected(name, failure.detail);
     } on TimeoutException {
-      return VisualizerImport(name, error: 'No answer from the visualizer');
+      return VisualizerImportUnanswered(name);
     }
     await refresh();
-    return VisualizerImport(name);
-  }
-
-  /// Deletes the copy of an opened scene file that Android and iOS make to
-  /// hand it over (`scene-imports/<id>/<file>` in the app's cache), once it is
-  /// imported.
-  Future<void> _dropCopy(String file) async {
-    final parts = p.split(file);
-    final at = parts.lastIndexOf('scene-imports');
-    if (at < 0 || at + 2 >= parts.length) return;
-    try {
-      await Directory(p.joinAll(parts.take(at + 2))).delete(recursive: true);
-    } catch (e) {
-      error$('Failed to delete the copy of $file: $e');
-    }
+    return VisualizerImported(name);
   }
 
   /// Deletes an imported scene.
@@ -548,12 +539,28 @@ List<String> placeArranged(List<String> order, List<String> arranged) {
   ];
 }
 
-/// How importing a scene file went: [error] says why it is not a scene.
+/// How importing a scene file went.
 @immutable
-class VisualizerImport {
-  const VisualizerImport(this.name, {this.error});
+sealed class VisualizerImport {
+  const VisualizerImport(this.name);
 
   /// The scene's name, from the file's.
   final String name;
-  final String? error;
+}
+
+/// The scene is unpacked and listed.
+final class VisualizerImported extends VisualizerImport {
+  const VisualizerImported(super.name);
+}
+
+/// Rust refused the file: [reason] says why it is not a scene.
+final class VisualizerImportRejected extends VisualizerImport {
+  const VisualizerImportRejected(super.name, this.reason);
+
+  final String reason;
+}
+
+/// Rust did not answer in time. It may still be importing the file.
+final class VisualizerImportUnanswered extends VisualizerImport {
+  const VisualizerImportUnanswered(super.name);
 }
