@@ -5,8 +5,9 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
 
-use anyhow::Result;
-use sea_orm::{ConnectionTrait, Database, DbBackend, Statement};
+use anyhow::{Context, Result};
+use database::entities::media_files;
+use sea_orm::{ConnectionTrait, Database, DatabaseConnection, DbBackend, EntityTrait, Statement};
 use tempfile::TempDir;
 
 struct Library {
@@ -40,12 +41,16 @@ impl Library {
         Ok(())
     }
 
-    async fn execute(&self, sql: &str) -> Result<()> {
-        let db = Database::connect(format!(
+    async fn database(&self) -> Result<DatabaseConnection> {
+        Ok(Database::connect(format!(
             "sqlite://{}",
             self.home.path().join("Music/.rune/.0.db").display()
         ))
-        .await?;
+        .await?)
+    }
+
+    async fn execute(&self, sql: &str) -> Result<()> {
+        let db = self.database().await?;
         db.execute_raw(Statement::from_string(DbBackend::Sqlite, sql.to_owned()))
             .await?;
         db.close().await?;
@@ -66,20 +71,38 @@ impl Library {
     }
 }
 
-#[test]
-fn successful_audio_and_artwork_scan_exits_zero() -> Result<()> {
+#[tokio::test]
+async fn successful_audio_and_artwork_scan_exits_zero() -> Result<()> {
     let library = Library::new()?;
     library.add_audio()?;
     let output = library.scan()?;
     assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let db = library.database().await?;
+    let track = media_files::Entity::find()
+        .one(&db)
+        .await?
+        .context("audio scan did not persist the track")?;
+    assert_eq!(track.file_name, "track.ogg");
+    assert!(
+        track.cover_art_checked_at.is_some(),
+        "artwork was not inspected"
+    );
+    db.close().await?;
     Ok(())
 }
 
 #[test]
 fn replica_open_error_exits_nonzero() -> Result<()> {
     let library = Library::new()?;
+    #[cfg(target_os = "macos")]
+    let config_dir = library
+        .home
+        .path()
+        .join("Library/Application Support/ci.not.rune");
+    #[cfg(not(target_os = "macos"))]
+    let config_dir = library.home.path().join("config/rune");
     fs::write(
-        library.home.path().join("config/rune/nid"),
+        config_dir.join("nid"),
         "00000000-0000-0000-0000-000000000000",
     )?;
     library.assert_failure("Failed to open metadata replica")
