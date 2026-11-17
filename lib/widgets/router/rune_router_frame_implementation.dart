@@ -165,7 +165,7 @@ class _RuneRouterFrameImplementationState
           queries: QueryList(),
           playbackMode: null,
           hintPosition: -1,
-          initialPlaybackId: -1,
+          initialPlaybackId: null,
           instantlyPlay: true,
           operateMode: PlaylistOperateMode.replace,
           fallbackPlayingItems: filterAudioFiles(

@@ -44,7 +44,7 @@ class OpenAction extends ContextAction<OpenIntent> {
       queries: QueryList(),
       playbackMode: null,
       hintPosition: -1,
-      initialPlaybackId: -1,
+      initialPlaybackId: null,
       instantlyPlay: true,
       operateMode: PlaylistOperateMode.replace,
       fallbackPlayingItems: items,
