@@ -10,7 +10,7 @@ use database::actions::mixes::query_mix_media_files;
 use database::connection::{MainDbConnection, RecommendationDbConnection};
 use database::entities::media_files;
 
-use crate::recommend::{OUTPUT_REQUIRED, UNSUPPORTED_FORMAT, save_as_m3u8};
+use crate::export::{OUTPUT_REQUIRED, UNSUPPORTED_FORMAT, save_as_m3u8};
 
 pub struct RecommendMixOptions<'a> {
     /// The canonical root of the library.
@@ -21,6 +21,11 @@ pub struct RecommendMixOptions<'a> {
     pub output: Option<&'a PathBuf>,
 }
 
+/// Runs the mix query in `mix_parameters` and shows its tracks in a table, or saves them as an
+/// M3U8 playlist.
+///
+/// Fails when the query cannot be run, the format is not `m3u8`, or the playlist cannot be
+/// saved.
 pub async fn mixes(
     main_db: &MainDbConnection,
     recommend_db: &RecommendationDbConnection,

@@ -1,4 +1,5 @@
-//! Runs the real `rune-cli` on a library in a temporary folder and reads the playlists it writes.
+//! Runs the real `rune-cli` on a library in a temporary folder and reads the playlists it writes,
+//! and saves playlists of tracks of its own for what a two-track library cannot show.
 //!
 //! The CLI keeps this device's id and library registry in the user's configuration folder. The
 //! tests point it at a folder of their own through the environment, which Windows does not read
@@ -11,6 +12,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use anyhow::{Context, Result, ensure};
+use database::entities::media_files;
+use rune::export::save_as_m3u8;
+use rust_decimal::Decimal;
 use tempfile::TempDir;
 
 struct Library {
@@ -34,13 +38,6 @@ impl Library {
         Ok(library)
     }
 
-    fn tracks(&self) -> Vec<PathBuf> {
-        vec![
-            self.root.join("Music/Album/a.ogg"),
-            self.root.join("Music/b.ogg"),
-        ]
-    }
-
     fn run(&self, cwd: &Path, arguments: &[&str]) -> Result<Output> {
         Command::new(env!("CARGO_BIN_EXE_rune-cli"))
             .args(arguments)
@@ -62,10 +59,10 @@ impl Library {
     }
 }
 
-/// The tracks a playlist names, each resolved from the playlist's folder, in order of path.
+/// The tracks a playlist names, each resolved from the playlist's folder, in the order written.
 fn tracks_of(playlist: &Path) -> Result<Vec<PathBuf>> {
     let folder = playlist.parent().context("playlist without a folder")?;
-    let mut tracks = fs::read_to_string(playlist)
+    fs::read_to_string(playlist)
         .with_context(|| format!("no playlist at {}", playlist.display()))?
         .lines()
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
@@ -75,12 +72,71 @@ fn tracks_of(playlist: &Path) -> Result<Vec<PathBuf>> {
                 .canonicalize()
                 .with_context(|| format!("{line} leads to no file"))
         })
-        .collect::<Result<Vec<_>>>()?;
-    tracks.sort();
-    Ok(tracks)
+        .collect()
 }
 
-const ALL_TRACKS: &str = "lib::all(true)";
+/// `b.ogg` is the shorter track, so these queries give the two tracks in a known order.
+const SHORTEST_FIRST: &str = "lib::all(true);sort::duration(true)";
+const LONGEST_FIRST: &str = "lib::all(true);sort::duration(false)";
+
+fn track(directory: &str, file_name: &str) -> media_files::Model {
+    media_files::Model {
+        id: 0,
+        file_name: file_name.to_owned(),
+        directory: directory.to_owned(),
+        extension: "ogg".to_owned(),
+        file_hash: String::new(),
+        last_modified: String::new(),
+        change_token: None,
+        cover_art_uuid: None,
+        cover_art_checked_at: None,
+        sample_rate: 44100,
+        duration: Decimal::ZERO,
+        local_available: true,
+        content_hash: None,
+        content_size: None,
+        source_uuid: String::new(),
+    }
+}
+
+#[test]
+fn a_playlist_keeps_the_order_of_its_tracks_and_a_track_given_twice() -> Result<()> {
+    let root = TempDir::new()?;
+    let library = root.path().canonicalize()?.join("Music");
+    let playlist = root.path().join("out/again.m3u8");
+
+    let saved = save_as_m3u8(
+        &library,
+        &playlist,
+        &[
+            track("Album", "a.ogg"),
+            track("", "b.ogg"),
+            track("Album", "a.ogg"),
+            track("Other", "c.ogg"),
+        ],
+    )?;
+
+    assert_eq!(
+        fs::read_to_string(saved)?,
+        "#EXTM3U\n../Music/Album/a.ogg\n../Music/b.ogg\n../Music/Album/a.ogg\n../Music/Other/c.ogg\n"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_playlist_that_replaces_another_keeps_its_permissions() -> Result<()> {
+    let root = TempDir::new()?;
+    let library = root.path().canonicalize()?.join("Music");
+    let playlist = root.path().join("private.m3u8");
+    fs::write(&playlist, "#EXTM3U\n")?;
+    fs::set_permissions(&playlist, fs::Permissions::from_mode(0o600))?;
+
+    save_as_m3u8(&library, &playlist, &[track("", "b.ogg")])?;
+
+    assert_eq!(fs::read_to_string(&playlist)?, "#EXTM3U\nMusic/b.ogg\n");
+    assert_eq!(fs::metadata(&playlist)?.permissions().mode() & 0o777, 0o600);
+    Ok(())
+}
 
 #[test]
 fn mix_export_to_an_absolute_path_names_the_tracks() -> Result<()> {
@@ -93,7 +149,7 @@ fn mix_export_to_an_absolute_path_names_the_tracks() -> Result<()> {
             ".",
             "mix",
             "-m",
-            ALL_TRACKS,
+            SHORTEST_FIRST,
             "-f",
             "m3u8",
             "-o",
@@ -101,7 +157,13 @@ fn mix_export_to_an_absolute_path_names_the_tracks() -> Result<()> {
         ],
     )?;
 
-    assert_eq!(tracks_of(&playlist)?, library.tracks());
+    assert_eq!(
+        tracks_of(&playlist)?,
+        [
+            library.root.join("Music/b.ogg"),
+            library.root.join("Music/Album/a.ogg")
+        ]
+    );
     Ok(())
 }
 
@@ -116,7 +178,7 @@ fn mix_export_to_a_relative_path_names_the_tracks_from_any_folder() -> Result<()
             "../Music",
             "mix",
             "-m",
-            ALL_TRACKS,
+            LONGEST_FIRST,
             "-f",
             "m3u8",
             "-o",
@@ -126,7 +188,10 @@ fn mix_export_to_a_relative_path_names_the_tracks_from_any_folder() -> Result<()
 
     assert_eq!(
         tracks_of(&elsewhere.join("lists/all.m3u8"))?,
-        library.tracks()
+        [
+            library.root.join("Music/Album/a.ogg"),
+            library.root.join("Music/b.ogg")
+        ]
     );
     Ok(())
 }
@@ -151,7 +216,16 @@ fn recommend_export_names_the_tracks_for_a_relative_library() -> Result<()> {
         ],
     )?;
 
-    assert_eq!(tracks_of(&playlist)?, library.tracks());
+    // Which of the two comes first is the recommendation's order, which is not checked here.
+    let mut tracks = tracks_of(&playlist)?;
+    tracks.sort();
+    assert_eq!(
+        tracks,
+        [
+            library.root.join("Music/Album/a.ogg"),
+            library.root.join("Music/b.ogg")
+        ]
+    );
     Ok(())
 }
 
@@ -171,7 +245,7 @@ fn a_failed_export_reports_it_and_keeps_the_file_already_there() -> Result<()> {
             "Music",
             "mix",
             "-m",
-            ALL_TRACKS,
+            SHORTEST_FIRST,
             "-f",
             "m3u8",
             "-o",
@@ -197,7 +271,7 @@ fn an_export_that_cannot_make_its_folder_reports_it() -> Result<()> {
             "Music",
             "mix",
             "-m",
-            ALL_TRACKS,
+            SHORTEST_FIRST,
             "-f",
             "m3u8",
             "-o",
