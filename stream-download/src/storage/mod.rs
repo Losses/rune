@@ -5,6 +5,8 @@ use std::io::{self, Read, Seek, Write};
 
 pub mod adaptive;
 pub mod bounded;
+#[cfg(test)]
+mod bounded_tests;
 pub mod memory;
 #[cfg(test)]
 mod memory_tests;

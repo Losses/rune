@@ -24,6 +24,21 @@ This is stream-download 0.24.5 from crates.io, with its original licenses, used 
   buffer panicked. A seek before the start is an `InvalidInput` error instead of wrapping.
   Tests: `src/storage/memory_tests.rs`; on unpatched 0.24.5 all but the sequential control
   fail.
+- Bounded storage seeks (`src/storage/bounded.rs`): a seek moves only the reader's or writer's
+  absolute position. A forward seek moved a position without adding to a separate count of
+  bytes read or written, so a later backward seek could subtract more than that count and
+  underflow (a fresh reader seeking to 8 and back to 0 panicked in a debug build). The counts
+  are replaced by the set of positions whose ring slots hold what the writer stored for them,
+  which only writes change: a write adds its positions and drops every other position whose
+  slot it reused. A read ends at the end of the stored range at the reader's position, so it
+  never returns a byte that was not written for that position, and a position more than a ring
+  below the furthest write gets the "too far behind" error. A writer behind the reader can
+  still reuse the slots of unread bytes, as upstream; those positions then read as nothing
+  instead of the gap's bytes. A wrapped read no longer underflows while the writer is behind
+  the reader. A seek before the start of the stream, or past what a `usize` holds, and a write
+  past `usize::MAX` are `InvalidInput` errors instead of wrapping. Tests:
+  `src/storage/bounded_tests.rs`; on unpatched 0.24.5 all but the wrapped-ring writer-seek test
+  fail.
 
 Regression tests: `src/source/lifecycle_tests.rs` (on unpatched 0.24.5 the cached-seek,
 zero-prefetch and downloader-panic tests fail; the two gap tests guard the 0.22.4 panic), run from this directory with
