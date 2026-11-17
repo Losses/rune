@@ -32,6 +32,8 @@ class LikeButton extends StatefulWidget {
 class _LikeButtonState extends State<LikeButton> {
   bool liked = false;
   late PlayingItem? item;
+  int _requestGeneration = 0;
+  final Map<PlayingItem, int> _pendingWrites = {};
 
   @override
   void initState() {
@@ -45,17 +47,21 @@ class _LikeButtonState extends State<LikeButton> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.item != widget.item) {
       item = widget.item;
+      liked = false;
       _fetchLikedStatus();
     }
   }
 
   Future<void> _fetchLikedStatus() async {
-    if (item == null) return;
+    final generation = ++_requestGeneration;
+    final requestItem = item;
+    if (requestItem == null) return;
 
     try {
       final isLiked =
-          await (widget.fetchLikedStatus?.call(item!) ?? getLiked(item!));
-      if (mounted) {
+          await (widget.fetchLikedStatus?.call(requestItem) ??
+              getLiked(requestItem));
+      if (mounted && generation == _requestGeneration) {
         setState(() {
           liked = isLiked;
         });
@@ -69,16 +75,34 @@ class _LikeButtonState extends State<LikeButton> {
   }
 
   Future<void> _toggleLikedStatus() async {
-    if (item == null) return;
+    final generation = ++_requestGeneration;
+    final requestItem = item;
+    if (requestItem == null) return;
 
-    final newLikedStatus = await (widget.setLikedStatus ?? setLiked)(
-      item!,
-      !liked,
-    );
-    if (mounted) {
+    _pendingWrites[requestItem] = (_pendingWrites[requestItem] ?? 0) + 1;
+    late bool newLikedStatus;
+    try {
+      newLikedStatus = await (widget.setLikedStatus ?? setLiked)(
+        requestItem,
+        !liked,
+      );
+    } finally {
+      final remaining = _pendingWrites[requestItem]! - 1;
+      if (remaining == 0) {
+        _pendingWrites.remove(requestItem);
+      } else {
+        _pendingWrites[requestItem] = remaining;
+      }
+    }
+    if (!mounted) return;
+    if (generation == _requestGeneration) {
       setState(() {
         liked = newLikedStatus;
       });
+    } else if (item == requestItem &&
+        !_pendingWrites.containsKey(requestItem)) {
+      // A write may have committed after the read made on returning to this item.
+      _fetchLikedStatus();
     }
   }
 
