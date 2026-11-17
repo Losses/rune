@@ -8,6 +8,11 @@ publish = false
 name = "visualizer"
 path = "src/lib.rs"
 
+# Its tests check the arguments it refuses; `test = true` runs them with the crate's own.
+[[example]]
+name = "beat_track"
+test = true
+
 [dependencies]
 anyhow = "1.0.98"
 chart_analyzer = { path = "../chart-analyzer" }
