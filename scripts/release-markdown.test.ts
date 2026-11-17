@@ -4,6 +4,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
+const initialVersion = "name: rune\nversion: 1.0.0\n";
+const initialMetainfo = "<component><releases></releases></component>\n";
+
 // Run with: bun test scripts/release-markdown.test.ts
 // Exercise the real CLI; --no-push keeps commits and tags in disposable repos.
 function release(notes: string) {
@@ -20,7 +23,9 @@ function release(notes: string) {
   try {
     fs.mkdirSync(path.join(root, "scripts"));
     fs.copyFileSync(path.join(import.meta.dir, "release.ts"), path.join(root, "scripts/release.ts"));
-    fs.writeFileSync(path.join(root, "pubspec.yaml"), "name: rune\nversion: 1.0.0\n");
+    fs.writeFileSync(path.join(root, "pubspec.yaml"), initialVersion);
+    fs.mkdirSync(path.join(root, "assets/source/linux"), { recursive: true });
+    fs.writeFileSync(path.join(root, "assets/source/linux/rune.metainfo.xml"), initialMetainfo);
     fs.writeFileSync(path.join(root, ".gitignore"), "RELEASE_NOTES.txt\nrelease_notes.txt\n*.release.txt\nupgrade.txt\n");
     const git = (...args: string[]) => execFileSync("git", args, { cwd: root, env, encoding: "utf8" });
     git("init", "-q");
@@ -37,6 +42,7 @@ function release(notes: string) {
       output: result.stdout + result.stderr,
       changelog: fs.existsSync(changelog) ? fs.readFileSync(changelog, "utf8") : null,
       version: fs.readFileSync(path.join(root, "pubspec.yaml"), "utf8"),
+      metainfo: fs.readFileSync(path.join(root, "assets/source/linux/rune.metainfo.xml"), "utf8"),
     };
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -65,13 +71,22 @@ test("aliases, repeated categories, colon headings and comments retain their beh
   expect(result.changelog?.match(/### Features/g)).toHaveLength(1);
 });
 
-for (const heading of ["## Unknown", "[Unknown]", "Unknown:"]) {
+test("Markdown headings accept optional closing hashes and whitespace", () => {
+  const result = release("## Features ##\n- Add a scene\n### Bug Fixes ###   \n- Fix a crash\n## Docs\t##\n- Explain setup\n");
+  expect(result.status, result.output).toBe(0);
+  expect(result.changelog).toContain("### Features\n- Add a scene");
+  expect(result.changelog).toContain("### Bugs\n- Fix a crash");
+  expect(result.changelog).toContain("### Documentation\n- Explain setup");
+});
+
+for (const heading of ["## Unknown", "[Unknown]", "Unknown:", "## constructor", "[constructor]", "constructor:", "## __proto__", "## Features##", "[Features ##]"]) {
   test(`reject unknown category ${heading}`, () => {
     const result = release(`[Features]\n- Valid feature\n${heading}\n- Invalid category item\n`);
     expect(result.status).toBe(1);
-    expect(result.output).toContain('Unrecognized category "unknown"');
+    expect(result.output).toContain("Unrecognized category");
     expect(result.changelog).toBeNull();
-    expect(result.version).toContain("version: 1.0.0");
+    expect(result.version).toBe(initialVersion);
+    expect(result.metainfo).toBe(initialMetainfo);
   });
 }
 
