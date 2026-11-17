@@ -6,6 +6,7 @@ use database::{
     entities::media_files,
 };
 use sea_orm::{EntityTrait, Set};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 async fn insert_file(db: &sea_orm::DatabaseConnection, file_uuid: Uuid) -> Result<i32> {
@@ -50,10 +51,14 @@ async fn stable_file_identity_resolves_to_each_replica_local_id() -> Result<()> 
         file_uuids_by_id(&b.db, &[b_id]).await?.get(&b_id),
         Some(&file_uuid)
     );
-    assert!(
-        !file_ids_by_uuid(&a.db, &[Uuid::new_v4()])
-            .await?
-            .contains_key(&file_uuid)
+    let unknown_uuid = Uuid::new_v4();
+    assert_eq!(
+        file_ids_by_uuid(&a.db, &[unknown_uuid]).await?,
+        HashMap::new()
+    );
+    assert_eq!(
+        file_ids_by_uuid(&a.db, &[file_uuid, unknown_uuid]).await?,
+        HashMap::from([(file_uuid, a_id)])
     );
     Ok(())
 }
