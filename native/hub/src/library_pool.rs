@@ -12,7 +12,9 @@ use database::{
     connection::{MainDbConnection, RecommendationDbConnection, StorageMode, check_storage_mode},
     credentials::{CredentialRef, CredentialStore},
     error::ExpectedError,
-    library_registry::{DbPlacement, FsAdapter, LibraryAccess, LibraryRecord, LibraryRegistry},
+    library_registry::{
+        CatalogPlacement, DbPlacement, FsAdapter, LibraryAccess, LibraryRecord, LibraryRegistry,
+    },
     sync::LibrarySyncStore,
 };
 use fsio::{FsIo, OpenDalConfig};
@@ -33,6 +35,24 @@ static POOLS: OnceLock<StdMutex<HashMap<PathBuf, Weak<LibraryPool>>>> = OnceLock
 #[derive(Debug, thiserror::Error)]
 #[error("Media folder is missing: {0}")]
 pub struct MediaFolderMissing(pub String);
+
+impl MediaFolderMissing {
+    /// The folder of `record`'s library, when it is one the user chose and it is not a
+    /// directory. A replica keeps its files in the app's own folder, which is made on first
+    /// use, and an Android document tree is not a path to look up.
+    pub fn of(record: &LibraryRecord) -> Option<Self> {
+        let folder = match record.catalog {
+            CatalogPlacement::InMediaRoot | CatalogPlacement::Redirected(_) => {
+                record.local_folder_path()?
+            }
+            CatalogPlacement::None
+            | CatalogPlacement::InShare(_)
+            | CatalogPlacement::ConfigReplica => return None,
+        };
+        (!folder.starts_with("content://") && !Path::new(folder).is_dir())
+            .then(|| Self(folder.to_owned()))
+    }
+}
 
 /// Connections and storage belonging to one library. Keep a handle alive while using them.
 pub struct LibraryResources {
@@ -334,14 +354,10 @@ impl LibraryPool {
             .to_str()
             .context("Library path is not UTF-8")?
             .to_owned();
-        // Opening creates the database and the folders above it, so a folder the user chose
-        // that is unplugged or was moved would come back as an empty library. A replica's
-        // folder is the app's own and is made here.
-        if descriptor.local_folder_path() == Some(path.as_str())
-            && !path.starts_with("content://")
-            && !root.is_dir()
-        {
-            return Err(MediaFolderMissing(path.clone()).into());
+        // Opening creates the database and the folders above it, so a folder that is unplugged
+        // or was moved would come back as an empty library.
+        if let Some(missing) = MediaFolderMissing::of(&descriptor) {
+            return Err(missing.into());
         }
         let fsio = Arc::new(match descriptor.fs.first() {
             Some(FsAdapter::WebDav {

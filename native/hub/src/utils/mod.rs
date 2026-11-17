@@ -2206,11 +2206,8 @@ async fn open_catalog_record(
         #[cfg(target_os = "android")]
         let fsio = FsIo::new(Path::new(".rune/.android-fs.db"), path)
             .map_err(|error| (OpenLibraryFailureKind::Storage, error.into()))?;
-        if !path.starts_with("content://") && !Path::new(path).is_dir() {
-            return Err((
-                OpenLibraryFailureKind::MediaFolderMissing,
-                anyhow::anyhow!("Media folder is missing: {path}"),
-            ));
+        if let Some(missing) = MediaFolderMissing::of(record) {
+            return Err((OpenLibraryFailureKind::MediaFolderMissing, missing.into()));
         }
         check_library_state(&fsio, path)
             .map_err(|error| (OpenLibraryFailureKind::Storage, error))?;
