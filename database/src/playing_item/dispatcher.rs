@@ -21,6 +21,14 @@ pub struct PlayingItemActionDispatcher {
     online_file_processor: Box<dyn PlayingFileMetadataProvider + Send + Sync>,
 }
 
+/// Whether any of `items` is a track of a library, the only kind the library's database is
+/// asked about. Without one there may be no database at all.
+fn has_library_track(items: &[PlayingItem]) -> bool {
+    items.iter().any(|item| {
+        matches!(item, PlayingItem::LibraryTrack { track, .. } if uuid::Uuid::parse_str(track).is_ok())
+    })
+}
+
 impl PlayingItemActionDispatcher {
     pub fn new() -> Self {
         Self {
@@ -108,10 +116,7 @@ impl PlayingItemActionDispatcher {
         main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<Vec<PlayingItemMetadataSummary>> {
-        let in_library_results = if items
-            .iter()
-            .any(|item| matches!(item, PlayingItem::LibraryTrack { track, .. } if uuid::Uuid::parse_str(track).is_ok()))
-        {
+        let in_library_results = if has_library_track(items) {
             self.in_library_processor
                 .get_metadata_summary(fsio, main_db, items)
                 .await?
@@ -145,10 +150,7 @@ impl PlayingItemActionDispatcher {
         items: &[PlayingItem],
     ) -> Result<HashMap<PlayingItem, String>> {
         let lib_path = lib_path.as_ref();
-        let in_library_results = if items
-            .iter()
-            .any(|item| matches!(item, PlayingItem::LibraryTrack { track, .. } if uuid::Uuid::parse_str(track).is_ok()))
-        {
+        let in_library_results = if has_library_track(items) {
             self.in_library_processor
                 .bake_cover_art(fsio, lib_path, main_db, items)
                 .await?
