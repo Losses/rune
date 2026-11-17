@@ -19,6 +19,7 @@ import 'package:system_tray/system_tray.dart';
 
 import 'l10n/app_localizations.dart';
 import 'utils/blink_cursor_option.dart';
+import 'utils/profile_option.dart';
 import 'utils/display_blank_option.dart';
 import 'utils/l10n.dart';
 import 'utils/api/close_library.dart';
@@ -176,12 +177,8 @@ void main(List<String> arguments) async {
     await DisplayBlanker.setBlankAfter(blankAfter);
   }
 
-  String? profile = arguments.contains('--profile')
-      ? arguments[arguments.indexOf('--profile') + 1]
-      : null;
-
   final SettingsManager settingsManager = SettingsManager();
-  StorageKeyManager.initialize(profile);
+  StorageKeyManager.initialize(profileAtLaunch(arguments));
   await detectIosDevice();
   final appScale = AppScaleProvider(
     supportsFollowTextSize: iosDevice == IosDevice.iPhone,
