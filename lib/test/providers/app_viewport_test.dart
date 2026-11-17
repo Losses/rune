@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:rune/providers/app_scale.dart';
@@ -25,33 +25,31 @@ void main() {
       await tester.pumpWidget(
         ChangeNotifierProvider.value(
           value: scale,
-          child: MaterialApp(
+          child: FluentApp(
             navigatorKey: navigator,
             builder: (context, child) => AppViewport(child: child!),
             home: Builder(
               builder: (context) {
                 media = MediaQuery.of(context);
-                return Scaffold(
-                  body: Column(
-                    children: [
-                      GestureDetector(
-                        onTap: () => taps++,
-                        child: const SizedBox(
-                          width: 100,
-                          height: 40,
-                          child: Text('tap'),
-                        ),
+                return Column(
+                  children: [
+                    GestureDetector(
+                      onTap: () => taps++,
+                      child: const SizedBox(
+                        width: 100,
+                        height: 40,
+                        child: Text('tap'),
                       ),
-                      SizedBox(
-                        width: 200,
-                        child: TextField(
-                          key: field,
-                          controller: controller,
-                          focusNode: focus,
-                        ),
+                    ),
+                    SizedBox(
+                      width: 200,
+                      child: TextBox(
+                        key: field,
+                        controller: controller,
+                        focusNode: focus,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 );
               },
             ),

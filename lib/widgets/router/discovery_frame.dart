@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 
 import '../../screens/settings_server/utils/show_review_connection_dialog.dart';
 

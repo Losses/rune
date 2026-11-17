@@ -1,5 +1,4 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter/material.dart';
 
 import '../utils/query_list.dart';
 import '../utils/router/query_tracks_parameter.dart';

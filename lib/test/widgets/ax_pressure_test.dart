@@ -1,5 +1,5 @@
+import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rune/widgets/ax_pressure.dart';
 
@@ -8,7 +8,7 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      const MaterialApp(
+      const FluentApp(
         home: Align(
           alignment: Alignment.topLeft,
           child: Padding(

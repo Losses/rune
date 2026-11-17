@@ -1,6 +1,6 @@
 import '../bindings/bindings.dart';
 import 'api/request_failure.dart';
-import 'package:flutter/material.dart';
+import 'dart:ui';
 
 import '../config/theme.dart';
 import '../constants/configurations.dart';
