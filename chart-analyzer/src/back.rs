@@ -484,7 +484,9 @@ fn r3(values: &[f64]) -> Vec<f64> {
 }
 
 /// The chart of the first `samples` samples of a `front` result (the whole song by default), as
-/// if the song ended there.
+/// if the song ended there. A prefix shorter than the first fine frame (`N / 2` samples) has no
+/// frame at all, and its chart is [`Chart::empty`] of its duration. One shorter than the first
+/// coarse frame (`CN / 2` samples) differs from that only in the events its onset streams find.
 pub fn back(f: &Front, samples: Option<usize>) -> Chart {
     let (samples, nf, nc) = cut(f, samples);
     let duration = samples as f64 / SR as f64;
