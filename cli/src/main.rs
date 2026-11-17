@@ -336,7 +336,7 @@ async fn main() {
                 Ok(library) => library,
                 Err(error) => {
                     error!("Failed to open metadata replica: {error:#}");
-                    return;
+                    std::process::exit(1);
                 }
             };
             if let Err(error) = scan_audio_library(
@@ -356,7 +356,7 @@ async fn main() {
             .await
             {
                 error!("Library scan failed: {error:#}");
-                return;
+                std::process::exit(1);
             }
             if let Err(error) = scan_cover_arts(
                 fsio,
@@ -370,7 +370,7 @@ async fn main() {
             .await
             {
                 error!("Artwork scan failed: {error:#}");
-                return;
+                std::process::exit(1);
             }
             info!("Library scanned successfully.");
         }
