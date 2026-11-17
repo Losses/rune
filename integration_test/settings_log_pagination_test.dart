@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -10,10 +11,10 @@ import 'package:rune/main.dart' as app;
 import 'package:rune/screens/home/widgets/welcome.dart';
 import 'package:rune/screens/settings_home/settings_home.dart';
 import 'package:rune/screens/settings_log/settings_log.dart';
+import 'package:rune/screens/settings_log/widgets/log_item.dart';
 import 'package:rune/utils/api/list_logs.dart';
 import 'package:rune/utils/api/request_failure.dart';
 import 'package:rune/utils/l10n.dart';
-import 'package:rune/widgets/context_menu_wrapper.dart';
 
 import 'e2e_library_flow_test.dart' as lifecycle;
 
@@ -123,13 +124,18 @@ void main() {
 
     await checkPages();
     pages.clear();
-    final pageMenu = tester.widget<ContextMenuWrapper>(
-      find.descendant(
-        of: find.byType(SettingsLogPage),
-        matching: find.byType(ContextMenuWrapper),
-      ).first,
+    // The gap above a row's button opens the page menu, not the item's menu.
+    final row = find.byType(LogItem).hitTestable().last;
+    final rowRect = tester.getRect(row);
+    final buttonRect = tester.getRect(
+      find.descendant(of: row, matching: find.byType(Button)),
     );
-    pageMenu.onContextMenu(const Offset(16, 16));
+    final gesture = await tester.startGesture(
+      Offset(buttonRect.center.dx, (rowRect.top + buttonRect.top) / 2),
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryMouseButton,
+    );
+    await gesture.up();
     await tester.pumpAndSettle();
     await tester.tap(find.text(labels.refresh));
     await tester.pumpAndSettle();
