@@ -254,11 +254,13 @@ class VisualizerScenesProvider extends ChangeNotifier {
       await refresh();
       await _firstList.future;
       // Scene files the system asked Rune to open; Rust is listening now.
-      SceneFiles.opened.listen((file) async {
-        final result = await importScene(file);
-        await SceneFiles.dropCopy(file);
-        _imports.add(result);
-      });
+      SceneFiles.opened.listen(
+        (file) => SceneFiles.importOpened(file, (file) async {
+          final result = await importScene(file);
+          _imports.add(result);
+          return result.answered;
+        }),
+      );
       await _probeGpu();
     } catch (e) {
       error$('Failed to load the visualizer scenes: $e');
@@ -291,7 +293,11 @@ class VisualizerScenesProvider extends ChangeNotifier {
     } on RequestFailure catch (failure) {
       return VisualizerImport(name, error: failure.detail);
     } on TimeoutException {
-      return VisualizerImport(name, error: 'No answer from the visualizer');
+      return VisualizerImport(
+        name,
+        error: 'No answer from the visualizer',
+        answered: false,
+      );
     }
     await refresh();
     return VisualizerImport(name);
@@ -537,9 +543,12 @@ List<String> placeArranged(List<String> order, List<String> arranged) {
 /// How importing a scene file went: [error] says why it is not a scene.
 @immutable
 class VisualizerImport {
-  const VisualizerImport(this.name, {this.error});
+  const VisualizerImport(this.name, {this.error, this.answered = true});
 
   /// The scene's name, from the file's.
   final String name;
   final String? error;
+
+  /// Whether Rust answered. Without an answer it may still be importing.
+  final bool answered;
 }

@@ -68,10 +68,22 @@ class SceneFiles {
     }
   }
 
+  /// Imports the opened file [path] with [run], then deletes the copy the
+  /// runner made of it. [run] reports the outcome to the user itself, so that
+  /// the report never waits for the cleanup, and answers whether the import is
+  /// over. While it is not (no answer came in time), the file may still be
+  /// read, so the copy stays.
+  static Future<void> importOpened(
+    String path,
+    Future<bool> Function(String path) run,
+  ) async {
+    if (await run(path)) await _dropCopy(path);
+  }
+
   /// Deletes the copy the runner made of the opened file [path], with the
-  /// folder it made for it, once the file is imported. A path outside the
-  /// runner's folder of copies is the user's own file and stays as it is.
-  static Future<void> dropCopy(String path) async {
+  /// folder it made for it. A path outside the runner's folder of copies is
+  /// the user's own file and stays as it is.
+  static Future<void> _dropCopy(String path) async {
     final copies = await _copiesDir();
     if (copies == null) return;
     final folder = p.dirname(p.normalize(p.absolute(path)));
