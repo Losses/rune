@@ -258,7 +258,10 @@ class VisualizerScenesProvider extends ChangeNotifier {
         (file) => SceneFiles.importOpened(file, (file) async {
           final result = await importScene(file);
           _imports.add(result);
-          return result.answered;
+          return switch (result) {
+            VisualizerImported() || VisualizerImportRejected() => true,
+            VisualizerImportUnanswered() => false,
+          };
         }),
       );
       await _probeGpu();
@@ -291,16 +294,12 @@ class VisualizerScenesProvider extends ChangeNotifier {
         ).sendSignalToRust(),
       );
     } on RequestFailure catch (failure) {
-      return VisualizerImport(name, error: failure.detail);
+      return VisualizerImportRejected(name, failure.detail);
     } on TimeoutException {
-      return VisualizerImport(
-        name,
-        error: 'No answer from the visualizer',
-        answered: false,
-      );
+      return VisualizerImportUnanswered(name);
     }
     await refresh();
-    return VisualizerImport(name);
+    return VisualizerImported(name);
   }
 
   /// Deletes an imported scene.
@@ -540,15 +539,28 @@ List<String> placeArranged(List<String> order, List<String> arranged) {
   ];
 }
 
-/// How importing a scene file went: [error] says why it is not a scene.
+/// How importing a scene file went.
 @immutable
-class VisualizerImport {
-  const VisualizerImport(this.name, {this.error, this.answered = true});
+sealed class VisualizerImport {
+  const VisualizerImport(this.name);
 
   /// The scene's name, from the file's.
   final String name;
-  final String? error;
+}
 
-  /// Whether Rust answered. Without an answer it may still be importing.
-  final bool answered;
+/// The scene is unpacked and listed.
+final class VisualizerImported extends VisualizerImport {
+  const VisualizerImported(super.name);
+}
+
+/// Rust refused the file: [reason] says why it is not a scene.
+final class VisualizerImportRejected extends VisualizerImport {
+  const VisualizerImportRejected(super.name, this.reason);
+
+  final String reason;
+}
+
+/// Rust did not answer in time. It may still be importing the file.
+final class VisualizerImportUnanswered extends VisualizerImport {
+  const VisualizerImportUnanswered(super.name);
 }
