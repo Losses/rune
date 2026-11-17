@@ -754,6 +754,9 @@ async function main() {
       console.log(`\n[dry-run] Dry run completed successfully.`);
       return;
     }
+
+    console.log("\n[skip-git] Version files updated; Git operations skipped.");
+    return;
   }
 
   // 7. Git commit and tag
