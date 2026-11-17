@@ -54,13 +54,16 @@ class MainActivity: FlutterActivity() {
         // with "open".
         sceneChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ci.not.rune/scene_files")
         sceneChannel?.setMethodCallHandler { call, result ->
-            if (call.method == "takePending") {
-                val paths = ArrayList(pendingSceneFiles)
-                pendingSceneFiles.clear()
-                dartListening = true
-                result.success(paths)
-            } else {
-                result.notImplemented()
+            when (call.method) {
+                "takePending" -> {
+                    val paths = ArrayList(pendingSceneFiles)
+                    pendingSceneFiles.clear()
+                    dartListening = true
+                    result.success(paths)
+                }
+                // Dart deletes a copy once it is imported, and only inside this folder.
+                "copiesDir" -> result.success(sceneCopiesDir().absolutePath)
+                else -> result.notImplemented()
             }
         }
         // The file that launched the app.
@@ -112,6 +115,9 @@ class MainActivity: FlutterActivity() {
         }
     }
 
+    /** The folder scene files are copied into, each copy in a folder of its own. */
+    private fun sceneCopiesDir() = File(cacheDir, "scene-imports")
+
     private fun copyToCache(uri: Uri): String? {
         return try {
             var name: String? = null
@@ -126,7 +132,7 @@ class MainActivity: FlutterActivity() {
             val fileName = File(name ?: "").name.ifEmpty { "scene.runescene" }
             // Each copy gets its own folder, so a file of the same name that is still
             // importing is not overwritten.
-            val folder = File(File(cacheDir, "scene-imports"), UUID.randomUUID().toString())
+            val folder = File(sceneCopiesDir(), UUID.randomUUID().toString())
             folder.mkdirs()
             val target = File(folder, fileName)
             val input = contentResolver.openInputStream(uri) ?: return null

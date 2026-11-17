@@ -19,16 +19,20 @@ final class SceneFiles {
   func attach(messenger: FlutterBinaryMessenger) {
     let channel = FlutterMethodChannel(name: "ci.not.rune/scene_files", binaryMessenger: messenger)
     channel.setMethodCallHandler { [weak self] (call, result) in
-      guard call.method == "takePending" else {
-        result(FlutterMethodNotImplemented)
-        return
-      }
       // Flutter delivers channel calls on the main thread.
       MainActor.assumeIsolated {
-        let paths = self?.pending ?? []
-        self?.pending = []
-        self?.dartListening = true
-        result(paths)
+        switch call.method {
+        case "takePending":
+          let paths = self?.pending ?? []
+          self?.pending = []
+          self?.dartListening = true
+          result(paths)
+        case "copiesDir":
+          // Dart deletes a copy once it is imported, and only inside this folder.
+          result(SceneFiles.copiesDirectory.path)
+        default:
+          result(FlutterMethodNotImplemented)
+        }
       }
     }
     self.channel = channel
@@ -52,6 +56,11 @@ final class SceneFiles {
     }
   }
 
+  /// The folder scene files are copied into, each copy in a folder of its own.
+  private static let copiesDirectory = URL(
+    fileURLWithPath: NSTemporaryDirectory(), isDirectory: true
+  ).appendingPathComponent("scene-imports", isDirectory: true)
+
   /// Copies the file into a temporary folder, so that it stays readable without the security scope.
   private static func copyToTemporary(_ url: URL) -> String? {
     let scoped = url.startAccessingSecurityScopedResource()
@@ -60,9 +69,7 @@ final class SceneFiles {
         url.stopAccessingSecurityScopedResource()
       }
     }
-    let folder = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-      .appendingPathComponent("scene-imports", isDirectory: true)
-      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let folder = copiesDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
     let target = folder.appendingPathComponent(url.lastPathComponent)
     do {
       try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

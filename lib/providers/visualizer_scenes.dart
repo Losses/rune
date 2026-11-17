@@ -256,7 +256,7 @@ class VisualizerScenesProvider extends ChangeNotifier {
       // Scene files the system asked Rune to open; Rust is listening now.
       SceneFiles.opened.listen((file) async {
         final result = await importScene(file);
-        await _dropCopy(file);
+        await SceneFiles.dropCopy(file);
         _imports.add(result);
       });
       await _probeGpu();
@@ -295,20 +295,6 @@ class VisualizerScenesProvider extends ChangeNotifier {
     }
     await refresh();
     return VisualizerImport(name);
-  }
-
-  /// Deletes the copy of an opened scene file that Android and iOS make to
-  /// hand it over (`scene-imports/<id>/<file>` in the app's cache), once it is
-  /// imported.
-  Future<void> _dropCopy(String file) async {
-    final parts = p.split(file);
-    final at = parts.lastIndexOf('scene-imports');
-    if (at < 0 || at + 2 >= parts.length) return;
-    try {
-      await Directory(p.joinAll(parts.take(at + 2))).delete(recursive: true);
-    } catch (e) {
-      error$('Failed to delete the copy of $file: $e');
-    }
   }
 
   /// Deletes an imported scene.
