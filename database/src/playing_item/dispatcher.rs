@@ -145,10 +145,16 @@ impl PlayingItemActionDispatcher {
         items: &[PlayingItem],
     ) -> Result<HashMap<PlayingItem, String>> {
         let lib_path = lib_path.as_ref();
-        let in_library_results = self
-            .in_library_processor
-            .bake_cover_art(fsio, lib_path, main_db, items)
-            .await?;
+        let in_library_results = if items
+            .iter()
+            .any(|item| matches!(item, PlayingItem::LibraryTrack { track, .. } if uuid::Uuid::parse_str(track).is_ok()))
+        {
+            self.in_library_processor
+                .bake_cover_art(fsio, lib_path, main_db, items)
+                .await?
+        } else {
+            HashMap::new()
+        };
         let independent_results = self
             .independent_file_processor
             .bake_cover_art(fsio, lib_path, main_db, items)
