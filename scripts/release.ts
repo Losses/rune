@@ -251,8 +251,8 @@ function parseAndValidateReleaseNotes(filePath: string): ParsedNotes {
     const rawLine = lines[idx];
     const trimmed = rawLine.trim();
 
-    // Skip empty lines and comment lines
-    if (!trimmed || trimmed.startsWith("#")) {
+    // Skip empty lines; Markdown category headings are checked before comments.
+    if (!trimmed) {
       continue;
     }
 
@@ -282,6 +282,10 @@ function parseAndValidateReleaseNotes(filePath: string): ParsedNotes {
         categories.push(existing);
       }
       currentCategory = existing;
+      continue;
+    }
+
+    if (trimmed.startsWith("#")) {
       continue;
     }
 
