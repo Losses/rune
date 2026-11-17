@@ -165,10 +165,12 @@ pub fn decode_with(
 
 /// `samples` at `from` Hz as `to` Hz, all of them: the length is `samples.len() * to / from`
 /// rounded, and what comes out lines up with what went in (rubato's sinc resampler has no
-/// delay to remove, which the impulse test checks).
+/// delay to remove, which the impulse test checks). A source rate below 1000 Hz, including
+/// 0, is an error.
 pub fn resample(samples: Vec<f32>, from: u32, to: u32) -> Result<Vec<f32>> {
-    let mut out = Vec::with_capacity(samples.len() * to as usize / from as usize + CHUNK);
+    // The rates are checked before the output is sized by them.
     let mut resampler = Resampler::new(from, to)?;
+    let mut out = Vec::with_capacity(samples.len() * to as usize / from as usize + CHUNK);
     resampler.push(&samples, &mut |chunk| out.extend_from_slice(chunk))?;
     resampler.finish(&mut |chunk| out.extend_from_slice(chunk))?;
     Ok(out)
@@ -342,6 +344,12 @@ mod tests {
         assert!(resample(vec![0.0; 100], 1, 22050).is_err());
         assert!(resample(vec![0.0; 100], 999, 22050).is_err());
         assert!(resample(vec![0.0; 100], 1000, 22050).is_ok());
+    }
+
+    #[test]
+    fn a_zero_sample_rate_is_refused() {
+        assert!(resample(Vec::new(), 0, 22050).is_err());
+        assert!(resample(vec![0.0; 100], 0, 22050).is_err());
     }
 
     #[test]
