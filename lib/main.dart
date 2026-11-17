@@ -724,7 +724,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
             ]),
             playbackMode: null,
             hintPosition: -1,
-            initialPlaybackId: -1,
+            initialPlaybackId: null,
             instantlyPlay: true,
             operateMode: PlaylistOperateMode.replace,
             fallbackPlayingItems: [],

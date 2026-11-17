@@ -39,21 +39,41 @@ List<PlayingItemRef> queueItemsToExclude({
   return [for (final entry in queue ?? const <PlaylistItem>[]) entry.item];
 }
 
+/// The track a playback action starts with and its fallback tracks, as a
+/// resolve request carries them. An action that names no track to start with
+/// has a `null` [initialPlaybackId]: it gets no start item, and no catalog row
+/// is looked up for one.
+Future<({PlayingItemRef? initial, List<PlayingItemRef> fallback})>
+playbackStartItems({
+  required int? initialPlaybackId,
+  required List<PlayingItem> fallbackPlayingItems,
+}) async {
+  final refs = await playingItemRefs([
+    if (initialPlaybackId != null) PlayingItem.inLibrary(initialPlaybackId),
+    ...fallbackPlayingItems,
+  ]);
+  if (initialPlaybackId == null) return (initial: null, fallback: refs);
+  return (initial: refs.first, fallback: refs.sublist(1));
+}
+
+/// Starts or queues what [queries] resolve to. [initialPlaybackId] is the
+/// catalog row of the track to start with, or `null` to start where
+/// [hintPosition] says.
 Future<List<PlayingItem>> operatePlaybackWithMixQuery({
   required QueryList queries,
   required PlaybackMode? playbackMode,
   required int hintPosition,
-  required int initialPlaybackId,
+  required int? initialPlaybackId,
   required bool instantlyPlay,
   required PlaylistOperateMode operateMode,
   required List<PlayingItem> fallbackPlayingItems,
   CastTarget? castTo,
   void Function(ResolvedItemsLoadResult result)? onCastResult,
 }) async {
-  final requestItems = await playingItemRefs([
-    PlayingItem.inLibrary(initialPlaybackId),
-    ...fallbackPlayingItems,
-  ]);
+  final start = await playbackStartItems(
+    initialPlaybackId: initialPlaybackId,
+    fallbackPlayingItems: fallbackPlayingItems,
+  );
   final resolvedSignal = await awaitResponse(
     'ResolveMixQueryRequest',
     ResolveMixQueryResponse.rustSignalStream,
@@ -61,9 +81,9 @@ Future<List<PlayingItem>> operatePlaybackWithMixQuery({
     send: (callId) => ResolveMixQueryRequest(
       queries: queries.toQueryList(),
       hintPosition: hintPosition,
-      initialPlaybackItem: requestItems.first,
+      initialPlaybackItem: start.initial,
       instantlyPlay: instantlyPlay,
-      fallbackPlayingItems: requestItems.skip(1).toList(),
+      fallbackPlayingItems: start.fallback,
       excluded: ExcludedItems(
         items: queueItemsToExclude(
           castTo: castTo,
@@ -195,7 +215,7 @@ Future<List<PlayingItem>> safeOperatePlaybackWithMixQuery({
   required QueryList queries,
   required PlaybackMode? playbackMode,
   required int hintPosition,
-  required int initialPlaybackId,
+  required int? initialPlaybackId,
   required bool instantlyPlay,
   required PlaylistOperateMode operateMode,
   required List<PlayingItem> fallbackPlayingItems,
