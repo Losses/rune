@@ -7058,6 +7058,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "clap",
+ "http",
  "log",
  "md5",
  "rand 0.8.5",

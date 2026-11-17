@@ -828,9 +828,21 @@ impl ScrobblingServiceManager for MockScrobblingManager {
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_authentication_error, redact_authentication_secrets};
-    use crate::ScrobblingAuthFailure;
+    use std::{sync::atomic::Ordering, time::Duration};
+
     use anyhow::anyhow;
+    use tokio::time::timeout;
+
+    use super::{
+        ActionType, ScrobblingManager, ScrobblingService, ScrobblingServiceManager,
+        classify_authentication_error, redact_authentication_secrets,
+    };
+    use crate::{
+        ScrobblingAuthFailure,
+        last_fm::LastFmClient,
+        libre_fm::LibreFmClient,
+        test_support::{sample_track, spawn_sequence_server},
+    };
 
     #[test]
     fn auth_error_redaction_preserves_non_secret_details() {
@@ -863,5 +875,129 @@ mod tests {
             detail,
             "upstream response echoed <redacted>, <redacted>, <redacted>"
         );
+    }
+
+    #[tokio::test]
+    async fn scrobble_all_retries_rejected_last_fm_report_until_success() {
+        let (base_url, request_count, server) = spawn_sequence_server(vec![
+            (
+                "200 OK",
+                r#"{"error":11,"message":"Service Offline"}"#.to_string(),
+            ),
+            (
+                "200 OK",
+                r#"{"scrobbles":{"@attr":{"accepted":1,"ignored":0}}}"#.to_string(),
+            ),
+        ])
+        .await;
+
+        let mut lastfm = LastFmClient::new("api-key".into(), "api-secret".into()).unwrap();
+        lastfm.base_url = base_url;
+        lastfm.session_key = Some("session-key".into());
+
+        let mut manager = ScrobblingManager::new(2, Duration::from_millis(1));
+        manager.lastfm = Some(lastfm);
+        let error_rx = manager.subscribe_error();
+
+        manager.scrobble_all(sample_track());
+        timeout(Duration::from_secs(5), server)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(request_count.load(Ordering::SeqCst), 2);
+        assert!(
+            timeout(Duration::from_millis(50), error_rx.recv())
+                .await
+                .is_err(),
+            "retried scrobble that succeeded on second attempt must not emit an error"
+        );
+    }
+
+    #[tokio::test]
+    async fn scrobble_all_emits_error_after_retries_exhausted_for_rejected_libre_fm_report() {
+        let (base_url, request_count, server) = spawn_sequence_server(vec![
+            ("500 Internal Server Error", "upstream error".to_string()),
+            (
+                "200 OK",
+                r#"{"error":9,"message":"Invalid session key"}"#.to_string(),
+            ),
+        ])
+        .await;
+
+        let mut librefm = LibreFmClient::new().unwrap();
+        librefm.base_url = base_url;
+        librefm.session_key = Some("session-key".into());
+
+        let mut manager = ScrobblingManager::new(2, Duration::from_millis(1));
+        manager.librefm = Some(librefm);
+        let error_rx = manager.subscribe_error();
+
+        manager.scrobble_all(sample_track());
+        timeout(Duration::from_secs(5), server)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let emitted = timeout(Duration::from_secs(5), error_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(request_count.load(Ordering::SeqCst), 2);
+        assert_eq!(emitted.service, ScrobblingService::LibreFm);
+        assert_eq!(emitted.action, ActionType::Scrobbling);
+        assert_eq!(emitted.library_id.as_deref(), Some("lib-1"));
+    }
+
+    #[tokio::test]
+    async fn update_now_playing_all_emits_errors_for_rejected_reports_without_retrying() {
+        let (lastfm_url, lastfm_count, lastfm_server) = spawn_sequence_server(vec![(
+            "200 OK",
+            r#"{"error":9,"message":"Invalid session key"}"#.to_string(),
+        )])
+        .await;
+        let (librefm_url, librefm_count, librefm_server) =
+            spawn_sequence_server(vec![("500 Internal Server Error", "down".to_string())]).await;
+
+        let mut lastfm = LastFmClient::new("api-key".into(), "api-secret".into()).unwrap();
+        lastfm.base_url = lastfm_url;
+        lastfm.session_key = Some("session-key".into());
+
+        let mut librefm = LibreFmClient::new().unwrap();
+        librefm.base_url = librefm_url;
+        librefm.session_key = Some("session-key".into());
+
+        let mut manager = ScrobblingManager::new(3, Duration::from_millis(1));
+        manager.lastfm = Some(lastfm);
+        manager.librefm = Some(librefm);
+        let error_rx = manager.subscribe_error();
+
+        manager.update_now_playing_all(sample_track());
+        timeout(Duration::from_secs(5), lastfm_server)
+            .await
+            .unwrap()
+            .unwrap();
+        timeout(Duration::from_secs(5), librefm_server)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let first = timeout(Duration::from_secs(5), error_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let second = timeout(Duration::from_secs(5), error_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(lastfm_count.load(Ordering::SeqCst), 1);
+        assert_eq!(librefm_count.load(Ordering::SeqCst), 1);
+        assert_eq!(first.service, ScrobblingService::LastFm);
+        assert_eq!(first.action, ActionType::UpdateNowPlaying);
+        assert_eq!(first.library_id.as_deref(), Some("lib-1"));
+        assert_eq!(second.service, ScrobblingService::LibreFm);
+        assert_eq!(second.action, ActionType::UpdateNowPlaying);
+        assert_eq!(second.library_id.as_deref(), Some("lib-1"));
     }
 }

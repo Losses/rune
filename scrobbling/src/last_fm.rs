@@ -6,7 +6,10 @@ use async_trait::async_trait;
 use md5;
 use reqwest::{Client, Response};
 
-use crate::{AuthResponse, ScrobblingAuthFailure, ScrobblingClient, ScrobblingTrack};
+use crate::{
+    AuthResponse, ScrobblingAuthFailure, ScrobblingClient, ScrobblingTrack,
+    send_audioscrobbler_request,
+};
 
 #[derive(Clone)]
 pub struct LastFmClient {
@@ -14,7 +17,7 @@ pub struct LastFmClient {
     api_secret: String,
     pub session_key: Option<String>,
     client: Client,
-    base_url: String,
+    pub(crate) base_url: String,
 }
 
 impl LastFmClient {
@@ -136,15 +139,14 @@ impl ScrobblingClient for LastFmClient {
         let api_sig = self.generate_signature(&mut params);
         params.insert("api_sig".to_string(), api_sig);
 
-        let response = self
-            .client
-            .post(&self.base_url)
-            .form(&params)
-            .query(&[("format", "json")])
-            .send()
-            .await?;
-
-        Ok(response)
+        send_audioscrobbler_request(
+            &self.client,
+            &self.base_url,
+            &params,
+            "Last.fm",
+            "now playing",
+        )
+        .await
     }
 
     async fn scrobble(&self, track: &ScrobblingTrack) -> Result<Response> {
@@ -177,15 +179,8 @@ impl ScrobblingClient for LastFmClient {
         let api_sig = self.generate_signature(&mut params);
         params.insert("api_sig".to_string(), api_sig);
 
-        let response = self
-            .client
-            .post(&self.base_url)
-            .form(&params)
-            .query(&[("format", "json")])
-            .send()
-            .await?;
-
-        Ok(response)
+        send_audioscrobbler_request(&self.client, &self.base_url, &params, "Last.fm", "scrobble")
+            .await
     }
 
     fn session_key(&self) -> Option<&str> {
@@ -201,7 +196,10 @@ mod tests {
     };
 
     use super::LastFmClient;
-    use crate::{ScrobblingAuthFailure, ScrobblingClient};
+    use crate::{
+        ScrobblingAuthFailure, ScrobblingClient,
+        test_support::{sample_track, spawn_sequence_server},
+    };
 
     #[tokio::test]
     async fn authentication_response_body_cannot_echo_credentials_into_errors() {
@@ -235,5 +233,78 @@ mod tests {
         assert!(!format!("{error:#}").contains(password));
         assert!(!format!("{error:#}").contains(api_secret));
         assert!(!format!("{error:#}").contains("api-key-value"));
+    }
+
+    #[tokio::test]
+    async fn update_now_playing_and_scrobble_reject_http_500_without_leaking_body() {
+        let body = "upstream unavailable leaked-session-token".to_string();
+        let (base_url, _, server) = spawn_sequence_server(vec![
+            ("500 Internal Server Error", body.clone()),
+            ("500 Internal Server Error", body),
+        ])
+        .await;
+
+        let mut client =
+            LastFmClient::new("synthetic-api-key".into(), "synthetic-api-secret".into()).unwrap();
+        client.base_url = base_url;
+        client.session_key = Some("synthetic-session".into());
+        let track = sample_track();
+
+        let now_err = client.update_now_playing(&track).await.unwrap_err();
+        let scrobble_err = client.scrobble(&track).await.unwrap_err();
+        server.await.unwrap();
+
+        assert!(!format!("{now_err:#}").contains("leaked-session-token"));
+        assert!(!format!("{scrobble_err:#}").contains("leaked-session-token"));
+        assert!(format!("{now_err:#}").contains("500"));
+        assert!(format!("{scrobble_err:#}").contains("500"));
+    }
+
+    #[tokio::test]
+    async fn update_now_playing_and_scrobble_reject_http_200_api_error_without_leaking_message() {
+        let body = r#"{"error":9,"message":"Invalid session key secret-echo"}"#.to_string();
+        let (base_url, _, server) =
+            spawn_sequence_server(vec![("200 OK", body.clone()), ("200 OK", body)]).await;
+
+        let mut client =
+            LastFmClient::new("synthetic-api-key".into(), "synthetic-api-secret".into()).unwrap();
+        client.base_url = base_url;
+        client.session_key = Some("synthetic-session".into());
+        let track = sample_track();
+
+        let now_err = client.update_now_playing(&track).await.unwrap_err();
+        let scrobble_err = client.scrobble(&track).await.unwrap_err();
+        server.await.unwrap();
+
+        assert!(!format!("{now_err:#}").contains("secret-echo"));
+        assert!(!format!("{scrobble_err:#}").contains("secret-echo"));
+        assert!(format!("{now_err:#}").contains('9'));
+        assert!(format!("{scrobble_err:#}").contains('9'));
+    }
+
+    #[tokio::test]
+    async fn update_now_playing_and_scrobble_accept_valid_json_responses() {
+        let now_body = r##"{"nowplaying":{"track":{"corrected":"0","#text":"Synthetic track"}}}"##;
+        let scrobble_body = r#"{"scrobbles":{"@attr":{"accepted":1,"ignored":0}}}"#;
+        let (base_url, _, server) = spawn_sequence_server(vec![
+            ("200 OK", now_body.to_string()),
+            ("200 OK", scrobble_body.to_string()),
+        ])
+        .await;
+
+        let mut client =
+            LastFmClient::new("synthetic-api-key".into(), "synthetic-api-secret".into()).unwrap();
+        client.base_url = base_url;
+        client.session_key = Some("synthetic-session".into());
+        let track = sample_track();
+
+        let now = client.update_now_playing(&track).await.unwrap();
+        let scrobble = client.scrobble(&track).await.unwrap();
+        server.await.unwrap();
+
+        assert_eq!(now.status(), 200);
+        assert_eq!(scrobble.status(), 200);
+        assert_eq!(now.text().await.unwrap(), now_body);
+        assert_eq!(scrobble.text().await.unwrap(), scrobble_body);
     }
 }
