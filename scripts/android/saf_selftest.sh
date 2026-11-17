@@ -26,8 +26,7 @@
 
 set -euo pipefail
 
-cd "$(dirname "$0")"
-cd ..
+cd "$(dirname "$0")/../.." # repo root
 
 TARGET_DIR="${1:-/sdcard/Documents/rune-selftest}"
 SCRIPT_DIR="scripts/android"
