@@ -1,25 +1,53 @@
 use database::{
-    actions::file::{get_file_by_id, get_random_files},
+    actions::file::{file_ids_by_uuid, get_file_by_id, get_random_files, materialized_path},
     connection::MainDbConnection,
     entities::media_files,
 };
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
     thread,
     time::Duration,
 };
 
+use anyhow::{Result, bail};
 use dunce::canonicalize;
-use futures::future::join_all;
+use futures::future::{BoxFuture, join_all};
 use log::{debug, error, info};
 use tokio::task;
 use uuid::Uuid;
 
 use playback::{
-    player::{Playable, Player, PlayingItem},
+    player::{Playable, PlaybackSourceResolver, Player, PlayingItem, RemoteAudioSource},
     strategies::AddMode,
 };
+
+struct LocalSourceResolver {
+    db: MainDbConnection,
+    fsio: Arc<fsio::FsIo>,
+    root: PathBuf,
+}
+
+impl PlaybackSourceResolver for LocalSourceResolver {
+    fn resolve_id(&self, file_uuid: Uuid) -> BoxFuture<'static, Result<Option<i32>>> {
+        let db = self.db.clone();
+        Box::pin(async move {
+            let ids = file_ids_by_uuid(&db, &[file_uuid]).await?;
+            Ok(ids.get(&file_uuid).copied())
+        })
+    }
+
+    fn local_path(&self, id: i32) -> BoxFuture<'static, Result<Option<PathBuf>>> {
+        let db = self.db.clone();
+        let fsio = self.fsio.clone();
+        let root = self.root.clone();
+        Box::pin(async move { materialized_path(&db, &fsio, &root, id).await })
+    }
+
+    fn resolve(&self, _id: i32) -> BoxFuture<'static, Result<RemoteAudioSource>> {
+        Box::pin(async { bail!("Local CLI playback requires a local audio file") })
+    }
+}
 
 async fn play_files(
     main_db: &MainDbConnection,
@@ -28,7 +56,12 @@ async fn play_files(
     library_id: &str,
 ) {
     let fsio = Arc::new(fsio::FsIo::new());
-    let player = Player::new(fsio, None);
+    let player = Player::new(fsio.clone(), None);
+    player.set_source_resolver(Arc::new(LocalSourceResolver {
+        db: main_db.clone(),
+        fsio,
+        root: canonicalized_path.to_path_buf(),
+    }));
     let player = Arc::new(Mutex::new(player));
 
     let file_futures = file_ids.into_iter().map(|id| async move {
