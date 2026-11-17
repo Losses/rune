@@ -3,8 +3,10 @@
 //! `analyze.back(analyze.front(x))`; the numbers below are what it gave.
 
 use chart_analyzer::analyze;
+use chart_analyzer::back::back;
 use chart_analyzer::chart::Chart;
-use chart_analyzer::front::{SR, front};
+use chart_analyzer::front::{CN, N, SR, front};
+use chart_analyzer::np::round_to;
 use std::f64::consts::TAU;
 
 /// 24 s at 120 bpm: a 70 Hz plus 2.5 kHz burst on the beat (from 0.25 s), a 6 kHz tick on the offbeat.
@@ -204,4 +206,37 @@ fn short_and_silent_audio_make_a_whole_chart() {
             assert!(chart.lead.windows(2).all(|w| w[0].end == w[1].start));
         }
     }
+}
+
+#[test]
+fn a_prefix_without_a_whole_frame_makes_an_empty_chart() {
+    let f = front(&song());
+    // No sample, and one short of the first fine frame (N / 2 samples): nothing has a frame, so
+    // the chart is an empty one that long.
+    for samples in [0, N / 2 - 1] {
+        let duration = round_to(samples as f64 / SR as f64, 3);
+        assert_eq!(back(&f, Some(samples)), Chart::empty(duration), "{samples}");
+    }
+    // The first coarse frame starts the curves, a prefix long enough for the tempo has its
+    // beats, and no prefix is the same as a prefix of the whole length.
+    assert_eq!(back(&f, Some(CN / 2)).curves.loudness.len(), 1);
+    assert!(!back(&f, Some(SR * 12)).beats.is_empty());
+    assert_eq!(back(&f, None), back(&f, Some(f.samples)));
+}
+
+#[test]
+fn a_prefix_without_a_coarse_frame_keeps_its_onsets() {
+    // The noisy song clicks from its first sample, so its fine frames have onsets before the
+    // first coarse frame (CN / 2 samples) has anything to make curves, a tempo or sections of.
+    let f = front(&noisy(1));
+    for samples in [N / 2, CN / 2 - 1] {
+        let chart = back(&f, Some(samples));
+        assert!(chart.curves.loudness.is_empty(), "{samples}");
+        assert_eq!(chart.tempo.bpm, 0.0, "{samples}");
+        assert!(chart.beats.is_empty(), "{samples}");
+        assert!(chart.sections.is_empty(), "{samples}");
+        assert!(chart.lead.is_empty(), "{samples}");
+    }
+    let streams = back(&f, Some(CN / 2 - 1)).streams;
+    assert!(!streams.high.events.is_empty());
 }

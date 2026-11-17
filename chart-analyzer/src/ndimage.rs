@@ -77,8 +77,11 @@ pub fn median_filter1d(
     }
 }
 
-/// `scipy.ndimage.uniform_filter1d(x, size)`: the mean of the window.
+/// `scipy.ndimage.uniform_filter1d(x, size)`: the mean of the window. Empty for an empty `x`.
 pub fn uniform_filter1d(x: &[f64], size: usize) -> Vec<f64> {
+    if x.is_empty() {
+        return Vec::new();
+    }
     let mut buf = Vec::new();
     pad_reflect(x, size / 2, size - size / 2 - 1, &mut buf);
     let mut sum: f64 = buf[..size.min(buf.len())].iter().sum();
@@ -107,8 +110,11 @@ pub fn gaussian_kernel(sigma: f64) -> Vec<f64> {
     w
 }
 
-/// `scipy.ndimage.gaussian_filter1d(x, sigma)`.
+/// `scipy.ndimage.gaussian_filter1d(x, sigma)`. Empty for an empty `x`.
 pub fn gaussian_filter1d(x: &[f64], sigma: f64) -> Vec<f64> {
+    if x.is_empty() {
+        return Vec::new();
+    }
     let kernel = gaussian_kernel(sigma);
     let r = kernel.len() / 2;
     let mut buf = Vec::new();
@@ -188,6 +194,8 @@ mod tests {
             &uniform_filter1d(&X, 4),
             &[2.0, 2.75, 2.25, 2.75, 4.75, 4.25, 5.5, 5.5, 4.5],
         );
+        // An empty signal has nothing to reflect.
+        assert!(uniform_filter1d(&[], 3).is_empty());
     }
 
     #[test]
@@ -213,5 +221,7 @@ mod tests {
         assert!((k.iter().sum::<f64>() - 1.0).abs() < 1e-15);
         // sigma 10.02 (0.1 * FPS) reaches int(4 * 10.02 + 0.5) = 40 frames
         assert_eq!(gaussian_kernel(10.0227272727).len(), 81);
+        // An empty signal has nothing to reflect.
+        assert!(gaussian_filter1d(&[], 1.0).is_empty());
     }
 }
