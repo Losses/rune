@@ -67,7 +67,7 @@ use crate::backends::{
     local::local_player_loop,
     remote::{RemoteConnectError, open_remote_library_for_fingerprint},
 };
-use crate::library_pool::{LibraryHandle, LibraryPool};
+use crate::library_pool::{LibraryHandle, LibraryPool, MediaFolderMissing};
 use crate::macros::NodeRequestHandlers;
 use crate::messages::*;
 use crate::request_error::ExpectedRequestError;
@@ -2206,11 +2206,8 @@ async fn open_catalog_record(
         #[cfg(target_os = "android")]
         let fsio = FsIo::new(Path::new(".rune/.android-fs.db"), path)
             .map_err(|error| (OpenLibraryFailureKind::Storage, error.into()))?;
-        if !path.starts_with("content://") && !Path::new(path).is_dir() {
-            return Err((
-                OpenLibraryFailureKind::MediaFolderMissing,
-                anyhow::anyhow!("Media folder is missing: {path}"),
-            ));
+        if let Some(missing) = MediaFolderMissing::of(record) {
+            return Err((OpenLibraryFailureKind::MediaFolderMissing, missing.into()));
         }
         check_library_state(&fsio, path)
             .map_err(|error| (OpenLibraryFailureKind::Storage, error))?;
@@ -2219,11 +2216,20 @@ async fn open_catalog_record(
         .library_pool
         .acquire_ui(library_id)
         .await
-        .map_err(|error| (OpenLibraryFailureKind::Storage, error))?;
+        .map_err(|error| (local_open_failure(&error), error))?;
     let generation = run_local_open(Ok(opened), Some(record.record_id), node, &scrobbler)
         .await
         .map_err(|error| (OpenLibraryFailureKind::Storage, error))?;
     Ok(generation)
+}
+
+/// Why the pool did not open a library on this device.
+fn local_open_failure(error: &anyhow::Error) -> OpenLibraryFailureKind {
+    if error.downcast_ref::<MediaFolderMissing>().is_some() {
+        OpenLibraryFailureKind::MediaFolderMissing
+    } else {
+        OpenLibraryFailureKind::Storage
+    }
 }
 
 fn remote_open_failure(error: &anyhow::Error) -> OpenLibraryFailureKind {
@@ -2682,6 +2688,33 @@ mod moved_node_request_tests {
         node.close_ui(&params.main_token).await;
         node.shutdown().await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod local_open_failure_tests {
+    use super::local_open_failure;
+    use crate::{library_pool::MediaFolderMissing, messages::OpenLibraryFailureKind};
+    use anyhow::Context;
+
+    #[test]
+    fn a_missing_folder_is_told_apart_from_other_storage_failures() {
+        let missing = anyhow::Error::new(MediaFolderMissing("/music".into()));
+        assert_eq!(
+            local_open_failure(&missing),
+            OpenLibraryFailureKind::MediaFolderMissing
+        );
+        let wrapped = Err::<(), _>(MediaFolderMissing("/music".into()))
+            .context("Library acquisition failed")
+            .unwrap_err();
+        assert_eq!(
+            local_open_failure(&wrapped),
+            OpenLibraryFailureKind::MediaFolderMissing
+        );
+        assert_eq!(
+            local_open_failure(&anyhow::anyhow!("database is locked")),
+            OpenLibraryFailureKind::Storage
+        );
     }
 }
 
