@@ -251,8 +251,8 @@ function parseAndValidateReleaseNotes(filePath: string): ParsedNotes {
     const rawLine = lines[idx];
     const trimmed = rawLine.trim();
 
-    // Skip empty lines and comment lines
-    if (!trimmed || trimmed.startsWith("#")) {
+    // Skip empty lines; Markdown category headings are checked before comments.
+    if (!trimmed) {
       continue;
     }
 
@@ -264,9 +264,11 @@ function parseAndValidateReleaseNotes(filePath: string): ParsedNotes {
         currentItem = null;
       }
 
-      const rawCategoryName = (categoryHeaderMatch[1] || categoryHeaderMatch[2] || categoryHeaderMatch[3]).trim().toLowerCase();
-      const normalizedTitle = CATEGORY_MAP[rawCategoryName];
-      if (!normalizedTitle) {
+      const categoryName = categoryHeaderMatch[2]
+        ? categoryHeaderMatch[2].replace(/[ \t]+#+$/, "")
+        : categoryHeaderMatch[1] || categoryHeaderMatch[3];
+      const rawCategoryName = categoryName.trim().toLowerCase();
+      if (!Object.hasOwn(CATEGORY_MAP, rawCategoryName)) {
         const allowed = Object.values(CATEGORY_MAP)
           .filter((v, i, a) => a.indexOf(v) === i)
           .join(", ");
@@ -276,12 +278,17 @@ function parseAndValidateReleaseNotes(filePath: string): ParsedNotes {
         );
       }
 
+      const normalizedTitle = CATEGORY_MAP[rawCategoryName];
       let existing = categories.find(c => c.title === normalizedTitle);
       if (!existing) {
         existing = { title: normalizedTitle, items: [] };
         categories.push(existing);
       }
       currentCategory = existing;
+      continue;
+    }
+
+    if (trimmed.startsWith("#")) {
       continue;
     }
 
