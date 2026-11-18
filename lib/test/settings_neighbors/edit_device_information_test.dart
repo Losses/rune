@@ -1,9 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:rune/l10n/app_localizations.dart';
-import 'package:rune/providers/broadcast.dart';
-import 'package:rune/screens/settings_neighbors/widgets/edit_device_information_setting_dialog.dart';
+
+import '../../l10n/app_localizations.dart';
+import '../../providers/broadcast.dart';
+import '../../screens/settings_neighbors/widgets/edit_device_information_setting_dialog.dart';
 
 class _Broadcast extends ChangeNotifier implements BroadcastProvider {
   _Broadcast(this.deviceAlias);

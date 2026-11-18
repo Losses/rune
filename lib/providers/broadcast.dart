@@ -25,6 +25,7 @@ class BroadcastProvider extends ChangeNotifier {
   bool _isServerRunning = false;
   String? _interface;
   late Completer<void> _initializationCompleter;
+  late final Future<void> _deviceAliasReady = _initializeDeviceAlias();
 
   List<ClientSummary> _users = [];
   List<ClientSummary> get users => _users;
@@ -48,7 +49,7 @@ class BroadcastProvider extends ChangeNotifier {
   }
 
   Future<void> _initializeDevice() async {
-    await _initializeDeviceAlias(); // Ensure device alias is initialized first
+    await _deviceAliasReady;
     await _initializeFingerprint(); // Then initialize fingerprint (depends on device alias)
   }
 
@@ -75,6 +76,7 @@ class BroadcastProvider extends ChangeNotifier {
   Future<void> updateDeviceAlias(String newAlias) async {
     if (newAlias.trim().isEmpty) return;
 
+    await _deviceAliasReady;
     await _settingsManager.setValue(kDeviceAliasKey, newAlias);
     _deviceAlias = newAlias;
     notifyListeners();
