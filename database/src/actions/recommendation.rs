@@ -51,9 +51,11 @@ fn nearest(vectors: &[(u32, [f32; 61])], query: &[f32; 61], n: usize) -> Vec<(u3
 /// * `n` - The number of recommendations to retrieve.
 ///
 /// # Returns
-/// * `Result<Vec<(u32, f32)>>` - Recommended item IDs and their distances,
-///   nearest first. The item itself is included (at distance 0). Fails if the
-///   item has no analysis data.
+/// * `Result<Vec<(u32, f32)>>` - Up to `n` recommended item IDs and their distances,
+///   nearest first, with equal distances ordered by ascending file ID. The seed
+///   has distance 0, but can be excluded when the count cuts off tied tracks.
+///   Returns an empty list when `n` is 0. Fails if the item has no analysis data,
+///   including when `n` is 0.
 pub fn get_recommendation_by_file_id(
     recommend_db: &RecommendationDbConnection,
     item_id: i32,
@@ -288,6 +290,10 @@ mod tests {
         assert_eq!(
             result.iter().map(|r| r.0).collect::<Vec<_>>(),
             vec![3, 5, 9]
+        );
+        assert_eq!(
+            get_recommendation_by_file_id(&db, 5, 1).unwrap(),
+            vec![(3, 0.0)]
         );
         let result = get_recommendation_by_file_id(&db, 5, 10).unwrap();
         assert_eq!(
