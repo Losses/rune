@@ -85,7 +85,8 @@ void main() {
             if (child == opaque || flareOpacity == 1) {
               expect(alpha, 128, reason: reason);
             } else {
-              expect(alpha, lessThan(128), reason: reason);
+              // The center alpha is about 1.507 before flare and paint opacity.
+              expect(alpha, closeTo(48, 1), reason: reason);
             }
           }
         }
