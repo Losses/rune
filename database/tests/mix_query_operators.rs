@@ -1,16 +1,17 @@
 use anyhow::Result;
-use database::test_fixtures::fixtures;
+use database::test_fixtures::{causal_library, fixtures};
 use database::{
     actions::mixes::{
         QueryOperator, QueryParseError, add_item_to_mix, create_mix, executable_mix_queries,
         query_mix_media_files, replace_mix_queries,
     },
     connection::RecommendationDbConnection,
-    entities::mixes,
+    entities::{media_files, mixes},
     error::ExpectedError,
     mix_operator::{MixOperator, UnknownOperator},
 };
-use sea_orm::{Database, EntityTrait};
+use sea_orm::{ActiveModelTrait, ActiveValue, Database, DatabaseConnection, EntityTrait};
+use std::collections::BTreeSet;
 use uuid::Uuid;
 
 /// A parameter each operator accepts.
@@ -152,6 +153,79 @@ async fn clauses_come_back_from_storage_as_written_and_unknown_ones_are_refused(
         error
             .downcast_ref::<ExpectedError>()
             .is_some_and(|error| matches!(error, ExpectedError::InvalidInput { .. }))
+    );
+    Ok(())
+}
+
+/// The file names a single directory clause selects.
+async fn directory_selection(
+    db: &DatabaseConnection,
+    operator: &str,
+    directory: &str,
+) -> Result<BTreeSet<String>> {
+    let files = query_mix_media_files(
+        db,
+        &RecommendationDbConnection::new(),
+        vec![(operator.into(), directory.into())],
+        0,
+        100,
+        &[],
+    )
+    .await?;
+    Ok(files.into_iter().map(|file| file.file_name).collect())
+}
+
+fn names(names: &[&str]) -> BTreeSet<String> {
+    names.iter().map(|name| (*name).to_owned()).collect()
+}
+
+#[tokio::test]
+async fn directory_names_are_matched_literally() -> Result<()> {
+    let db = Database::connect("sqlite::memory:").await?;
+    fixtures::migrate(&db, Uuid::new_v4()).await?;
+    // Each file is named after its directory, so a result set reads as the directories selected.
+    let directories = [
+        "A%_ space",
+        "A%_ space/Live",
+        "Axx space",
+        "Axx space/Live",
+        "Rock_1",
+        "Rock_1/Live",
+        "RockA1/Live",
+        "Esc\\%",
+        "Esc\\%/Live",
+        "Esc\\x/Live",
+        "Music/Rock",
+        "Music/Rock/Live",
+        "Music/Rockabilly",
+    ];
+    for (id, directory) in (1..).zip(directories) {
+        let file = causal_library::local_file(&db, id, Uuid::new_v4(), directory).await?;
+        let mut update: media_files::ActiveModel = file.into();
+        update.directory = ActiveValue::Set(directory.into());
+        update.update(&db).await?;
+    }
+
+    let deep = "lib::directory.deep";
+    assert_eq!(
+        directory_selection(&db, deep, "/A%_ space").await?,
+        names(&["A%_ space", "A%_ space/Live"])
+    );
+    assert_eq!(
+        directory_selection(&db, deep, "/Rock_1").await?,
+        names(&["Rock_1", "Rock_1/Live"])
+    );
+    assert_eq!(
+        directory_selection(&db, deep, "/Esc\\%").await?,
+        names(&["Esc\\%", "Esc\\%/Live"])
+    );
+    assert_eq!(
+        directory_selection(&db, deep, "/Music/Rock").await?,
+        names(&["Music/Rock", "Music/Rock/Live"])
+    );
+    assert_eq!(
+        directory_selection(&db, "lib::directory.shallow", "/A%_ space").await?,
+        names(&["A%_ space"])
     );
     Ok(())
 }

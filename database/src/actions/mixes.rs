@@ -17,7 +17,7 @@ use sea_orm::entity::prelude::*;
 use sea_orm::{
     ColumnTrait, DatabaseTransaction, EntityTrait, JoinType, Order, QueryFilter, QueryOrder,
     QuerySelect, QueryTrait, Set, TransactionTrait,
-    sea_query::{Condition, Expr, Query},
+    sea_query::{Condition, Expr, LikeExpr, Query},
 };
 
 use crate::actions::analysis::{get_analyze_count, get_percentile_analysis_result};
@@ -773,6 +773,21 @@ fn sort_media_files(
     media_files
 }
 
+/// The escape character of the LIKE patterns built by [`escape_like`].
+const LIKE_ESCAPE: char = '\\';
+
+/// Escapes `text` so it matches only itself inside a LIKE pattern that uses [`LIKE_ESCAPE`].
+fn escape_like(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for c in text.chars() {
+        if matches!(c, LIKE_ESCAPE | '%' | '_') {
+            escaped.push(LIKE_ESCAPE);
+        }
+        escaped.push(c);
+    }
+    escaped
+}
+
 pub async fn query_mix_media_files(
     main_db: &DatabaseConnection,
     recommend_db: &RecommendationDbConnection,
@@ -943,10 +958,11 @@ pub async fn query_mix_media_files_with_seed(
         for dir in directories_deep {
             let dir = dir.strip_prefix('/').unwrap_or(&dir);
 
+            let descendants = LikeExpr::new(format!("{}/%", escape_like(dir))).escape(LIKE_ESCAPE);
             dir_conditions = dir_conditions.add(
                 Expr::col(media_files::Column::Directory)
                     .eq(dir)
-                    .or(Expr::col(media_files::Column::Directory).like(format!("{dir}/%"))),
+                    .or(Expr::col(media_files::Column::Directory).like(descendants)),
             );
         }
         or_condition = or_condition.add(dir_conditions);
