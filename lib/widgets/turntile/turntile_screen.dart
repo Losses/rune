@@ -126,7 +126,8 @@ class TurntileScreenImplementationState
       child: FutureBuilder<List<Group<InternalCollection>>>(
         future: data.summary,
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData) {
             return const Center(child: ProgressRing());
           } else if (snapshot.hasError) {
             return Center(child: Text(requestErrorText(S.of(context), snapshot.error!)));
