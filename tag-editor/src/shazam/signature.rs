@@ -5,6 +5,10 @@ use crc32fast::hash;
 
 use super::spectrogram::{FrequencyPeak, Signature};
 
+const HEADER_SIZE: usize = 48;
+const PEAKS_START: usize = HEADER_SIZE + 8;
+const PEAK_RECORD_SIZE: usize = 5;
+
 fn convert_sample_rate(x: i32) -> i32 {
     match x {
         1 => 8000,
@@ -85,18 +89,14 @@ impl Signature {
                 pass = peak.pass;
             }
 
-            // Pad to multiple of 4
-            while peak_buf.len() % 4 != 0 {
-                peak_buf.push(0x00);
-            }
-
             write_u32(&mut buf, 0x60030040 + band as u32);
             write_u32(&mut buf, peak_buf.len() as u32);
             buf.extend_from_slice(&peak_buf);
+            buf.resize(buf.len().next_multiple_of(4), 0);
         }
 
         // Update lengths and checksum
-        let content_len = (buf.len() - 48) as u32;
+        let content_len = (buf.len() - HEADER_SIZE) as u32;
         (&mut buf[8..12])
             .write_u32::<LittleEndian>(content_len)
             .unwrap();
@@ -112,7 +112,7 @@ impl Signature {
     }
 
     pub fn decode(buf: &[u8]) -> Result<Self, String> {
-        if buf.len() < 56 {
+        if buf.len() < PEAKS_START {
             return Err("buffer too short".into());
         }
 
@@ -136,7 +136,7 @@ impl Signature {
             return Err("bad checksum".into());
         }
 
-        if length != (buf.len() - 48) as u32 {
+        if length as usize != buf.len() - HEADER_SIZE {
             return Err("bad length".into());
         }
 
@@ -174,46 +174,64 @@ impl Signature {
         let length2 = (&buf[52..56])
             .read_u32::<LittleEndian>()
             .map_err(|e| e.to_string())?;
-        if length2 != (buf.len() as u32 - 40) {
+        // The first TLV repeats the message length after the 48-byte header.
+        if length2 != length {
             return Err("bad length2".into());
         }
 
         let mut peaks_by_band = [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()];
-        let mut cursor = Cursor::new(&buf[56..]);
+        let data = &buf[PEAKS_START..];
+        let mut cursor = Cursor::new(data);
 
         // Read peaks
-        while cursor.position() < buf[56..].len() as u64 {
+        while cursor.position() < data.len() as u64 {
             let band_info = cursor
                 .read_u32::<LittleEndian>()
                 .map_err(|e| e.to_string())?;
             let size = cursor
                 .read_u32::<LittleEndian>()
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| e.to_string())? as usize;
             let band = (band_info - 0x60030040) as usize;
 
             if band >= peaks_by_band.len() {
                 return Err(format!("invalid band index: {band}"));
             }
 
-            let mut pass = 0u32;
-            let start_pos = cursor.position();
-            let end_pos = start_pos + size as u64;
+            let start = cursor.position() as usize;
+            let padding = (4 - size % 4) % 4;
+            let block = size
+                .checked_add(padding)
+                .and_then(|len| data[start..].get(..len))
+                .ok_or("invalid peak block length")?;
+            cursor.set_position((start + block.len()) as u64);
+            let mut peaks = &block[..size];
 
-            while cursor.position() < end_pos {
-                let offset = cursor.read_u8().map_err(|e| e.to_string())?;
+            // Older Rune encoders included zero padding in the declared peak length.
+            let trailing = size % PEAK_RECORD_SIZE;
+            if padding == 0
+                && (1..=3).contains(&trailing)
+                && peaks[size - trailing..].iter().all(|&byte| byte == 0)
+            {
+                peaks = &peaks[..size - trailing];
+            }
+
+            let mut records = Cursor::new(peaks);
+            let mut pass = 0u32;
+            while records.position() < peaks.len() as u64 {
+                let offset = records.read_u8().map_err(|e| e.to_string())?;
 
                 if offset == 0xFF {
-                    pass = cursor
+                    pass = records
                         .read_u32::<LittleEndian>()
                         .map_err(|e| e.to_string())?;
                     continue;
                 }
 
                 pass += offset as u32;
-                let magnitude = cursor
+                let magnitude = records
                     .read_u16::<LittleEndian>()
                     .map_err(|e| e.to_string())? as i32;
-                let bin = cursor
+                let bin = records
                     .read_u16::<LittleEndian>()
                     .map_err(|e| e.to_string())? as i32;
 
@@ -222,12 +240,6 @@ impl Signature {
                     magnitude,
                     bin,
                 });
-            }
-
-            // Align to 4-byte boundary
-            let remainder = size % 4;
-            if remainder != 0 {
-                cursor.set_position(cursor.position() + (4 - remainder) as u64);
             }
         }
 
