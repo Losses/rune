@@ -92,9 +92,13 @@ impl FFTCompute {
         Complex<T>: Pod + Zeroable,
     {
         let n = data.len();
-        assert!(n.is_power_of_two(), "Input length must be a power of 2");
         assert!(
-            std::mem::size_of_val(data) as u64 <= self.buffer_size,
+            n >= 1024 && n.is_power_of_two(),
+            "Input length must be a power of 2 and at least 1024"
+        );
+        let input_size = std::mem::size_of_val(data) as wgpu::BufferAddress;
+        assert!(
+            input_size <= self.buffer_size,
             "Input data too large for buffer"
         );
 
@@ -118,16 +122,10 @@ impl FFTCompute {
             compute_pass.dispatch_workgroups(1, (n / 1024) as u32, 1);
         }
 
-        encoder.copy_buffer_to_buffer(
-            &self.output_buffer,
-            0,
-            &self.result_buffer,
-            0,
-            std::mem::size_of_val(data) as u64,
-        );
+        encoder.copy_buffer_to_buffer(&self.output_buffer, 0, &self.result_buffer, 0, input_size);
         self.queue.submit(Some(encoder.finish()));
 
-        let buffer_slice = self.result_buffer.slice(..);
+        let buffer_slice = self.result_buffer.slice(..input_size);
         let (tx, rx) = oneshot::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
             tx.send(result).unwrap();
@@ -227,6 +225,23 @@ mod tests {
     async fn test_small_data() {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
         test(1024).await;
+    }
+
+    #[tokio::test]
+    async fn test_short_input() {
+        let gpu_fft = FFTCompute::new(2048).await;
+        let cpu_fft = FftPlanner::<f32>::new().plan_fft_forward(1024);
+
+        for len in [1024, 2048, 1024] {
+            let mut gpu_data = generate_random_data(len);
+            let mut cpu_data = gpu_data.clone();
+            cpu_fft.process(&mut cpu_data);
+            gpu_fft.compute_fft(&mut gpu_data).await;
+            assert!(
+                compare_complex_vectors(&cpu_data, &gpu_data, 1e-3),
+                "CPU and GPU results differ for {len} samples"
+            );
+        }
     }
 
     #[tokio::test]
