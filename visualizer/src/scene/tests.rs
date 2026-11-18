@@ -374,33 +374,87 @@ fn the_post_processing_makes_a_sensible_frame() {
 }
 
 #[test]
-fn a_linear_asset_keeps_its_values() {
+fn a_linear_asset_keeps_its_values_until_the_scene_rebuilds() {
     let Some((device, queue)) = gpu() else {
         eprintln!("SKIPPED: no GPU adapter");
         return;
     };
-    // Mid grey as data must read 0.5, not the 0.22 an sRGB decode would make of it.
-    let dir = folder(
-        "asset",
-        &[
-            (
-                MANIFEST,
-                "format = 1\nname = \"Data\"\nlicense = \"MPL-2.0\"\n[[asset]]\nid = \"field\"\nfile = \"field.png\"\nlinear = true\n[[pass]]\nshader = \"a.wgsl\"\ntarget = \"out\"\n[post]\ntonemap = \"none\"\ngrain = 0.0\nchromatic = 0.0\nvignette = 0.0\nbloom = { intensity = 0.0 }\n",
-            ),
-            (
-                "a.wgsl",
-                "fn shade(px: Pixel) -> vec4f {\n  return vec4f(textureSampleLevel(asset_field, linear_clamp, px.uv, 0.0).rgb, 1.0);\n}\n",
-            ),
-        ],
-    );
+    let gpu = (&device, &queue);
+    let manifest = r#"
+format = 1
+name = "Data"
+license = "MPL-2.0"
+
+[[asset]]
+id = "field"
+file = "field.png"
+linear = true
+
+[[param]]
+id = "gain"
+default = 1.0
+
+[[pass]]
+shader = "a.wgsl"
+target = "out"
+
+[post]
+tonemap = "none"
+grain = 0.0
+chromatic = 0.0
+vignette = 0.0
+bloom = { intensity = 0.0 }
+"#;
+    let shader = r#"
+fn shade(px: Pixel) -> vec4f {
+    let field = textureSampleLevel(asset_field, linear_clamp, px.uv, 0.0).rgb;
+    return vec4f(field.r, field.g * params.gain, field.b, 1.0);
+}
+"#;
+    let dir = folder("asset", &[(MANIFEST, manifest), ("a.wgsl", shader)]);
+    let image_path = dir.join("field.png");
     image::RgbaImage::from_pixel(8, 8, image::Rgba([128, 128, 128, 255]))
-        .save(dir.join("field.png"))
+        .save(&image_path)
         .unwrap();
     let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
     let screen = Screen::new(&device);
-    frame(&mut scene, (&device, &queue), &screen, 0.0, 0.0);
-    let c = screen.middle(&device, &queue);
-    assert!((c[0] - 0.502).abs() < 0.02, "{c:?}");
+    frame(&mut scene, gpu, &screen, 0.0, 0.0);
+    let pixel = screen.middle(&device, &queue);
+    // Mid grey as data reads about 0.502.
+    assert!(close(pixel, [0.502; 3]), "original asset: {pixel:?}");
+
+    image::RgbaImage::from_pixel(8, 8, image::Rgba([255, 0, 0, 255]))
+        .save(&image_path)
+        .unwrap();
+    assert!(!scene.reload(&device, &queue).unwrap(), "image-only edit");
+    frame(&mut scene, gpu, &screen, 0.1, 0.0);
+    let pixel = screen.middle(&device, &queue);
+    assert!(close(pixel, [0.502; 3]), "after image edit: {pixel:?}");
+
+    std::fs::write(
+        dir.join(MANIFEST),
+        manifest.replace("default = 1.0", "default = 0.5"),
+    )
+    .unwrap();
+    assert!(
+        scene.reload(&device, &queue).unwrap(),
+        "new parameter default"
+    );
+    frame(&mut scene, gpu, &screen, 0.2, 0.0);
+    let pixel = screen.middle(&device, &queue);
+    assert!(
+        close(pixel, [0.502, 0.251, 0.502]),
+        "after defaults edit: {pixel:?}"
+    );
+
+    std::fs::write(dir.join("a.wgsl"), format!("{shader}\n// rebuild\n")).unwrap();
+    assert!(scene.reload(&device, &queue).unwrap(), "shader edit");
+    frame(&mut scene, gpu, &screen, 0.3, 0.0);
+    let pixel = screen.middle(&device, &queue);
+    assert!(
+        close(pixel, [1.0, 0.0, 0.0]),
+        "replacement asset: {pixel:?}"
+    );
 }
 
 #[test]
