@@ -480,6 +480,8 @@ mod streaming_tests {
             (2048, 0, 2, 2),   // Full batch at EOF.
             (2305, 0, 2, 3),   // Padded final window leaves a partial batch.
             (1536, 512, 8, 3), // Overlapping windows, including the padded tail.
+            (5120, 0, 6, 5),   // Exact EOF with five windows in a six-window batch.
+            (6144, 0, 6, 6),   // Full six-window batch.
         ] {
             let samples: Vec<f32> = (0..frames * 4)
                 .map(|i| 0.5 * (i as f32 * 0.137).sin())

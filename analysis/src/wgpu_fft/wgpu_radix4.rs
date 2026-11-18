@@ -94,9 +94,10 @@ impl FFTCompute {
         Complex<T>: Pod + Zeroable,
     {
         let n = data.len();
+        // Each workgroup transforms one independent window.
         assert!(
-            n >= FFT_WINDOW_SIZE && n.is_power_of_two(),
-            "Input length must be a power of 2 and at least 1024"
+            n >= FFT_WINDOW_SIZE && n.is_multiple_of(FFT_WINDOW_SIZE),
+            "Input must contain one or more complete 1024-sample FFT windows"
         );
         let input_size = std::mem::size_of_val(data) as wgpu::BufferAddress;
         assert!(
