@@ -44,6 +44,9 @@ const CHUNK: usize = 4096;
 /// The lowest sample rate taken. A lower one is no music, and resampling it up to the analysis
 /// rate would make a huge number of samples from a few frames.
 const MIN_SAMPLE_RATE: u32 = 1000;
+/// Audio is nominally at unit amplitude. This ceiling allows overshoot while leaving ample
+/// headroom for resampling and the front end's `f32` spectral power sums.
+const MAX_SAMPLE_MAGNITUDE: f32 = 1.0e12;
 
 /// What `decode_with` fails with when its `cancel` flag was set: not a fault of the file, so
 /// that a caller can tell it by `error.downcast_ref::<Cancelled>()` and not log it as one.
@@ -142,6 +145,13 @@ pub fn decode_with(
             slot => slot.insert(SampleBuffer::new(decoded.capacity() as u64, spec)),
         };
         buf.copy_interleaved_ref(decoded);
+        if buf
+            .samples()
+            .iter()
+            .any(|sample| !(-MAX_SAMPLE_MAGNITUDE..=MAX_SAMPLE_MAGNITUDE).contains(sample))
+        {
+            bail!("audio contains an invalid sample amplitude");
+        }
         mono.clear();
         mono.extend(
             buf.samples()
