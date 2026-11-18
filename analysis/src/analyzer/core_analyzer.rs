@@ -274,8 +274,9 @@ impl Analyzer {
             }
             self.target_buffer.resize(self.window_size, 0.0);
             let chunk = std::mem::take(&mut self.target_buffer);
-            self.process_audio_chunk(&chunk, true);
+            self.process_audio_chunk(&chunk, false);
         }
+        Arc::clone(&self.sub_analyzer).lock().unwrap().flush(self);
     }
 
     fn process_audio_stream(
@@ -422,8 +423,7 @@ mod streaming_tests {
     use super::*;
     use std::f32::consts::PI;
 
-    fn run(samples: &[f32], rate: u32, packet: usize) -> Analyzer {
-        let mut a = Analyzer::new(ComputingDevice::Cpu, 1024, 512, None, None);
+    fn run(mut a: Analyzer, samples: &[f32], rate: u32, packet: usize) -> Analyzer {
         a.sample_rate = rate;
         a.initialize_resampler();
         for chunk in samples.chunks(packet) {
@@ -439,8 +439,9 @@ mod streaming_tests {
     fn streaming_is_independent_of_decoder_packet_boundaries() {
         for rate in [8000, 11025, 44100, 48000, 96000] {
             let samples: Vec<f32> = (0..20003).map(|i| (i as f32 * 0.137).sin()).collect();
-            let a = run(&samples, rate, 17);
-            let b = run(&samples, rate, 4096);
+            let cpu = || Analyzer::new(ComputingDevice::Cpu, 1024, 512, None, None);
+            let a = run(cpu(), &samples, rate, 17);
+            let b = run(cpu(), &samples, rate, 4096);
             assert_eq!(
                 a.emitted_samples,
                 (samples.len() as u64 * 11025).div_ceil(rate as u64) as usize
@@ -455,9 +456,57 @@ mod streaming_tests {
     #[test]
     fn one_sample_clip_is_not_erased_by_hann_endpoint() {
         for rate in [44100, 48000] {
-            let a = run(&[1.0], rate, 1);
+            let cpu = Analyzer::new(ComputingDevice::Cpu, 1024, 512, None, None);
+            let a = run(cpu, &[1.0], rate, 1);
             assert_eq!(a.count, 1);
             assert!(a.avg_spectrum.iter().any(|x| x.re > 0.0));
+        }
+    }
+
+    #[test]
+    fn gpu_finishes_all_counted_windows() {
+        if pollster::block_on(
+            wgpu::Instance::default().request_adapter(&wgpu::RequestAdapterOptions::default()),
+        )
+        .is_none()
+        {
+            println!("Skipping gpu_finishes_all_counted_windows: no WGPU adapter is available");
+            return;
+        }
+
+        let window = 1024;
+        for (frames, overlap, expected_count) in [
+            (1024, 0, 1),   // Partial batch at an exact window boundary.
+            (2048, 0, 2),   // Full batch at EOF.
+            (2305, 0, 3),   // Padded final window leaves a partial batch.
+            (1536, 512, 3), // Overlapping windows, including the padded tail.
+        ] {
+            let samples: Vec<f32> = (0..frames * 4)
+                .map(|i| 0.5 * (i as f32 * 0.137).sin())
+                .collect();
+            let analyze = |device| {
+                let analyzer = Analyzer::new(device, window, overlap, Some(2), None);
+                run(analyzer, &samples, 44100, 777)
+            };
+            let cpu = analyze(ComputingDevice::Cpu);
+            let gpu = analyze(ComputingDevice::Gpu);
+
+            assert_eq!(gpu.emitted_samples, frames);
+            assert_eq!(cpu.count, expected_count);
+            assert_eq!(gpu.count, expected_count);
+            assert!(gpu.total_rms > 0.0);
+            for (i, (cpu, gpu)) in cpu.avg_spectrum[..=window / 2]
+                .iter()
+                .zip(&gpu.avg_spectrum)
+                .enumerate()
+            {
+                let cpu = (cpu.re / expected_count as f32).sqrt();
+                let gpu = (gpu.re / expected_count as f32).sqrt();
+                assert!(
+                    (cpu - gpu).abs() < 0.001,
+                    "{frames} frames, overlap {overlap}, bin {i}: CPU {cpu}, GPU {gpu}"
+                );
+            }
         }
     }
 
