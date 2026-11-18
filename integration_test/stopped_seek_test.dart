@@ -69,8 +69,9 @@ void main() {
 
       await attempt();
       await tester.runAsync(() async {
-        // A control request uses the same native receiver after the UI actions.
-        // With no playable track, every seek on that receiver produces a failure.
+        // listen_gui_with_io awaits each request before reading the next one.
+        // Every seek fails with an empty player, so any UI seek would report
+        // its failure on this same stream before the control request.
         SeekRequest(positionSeconds: 5, callId: marker).sendSignalToRust();
         await markerSeen.future.timeout(const Duration(seconds: 10));
       });

@@ -44,6 +44,10 @@ class _Lab extends ChangeNotifier implements VisualizerLabProvider {
 
 void main() => registerSeekProgressControlsTest();
 
+/// Registers the shared seek-control scenario.
+///
+/// [verifyNoSeek] can observe the native receiver while the test exercises
+/// the disabled sliders and their saved drag callbacks.
 void registerSeekProgressControlsTest({
   Future<void> Function(WidgetTester tester, Future<void> Function() attempt)?
   verifyNoSeek,
