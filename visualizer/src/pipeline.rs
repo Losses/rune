@@ -575,9 +575,7 @@ impl Pipeline {
     /// A new scene (or a new version of it) starts at full quality, and frames still in flight
     /// do not count for it.
     fn restart_adaptive(&mut self) {
-        self.times.clear();
-        self.timer
-            .collect(&self.device, &self.queue, &mut self.times);
+        self.timer.discard_pending();
         self.times.clear();
         self.controller = Controller::new(self.budget, self.now());
         self.report.clear();
@@ -1883,7 +1881,7 @@ fn start_overlay(transitions: &mut Transitions, plan: Plan, scene: &Scene, time:
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     impl Pipeline {
         /// Show the scene in the folder `dir`, waiting until it is built. The render loop builds
         /// scenes on another thread instead (see [`Pipeline::scene_build_dir`]); tests wait.
@@ -1905,9 +1903,73 @@ mod tests {
 
     /// Pipelines build the default scene, and the driver loses the device (an unexplained
     /// error) when several do so at once, so the tests that make one take turns.
-    fn serial() -> std::sync::MutexGuard<'static, ()> {
+    pub(crate) fn serial() -> std::sync::MutexGuard<'static, ()> {
         static TURN: std::sync::Mutex<()> = Mutex::new(());
         TURN.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub(crate) fn timing_test_pipeline() -> Option<Pipeline> {
+        match Pipeline::new(
+            64,
+            36,
+            44_100,
+            true,
+            None,
+            None,
+            Arc::new(|error| panic!("GPU error: {error}")),
+            #[cfg(target_os = "android")]
+            None,
+        ) {
+            Ok(pipeline) => Some(pipeline),
+            Err(error) => {
+                let reason = error.to_string();
+                if reason.starts_with("No GPU adapter: ")
+                    || reason.starts_with("The visualizer needs a GPU; only a software renderer")
+                {
+                    eprintln!("SKIPPED: {error}");
+                    return None;
+                }
+                panic!("could not initialize timing test pipeline: {error:#}");
+            }
+        }
+    }
+
+    #[test]
+    fn restarting_measurement_excludes_outstanding_gpu_timestamps() {
+        let _turn = serial();
+        let Some(mut pipeline) = timing_test_pipeline() else {
+            return;
+        };
+        if !pipeline.has_timestamps() {
+            eprintln!("SKIPPED: no GPU timestamp queries");
+            return;
+        }
+        let finish_gpu_work = |pipeline: &Pipeline| {
+            pipeline
+                .device
+                .poll(wgpu::PollType::Wait {
+                    submission_index: None,
+                    timeout: Some(Duration::from_secs(5)),
+                })
+                .unwrap();
+        };
+        pipeline.record_frame_times(true);
+        pipeline.render(0.0).unwrap();
+        finish_gpu_work(&pipeline);
+        pipeline.set_adaptive(false);
+        finish_gpu_work(&pipeline);
+        pipeline.adapt();
+        assert!(
+            pipeline.take_frame_times().is_empty(),
+            "a timestamp from the earlier phase was attributed to the new phase"
+        );
+
+        pipeline.render(0.1).unwrap();
+        finish_gpu_work(&pipeline);
+        pipeline.adapt();
+        finish_gpu_work(&pipeline);
+        pipeline.adapt();
+        assert_eq!(pipeline.take_frame_times().len(), 1);
     }
 
     /// The built-in scene loads and draws a frame that is not black.

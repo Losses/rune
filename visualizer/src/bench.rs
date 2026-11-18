@@ -325,23 +325,11 @@ mod tests {
 
     #[test]
     fn failed_scenes_have_no_metrics_and_the_benchmark_continues() {
-        let mut pipeline = match Pipeline::new(
-            64,
-            32,
-            48_000,
-            true,
-            None,
-            None,
-            std::sync::Arc::new(|_| {}),
-            #[cfg(target_os = "android")]
-            None,
-        ) {
-            Ok(pipeline) => pipeline,
-            Err(error) if error.to_string().starts_with("No GPU adapter: ") => {
-                eprintln!("SKIPPED: {error}");
-                return;
-            }
-            Err(error) => panic!("could not initialize benchmark pipeline: {error:#}"),
+        use crate::pipeline::tests::{serial, timing_test_pipeline};
+
+        let _turn = serial();
+        let Some(mut pipeline) = timing_test_pipeline() else {
+            return;
         };
         pipeline.load_builtin_scene("Armillary").unwrap();
         let mut bench = Bench::new(6.0);
