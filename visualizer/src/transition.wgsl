@@ -96,7 +96,7 @@ fn load_uv(tex: texture_2d<f32>, uv: vec2f) -> vec4f {
 // The colour wash of a flash's rise, after the reference's colour-block frames: the picture stays
 // readable, its luma running from a deep shade of the theme colour `theme` through the colour (most
 // of it) to a near-white tint for the highlights; every channel is held under the flood, so the
-// highlights are the flood's light tint and the rise only gets brighter from here.
+// highlights are the flood's light tint.
 fn wash(c: vec3f, theme: vec3f, flood: vec3f) -> vec3f {
   let t = clamp(luma(c), 0.0, 1.0);
   let deep = theme * 0.45;
@@ -121,9 +121,8 @@ fn load_washed(
 }
 
 // A flash at `amount` (0 to 1) over `base`: the exposure rises, the picture blooms, and it goes
-// over into the flood of `flood` so that at 1 nothing of the picture is left. Every channel is
-// held under the flood, which is not full white: the screen never gets brighter than it. The
-// picture is first `washed` of the way to its colour wash in `theme`.
+// over into the flood of `flood` so that at 1 nothing of the picture is left. The picture is first
+// `washed` of the way to its colour wash in `theme`.
 fn flash(
   tex: texture_2d<f32>,
   at: vec2i,
@@ -147,8 +146,7 @@ fn flash(
   // The light takes the flood's hue as it rises; with no amount the picture is as it is.
   let hue = flood / max(max(flood.r, flood.g), max(flood.b, 0.001));
   var lit = (base + bloom * 1.5 * amount) * exposure * mix(vec3f(1.0), hue, amount);
-  // It saturates towards the flood, which it never reaches by exposure alone, so the screen
-  // never gets brighter than the flood.
+  // The soft saturation approaches the flood as the exposure grows.
   let soft = flood * (vec3f(1.0) - exp(-lit / flood));
   lit = mix(lit, soft, smoothstep(0.0, 0.5, amount));
   return mix(lit, flood, smoothstep(0.35, 1.0, amount));
@@ -162,7 +160,10 @@ fn flash_rise(tex: texture_2d<f32>, at: vec2i, amount: f32) -> vec3f {
   let share = clamp(transition.extra.w, 0.0, 0.9);
   let washed = smoothstep(0.0, 0.06, amount);
   let up = clamp((amount - share) / (1.0 - share), 0.0, 1.0);
-  return flash(tex, at, up, transition.color.rgb, washed, transition.extra.rgb);
+  let flood = transition.color.rgb;
+  let color = flash(tex, at, up, flood, washed, transition.extra.rgb);
+  // Once the wash is complete, exposure and bloom must stay within the flood.
+  return select(color, min(color, flood), washed >= 1.0);
 }
 
 // The picture at `uv` of the new picture (the scene's frame) or the old one (the picture held).
