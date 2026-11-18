@@ -2,7 +2,9 @@ use super::libraries::ListedLibrary;
 use super::sync::client::LibrarySession;
 use super::sync::client::SessionDirection;
 use super::sync::client::fetch_missing;
-use super::sync::downloads::{DownloadAudioContext, DownloadProgress, download_audio_pass};
+use super::sync::downloads::{
+    DownloadAudioContext, DownloadPassOutcome, DownloadProgress, download_audio_pass,
+};
 use super::sync::{library_base, library_notification};
 use super::sync_auth::{Authorization, Challenge, TOKEN_TTL, Token, message};
 use crate::access_policy::{Action, ConnectionLevel, SyncLevel};
@@ -729,12 +731,12 @@ fn share_push_failure(error: SharePushError) -> ShareSyncFailure {
 #[path = "sync_worker_tests.rs"]
 pub(super) mod share_worker_tests;
 
-async fn eligible_libraries(global: &NodeContext) -> Vec<Uuid> {
+async fn eligible_libraries(global: &NodeContext) -> Option<Vec<Uuid>> {
     match global.library_pool.served_library_ids().await {
-        Ok(ids) => ids,
+        Ok(ids) => Some(ids),
         Err(error) => {
             log::warn!("Could not load background libraries: {error:#}");
-            Vec::new()
+            None
         }
     }
 }
@@ -748,7 +750,9 @@ async fn maintain_metadata(global: Weak<NodeContext>, cancel: tokio_util::sync::
         let Some(global) = global.upgrade() else {
             return;
         };
-        let ids = eligible_libraries(&global).await;
+        let Some(ids) = eligible_libraries(&global).await else {
+            continue;
+        };
         maintenance.retain(|id, _| ids.contains(id));
         for id in ids {
             let library = tokio::select! {
@@ -814,7 +818,9 @@ async fn verify_managed_audio(
         let Some(global) = global.upgrade() else {
             return;
         };
-        let ids = eligible_libraries(&global).await;
+        let Some(ids) = eligible_libraries(&global).await else {
+            continue;
+        };
         verifiers.retain(|id, _| ids.contains(id));
         for id in ids {
             let result = async {
@@ -863,14 +869,15 @@ async fn run_loop(
     metadata: bool,
     locks: ReplicaLocks,
 ) {
-    let downloads = Arc::new(Mutex::new(
-        HashMap::<PeerLibraryKey, DownloadProgress>::new(),
-    ));
+    let downloads = Arc::new(Mutex::new(HashMap::<
+        PeerLibraryKey,
+        Arc<Mutex<DownloadProgress>>,
+    >::new()));
     let discover = || async {
         let Some(global) = global.upgrade() else {
-            return Vec::new();
+            return Some(Vec::new());
         };
-        let ids = eligible_libraries(&global).await;
+        let ids = eligible_libraries(&global).await?;
         let peers = peer_endpoints(&global, &credentials.fingerprint).await;
         if !metadata {
             let fingerprints: HashSet<_> =
@@ -879,9 +886,11 @@ async fn run_loop(
                 ids.contains(id) && fingerprints.contains(fingerprint)
             });
         }
-        ids.into_iter()
-            .flat_map(|id| peers.iter().cloned().map(move |hosts| (id, hosts)))
-            .collect()
+        Some(
+            ids.into_iter()
+                .flat_map(|id| peers.iter().cloned().map(move |hosts| (id, hosts)))
+                .collect(),
+        )
     };
     let work = |(id, hosts): (Uuid, Vec<PeerEndpoint>)| {
         let global = global.clone();
@@ -910,16 +919,27 @@ async fn run_loop(
                 }
             };
             let notify = pass_notification(&global, &library, &notify).await;
-            let mut download_progress = if metadata {
-                DownloadProgress::default()
+            // Keep the sweep in the map while the pass runs so cancellation and
+            // endpoint failures release the guard without discarding progress.
+            let progress = if metadata {
+                Arc::default()
             } else {
-                downloads.lock().await.remove(&key).unwrap_or_default()
+                downloads
+                    .lock()
+                    .await
+                    .entry(key.clone())
+                    .or_default()
+                    .clone()
             };
+            let mut download_progress = progress.lock().await;
             for endpoint in hosts {
                 let result = tokio::select! {
                     _ = cancel.cancelled() => return (key, Duration::from_secs(30), false),
                     _ = library_cancel.cancelled() => {
-                        locks.lock().await.remove(&(endpoint.fingerprint.clone(), id));
+                        locks.lock().await.remove(&key);
+                        if !metadata {
+                            downloads.lock().await.remove(&key);
+                        }
                         return (key, Duration::from_secs(30), false);
                     },
                     _ = wait_for_revocation(Arc::downgrade(&global), &endpoint.fingerprint, &endpoint.trusted_host) => Err(anyhow::anyhow!("peer permission revoked")),
@@ -941,11 +961,8 @@ async fn run_loop(
                 };
                 match classify_peer_pass(result) {
                     Ok(complete) => {
-                        if !metadata && complete == PeerPass::Incomplete {
-                            downloads
-                                .lock()
-                                .await
-                                .insert(key.clone(), download_progress);
+                        if !metadata && complete == PeerPass::Complete {
+                            downloads.lock().await.remove(&key);
                         }
                         return (key, complete.retry_delay(), false);
                     }
@@ -973,7 +990,9 @@ async fn run_loop(
                 let Some(global) = global.upgrade() else {
                     return;
                 };
-                let ids = eligible_libraries(&global).await;
+                let Some(ids) = eligible_libraries(&global).await else {
+                    return;
+                };
                 locks.lock().await.retain(|(_, id), entry| {
                     ids.contains(id)
                         && (Arc::strong_count(entry) > 1
@@ -999,7 +1018,7 @@ async fn schedule_peers<P, Q, D, DF, W, WF, K, C, CF>(
     cleanup: C,
 ) where
     D: Fn() -> DF,
-    DF: Future<Output = Vec<P>>,
+    DF: Future<Output = Option<Vec<P>>>,
     W: Fn(P) -> WF,
     WF: Future<Output = PeerWorkResult<Q>> + Send + 'static,
     K: Fn(&P) -> Q,
@@ -1051,6 +1070,11 @@ async fn schedule_peers<P, Q, D, DF, W, WF, K, C, CF>(
                 return;
             },
             peers = discover() => peers,
+        };
+        let Some(peers) = peers else {
+            // A failed discovery does not invalidate the previous snapshot.
+            next_due = None;
+            continue;
         };
         let eligible: HashSet<_> = peers.iter().map(&key).collect();
         due.retain(|fingerprint, _| eligible.contains(fingerprint));
@@ -1345,7 +1369,7 @@ async fn sync_one(
                     local.namespace == remote.namespace,
                     "paired catalog namespace mismatch"
                 );
-                let report = download_audio_pass(
+                let pass = download_audio_pass(
                     (*library.main_db).clone(),
                     &library.recommend_db,
                     library.fsio.clone(),
@@ -1360,7 +1384,11 @@ async fn sync_one(
                     download_progress,
                 )
                 .await?;
-                Ok(!report.deadline_reached && !report.attempt_limit_reached)
+                ensure!(
+                    pass.outcome != DownloadPassOutcome::RuleQueryFailed,
+                    "could not finish evaluating offline download rules"
+                );
+                Ok(pass.outcome == DownloadPassOutcome::Complete)
             }
             .await;
             if result.as_ref().err().is_some_and(metadata_unauthorized) {
@@ -2090,7 +2118,7 @@ mod tests {
                                 state.entered.add_permits(1);
                                 let _guard = state.pool.lock().await;
                             }
-                            vec![0]
+                            Some(vec![0])
                         }
                     },
                     |peer| {
@@ -2160,6 +2188,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn failed_discovery_keeps_running_peer_work() {
+        let rounds = AtomicUsize::new(0);
+        let recovered = Notify::new();
+        let release = Arc::new(Notify::new());
+        let finished = Arc::new(Notify::new());
+        let starts = Arc::new(AtomicUsize::new(0));
+        let cancel = CancellationToken::new();
+        let scheduler = schedule_peers(
+            || async {
+                match rounds.fetch_add(1, Ordering::SeqCst) {
+                    1 => None,
+                    2 => {
+                        recovered.notify_one();
+                        Some(vec![0])
+                    }
+                    _ => Some(vec![0]),
+                }
+            },
+            |peer| {
+                let release = release.clone();
+                let finished = finished.clone();
+                let starts = starts.clone();
+                async move {
+                    starts.fetch_add(1, Ordering::SeqCst);
+                    release.notified().await;
+                    finished.notify_one();
+                    (peer, Duration::from_secs(30), false)
+                }
+            },
+            |peer| *peer,
+            1,
+            cancel.clone(),
+            || async {},
+        );
+        let exercise = async {
+            let result = tokio_time::timeout(TEST_DEADLINE, async {
+                recovered.notified().await;
+                release.notify_one();
+                finished.notified().await;
+            })
+            .await;
+            cancel.cancel();
+            result
+        };
+        let ((), result) = tokio::join!(scheduler, exercise);
+        result.expect("discovery recovery must keep the existing peer pass running");
+        assert_eq!(starts.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
     async fn newly_due_peer_runs_while_another_is_stalled() {
         use std::sync::atomic::AtomicBool;
         let available = Arc::new(AtomicBool::new(false));
@@ -2178,7 +2256,7 @@ mod tests {
                         if available.load(Ordering::SeqCst) {
                             peers.push(String::from("second"));
                         }
-                        async move { peers }
+                        async move { Some(peers) }
                     },
                     |peer| {
                         let started = started.clone();
