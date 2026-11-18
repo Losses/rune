@@ -651,7 +651,8 @@ pub async fn convert(tx: &DatabaseTransaction, initial_sequence: Option<i64>) ->
                 values.push(("local_directory", parameter.clone().into()));
                 values.push(("parameter", String::new().into()));
             } else {
-                let valid = match operator.as_str() {
+                // Older versions executed the parsed value, so `005` keeps its meaning as `5`.
+                let canonical = match operator.as_str() {
                     "lib::all"
                     | "lib::queue"
                     | "sort::track_number"
@@ -661,12 +662,16 @@ pub async fn convert(tx: &DatabaseTransaction, initial_sequence: Option<i64>) ->
                     | "sort::skipped"
                     | "filter::liked"
                     | "filter::analyzed"
-                    | "filter::with_cover_art" => parameter.parse::<bool>().is_ok(),
-                    "lib::random" | "pipe::recommend" => parameter.parse::<i32>().is_ok(),
-                    "pipe::limit" => parameter.parse::<u64>().is_ok(),
-                    _ => false,
+                    | "filter::with_cover_art" => {
+                        parameter.parse::<bool>().ok().map(|v| v.to_string())
+                    }
+                    "lib::random" | "pipe::recommend" => {
+                        parameter.parse::<i32>().ok().map(|v| v.to_string())
+                    }
+                    "pipe::limit" => parameter.parse::<u64>().ok().map(|v| v.to_string()),
+                    _ => None,
                 };
-                if !valid {
+                let Some(canonical) = canonical else {
                     eprintln!("Dropping mix {mix} clause {id}: {operator} {parameter}");
                     tx.execute(
                         &Query::delete()
@@ -676,7 +681,8 @@ pub async fn convert(tx: &DatabaseTransaction, initial_sequence: Option<i64>) ->
                     )
                     .await?;
                     continue;
-                }
+                };
+                values.push(("parameter", canonical.into()));
             }
             let pos = order.entry(mix).or_insert(0);
             values.push(("position", (*pos).into()));
@@ -1078,6 +1084,45 @@ mod tests {
         assert_eq!(rows[0].try_get::<i32>("", "id").unwrap(), 1001);
         assert_eq!(rows[0].try_get::<i32>("", "position").unwrap(), 0);
         assert_eq!(rows[1].try_get::<i32>("", "id").unwrap(), 1005);
+    }
+    #[tokio::test]
+    async fn legacy_numeric_mix_parameters_are_stored_canonically() {
+        let db = before_conversion().await;
+        for sql in [
+            "INSERT INTO mixes(id,name,\"group\",locked,scriptlet_mode,hlc_uuid) VALUES(999,'Mix','g',0,0,'dddddddd-dddd-4ddd-8ddd-dddddddddddd')",
+            "INSERT INTO mix_queries(id,mix_id,operator,parameter,\"group\",hlc_uuid) VALUES(1001,999,'lib::random','005',0,'11111111-1111-4111-8111-111111111111'),(1002,999,'pipe::recommend','-07',0,'22222222-2222-4222-8222-222222222222'),(1003,999,'pipe::limit','+050',0,'33333333-3333-4333-8333-333333333333'),(1004,999,'pipe::limit','50',0,'44444444-4444-4444-8444-444444444444'),(1005,999,'pipe::limit','-1',0,'55555555-5555-4555-8555-555555555555'),(1006,999,'filter::liked','true',0,'66666666-6666-4666-8666-666666666666')",
+        ] {
+            db.execute_unprepared(sql).await.unwrap();
+        }
+        crate::up_with_actor(&db, None, None).await.unwrap();
+        let rows = db
+            .query_all_raw(Statement::from_string(
+                db.get_database_backend(),
+                "SELECT id,parameter FROM mix_queries WHERE id BETWEEN 1001 AND 1006 ORDER BY id"
+                    .to_owned(),
+            ))
+            .await
+            .unwrap();
+        let stored: Vec<(i32, String)> = rows
+            .iter()
+            .map(|row| {
+                (
+                    row.try_get("", "id").unwrap(),
+                    row.try_get("", "parameter").unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            stored,
+            [
+                (1001, "5"),
+                (1002, "-7"),
+                (1003, "50"),
+                (1004, "50"),
+                (1006, "true")
+            ]
+            .map(|(id, parameter)| (id, parameter.to_owned()))
+        );
     }
     #[tokio::test]
     async fn oversized_legacy_artwork_is_kept_unavailable() {

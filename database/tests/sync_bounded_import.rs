@@ -6,9 +6,10 @@ use database::{
     entities::{media_files, mixes},
     sync::{accepted::AcceptedState, model::*},
 };
+use migration::{Migrator, MigratorTrait};
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, Set, TransactionTrait,
-    sea_query::Expr,
+    ColumnTrait, ConnectionTrait, Database, EntityTrait, PaginatorTrait, QueryFilter, Set,
+    TransactionTrait, sea_query::Expr,
 };
 use support::{SqlLibrary, key, playlist};
 use uuid::Uuid;
@@ -151,6 +152,62 @@ async fn accepted_view_pages_are_bounded_and_skip_removed_values() -> Result<()>
             .is_none()
     );
     tx.commit().await?;
+    Ok(())
+}
+#[tokio::test]
+async fn legacy_noncanonical_mix_numbers_keep_their_values_through_import() -> Result<()> {
+    let actor = Uuid::new_v4();
+    let _ = migration::initialize_node_id(actor.to_string());
+    let db = Database::connect("sqlite::memory:").await?;
+    let before_conversion = Migrator::migrations()
+        .iter()
+        .position(|m| m.name() == "m20261101_000032_create_sync_library")
+        .unwrap() as u32;
+    Migrator::up(&db, Some(before_conversion)).await?;
+    let legacy = Uuid::from_u128(0xd0);
+    let other = Uuid::from_u128(0xc0);
+    for sql in [
+        format!("INSERT INTO mixes(id,name,\"group\",locked,scriptlet_mode,hlc_uuid) VALUES(900,'Legacy','g',0,0,'{legacy}'),(901,'Other','g',0,0,'{other}')"),
+        "INSERT INTO mix_queries(id,mix_id,operator,parameter,\"group\") VALUES(1001,900,'lib::random','005',0),(1002,900,'pipe::recommend','-07',0),(1003,900,'pipe::recommend','+3',0),(1004,900,'pipe::limit','+050',0),(1005,900,'pipe::limit','5x',0),(1006,900,'pipe::limit','-1',0),(1007,900,'lib::all','true',0),(1008,901,'pipe::limit','50',0),(1009,901,'lib::random','-2',0)".into(),
+    ] {
+        db.execute_unprepared(&sql).await?;
+    }
+    migration::up_with_actor(&db, Some(&actor.to_string()), None).await?;
+    let library = fixtures::open_library(db.clone(), actor, None).await?;
+    library.import_basic().await?;
+    for (id, expected) in [
+        (
+            legacy,
+            vec![
+                ("lib::random", "5"),
+                ("pipe::recommend", "-7"),
+                ("pipe::recommend", "3"),
+                ("pipe::limit", "50"),
+                ("lib::all", "true"),
+            ],
+        ),
+        (other, vec![("pipe::limit", "50"), ("lib::random", "-2")]),
+    ] {
+        let Some(Payload::Mix(mix)) = library
+            .get(&key(Collection::Mixes, id))
+            .await?
+            .unwrap()
+            .value
+        else {
+            panic!("mix {id} was not imported");
+        };
+        let clauses: Vec<_> = mix
+            .queries
+            .iter()
+            .map(|clause| (clause.operator.as_str(), clause.parameter.as_str()))
+            .collect();
+        assert_eq!(clauses, expected);
+    }
+    let head = library.head().await?;
+    let namespace = library.record_store().namespace();
+    let reopened = fixtures::open_library(db.clone(), actor, Some(namespace)).await?;
+    reopened.import_basic().await?;
+    assert_eq!(reopened.head().await?, head);
     Ok(())
 }
 #[tokio::test]
