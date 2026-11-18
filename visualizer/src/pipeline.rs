@@ -1999,16 +1999,26 @@ mod tests {
         dir
     }
 
-    /// The frames drawn at `times`, as the mean of their bytes (0 to 255) in the middle of the
-    /// picture, in order.
+    /// The frames drawn at `times`, as the mean of their RGB bytes in the middle of the picture.
     fn means(pipeline: &mut Pipeline, times: &[f64]) -> Vec<f32> {
+        center_pixels(pipeline, times)
+            .into_iter()
+            .map(|rgb| rgb.into_iter().map(f32::from).sum::<f32>() / 3.0)
+            .collect()
+    }
+
+    /// The RGB bytes of the center pixel in each frame drawn at `times`, in order.
+    fn center_pixels(pipeline: &mut Pipeline, times: &[f64]) -> Vec<[u8; 3]> {
         const MAX_READBACK_POLLS: usize = 50;
-        let render = |pipeline: &mut Pipeline, time: f64| -> Option<f32> {
-            let mean = if let Rendered::Mapped(frame) = pipeline.render(time).unwrap() {
+        let render = |pipeline: &mut Pipeline, time: f64| -> Option<[u8; 3]> {
+            let pixel = if let Rendered::Mapped(frame) = pipeline.render(time).unwrap() {
                 let (w, h) = pipeline.size();
                 let at = (h as usize / 2) * frame.stride() + (w as usize / 2) * 4;
-                let px = &frame.bytes()[at..at + 3];
-                Some(px.iter().map(|&b| f32::from(b)).sum::<f32>() / 3.0)
+                let mut rgb: [u8; 3] = frame.bytes()[at..at + 3].try_into().unwrap();
+                if pipeline.format == wgpu::TextureFormat::Bgra8Unorm {
+                    rgb.swap(0, 2);
+                }
+                Some(rgb)
             } else {
                 None
             };
@@ -2020,14 +2030,14 @@ mod tests {
                     timeout: None,
                 })
                 .unwrap();
-            mean
+            pixel
         };
         let frame_at = |pipeline: &mut Pipeline, time: f64| {
             (0..MAX_READBACK_POLLS)
                 .find_map(|_| render(pipeline, time))
                 .unwrap_or_else(|| panic!("no readback frame became available at {time:.3}s"))
         };
-        let mut means = Vec::new();
+        let mut pixels = Vec::new();
         if let Some(&first_time) = times.first()
             && matches!(
                 pipeline.transitions.running.as_ref(),
@@ -2036,20 +2046,20 @@ mod tests {
         {
             // The dissolve first captures the old picture; include that held frame before sampling
             // its timed blend, and poll at the same timestamp until readback returns it.
-            means.push(frame_at(pipeline, first_time));
+            pixels.push(frame_at(pipeline, first_time));
         }
         if let Some(&first_time) = times.first()
             && pipeline.transitions.forced == Forced::Wanted(Transition::Flash)
         {
             // A dressed cut waits for a held frame before the director cuts. Keep that frame in
             // the sampled sequence before advancing the synthetic time.
-            means.push(frame_at(pipeline, first_time));
-            means.push(frame_at(pipeline, first_time));
+            pixels.push(frame_at(pipeline, first_time));
+            pixels.push(frame_at(pipeline, first_time));
         }
         for &time in times {
-            means.push(frame_at(pipeline, time));
+            pixels.push(frame_at(pipeline, time));
         }
-        means
+        pixels
     }
 
     fn test_pipeline() -> Option<Pipeline> {
@@ -2888,6 +2898,62 @@ mod tests {
             m.iter().all(|mean| *mean < 0.83 * 255.0),
             "never white: {m:?}"
         );
+    }
+
+    #[test]
+    fn a_bright_flash_stays_within_the_flood_during_the_rise() {
+        let _turn = serial();
+        let Some(mut pipeline) = test_pipeline() else {
+            return;
+        };
+        for accent in [[1.0; 3], [0.8, 0.1, 0.05]] {
+            pipeline.set_accent(Some(accent));
+            let old = load_plain(&mut pipeline, "flash-white", 1.0);
+            pipeline.install(old).unwrap();
+            let new = load_plain(&mut pipeline, "flash-dark", 0.1);
+            pipeline
+                .switch_to(
+                    new,
+                    Transition::Flash,
+                    Durations {
+                        out: 1.0,
+                        into: 2.0,
+                    },
+                )
+                .unwrap();
+            let flood = flood_color(Some(accent)).map(|c| c * 255.0);
+            // The wash is complete at 0.1 s. The exposure rise starts one third of the
+            // way in, so at 0.6 s its progress is 0.4.
+            let times = [0.0, 0.1, 0.6, 0.8, 1.0, 2.0, 3.0];
+            // Readback can return the previous draw; repeat each timestamp before sampling it.
+            let repeated = times
+                .into_iter()
+                .flat_map(|time| [time; 2])
+                .collect::<Vec<_>>();
+            let pixels: Vec<_> = center_pixels(&mut pipeline, &repeated)
+                .into_iter()
+                .skip(1)
+                .step_by(2)
+                .collect();
+            assert!(pixels[0].iter().all(|&c| c >= 254), "old scene: {pixels:?}");
+            for (&time, rgb) in times[1..5].iter().zip(&pixels[1..5]) {
+                for (channel, (&byte, cap)) in rgb.iter().zip(flood).enumerate() {
+                    assert!(
+                        f32::from(byte) <= cap + 1.0,
+                        "flash at {time}s, accent {accent:?}, RGB channel {channel}: {byte} exceeds flood {cap:.1}"
+                    );
+                }
+            }
+            for (channel, cap) in flood.into_iter().enumerate() {
+                assert!((f32::from(pixels[4][channel]) - cap).abs() <= 1.0);
+                assert!(pixels[6][channel] < pixels[5][channel]);
+                assert!(pixels[5][channel] < pixels[4][channel]);
+                assert!(
+                    pixels[6][channel].abs_diff(89) <= 1,
+                    "new scene: {pixels:?}"
+                );
+            }
+        }
     }
 
     /// A scene that lets its cuts be dressed holds a frame; one that does not holds nothing. A
