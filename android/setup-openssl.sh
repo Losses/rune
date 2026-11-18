@@ -19,9 +19,7 @@ download_and_extract() (
     local filename="OpenSSL_${OPENSSL_VERSION}_${arch}.tar.gz"
     local temp_dir
     temp_dir="$(mktemp -d "$BASE_DIR/.openssl-$arch.XXXXXX")" || return 1
-    local install_lock="$BASE_DIR/.openssl-$arch.lock"
-    local locked=false
-    trap 'rm -rf "$temp_dir"; if [ "$locked" = true ]; then rmdir "$install_lock"; fi' EXIT
+    trap 'rm -rf "$temp_dir"' EXIT
 
     echo "Downloading $BASE_URL/$filename..."
     if ! curl -fL --connect-timeout 15 --max-time 300 "$BASE_URL/$filename" -o "$temp_dir/$filename"; then
@@ -39,20 +37,6 @@ download_and_extract() (
         echo "Error: Incomplete OpenSSL archive for $arch" >&2
         return 1
     fi
-
-    # Serialize the directory replacement with other builds using the same checkout.
-    local deadline=$((SECONDS + 10))
-    until mkdir "$install_lock" 2>/dev/null; do
-        if has_openssl "$target_dir"; then
-            return 0
-        fi
-        if (( SECONDS >= deadline )); then
-            echo "Error: Timed out waiting to install OpenSSL for $arch" >&2
-            return 1
-        fi
-        sleep 0.1
-    done
-    locked=true
 
     if has_openssl "$target_dir"; then
         return 0
