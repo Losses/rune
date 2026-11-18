@@ -157,7 +157,7 @@ impl Analyzer {
 
         self.process_audio_stream(&mut format, &mut decoder, track_id)?;
 
-        if self.is_cancelled || self.count == 0 {
+        if self.is_cancelled || (self.fn_is_cancelled)() || self.count == 0 {
             return Ok(None);
         }
 
@@ -475,17 +475,17 @@ mod streaming_tests {
         }
 
         let window = 1024;
-        for (frames, overlap, expected_count) in [
-            (1024, 0, 1),   // Partial batch at an exact window boundary.
-            (2048, 0, 2),   // Full batch at EOF.
-            (2305, 0, 3),   // Padded final window leaves a partial batch.
-            (1536, 512, 3), // Overlapping windows, including the padded tail.
+        for (frames, overlap, batch_size, expected_count) in [
+            (1024, 0, 2, 1),   // Partial batch at an exact window boundary.
+            (2048, 0, 2, 2),   // Full batch at EOF.
+            (2305, 0, 2, 3),   // Padded final window leaves a partial batch.
+            (1536, 512, 8, 3), // Overlapping windows, including the padded tail.
         ] {
             let samples: Vec<f32> = (0..frames * 4)
                 .map(|i| 0.5 * (i as f32 * 0.137).sin())
                 .collect();
             let analyze = |device| {
-                let analyzer = Analyzer::new(device, window, overlap, Some(2), None);
+                let analyzer = Analyzer::new(device, window, overlap, Some(batch_size), None);
                 run(analyzer, &samples, 44100, 777)
             };
             let cpu = analyze(ComputingDevice::Cpu);

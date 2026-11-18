@@ -56,7 +56,15 @@ impl SubAnalyzer for GpuSubAnalyzer {
             return;
         }
 
-        pollster::block_on(self.gpu_fft.compute_fft(&mut self.batch_fft_buffer));
+        let occupied = self.batch_cache_buffer_count * core_analyzer.window_size;
+        let fft_len = occupied
+            .next_power_of_two()
+            .max(wgpu_radix4::FFT_WINDOW_SIZE)
+            .min(self.batch_fft_buffer.len());
+        pollster::block_on(
+            self.gpu_fft
+                .compute_fft(&mut self.batch_fft_buffer[..fft_len]),
+        );
 
         for batch_idx in 0..self.batch_cache_buffer_count {
             let start = batch_idx * core_analyzer.window_size;
