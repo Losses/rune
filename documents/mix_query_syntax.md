@@ -87,7 +87,7 @@ Rune provides a command-line interface (CLI) tool to help developers and users q
    This command retrieves all media files, filters out those without cover art, and sorts them by track number in ascending order:
 
    ```bash
-   rune-cli ~/Music/ mix -m "lib::all(true);filter::with_cover_art(false);sort::track_number(true);"
+   rune-cli ~/Music/ mix -m "lib::all(true);filter::with_cover_art(true);sort::track_number(true);"
    ```
 
 2. **Generate Recommendations**
