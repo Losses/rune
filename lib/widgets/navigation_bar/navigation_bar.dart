@@ -6,6 +6,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/kept_clear.dart';
 import '../../utils/router/navigation.dart';
+import '../../utils/router/history.dart';
 import '../../utils/navigation/navigation_item.dart';
 import '../../utils/navigation/utils/escape_from_search.dart';
 import '../../config/navigation_query.dart';
@@ -83,6 +84,13 @@ class NavigationBarState extends State<NavigationBar> {
 
     if (onTap != null) {
       onTap(context);
+      return;
+    }
+
+    // Up to the page this one was opened from is back to that page as it was
+    // left, scrolled where it was. Another parent opens afresh.
+    if (item != null && $history.previousIs(item.path)) {
+      $pop();
       return;
     }
 
