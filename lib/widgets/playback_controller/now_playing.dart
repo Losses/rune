@@ -20,7 +20,6 @@ class NowPlaying extends StatelessWidget {
 
     final statusProvider = Provider.of<PlaybackStatusProvider>(context);
     final status = statusProvider.playbackStatus;
-    final notReady = statusProvider.notReady;
     final item = statusProvider.playingItem;
 
     final keptClear = context.keptClear;
@@ -28,11 +27,7 @@ class NowPlaying extends StatelessWidget {
     final miniLayout = r.smallerOrEqualTo(DeviceType.tablet);
     final hideProgress = r.smallerOrEqualTo(DeviceType.phone);
 
-    final progress = ControllerProgressBar(
-      item: item,
-      status: status,
-      notReady: notReady,
-    );
+    final progress = ControllerProgressBar(item: item, status: status);
 
     return SizedBox.expand(
       child: Align(

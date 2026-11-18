@@ -25,6 +25,8 @@ class PlaybackStatusState {
   String? coverArtPath;
   String? libPath;
 
+  bool get canSeek => ready && state != PlaybackState.stopped;
+
   PlaybackStatusState({
     this.state = PlaybackState.stopped,
     this.ready = false,
