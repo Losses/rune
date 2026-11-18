@@ -8,7 +8,7 @@ use database::{
             release_obsolete_reservations, retry_is_due, rule_queries, validate_queries,
         },
         file::{attach_download, catalog_track, is_materialized},
-        mixes::query_mix_media_files,
+        mixes::query_mix_media_files_with_seed,
     },
     connection::RecommendationDbConnection,
     entities::sync_download_rules,
@@ -39,7 +39,7 @@ pub struct DownloadAudioContext<'a> {
 pub struct DownloadProgress {
     rules: Vec<sync_download_rules::Model>,
     queries: HashMap<String, Vec<(String, String)>>,
-    random_selections: HashMap<String, Vec<i32>>,
+    random_seeds: HashMap<String, u64>,
     attempted: HashSet<i32>,
 }
 
@@ -60,8 +60,25 @@ pub enum DownloadPassOutcome {
 /// The counts and stopping reason for one pass through the sweep.
 #[derive(Debug, Default)]
 pub struct DownloadAudioPass {
+    /// Download, inspection, and rule counts and any limit reached in this pass.
     pub report: DownloadReport,
+    /// Disposition for the worker, with rule-query failures taking precedence.
     pub outcome: DownloadPassOutcome,
+}
+
+impl DownloadAudioPass {
+    fn finish(
+        report: DownloadReport,
+        outcome: DownloadPassOutcome,
+        rule_query_failed: bool,
+    ) -> Self {
+        let outcome = if rule_query_failed {
+            DownloadPassOutcome::RuleQueryFailed
+        } else {
+            outcome
+        };
+        Self { report, outcome }
+    }
 }
 
 /// Evaluate enabled rules and fetch only missing matching audio from this peer.
@@ -147,9 +164,10 @@ pub async fn download_audio_pass(
     );
     let local =
         LibrarySyncStore::open(db.clone(), context.node_id, Some(identity.namespace)).await?;
-    let mut pass = DownloadAudioPass::default();
-    let report = &mut pass.report;
+    let mut report = DownloadReport::default();
+    let mut rule_query_failed = false;
     let mut selected = Vec::new();
+    let mut next_queries = progress.queries.clone();
     let mut changed = false;
     for rule in &progress.rules {
         let queries = match rule_queries(&db, rule).await {
@@ -157,19 +175,18 @@ pub async fn download_audio_pass(
             Err(error) => {
                 log::warn!("Could not evaluate offline rule {}: {error:#}", rule.id);
                 report.failed_rules += 1;
-                if error.downcast_ref::<DbErr>().is_some() {
-                    pass.outcome = DownloadPassOutcome::RuleQueryFailed;
-                } else {
-                    changed |= progress.queries.remove(&rule.id).is_some();
+                if error.downcast_ref::<serde_json::Error>().is_none() {
+                    rule_query_failed = true;
+                }
+                if error.downcast_ref::<DbErr>().is_none() {
+                    next_queries.remove(&rule.id);
                 }
                 continue;
             }
         };
-        if progress.queries.get(&rule.id) != Some(&queries) {
-            changed |= progress
-                .queries
-                .insert(rule.id.clone(), queries.clone())
-                .is_some();
+        if next_queries.get(&rule.id) != Some(&queries) {
+            changed = true;
+            next_queries.insert(rule.id.clone(), queries.clone());
         }
         if queries.is_empty() {
             continue;
@@ -181,9 +198,11 @@ pub async fn download_audio_pass(
         }
         selected.push((rule.id.as_str(), queries));
     }
+    // Publish resolved queries and invalidate their dependent state together.
+    progress.queries = next_queries;
     if changed {
         progress.attempted.clear();
-        progress.random_selections.clear();
+        progress.random_seeds.clear();
     }
 
     const PAGE: usize = 100;
@@ -191,76 +210,52 @@ pub async fn download_audio_pass(
     let attempted = &mut progress.attempted;
     let attempted_before = attempted.len();
     for (rule_id, queries) in selected {
-        let random_selection = if queries
+        let random_seed = queries
             .iter()
             .any(|(operator, _)| operator == "lib::random")
-        {
-            if !progress.random_selections.contains_key(rule_id) {
-                // Execute once so pagination and resumed passes share the same draw.
-                match query_mix_media_files(
-                    &db,
-                    recommend_db,
-                    queries.clone(),
-                    0,
-                    i64::MAX as usize,
-                    context.playback_queue,
-                )
-                .await
-                {
-                    Ok(files) => {
-                        progress.random_selections.insert(
-                            rule_id.to_owned(),
-                            files.into_iter().map(|file| file.id).collect(),
-                        );
-                    }
-                    Err(error) => {
-                        log::warn!("Could not query offline rule {rule_id}: {error:#}");
-                        report.failed_rules += 1;
-                        pass.outcome = DownloadPassOutcome::RuleQueryFailed;
-                        continue;
-                    }
-                }
-            }
-            progress.random_selections.get(rule_id)
-        } else {
-            None
-        };
+            .then(|| {
+                *progress
+                    .random_seeds
+                    .entry(rule_id.to_owned())
+                    .or_insert_with(rand::random)
+            });
         let mut cursor = 0usize;
         loop {
-            let files: Vec<_> = if let Some(selection) = random_selection {
-                selection.iter().skip(cursor).take(PAGE).copied().collect()
-            } else {
-                match query_mix_media_files(
-                    &db,
-                    recommend_db,
-                    queries.clone(),
-                    cursor,
-                    PAGE,
-                    context.playback_queue,
-                )
-                .await
-                {
-                    Ok(files) => files.into_iter().map(|file| file.id).collect(),
-                    Err(error) => {
-                        log::warn!("Could not query offline rule {rule_id}: {error:#}");
-                        report.failed_rules += 1;
-                        pass.outcome = DownloadPassOutcome::RuleQueryFailed;
-                        break;
-                    }
+            let files = match query_mix_media_files_with_seed(
+                &db,
+                recommend_db,
+                queries.clone(),
+                cursor,
+                PAGE,
+                context.playback_queue,
+                random_seed,
+            )
+            .await
+            {
+                Ok(files) => files,
+                Err(error) => {
+                    log::warn!("Could not query offline rule {rule_id}: {error:#}");
+                    report.failed_rules += 1;
+                    rule_query_failed = true;
+                    break;
                 }
             };
             let count = files.len();
             if count == 0 {
                 break;
             }
-            for file_id in files {
+            for file in files {
+                let file_id = file.id;
                 if attempted.contains(&file_id) {
                     continue;
                 }
                 // Inspection failures use the same budget as transfers.
                 if attempted.len() - attempted_before >= MAX_ATTEMPTS {
-                    pass.outcome = DownloadPassOutcome::AttemptLimit;
-                    return Ok(pass);
+                    return Ok(DownloadAudioPass::finish(
+                        report,
+                        DownloadPassOutcome::AttemptLimit,
+                        rule_query_failed,
+                    ));
                 }
                 let materialized = match is_materialized(&db, &fsio, &root, file_id).await {
                     Ok(value) => value,
@@ -299,8 +294,11 @@ pub async fn download_audio_pass(
                 }
                 if Instant::now() >= deadline {
                     report.deadline_reached = true;
-                    pass.outcome = DownloadPassOutcome::Deadline;
-                    return Ok(pass);
+                    return Ok(DownloadAudioPass::finish(
+                        report,
+                        DownloadPassOutcome::Deadline,
+                        rule_query_failed,
+                    ));
                 }
                 report.requested += 1;
                 let transfer = async {
@@ -357,8 +355,12 @@ pub async fn download_audio_pass(
             }
         }
     }
-    if pass.outcome == DownloadPassOutcome::Complete {
+    if !rule_query_failed {
         *progress = DownloadProgress::default();
     }
-    Ok(pass)
+    Ok(DownloadAudioPass::finish(
+        report,
+        DownloadPassOutcome::Complete,
+        rule_query_failed,
+    ))
 }

@@ -8,12 +8,13 @@ use database::{
         downloads::{DownloadReport, set_download_rule},
         file::{blob_path_for_track, hash_file, is_materialized},
         metadata::MissingHostFilePolicy,
+        mixes::query_mix_media_files_with_seed,
     },
     connection::RecommendationDbConnection,
     entities::{media_files, sync_download_jobs, sync_download_rules},
     sync::{
         LibrarySyncStore,
-        model::{BlobRef, Collection, ObjectKey},
+        model::{BlobRef, Collection, Mix, MixClause, ObjectKey, Payload},
     },
 };
 use fsio::FsIo;
@@ -684,6 +685,115 @@ async fn capped_random_rule_keeps_one_selection_across_pages_and_passes() -> Res
 }
 
 #[tokio::test]
+async fn seeded_random_pages_reproduce_the_same_track_ids() -> Result<()> {
+    let fixture = Fixture::with_track_count(169).await?;
+    let recommend_db = RecommendationDbConnection::new();
+    let query = |cursor, page_size, seed| {
+        query_mix_media_files_with_seed(
+            &fixture.db,
+            &recommend_db,
+            vec![("lib::random".into(), "129".into())],
+            cursor,
+            page_size,
+            &[],
+            Some(seed),
+        )
+    };
+    let seed = 0xa805_0194_983f_275e;
+    let expected: Vec<_> = query(0, 129, seed)
+        .await?
+        .into_iter()
+        .map(|file| file.id)
+        .collect();
+    assert_eq!(expected.len(), 129);
+    let mut pages = query(0, 100, seed).await?;
+    assert_eq!(pages.len(), 100);
+    let tail = query(100, 100, seed).await?;
+    assert_eq!(tail.len(), 29);
+    pages.extend(tail);
+    assert_eq!(
+        pages.into_iter().map(|file| file.id).collect::<Vec<_>>(),
+        expected
+    );
+    let other: Vec<_> = query(0, 129, seed ^ 0x7d16_faf4_79de_e214)
+        .await?
+        .into_iter()
+        .map(|file| file.id)
+        .collect();
+    assert_ne!(other, expected);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_recovered_linked_mix_reconsiders_previously_attempted_tracks() -> Result<()> {
+    let (fixture, broken) = inspection_budget_fixture(1).await?;
+    let file = &broken[0];
+    let mix = Uuid::new_v4();
+    sync_download_rules::Entity::insert(sync_download_rules::ActiveModel {
+        id: Set("000".into()),
+        queries: Set("[]".into()),
+        mix_id: Set(Some(mix.to_string())),
+        enabled: Set(true),
+    })
+    .exec(&fixture.db)
+    .await?;
+    media_files::Entity::update_many()
+        .col_expr(media_files::Column::LastModified, Expr::value("1999-01-01"))
+        .filter(media_files::Column::Id.eq(file.id))
+        .exec(&fixture.db)
+        .await?;
+
+    let mut progress = DownloadProgress::default();
+    let first = fixture.run_pass(&mut progress).await?;
+    assert_eq!(first.outcome, DownloadPassOutcome::RuleQueryFailed);
+    assert_eq!(first.report.failed, 128);
+
+    media_files::Entity::update_many()
+        .col_expr(
+            media_files::Column::Directory,
+            Expr::value(file.directory.clone()),
+        )
+        .col_expr(
+            media_files::Column::FileName,
+            Expr::value(file.file_name.clone()),
+        )
+        .col_expr(media_files::Column::LocalAvailable, Expr::value(false))
+        .filter(media_files::Column::Id.eq(file.id))
+        .exec(&fixture.db)
+        .await?;
+    fixture
+        .store
+        .write_local(
+            ObjectKey {
+                collection: Collection::Mixes,
+                id: mix,
+            },
+            Some(Payload::Mix(Mix {
+                name: "Recovered mix".into(),
+                group: String::new(),
+                mode: Some(0),
+                scriptlet_mode: false,
+                locked: false,
+                queries: vec![MixClause {
+                    id: Uuid::new_v4(),
+                    position: 0,
+                    operator: "lib::track".into(),
+                    parameter: String::new(),
+                    target_uuid: Some(file.source_uuid.parse()?),
+                    group: 0,
+                }],
+            })),
+        )
+        .await?;
+    let following = fixture.run_pass(&mut progress).await?;
+    assert_eq!(following.outcome, DownloadPassOutcome::AttemptLimit);
+    assert_eq!(following.report.failed_rules, 0);
+    assert_eq!(following.report.downloaded, 1);
+    assert!(is_materialized(&fixture.db, &fixture.fs, fixture.root.path(), file.id).await?);
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_rule_query_failure_keeps_previous_attempts_until_recovery() -> Result<()> {
     let (fixture, _) = inspection_budget_fixture(2).await?;
     sync_download_rules::Entity::insert(sync_download_rules::ActiveModel {
@@ -700,7 +810,7 @@ async fn a_rule_query_failure_keeps_previous_attempts_until_recovery() -> Result
         .await?;
     let mut progress = DownloadProgress::default();
     let first = fixture.run_pass(&mut progress).await?;
-    assert_eq!(first.outcome, DownloadPassOutcome::AttemptLimit);
+    assert_eq!(first.outcome, DownloadPassOutcome::RuleQueryFailed);
     assert_eq!(first.report.failed_rules, 1);
     let following = fixture.run_pass(&mut progress).await?;
     assert_eq!(following.outcome, DownloadPassOutcome::RuleQueryFailed);
