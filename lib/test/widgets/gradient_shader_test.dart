@@ -279,6 +279,75 @@ Future<ui.Image> _screenOfCovers() {
 }
 
 void main() {
+  testWidgets('cover gradients composite transparent and bright samples', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      const bounds = Rect.fromLTWH(0, 0, 3, 1);
+      const backdrop = Color(0xFF102030);
+      final source = ui.PictureRecorder();
+      Canvas(source)
+        ..drawRect(
+          const Rect.fromLTWH(1, 0, 1, 1),
+          Paint()..color = const Color(0xFFFFFFFF),
+        )
+        ..drawRect(
+          const Rect.fromLTWH(2, 0, 1, 1),
+          Paint()..color = const Color(0x80000000),
+        );
+      final coverPicture = source.endRecording();
+      final covers = await coverPicture.toImage(3, 1);
+      coverPicture.dispose();
+
+      final swatch = ui.PictureRecorder();
+      Canvas(swatch).drawColor(const Color(0xFF4080C0), BlendMode.src);
+      final fieldPicture = swatch.endRecording();
+      final field = await fieldPicture.toImage(1, 1);
+      fieldPicture.dispose();
+
+      final program = await ui.FragmentProgram.fromAsset(
+        'lib/shaders/gradient.frag',
+      );
+      final shader = program.fragmentShader()
+        ..setFloat(0, bounds.width)
+        ..setFloat(1, bounds.height)
+        ..setFloat(4, 0.5)
+        ..setFloat(5, 0.5)
+        ..setImageSampler(0, covers)
+        ..setImageSampler(1, field);
+      for (final (isDark, expected) in const [
+        (false, [0x102030FF, 0x102030FF, 0x285078FF]),
+        (true, [0x102030FF, 0x4080C0FF, 0x081018FF]),
+      ]) {
+        shader.setFloat(6, isDark ? 1 : 0);
+        final recorder = ui.PictureRecorder();
+        Canvas(recorder)
+          ..drawColor(backdrop, BlendMode.src)
+          ..drawRect(bounds, Paint()..shader = shader);
+        final picture = recorder.endRecording();
+        final rendered = await picture.toImage(3, 1);
+        final bytes = (await rendered.toByteData())!;
+        rendered.dispose();
+        picture.dispose();
+        for (var i = 0; i < expected.length; i++) {
+          const samples = [
+            'gap',
+            'white cover',
+            'half-transparent black cover',
+          ];
+          expect(
+            bytes.getUint32(i * 4),
+            expected[i],
+            reason: '${isDark ? 'dark' : 'light'} theme: ${samples[i]}',
+          );
+        }
+      }
+      shader.dispose();
+      covers.dispose();
+      field.dispose();
+    });
+  });
+
   testWidgets('the gradient draws what it drew when the shader hashed its '
       'noise for every pixel, and before its colour field was worked out on '
       'a grid of its own', (tester) async {
@@ -306,8 +375,13 @@ void main() {
             final x = 7 + i * 16, y = 6 + j * 15;
             final at = (y * _width + x) * 4;
             final expected = _drawn[d][j * 6 + i];
+            final alpha = expected & 0xff;
             for (var c = 0; c < 4; c++) {
-              final want = (expected >> (24 - 8 * c)) & 0xff;
+              final baseline = (expected >> (24 - 8 * c)) & 0xff;
+              // The historical light-theme RGB values are straight colour.
+              final want = !isDark && c < 3
+                  ? (baseline * alpha / 255).round()
+                  : baseline;
               expect(
                 (bytes[at + c] - want).abs(),
                 lessThanOrEqualTo(1),
