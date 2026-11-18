@@ -132,6 +132,11 @@ pub async fn download_requested_audio_until(
                 if attempted.contains(&file.id) {
                     continue;
                 }
+                // Inspection failures use the same budget as transfers.
+                if attempted.len() >= MAX_ATTEMPTS {
+                    report.deadline_reached = true;
+                    return Ok(report);
+                }
                 let materialized = match is_materialized(&db, &fsio, &root, file.id).await {
                     Ok(value) => value,
                     Err(error) => {
@@ -167,7 +172,7 @@ pub async fn download_requested_audio_until(
                     report.pending += 1;
                     continue;
                 }
-                if attempted.len() == MAX_ATTEMPTS || Instant::now() >= deadline {
+                if Instant::now() >= deadline {
                     report.deadline_reached = true;
                     return Ok(report);
                 }
