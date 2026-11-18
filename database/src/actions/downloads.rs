@@ -317,7 +317,10 @@ pub struct DownloadReport {
     pub pending: usize,
     pub failed_rules: usize,
     pub failed: usize,
+    /// The pass deadline prevented another transfer from starting.
     pub deadline_reached: bool,
+    /// The pass used its attempt budget before it could finish the sweep.
+    pub attempt_limit_reached: bool,
 }
 
 pub async fn rule_queries(
