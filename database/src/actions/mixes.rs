@@ -721,6 +721,29 @@ pub async fn query_mix_media_files(
     page_size: usize,
     session_queue: &[i32],
 ) -> Result<Vec<media_files::Model>> {
+    query_mix_media_files_with_seed(
+        main_db,
+        recommend_db,
+        queries,
+        cursor,
+        page_size,
+        session_queue,
+        None,
+    )
+    .await
+}
+
+/// Query a page of a mix, using the same random ordering for a supplied seed.
+/// Reuse the seed across pages to avoid drawing a different random subset.
+pub async fn query_mix_media_files_with_seed(
+    main_db: &DatabaseConnection,
+    recommend_db: &RecommendationDbConnection,
+    queries: Vec<(String, String)>,
+    cursor: usize,
+    page_size: usize,
+    session_queue: &[i32],
+    random_seed: Option<u64>,
+) -> Result<Vec<media_files::Model>> {
     let mut all: bool = false;
 
     let mut artist_ids: Vec<i32> = vec![];
@@ -938,9 +961,23 @@ pub async fn query_mix_media_files(
 
     // Filter by random tracks if provided
     if !random_count.is_empty() {
+        let order = match random_seed {
+            Some(seed) => {
+                // Both residues and their product fit in SQLite's signed integers.
+                const PRIME: u64 = 2_147_483_647;
+                let multiplier = ((seed >> 32) % (PRIME - 1) + 1) as i64;
+                let offset = (seed % PRIME) as i64;
+                Expr::cust_with_values(
+                    "(((id * ? + ?) % 2147483647) * ((id * ? + ?) % 2147483647)) % 2147483647",
+                    [multiplier, offset, multiplier, offset],
+                )
+            }
+            None => SimpleExpr::FunctionCall(Func::random()),
+        };
         let subquery = media_files::Entity::find()
             .select_only()
-            .order_by(SimpleExpr::FunctionCall(Func::random()), Order::Asc)
+            .order_by(order, Order::Asc)
+            .order_by_asc(media_files::Column::Id)
             .limit(*random_count.iter().max().unwrap_or(&30) as u64)
             .column(media_files::Column::Id)
             .into_query();
@@ -1193,6 +1230,9 @@ pub async fn query_mix_media_files(
         page_size as u64
     };
 
+    if random_seed.is_some() {
+        query = query.order_by_asc(media_files::Column::Id);
+    }
     let media_files = query
         .offset(Some(cursor as u64))
         .limit(final_page_size)
