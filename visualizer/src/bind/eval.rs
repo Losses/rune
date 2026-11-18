@@ -949,7 +949,10 @@ impl Evaluator {
             Means::Rest => (Used::Rest, self.rest),
         };
         // A smoothed follow glides on from where the fallback put it, not from where it was.
-        if matches!(used, Used::Value | Used::Rest) && self.state.level.is_some() {
+        if matches!(self.mode, Mode::Follow { .. })
+            && matches!(used, Used::Value | Used::Rest)
+            && self.state.level.is_some()
+        {
             self.state.level = Some(output);
         }
         self.last = output;
@@ -1756,6 +1759,43 @@ mod tests {
         assert_eq!(used(&mut e, Level::A), Used::Source);
         assert_eq!(used(&mut e, Level::B), Used::Source);
         assert_eq!(used(&mut e, Level::C), Used::Value);
+    }
+
+    #[test]
+    fn trigger_returns_to_rest_after_a_value_or_rest_fallback() {
+        let decl = input([2.0, 6.0], Some(3.0));
+        let quiet = a();
+        let unavailable = at(Level::B);
+        let bar = MusicValues { bars: 1, ..quiet };
+        for (fallback, value) in [("\"rest\"", 3.0), ("{ value = 5.0 }", 5.0)] {
+            let mut e = Evaluator::new(
+                &bind(&format!(
+                    "source = \"bars\"\nhow = \"trigger\"\nfallback = {fallback}"
+                )),
+                &decl,
+            )
+            .unwrap();
+            assert_eq!(run(&mut e, &[quiet, unavailable]), [3.0, value]);
+            assert_eq!(run(&mut e, &[quiet])[0], 3.0, "after {fallback}");
+            assert_eq!(run(&mut e, &[bar])[0], 6.0);
+        }
+    }
+
+    #[test]
+    fn smoothed_follow_resumes_from_a_value_or_rest_fallback() {
+        let decl = input([2.0, 6.0], Some(3.0));
+        for (fallback, value) in [("\"rest\"", 3.0), ("{ value = 5.0 }", 5.0)] {
+            let mut e = Evaluator::new(
+                &bind(&format!(
+                    "source = \"bar\"\nhow = \"follow\"\nwhen = {{ smooth = 0.1, per = \"second\" }}\nfallback = {fallback}"
+                )),
+                &decl,
+            )
+            .unwrap();
+            assert_eq!(run(&mut e, &[a(), at(Level::B)]), [2.0, value]);
+            let resumed = run(&mut e, &[a()])[0];
+            assert!(near(resumed, 2.0 + (value - 2.0) * (-1.0f32).exp()));
+        }
     }
 
     #[test]
