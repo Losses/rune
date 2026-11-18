@@ -1,4 +1,5 @@
-//! In-process WebDAV and S3 fixtures shared by filesystem and hub tests.
+//! In-process WebDAV and S3 fixtures shared by filesystem and hub tests, and
+//! file names that are not valid Unicode for filesystem and database tests.
 use std::{
     collections::{BTreeSet, HashMap},
     io::{Error, ErrorKind},
@@ -13,6 +14,33 @@ use tokio::{
     net::{TcpListener, TcpStream},
     task::{JoinHandle, JoinSet},
 };
+
+/// A file name the platform can store that is not valid Unicode: `prefix`,
+/// then the byte `0xFF` on Unix or an unpaired surrogate on Windows, then
+/// `suffix`. Apple file systems store only UTF-8 names.
+#[allow(dead_code)]
+#[cfg(any(windows, all(unix, not(target_vendor = "apple"))))]
+pub fn non_unicode_name(prefix: &str, suffix: &str) -> std::ffi::OsString {
+    #[cfg(unix)]
+    let name = {
+        use std::os::unix::ffi::OsStringExt;
+        let mut bytes = prefix.as_bytes().to_vec();
+        bytes.push(0xff);
+        bytes.extend_from_slice(suffix.as_bytes());
+        std::ffi::OsString::from_vec(bytes)
+    };
+    #[cfg(windows)]
+    let name = {
+        use std::os::windows::ffi::OsStringExt;
+        let wide: Vec<u16> = prefix
+            .encode_utf16()
+            .chain([0xd800])
+            .chain(suffix.encode_utf16())
+            .collect();
+        std::ffi::OsString::from_wide(&wide)
+    };
+    name
+}
 
 /// Which change-detection properties an S3 server reports for objects.
 #[derive(Clone, Copy, PartialEq, Eq)]

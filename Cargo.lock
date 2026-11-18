@@ -2687,6 +2687,7 @@ dependencies = [
  "async-trait",
  "blake3",
  "dunce",
+ "fsio",
  "futures",
  "jni 0.21.1",
  "log",

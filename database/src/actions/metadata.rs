@@ -19,7 +19,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
@@ -817,6 +817,18 @@ where
             return Err(error.into());
         }
     };
+
+    for path in scanner.skipped() {
+        let detail = format!("Skipped {path:?}: its path is not valid Unicode");
+        warn!("{detail}");
+        insert_log(
+            main_db,
+            LogLevel::Warning,
+            "actions::metadata::scan_audio_library".to_string(),
+            detail,
+        )
+        .await?;
+    }
 
     info!("Starting audio library scan with last-modified pre-filtering");
 

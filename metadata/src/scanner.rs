@@ -15,29 +15,42 @@ fn is_audio_file(entry: &FsNode) -> bool {
     }
 }
 
+/// The audio files under `path`, and the entries left out because their path
+/// is not valid Unicode.
 fn scan_audio_files<P: AsRef<Path>>(
     fsio: &FsIo,
     path: &P,
-) -> Result<impl Iterator<Item = FsNode> + Send, fsio::FileIoError> {
-    let files = fsio.walk_dir(path.as_ref(), true)?;
+) -> Result<(Vec<FsNode>, Vec<PathBuf>), fsio::FileIoError> {
+    let walk = fsio.walk_dir(path.as_ref(), true)?;
 
-    Ok(files.into_iter().filter(is_audio_file))
+    Ok((
+        walk.nodes.into_iter().filter(is_audio_file).collect(),
+        walk.skipped,
+    ))
 }
 
 pub struct AudioScanner {
     root_path: PathBuf,
     iterator: IntoIter<FsNode>,
+    skipped: Vec<PathBuf>,
     ended: bool,
 }
 
 impl AudioScanner {
     pub fn new<P: AsRef<Path>>(fsio: &FsIo, path: &P) -> Result<Self, fsio::FileIoError> {
-        let iterator = scan_audio_files(fsio, path)?;
+        let (files, skipped) = scan_audio_files(fsio, path)?;
         Ok(AudioScanner {
             root_path: path.as_ref().to_path_buf(),
-            iterator: iterator.collect::<Vec<_>>().into_iter(),
+            iterator: files.into_iter(),
+            skipped,
             ended: false,
         })
+    }
+
+    /// Entries under the root that cannot be scanned because their path is not
+    /// valid Unicode. A skipped directory stands for everything inside it.
+    pub fn skipped(&self) -> &[PathBuf] {
+        &self.skipped
     }
 
     pub fn read_files(&mut self, count: usize) -> Vec<FsNode> {

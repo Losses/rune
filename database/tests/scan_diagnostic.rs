@@ -352,3 +352,64 @@ async fn oversized_tag_does_not_abort_library_scan() -> Result<()> {
     db.close().await?;
     Ok(())
 }
+
+/// A path that is not valid Unicode cannot be stored without loss, so the scan
+/// skips it, reports it in the library log and indexes the tracks beside it. A
+/// folder with such a name is skipped whole: its tracks would otherwise be
+/// stored as if they sat in the library root.
+#[cfg(any(windows, all(unix, not(target_vendor = "apple"))))]
+#[tokio::test]
+async fn paths_that_are_not_unicode_are_skipped_and_reported() -> Result<()> {
+    use database::actions::logging::list_log;
+    use fsio::test_fixtures::non_unicode_name;
+
+    async fn indexed(db: &sea_orm::DatabaseConnection) -> Result<Vec<(String, String)>> {
+        Ok(media_files::Entity::find()
+            .all(db)
+            .await?
+            .into_iter()
+            .map(|file| (file.directory, file.file_name))
+            .collect())
+    }
+
+    let temp = tempfile::tempdir()?;
+    let root = temp.path();
+    write_tagged_wav(&root.join("track.wav"), "kept")?;
+    let track = root.join(non_unicode_name("track-", ".wav"));
+    write_tagged_wav(&track, "skipped track")?;
+    let folder = root.join(non_unicode_name("folder-", ""));
+    std::fs::create_dir(&folder)?;
+    write_tagged_wav(&folder.join("track.wav"), "skipped folder")?;
+    let fs = FsIo::new();
+    let node = uuid::Uuid::new_v4();
+    let db = connect_main_db(&fs, root.to_str().unwrap(), None, &node.to_string()).await?;
+    let library = fixtures::open_library(db.clone(), node, None).await?;
+    let store = library.record_store();
+    let options = || ScanOptions {
+        cleanup: true,
+        force: false,
+        missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+        cancel_token: None,
+    };
+    let kept = [(String::new(), "track.wav".to_owned())];
+
+    scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
+    assert_eq!(indexed(&db).await?, kept);
+    let mut reported: Vec<_> = list_log(&db, 0, 100)
+        .await?
+        .into_iter()
+        .filter(|log| log.level == "WARNING")
+        .map(|log| log.detail)
+        .collect();
+    reported.sort();
+    let mut expected =
+        [track, folder].map(|path| format!("Skipped {path:?}: its path is not valid Unicode"));
+    expected.sort();
+    assert_eq!(reported, expected);
+
+    // A retry keeps the track and leaves the skipped paths out again.
+    scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
+    assert_eq!(indexed(&db).await?, kept);
+    db.close().await?;
+    Ok(())
+}

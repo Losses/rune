@@ -67,6 +67,7 @@ env_logger = "0.11.8"
 rand = "0.8.5"
 tempfile = "3.17.1"
 database = { path = ".", features = ["test-fixtures"] }
+fsio = { path = "../fsio", features = ["test-fixtures"] }
 
 [lints]
 workspace = true
