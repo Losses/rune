@@ -1,8 +1,9 @@
-use std::sync::mpsc::TryRecvError;
+use std::{env, fs, sync::mpsc::TryRecvError};
 
 use anyhow::Result;
 use fsio::FsIo;
-use tag_editor::sampler::interval_sampler::IntervalSampler;
+use rubato::{FftFixedInOut, Resampler};
+use tag_editor::sampler::interval_sampler::{IntervalSampler, SampleEvent};
 use tokio_util::sync::CancellationToken;
 
 const AUDIO_FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../assets/startup_0.ogg");
@@ -86,4 +87,62 @@ fn vbr_mp3_without_a_frame_count_completes_at_eof() -> Result<()> {
         env!("CARGO_MANIFEST_DIR"),
         "/tests/fixtures/interval-vbr-no-xing.mp3"
     ))
+}
+
+#[test]
+fn sample_audio_matches_its_window_with_and_without_a_gap() -> Result<()> {
+    // A power-of-two rate makes the one-second boundaries exact.
+    let rate = 8192_u32;
+    let data_len = 3 * rate * 2;
+    let mut wav = Vec::new();
+    wav.extend(b"RIFF");
+    wav.extend((36 + data_len).to_le_bytes());
+    wav.extend(b"WAVEfmt ");
+    wav.extend(16_u32.to_le_bytes());
+    wav.extend(1_u16.to_le_bytes()); // PCM
+    wav.extend(1_u16.to_le_bytes()); // Mono
+    wav.extend(rate.to_le_bytes());
+    wav.extend((rate * 2).to_le_bytes());
+    wav.extend(2_u16.to_le_bytes()); // Bytes per frame
+    wav.extend(16_u16.to_le_bytes()); // Bits per sample
+    wav.extend(b"data");
+    wav.extend(data_len.to_le_bytes());
+    for level in [4096_i16, 8192, 12288] {
+        for _ in 0..rate {
+            wav.extend(level.to_le_bytes());
+        }
+    }
+
+    let path = env::temp_dir().join(format!("rune-interval-{}.wav", uuid::Uuid::new_v4()));
+    fs::write(&path, wav)?;
+    let collect = |interval| -> Result<Vec<SampleEvent>> {
+        let mut sampler = IntervalSampler::new(path.to_str().unwrap(), 1.0, interval, rate, None);
+        sampler.process(&FsIo::new())?;
+        Ok(sampler.receiver.try_iter().collect())
+    };
+    let contiguous = collect(1.0);
+    let gapped = collect(2.0);
+    fs::remove_file(path)?;
+
+    let rate = rate as usize;
+    let delay = FftFixedInOut::<f64>::new(rate, rate, rate, 1)?.output_delay();
+    let margin = rate / 8;
+    for (events, expected) in [
+        (contiguous?, &[(0.0, 0.125), (1.0, 0.25), (2.0, 0.375)][..]),
+        (gapped?, &[(0.0, 0.125), (2.0, 0.375)][..]),
+    ] {
+        assert_eq!(events.len(), expected.len());
+        for (event, &(start, level)) in events.iter().zip(expected) {
+            assert_eq!((event.start_time, event.end_time), (start, start + 1.0));
+            assert_eq!(event.data.len(), rate);
+            // Measure the steady portion after the streaming resampler's delay.
+            let steady = &event.data[delay + margin..rate - margin];
+            let mean = steady.iter().sum::<f64>() / steady.len() as f64;
+            assert!(
+                (mean - level).abs() < 0.001,
+                "window starting at {start}s has level {mean}, expected {level}"
+            );
+        }
+    }
+    Ok(())
 }
