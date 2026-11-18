@@ -2,7 +2,8 @@
 //! 22050 Hz, handed on as it is decoded and resampled (see `decode_with`), so that no more than
 //! a packet and the resampler's buffers is held. The file is opened and probed the way `analysis`'s metadata reader does and
 //! decoded with the player's codecs (`fsio_media_source::get_codecs`: all of Symphonia's, with
-//! FDK-AAC and libopus for AAC and Opus), so every file the player can play can be analysed.
+//! FDK-AAC and libopus for AAC and Opus). Analysis rejects files with non-finite or
+//! excessively large decoded samples.
 //!
 //! Resampling is a windowed-sinc interpolator (rubato's `SincFixedIn`: 256 taps, Blackman-Harris
 //! window, cubic interpolation between 256 oversampled filters), the cutoff as high as the
@@ -44,6 +45,9 @@ const CHUNK: usize = 4096;
 /// The lowest sample rate taken. A lower one is no music, and resampling it up to the analysis
 /// rate would make a huge number of samples from a few frames.
 const MIN_SAMPLE_RATE: u32 = 1000;
+/// Audio is nominally at unit amplitude. This ceiling allows overshoot while leaving ample
+/// headroom for resampling and the front end's `f32` spectral power sums.
+const MAX_SAMPLE_MAGNITUDE: f32 = 1.0e12;
 
 /// What `decode_with` fails with when its `cancel` flag was set: not a fault of the file, so
 /// that a caller can tell it by `error.downcast_ref::<Cancelled>()` and not log it as one.
@@ -142,6 +146,13 @@ pub fn decode_with(
             slot => slot.insert(SampleBuffer::new(decoded.capacity() as u64, spec)),
         };
         buf.copy_interleaved_ref(decoded);
+        if buf
+            .samples()
+            .iter()
+            .any(|sample| !(-MAX_SAMPLE_MAGNITUDE..=MAX_SAMPLE_MAGNITUDE).contains(sample))
+        {
+            bail!("audio contains an invalid sample amplitude");
+        }
         mono.clear();
         mono.extend(
             buf.samples()
