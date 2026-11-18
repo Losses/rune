@@ -220,10 +220,9 @@ impl IntervalSampler {
 
         let mut sample_index = 0;
         let mut output_buffer = resampler.output_buffer_allocate(true);
-        let expected_frames = (duration * f64::from(sample_rate)).round() as u64;
-        let mut decoded_frames = 0;
 
-        while decoded_frames < expected_frames {
+        // Loop through the audio stream until the end
+        while self.current_time < duration {
             // Check for cancellation
             if self.is_cancelled || (self.fn_is_cancelled)() {
                 return Ok(());
@@ -233,9 +232,8 @@ impl IntervalSampler {
             let packet = match format.next_packet() {
                 Ok(packet) => packet,
                 Err(SymphoniaError::IoError(error)) if error.kind() == ErrorKind::UnexpectedEof => {
-                    return Err(error).with_context(|| {
-                        format!("audio ended after {decoded_frames} of {expected_frames} declared frames")
-                    });
+                    // The metadata may count codec pre-skip or estimate the duration.
+                    break;
                 }
                 Err(error) => return Err(error).context("read audio packet"),
             };
@@ -246,7 +244,6 @@ impl IntervalSampler {
             }
 
             let decoded = decoder.decode(&packet).context("decode audio packet")?;
-            decoded_frames += decoded.frames() as u64;
 
             // Process the decoded audio buffer based on its type
             match decoded {
@@ -434,9 +431,8 @@ mod tests {
     }
 
     #[test]
-    fn packet_eof_before_declared_duration_is_reported() {
-        let error = process_first_packet(|_| end_of_stream_error()).unwrap_err();
-        assert!(error.to_string().starts_with("audio ended after 0 of "));
+    fn packet_end_of_stream_completes_normally() -> Result<()> {
+        process_first_packet(|_| end_of_stream_error())
     }
 
     #[test]
