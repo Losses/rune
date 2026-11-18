@@ -20,11 +20,13 @@ use fsio::FsIo;
 use futures::StreamExt;
 use http_request::sync::MetadataPeer;
 use hub::server::sync::downloads::{
-    DownloadAudioContext, DownloadProgress, download_audio_pass, download_requested_audio,
-    download_requested_audio_until,
+    DownloadAudioContext, DownloadAudioPass, DownloadPassOutcome, DownloadProgress,
+    download_audio_pass, download_requested_audio, download_requested_audio_until,
 };
 use sea_orm::sea_query::Expr;
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
+};
 use std::collections::HashMap;
 use std::sync::{
     Arc,
@@ -210,7 +212,7 @@ impl Fixture {
         .await
     }
 
-    async fn run_pass(&self, progress: &mut DownloadProgress) -> Result<DownloadReport> {
+    async fn run_pass(&self, progress: &mut DownloadProgress) -> Result<DownloadAudioPass> {
         let peer = MetadataPeer::new(&self.base, reqwest::Client::new());
         download_audio_pass(
             self.db.clone(),
@@ -595,20 +597,123 @@ async fn capped_passes_reach_eligible_tracks_without_repairing_failed_paths() ->
     let (fixture, _) = inspection_budget_fixture(2).await?;
     let mut progress = DownloadProgress::default();
     let first = fixture.run_pass(&mut progress).await?;
-    assert_eq!(first.failed, 128);
-    assert_eq!(first.requested, 0);
-    assert!(first.attempt_limit_reached);
-    assert!(!first.deadline_reached);
+    assert_eq!(first.report.failed, 128);
+    assert_eq!(first.report.requested, 0);
+    assert_eq!(first.outcome, DownloadPassOutcome::AttemptLimit);
+    assert!(!first.report.deadline_reached);
 
     let next = fixture.run_pass(&mut progress).await?;
-    assert_eq!(next.failed, 1);
-    assert_eq!(next.downloaded, 2, "a retry must reach the eligible tracks");
+    assert_eq!(next.report.failed, 1);
+    assert_eq!(
+        next.report.downloaded, 2,
+        "a retry must reach the eligible tracks"
+    );
     assert_eq!(fixture.gets.load(Ordering::SeqCst), 2);
-    assert!(!next.attempt_limit_reached);
-    assert!(!next.deadline_reached);
+    assert_eq!(next.outcome, DownloadPassOutcome::Complete);
+    assert!(!next.report.deadline_reached);
 
     let fresh = fixture.run_pass(&mut progress).await?;
-    assert_eq!(fresh.failed, 128);
+    assert_eq!(fresh.report.failed, 128);
+    assert_eq!(fixture.gets.load(Ordering::SeqCst), 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn rule_changes_reconsider_previously_attempted_tracks() -> Result<()> {
+    let (fixture, broken) = inspection_budget_fixture(1).await?;
+    let file = &broken[0];
+    media_files::Entity::update_many()
+        .col_expr(media_files::Column::LastModified, Expr::value("1999-01-01"))
+        .filter(media_files::Column::Id.eq(file.id))
+        .exec(&fixture.db)
+        .await?;
+    let mut progress = DownloadProgress::default();
+    let first = fixture.run_pass(&mut progress).await?;
+    assert_eq!(first.outcome, DownloadPassOutcome::AttemptLimit);
+
+    media_files::Entity::update_many()
+        .col_expr(
+            media_files::Column::Directory,
+            Expr::value(file.directory.clone()),
+        )
+        .col_expr(
+            media_files::Column::FileName,
+            Expr::value(file.file_name.clone()),
+        )
+        .col_expr(media_files::Column::LocalAvailable, Expr::value(false))
+        .filter(media_files::Column::Id.eq(file.id))
+        .exec(&fixture.db)
+        .await?;
+    sync_download_rules::Entity::delete_many()
+        .exec(&fixture.db)
+        .await?;
+    set_download_rule(
+        &fixture.db,
+        vec![("lib::track".into(), file.id.to_string())],
+        None,
+        true,
+    )
+    .await?;
+    let next = fixture.run_pass(&mut progress).await?;
+    assert_eq!(next.outcome, DownloadPassOutcome::Complete);
+    assert_eq!(next.report.downloaded, 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn capped_random_rule_keeps_one_selection_across_pages_and_passes() -> Result<()> {
+    let (fixture, _) = inspection_budget_fixture(40).await?;
+    sync_download_rules::Entity::delete_many()
+        .exec(&fixture.db)
+        .await?;
+    set_download_rule(
+        &fixture.db,
+        vec![("lib::random".into(), "129".into())],
+        None,
+        true,
+    )
+    .await?;
+    let mut progress = DownloadProgress::default();
+    let first = fixture.run_pass(&mut progress).await?;
+    assert_eq!(first.outcome, DownloadPassOutcome::AttemptLimit);
+    assert_eq!(first.report.failed + first.report.requested, 128);
+    let next = fixture.run_pass(&mut progress).await?;
+    assert_eq!(next.outcome, DownloadPassOutcome::Complete);
+    assert_eq!(next.report.failed + next.report.requested, 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_rule_query_failure_keeps_previous_attempts_until_recovery() -> Result<()> {
+    let (fixture, _) = inspection_budget_fixture(2).await?;
+    sync_download_rules::Entity::insert(sync_download_rules::ActiveModel {
+        id: Set("000".into()),
+        queries: Set(r#"[["lib::all","true"],["filter::analyzed","false"]]"#.into()),
+        mix_id: Set(None),
+        enabled: Set(true),
+    })
+    .exec(&fixture.db)
+    .await?;
+    fixture
+        .db
+        .execute_unprepared("ALTER TABLE media_analysis RENAME TO temporarily_hidden_analysis")
+        .await?;
+    let mut progress = DownloadProgress::default();
+    let first = fixture.run_pass(&mut progress).await?;
+    assert_eq!(first.outcome, DownloadPassOutcome::AttemptLimit);
+    assert_eq!(first.report.failed_rules, 1);
+    let following = fixture.run_pass(&mut progress).await?;
+    assert_eq!(following.outcome, DownloadPassOutcome::RuleQueryFailed);
+    assert_eq!(following.report.failed, 1);
+    assert_eq!(following.report.downloaded, 2);
+
+    fixture
+        .db
+        .execute_unprepared("ALTER TABLE temporarily_hidden_analysis RENAME TO media_analysis")
+        .await?;
+    let recovered = fixture.run_pass(&mut progress).await?;
+    assert_eq!(recovered.outcome, DownloadPassOutcome::Complete);
+    assert_eq!(recovered.report.failed, 0);
     assert_eq!(fixture.gets.load(Ordering::SeqCst), 2);
     Ok(())
 }
@@ -636,7 +741,8 @@ async fn inspection_errors_consume_the_download_attempt_budget() -> Result<()> {
                 .await?;
         }
         let before = fixture.gets.load(Ordering::SeqCst);
-        let report = fixture.run(&fixture.base).await?;
+        let pass = fixture.run_pass(&mut DownloadProgress::default()).await?;
+        let report = pass.report;
         assert_eq!(
             report.failed, expected_failed,
             "failed inspections with {bad_paths} bad paths"
@@ -646,7 +752,7 @@ async fn inspection_errors_consume_the_download_attempt_budget() -> Result<()> {
             "{bad_paths} bad paths"
         );
         assert_eq!(report.downloaded, expected_requested);
-        assert!(report.attempt_limit_reached);
+        assert_eq!(pass.outcome, DownloadPassOutcome::AttemptLimit);
         assert!(!report.deadline_reached);
         assert_eq!(
             fixture.gets.load(Ordering::SeqCst) - before,
@@ -677,7 +783,6 @@ async fn transfer_finishes_after_pass_deadline_without_starting_next_file() -> R
     .await?;
     assert_eq!(report.downloaded, 1);
     assert!(report.deadline_reached);
-    assert!(!report.attempt_limit_reached);
     assert_eq!(fixture.gets.load(Ordering::SeqCst), 1);
     let complete = fixture.run(&fixture.base).await?;
     assert!(!complete.deadline_reached);
