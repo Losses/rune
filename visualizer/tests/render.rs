@@ -556,8 +556,8 @@ fn shade(px: Pixel) -> vec4f {
         assert!(Instant::now() < deadline, "{name} did not finish loading");
         let (frames, _) = collect(&visualizer, &mut feeder, 2);
         let frame = frames.into_iter().last().unwrap();
-        // Wait for the scene and its fade to finish; the last stripes are always white.
-        if status.preset_name == name && frame.pixels[(24 * 128 + 112) * 4] >= 250 {
+        // The last stripes are always white. Leave room for per-pixel dither in the verdicts.
+        if status.preset_name == name && frame.pixels[(24 * 128 + 112) * 4] >= 254 {
             println!("{name}: {}", status.adapter);
             break frame;
         }
