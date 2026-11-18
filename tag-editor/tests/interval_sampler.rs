@@ -59,3 +59,31 @@ fn sampler_closes_on_processing_error() {
     assert!(sampler.process(&FsIo::new()).is_err());
     assert_channel_closed(&sampler);
 }
+
+fn assert_completes_with_samples(path: &str) -> Result<()> {
+    let mut sampler = IntervalSampler::new(path, 0.1, 0.1, 16_000, None);
+    sampler.process(&FsIo::new())?;
+
+    assert!(sampler.receiver.try_iter().count() > 0);
+    assert_channel_closed(&sampler);
+    Ok(())
+}
+
+#[test]
+fn opus_with_pre_skip_completes_at_eof() -> Result<()> {
+    // Generated 0.2 seconds of a 440 Hz tone with FFmpeg's libopus encoder.
+    assert_completes_with_samples(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/interval-pre-skip.opus"
+    ))
+}
+
+#[test]
+fn vbr_mp3_without_a_frame_count_completes_at_eof() -> Result<()> {
+    // Generated half a second of silence followed by a tone with
+    // libmp3lame at -q:a 2 and -write_xing 0.
+    assert_completes_with_samples(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/interval-vbr-no-xing.mp3"
+    ))
+}

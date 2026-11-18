@@ -1,4 +1,7 @@
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::{
+    io::ErrorKind,
+    sync::mpsc::{Receiver, Sender, channel},
+};
 
 use anyhow::{Context, Result, bail};
 use rubato::{FftFixedInOut, Resampler};
@@ -6,6 +9,7 @@ use symphonia::core::{
     audio::{AudioBuffer, AudioBufferRef, Signal},
     codecs::{CODEC_TYPE_NULL, Decoder, DecoderOptions},
     conv::IntoSample,
+    errors::Error as SymphoniaError,
     formats::FormatReader,
     sample::Sample,
 };
@@ -227,7 +231,11 @@ impl IntervalSampler {
             // Get the next packet from the format reader
             let packet = match format.next_packet() {
                 Ok(packet) => packet,
-                Err(_) => break, // Exit loop on error
+                Err(SymphoniaError::IoError(error)) if error.kind() == ErrorKind::UnexpectedEof => {
+                    // The metadata may count codec pre-skip or estimate the duration.
+                    break;
+                }
+                Err(error) => return Err(error).context("read audio packet"),
             };
 
             // Skip packets that do not match the track ID
@@ -235,10 +243,7 @@ impl IntervalSampler {
                 continue;
             }
 
-            let decoded = match decoder.decode(&packet) {
-                Ok(decoded) => decoded,
-                Err(_) => continue, // Skip on decode error
-            };
+            let decoded = decoder.decode(&packet).context("decode audio packet")?;
 
             // Process the decoded audio buffer based on its type
             match decoded {
@@ -346,5 +351,101 @@ impl IntervalSampler {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+
+    use symphonia::core::{
+        errors::{Error, Result as SymphoniaResult, end_of_stream_error},
+        formats::{Cue, FormatOptions, Packet, SeekMode, SeekTo, SeekedTo, Track},
+        io::MediaSourceStream,
+        meta::Metadata,
+    };
+
+    use super::*;
+
+    struct FirstPacket {
+        inner: Box<dyn FormatReader>,
+        first: Option<SymphoniaResult<Packet>>,
+    }
+
+    impl FormatReader for FirstPacket {
+        fn try_new(_: MediaSourceStream, _: &FormatOptions) -> SymphoniaResult<Self> {
+            unreachable!("constructed around an existing reader")
+        }
+
+        fn cues(&self) -> &[Cue] {
+            self.inner.cues()
+        }
+
+        fn metadata(&mut self) -> Metadata<'_> {
+            self.inner.metadata()
+        }
+
+        fn seek(&mut self, mode: SeekMode, to: SeekTo) -> SymphoniaResult<SeekedTo> {
+            self.inner.seek(mode, to)
+        }
+
+        fn tracks(&self) -> &[Track] {
+            self.inner.tracks()
+        }
+
+        fn next_packet(&mut self) -> SymphoniaResult<Packet> {
+            self.first
+                .take()
+                .unwrap_or_else(|| self.inner.next_packet())
+        }
+
+        fn into_inner(self: Box<Self>) -> MediaSourceStream {
+            self.inner.into_inner()
+        }
+    }
+
+    fn process_first_packet(first: impl FnOnce(u32) -> SymphoniaResult<Packet>) -> Result<()> {
+        let file = concat!(env!("CARGO_MANIFEST_DIR"), "/../assets/startup_0.ogg");
+        let inner = get_format(&FsIo::new(), file)?;
+        let track = inner.default_track().context("fixture audio track")?;
+        let track_id = track.id;
+        let (sample_rate, duration) = get_codec_information(track)?;
+        let mut decoder = fsio_media_source::get_codecs()
+            .make(&track.codec_params, &DecoderOptions::default())?;
+        let mut format: Box<dyn FormatReader> = Box::new(FirstPacket {
+            inner,
+            first: Some(first(track_id)),
+        });
+
+        let mut sampler = IntervalSampler::new(file, 1.0, 1.0, 16_000, None);
+        sampler.samples_per_chunk = sample_rate as usize;
+        let (sender, _receiver) = channel();
+        sampler.process_audio_stream(
+            &mut format,
+            &mut decoder,
+            track_id,
+            sample_rate,
+            duration,
+            &sender,
+        )
+    }
+
+    #[test]
+    fn packet_end_of_stream_completes_normally() -> Result<()> {
+        process_first_packet(|_| end_of_stream_error())
+    }
+
+    #[test]
+    fn packet_read_error_is_reported() {
+        let result =
+            process_first_packet(|_| Err(Error::IoError(io::ErrorKind::PermissionDenied.into())));
+        assert_eq!(result.unwrap_err().to_string(), "read audio packet");
+    }
+
+    #[test]
+    fn packet_decode_error_is_reported() {
+        let result =
+            process_first_packet(|track_id| Ok(Packet::new_from_slice(track_id, 0, 1, &[])));
+        assert_eq!(result.unwrap_err().to_string(), "decode audio packet");
     }
 }
