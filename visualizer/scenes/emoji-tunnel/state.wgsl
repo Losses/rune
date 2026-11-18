@@ -33,9 +33,10 @@ const LIGHT: f32 = 4.0;
 const LIGHT_LEAST: f32 = 10.0;
 // How many crests assets/crests.png holds.
 const CRESTS: u32 = 12u;
-// Cover the longest move (2 s): notes arrive at most ten a second, and counted
-// hits can arrive independently as often as every half beat (30 ms at the top of
-// the scene's declared tempo range, 1000 BPM).
+// Cover the longest move (2 s). The runtime admits chart notes at least 100 ms
+// apart in song time; the ring records them on the frame that receives them.
+// Counted hits can arrive independently every half beat (30 ms at 1000 BPM,
+// the top of the scene's declared tempo range).
 const MOMENTS: u32 = 128u;
 
 // Where the camera films from: turned aside (yaw), up (pitch) and rolled, and how long its lens
