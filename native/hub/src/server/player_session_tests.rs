@@ -9879,6 +9879,7 @@ async fn fake_subsonic_response(
             roles.stream, roles.jukebox
         ),
         "jukeboxControl" if roles.jukebox => r#"{"subsonic-response":{"status":"ok","jukeboxPlaylist":{"entry":{"id":"jukebox-track","title":"Queued"},"currentIndex":0,"playing":true,"gain":1.0,"position":7},"jukeboxStatus":{"currentIndex":0,"playing":true,"gain":1.0,"position":7}}}"#.to_owned(),
+        "getPlaylists" => r#"{"subsonic-response":{"status":"ok","playlists":{"playlist":{"id":"road","name":"Road"}}}}"#.to_owned(),
         _ => r#"{"subsonic-response":{"status":"ok"}}"#.to_owned(),
     };
     (StatusCode::OK, body)
@@ -10485,7 +10486,7 @@ async fn subsonic_registration_resolves_mode_stores_secret_and_deduplicates() ->
     assert_eq!(registration.outcome, RegisterLibraryOutcome::Registered);
     let summary = registration.record.context("registered Subsonic record")?;
     assert_eq!(summary.alias, "Remote music");
-    let _ui = open_registered_library_record(node.clone(), summary.record_id.clone()).await?;
+    let ui = open_registered_library_record(node.clone(), summary.record_id.clone()).await?;
     assert!(matches!(
         node.current_player()?,
         CurrentPlayer::SubsonicJukebox(_)
@@ -10553,9 +10554,148 @@ async fn subsonic_registration_resolves_mode_stores_secret_and_deduplicates() ->
             .count(),
         1
     );
-    node.close_ui(&fixture.global_params.main_token).await;
+    node.close_ui(&ui.main_token).await;
     assert!(matches!(node.current_player()?, CurrentPlayer::Local));
     assert_eq!(node.current_player()?.visualizer_inputs(), VisualizerInputs::Full);
+    server.task.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+/// A Subsonic library opened before any other library, as when it is restored at
+/// startup, answers GUI requests through its own UI until that UI closes it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn subsonic_library_opened_at_startup_answers_gui_requests_until_closed() -> Result<()> {
+    use crate::messages::SessionSnapshotResponse;
+
+    for mode in [
+        SubsonicOpenModeMessage::RemoteControl,
+        SubsonicOpenModeMessage::PlayOnThisDevice,
+    ] {
+        let dir = tempfile::tempdir()?;
+        fs::create_dir_all(dir.path().join(".rune"))?;
+        SyncSettings {
+            listen: false,
+            ..SyncSettings::default()
+        }
+        .save(dir.path())?;
+        let config = dir.path().to_str().context("config path")?;
+        let node = NodeContext::new(
+            config,
+            config,
+            Arc::new(Quiet),
+            false,
+            RunMode::App,
+            Arc::new(::visualizer::Visualizer::new()),
+        )
+        .await?;
+        let server = fake_subsonic_server(FakeSubsonicRoles {
+            stream: true,
+            jukebox: true,
+            wrong_password: false,
+        })
+        .await?;
+        let registration = register_subsonic_library_on_node(
+            &subsonic_registration_request(server.endpoint.clone(), "password", Some(mode)),
+            &node,
+        )
+        .await?;
+        let record = registration.record.context("registered Subsonic record")?;
+        let ui = open_registered_library_record(node.clone(), record.record_id.clone())
+            .await
+            .with_context(|| format!("{mode:?} Subsonic library opened without a UI"))?;
+
+        let mut playlists = start::<FetchAllPlaylistsRequest>(&ui);
+        playlists.send(FetchAllPlaylistsRequest { call_id: Some(1) });
+        let listed: FetchAllPlaylistsResponse =
+            playlists.receive("FetchAllPlaylistsResponse").await;
+        playlists.stop().await;
+        assert_eq!(listed.call_id, Some(1));
+        assert_eq!(
+            listed
+                .playlists
+                .iter()
+                .map(|playlist| playlist.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Road"]
+        );
+
+        let mut snapshot = start::<SessionSnapshotRequest>(&ui);
+        snapshot.send(SessionSnapshotRequest { call_id: Some(2) });
+        let session: SessionSnapshotResponse = snapshot.receive("SessionSnapshotResponse").await;
+        snapshot.stop().await;
+        assert_eq!(session.call_id, Some(2));
+        // The jukebox answers for its own queue; on this device the local session does.
+        let jukebox_queue = vec![PlayingItemRef::LibraryTrack {
+            library_id: record.record_id.clone(),
+            track: "jukebox-track".into(),
+        }];
+        match mode {
+            SubsonicOpenModeMessage::RemoteControl => assert_eq!(session.items, jukebox_queue),
+            SubsonicOpenModeMessage::PlayOnThisDevice => assert!(session.items.is_empty()),
+        }
+
+        let mut close = start::<CloseLibraryRequest>(&ui);
+        close.send(CloseLibraryRequest { call_id: Some(3) });
+        let _: CloseLibraryResponse = close.receive("CloseLibraryResponse").await;
+        close.stop().await;
+        assert!(
+            ui.main_token.is_cancelled(),
+            "{mode:?} Subsonic GUI listeners kept running after close"
+        );
+        assert!(node.open_subsonic_binding()?.is_none());
+        assert!(node.current_ui().await.is_err());
+        assert!(matches!(node.current_player()?, CurrentPlayer::Local));
+
+        server.task.abort();
+        node.shutdown().await?;
+    }
+    Ok(())
+}
+
+/// Opening a Subsonic library takes the UI over from the library that was open, and
+/// opening that library again takes it back, so only the open library's listeners run.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn switching_to_and_from_a_subsonic_library_retires_the_previous_ui() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let local_record = LibraryRegistry::load(Path::new(&*node.config_path))?
+        .catalog(fixture.global_params.library_id.context("local library")?)?
+        .record_id;
+    let server = fake_subsonic_server(FakeSubsonicRoles {
+        stream: true,
+        jukebox: true,
+        wrong_password: false,
+    })
+    .await?;
+    let registration = register_subsonic_library_on_node(
+        &subsonic_registration_request(
+            server.endpoint.clone(),
+            "password",
+            Some(SubsonicOpenModeMessage::RemoteControl),
+        ),
+        &node,
+    )
+    .await?;
+    let record = registration.record.context("registered Subsonic record")?;
+
+    let subsonic = open_registered_library_record(node.clone(), record.record_id).await?;
+    assert!(
+        fixture.global_params.main_token.is_cancelled(),
+        "the local library's GUI listeners kept running after Subsonic opened"
+    );
+    assert!(fixture.global_params.ui_library.lock().await.is_none());
+
+    let local = open_registered_library_record(node.clone(), local_record.0.to_string()).await?;
+    assert!(
+        subsonic.main_token.is_cancelled(),
+        "the Subsonic GUI listeners kept running after the local library opened"
+    );
+    assert!(node.open_subsonic_binding()?.is_none());
+    assert!(matches!(node.current_player()?, CurrentPlayer::Local));
+    assert!(!local.main_token.is_cancelled());
+
     server.task.abort();
     node.shutdown().await?;
     Ok(())
@@ -10607,6 +10747,7 @@ async fn local_session_signals_are_hidden_during_subsonic_remote_control() -> Re
         Arc::new(Mutex::new(ScrobblingManager::new(10, Duration::from_secs(5)))),
     )
     .await?;
+    let subsonic_ui = node.current_ui().await?;
     anyhow::ensure!(
         matches!(node.current_player()?, CurrentPlayer::SubsonicJukebox(_)),
         "Subsonic remote-control player did not become current"
@@ -10673,7 +10814,7 @@ async fn local_session_signals_are_hidden_during_subsonic_remote_control() -> Re
     );
 
     signals.clear();
-    node.close_ui(&fixture.global_params.main_token).await;
+    node.close_ui(&subsonic_ui.main_token).await;
     let (local_status_restored, local_playlist_restored) = {
         let restored = signals.0.lock().unwrap();
         (
