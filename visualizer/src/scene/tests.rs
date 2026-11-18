@@ -1601,14 +1601,15 @@ fn neon_street_drops_the_old_trail_on_a_cut() {
     };
     let source = crate::builtin::find("Neon Street").unwrap().source;
     let mut files = Files::read(&source).unwrap();
-    // Feed the real compose pass white, black starting on the cut, and white again
+    // Feed the real compose pass white, black starting on the cut, then mid-gray
     // after a few frames. Read its output without grading to see small amounts of history.
     for (name, shader) in &mut files.shaders {
         match name.as_str() {
             "ink.wgsl" => {
                 *shader = "fn shade(px: Pixel) -> vec4f {
-                    let phase = frame.index % 7u;
-                    return vec4f(vec3f(select(0.0, 1.0, phase == 0u || phase == 6u)), 1.0);
+                    let phase = frame.index % 11u;
+                    let red = select(select(0.0, 0.5, phase == 10u), 1.0, phase == 0u);
+                    return vec4f(vec3f(red), 1.0);
                 }"
                 .into();
             }
@@ -1641,6 +1642,7 @@ fn neon_street_drops_the_old_trail_on_a_cut() {
         .unwrap();
     let default_blur = params[blur];
     let mut time = 0.0;
+    let red = || screen.pixel_srgb(&device, &queue, SIZE.0 / 2, SIZE.1 / 2)[0];
     let mut draw = |fps, shot, no_blur| {
         params[blur] = if no_blur {
             Value::Float(0.0)
@@ -1648,45 +1650,52 @@ fn neon_street_drops_the_old_trail_on_a_cut() {
             default_blur
         };
         queue.write_buffer(&scene.params_buffer, 0, &scene.params.pack(&params));
-        let mut draw = |scene: &mut Scene| {
+        let mut render = |scene: &mut Scene| {
             time += 1.0 / f64::from(fps);
             frame(scene, (&device, &queue), &screen, time, 0.5);
-            screen.pixel_srgb(&device, &queue, SIZE.0 / 2, SIZE.1 / 2)[0]
         };
         assert!(scene.hold_shot(Some(0)));
-        let before = draw(&mut scene);
+        render(&mut scene);
+        let before = red();
         assert!(
             before >= 220,
             "the previous trail should be bright: {before}"
         );
         assert!(scene.hold_shot(Some(shot)));
-        let cut = draw(&mut scene);
+        render(&mut scene);
+        let cut = red();
         // Give the blur time to become visible above the output's quantization.
-        for _ in 0..4 {
-            draw(&mut scene);
+        for _ in 0..8 {
+            render(&mut scene);
         }
-        [cut, draw(&mut scene)]
+        render(&mut scene);
+        [cut, red()]
     };
 
+    let shots = [1, 3, 7];
     let samples = [60, 120].map(|fps| {
-        (
-            fps,
-            draw(fps, 1, false),
-            draw(fps, 3, false),
-            draw(fps, 1, true),
-        )
+        let on = shots.map(|shot| draw(fps, shot, false));
+        (fps, on, draw(fps, 1, true))
     });
     // The output shader dithers by up to one sRGB code.
     assert!(
         samples
             .iter()
-            .all(|(_, street, high, off)| street[0] <= 1 && high[0] <= 1 && off[0] <= 1),
-        "Neon Street left old trail on the cut (fps, street, overview, blur off; cut and recovery): {samples:?}"
+            .all(|(_, on, off)| on.iter().chain([off]).all(|sample| sample[0] <= 1)),
+        "Neon Street left old trail on the cut (fps, blur on for shots {shots:?}, blur off; cut and recovery): {samples:?}"
     );
-    for (fps, street, high, off) in samples {
+    for (fps, on, off) in samples {
+        // Linear 0.5 encodes to sRGB 188; two dithered samples may differ by two codes.
         assert!(
-            street[1] < high[1] && high[1] < off[1] && off[1] >= 254,
-            "Neon Street at {fps} fps should resume blur, with less in the overview and none when off: {street:?}, {high:?}, {off:?}"
+            off[1].abs_diff(188) <= 1,
+            "Neon Street at {fps} fps should have no trail with blur off: {off:?}"
         );
+        for (shot, high) in shots.into_iter().zip(on).skip(1) {
+            assert!(
+                on[0][1] < high[1] && off[1].saturating_sub(high[1]) > 2,
+                "Neon Street at {fps} fps should recover with less blur in shot {shot} than at street level: street {:?}, high {high:?}, blur off {off:?}",
+                on[0]
+            );
+        }
     }
 }
