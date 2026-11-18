@@ -499,6 +499,82 @@ fn every_builtin_scene_renders() {
     visualizer.stop();
 }
 
+/// Exercise the shared band helper in a scene pass and read back the verdict for each sample.
+#[test]
+fn band_edges_render_with_and_without_softening() {
+    let Some((visualizer, mut feeder)) = start_with(128, 32, true) else {
+        return;
+    };
+    let name = "band-edges";
+    let dir = std::env::temp_dir().join(format!("rune-visualizer-{name}-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("scene.toml"),
+        r#"
+format = 1
+name = "band-edges"
+license = "MPL-2.0"
+
+[post]
+tonemap = "none"
+bloom = { intensity = 0.0 }
+chromatic = 0.0
+grain = 0.0
+vignette = 0.0
+
+[[pass]]
+shader = "band.wgsl"
+target = "out"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("band.wgsl"),
+        r#"
+fn shade(px: Pixel) -> vec4f {
+  let i = u32(px.uv.x * 8.0);
+  if (i >= 6u) {
+    return vec4f(1.0);
+  }
+  let x = array<f32, 6>(0.125, 0.25, 0.375, 0.625, 0.75, 0.875)[i];
+  let hard = px.uv.y < 0.5;
+  let aa = select(0.25, 0.0, hard);
+  let expected = select(array<f32, 6>(0.15625, 0.5, 0.84375, 0.84375, 0.5, 0.15625)[i],
+                        array<f32, 6>(0.0, 1.0, 1.0, 1.0, 1.0, 0.0)[i], hard);
+  let matches_band = abs(rv_band(x, 0.25, 0.75, aa) - expected) < 0.001;
+  return vec4f(vec3f(select(0.0, 1.0, matches_band)), 1.0);
+}
+"#,
+    )
+    .unwrap();
+
+    visualizer.load_preset_path(&dir).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let frame = loop {
+        let status = visualizer.status();
+        assert_eq!(status.last_error, None);
+        assert!(Instant::now() < deadline, "{name} did not finish loading");
+        let (frames, _) = collect(&visualizer, &mut feeder, 2);
+        let frame = frames.into_iter().last().unwrap();
+        // The last stripes are always white. Leave room for per-pixel dither in the verdicts.
+        if status.preset_name == name && frame.pixels[(24 * 128 + 112) * 4] >= 254 {
+            println!("{name}: {}", status.adapter);
+            break frame;
+        }
+    };
+    visualizer.stop();
+    std::fs::remove_dir_all(dir).unwrap();
+
+    for (aa, y) in [(0.25, 24), (0.0, 8)] {
+        let samples = [0.125, 0.25, 0.375, 0.625, 0.75, 0.875];
+        let pixels: [u8; 6] = std::array::from_fn(|i| frame.pixels[(y * 128 + i * 16 + 8) * 4]);
+        println!("aa={aa}: {pixels:?} (white means the value matched)");
+        for (x, pixel) in samples.into_iter().zip(pixels) {
+            assert!(pixel >= 250, "band value at x={x}, aa={aa} was incorrect");
+        }
+    }
+}
+
 /// The source the runtime's `director.cadence` reads, as the last frame saw it.
 fn cadence_source(visualizer: &Visualizer, feeder: &mut Feeder) -> String {
     let deadline = Instant::now() + Duration::from_secs(10);

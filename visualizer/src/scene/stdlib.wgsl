@@ -95,8 +95,11 @@ fn rv_sd_segment(p: vec2f, a: vec2f, b: vec2f) -> f32 {
   return length(pa - ba * h);
 }
 
-// 1 inside a..b, with edges aa wide.
+// 1 inside a..b, with edges aa wide. With no softening, both endpoints are included.
 fn rv_band(x: f32, a: f32, b: f32, aa: f32) -> f32 {
+  if (aa == 0.0) {
+    return select(0.0, 1.0, x >= a && x <= b);
+  }
   return smoothstep(a - aa, a + aa, x) * smoothstep(b + aa, b - aa, x);
 }
 
