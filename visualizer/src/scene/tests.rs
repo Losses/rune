@@ -243,6 +243,126 @@ fn a_lower_level_keeps_the_state_and_the_trail() {
     assert!(close(c, [0.5, 0.5, 0.0]), "{c:?}");
 }
 
+fn state_offsets<const N: usize>(files: &Files, names: [&str; N]) -> [u64; N] {
+    let (name, update) = files.update.as_ref().unwrap();
+    let module = wgsl::update_source(&files.manifest, files.state(), (name, update))
+        .check()
+        .unwrap();
+    let state = module
+        .types
+        .iter()
+        .find(|(_, ty)| ty.name.as_deref() == Some("State"))
+        .unwrap()
+        .1;
+    let naga::TypeInner::Struct { members, .. } = &state.inner else {
+        panic!("State must be a struct");
+    };
+    names.map(|name| {
+        u64::from(
+            members
+                .iter()
+                .find(|m| m.name.as_deref() == Some(name))
+                .unwrap()
+                .offset,
+        )
+    })
+}
+
+#[test]
+fn torii_sea_spirit_stays_with_the_formation_at_long_frames() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("SKIPPED: no GPU adapter");
+        return;
+    };
+    let source = crate::builtin::find("Torii Sea").unwrap().source;
+    let files = Files::read(&source).unwrap();
+    let [flight, spirit, velocity] = state_offsets(&files, ["s", "spirit", "spirit_vel"]);
+    let screen = Screen::new(&device);
+    let frames = 61;
+    let stride = velocity + 16;
+    let readback = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Torii Sea spirit motion"),
+        size: frames * stride,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    for tuned in [false, true] {
+        let mut files = files.clone();
+        if tuned {
+            for id in ["stiff", "damp"] {
+                let param = files
+                    .manifest
+                    .params
+                    .iter_mut()
+                    .find(|p| p.id == id)
+                    .unwrap();
+                param.default = toml::Value::Float(param.max.unwrap());
+            }
+        }
+        let mut scene =
+            Scene::build(&device, &queue, source.clone(), files, FORMAT, SIZE, 48_000).unwrap();
+        let start = Instant::now();
+        // A loud passage with live kicks every half second and no chart. The scene's own
+        // bindings and shader drive the moving targets.
+        for i in 0..frames {
+            let time = i as f64 / 20.0;
+            let rhythm = Rhythm {
+                kick: (-(time * 2.0).fract() * 8.0).exp(),
+                energy: 2.0,
+                ..Default::default()
+            };
+            let mut encoder = device.create_command_encoder(&Default::default());
+            scene.render(
+                &device,
+                &queue,
+                &mut encoder,
+                &screen.view,
+                &FrameInput {
+                    time,
+                    rhythm: &rhythm,
+                    chart: None,
+                    song: (time, true),
+                    song_chart: None,
+                    song_seed: Some(473),
+                    accent: None,
+                    wall: start + std::time::Duration::from_secs_f64(time),
+                },
+                None,
+            );
+            encoder.copy_buffer_to_buffer(&scene.state, 0, &readback, i * stride, stride);
+            queue.submit(Some(encoder.finish()));
+        }
+        readback
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, |result| result.unwrap());
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        let data = readback.slice(..).get_mapped_range().unwrap();
+        let read = |i, offset| {
+            let at = (i * stride + offset) as usize;
+            f32::from_le_bytes(data[at..at + 4].try_into().unwrap())
+        };
+        let z = |i| read(i, spirit + 8);
+        for i in 0..frames {
+            let [x, y, lead] = [read(i, spirit), read(i, spirit + 4), z(i) - read(i, flight)];
+            let v = [0, 4, 8].map(|axis| read(i, velocity + axis));
+            // At these settings the leader flies within a few gates of the track and travels
+            // far less than a gate per frame. Leave room for its wander, excursions and leaps.
+            assert!(
+                [x, y, lead].into_iter().all(|p| p.abs() < 50.0)
+                    && v.into_iter().all(|speed| speed.abs() < 200.0),
+                "tuned={tuned}, frame {i}: spirit (x={x}, y={y}, lead={lead}), velocity {v:?}"
+            );
+        }
+        assert!(
+            z(frames - 1) - z(0) > 10.0,
+            "the spirit did not fly along the gates"
+        );
+        drop(data);
+        readback.unmap();
+    }
+}
+
 #[test]
 fn torii_sea_trails_span_the_configured_duration() {
     let Some((device, queue)) = gpu() else {
@@ -268,33 +388,10 @@ fn torii_sea_trails_span_the_configured_duration() {
         let Value::Float(duration) = params[trail] else {
             panic!("trail_time must be in seconds");
         };
-        let (name, update) = scene.files.update.as_ref().unwrap();
-        let module = wgsl::update_source(manifest, scene.files.state(), (name, update))
-            .check()
-            .unwrap();
-        let naga::TypeInner::Struct { members, .. } = &module
-            .types
-            .iter()
-            .find(|(_, ty)| ty.name.as_deref() == Some("State"))
-            .unwrap()
-            .1
-            .inner
-        else {
-            panic!("Torii Sea has no state struct");
-        };
-        let offset = |name| {
-            u64::from(
-                members
-                    .iter()
-                    .find(|m| m.name.as_deref() == Some(name))
-                    .unwrap()
-                    .offset,
-            )
-        };
+        let [path, slot, spirit] = state_offsets(&scene.files, ["path", "slot", "spirit"]);
 
         let last = fps * 4;
         let points = 40;
-        let path = offset("path");
         let stride = path + points * 16;
         let readback = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Torii Sea history"),
@@ -351,14 +448,14 @@ fn torii_sea_trails_span_the_configured_duration() {
         let data = readback.slice(..).get_mapped_range().unwrap();
         let word = |at: u64| data[at as usize..at as usize + 4].try_into().unwrap();
         let end = u64::from(last) * stride;
-        let slot = u64::from(u32::from_le_bytes(word(end + offset("slot"))));
+        let slot = u64::from(u32::from_le_bytes(word(end + slot)));
         // Find the closest observed spirit position to each end of the stored history.
         // Read all three coordinates because spirits can double back along any one axis.
         let position = |at| [0, 4, 8].map(|delta| f32::from_le_bytes(word(at + delta)));
         let sample_frame = |slot| {
             let point = position(end + path + slot * 16);
             let distance = |i| {
-                position(u64::from(i) * stride + offset("spirit"))
+                position(u64::from(i) * stride + spirit)
                     .into_iter()
                     .zip(point)
                     .map(|(a, b)| (a - b).powi(2))

@@ -180,6 +180,10 @@ fn update() {
   let drive = mix(1.0, mix(0.35, 1.6, input.energy), params.energy_motion) * mix(0.4, 1.0, input.audible);
   let k = params.stiff * mix(0.7, 1.3, clamp((drive - 0.35) / 1.25, 0.0, 1.0));
   let c = 2.0 * sqrt(k) * params.damp;
+  // Split long frames into spring steps of at most 1/60 s, even at full stiffness and damping.
+  let spring_steps = max(1u, u32(ceil(dt * 60.0)));
+  let spring_dt = dt / f32(spring_steps);
+  let travel = vec3f(0.0, 0.0, state.vel);
   // Through a gate they draw in to its middle; between gates they spread.
   let between = sin(3.14159265 * fract(gate_pos(s)));
   let open = mix(params.pinch, 1.0, between * between);
@@ -289,9 +293,10 @@ fn update() {
     place += vec3f(cos(fa), sin(fa), 0.0) * state.flick * params.flick * drive;
     place.z += state.surge * params.surge * drive;
     place.y += leap_h * (1.0 + 0.15 * fh);
-    let a = (place - p) * k - (v - vec3f(0.0, 0.0, state.vel)) * c;
-    v += a * dt;
-    p += v * dt;
+    for (var i = 0u; i < spring_steps; i++) {
+      v += ((place - p) * k - (v - travel) * c) * spring_dt;
+      p += v * spring_dt;
+    }
     // Never below the waves.
     p.y = max(p.y, 0.6 + state.wave);
     state.spirit[h] = vec4f(p, w);
