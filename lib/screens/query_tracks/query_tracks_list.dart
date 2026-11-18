@@ -43,6 +43,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
   final Set<int> _loadingIndices = {};
   final Map<int, PlaylistOccurrenceCursor?> _playlistCursors = {0: null};
   bool _isInitialized = false;
+  bool _reloading = false;
   RequestFailure? _failure;
   bool _reachedEnd = false;
   int _generation = 0;
@@ -52,19 +53,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
   void initState() {
     super.initState();
     _contentSubscription = LibraryContentChanged.rustSignalStream.listen((_) {
-      _generation++;
-      _loadedItems.clear();
-      _playlistCursors
-        ..clear()
-        ..[0] = null;
-      _loadingIndices.clear();
-      _reachedEnd = false;
-      _totalCount = 0;
-      setState(() {
-        _isInitialized = false;
-        _failure = null;
-      });
-      _initializeData();
+      unawaited(_reloadInPlace());
     });
     _initializeData();
   }
@@ -74,6 +63,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.queries == widget.queries) return;
     _generation++;
+    _reloading = false;
     _loadedItems.clear();
     _loadingIndices.clear();
     _playlistCursors
@@ -104,6 +94,72 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
       _playlistCursors[cursor + page.items.length] = page.next;
     }
     return page.items;
+  }
+
+  // Keeps the old list on screen until the fresh pages have all arrived, so a
+  // scrolled list does not jump back to the start.
+  Future<void> _reloadInPlace() async {
+    _generation++;
+    final generation = _generation;
+    _reloading = true;
+    final furthest = _loadedItems.keys.fold<int>(-1, (a, b) => a > b ? a : b);
+    // Playlist pages are chained by cursors, so they must be fetched in order.
+    _playlistCursors
+      ..clear()
+      ..[0] = null;
+    final fresh = <int, InternalMediaFile>{};
+    var reachedEnd = false;
+    var totalCount = 0;
+    try {
+      var cursor = 0;
+      while (true) {
+        final newItems = await _fetchPage(cursor);
+        if (!mounted || generation != _generation) return;
+        for (var i = 0; i < newItems.length; i++) {
+          fresh[cursor + i] = newItems[i];
+        }
+        final loadedCount = cursor + newItems.length;
+        if (newItems.length < _pageSize ||
+            (getPlaylistIdFromQueryList(widget.queries) != null &&
+                !_playlistCursors.containsKey(loadedCount))) {
+          reachedEnd = true;
+          totalCount = loadedCount;
+          break;
+        }
+        totalCount = loadedCount + _pageSize;
+        cursor = loadedCount;
+        if (cursor > furthest) break;
+      }
+    } catch (error) {
+      if (!mounted || generation != _generation) return;
+      // The playlist cursors are half rebuilt, so drop the old list as a
+      // failed first load does.
+      setState(() {
+        _loadedItems.clear();
+        _loadingIndices.clear();
+        _reachedEnd = false;
+        _totalCount = 0;
+        _isInitialized = true;
+        _reloading = false;
+        if (error is RequestFailure) _failure = error;
+      });
+      return;
+    }
+    setState(() {
+      _loadedItems
+        ..clear()
+        ..addAll(fresh);
+      _loadingIndices.clear();
+      _reachedEnd = reachedEnd;
+      _totalCount = totalCount;
+      _isInitialized = true;
+      _reloading = false;
+      _failure = null;
+    });
+    Timer(
+      Duration(milliseconds: gridAnimationDelay),
+      () => widget.layoutManager.playAnimations(),
+    );
   }
 
   Future<void> _initializeData() async {
@@ -213,6 +269,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
   }
 
   void _checkAndLoadItem(int index) {
+    if (_reloading) return;
     if (_loadedItems.containsKey(index) ||
         (index >= _totalCount && _reachedEnd)) {
       return;
