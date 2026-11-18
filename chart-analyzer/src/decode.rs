@@ -2,7 +2,8 @@
 //! 22050 Hz, handed on as it is decoded and resampled (see `decode_with`), so that no more than
 //! a packet and the resampler's buffers is held. The file is opened and probed the way `analysis`'s metadata reader does and
 //! decoded with the player's codecs (`fsio_media_source::get_codecs`: all of Symphonia's, with
-//! FDK-AAC and libopus for AAC and Opus), so every file the player can play can be analysed.
+//! FDK-AAC and libopus for AAC and Opus). Analysis rejects files with non-finite or
+//! excessively large decoded samples.
 //!
 //! Resampling is a windowed-sinc interpolator (rubato's `SincFixedIn`: 256 taps, Blackman-Harris
 //! window, cubic interpolation between 256 oversampled filters), the cutoff as high as the
