@@ -18,7 +18,21 @@ pub struct GpuSubAnalyzer {
 }
 
 impl GpuSubAnalyzer {
+    /// A GPU sub-analyzer for `window_size`-sample windows, transformed `batch_size` at a time.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `window_size` is not 1024, which is the length of each transform the shader
+    /// computes.
     pub fn new(window_size: usize, batch_size: usize) -> Self {
+        // The shader transforms each FFT_WINDOW_SIZE values on their own, so any other window
+        // would be accumulated from transforms of the wrong length.
+        assert_eq!(
+            window_size,
+            wgpu_radix4::FFT_WINDOW_SIZE,
+            "GPU analysis only supports {}-sample windows",
+            wgpu_radix4::FFT_WINDOW_SIZE
+        );
         GpuSubAnalyzer {
             batch_cache_buffer_count: 0,
             hanning_window: build_hanning_window(window_size),
@@ -73,5 +87,16 @@ impl SubAnalyzer for GpuSubAnalyzer {
         }
 
         self.batch_cache_buffer_count = 0;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{analyzer::core_analyzer::Analyzer, utils::computing_device::ComputingDevice};
+
+    #[test]
+    #[should_panic(expected = "GPU analysis only supports 1024-sample windows")]
+    fn a_window_the_gpu_cannot_transform_is_rejected() {
+        Analyzer::new(ComputingDevice::Gpu, 2048, 1024, None, None);
     }
 }
