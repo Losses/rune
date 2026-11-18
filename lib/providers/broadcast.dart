@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../utils/settings_manager.dart';
+import '../utils/rune_log.dart';
 import '../utils/api/get_ssl_certificate_fingerprint.dart';
 import '../utils/api/request_failure.dart';
 import '../bindings/bindings.dart';
@@ -25,6 +26,7 @@ class BroadcastProvider extends ChangeNotifier {
   bool _isServerRunning = false;
   String? _interface;
   late Completer<void> _initializationCompleter;
+  late final Future<void> _deviceAliasReady = _initializeDeviceAlias();
 
   List<ClientSummary> _users = [];
   List<ClientSummary> get users => _users;
@@ -48,7 +50,7 @@ class BroadcastProvider extends ChangeNotifier {
   }
 
   Future<void> _initializeDevice() async {
-    await _initializeDeviceAlias(); // Ensure device alias is initialized first
+    await _deviceAliasReady;
     await _initializeFingerprint(); // Then initialize fingerprint (depends on device alias)
   }
 
@@ -65,14 +67,22 @@ class BroadcastProvider extends ChangeNotifier {
   }
 
   Future<void> _initializeDeviceAlias() async {
-    _deviceAlias = await _settingsManager.getValue<String>(kDeviceAliasKey);
-    if (_deviceAlias == null) {
-      _deviceAlias = _generateRandomAlias();
-      await _settingsManager.setValue(kDeviceAliasKey, _deviceAlias);
+    try {
+      _deviceAlias = await _settingsManager.getValue<String>(kDeviceAliasKey);
+      if (_deviceAlias == null) {
+        _deviceAlias = _generateRandomAlias();
+        await _settingsManager.setValue(kDeviceAliasKey, _deviceAlias);
+      }
+    } on Exception catch (error) {
+      _deviceAlias ??= _generateRandomAlias();
+      warn$('Could not initialize the stored device name: $error');
     }
   }
 
   Future<void> updateDeviceAlias(String newAlias) async {
+    if (newAlias.trim().isEmpty) return;
+
+    await _deviceAliasReady;
     await _settingsManager.setValue(kDeviceAliasKey, newAlias);
     _deviceAlias = newAlias;
     notifyListeners();
