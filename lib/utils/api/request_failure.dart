@@ -136,5 +136,9 @@ void showRequestFailureInfoBar(BuildContext context, RequestFailure failure) {
   );
 }
 
-String requestErrorText(AppLocalizations s, Object error) =>
-    error is RequestFailure ? requestFailureMessage(s, error) : 'Error: $error';
+String requestErrorText(AppLocalizations s, Object error) => switch (error) {
+  RequestFailure() => requestFailureMessage(s, error),
+  // A request that got no answer in time.
+  TimeoutException() => s.requestUnavailable,
+  _ => 'Error: $error',
+};

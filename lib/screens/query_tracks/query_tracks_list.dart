@@ -43,7 +43,8 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
   final Set<int> _loadingIndices = {};
   final Map<int, PlaylistOccurrenceCursor?> _playlistCursors = {0: null};
   bool _isInitialized = false;
-  RequestFailure? _failure;
+  // A failure the hub reported, or a request that got no answer in time.
+  Object? _failure;
   bool _reachedEnd = false;
   int _generation = 0;
   StreamSubscription? _contentSubscription;
@@ -150,7 +151,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
     } catch (error) {
       if (!mounted || generation != _generation) return;
       _loadingIndices.remove(cursor);
-      if (error is RequestFailure) _failure = error;
+      if (_shownFailure(error)) _failure = error;
     }
   }
 
@@ -206,11 +207,16 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
         if (!mounted || generation != _generation) return;
         setState(() {
           _loadingIndices.remove(cursor);
-          if (error is RequestFailure) _failure = error;
+          if (_shownFailure(error)) _failure = error;
         });
       });
     }
   }
+
+  // Failures the page shows instead of its tracks. A request that got no answer in time would
+  // otherwise leave the page empty.
+  static bool _shownFailure(Object error) =>
+      error is RequestFailure || error is TimeoutException;
 
   void _checkAndLoadItem(int index) {
     if (_loadedItems.containsKey(index) ||
@@ -233,9 +239,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
   @override
   Widget build(BuildContext context) {
     if (_failure != null) {
-      return Center(
-        child: Text(requestFailureMessage(S.of(context), _failure!)),
-      );
+      return Center(child: Text(requestErrorText(S.of(context), _failure!)));
     }
     if (!_isInitialized) {
       return const Center(child: ProgressRing());
