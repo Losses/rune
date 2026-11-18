@@ -86,5 +86,7 @@ void main() {
     vec2 fragCoord = (FlutterFragCoord().xy / resolution.xy);
     vec4 imageColor = texture(image, fragCoord);
 
-    fragColor = flareColor * u_alpha + imageColor;
+    vec4 composite = flareColor * u_alpha + imageColor;
+    float alpha = clamp(composite.a, 0.0, 1.0);
+    fragColor = vec4(clamp(composite.rgb, vec3(0.0), vec3(alpha)), alpha);
 }
