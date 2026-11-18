@@ -68,7 +68,7 @@ use crate::backends::{
     remote::{RemoteConnectError, open_remote_library_for_fingerprint},
 };
 use crate::library_pool::{LibraryHandle, LibraryPool, MediaFolderMissing};
-use crate::macros::NodeRequestHandlers;
+use crate::macros::{NodeRequestHandlers, listen_local_gui};
 use crate::messages::*;
 use crate::request_error::ExpectedRequestError;
 use crate::request_owner::Implementation;
@@ -2050,9 +2050,20 @@ async fn open_subsonic_record(
         Arc::clone(&node.gui_broadcaster),
         Arc::clone(node.visualizer()),
     ));
-    node.set_open_subsonic_catalog(Some(record_id), binding)
+    // Like the local and remote paths, the opened library gets its own UI and GUI
+    // listeners; attaching it releases the previous library's.
+    let mut params = node
+        .params_for_ui()
+        .map_err(|error| (OpenLibraryFailureKind::Storage, error))?;
+    params.library_id = Some(library_id);
+    let params = Arc::new(params);
+    node.attach_ui(&params).await;
+    let generation = node
+        .set_open_subsonic_catalog(Some(record_id), binding)
         .await
-        .map_err(|error| (OpenLibraryFailureKind::Storage, error))
+        .map_err(|error| (OpenLibraryFailureKind::Storage, error))?;
+    listen_local_gui(&params, &params.main_token);
+    Ok(generation)
 }
 
 pub(crate) async fn subsonic_binding_for_playback(
