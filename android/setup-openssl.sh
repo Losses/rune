@@ -8,7 +8,9 @@ BASE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/openssl"
 
 has_openssl() {
     local dir=$1
-    [ -d "$dir" ] && [ -n "$(find "$dir" -mindepth 1 -maxdepth 1 -not -name ".*" -print -quit)" ]
+    [ -s "$dir/lib/libssl.a" ] &&
+        [ -s "$dir/lib/libcrypto.a" ] &&
+        [ -s "$dir/include/openssl/ssl.h" ]
 }
 
 download_and_extract() (
@@ -17,10 +19,12 @@ download_and_extract() (
     local filename="OpenSSL_${OPENSSL_VERSION}_${arch}.tar.gz"
     local temp_dir
     temp_dir="$(mktemp -d "$BASE_DIR/.openssl-$arch.XXXXXX")" || return 1
-    trap 'rm -rf "$temp_dir"' EXIT
+    local install_lock="$BASE_DIR/.openssl-$arch.lock"
+    local locked=false
+    trap 'rm -rf "$temp_dir"; if [ "$locked" = true ]; then rmdir "$install_lock"; fi' EXIT
 
     echo "Downloading $BASE_URL/$filename..."
-    if ! curl -fL "$BASE_URL/$filename" -o "$temp_dir/$filename"; then
+    if ! curl -fL --connect-timeout 15 --max-time 300 "$BASE_URL/$filename" -o "$temp_dir/$filename"; then
         echo "Error: Failed to download OpenSSL for $arch" >&2
         return 1
     fi
@@ -30,13 +34,30 @@ download_and_extract() (
         return 1
     fi
 
-    # Install the extracted directory in one move so a failed attempt leaves no partial cache.
     local extracted_dir="$temp_dir/openssl_${OPENSSL_VERSION}_${arch}"
-    if [ -d "$target_dir" ] && ! rmdir "$target_dir"; then
-        echo "Error: Could not replace the OpenSSL directory for $arch" >&2
+    if ! has_openssl "$extracted_dir"; then
+        echo "Error: Incomplete OpenSSL archive for $arch" >&2
         return 1
     fi
-    if ! has_openssl "$extracted_dir" || ! mv "$extracted_dir" "$target_dir"; then
+
+    # Serialize the directory replacement with other builds using the same checkout.
+    local deadline=$((SECONDS + 10))
+    until mkdir "$install_lock" 2>/dev/null; do
+        if has_openssl "$target_dir"; then
+            return 0
+        fi
+        if (( SECONDS >= deadline )); then
+            echo "Error: Timed out waiting to install OpenSSL for $arch" >&2
+            return 1
+        fi
+        sleep 0.1
+    done
+    locked=true
+
+    if has_openssl "$target_dir"; then
+        return 0
+    fi
+    if ! rm -rf "$target_dir" || ! mv "$extracted_dir" "$target_dir"; then
         echo "Error: Failed to install OpenSSL for $arch" >&2
         return 1
     fi

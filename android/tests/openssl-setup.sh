@@ -11,7 +11,7 @@ export ANDROID_NDK_PATH="$scratch/ndk"
 unset NIX_NIX_DEV_SHELL
 export REAL_MV
 REAL_MV="$(command -v mv)"
-for tool in dirname find mkdir mktemp rm rmdir uname; do
+for tool in dirname find mkdir mktemp rm rmdir sleep uname; do
     ln -s "$(command -v "$tool")" "$scratch/bin/$tool"
 done
 
@@ -30,8 +30,13 @@ echo "extract $archive" >> "$BUILD_TRACE"
 [[ "$FAIL_STEP" != extract || "$archive" != *armeabi-v7a* ]] || exit 1
 archive_dir="$4/openssl_${archive#OpenSSL_}"
 archive_dir="${archive_dir%.tar.gz}"
-mkdir -p "$archive_dir"
-: > "$archive_dir/libssl.a"
+mkdir -p "$archive_dir/lib" "$archive_dir/include/openssl"
+for file in lib/libssl.a lib/libcrypto.a include/openssl/ssl.h; do
+    echo fixture > "$archive_dir/$file"
+done
+if [[ "${INSTALL_RACE:-}" == second ]]; then
+    : > "$RACE_DIR/second-extracted"
+fi
 STUB
 
 cat > "$scratch/bin/mv" <<'STUB'
@@ -39,6 +44,14 @@ cat > "$scratch/bin/mv" <<'STUB'
 target="${@: -1}"
 echo "install $target" >> "$BUILD_TRACE"
 [[ "$FAIL_STEP" != install || "$target" != */openssl/armeabi-v7a* ]] || exit 1
+if [[ "${INSTALL_RACE:-}" == first ]]; then
+    : > "$RACE_DIR/first-installing"
+    deadline=$((SECONDS + 10))
+    until [ -f "$RACE_DIR/second-extracted" ]; do
+        (( SECONDS < deadline )) || exit 1
+        sleep 0.01
+    done
+fi
 exec "$REAL_MV" "$@"
 STUB
 
@@ -52,7 +65,7 @@ ln -s "$scratch/bin/download" "$scratch/bin/curl"
 export BUILD_TRACE="$scratch/trace"
 run_build() {
     : > "$BUILD_TRACE"
-    PATH="$scratch/bin" FAIL_STEP="$1" /bin/bash "$scratch/build/build.sh" > "$scratch/output" 2>&1
+    PATH="$scratch/bin" FAIL_STEP="$1" /bin/bash "$scratch/build/build.sh" > "${2:-$scratch/output}" 2>&1
 }
 
 failures=0
@@ -79,7 +92,7 @@ if grep -q '^download .*arm64-v8a' "$BUILD_TRACE"; then
     exit 1
 fi
 for arch in arm64-v8a armeabi-v7a x86 x86_64; do
-    test -f "$scratch/build/openssl/$arch/libssl.a"
+    test -s "$scratch/build/openssl/$arch/lib/libssl.a"
 done
 grep -q '^flutter$' "$BUILD_TRACE"
 
@@ -94,5 +107,29 @@ if run_build none; then
 fi
 grep -q 'curl is required' "$scratch/output"
 test ! -s "$BUILD_TRACE"
-test -z "$(find "$scratch/build/openssl" -name '.openssl-*' -print -quit)"
+ln -s "$scratch/bin/download" "$scratch/bin/curl"
+mkdir -p "$scratch/build/openssl/x86_64"
+: > "$scratch/build/openssl/x86_64/.metadata"
+: > "$scratch/build/openssl/x86_64/incomplete"
+run_build none
+if ! test -s "$scratch/build/openssl/x86_64/lib/libssl.a"; then
+    echo "Expected a partial OpenSSL cache to be repaired" >&2
+    exit 1
+fi
+
+rm -rf "$scratch/build/openssl/x86_64"
+export RACE_DIR="$scratch"
+BUILD_TRACE="$scratch/first.trace" INSTALL_RACE=first run_build none "$scratch/first.out" &
+first=$!
+deadline=$((SECONDS + 10))
+until [ -f "$scratch/first-installing" ]; do
+    (( SECONDS < deadline )) || exit 1
+    sleep 0.01
+done
+BUILD_TRACE="$scratch/second.trace" INSTALL_RACE=second run_build none "$scratch/second.out" &
+second=$!
+wait "$first"
+wait "$second"
+test -s "$scratch/build/openssl/x86_64/lib/libssl.a"
+test -z "$(find "$scratch/build/openssl" -name 'openssl_*.tar.gz' -o -name 'openssl_*' -o -name '.openssl-*')"
 echo "OpenSSL preparation and Android build status checks passed"
