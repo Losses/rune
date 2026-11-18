@@ -283,19 +283,21 @@ impl SourceStream for ProcessStream {
         result: io::Result<()>,
         outcome: StreamOutcome,
     ) -> io::Result<()> {
-        let check_command_error = if result.is_ok() {
+        let (result, check_command_error) = if result.is_ok() {
             let wait_res = self.child_handle.wait().await?;
-            let command_failed = !wait_res.success();
-            if command_failed {
+            if wait_res.success() {
+                (result, false)
+            } else {
                 warn!("command exited with error code: {wait_res:?}");
+                let error = io::Error::other(format!("command exited with {wait_res}"));
+                (Err(error), true)
             }
-            command_failed
         } else {
             debug!("killing child process");
             self.child_handle.kill().await?;
             debug!("child process killed");
             // Don't need to check process for errors if the user explicitly cancelled the stream
-            outcome == StreamOutcome::Completed
+            (result, outcome == StreamOutcome::Completed)
         };
 
         if check_command_error {
@@ -317,3 +319,6 @@ impl Stream for ProcessStream {
         Pin::new(&mut self.stream).poll_next(cx)
     }
 }
+
+#[cfg(all(test, unix))]
+mod exit_status_tests;

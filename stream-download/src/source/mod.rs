@@ -82,6 +82,9 @@ pub trait SourceStream:
     fn supports_seek(&self) -> bool;
 
     /// Called when the stream finishes downloading
+    ///
+    /// If the download is cancelled while the future this returns for a successful `result` is
+    /// still pending, the future is dropped and `on_finish` is called again with the cancellation.
     fn on_finish(
         &mut self,
         result: io::Result<()>,
@@ -174,18 +177,32 @@ where
     #[instrument(skip_all)]
     pub(crate) async fn download(&mut self, mut stream: S) {
         let res = self.download_inner(&mut stream).await;
-        let (res, stream_res) = match res {
+        let (res, mut stream_res) = match res {
             Ok(StreamOutcome::Completed) => (Ok(()), StreamOutcome::Completed),
-            Ok(StreamOutcome::CancelledByUser) => (
-                Err(io::Error::new(
-                    io::ErrorKind::Interrupted,
-                    "stream cancelled by user",
-                )),
-                StreamOutcome::CancelledByUser,
-            ),
+            Ok(StreamOutcome::CancelledByUser) => {
+                (Err(cancelled_by_user()), StreamOutcome::CancelledByUser)
+            }
             Err(e) => (Err(e), StreamOutcome::Completed),
         };
-        let res = stream.on_finish(res, stream_res).await;
+        let res = if res.is_ok() {
+            // `on_finish` can wait, for a command to exit, and readers wait for it. A cancel
+            // during that wait finishes the stream as cancelled, like a cancel during the
+            // download. `biased` lets an `on_finish` that is already done win.
+            let finished = tokio::select! {
+                biased;
+                res = stream.on_finish(res, stream_res) => Some(res),
+                () = self.cancellation_token.cancelled() => None,
+            };
+            match finished {
+                Some(res) => res,
+                None => {
+                    stream_res = StreamOutcome::CancelledByUser;
+                    stream.on_finish(Err(cancelled_by_user()), stream_res).await
+                }
+            }
+        } else {
+            stream.on_finish(res, stream_res).await
+        };
         if let Err(e) = res {
             if stream_res == StreamOutcome::Completed {
                 error!("download failed: {e:?}");
@@ -354,8 +371,8 @@ where
                 return Ok(DownloadAction::Continue);
             }
         }
+        // `download` signals completion after `SourceStream::on_finish`, which can still fail it.
         self.writer.flush()?;
-        self.signal_download_complete();
         Ok(DownloadAction::Complete)
     }
 
@@ -562,6 +579,11 @@ where
             content_length: self.content_length,
         }
     }
+}
+
+/// The error a stream that the user cancelled finishes with.
+fn cancelled_by_user() -> io::Error {
+    io::Error::new(io::ErrorKind::Interrupted, "stream cancelled by user")
 }
 
 impl<S: SourceStream, W: StorageWriter> Drop for Source<S, W> {
