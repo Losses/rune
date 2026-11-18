@@ -1,5 +1,6 @@
 //! `analyze_file` on a file on disk: it finds the pulse of a WAV, and stops early when told to.
 
+use std::f32::consts::TAU;
 use std::f64::consts::PI;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -39,12 +40,13 @@ fn write_wav<const N: usize>(
     let sample_bytes = N as u16;
     let data = len * u32::from(sample_bytes);
     let float = format == 3;
-    let header = if float { 48 } else { 36 };
+    let fmt_len: u32 = if float { 18 } else { 16 };
+    let header = 20 + fmt_len + if float { 12 } else { 0 };
     let mut bytes = Vec::new();
     bytes.extend_from_slice(b"RIFF");
     bytes.extend_from_slice(&(header + data).to_le_bytes());
     bytes.extend_from_slice(b"WAVEfmt ");
-    bytes.extend_from_slice(&16u32.to_le_bytes());
+    bytes.extend_from_slice(&fmt_len.to_le_bytes());
     bytes.extend_from_slice(&format.to_le_bytes());
     bytes.extend_from_slice(&1u16.to_le_bytes()); // mono
     bytes.extend_from_slice(&RATE.to_le_bytes());
@@ -52,6 +54,7 @@ fn write_wav<const N: usize>(
     bytes.extend_from_slice(&sample_bytes.to_le_bytes());
     bytes.extend_from_slice(&(sample_bytes * 8).to_le_bytes());
     if float {
+        bytes.extend_from_slice(&0u16.to_le_bytes()); // cbSize
         bytes.extend_from_slice(b"fact");
         bytes.extend_from_slice(&4u32.to_le_bytes());
         bytes.extend_from_slice(&len.to_le_bytes());
@@ -113,17 +116,12 @@ fn float_wav_analysis_returns_a_finite_chart_or_an_error() {
     let fsio = FsIo::new();
     let cancel = AtomicBool::new(false);
     let mut invalid = Vec::new();
-    for (name, peak) in [
-        ("normal", None),
-        ("nan", Some(f32::NAN)),
-        ("max", Some(f32::MAX)),
-    ] {
+    for (name, peak) in [("normal", 1.125), ("nan", f32::NAN), ("max", f32::MAX)] {
         let samples = (0..RATE).map(|i| {
-            let tone = 0.25 * (std::f32::consts::TAU * 440.0 * i as f32 / RATE as f32).sin();
             let sample = if i == RATE / 2 {
-                peak.unwrap_or(tone)
+                peak
             } else {
-                tone
+                0.25 * (TAU * 440.0 * i as f32 / RATE as f32).sin()
             };
             sample.to_le_bytes()
         });
@@ -132,7 +130,7 @@ fn float_wav_analysis_returns_a_finite_chart_or_an_error() {
         remove(&path);
         match result {
             Ok(chart) => {
-                if peak.is_none() {
+                if name == "normal" {
                     assert!(!chart.curves.loudness.is_empty());
                 }
                 // JSON encodes non-finite floats as null, which cannot be read
@@ -142,7 +140,7 @@ fn float_wav_analysis_returns_a_finite_chart_or_an_error() {
                     invalid.push(format!("{name}: {err}"));
                 }
             }
-            Err(err) if peak.is_none() => panic!("{name}: {err:#}"),
+            Err(err) if name == "normal" => panic!("{name}: {err:#}"),
             Err(_) => {}
         }
     }
