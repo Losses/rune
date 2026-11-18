@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/l10n.dart';
@@ -8,25 +6,18 @@ import '../../../bindings/bindings.dart';
 
 import 'discovered_devices_list.dart';
 
-class SearchRemoteDeviceDialog extends StatefulWidget {
-  final void Function((DiscoveredDeviceMessage, bool?)?) $close;
-  final Completer<(DiscoveredDeviceMessage, bool?)?> completer;
+class SearchRemoteDeviceDialog extends StatelessWidget {
+  /// Closes the search with the chosen device, or null after cancellation.
+  final void Function(DiscoveredDeviceMessage?) $close;
 
-  const SearchRemoteDeviceDialog({
-    super.key,
-    required this.$close,
-    required this.completer,
-  });
+  const SearchRemoteDeviceDialog({super.key, required this.$close});
 
-  @override
-  SearchRemoteDeviceDialogState createState() =>
-      SearchRemoteDeviceDialogState();
-}
-
-class SearchRemoteDeviceDialogState extends State<SearchRemoteDeviceDialog> {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
+    void close(DiscoveredDeviceMessage? device) {
+      if (ModalRoute.of(context)?.isCurrent == true) $close(device);
+    }
 
     return NoShortcuts(
       ContentDialog(
@@ -60,18 +51,14 @@ class SearchRemoteDeviceDialogState extends State<SearchRemoteDeviceDialog> {
               height: 420,
               child: Padding(
                 padding: EdgeInsetsDirectional.symmetric(horizontal: 12),
-                child: DiscoveredDevicesList(
-                  onPaired: () => widget.$close(null),
-                  onAnswered: (device, correct) =>
-                      widget.completer.complete((device, correct)),
-                ),
+                child: DiscoveredDevicesList(onSelected: close),
               ),
             )
           ],
         ),
         actions: [
           Button(
-            onPressed: () => widget.$close(null),
+            onPressed: () => close(null),
             child: Text(s.cancel),
           ),
         ],
