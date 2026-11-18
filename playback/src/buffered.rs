@@ -41,8 +41,9 @@ where
     I: Source,
     I::Item: Sample,
 {
-    /// Returns the current samples for all channels at the current position
-    /// Returns None if we're at the end of the stream or the position is invalid
+    /// Returns all channels of the sample frame containing the current scalar position,
+    /// starting at the first channel. Returns `None` when there is no complete buffered frame
+    /// at that position.
     pub fn current_samples(&self) -> Option<Vec<I::Item>> {
         let channels = self.current_frame_channels as usize;
         if channels == 0 {
@@ -194,8 +195,10 @@ mod tests {
             Some(vec![22, 23]),
             "near packet end"
         );
-        assert_eq!(source.by_ref().collect::<Vec<_>>(), input[22..]);
-        assert_eq!(source.current_samples(), None);
+        assert_eq!(source.next(), Some(22));
+        assert_eq!(source.next(), Some(23));
+        assert_eq!(source.current_samples(), None, "exhausted packet");
+        assert_eq!(source.next(), None);
     }
 
     #[test]
