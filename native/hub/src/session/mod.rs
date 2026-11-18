@@ -711,6 +711,7 @@ struct ItemEventState {
     library: Option<ResolvedLibrary>,
     metadata: PlayingItemMetadataSummary,
     cover: Option<String>,
+    now_playing_pending: bool,
     track_started: bool,
     /// `last_item` as sent to Dart, valid for `request_ui_library`.
     request: Option<PlayingItemRef>,
@@ -727,8 +728,7 @@ struct ResolvedLibrary {
 }
 
 /// Turns a player status into the GUI report. `scrobbler` is `None` when only
-/// re-showing the current state (e.g. after renderer control ends), so services
-/// never see a "now playing" for a track that did not start.
+/// re-showing the current state (e.g. after renderer control ends).
 async fn handle_status_event(
     node: &Arc<NodeContext>,
     value: PlayerStatus,
@@ -743,6 +743,7 @@ async fn handle_status_event(
         item_state.metadata = PlayingItemMetadataSummary::default();
         item_state.cover = None;
         item_state.library = None;
+        item_state.now_playing_pending = false;
         item_state.track_started = false;
         if let Some(item) = &value.item {
             let result = match item {
@@ -772,6 +773,7 @@ async fn handle_status_event(
             if let Ok((metadata, cover)) = result {
                 item_state.metadata = metadata;
                 item_state.cover = cover;
+                item_state.now_playing_pending = scrobbler.is_some();
                 if let Some(manager) = controls {
                     let _ = update_media_controls_metadata(
                         manager.clone(),
@@ -780,15 +782,20 @@ async fn handle_status_event(
                     )
                     .await;
                 }
-                if let Some(scrobbler) = scrobbler {
-                    scrobbler.lock().await.update_now_playing_all(
-                        metadata_summary_to_scrobbling_track(&item_state.metadata),
-                    );
-                }
             }
         }
         playing_cover_changed(node, value.item.as_ref(), item_state.cover.as_deref());
         item_state.last_item = value.item.clone();
+    }
+    if value.state == PlaybackState::Playing
+        && item_state.now_playing_pending
+        && let Some(scrobbler) = scrobbler
+    {
+        item_state.now_playing_pending = false;
+        scrobbler
+            .lock()
+            .await
+            .update_now_playing_all(metadata_summary_to_scrobbling_track(&item_state.metadata));
     }
     if value.state == PlaybackState::Playing && !item_state.track_started {
         let start_time = SystemTime::now()
@@ -1254,3 +1261,6 @@ mod test_access {
         }
     }
 }
+
+#[cfg(test)]
+mod now_playing_tests;
