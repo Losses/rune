@@ -271,12 +271,12 @@ fn update() {
     rising = ramp * ramp;
   }
 
-  // The director cuts: take its shot as the view. The trail is cleared across the cut.
+  // Fade the previous clear before a new cut can clear the trail for this frame.
+  state.clear *= exp(-dt / 0.12);
   if (shot.cuts != state.cuts) {
     state.cuts = shot.cuts;
     cut();
   }
-  state.clear *= exp(-dt / 0.12);
 
   // Gliding as fast as the music: the tempo over 90 bpm is the pace, so a cruise is the speed at 90
   // bpm, faster for a faster song and slower for a slower one. Down low it is faster and swings

@@ -1592,3 +1592,101 @@ fn growth_camera_settles_after_a_growth_step() {
         }
     }
 }
+
+#[test]
+fn neon_street_drops_the_old_trail_on_a_cut() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("SKIPPED: no GPU adapter");
+        return;
+    };
+    let source = crate::builtin::find("Neon Street").unwrap().source;
+    let mut files = Files::read(&source).unwrap();
+    // Feed the real compose pass white, black starting on the cut, and white again
+    // after a few frames. Read its output without grading to see small amounts of history.
+    for (name, shader) in &mut files.shaders {
+        match name.as_str() {
+            "ink.wgsl" => {
+                *shader = "fn shade(px: Pixel) -> vec4f {
+                    let phase = frame.index % 7u;
+                    return vec4f(vec3f(select(0.0, 1.0, phase == 0u || phase == 6u)), 1.0);
+                }"
+                .into();
+            }
+            "grade.wgsl" => {
+                *shader = "fn shade(px: Pixel) -> vec4f {
+                    return textureSampleLevel(trail, linear_clamp, px.uv, 0.0);
+                }"
+                .into();
+            }
+            _ => {}
+        }
+    }
+    files.manifest.post.tonemap = manifest::Tonemap::None;
+    files.manifest.post.bloom.intensity = 0.0;
+    files.manifest.post.grain = 0.0;
+    files.manifest.post.vignette = 0.0;
+    files.manifest.post.chromatic = 0.0;
+    files.manifest.post.contrast = 1.0;
+    files.manifest.post.saturation = 1.0;
+
+    let mut scene = Scene::build(&device, &queue, source, files, FORMAT, SIZE, 48_000).unwrap();
+    let screen = Screen::new(&device);
+    let mut params = scene.files.param_values();
+    let blur = scene
+        .files
+        .manifest
+        .params
+        .iter()
+        .position(|p| p.id == "blur")
+        .unwrap();
+    let default_blur = params[blur];
+    let mut time = 0.0;
+    let mut draw = |fps, shot, no_blur| {
+        params[blur] = if no_blur {
+            Value::Float(0.0)
+        } else {
+            default_blur
+        };
+        queue.write_buffer(&scene.params_buffer, 0, &scene.params.pack(&params));
+        let mut draw = |scene: &mut Scene| {
+            time += 1.0 / f64::from(fps);
+            frame(scene, (&device, &queue), &screen, time, 0.5);
+            screen.pixel_srgb(&device, &queue, SIZE.0 / 2, SIZE.1 / 2)[0]
+        };
+        assert!(scene.hold_shot(Some(0)));
+        let before = draw(&mut scene);
+        assert!(
+            before >= 220,
+            "the previous trail should be bright: {before}"
+        );
+        assert!(scene.hold_shot(Some(shot)));
+        let cut = draw(&mut scene);
+        // Give the blur time to become visible above the output's quantization.
+        for _ in 0..4 {
+            draw(&mut scene);
+        }
+        [cut, draw(&mut scene)]
+    };
+
+    let samples = [60, 120].map(|fps| {
+        (
+            fps,
+            draw(fps, 1, false),
+            draw(fps, 3, false),
+            draw(fps, 1, true),
+        )
+    });
+    // The output shader dithers by up to one sRGB code.
+    assert!(
+        samples
+            .iter()
+            .all(|(_, street, high, off)| street[0] <= 1 && high[0] <= 1 && off[0] <= 1),
+        "Neon Street left old trail on the cut (fps, street, overview, blur off; cut and recovery): {samples:?}"
+    );
+    for (fps, street, high, off) in samples {
+        assert!(
+            street[1] < high[1] && high[1] < off[1] && off[1] >= 254,
+            "Neon Street at {fps} fps should resume blur, with less in the overview and none when off: {street:?}, {high:?}, {off:?}"
+        );
+    }
+}
