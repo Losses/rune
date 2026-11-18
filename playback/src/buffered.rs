@@ -41,20 +41,20 @@ where
     I: Source,
     I::Item: Sample,
 {
-    /// Returns the current samples for all channels at the current position
-    /// Returns None if we're at the end of the stream or the position is invalid
+    /// Returns all channels of the sample frame containing the current scalar position,
+    /// starting at the first channel. Returns `None` when there is no complete buffered frame
+    /// at that position.
     pub fn current_samples(&self) -> Option<Vec<I::Item>> {
         let channels = self.current_frame_channels as usize;
         if channels == 0 {
             return None;
         }
 
-        let base_pos = self.position_in_frame * channels;
-        if base_pos + channels <= self.current_frame_data.len() {
-            Some(self.current_frame_data[base_pos..base_pos + channels].to_vec())
-        } else {
-            None
-        }
+        // Align the scalar position to the first channel of its sample frame.
+        let base_pos = self.position_in_frame - self.position_in_frame % channels;
+        self.current_frame_data
+            .get(base_pos..base_pos + channels)
+            .map(<[_]>::to_vec)
     }
 
     /// Updates the current frame data from source
@@ -150,5 +150,66 @@ where
             current_frame_channels: self.current_frame_channels,
             position_in_frame: self.position_in_frame,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use super::*;
+    use crate::decoder::RuneDecoder;
+
+    fn buffered_wav(channels: u16, samples: &[i16]) -> RuneBuffered<RuneDecoder<Cursor<Vec<u8>>>> {
+        let rate = 8_000_u32;
+        let sample_bytes = channels * 2;
+        let data_len = (samples.len() * 2) as u32;
+        let mut bytes = Vec::from(&b"RIFF"[..]);
+        bytes.extend((36 + data_len).to_le_bytes());
+        bytes.extend(b"WAVEfmt ");
+        bytes.extend(16_u32.to_le_bytes());
+        bytes.extend(1_u16.to_le_bytes()); // PCM
+        bytes.extend(channels.to_le_bytes());
+        bytes.extend(rate.to_le_bytes());
+        bytes.extend((rate * u32::from(sample_bytes)).to_le_bytes());
+        bytes.extend(sample_bytes.to_le_bytes());
+        bytes.extend(16_u16.to_le_bytes());
+        bytes.extend(b"data");
+        bytes.extend(data_len.to_le_bytes());
+        bytes.extend(samples.iter().flat_map(|sample| sample.to_le_bytes()));
+        rune_buffered(RuneDecoder::new(Cursor::new(bytes), Some("wav")).unwrap())
+    }
+
+    #[test]
+    fn stereo_samples_follow_the_scalar_position() {
+        let input: Vec<i16> = (0..24).collect();
+        let mut source = buffered_wav(2, &input);
+
+        assert_eq!(source.by_ref().take(10).collect::<Vec<_>>(), input[..10]);
+        assert_eq!(source.current_samples(), Some(vec![10, 11]));
+        assert_eq!(source.next(), Some(10));
+        assert_eq!(source.current_samples(), Some(vec![10, 11]), "mid-frame");
+        assert_eq!(source.by_ref().take(11).collect::<Vec<_>>(), input[11..22]);
+        assert_eq!(
+            source.current_samples(),
+            Some(vec![22, 23]),
+            "near packet end"
+        );
+        assert_eq!(source.next(), Some(22));
+        assert_eq!(source.next(), Some(23));
+        assert_eq!(source.current_samples(), None, "exhausted packet");
+        assert_eq!(source.next(), None);
+    }
+
+    #[test]
+    fn mono_samples_and_seeking_use_the_current_position() {
+        let input: Vec<i16> = (0..32).collect();
+        let mut source = buffered_wav(1, &input);
+
+        assert_eq!(source.next(), Some(0));
+        assert_eq!(source.current_samples(), Some(vec![1]));
+        source.try_seek(Duration::from_millis(1)).unwrap();
+        assert_eq!(source.current_samples(), Some(vec![8]));
+        assert_eq!(source.next(), Some(8));
     }
 }
