@@ -663,6 +663,4 @@ fn update() {
   for (var g = 0u; g < GROUPS; g++) {
     pose_group(g);
   }
-
-  post.exposure = params.exposure;
 }
