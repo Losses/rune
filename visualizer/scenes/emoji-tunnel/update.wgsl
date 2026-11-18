@@ -326,8 +326,12 @@ fn project(i: u32) {
   }
   let v = p.xyz - state.cam_pos;
   let zc = dot(v, state.cam_fwd);
-  // A sphere round it: a badge reaches out to its corners and past its thickness.
-  let bound = p.w * select(select(1.0, 1.42, kind == EMOJI), 1.25, kind == BADGE);
+  // A sphere around the object, including the corners of a flake at any rotation.
+  var scale = select(select(1.0, 1.42, kind == EMOJI), 1.25, kind == BADGE);
+  if (kind == CUBE) {
+    scale = length(FLAKE_HALF_EXTENTS);
+  }
+  let bound = p.w * scale;
   // (A sparkle right by the lens is not drawn: its glow, spread over the whole screen, would
   // white it out; nor a light, for the same reason, nor a flake, which a camera off the middle
   // may pass close by.)
@@ -341,6 +345,12 @@ fn project(i: u32) {
   if (zc > bound * 1.05) {
     c = state.focal * vec2f(dot(v, state.cam_right), dot(v, state.cam_up)) / zc;
     rad = state.focal * bound / sqrt(zc * zc - bound * bound);
+    if (kind == CUBE) {
+      // The farthest tangent to the sphere is on the side away from the camera axis.
+      let t = bound / zc;
+      let t2 = 1.0 - t * t;
+      rad = t * (t * length(c) + sqrt(dot(c, c) + state.focal * state.focal * t2)) / t2;
+    }
     if (kind == SPARK) {
       // A sparkle's rays reach well past its core; and it is never less than a few pixels.
       rad = max(rad * 3.0, 4.0 / frame.resolution.y);

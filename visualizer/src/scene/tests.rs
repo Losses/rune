@@ -1247,3 +1247,78 @@ impl Scene {
         self.render_timed(device, queue, encoder, target, input, timestamps, true);
     }
 }
+
+#[test]
+fn emoji_tunnel_flake_culling_keeps_visible_pixels() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("SKIPPED: no GPU adapter");
+        return;
+    };
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("scenes/emoji-tunnel");
+    let dir = folder("flake-bounds", &[]);
+    std::fs::create_dir_all(dir.join("assets")).unwrap();
+    for file in [
+        "state.wgsl",
+        "badge.wgsl",
+        "assets/crests.png",
+        "assets/emoji.png",
+    ] {
+        std::fs::copy(source.join(file), dir.join(file)).unwrap();
+    }
+    let mut manifest = std::fs::read_to_string(source.join("scene.toml"))
+        .unwrap()
+        .parse::<toml::Table>()
+        .unwrap();
+    manifest.insert("name".into(), "Flake bounds".into());
+    manifest.remove("render");
+    manifest["post"] = r#"
+tonemap = "none"
+grain = 0.0
+chromatic = 0.0
+vignette = 0.0
+bloom = { intensity = 0.0 }
+"#
+    .parse::<toml::Table>()
+    .unwrap()
+    .into();
+    std::fs::write(dir.join("scene.toml"), toml::to_string(&manifest).unwrap()).unwrap();
+    let update = std::fs::read_to_string(source.join("update.wgsl"))
+        .unwrap()
+        .replace("fn update()", "fn tunnel_update()");
+    std::fs::write(
+        dir.join("update.wgsl"),
+        format!(
+            "{update}\n{}",
+            include_str!("../../tests/fixtures/flake-bounds-update.wgsl")
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("tunnel.wgsl"),
+        include_str!("../../tests/fixtures/flake-bounds-view.wgsl"),
+    )
+    .unwrap();
+    let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
+    let screen = Screen::new(&device);
+    frame(&mut scene, (&device, &queue), &screen, 0.0, 0.0);
+    std::fs::remove_dir_all(dir).unwrap();
+
+    // Red is a direct box hit, green means the circle kept it, blue means the tile listed it.
+    let witnesses = [
+        ("face-on corner (35, 12)", 35, 12),
+        ("rotated corner across a tile edge (57, 1)", 57, 1),
+        ("near-camera fallback (8, 28)", 8, 28),
+    ];
+    let observed = witnesses.map(|(label, x, y)| {
+        (
+            label,
+            screen
+                .pixel_srgb(&device, &queue, x, y)
+                .map(|channel| channel > 128),
+        )
+    });
+    assert!(
+        observed.iter().all(|(_, channels)| *channels == [true; 3]),
+        "expected (box hit, inside circle, listed in tile) for every witness: {observed:?}"
+    );
+}
