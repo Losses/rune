@@ -22,6 +22,7 @@ const LIST: u32 = 32u;
 // to its outline, where the content is emoji rather than badges).
 const BADGE: f32 = 0.0;
 const CUBE: f32 = 1.0;
+const FLAKE_HALF_EXTENTS: vec3f = vec3f(1.0, 1.0, 0.08);
 const SPARK: f32 = 2.0;
 const EMOJI: f32 = 3.0;
 // A light: a small round point of bright light with a soft glow, a place in the tunnel's space that

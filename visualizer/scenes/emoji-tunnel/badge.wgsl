@@ -223,8 +223,7 @@ fn shade_badge(i: u32, d: vec3f, t: f32, nl: vec3f, q: vec3f, pixel: f32) -> vec
 
 // A flake of gold or silver leaf, thin and flat.
 fn flake_hit(ro: vec3f, rd: vec3f) -> vec4f {
-  let s = vec3f(1.0, 1.0, 0.08);
-  return cube_hit(ro / s, rd / s);
+  return cube_hit(ro / FLAKE_HALF_EXTENTS, rd / FLAKE_HALF_EXTENTS);
 }
 
 fn shade_flake(i: u32, d: vec3f, nl: vec3f) -> vec3f {
