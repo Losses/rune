@@ -47,6 +47,7 @@ struct Slot {
     resolve: wgpu::Buffer,
     buffer: wgpu::Buffer,
     state: Arc<AtomicU8>,
+    discard: bool,
 }
 
 enum Measure {
@@ -93,6 +94,7 @@ impl GpuTimer {
                 resolve: buffer(wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC),
                 buffer: buffer(wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST),
                 state: Arc::new(AtomicU8::new(FREE)),
+                discard: false,
             })
             .collect();
         Self {
@@ -120,7 +122,10 @@ impl GpuTimer {
                         .iter()
                         .position(|s| s.state.load(Ordering::Acquire) == FREE);
                 }
-                current.map(|i| &slots[i].set)
+                current.map(|i| {
+                    slots[i].discard = false;
+                    &slots[i].set
+                })
             }
             Measure::Wall(_) => None,
         }
@@ -160,6 +165,19 @@ impl GpuTimer {
         }
     }
 
+    /// Start a new measurement period, ignoring timestamps from frames already on their way.
+    pub fn discard_pending(&mut self) {
+        self.done.clear();
+        match &mut self.measure {
+            Measure::Timestamps { slots, .. } => {
+                for slot in slots {
+                    slot.discard = true;
+                }
+            }
+            Measure::Wall(started) => *started = None,
+        }
+    }
+
     /// The GPU times (seconds) of the frames whose timestamps arrived since the last call, into
     /// `times`. Resolves those of the frames that are done since.
     pub fn collect(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, times: &mut Vec<f64>) {
@@ -174,6 +192,7 @@ impl GpuTimer {
         let mut encoder = None;
         for slot in slots {
             match slot.state.load(Ordering::Acquire) {
+                DONE if slot.discard => slot.state.store(FREE, Ordering::Release),
                 DONE => {
                     let encoder = encoder
                         .get_or_insert_with(|| device.create_command_encoder(&Default::default()));
@@ -186,7 +205,9 @@ impl GpuTimer {
                     });
                 }
                 MAPPED => {
-                    if let Ok(view) = slot.buffer.slice(..).get_mapped_range() {
+                    if !slot.discard
+                        && let Ok(view) = slot.buffer.slice(..).get_mapped_range()
+                    {
                         let tick = |i: usize| {
                             u64::from_le_bytes(view[i * 8..i * 8 + 8].try_into().unwrap_or([0; 8]))
                         };

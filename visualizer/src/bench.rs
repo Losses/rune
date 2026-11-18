@@ -197,6 +197,9 @@ impl Bench {
         age: Option<Duration>,
     ) {
         let times = pipeline.take_frame_times();
+        if !self.loaded {
+            return;
+        }
         let Some(began) = self.began else { return };
         if now.duration_since(began).as_secs_f64() >= WARM_UP {
             self.times.extend(times);
@@ -229,11 +232,26 @@ impl Bench {
         self.skipped = None;
         // The clock starts when loading is done.
         self.began = Some(if load { Instant::now() } else { now });
-        load
+        load && self.loaded
     }
 
     /// Log the line of the phase that ended.
-    fn finish(&mut self, pipeline: &mut Pipeline, now: Instant) {
+    fn finish(&self, pipeline: &Pipeline, now: Instant) {
+        if let Some(metrics) = self.phase_metrics(pipeline, now) {
+            info!("{metrics}");
+        } else {
+            warn!(
+                "Visualizer bench: skipped scene={} phase={} (scene failed to load)",
+                self.scenes[self.scene],
+                self.phase.name()
+            );
+        }
+    }
+
+    fn phase_metrics(&self, pipeline: &Pipeline, now: Instant) -> Option<String> {
+        if !self.loaded {
+            return None;
+        }
         let began = self.began.unwrap_or(now);
         let measured = now.duration_since(began).as_secs_f64() - WARM_UP;
         let fps = if measured > 0.0 {
@@ -250,7 +268,7 @@ impl Bench {
             0.0
         };
         let (level, (width, height)) = pipeline.level();
-        info!(
+        Some(format!(
             "Visualizer bench: scene={} phase={} frames={} fps={:.1} shown_fps={shown:.1} wait_p50={:.1} wait_p95={:.1} skipped={} gpu_avg={:.1} gpu_p50={:.1} gpu_p95={:.1} gpu_max={:.1} factor={:.2} quality={:.2} size={width}x{height}",
             self.scenes[self.scene],
             self.phase.name(),
@@ -265,7 +283,7 @@ impl Bench {
             summary.max * 1e3,
             level.factor,
             level.quality,
-        );
+        ))
     }
 }
 
@@ -303,6 +321,48 @@ mod tests {
             only(names(), Some("crt wall, growth")),
             ["Growth", "CRT Wall"]
         );
+    }
+
+    #[test]
+    fn failed_scenes_have_no_metrics_and_the_benchmark_continues() {
+        use crate::pipeline::tests::{serial, timing_test_pipeline};
+
+        let _turn = serial();
+        let Some(mut pipeline) = timing_test_pipeline() else {
+            return;
+        };
+        pipeline.load_builtin_scene("Armillary").unwrap();
+        let mut bench = Bench::new(6.0);
+        bench.scenes = vec!["Unlisted test scene".to_string(), "Paperclip".to_string()];
+        assert!(!bench.step(&mut pipeline, Instant::now()));
+
+        for (scene, phase, reports_metrics) in [
+            ("Armillary", Phase::Full, false),
+            ("Armillary", Phase::Adaptive, false),
+            ("Paperclip", Phase::Full, true),
+            ("Paperclip", Phase::Adaptive, true),
+        ] {
+            assert_eq!(pipeline.preset_name(), scene);
+            assert_eq!(bench.phase, phase);
+            let began = bench.began.unwrap();
+            pipeline.render(2.0).unwrap();
+            bench.frame(&mut pipeline, began + Duration::from_secs(2), 0, None);
+            let end = began + Duration::from_secs(3);
+            let metrics = bench.phase_metrics(&pipeline, end);
+            if reports_metrics {
+                let expected = format!("scene={scene} phase={} frames=1", phase.name());
+                assert!(metrics.unwrap().contains(&expected), "{expected}");
+            } else {
+                assert!(
+                    metrics.is_none(),
+                    "failed {phase:?} phase produced {metrics:?}"
+                );
+                assert_eq!(bench.frames, 0);
+            }
+            bench.step(&mut pipeline, end);
+        }
+        assert_eq!(bench.scene, 0, "benchmark started the next cycle");
+        assert_eq!(bench.phase, Phase::Full);
     }
 
     #[test]
