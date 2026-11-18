@@ -100,16 +100,13 @@ fn turn(v: vec3f, a: vec3f, t: f32) -> vec3f {
 
 // The last moment (a counted beat or a note of the melody) this emoji answered: each moment is
 // answered by the share of the emoji it names, different ones for different emoji, by a hash of
-// the emoji and the moment. How long ago, and how strong; long ago if none of the last sixteen,
-// or none within `move_time` (an older one is a finished move).
+// the emoji and the moment. How long ago, and how strong; long ago if none within
+// `move_time` (an older one is a finished move).
 fn moment_for(id: vec2f) -> vec2f {
   let count = u32(state.moment_count);
-  for (var k = 0u; k < 16u; k++) {
-    if (k >= count) {
-      break;
-    }
+  for (var k = 0u; k < min(count, MOMENTS); k++) {
     let n = count - k;
-    let e = state.moments[n % 16u];
+    let e = state.moments[n % MOMENTS];
     let age = frame.time - e.x;
     if (age > params.move_time) {
       break;
@@ -124,7 +121,7 @@ fn moment_for(id: vec2f) -> vec2f {
 // A moment that starts moves: its strength and the share of the emoji that answer it.
 fn push_moment(t: f32, strength: f32, share: f32) {
   state.moment_count += 1.0;
-  state.moments[u32(state.moment_count) % 16u] = vec4f(t, strength, clamp(share, 0.0, 1.0), 0.0);
+  state.moments[u32(state.moment_count) % MOMENTS] = vec4f(t, strength, clamp(share, 0.0, 1.0), 0.0);
 }
 
 // Where slot n's share and colours are kept.

@@ -33,6 +33,10 @@ const LIGHT: f32 = 4.0;
 const LIGHT_LEAST: f32 = 10.0;
 // How many crests assets/crests.png holds.
 const CRESTS: u32 = 12u;
+// Cover the longest move (2 s): notes arrive at most ten a second, and counted
+// hits can arrive independently as often as every half beat (30 ms at the top of
+// the scene's declared tempo range, 1000 BPM).
+const MOMENTS: u32 = 128u;
 
 // Where the camera films from: turned aside (yaw), up (pitch) and rolled, and how long its lens
 // is (times `focal`); and how far it stands off the tunnel's middle, across and up.
@@ -102,11 +106,8 @@ struct State {
   rz: array<vec4f, 193>,
   scr: array<vec4f, 193>,
   // The moments that start the emoji's moves, in turn: the counted beats and the melody's notes
-  // (when, how strong, what share of the emoji answer it); the last sixteen, and how many there
-  // have been. A move takes `move_time` (2 s at the most) and the beats and notes come at ten a
-  // second at the most, so sixteen reach back as far as an emoji looks for the one it answers
-  // (the search stops at a moment older than `move_time`).
-  moments: array<vec4f, 16>,
+  // (when, how strong, what share of the emoji answer it), and how many there have been.
+  moments: array<vec4f, MOMENTS>,
   moment_count: f32,
   // The seconds since the last bar line (level A only).
   bar_age: f32,
