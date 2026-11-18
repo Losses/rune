@@ -7,6 +7,7 @@ import '../../../bindings/bindings.dart';
 import 'discovered_devices_list.dart';
 
 class SearchRemoteDeviceDialog extends StatelessWidget {
+  /// Closes the search with the chosen device, or null after cancellation.
   final void Function(DiscoveredDeviceMessage?) $close;
 
   const SearchRemoteDeviceDialog({super.key, required this.$close});

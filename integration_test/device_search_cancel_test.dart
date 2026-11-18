@@ -44,6 +44,8 @@ void main() {
     });
 
     var completed = 0;
+    var trustRequests = 0;
+    var registrations = 0;
     final results = <(DiscoveredDeviceMessage, bool?)?>[];
     await tester.pumpWidget(
       FluentApp(
@@ -60,10 +62,8 @@ void main() {
                   results.add(result);
                   return result;
                 },
-                trustDevice: (_, _) async =>
-                    fail('Cancel must not trust a device'),
-                registerDevice: (_, _) async =>
-                    fail('Cancel must not register a device'),
+                trustDevice: (_, _) async => trustRequests++,
+                registerDevice: (_, _) async => registrations++,
               );
               completed++;
             },
@@ -97,6 +97,8 @@ void main() {
       expect(dialog, findsNothing);
       expect(results.length, expected);
       expect(results.last, isNull);
+      expect(trustRequests, 0);
+      expect(registrations, 0);
     }
   });
 }

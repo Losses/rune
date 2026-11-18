@@ -14,6 +14,7 @@ class DiscoveredDevicesList extends StatefulWidget {
     required this.onSelected,
   });
 
+  /// Called when the user chooses to pair with a device that has an address.
   final void Function(DiscoveredDeviceMessage) onSelected;
 
   @override
