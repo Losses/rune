@@ -1689,3 +1689,110 @@ fn growth_camera_settles_after_a_growth_step() {
         }
     }
 }
+
+#[test]
+fn neon_street_drops_the_old_trail_on_a_cut() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("SKIPPED: no GPU adapter");
+        return;
+    };
+    let source = crate::builtin::find("Neon Street").unwrap().source;
+    let mut files = Files::read(&source).unwrap();
+    // Feed the real compose pass white, black starting on the cut, then mid-gray
+    // after a few frames. Read its output without grading to see small amounts of history.
+    for (name, shader) in &mut files.shaders {
+        match name.as_str() {
+            "ink.wgsl" => {
+                *shader = "fn shade(px: Pixel) -> vec4f {
+                    let phase = frame.index % 11u;
+                    let red = select(select(0.0, 0.5, phase == 10u), 1.0, phase == 0u);
+                    return vec4f(vec3f(red), 1.0);
+                }"
+                .into();
+            }
+            "grade.wgsl" => {
+                *shader = "fn shade(px: Pixel) -> vec4f {
+                    return textureSampleLevel(trail, linear_clamp, px.uv, 0.0);
+                }"
+                .into();
+            }
+            _ => {}
+        }
+    }
+    files.manifest.post.tonemap = manifest::Tonemap::None;
+    files.manifest.post.bloom.intensity = 0.0;
+    files.manifest.post.grain = 0.0;
+    files.manifest.post.vignette = 0.0;
+    files.manifest.post.chromatic = 0.0;
+    files.manifest.post.contrast = 1.0;
+    files.manifest.post.saturation = 1.0;
+
+    let mut scene = Scene::build(&device, &queue, source, files, FORMAT, SIZE, 48_000).unwrap();
+    let screen = Screen::new(&device);
+    let mut params = scene.files.param_values();
+    let blur = scene
+        .files
+        .manifest
+        .params
+        .iter()
+        .position(|p| p.id == "blur")
+        .unwrap();
+    let default_blur = params[blur];
+    let mut time = 0.0;
+    let red = || screen.pixel_srgb(&device, &queue, SIZE.0 / 2, SIZE.1 / 2)[0];
+    let mut draw = |fps, shot, no_blur| {
+        params[blur] = if no_blur {
+            Value::Float(0.0)
+        } else {
+            default_blur
+        };
+        queue.write_buffer(&scene.params_buffer, 0, &scene.params.pack(&params));
+        let mut render = |scene: &mut Scene| {
+            time += 1.0 / f64::from(fps);
+            frame(scene, (&device, &queue), &screen, time, 0.5);
+        };
+        assert!(scene.hold_shot(Some(0)));
+        render(&mut scene);
+        let before = red();
+        assert!(
+            before >= 220,
+            "the previous trail should be bright: {before}"
+        );
+        assert!(scene.hold_shot(Some(shot)));
+        render(&mut scene);
+        let cut = red();
+        // Give the blur time to become visible above the output's quantization.
+        for _ in 0..8 {
+            render(&mut scene);
+        }
+        render(&mut scene);
+        [cut, red()]
+    };
+
+    let shots = [1, 3, 7];
+    let samples = [60, 120].map(|fps| {
+        let on = shots.map(|shot| draw(fps, shot, false));
+        (fps, on, draw(fps, 1, true))
+    });
+    // The output shader dithers by up to one sRGB code.
+    assert!(
+        samples
+            .iter()
+            .all(|(_, on, off)| on.iter().chain([off]).all(|sample| sample[0] <= 1)),
+        "Neon Street left old trail on the cut (fps, blur on for shots {shots:?}, blur off; cut and recovery): {samples:?}"
+    );
+    for (fps, on, off) in samples {
+        // Linear 0.5 encodes to sRGB 188; two dithered samples may differ by two codes.
+        assert!(
+            off[1].abs_diff(188) <= 1,
+            "Neon Street at {fps} fps should have no trail with blur off: {off:?}"
+        );
+        for (shot, high) in shots.into_iter().zip(on).skip(1) {
+            assert!(
+                on[0][1] < high[1] && off[1].saturating_sub(high[1]) > 2,
+                "Neon Street at {fps} fps should recover with less blur in shot {shot} than at street level: street {:?}, high {high:?}, blur off {off:?}",
+                on[0]
+            );
+        }
+    }
+}
