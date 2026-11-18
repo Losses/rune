@@ -322,3 +322,82 @@ async fn gui_listener_cancels_idle_pending_and_queued_requests() -> Result<()> {
     assert!(listener.output.try_recv().is_err());
     Ok(())
 }
+
+#[tokio::test]
+async fn playlist_requests_reject_invalid_input_with_call_id() -> Result<()> {
+    use crate::messages::{
+        FetchPlaylistOccurrencesRequest, FetchPlaylistOccurrencesResponse,
+        PlaylistOccurrenceCursor, RemoveItemFromPlaylistRequest,
+    };
+    use database::actions::playlists::create_playlist;
+    use uuid::Uuid;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = fixture(dir.path()).await?;
+    let library = fixture.global_params.test_library();
+    let playlist = create_playlist(
+        &library.main_db,
+        &library.library_sync.record_store(),
+        "Paging test".into(),
+        "Playlists".into(),
+    )
+    .await?;
+    let mut fetch = start::<FetchPlaylistOccurrencesRequest>(&fixture.global_params);
+    let page_request = |call_id, playlist_id, page_size, after| FetchPlaylistOccurrencesRequest {
+        call_id: Some(call_id),
+        request_id: format!("page-{call_id}"),
+        playlist_id,
+        after,
+        page_size,
+        bake_cover_arts: false,
+    };
+
+    fetch.send(page_request(1, playlist.id, 128, None));
+    let page: FetchPlaylistOccurrencesResponse =
+        fetch.receive("FetchPlaylistOccurrencesResponse").await;
+    assert_eq!(page.call_id, Some(1));
+    assert!(page.entries.is_empty());
+
+    fetch.send(page_request(2, i32::MAX, 1, None));
+    let failure: RequestFailedResponse = fetch.receive("RequestFailedResponse").await;
+    assert_eq!(failure.call_id, Some(2));
+    assert_eq!(failure.kind, RequestErrorKind::NotFound);
+
+    for (call_id, page_size, cursor) in [
+        (3, 0, None),
+        (4, 129, None),
+        (5, 1, Some("not-a-uuid".into())),
+        (6, 1, Some(Uuid::nil().to_string())),
+    ] {
+        fetch.send(page_request(
+            call_id,
+            playlist.id,
+            page_size,
+            cursor.map(|occurrence_id| PlaylistOccurrenceCursor {
+                position: 0,
+                occurrence_id,
+            }),
+        ));
+        let failure: RequestFailedResponse = fetch.receive("RequestFailedResponse").await;
+        assert_eq!(failure.call_id, Some(call_id));
+        assert_eq!(
+            failure.kind,
+            RequestErrorKind::InvalidInput,
+            "page request {call_id}: {}",
+            failure.detail
+        );
+    }
+    fetch.stop().await;
+
+    let mut remove = start::<RemoveItemFromPlaylistRequest>(&fixture.global_params);
+    remove.send(RemoveItemFromPlaylistRequest {
+        call_id: Some(7),
+        playlist_id: playlist.id,
+        occurrence_id: Uuid::nil().to_string(),
+    });
+    let failure: RequestFailedResponse = remove.receive("RequestFailedResponse").await;
+    assert_eq!(failure.call_id, Some(7));
+    assert_eq!(failure.kind, RequestErrorKind::InvalidInput);
+    remove.stop().await;
+    Ok(())
+}

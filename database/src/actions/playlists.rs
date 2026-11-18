@@ -95,7 +95,9 @@ pub async fn list_occurrences(
 ) -> Result<OccurrencePage> {
     ensure!(
         (1..=128).contains(&limit),
-        "playlist page size must be 1..=128"
+        ExpectedError::InvalidInput {
+            detail: "playlist page size must be 1..=128".into(),
+        }
     );
     let parent = playlists::Entity::find_by_id(playlist_id)
         .one(db)
@@ -104,11 +106,19 @@ pub async fn list_occurrences(
     let mut query =
         entries::Entity::find().filter(entries::Column::PlaylistUuid.eq(parent.source_uuid));
     if let Some(after) = after {
-        let id: Uuid = after
-            .occurrence_id
-            .parse()
-            .context("invalid occurrence cursor")?;
-        ensure!(!id.is_nil(), "invalid occurrence cursor");
+        let id: Uuid =
+            after
+                .occurrence_id
+                .parse()
+                .map_err(|error| ExpectedError::InvalidInput {
+                    detail: format!("invalid occurrence cursor: {error}"),
+                })?;
+        ensure!(
+            !id.is_nil(),
+            ExpectedError::InvalidInput {
+                detail: "invalid occurrence cursor".into(),
+            }
+        );
         query = query.filter(
             Condition::any()
                 .add(entries::Column::Position.gt(after.position))
@@ -473,7 +483,12 @@ async fn find_occurrence(
     playlist_id: i32,
     occurrence_id: Uuid,
 ) -> Result<media_file_playlists::Model> {
-    ensure!(!occurrence_id.is_nil(), "invalid playlist occurrence");
+    ensure!(
+        !occurrence_id.is_nil(),
+        ExpectedError::InvalidInput {
+            detail: "invalid playlist occurrence".into(),
+        }
+    );
     let parent = playlists::Entity::find_by_id(playlist_id)
         .one(tx)
         .await?
