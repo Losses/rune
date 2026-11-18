@@ -30,7 +30,6 @@ use crate::entities::{
 
 use super::analysis::get_centralized_analysis_result;
 use super::collection::{CollectionQuery, CollectionQueryListMode, CollectionQueryType};
-use super::file::get_files_by_ids;
 use super::recommendation::get_recommendation_by_parameter;
 use super::utils::CollectionDefinition;
 
@@ -688,6 +687,67 @@ fn statistics_sum(column: media_file_stats::Column) -> SimpleExpr {
     Func::coalesce([Expr::from(sum), Expr::val(0)]).into()
 }
 
+/// Keep a file unless it has a verified current duplicate mark: one whose
+/// fingerprint matches the algorithm, configuration, format, and file content
+/// checked below. NOT EXISTS avoids repeating a file for each matching
+/// fingerprint row.
+fn not_verified_duplicate() -> SimpleExpr {
+    let duplicates = Query::select()
+        .expr(Expr::val(1))
+        .from(media_file_fingerprint::Entity)
+        .and_where(
+            Expr::col((
+                media_file_fingerprint::Entity,
+                media_file_fingerprint::Column::TrackUuid,
+            ))
+            .equals((media_files::Entity, media_files::Column::SourceUuid)),
+        )
+        .and_where(
+            Expr::col((
+                media_file_fingerprint::Entity,
+                media_file_fingerprint::Column::IsDuplicated,
+            ))
+            .eq(1),
+        )
+        .and_where(
+            Expr::col((
+                media_file_fingerprint::Entity,
+                media_file_fingerprint::Column::Algorithm,
+            ))
+            .eq("chromaprint"),
+        )
+        .and_where(
+            Expr::col((
+                media_file_fingerprint::Entity,
+                media_file_fingerprint::Column::Configuration,
+            ))
+            .eq("rusty-chromaprint-0.3.0/default"),
+        )
+        .and_where(
+            Expr::col((
+                media_file_fingerprint::Entity,
+                media_file_fingerprint::Column::FormatVersion,
+            ))
+            .eq(1),
+        )
+        .and_where(
+            Expr::col((
+                media_file_fingerprint::Entity,
+                media_file_fingerprint::Column::SourceHash,
+            ))
+            .equals((media_files::Entity, media_files::Column::ContentHash)),
+        )
+        .and_where(
+            Expr::col((
+                media_file_fingerprint::Entity,
+                media_file_fingerprint::Column::SourceSize,
+            ))
+            .equals((media_files::Entity, media_files::Column::ContentSize)),
+        )
+        .to_owned();
+    Expr::not_exists(duplicates)
+}
+
 fn sort_media_files(
     mut media_files: Vec<media_files::Model>,
     track_ids: &[i32],
@@ -820,63 +880,7 @@ pub async fn query_mix_media_files_with_seed(
         -1
     };
 
-    // Exclude a duplicate only when its fingerprint matches the algorithm,
-    // configuration, format, and file content checked below. NOT EXISTS avoids
-    // repeating a file for each matching fingerprint row.
-    let duplicates = Query::select()
-        .expr(Expr::val(1))
-        .from(media_file_fingerprint::Entity)
-        .and_where(
-            Expr::col((
-                media_file_fingerprint::Entity,
-                media_file_fingerprint::Column::TrackUuid,
-            ))
-            .equals((media_files::Entity, media_files::Column::SourceUuid)),
-        )
-        .and_where(
-            Expr::col((
-                media_file_fingerprint::Entity,
-                media_file_fingerprint::Column::IsDuplicated,
-            ))
-            .eq(1),
-        )
-        .and_where(
-            Expr::col((
-                media_file_fingerprint::Entity,
-                media_file_fingerprint::Column::Algorithm,
-            ))
-            .eq("chromaprint"),
-        )
-        .and_where(
-            Expr::col((
-                media_file_fingerprint::Entity,
-                media_file_fingerprint::Column::Configuration,
-            ))
-            .eq("rusty-chromaprint-0.3.0/default"),
-        )
-        .and_where(
-            Expr::col((
-                media_file_fingerprint::Entity,
-                media_file_fingerprint::Column::FormatVersion,
-            ))
-            .eq(1),
-        )
-        .and_where(
-            Expr::col((
-                media_file_fingerprint::Entity,
-                media_file_fingerprint::Column::SourceHash,
-            ))
-            .equals((media_files::Entity, media_files::Column::ContentHash)),
-        )
-        .and_where(
-            Expr::col((
-                media_file_fingerprint::Entity,
-                media_file_fingerprint::Column::SourceSize,
-            ))
-            .equals((media_files::Entity, media_files::Column::ContentSize)),
-        )
-        .to_owned();
-    let mut query = media_files::Entity::find().filter(Expr::not_exists(duplicates));
+    let mut query = media_files::Entity::find().filter(not_verified_duplicate());
 
     // Create an OR condition to hold all the subconditions
     let mut or_condition = Condition::any();
@@ -1159,7 +1163,11 @@ pub async fn query_mix_media_files_with_seed(
                 .with_context(|| "Failed to get recommendation by parameters"),
         )?;
 
-        let media_files = get_files_by_ids(main_db, &file_ids).await?;
+        let media_files = media_files::Entity::find()
+            .filter(media_files::Column::Id.is_in(file_ids.iter().copied()))
+            .filter(not_verified_duplicate())
+            .all(main_db)
+            .await?;
 
         // Create a hash map to store files by their ID
         let file_map: std::collections::HashMap<i32, _> = media_files

@@ -654,6 +654,87 @@ async fn duplicate_filter_uses_supported_current_identity_once() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn recommendations_exclude_verified_duplicates_only() -> Result<()> {
+    use database::{
+        actions::{
+            fingerprint::assign_duplicate_mark, mixes::query_mix_media_files,
+            recommendation::sync_recommendation,
+        },
+        connection::RecommendationDbConnection,
+    };
+    let node = Uuid::new_v4();
+    let db = fixtures::memory_database(node).await?;
+    let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
+    // Track 1 has a verified current duplicate mark and must stay hidden.
+    fingerprinted_file(&db, &store, 1, Uuid::new_v4(), vec![1; 64]).await?;
+    assign_duplicate_mark(&db, &store, 1, 1).await?;
+    // Track 2 is the unmarked seed.
+    fingerprinted_file(&db, &store, 2, Uuid::new_v4(), vec![1; 64]).await?;
+    // Track 3 was marked, then its content changed, so the mark is stale.
+    fingerprinted_file(&db, &store, 3, Uuid::new_v4(), vec![1; 64]).await?;
+    assign_duplicate_mark(&db, &store, 3, 1).await?;
+    media_files::Entity::update_many()
+        .col_expr(
+            media_files::Column::ContentHash,
+            Expr::value("c".repeat(64)),
+        )
+        .filter(media_files::Column::Id.eq(3))
+        .exec(&db)
+        .await?;
+    // Track 4 only has a marked fingerprint of an unsupported legacy format.
+    let legacy_file = Uuid::new_v4();
+    support::local_file(&db, 4, legacy_file, "file-4").await?;
+    media_file_fingerprint::Entity::insert(media_file_fingerprint::ActiveModel {
+        track_uuid: Set(legacy_file.to_string()),
+        fingerprint: Set(vec![1, 2, 3, 4]),
+        is_duplicated: Set(1),
+        source_uuid: Set(
+            migration::catalog_identity::fingerprint(legacy_file, None, None, None).to_string(),
+        ),
+        ..Default::default()
+    })
+    .exec(&db)
+    .await?;
+    // Distance from the seed ranks the tracks 2, 1, 4, 3, unlike their ids.
+    for (id, rms) in [(1, 0.21), (2, 0.2), (3, 0.4), (4, 0.3)] {
+        db.execute_unprepared(&format!(
+            "INSERT INTO media_analysis(file_id,analysis_version,rms,source_uuid) VALUES({id},{},{rms},'analysis-{id}')",
+            analysis::CURRENT_ANALYSIS_VERSION
+        ))
+        .await?;
+    }
+    let recommendations = RecommendationDbConnection::new();
+    sync_recommendation(&db, &recommendations).await?;
+    let ids = |files: Vec<media_files::Model>| files.into_iter().map(|f| f.id).collect::<Vec<_>>();
+
+    let normal = query_mix_media_files(
+        &db,
+        &recommendations,
+        vec![("lib::all".into(), "true".into())],
+        0,
+        20,
+        &[],
+    )
+    .await?;
+    assert_eq!(ids(normal), vec![2, 3, 4]);
+
+    let suggested = query_mix_media_files(
+        &db,
+        &recommendations,
+        vec![
+            ("lib::track".into(), "2".into()),
+            ("pipe::recommend".into(), "-1".into()),
+        ],
+        0,
+        20,
+        &[],
+    )
+    .await?;
+    assert_eq!(ids(suggested), vec![2, 4, 3]);
+    Ok(())
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn attach_download_accepts_symlinked_root() -> Result<()> {
