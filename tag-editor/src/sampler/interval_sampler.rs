@@ -35,10 +35,9 @@ pub struct IntervalSampler {
     target_sample_rate: u32, // Target sample rate for resampling
 
     // Processing state variables
-    current_time: f64,               // Current time position in the audio
+    current_frame: u64,              // Index of the next decoded audio frame
     current_sample_buffer: Vec<f64>, // Buffer to store current samples
-    samples_per_chunk: usize,        // Number of samples per chunk
-    next_sample_time: f64,           // Time for the next sample
+    sample_index: usize,             // Index of the next sampling window
 
     // Cancellation flag and function
     fn_is_cancelled: Box<dyn Fn() -> bool + Send>,
@@ -66,10 +65,9 @@ impl IntervalSampler {
             interval,
             target_sample_rate,
 
-            current_time: 0.0,
+            current_frame: 0,
             current_sample_buffer: Vec::new(),
-            samples_per_chunk: 0,
-            next_sample_time: 0.0,
+            sample_index: 0,
 
             fn_is_cancelled: Box::new(move || {
                 cancel_token
@@ -111,9 +109,6 @@ impl IntervalSampler {
         // Get codec information such as sample rate and duration
         let (sample_rate, duration) = get_codec_information(track)?;
 
-        // Calculate the number of samples per chunk based on duration and sample rate
-        self.samples_per_chunk = (self.sample_duration * sample_rate as f64) as usize;
-
         // Initialize decoder with default options
         let dec_opts: DecoderOptions = Default::default();
         let mut decoder = fsio_media_source::get_codecs().make(&track.codec_params, &dec_opts)?;
@@ -131,70 +126,76 @@ impl IntervalSampler {
         Ok(())
     }
 
+    fn window_at(&self, index: usize, sample_rate: u32) -> SampleWindow {
+        let start_time = index as f64 * self.interval;
+        let end_time = if self.sample_duration == self.interval {
+            (index + 1) as f64 * self.interval
+        } else {
+            start_time + self.sample_duration
+        };
+        let first_frame_at_or_after = |time: f64| {
+            let frame = time * f64::from(sample_rate);
+            let nearest = frame.round();
+            // Keep an integer boundary stable through floating-point time arithmetic.
+            if (frame - nearest).abs() <= 4.0 * f64::EPSILON * frame {
+                nearest as u64
+            } else {
+                frame.ceil() as u64
+            }
+        };
+        SampleWindow {
+            start_time,
+            end_time,
+            start_frame: first_frame_at_or_after(start_time),
+            end_frame: first_frame_at_or_after(end_time),
+        }
+    }
+
     fn process_audio_buffer<T>(
         &mut self,
         buf: &AudioBuffer<T>,
         sample_rate: u32,
-        resampler: &mut FftFixedInOut<f64>,
-        output_buffer: &mut [Vec<f64>],
-        sample_index: &mut usize,
+        resample: &mut impl FnMut(&[f64]) -> Result<Vec<f64>>,
         sender: &Sender<SampleEvent>,
     ) -> Result<()>
     where
         T: Sample + IntoSample<f64>,
     {
-        let frames = buf.frames();
         let num_channels = buf.spec().channels.count();
-        let frame_duration = 1.0 / sample_rate as f64;
+        let mut window = self.window_at(self.sample_index, sample_rate);
 
-        for frame_idx in 0..frames {
-            // Mix down to mono
+        for frame_idx in 0..buf.frames() {
+            let source_frame = self.current_frame;
+            self.current_frame += 1;
+            if source_frame < window.start_frame {
+                continue;
+            }
+
             let mixed_sample = (0..num_channels)
                 .map(|ch| IntoSample::<f64>::into_sample(buf.chan(ch)[frame_idx]))
                 .sum::<f64>()
                 / num_channels as f64;
-
-            // Store the sample with its exact time
             self.current_sample_buffer.push(mixed_sample);
 
-            // Update current time
-            self.current_time += frame_duration;
+            while self.current_frame >= window.end_frame {
+                let len = (window.end_frame - window.start_frame) as usize;
+                sender.send(SampleEvent {
+                    sample_index: self.sample_index,
+                    total_samples: (self.interval / self.sample_duration) as usize,
+                    data: resample(&self.current_sample_buffer[..len])?,
+                    sample_rate: self.target_sample_rate,
+                    duration: self.sample_duration,
+                    start_time: window.start_time,
+                    end_time: window.end_time,
+                })?;
 
-            // Check if we have enough samples for the current window
-            let samples_in_window = (self.sample_duration * sample_rate as f64) as usize;
-
-            if self.current_time >= self.next_sample_time + self.sample_duration {
-                // We've passed the current window, process what we have
-
-                // Ensure we have exactly the right number of samples
-                if self.current_sample_buffer.len() >= samples_in_window {
-                    // Extract exactly samples_in_window samples for processing
-                    let chunk: Vec<f64> = self
-                        .current_sample_buffer
-                        .drain(..samples_in_window)
-                        .collect();
-
-                    // Process and send the chunk
-                    let input_frames = vec![chunk];
-                    resampler.process_into_buffer(&input_frames, output_buffer, None)?;
-
-                    sender.send(SampleEvent {
-                        sample_index: *sample_index,
-                        total_samples: (self.interval / self.sample_duration) as usize,
-                        data: output_buffer[0].clone(),
-                        sample_rate: self.target_sample_rate,
-                        duration: self.sample_duration,
-                        start_time: self.next_sample_time,
-                        end_time: self.next_sample_time + self.sample_duration,
-                    })?;
-
-                    // Move to next window
-                    *sample_index += 1;
-                    self.next_sample_time += self.interval;
-
-                    // Keep remaining samples for next window
-                    // No need to clear buffer as we used drain()
-                }
+                self.sample_index += 1;
+                let next = self.window_at(self.sample_index, sample_rate);
+                // Keep any source frames that also belong to the next window.
+                let advance = (next.start_frame - window.start_frame) as usize;
+                self.current_sample_buffer
+                    .drain(..advance.min(self.current_sample_buffer.len()));
+                window = next;
             }
         }
         Ok(())
@@ -210,19 +211,38 @@ impl IntervalSampler {
         duration: f64,
         sender: &Sender<SampleEvent>,
     ) -> Result<()> {
-        // Create a resampler for converting audio to the target sample rate
-        let mut resampler = FftFixedInOut::<f64>::new(
-            sample_rate as usize,
-            self.target_sample_rate as usize,
-            self.samples_per_chunk,
-            1,
-        )?;
+        let source_frames = self.sample_duration * f64::from(sample_rate);
+        if !source_frames.is_finite() || source_frames < 1.0 {
+            bail!("Sample duration must span at least one source frame");
+        }
+        if !self.interval.is_finite() || self.interval <= 0.0 {
+            bail!("Sampling interval must be finite and positive");
+        }
 
-        let mut sample_index = 0;
-        let mut output_buffer = resampler.output_buffer_allocate(true);
+        let target_rate = self.target_sample_rate;
+        let mut resampler = (sample_rate != target_rate)
+            .then(|| {
+                FftFixedInOut::<f64>::new(
+                    sample_rate as usize,
+                    target_rate as usize,
+                    source_frames.ceil() as usize,
+                    1,
+                )
+            })
+            .transpose()?
+            .map(|resampler| {
+                let output = resampler.output_buffer_allocate(true);
+                (resampler, output)
+            });
+        let mut resample = |samples: &[f64]| match &mut resampler {
+            Some((resampler, output)) => {
+                resample_window(samples, sample_rate, target_rate, resampler, output)
+            }
+            None => Ok(samples.to_vec()),
+        };
 
-        // Loop through the audio stream until the end
-        while self.current_time < duration {
+        let duration_frames = duration * f64::from(sample_rate);
+        while (self.current_frame as f64) < duration_frames {
             // Check for cancellation
             if self.is_cancelled || (self.fn_is_cancelled)() {
                 return Ok(());
@@ -248,104 +268,34 @@ impl IntervalSampler {
             // Process the decoded audio buffer based on its type
             match decoded {
                 AudioBufferRef::U8(buf) => {
-                    self.process_audio_buffer(
-                        buf.as_ref(),
-                        sample_rate,
-                        &mut resampler,
-                        &mut output_buffer,
-                        &mut sample_index,
-                        sender,
-                    )?;
+                    self.process_audio_buffer(buf.as_ref(), sample_rate, &mut resample, sender)?;
                 }
                 AudioBufferRef::U16(buf) => {
-                    self.process_audio_buffer(
-                        buf.as_ref(),
-                        sample_rate,
-                        &mut resampler,
-                        &mut output_buffer,
-                        &mut sample_index,
-                        sender,
-                    )?;
+                    self.process_audio_buffer(buf.as_ref(), sample_rate, &mut resample, sender)?;
                 }
                 AudioBufferRef::U24(buf) => {
-                    self.process_audio_buffer(
-                        buf.as_ref(),
-                        sample_rate,
-                        &mut resampler,
-                        &mut output_buffer,
-                        &mut sample_index,
-                        sender,
-                    )?;
+                    self.process_audio_buffer(buf.as_ref(), sample_rate, &mut resample, sender)?;
                 }
                 AudioBufferRef::U32(buf) => {
-                    self.process_audio_buffer(
-                        buf.as_ref(),
-                        sample_rate,
-                        &mut resampler,
-                        &mut output_buffer,
-                        &mut sample_index,
-                        sender,
-                    )?;
+                    self.process_audio_buffer(buf.as_ref(), sample_rate, &mut resample, sender)?;
                 }
                 AudioBufferRef::S8(buf) => {
-                    self.process_audio_buffer(
-                        buf.as_ref(),
-                        sample_rate,
-                        &mut resampler,
-                        &mut output_buffer,
-                        &mut sample_index,
-                        sender,
-                    )?;
+                    self.process_audio_buffer(buf.as_ref(), sample_rate, &mut resample, sender)?;
                 }
                 AudioBufferRef::S16(buf) => {
-                    self.process_audio_buffer(
-                        buf.as_ref(),
-                        sample_rate,
-                        &mut resampler,
-                        &mut output_buffer,
-                        &mut sample_index,
-                        sender,
-                    )?;
+                    self.process_audio_buffer(buf.as_ref(), sample_rate, &mut resample, sender)?;
                 }
                 AudioBufferRef::S24(buf) => {
-                    self.process_audio_buffer(
-                        buf.as_ref(),
-                        sample_rate,
-                        &mut resampler,
-                        &mut output_buffer,
-                        &mut sample_index,
-                        sender,
-                    )?;
+                    self.process_audio_buffer(buf.as_ref(), sample_rate, &mut resample, sender)?;
                 }
                 AudioBufferRef::S32(buf) => {
-                    self.process_audio_buffer(
-                        buf.as_ref(),
-                        sample_rate,
-                        &mut resampler,
-                        &mut output_buffer,
-                        &mut sample_index,
-                        sender,
-                    )?;
+                    self.process_audio_buffer(buf.as_ref(), sample_rate, &mut resample, sender)?;
                 }
                 AudioBufferRef::F32(buf) => {
-                    self.process_audio_buffer(
-                        buf.as_ref(),
-                        sample_rate,
-                        &mut resampler,
-                        &mut output_buffer,
-                        &mut sample_index,
-                        sender,
-                    )?;
+                    self.process_audio_buffer(buf.as_ref(), sample_rate, &mut resample, sender)?;
                 }
                 AudioBufferRef::F64(buf) => {
-                    self.process_audio_buffer(
-                        buf.as_ref(),
-                        sample_rate,
-                        &mut resampler,
-                        &mut output_buffer,
-                        &mut sample_index,
-                        sender,
-                    )?;
+                    self.process_audio_buffer(buf.as_ref(), sample_rate, &mut resample, sender)?;
                 }
             }
         }
@@ -354,11 +304,56 @@ impl IntervalSampler {
     }
 }
 
+struct SampleWindow {
+    start_time: f64,
+    end_time: f64,
+    start_frame: u64,
+    end_frame: u64,
+}
+
+fn resample_window(
+    samples: &[f64],
+    source_rate: u32,
+    target_rate: u32,
+    resampler: &mut FftFixedInOut<f64>,
+    output: &mut [Vec<f64>],
+) -> Result<Vec<f64>> {
+    resampler.reset();
+    let block_len = resampler.input_frames_next();
+    let expected =
+        (samples.len() as u64 * u64::from(target_rate)).div_ceil(u64::from(source_rate)) as usize;
+    let mut delay = resampler.output_delay();
+    let mut data = Vec::with_capacity(expected);
+
+    // Flush the FFT overlap with zero input so the window's final samples are available.
+    for block in samples.chunks(block_len).chain(std::iter::once(&[][..])) {
+        let (_, written) = if block.len() == block_len {
+            resampler.process_into_buffer(&[block], output, None)?
+        } else {
+            let channel = [block];
+            let input = (!block.is_empty()).then_some(channel.as_slice());
+            resampler.process_partial_into_buffer(input, output, None)?
+        };
+        let start = delay.min(written);
+        delay -= start;
+        let end = (start + expected - data.len()).min(written);
+        data.extend_from_slice(&output[0][start..end]);
+        if data.len() == expected {
+            return Ok(data);
+        }
+    }
+    bail!(
+        "Resampler produced {} samples, expected {expected}",
+        data.len()
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use std::io;
 
     use symphonia::core::{
+        audio::{Channels, SignalSpec},
         errors::{Error, Result as SymphoniaResult, end_of_stream_error},
         formats::{Cue, FormatOptions, Packet, SeekMode, SeekTo, SeekedTo, Track},
         io::MediaSourceStream,
@@ -418,7 +413,6 @@ mod tests {
         });
 
         let mut sampler = IntervalSampler::new(file, 1.0, 1.0, 16_000, None);
-        sampler.samples_per_chunk = sample_rate as usize;
         let (sender, _receiver) = channel();
         sampler.process_audio_stream(
             &mut format,
@@ -428,6 +422,28 @@ mod tests {
             duration,
             &sender,
         )
+    }
+
+    #[test]
+    fn gap_frames_are_discarded_before_buffering() -> Result<()> {
+        let rate = 16;
+        let mut sampler = IntervalSampler::new("", 1.0, 4.0, rate, None);
+        let (sender, receiver) = channel();
+        let mut audio = AudioBuffer::<f64>::new(
+            2 * u64::from(rate),
+            SignalSpec::new(rate, Channels::FRONT_LEFT),
+        );
+        audio.render_silence(None);
+
+        sampler.process_audio_buffer(&audio, rate, &mut |samples| Ok(samples.to_vec()), &sender)?;
+
+        assert_eq!(receiver.try_iter().count(), 1);
+        assert_eq!(
+            sampler.current_sample_buffer.len(),
+            0,
+            "gap frames were buffered"
+        );
+        Ok(())
     }
 
     #[test]
