@@ -133,7 +133,6 @@ rust_decimal_macros = "1.36.0"
 migration = { path = "../../migration" }
 tempfile = "3.17.1"
 rcgen = "0.13.2"
-simple_channel = { path = "../../simple-channel" }
 
 [lints]
 workspace = true

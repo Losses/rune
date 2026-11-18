@@ -1,65 +1,5 @@
 use super::*;
 use crate::{server::utils::device::RunMode, utils::RinfRustSignal};
-use scrobbling::{ScrobblingTrack, manager::ScrobblingService};
-use simple_channel::{SimpleReceiver, SimpleSender};
-
-#[derive(Default)]
-struct RecordingScrobbler(Vec<String>);
-
-#[async_trait::async_trait]
-impl ScrobblingServiceManager for RecordingScrobbler {
-    async fn send_login_status(&self) {
-        unreachable!()
-    }
-
-    async fn authenticate(
-        &mut self,
-        _: &ScrobblingService,
-        _: &str,
-        _: &str,
-        _: Option<String>,
-        _: Option<String>,
-        _: bool,
-    ) -> Result<()> {
-        unreachable!()
-    }
-
-    async fn update_now_playing(&mut self, _: &ScrobblingService, _: ScrobblingTrack) {
-        unreachable!()
-    }
-
-    fn restore_session(&mut self, _: &ScrobblingService, _: String) -> Result<()> {
-        unreachable!()
-    }
-
-    fn update_now_playing_all(&mut self, track: ScrobblingTrack) {
-        self.0.push(track.track);
-    }
-
-    async fn scrobble(&mut self, _: ScrobblingService, _: ScrobblingTrack) {
-        unreachable!()
-    }
-
-    fn scrobble_all(&mut self, _: ScrobblingTrack) {
-        unreachable!()
-    }
-
-    async fn logout(&mut self, _: ScrobblingService) {
-        unreachable!()
-    }
-
-    fn subscribe_error(&self) -> SimpleReceiver<ScrobblingError> {
-        unreachable!()
-    }
-
-    fn subscribe_login_status(&self) -> SimpleReceiver<Vec<LoginStatus>> {
-        unreachable!()
-    }
-
-    fn error_sender(&self) -> Arc<SimpleSender<ScrobblingError>> {
-        unreachable!()
-    }
-}
 
 struct Quiet;
 impl Broadcaster for Quiet {
@@ -80,8 +20,8 @@ async fn now_playing_waits_for_each_tracks_first_start() -> Result<()> {
         Arc::new(::visualizer::Visualizer::new()),
     )
     .await?;
-    let recorder = Arc::new(Mutex::new(RecordingScrobbler::default()));
-    let scrobbler: Arc<Mutex<dyn ScrobblingServiceManager>> = recorder.clone();
+    let (now_playing_tx, mut now_playing_rx) = mpsc::unbounded_channel();
+    let mut recorded = Vec::new();
     let mut item_state = ItemEventState::default();
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg");
     let mut tracks = Vec::new();
@@ -128,15 +68,17 @@ async fn now_playing_waits_for_each_tracks_first_start() -> Result<()> {
             },
             &mut item_state,
             &None,
-            Some(&scrobbler),
+            Some(&now_playing_tx),
             &broadcaster,
             "test",
         )
         .await;
+        while let Ok(track) = now_playing_rx.try_recv() {
+            recorded.push(track.track);
+        }
         assert!(
-            recorder.lock().await.0.iter().eq(expected.iter().copied()),
-            "{step}: expected {expected:?}, got {:?}",
-            recorder.lock().await.0
+            recorded.iter().eq(expected.iter().copied()),
+            "{step}: expected {expected:?}, got {recorded:?}"
         );
     }
     node.shutdown().await?;

@@ -33,8 +33,9 @@ use playback::{
         UnavailableReason,
     },
 };
-use scrobbling::manager::{
-    LoginStatus, ScrobblingError, ScrobblingManager, ScrobblingServiceManager,
+use scrobbling::{
+    ScrobblingTrack,
+    manager::{LoginStatus, ScrobblingError, ScrobblingManager, ScrobblingServiceManager},
 };
 use sea_orm::TransactionTrait;
 use tokio::{
@@ -562,6 +563,19 @@ impl PlayerSession {
         let event_state = self.state.clone();
         let (persist_status_tx, mut persist_status_rx) = mpsc::channel(32);
         let (persist_playlist_tx, mut persist_playlist_rx) = mpsc::channel(32);
+        // Authentication can hold the scrobbler lock across network retries.
+        let (now_playing_tx, mut now_playing_rx) = mpsc::unbounded_channel();
+        let report_scrobbler = self.scrobbler.clone();
+        let report_cancel = self.cancel.clone();
+        let now_playing_task = tokio::spawn(async move {
+            let _ = report_cancel
+                .run_until_cancelled(async {
+                    while let Some(track) = now_playing_rx.recv().await {
+                        report_scrobbler.lock().await.update_now_playing_all(track);
+                    }
+                })
+                .await;
+        });
         let event_task = tokio::spawn(async move {
             let mut item_state = ItemEventState::default();
             loop {
@@ -579,7 +593,7 @@ impl PlayerSession {
                     Ok(value) = status.recv() => {
                         let Some(node) = weak.upgrade() else { return };
                         if persist_status_tx.send(value.clone()).await.is_err() { return; }
-                        handle_status_event(&node, value, &mut item_state, &controls, Some(&scrobbler), &broadcaster, &session_id).await;
+                        handle_status_event(&node, value, &mut item_state, &controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
                     }
                     Ok(value) = playlist.recv() => {
                         if persist_playlist_tx.send(value.clone()).await.is_err() { return; }
@@ -630,7 +644,7 @@ impl PlayerSession {
         self.tasks
             .lock()
             .await
-            .extend([event_task, persistence_task]);
+            .extend([event_task, persistence_task, now_playing_task]);
     }
 }
 
@@ -727,14 +741,14 @@ struct ResolvedLibrary {
     implementation: Implementation,
 }
 
-/// Turns a player status into the GUI report. `scrobbler` is `None` when only
+/// Turns a player status into the GUI report. `now_playing` is `None` when only
 /// re-showing the current state (e.g. after renderer control ends).
 async fn handle_status_event(
     node: &Arc<NodeContext>,
     value: PlayerStatus,
     item_state: &mut ItemEventState,
     controls: &Option<Arc<Mutex<MediaControlManager>>>,
-    scrobbler: Option<&Arc<Mutex<dyn ScrobblingServiceManager>>>,
+    now_playing: Option<&mpsc::UnboundedSender<ScrobblingTrack>>,
     broadcaster: &Arc<dyn Broadcaster>,
     session_id: &str,
 ) {
@@ -773,7 +787,7 @@ async fn handle_status_event(
             if let Ok((metadata, cover)) = result {
                 item_state.metadata = metadata;
                 item_state.cover = cover;
-                item_state.now_playing_pending = scrobbler.is_some();
+                item_state.now_playing_pending = now_playing.is_some();
                 if let Some(manager) = controls {
                     let _ = update_media_controls_metadata(
                         manager.clone(),
@@ -789,13 +803,10 @@ async fn handle_status_event(
     }
     if value.state == PlaybackState::Playing
         && item_state.now_playing_pending
-        && let Some(scrobbler) = scrobbler
+        && let Some(now_playing) = now_playing
     {
         item_state.now_playing_pending = false;
-        scrobbler
-            .lock()
-            .await
-            .update_now_playing_all(metadata_summary_to_scrobbling_track(&item_state.metadata));
+        let _ = now_playing.send(metadata_summary_to_scrobbling_track(&item_state.metadata));
     }
     if value.state == PlaybackState::Playing && !item_state.track_started {
         let start_time = SystemTime::now()
