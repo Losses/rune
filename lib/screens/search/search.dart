@@ -157,7 +157,7 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
     CollectionType type,
   ) async {
     return collectionItemsToSearchCard(
-      (await fetchCollectionByIds(type, ids))
+      (await fetchCollectionByIds(type, ids, bakeCoverArts: true))
           .map(InternalCollection.fromRawCollection)
           .toList(),
       type,
