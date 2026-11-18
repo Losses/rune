@@ -10618,8 +10618,9 @@ async fn local_session_signals_are_hidden_during_subsonic_remote_control() -> Re
         CurrentPlayer::SubsonicJukebox(binding) => binding.library_id.to_string(),
         _ => anyhow::bail!("Subsonic remote-control player did not become current"),
     };
+    let local_status = fixture.global_params.player.lock().await.status_after_pending();
     anyhow::ensure!(
-        fixture.global_params.player.lock().await.get_status().state == PlayerPlaybackState::Paused,
+        local_status.await.state == PlayerPlaybackState::Paused,
         "local audio was not paused when the jukebox became current"
     );
 
