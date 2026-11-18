@@ -19,9 +19,10 @@ use crate::{
     backends::remote::RendererLink,
     library_pool::LibraryHandle,
     macros::{RequestScope, RequestSlots},
+    messages::{RemoveDownloadRuleRequest, SetDownloadRuleRequest},
     node::NodeContext,
     request_error::ExpectedRequestError,
-    rpc::{Slot, TargetRequest},
+    rpc::{Slot, TargetRequest, UnsupportedReason},
     subsonic_binding::SubsonicBinding,
     utils::{GlobalParams, ParamsExtractor},
     visualizer::RANDOM_COVERS,
@@ -54,6 +55,9 @@ pub(crate) enum CurrentPlayer {
 #[derive(Clone)]
 pub(crate) enum Implementation {
     Local,
+    /// This device, for the requests it answers itself while a Subsonic library is open in its
+    /// UI, which keeps no library database on this device.
+    LocalWithoutLibrary,
     RunePeer {
         link: Option<Arc<RendererLink>>,
         reconnecting: Option<String>,
@@ -183,6 +187,7 @@ impl Implementation {
     pub(crate) fn slots(&self) -> RequestSlots {
         match self {
             Self::Local => RequestSlots::local(),
+            Self::LocalWithoutLibrary => RequestSlots::local_without_library(),
             Self::RunePeer {
                 link: Some(link), ..
             } => {
@@ -294,6 +299,29 @@ impl OpenLibrary {
             },
             Self::Subsonic(binding) => Implementation::Subsonic(Arc::clone(binding)),
         }
+    }
+
+    /// This device, for the requests it answers itself. A Rune peer's library still leaves
+    /// them all to this device.
+    pub(crate) fn node_implementation(&self) -> Implementation {
+        match self {
+            Self::Closed | Self::Local | Self::RunePeer { .. } => Implementation::Local,
+            Self::Subsonic(_) => Implementation::LocalWithoutLibrary,
+        }
+    }
+}
+
+impl RequestSlots {
+    /// The offline selection is kept in the open library's database, so a Subsonic library has
+    /// none to change.
+    fn local_without_library() -> Self {
+        let mut slots = Self::local();
+        let unsupported = Slot::Unsupported {
+            reason: UnsupportedReason::NotImplemented,
+        };
+        slots.set::<SetDownloadRuleRequest>(unsupported);
+        slots.set::<RemoveDownloadRuleRequest>(unsupported);
+        slots
     }
 }
 

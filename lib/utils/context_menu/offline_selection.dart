@@ -7,15 +7,24 @@ import '../../constants/configurations.dart';
 import '../../constants/settings_manager.dart';
 import '../router/navigation.dart';
 import '../../providers/library_open_state.dart';
+import '../../providers/request_capabilities.dart';
 import '../api/set_download_rule.dart';
 import '../api/request_failure.dart';
 import '../l10n.dart';
 import '../dialogs/information/error.dart';
 
+/// The offline selection is kept in the open library's database, which a service library
+/// does not have on this device. The hub says whether the open library has one.
 bool supportsOfflineSelection(BuildContext context) {
   final record = context.read<LibraryOpenStateProvider>().openRecord;
   return record != null &&
-      record.kind is! LibraryRecordKindSummaryRemoteControl;
+      record.kind is! LibraryRecordKindSummaryRemoteControl &&
+      capabilityForRequest(
+            context,
+            (capabilities) => capabilities.setDownloadRuleRequest,
+            listen: false,
+          )
+          is RequestCapabilityAvailable;
 }
 
 MenuFlyoutSubItem offlineSelectionMenu(

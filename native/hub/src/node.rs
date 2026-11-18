@@ -894,7 +894,7 @@ impl NodeContext {
 
     pub(crate) fn implementation_for_scope<R: TargetRequest>(&self) -> Result<Implementation> {
         match R::SCOPE {
-            RequestScope::Node => Ok(Implementation::Local),
+            RequestScope::Node => Ok(self.current_library()?.node_implementation()),
             RequestScope::Library => Ok(self.current_library()?.implementation()),
             RequestScope::Session => Ok(self.current_player()?.implementation()),
         }
