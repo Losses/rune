@@ -144,7 +144,6 @@ impl WebDavFixture {
     }
 
     #[allow(dead_code)]
-    #[allow(dead_code)]
     pub fn reject_writes(&self) {
         self.reject_writes.store(true, Ordering::SeqCst);
     }
