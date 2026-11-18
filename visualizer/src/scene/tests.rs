@@ -1559,6 +1559,151 @@ bloom = { intensity = 0.0 }
 }
 
 #[test]
+fn emoji_tunnel_keeps_answered_moments_until_the_move_ends() {
+    use crate::chart::LatestOnset;
+    use std::time::Duration;
+
+    let Some((device, queue)) = gpu() else {
+        eprintln!("SKIPPED: no GPU adapter");
+        return;
+    };
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("scenes/emoji-tunnel");
+    let dir = folder("emoji-moment-history", &[]);
+    let state = std::fs::read_to_string(source.join("state.wgsl")).unwrap();
+    let update = std::fs::read_to_string(source.join("update.wgsl")).unwrap();
+    let probe = include_str!("../../tests/fixtures/emoji-moment-history.wgsl");
+    let (update_probe, view_probe) = probe.split_once("fn shade").unwrap();
+    std::fs::write(
+        dir.join("state.wgsl"),
+        state.replace(
+            "struct State {",
+            "struct State {
+  witness: array<vec2f, 3>,",
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("update.wgsl"),
+        format!(
+            "{}
+{update_probe}",
+            update.replace("fn update()", "fn tunnel_update()")
+        ),
+    )
+    .unwrap();
+    std::fs::write(dir.join("tunnel.wgsl"), format!("fn shade{view_probe}")).unwrap();
+    let mut manifest = std::fs::read_to_string(source.join(MANIFEST))
+        .unwrap()
+        .parse::<toml::Table>()
+        .unwrap();
+    // The probe uses the scene's update and bindings, without the artwork.
+    manifest.remove("asset");
+    manifest.remove("common");
+    manifest.remove("render");
+    manifest["post"] = r#"
+tonemap = "none"
+grain = 0.0
+chromatic = 0.0
+vignette = 0.0
+bloom = { intensity = 0.0 }
+"#
+    .parse::<toml::Table>()
+    .unwrap()
+    .into();
+
+    let screen = Screen::new(&device);
+    let mut failures = Vec::new();
+    for long_move in [false, true] {
+        if long_move {
+            let move_time = manifest["param"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|param| param["id"].as_str() == Some("move_time"))
+                .unwrap();
+            move_time["default"] = 2.0.into();
+        }
+        std::fs::write(dir.join(MANIFEST), toml::to_string(&manifest).unwrap()).unwrap();
+        let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
+        let start = Instant::now();
+        let mut chart = ChartState {
+            lead: 1.0, // Low onsets count as hits; harmonic onsets count as notes.
+            loudness: 0.5,
+            ..Default::default()
+        };
+        let mut notes = 0;
+        for tick in 0u32..=323 {
+            let time = f64::from(tick) / 100.0;
+            if (111..=309).contains(&tick) && (tick - 111).is_multiple_of(11) {
+                // Prime the melody rate once, then give 18 notes 0.11 seconds apart.
+                chart.latest[3] = LatestOnset {
+                    count: chart.latest[3].count + 1,
+                    time,
+                    strength: if tick == 122 { 0.4 } else { 0.5 },
+                };
+            }
+            if tick == 309 {
+                chart.latest[0] = LatestOnset {
+                    count: 1,
+                    time,
+                    strength: 1.0,
+                };
+            }
+            let mut encoder = device.create_command_encoder(&Default::default());
+            scene.render(
+                &device,
+                &queue,
+                &mut encoder,
+                &screen.view,
+                &FrameInput {
+                    time,
+                    rhythm: &Rhythm::default(),
+                    chart: Some(&chart),
+                    song: (time, true),
+                    song_chart: None,
+                    song_seed: Some(1),
+                    accent: None,
+                    wall: start + Duration::from_millis(u64::from(tick) * 10),
+                },
+                None,
+            );
+            queue.submit(Some(encoder.finish()));
+            notes += scene.music_values.notes;
+            let expected: &[(u32, f32, f32)] = match (long_move, tick) {
+                (_, 122) => &[(0, 0.0, 0.4), (1, 0.0, 0.4)],
+                (false, 181) => &[(0, 0.59, 0.4)],
+                (false, 183) => &[(0, 2.0, 0.0)],
+                (true, 309) => &[(0, 1.87, 0.4), (1, 0.0, 0.5), (2, 0.0, 0.6)],
+                (true, 321) => &[(0, 1.99, 0.4)],
+                (true, 323) => &[(0, 2.0, 0.0)],
+                _ => &[],
+            };
+            for &(emoji, age, strength) in expected {
+                let colour = screen
+                    .pixel_srgb(&device, &queue, 10 + 21 * emoji, SIZE.1 / 2)
+                    .map(srgb_to_linear);
+                // The same-frame counted hit has strength 0.6 to 1.1 depending on energy.
+                let strength_matches = if emoji == 2 {
+                    (0.59..=1.11).contains(&(2.0 * colour[1]))
+                } else {
+                    (2.0 * colour[1] - strength).abs() < 0.02
+                };
+                if (2.0 * colour[0] - age).abs() >= 0.02 || !strength_matches {
+                    failures.push(format!(
+                        "long move {long_move}, t={time:.2}s, emoji {emoji}: expected age {age:.2}s and strength {strength:.2}, got age {:.2}s and strength {:.2}",
+                        2.0 * colour[0],
+                        2.0 * colour[1],
+                    ));
+                }
+            }
+        }
+        assert_eq!(notes, 19, "admitted notes, including the warm-up");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
 fn growth_camera_settles_after_a_growth_step() {
     let Some((device, queue)) = gpu() else {
         eprintln!("SKIPPED: no GPU adapter");
