@@ -2,7 +2,7 @@ use super::libraries::ListedLibrary;
 use super::sync::client::LibrarySession;
 use super::sync::client::SessionDirection;
 use super::sync::client::fetch_missing;
-use super::sync::downloads::{DownloadAudioContext, download_requested_audio_until};
+use super::sync::downloads::{DownloadAudioContext, DownloadProgress, download_audio_pass};
 use super::sync::{library_base, library_notification};
 use super::sync_auth::{Authorization, Challenge, TOKEN_TTL, Token, message};
 use crate::access_policy::{Action, ConnectionLevel, SyncLevel};
@@ -863,12 +863,22 @@ async fn run_loop(
     metadata: bool,
     locks: ReplicaLocks,
 ) {
+    let downloads = Arc::new(Mutex::new(
+        HashMap::<PeerLibraryKey, DownloadProgress>::new(),
+    ));
     let discover = || async {
         let Some(global) = global.upgrade() else {
             return Vec::new();
         };
         let ids = eligible_libraries(&global).await;
         let peers = peer_endpoints(&global, &credentials.fingerprint).await;
+        if !metadata {
+            let fingerprints: HashSet<_> =
+                peers.iter().map(|hosts| &hosts[0].fingerprint).collect();
+            downloads.lock().await.retain(|(fingerprint, id), _| {
+                ids.contains(id) && fingerprints.contains(fingerprint)
+            });
+        }
         ids.into_iter()
             .flat_map(|id| peers.iter().cloned().map(move |hosts| (id, hosts)))
             .collect()
@@ -879,6 +889,7 @@ async fn run_loop(
         let credentials = credentials.clone();
         let cancel = cancel.clone();
         let locks = locks.clone();
+        let downloads = downloads.clone();
         async move {
             let key = (hosts[0].fingerprint.clone(), id);
             let Some(global) = global.upgrade() else {
@@ -899,6 +910,11 @@ async fn run_loop(
                 }
             };
             let notify = pass_notification(&global, &library, &notify).await;
+            let mut download_progress = if metadata {
+                DownloadProgress::default()
+            } else {
+                downloads.lock().await.remove(&key).unwrap_or_default()
+            };
             for endpoint in hosts {
                 let result = tokio::select! {
                     _ = cancel.cancelled() => return (key, Duration::from_secs(30), false),
@@ -908,7 +924,13 @@ async fn run_loop(
                     },
                     _ = wait_for_revocation(Arc::downgrade(&global), &endpoint.fingerprint, &endpoint.trusted_host) => Err(anyhow::anyhow!("peer permission revoked")),
                     result = async {
-                        let options = PassOptions { credentials: &credentials, metadata, locks: &locks, cancel: &cancel };
+                        let options = PassOptions {
+                            credentials: &credentials,
+                            metadata,
+                            locks: &locks,
+                            cancel: &cancel,
+                            download_progress: &mut download_progress,
+                        };
                         let operation = sync_one(&global, &library, &notify, &endpoint, options);
                         if metadata {
                             tokio::time::timeout(Duration::from_secs(60), operation).await.map_err(|_| anyhow::anyhow!("peer operation timed out"))?
@@ -918,7 +940,15 @@ async fn run_loop(
                     } => result,
                 };
                 match classify_peer_pass(result) {
-                    Ok(complete) => return (key, complete.retry_delay(), false),
+                    Ok(complete) => {
+                        if !metadata && complete == PeerPass::Incomplete {
+                            downloads
+                                .lock()
+                                .await
+                                .insert(key.clone(), download_progress);
+                        }
+                        return (key, complete.retry_delay(), false);
+                    }
                     Err(error) => log::warn!(
                         "Background {} with paired device failed: {error:#}",
                         if metadata {
@@ -1182,6 +1212,7 @@ struct PassOptions<'a> {
     metadata: bool,
     locks: &'a ReplicaLocks,
     cancel: &'a tokio_util::sync::CancellationToken,
+    download_progress: &'a mut DownloadProgress,
 }
 
 async fn sync_one(
@@ -1196,6 +1227,7 @@ async fn sync_one(
         metadata,
         locks,
         cancel,
+        download_progress,
     } = options;
     if metadata {
         let lock = {
@@ -1313,7 +1345,7 @@ async fn sync_one(
                     local.namespace == remote.namespace,
                     "paired catalog namespace mismatch"
                 );
-                let report = download_requested_audio_until(
+                let report = download_audio_pass(
                     (*library.main_db).clone(),
                     &library.recommend_db,
                     library.fsio.clone(),
@@ -1325,9 +1357,10 @@ async fn sync_one(
                         playback_queue: &playback_queue,
                     },
                     tokio_time::Instant::now() + Duration::from_secs(60),
+                    download_progress,
                 )
                 .await?;
-                Ok(!report.deadline_reached)
+                Ok(!report.deadline_reached && !report.attempt_limit_reached)
             }
             .await;
             if result.as_ref().err().is_some_and(metadata_unauthorized) {

@@ -29,6 +29,13 @@ pub struct DownloadAudioContext<'a> {
     pub notify: Arc<dyn Fn() + Send + Sync>,
     pub playback_queue: &'a [i32],
 }
+
+/// Tracks the file IDs already attempted during the current download sweep.
+#[derive(Default)]
+pub struct DownloadProgress {
+    attempted: HashSet<i32>,
+}
+
 /// Evaluate enabled rules and fetch only missing matching audio from this peer.
 pub async fn download_requested_audio(
     db: DatabaseConnection,
@@ -56,8 +63,7 @@ pub async fn download_requested_audio(
     .await
 }
 
-/// Run a pass until the deadline, allowing an in-flight transfer to finish.
-#[allow(clippy::too_many_arguments)]
+/// Run one bounded pass, allowing an in-flight transfer to finish.
 pub async fn download_requested_audio_until(
     db: DatabaseConnection,
     recommend_db: &RecommendationDbConnection,
@@ -66,6 +72,28 @@ pub async fn download_requested_audio_until(
     context: DownloadAudioContext<'_>,
     deadline: tokio::time::Instant,
 ) -> Result<DownloadReport> {
+    download_audio_pass(
+        db,
+        recommend_db,
+        fsio,
+        root,
+        context,
+        deadline,
+        &mut DownloadProgress::default(),
+    )
+    .await
+}
+
+/// Resume a bounded pass, skipping files already attempted in this sweep.
+pub async fn download_audio_pass(
+    db: DatabaseConnection,
+    recommend_db: &RecommendationDbConnection,
+    fsio: Arc<FsIo>,
+    root: PathBuf,
+    context: DownloadAudioContext<'_>,
+    deadline: Instant,
+    progress: &mut DownloadProgress,
+) -> Result<DownloadReport> {
     release_obsolete_reservations(&db).await?;
     let rules = sync_download_rules::Entity::find()
         .filter(sync_download_rules::Column::Enabled.eq(true))
@@ -73,6 +101,7 @@ pub async fn download_requested_audio_until(
         .all(&db)
         .await?;
     if rules.is_empty() {
+        progress.attempted.clear();
         return Ok(DownloadReport::default());
     }
     let server = context.remote.base_url();
@@ -87,7 +116,8 @@ pub async fn download_requested_audio_until(
     let mut report = DownloadReport::default();
     const PAGE: usize = 100;
     const MAX_ATTEMPTS: usize = 128;
-    let mut attempted = HashSet::new();
+    let attempted = &mut progress.attempted;
+    let attempted_before = attempted.len();
     for rule in rules {
         let queries = match rule_queries(&db, &rule).await {
             Ok(queries) => queries,
@@ -133,8 +163,8 @@ pub async fn download_requested_audio_until(
                     continue;
                 }
                 // Inspection failures use the same budget as transfers.
-                if attempted.len() >= MAX_ATTEMPTS {
-                    report.deadline_reached = true;
+                if attempted.len() - attempted_before >= MAX_ATTEMPTS {
+                    report.attempt_limit_reached = true;
                     return Ok(report);
                 }
                 let materialized = match is_materialized(&db, &fsio, &root, file.id).await {
@@ -231,5 +261,6 @@ pub async fn download_requested_audio_until(
             }
         }
     }
+    attempted.clear();
     Ok(report)
 }

@@ -20,7 +20,8 @@ use fsio::FsIo;
 use futures::StreamExt;
 use http_request::sync::MetadataPeer;
 use hub::server::sync::downloads::{
-    DownloadAudioContext, download_requested_audio, download_requested_audio_until,
+    DownloadAudioContext, DownloadProgress, download_audio_pass, download_requested_audio,
+    download_requested_audio_until,
 };
 use sea_orm::sea_query::Expr;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set};
@@ -205,6 +206,25 @@ impl Fixture {
             self.node,
             &MetadataPeer::new(base, reqwest::Client::new()),
             Arc::new(|| {}),
+        )
+        .await
+    }
+
+    async fn run_pass(&self, progress: &mut DownloadProgress) -> Result<DownloadReport> {
+        let peer = MetadataPeer::new(&self.base, reqwest::Client::new());
+        download_audio_pass(
+            self.db.clone(),
+            &RecommendationDbConnection::new(),
+            self.fs.clone(),
+            self.root.path().into(),
+            DownloadAudioContext {
+                node_id: self.node,
+                remote: &peer,
+                notify: Arc::new(|| {}),
+                playback_queue: &[],
+            },
+            Instant::now() + Duration::from_secs(60),
+            progress,
         )
         .await
     }
@@ -530,9 +550,8 @@ async fn invalid_local_path_does_not_block_following_file() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn inspection_errors_consume_the_download_attempt_budget() -> Result<()> {
-    let fixture = Fixture::with_track_count(258).await?;
+async fn inspection_budget_fixture(eligible: usize) -> Result<(Fixture, Vec<media_files::Model>)> {
+    let fixture = Fixture::with_track_count(129 + eligible).await?;
     fixture.fail.store(false, Ordering::SeqCst);
     sync_download_rules::Entity::delete_many()
         .exec(&fixture.db)
@@ -551,8 +570,9 @@ async fn inspection_errors_consume_the_download_attempt_budget() -> Result<()> {
         .order_by_asc(media_files::Column::Id)
         .all(&fixture.db)
         .await?;
-    assert_eq!(files.len(), 258);
-    let broken = &files[..129];
+    assert_eq!(files.len(), 129 + eligible);
+    let mut broken = files;
+    broken.truncate(129);
     // Visit every broken path before the eligible remote files.
     media_files::Entity::update_many()
         .col_expr(media_files::Column::LastModified, Expr::value("2001-01-01"))
@@ -567,6 +587,35 @@ async fn inspection_errors_consume_the_download_attempt_budget() -> Result<()> {
         .exec(&fixture.db)
         .await?;
 
+    Ok((fixture, broken))
+}
+
+#[tokio::test]
+async fn capped_passes_reach_eligible_tracks_without_repairing_failed_paths() -> Result<()> {
+    let (fixture, _) = inspection_budget_fixture(2).await?;
+    let mut progress = DownloadProgress::default();
+    let first = fixture.run_pass(&mut progress).await?;
+    assert_eq!(first.failed, 128);
+    assert_eq!(first.requested, 0);
+    assert!(first.attempt_limit_reached);
+    assert!(!first.deadline_reached);
+
+    let next = fixture.run_pass(&mut progress).await?;
+    assert_eq!(next.failed, 1);
+    assert_eq!(next.downloaded, 2, "a retry must reach the eligible tracks");
+    assert_eq!(fixture.gets.load(Ordering::SeqCst), 2);
+    assert!(!next.attempt_limit_reached);
+    assert!(!next.deadline_reached);
+
+    let fresh = fixture.run_pass(&mut progress).await?;
+    assert_eq!(fresh.failed, 128);
+    assert_eq!(fixture.gets.load(Ordering::SeqCst), 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn inspection_errors_consume_the_download_attempt_budget() -> Result<()> {
+    let (fixture, broken) = inspection_budget_fixture(129).await?;
     for (bad_paths, expected_failed, expected_requested) in
         [(129, 128, 0), (128, 128, 0), (127, 127, 1)]
     {
@@ -597,7 +646,8 @@ async fn inspection_errors_consume_the_download_attempt_budget() -> Result<()> {
             "{bad_paths} bad paths"
         );
         assert_eq!(report.downloaded, expected_requested);
-        assert!(report.deadline_reached);
+        assert!(report.attempt_limit_reached);
+        assert!(!report.deadline_reached);
         assert_eq!(
             fixture.gets.load(Ordering::SeqCst) - before,
             expected_requested
@@ -627,6 +677,7 @@ async fn transfer_finishes_after_pass_deadline_without_starting_next_file() -> R
     .await?;
     assert_eq!(report.downloaded, 1);
     assert!(report.deadline_reached);
+    assert!(!report.attempt_limit_reached);
     assert_eq!(fixture.gets.load(Ordering::SeqCst), 1);
     let complete = fixture.run(&fixture.base).await?;
     assert!(!complete.deadline_reached);

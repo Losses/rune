@@ -2376,6 +2376,7 @@ impl TestPeerSession {
                     metadata,
                     locks: &self.locks,
                     cancel: &params.node.token,
+                    download_progress: &mut DownloadProgress::default(),
                 },
             )
             .await,
