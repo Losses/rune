@@ -12,6 +12,7 @@ import '../../providers/playback_controller.dart';
 import '../../providers/responsive_providers.dart';
 import '../../providers/status.dart';
 import '../../providers/visualizer_lab.dart';
+import '../../utils/api/seek_absolute.dart';
 import '../../screens/cover_wall/widgets/cover_art_page_progress_bar.dart';
 import '../../widgets/playback_controller/constants/controller_items.dart';
 import '../../widgets/playback_controller/conrtoller_progress_bar.dart';
@@ -142,9 +143,11 @@ void main() {
       await tester.pump();
     }
     // A drag can still hold a callback from before the stopped update.
+    // Sending a request would fail in this harness, which has no native bridge.
     for (final callback in activeCallbacks) {
-      callback(50);
+      expect(() => callback(50), returnsNormally);
     }
+    expect(seekAbsolute(5, status.playbackStatus), isFalse);
     expect(tester.takeException(), isNull);
 
     await deliver(PlaybackState.paused, ready: false);

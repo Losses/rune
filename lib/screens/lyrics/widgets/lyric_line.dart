@@ -4,10 +4,12 @@ import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:clipboard/clipboard.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:provider/provider.dart';
 
 import '../../../utils/l10n.dart';
 import '../../../utils/api/seek_absolute.dart';
 import '../../../providers/request_capabilities.dart';
+import '../../../providers/status.dart';
 import '../../../utils/router/router_aware_flyout_controller.dart';
 import '../../../widgets/context_menu_wrapper.dart';
 import '../../../bindings/bindings.dart';
@@ -232,7 +234,10 @@ class _LyricLineState extends State<LyricLine>
           onTap: seekCapability is RequestCapabilityAvailable
               ? () {
                   if (widget.sections.isEmpty) return;
-                  seekAbsolute(_startTime);
+                  seekAbsolute(
+                    _startTime / 1000,
+                    context.read<PlaybackStatusProvider?>()?.playbackStatus,
+                  );
                 }
               : null,
           child: ContextMenuWrapper(

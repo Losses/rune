@@ -25,6 +25,7 @@ class PlaybackStatusState {
   String? coverArtPath;
   String? libPath;
 
+  /// Whether a ready playing or paused track can accept a seek.
   bool get canSeek => ready && state != PlaybackState.stopped;
 
   PlaybackStatusState({
