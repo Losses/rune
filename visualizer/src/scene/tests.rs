@@ -244,6 +244,144 @@ fn a_lower_level_keeps_the_state_and_the_trail() {
 }
 
 #[test]
+fn torii_sea_trails_span_the_configured_duration() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("SKIPPED: no GPU adapter");
+        return;
+    };
+    let source = crate::builtin::find("Torii Sea").unwrap().source;
+    let screen = Screen::new(&device);
+    for (fps, short) in [(60_u32, false), (60, true), (30, true)] {
+        let mut scene =
+            Scene::load_from(&device, &queue, source.clone(), FORMAT, SIZE, 48_000).unwrap();
+        let manifest = &scene.files.manifest;
+        let trail = manifest
+            .params
+            .iter()
+            .position(|p| p.id == "trail_time")
+            .unwrap();
+        let mut params = scene.files.param_values();
+        if short {
+            params[trail] = Value::Float(manifest.params[trail].min.unwrap() as f32);
+            queue.write_buffer(&scene.params_buffer, 0, &scene.params.pack(&params));
+        }
+        let Value::Float(duration) = params[trail] else {
+            panic!("trail_time must be in seconds");
+        };
+        let (name, update) = scene.files.update.as_ref().unwrap();
+        let module = wgsl::update_source(manifest, scene.files.state(), (name, update))
+            .check()
+            .unwrap();
+        let naga::TypeInner::Struct { members, .. } = &module
+            .types
+            .iter()
+            .find(|(_, ty)| ty.name.as_deref() == Some("State"))
+            .unwrap()
+            .1
+            .inner
+        else {
+            panic!("Torii Sea has no state struct");
+        };
+        let offset = |name| {
+            u64::from(
+                members
+                    .iter()
+                    .find(|m| m.name.as_deref() == Some(name))
+                    .unwrap()
+                    .offset,
+            )
+        };
+
+        let last = fps * 4;
+        let points = 40;
+        let path = offset("path");
+        let stride = path + points * 16;
+        let readback = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Torii Sea history"),
+            size: u64::from(last + 1) * stride,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let start = Instant::now();
+        let mut rhythm = Rhythm {
+            bpm: 120.0,
+            confidence: 1.0,
+            ..Default::default()
+        };
+        for i in 0..=last {
+            let time = f64::from(i) / f64::from(fps);
+            rhythm.beat = time * 2.0;
+            let mut encoder = device.create_command_encoder(&Default::default());
+            scene.render(
+                &device,
+                &queue,
+                &mut encoder,
+                &screen.view,
+                &FrameInput {
+                    time,
+                    rhythm: &rhythm,
+                    chart: None,
+                    song: (time, true),
+                    song_chart: None,
+                    song_seed: Some(473),
+                    accent: None,
+                    wall: start + std::time::Duration::from_secs_f64(time),
+                },
+                None,
+            );
+            // Read the state up to the end of the first spirit's history.
+            encoder.copy_buffer_to_buffer(
+                &scene.state,
+                0,
+                &readback,
+                u64::from(i) * stride,
+                stride,
+            );
+            queue.submit(Some(encoder.finish()));
+        }
+        readback
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, |result| result.unwrap());
+        device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: None,
+            })
+            .unwrap();
+        let data = readback.slice(..).get_mapped_range().unwrap();
+        let word = |at: u64| data[at as usize..at as usize + 4].try_into().unwrap();
+        let end = u64::from(last) * stride;
+        let slot = u64::from(u32::from_le_bytes(word(end + offset("slot"))));
+        // Find the closest observed spirit position to each end of the stored history.
+        // Read all three coordinates because spirits can double back along any one axis.
+        let position = |at| [0, 4, 8].map(|delta| f32::from_le_bytes(word(at + delta)));
+        let sample_frame = |slot| {
+            let point = position(end + path + slot * 16);
+            let distance = |i| {
+                position(u64::from(i) * stride + offset("spirit"))
+                    .into_iter()
+                    .zip(point)
+                    .map(|(a, b)| (a - b).powi(2))
+                    .sum::<f32>()
+            };
+            (0..=last)
+                .min_by(|&i, &j| distance(i).total_cmp(&distance(j)))
+                .unwrap() as f32
+        };
+        // After the ring fills, the slot after the newest is the oldest.
+        let span_frames = sample_frame(slot) - sample_frame((slot + 1) % points);
+        let span = span_frames / fps as f32;
+        assert!(
+            (span_frames - duration * fps as f32).abs() <= 1.0,
+            "Torii Sea at {fps} fps: history spans {span:.3} s, configured for {duration:.3} s",
+        );
+        eprintln!(
+            "Torii Sea at {fps} fps: history spans {span:.3} s, configured for {duration:.3} s"
+        );
+    }
+}
+
+#[test]
 fn a_scene_sees_its_resolution_and_quality() {
     let Some((device, queue)) = gpu() else {
         eprintln!("SKIPPED: no GPU adapter");

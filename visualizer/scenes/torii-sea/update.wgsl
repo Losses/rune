@@ -191,6 +191,7 @@ fn update() {
   let fb = input.beat_no;
   let snap = stepped - fb;
   let per_bar = floor(input.meter);
+  var previous: array<vec3f, SPIRITS>;
   for (var h = 0u; h < SPIRITS; h++) {
     let fh = f32(h);
     let on = f32(fh < n);
@@ -205,6 +206,7 @@ fn update() {
         state.path[h * POINTS + j] = vec4f(p, 0.0);
       }
     }
+    previous[h] = p;
     w += (on - w) * (1.0 - exp(-dt / 0.4));
 
     var z = s;
@@ -296,15 +298,18 @@ fn update() {
     state.spirit_vel[h] = vec4f(v, 0.0);
   }
 
-  // The paths: a point written every so often into the ring.
+  // Keep every sample due this frame, at its time along the spirit's step.
+  let interval = params.trail_time / f32(POINTS - 1u);
   state.until -= dt;
-  if (state.until <= 0.0) {
-    state.until = max(state.until + params.trail_time / f32(POINTS - 1u), 0.0);
+  for (var i = 0u; i < POINTS && dt > 0.0 && state.until <= 0.0; i++) {
+    let along = clamp(1.0 + state.until / dt, 0.0, 1.0);
     state.slot = (state.slot + 1u) % POINTS;
     state.written += 1.0;
     for (var h = 0u; h < SPIRITS; h++) {
-      state.path[h * POINTS + state.slot] = state.spirit[h];
+      let spirit = state.spirit[h];
+      state.path[h * POINTS + state.slot] = vec4f(mix(previous[h], spirit.xyz, along), spirit.w);
     }
+    state.until += interval;
   }
 
   // The camera, by its shot, moving on with the spirits; it never sways, nor rises with their
