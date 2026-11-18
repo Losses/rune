@@ -63,7 +63,10 @@ class EditDeviceInformationSettingDialogState
             const SizedBox(height: 16),
             InfoLabel(
               label: s.deviceName,
-              child: TextBox(controller: deviceNameController),
+              child: TextBox(
+                controller: deviceNameController,
+                onChanged: (_) => setState(() {}),
+              ),
             ),
             const SizedBox(height: 16),
             InfoLabel(
@@ -74,7 +77,7 @@ class EditDeviceInformationSettingDialogState
         ),
         actions: [
           FilledButton(
-            onPressed: deviceNameController.value.text.isEmpty
+            onPressed: deviceNameController.text.trim().isEmpty
                 ? null
                 : _updateDeviceName,
             child: Text(s.edit),

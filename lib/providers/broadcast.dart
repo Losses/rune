@@ -73,6 +73,8 @@ class BroadcastProvider extends ChangeNotifier {
   }
 
   Future<void> updateDeviceAlias(String newAlias) async {
+    if (newAlias.trim().isEmpty) return;
+
     await _settingsManager.setValue(kDeviceAliasKey, newAlias);
     _deviceAlias = newAlias;
     notifyListeners();
