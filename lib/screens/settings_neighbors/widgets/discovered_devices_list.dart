@@ -8,17 +8,13 @@ import '../../../bindings/bindings.dart';
 import '../../../utils/l10n.dart';
 import '../../../widgets/settings/settings_tile_title.dart';
 
-import '../utils/show_fingerprint_quiz_dialog.dart';
-
 class DiscoveredDevicesList extends StatefulWidget {
   const DiscoveredDevicesList({
     super.key,
-    required this.onPaired,
-    required this.onAnswered,
+    required this.onSelected,
   });
 
-  final void Function() onPaired;
-  final void Function(DiscoveredDeviceMessage, bool?) onAnswered;
+  final void Function(DiscoveredDeviceMessage) onSelected;
 
   @override
   State<DiscoveredDevicesList> createState() => _DiscoveredDevicesListState();
@@ -103,7 +99,9 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     Button(
-                      onPressed: () => _handlePairDevice(device),
+                      onPressed: device.addresses.isEmpty
+                          ? null
+                          : () => widget.onSelected(device),
                       child: Text(s.pair),
                     ),
                   ],
@@ -117,21 +115,6 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
         );
       },
     );
-  }
-
-  void _handlePairDevice(DiscoveredDeviceMessage device) async {
-    if (device.addresses.isNotEmpty) {
-      widget.onPaired();
-      final answer = await showFingerprintQuizDialog(context, device.addresses.first);
-
-      // The certificate the user checked must be the one the device announced.
-      widget.onAnswered(
-        device,
-        answer == null
-            ? null
-            : answer.correct && answer.fingerprint == device.fingerprint,
-      );
-    }
   }
 }
 
