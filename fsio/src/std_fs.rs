@@ -162,7 +162,9 @@ impl FileIo for StdFsIo {
             let (Some(filename), Some(raw_path)) =
                 (entry.file_name().to_str(), entry.path().to_str())
             else {
-                if entry.file_type().is_dir() {
+                // walkdir enters a root that links to a directory even without
+                // follow_links, and that entry does not report itself as one.
+                if entry.depth() == 0 || entry.file_type().is_dir() {
                     entries.skip_current_dir();
                 }
                 walk.skipped.push(entry.into_path());

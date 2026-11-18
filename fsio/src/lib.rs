@@ -44,7 +44,8 @@ pub struct FsNode {
 /// What [`FileIo::walk_dir`] found under a directory.
 #[derive(Debug, Clone, Default)]
 pub struct DirWalk {
-    /// The directory and every entry under it.
+    /// Every entry under the directory. Whether the directory itself is listed
+    /// depends on the backend: the standard file system lists it, OpenDAL does not.
     pub nodes: Vec<FsNode>,
     /// Entries left out because their path is not valid Unicode. An [`FsNode`]
     /// holds names as text, and a lossy copy could name a different file.
@@ -148,8 +149,8 @@ pub trait FileIo: Send + Sync {
         Err(FileIoError::NotSupported("file rename".into()))
     }
     async fn remove_dir_all(&self, path: &Path) -> Result<(), FileIoError>;
-    /// `path` and every entry under it, with entries whose path is not valid
-    /// Unicode reported apart in [`DirWalk::skipped`].
+    /// Every entry under `path`, with entries whose path is not valid Unicode
+    /// reported apart in [`DirWalk::skipped`].
     fn walk_dir(&self, path: &Path, follow_links: bool) -> Result<DirWalk, FileIoError>;
     fn exists(&self, path: &Path) -> Result<bool, FileIoError>;
     async fn is_file(&self, path: &Path) -> Result<bool, FileIoError>;

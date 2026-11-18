@@ -413,3 +413,61 @@ async fn paths_that_are_not_unicode_are_skipped_and_reported() -> Result<()> {
     db.close().await?;
     Ok(())
 }
+
+/// A walk that skipped a folder cannot tell whether the tracks indexed from it
+/// still exist, so cleanup keeps them, marked unavailable, until the folder can
+/// be read again.
+#[cfg(any(windows, all(unix, not(target_vendor = "apple"))))]
+#[tokio::test]
+async fn folder_renamed_to_a_non_unicode_name_keeps_its_tracks() -> Result<()> {
+    use fsio::test_fixtures::non_unicode_name;
+
+    let temp = tempfile::tempdir()?;
+    let root = temp.path();
+    let album = root.join("album");
+    std::fs::create_dir(&album)?;
+    write_tagged_wav(&album.join("track.wav"), "renamed folder")?;
+    let fs = FsIo::new();
+    let node = uuid::Uuid::new_v4();
+    let db = connect_main_db(&fs, root.to_str().unwrap(), None, &node.to_string()).await?;
+    let library = fixtures::open_library(db.clone(), node, None).await?;
+    let store = library.record_store();
+    let options = || ScanOptions {
+        cleanup: true,
+        force: false,
+        missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+        cancel_token: None,
+    };
+
+    scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
+    let track = media_files::Entity::find()
+        .one(&db)
+        .await?
+        .context("the track was not indexed")?;
+    assert!(track.local_available);
+
+    let renamed = root.join(non_unicode_name("album-", ""));
+    std::fs::rename(&album, &renamed)?;
+    scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
+    let kept = media_files::Entity::find().all(&db).await?;
+    assert_eq!(
+        kept.iter()
+            .map(|file| (file.id, file.local_available))
+            .collect::<Vec<_>>(),
+        [(track.id, false)],
+        "a skipped folder must not make cleanup delete its tracks"
+    );
+
+    std::fs::rename(&renamed, &album)?;
+    scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
+    let restored = media_files::Entity::find().all(&db).await?;
+    assert_eq!(
+        restored
+            .iter()
+            .map(|file| (file.id, file.local_available))
+            .collect::<Vec<_>>(),
+        [(track.id, true)]
+    );
+    db.close().await?;
+    Ok(())
+}

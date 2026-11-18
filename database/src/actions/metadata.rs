@@ -821,14 +821,24 @@ where
     for path in scanner.skipped() {
         let detail = format!("Skipped {path:?}: its path is not valid Unicode");
         warn!("{detail}");
-        insert_log(
+        if let Err(error) = insert_log(
             main_db,
             LogLevel::Warning,
             "actions::metadata::scan_audio_library".to_string(),
             detail,
         )
-        .await?;
+        .await
+        {
+            error!("Failed to log a skipped path: {error:#}");
+        }
     }
+    // Cleanup cannot tell a track under a skipped path from a deleted one, so
+    // after an incomplete walk it only marks missing tracks unavailable.
+    let policy = if scanner.skipped().is_empty() {
+        policy
+    } else {
+        MissingHostFilePolicy::KeepAsRemote
+    };
 
     info!("Starting audio library scan with last-modified pre-filtering");
 
