@@ -76,6 +76,22 @@ void main() {
       await provider.updateDeviceAlias('  ');
       expect(provider.deviceAlias, 'Studio');
       expect(await settings.getValue<String>(kDeviceAliasKey), 'Studio');
+
+      await settings.setValue(kDeviceAliasKey, '');
+      final legacy = BroadcastProvider();
+      addTearDown(legacy.dispose);
+      await _waitForFingerprint(legacy);
+      expect(legacy.deviceAlias, '');
+      await legacy.updateDeviceAlias('Recovered studio');
+
+      final reloaded = BroadcastProvider();
+      addTearDown(reloaded.dispose);
+      await _waitForFingerprint(reloaded);
+      expect(reloaded.deviceAlias, 'Recovered studio');
+      expect(
+        await settings.getValue<String>(kDeviceAliasKey),
+        'Recovered studio',
+      );
     });
   });
 }

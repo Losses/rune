@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../utils/settings_manager.dart';
+import '../utils/rune_log.dart';
 import '../utils/api/get_ssl_certificate_fingerprint.dart';
 import '../utils/api/request_failure.dart';
 import '../bindings/bindings.dart';
@@ -66,10 +67,15 @@ class BroadcastProvider extends ChangeNotifier {
   }
 
   Future<void> _initializeDeviceAlias() async {
-    _deviceAlias = await _settingsManager.getValue<String>(kDeviceAliasKey);
-    if (_deviceAlias == null) {
-      _deviceAlias = _generateRandomAlias();
-      await _settingsManager.setValue(kDeviceAliasKey, _deviceAlias);
+    try {
+      _deviceAlias = await _settingsManager.getValue<String>(kDeviceAliasKey);
+      if (_deviceAlias == null) {
+        _deviceAlias = _generateRandomAlias();
+        await _settingsManager.setValue(kDeviceAliasKey, _deviceAlias);
+      }
+    } on Exception catch (error) {
+      _deviceAlias ??= _generateRandomAlias();
+      warn$('Could not initialize the stored device name: $error');
     }
   }
 
