@@ -35,6 +35,11 @@ class _LikeButtonState extends State<LikeButton> {
   int _requestGeneration = 0;
   final Map<PlayingItem, int> _pendingWrites = {};
 
+  PlayingItem? get _likeableItem {
+    final current = item;
+    return current?.independentFile == null ? current : null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -54,7 +59,7 @@ class _LikeButtonState extends State<LikeButton> {
 
   Future<void> _fetchLikedStatus() async {
     final generation = ++_requestGeneration;
-    final requestItem = item;
+    final requestItem = _likeableItem;
     if (requestItem == null) return;
 
     try {
@@ -76,7 +81,7 @@ class _LikeButtonState extends State<LikeButton> {
 
   Future<void> _toggleLikedStatus() async {
     final generation = ++_requestGeneration;
-    final requestItem = item;
+    final requestItem = _likeableItem;
     if (requestItem == null) return;
 
     _pendingWrites[requestItem] = (_pendingWrites[requestItem] ?? 0) + 1;
@@ -108,7 +113,7 @@ class _LikeButtonState extends State<LikeButton> {
 
   @override
   Widget build(BuildContext context) {
-    if (item == null ||
+    if (_likeableItem == null ||
         context.watch<LibraryOpenStateProvider>().isReadOnlyReplica) {
       return const SizedBox.shrink();
     }
@@ -118,11 +123,7 @@ class _LikeButtonState extends State<LikeButton> {
         (capabilities) => capabilities.setLikedRequest,
       ),
       child: RuneClickable(
-        onPressed: item == null
-            ? null
-            : () {
-                _toggleLikedStatus();
-              },
+        onPressed: _toggleLikedStatus,
         iconSize: 13,
         padding: 0,
         isTiny: true,
