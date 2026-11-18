@@ -39,6 +39,16 @@ This is stream-download 0.24.5 from crates.io, with its original licenses, used 
   past `usize::MAX` are `InvalidInput` errors instead of wrapping. Tests:
   `src/storage/bounded_tests.rs`; on unpatched 0.24.5 all but the wrapped-ring writer-seek test
   fail.
+- Process exit status (`src/process/mod.rs`, `ProcessStream::on_finish`, and
+  `Source::download` and `finish_or_find_next_gap` in `src/source/mod.rs`): a command that
+  closes its output and exits unsuccessfully fails the download, so the reader gets an I/O
+  error instead of a normal end of stream. The downloader announces the end of the stream
+  only after `on_finish` returns, so a reader cannot see EOF before the exit status is known,
+  and a cancel while `on_finish` waits calls it again as a cancellation, which kills the
+  command. With `cancel_on_drop(true)` that includes dropping the stream before the command
+  exits. Tests:
+  `src/process/exit_status_tests.rs` (`--features process`); on unpatched 0.24.5 the
+  nonzero-exit and cancel-after-EOF tests fail.
 
 Regression tests: `src/source/lifecycle_tests.rs` (on unpatched 0.24.5 the cached-seek,
 zero-prefetch and downloader-panic tests fail; the two gap tests guard the 0.22.4 panic), run from this directory with
