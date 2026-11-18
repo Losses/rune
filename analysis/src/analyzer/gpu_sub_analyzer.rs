@@ -58,8 +58,7 @@ impl SubAnalyzer for GpuSubAnalyzer {
 
         let occupied = self.batch_cache_buffer_count * core_analyzer.window_size;
         let fft_len = occupied
-            .next_power_of_two()
-            .max(wgpu_radix4::FFT_WINDOW_SIZE)
+            .next_multiple_of(wgpu_radix4::FFT_WINDOW_SIZE)
             .min(self.batch_fft_buffer.len());
         pollster::block_on(
             self.gpu_fft
