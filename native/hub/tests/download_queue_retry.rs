@@ -54,17 +54,26 @@ struct Fixture {
 
 impl Fixture {
     async fn new() -> Result<Self> {
+        Self::with_track_count(2).await
+    }
+
+    async fn with_track_count(track_count: usize) -> Result<Self> {
         let root = tempfile::tempdir()?;
         let node = Uuid::new_v4();
         let db = fixtures::initialized_memory(node).await?;
         let fs = Arc::new(FsIo::new());
         let store = fixtures::open_library(db.clone(), node, None).await?;
-        let mut tracks = Vec::new();
+        let mut blobs = Vec::new();
         let mut bodies = HashMap::new();
         for index in 0..2 {
             let path = fixtures::audio_fixture_at(index);
             let blob = hash_file(&fs, &path)?;
             bodies.insert(blob.digest.clone(), std::fs::read(path)?);
+            blobs.push(blob);
+        }
+        let mut tracks = Vec::new();
+        for index in 0..track_count {
+            let blob = &blobs[index % blobs.len()];
             let id = Uuid::new_v4();
             store
                 .write_local(
@@ -72,10 +81,10 @@ impl Fixture {
                         collection: Collection::Tracks,
                         id,
                     },
-                    Some(support::audio(format!("Track {index}"), &blob)),
+                    Some(support::audio(format!("Track {index}"), blob)),
                 )
                 .await?;
-            tracks.push((id, blob));
+            tracks.push((id, blob.clone()));
         }
         set_download_rule(&db, vec![("lib::all".into(), "true".into())], None, true).await?;
         let first = media_files::Entity::find()
@@ -518,6 +527,82 @@ async fn invalid_local_path_does_not_block_following_file() -> Result<()> {
     let report = fixture.run(&fixture.base).await?;
     assert_eq!(report.downloaded, 1);
     assert_eq!(fixture.gets.load(Ordering::SeqCst), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn inspection_errors_consume_the_download_attempt_budget() -> Result<()> {
+    let fixture = Fixture::with_track_count(258).await?;
+    fixture.fail.store(false, Ordering::SeqCst);
+    sync_download_rules::Entity::delete_many()
+        .exec(&fixture.db)
+        .await?;
+    set_download_rule(
+        &fixture.db,
+        vec![
+            ("lib::all".into(), "true".into()),
+            ("sort::last_modified".into(), "true".into()),
+        ],
+        None,
+        true,
+    )
+    .await?;
+    let files = media_files::Entity::find()
+        .order_by_asc(media_files::Column::Id)
+        .all(&fixture.db)
+        .await?;
+    assert_eq!(files.len(), 258);
+    let broken = &files[..129];
+    // Visit every broken path before the eligible remote files.
+    media_files::Entity::update_many()
+        .col_expr(media_files::Column::LastModified, Expr::value("2001-01-01"))
+        .exec(&fixture.db)
+        .await?;
+    media_files::Entity::update_many()
+        .col_expr(media_files::Column::LastModified, Expr::value("2000-01-01"))
+        .col_expr(media_files::Column::Directory, Expr::value("../invalid"))
+        .col_expr(media_files::Column::FileName, Expr::value("track.ogg"))
+        .col_expr(media_files::Column::LocalAvailable, Expr::value(true))
+        .filter(media_files::Column::Id.is_in(broken.iter().map(|file| file.id)))
+        .exec(&fixture.db)
+        .await?;
+
+    for (bad_paths, expected_failed, expected_requested) in
+        [(129, 128, 0), (128, 128, 0), (127, 127, 1)]
+    {
+        if let Some(repaired) = broken.get(bad_paths) {
+            media_files::Entity::update_many()
+                .col_expr(media_files::Column::LastModified, Expr::value("2001-01-01"))
+                .col_expr(
+                    media_files::Column::Directory,
+                    Expr::value(repaired.directory.clone()),
+                )
+                .col_expr(
+                    media_files::Column::FileName,
+                    Expr::value(repaired.file_name.clone()),
+                )
+                .col_expr(media_files::Column::LocalAvailable, Expr::value(false))
+                .filter(media_files::Column::Id.eq(repaired.id))
+                .exec(&fixture.db)
+                .await?;
+        }
+        let before = fixture.gets.load(Ordering::SeqCst);
+        let report = fixture.run(&fixture.base).await?;
+        assert_eq!(
+            report.failed, expected_failed,
+            "failed inspections with {bad_paths} bad paths"
+        );
+        assert_eq!(
+            report.requested, expected_requested,
+            "{bad_paths} bad paths"
+        );
+        assert_eq!(report.downloaded, expected_requested);
+        assert!(report.deadline_reached);
+        assert_eq!(
+            fixture.gets.load(Ordering::SeqCst) - before,
+            expected_requested
+        );
+    }
     Ok(())
 }
 
