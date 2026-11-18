@@ -25,7 +25,7 @@ class CoverWallBackgroundPainter extends CustomPainter {
     for (int imageIndex = 0; imageIndex < grid.length; imageIndex += 1) {
       final image = images[imageIndex];
 
-      if (image == null) return;
+      if (image == null) continue;
 
       for (final gridUnit in grid[imageIndex]) {
         canvas.save();
