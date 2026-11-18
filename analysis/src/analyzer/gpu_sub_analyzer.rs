@@ -47,23 +47,32 @@ impl SubAnalyzer for GpuSubAnalyzer {
         core_analyzer.count += 1;
 
         if force || self.batch_cache_buffer_count >= core_analyzer.batch_size {
-            pollster::block_on(self.gpu_fft.compute_fft(&mut self.batch_fft_buffer));
-
-            let batch_count = if force {
-                self.batch_cache_buffer_count
-            } else {
-                core_analyzer.batch_size
-            };
-
-            // Accumulate spectrums for all batches
-            for batch_idx in 0..batch_count {
-                let start = batch_idx * core_analyzer.window_size;
-                for i in 0..core_analyzer.window_size {
-                    core_analyzer.avg_spectrum[i].re += self.batch_fft_buffer[start + i].norm_sqr();
-                }
-            }
-
-            self.batch_cache_buffer_count = 0;
+            self.flush(core_analyzer);
         }
+    }
+
+    fn flush(&mut self, core_analyzer: &mut Analyzer) {
+        if self.batch_cache_buffer_count == 0 {
+            return;
+        }
+
+        let occupied = self.batch_cache_buffer_count * core_analyzer.window_size;
+        let fft_len = occupied
+            .next_power_of_two()
+            .max(wgpu_radix4::FFT_WINDOW_SIZE)
+            .min(self.batch_fft_buffer.len());
+        pollster::block_on(
+            self.gpu_fft
+                .compute_fft(&mut self.batch_fft_buffer[..fft_len]),
+        );
+
+        for batch_idx in 0..self.batch_cache_buffer_count {
+            let start = batch_idx * core_analyzer.window_size;
+            for i in 0..core_analyzer.window_size {
+                core_analyzer.avg_spectrum[i].re += self.batch_fft_buffer[start + i].norm_sqr();
+            }
+        }
+
+        self.batch_cache_buffer_count = 0;
     }
 }

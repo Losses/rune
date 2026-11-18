@@ -4,6 +4,8 @@ use num_complex::{Complex, Complex32};
 use rustfft::FftNum;
 use wgpu::{ComputePipeline, Device, Queue};
 
+pub(crate) const FFT_WINDOW_SIZE: usize = 1024;
+
 pub struct FFTCompute {
     device: Device,
     queue: Queue,
@@ -93,7 +95,7 @@ impl FFTCompute {
     {
         let n = data.len();
         assert!(
-            n >= 1024 && n.is_power_of_two(),
+            n >= FFT_WINDOW_SIZE && n.is_power_of_two(),
             "Input length must be a power of 2 and at least 1024"
         );
         let input_size = std::mem::size_of_val(data) as wgpu::BufferAddress;
@@ -119,7 +121,7 @@ impl FFTCompute {
             compute_pass.set_pipeline(&self.pipeline);
             compute_pass.set_bind_group(0, Some(&self.bind_group), &[]);
 
-            compute_pass.dispatch_workgroups(1, (n / 1024) as u32, 1);
+            compute_pass.dispatch_workgroups(1, (n / FFT_WINDOW_SIZE) as u32, 1);
         }
 
         encoder.copy_buffer_to_buffer(&self.output_buffer, 0, &self.result_buffer, 0, input_size);
