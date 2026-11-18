@@ -24,7 +24,6 @@ class CoverArtPageProgressBarState extends State<CoverArtPageProgressBar> {
 
     final statusProvider = Provider.of<PlaybackStatusProvider>(context);
     final status = statusProvider.playbackStatus;
-    final notReady = statusProvider.notReady;
 
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -40,7 +39,7 @@ class CoverArtPageProgressBarState extends State<CoverArtPageProgressBar> {
               duration: status.duration,
               slider: Slider(
                 value: status.progressPercentage * 100,
-                onChanged: !notReady ? (v) => seek(v, status) : null,
+                onChanged: status.canSeek ? (v) => seek(v, status) : null,
                 style: const SliderThemeData(useThumbBall: false),
               ),
             ),

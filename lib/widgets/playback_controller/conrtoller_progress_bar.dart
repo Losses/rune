@@ -22,12 +22,10 @@ class ControllerProgressBar extends StatelessWidget {
     super.key,
     required this.item,
     required this.status,
-    required this.notReady,
   });
 
   final PlayingItem? item;
   final PlaybackStatusState? status;
-  final bool notReady;
 
   @override
   Widget build(BuildContext context) {
@@ -82,11 +80,9 @@ class ControllerProgressBar extends StatelessWidget {
                     value: status != null
                         ? (status?.progressPercentage ?? 0) * 100
                         : 0,
-                    onChanged: (value) {
-                      if (status != null && !notReady) {
-                        seek(value, status);
-                      }
-                    },
+                    onChanged: status?.canSeek == true
+                        ? (value) => seek(value, status)
+                        : null,
                     style: const SliderThemeData(useThumbBall: false),
                   ),
                 ),

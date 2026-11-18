@@ -6,12 +6,12 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import '../../../bindings/bindings.dart';
 import '../../../providers/status.dart';
 import '../../../providers/request_capabilities.dart';
 import '../../../providers/visualizer_lab.dart';
 import '../../../providers/visualizer_scenes.dart';
 import '../../../utils/api/seek.dart';
+import '../../../utils/api/seek_absolute.dart';
 import '../../../utils/kept_clear.dart';
 import '../../playback_controller/constants/playback_controller_height.dart';
 import '../../capability_gate.dart';
@@ -179,8 +179,9 @@ class _LabBodyState extends State<LabBody> with WidgetsBindingObserver {
 
   // ---------- seeking ----------
 
-  void _seek(double seconds) =>
-      SeekRequest(positionSeconds: seconds).sendSignalToRust();
+  void _seek(double seconds) {
+    seekAbsolute(seconds, context.read<PlaybackStatusProvider>().playbackStatus);
+  }
 
   // While a drag moves, the song follows at a steady pace.
   void _scrub(double seconds) {
