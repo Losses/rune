@@ -463,6 +463,7 @@ impl Signal for FetchCollectionByIdsRequest {
         let queue = node.session_queue_for_library(library.library_id).await?;
         let params = CollectionActionParams {
             ids: Some(dart_signal.ids.clone()),
+            bake_cover_arts: dart_signal.bake_cover_arts,
             ..Default::default()
         };
 

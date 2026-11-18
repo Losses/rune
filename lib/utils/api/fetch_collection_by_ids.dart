@@ -6,12 +6,13 @@ import '../order_by_ids.dart';
 
 Future<List<Collection>> fetchCollectionByIds(
   CollectionType collectionType,
-  List<int> ids,
-) async {
+  List<int> ids, {
+  bool bakeCoverArts = false,
+}) async {
   final request = FetchCollectionByIdsRequest(
     ids: ids,
     collectionType: collectionType,
-    bakeCoverArts: true,
+    bakeCoverArts: bakeCoverArts,
   );
 
   final response = (await awaitResponse(
