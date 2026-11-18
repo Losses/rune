@@ -28,6 +28,7 @@ void main() {
     if (u_is_dark > .5) {
         fragColor = vec4(vec3(luminance) * col, imageColor.a);
     } else {
-        fragColor = vec4(col, (1.0 - luminance) * imageColor.a);
+        float alpha = (1.0 - luminance) * imageColor.a;
+        fragColor = vec4(col * alpha, alpha);
     }
 }
