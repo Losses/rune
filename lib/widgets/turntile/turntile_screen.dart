@@ -137,7 +137,7 @@ class TurntileScreenImplementationState
         future: data.summary,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return Container();
+            return const Center(child: ProgressRing());
           } else if (snapshot.hasError) {
             return Center(child: Text(requestErrorText(S.of(context), snapshot.error!)));
           } else {

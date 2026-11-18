@@ -168,7 +168,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
       future: summary,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return Container();
+          return const Center(child: ProgressRing());
         } else if (snapshot.hasError) {
           final error = snapshot.error;
           return Center(
