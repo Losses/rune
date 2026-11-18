@@ -154,8 +154,12 @@ class _LibraryTaskButtonState extends State<LibraryTaskButton> {
                   },
             onLongPressEnd: isWorking || isDesktop
                 ? null
-                : (details) {
-                    _startTask(libraryManager, recordId, widget.onContextMenu!);
+                : (_) {
+                    // Consume the hold so it cannot trigger a normal tap.
+                    final onContextMenu = widget.onContextMenu;
+                    if (onContextMenu != null) {
+                      _startTask(libraryManager, recordId, onContextMenu);
+                    }
                   },
             child: Button(
               onPressed: isWorking
