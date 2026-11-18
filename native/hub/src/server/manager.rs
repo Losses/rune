@@ -2714,6 +2714,101 @@ mod lifecycle_tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn collections_by_id_bake_covers_only_when_requested() -> Result<()> {
+        use crate::messages::{
+            CollectionType, FetchCollectionByIdsRequest, FetchCollectionByIdsResponse,
+        };
+        use crate::rpc::dispatch_gui_request;
+        use database::{actions::cover_art::assign_inspected, entities::artists};
+
+        let owner_dir = tempfile::tempdir()?;
+        let peer_dir = tempfile::tempdir()?;
+        let owner = fixture(owner_dir.path()).await?;
+        let peer = fixture(peer_dir.path()).await?;
+        let library = owner
+            .global_params
+            .library
+            .as_ref()
+            .context("owner library")?;
+        let library_id = library.library_id;
+        let track = scan_held_track(&owner, library_id, "covered.ogg").await?;
+        let cover = include_bytes!("../../../../assets/demo_cover.webp");
+        assign_inspected(
+            &library.main_db,
+            &library.library_sync.record_store(),
+            &track,
+            Some(metadata::cover_art::CoverArt {
+                crc: String::new(),
+                data: cover.to_vec(),
+                primary_color: 42,
+            }),
+        )
+        .await?;
+        let artist = artists::Entity::find()
+            .filter(artists::Column::Name.eq("Shara"))
+            .one(&*library.main_db)
+            .await?
+            .context("artist from startup_0.ogg")?;
+
+        let address = paired_full(&owner, &peer).await?;
+        let mut socket = connect_remote(
+            "127.0.0.1",
+            address.port(),
+            &peer.global_params.config_path,
+            peer.global_params.cert_validator.read().await.clone(),
+            &peer.global_params.node.sync_tokens,
+        )
+        .await?;
+        for bake_cover_arts in [true, false] {
+            let request = FetchCollectionByIdsRequest {
+                collection_type: CollectionType::Artist,
+                bake_cover_arts,
+                ids: vec![artist.id],
+                call_id: None,
+            };
+            let local = dispatch_gui_request(&owner.global_params, &request)
+                .await?
+                .context("local by-ID response")?;
+            assert_eq!(local.result.len(), 1);
+            let local_covers = &local.result[0].cover_art_map;
+            if bake_cover_arts {
+                assert_eq!(local_covers.len(), 1, "expected a baked local cover");
+                assert_eq!(fs::read(&local_covers[&track.id])?.as_slice(), cover);
+            } else {
+                assert!(local_covers.is_empty());
+            }
+
+            let (name, payload) = socket_request_for_library(
+                &mut socket,
+                "FetchCollectionByIdsRequest",
+                &rinf::serialize(&request)?,
+                library_id,
+            )
+            .await?;
+            assert_eq!(name, "FetchCollectionByIdsResponse");
+            let remote: FetchCollectionByIdsResponse = rinf::deserialize(&payload)?;
+            assert_eq!(remote.result.len(), 1);
+            let remote_covers = &remote.result[0].cover_art_map;
+            if bake_cover_arts {
+                let digest = blake3::hash(cover).to_hex();
+                assert_eq!(
+                    remote_covers.get(&track.id),
+                    Some(&format!(
+                        "https://127.0.0.1:{}/files/cache/{digest}?library_id={library_id}",
+                        address.port()
+                    ))
+                );
+            } else {
+                assert!(remote_covers.is_empty());
+            }
+        }
+        socket.close(None).await?;
+        owner.global_params.node.shutdown().await?;
+        peer.global_params.node.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn controller_cover_urls_name_the_port_it_connected_to() -> Result<()> {
         use database::entities::media_cover_art;
         use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
