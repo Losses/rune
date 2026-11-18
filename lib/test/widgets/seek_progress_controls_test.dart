@@ -42,7 +42,12 @@ class _Lab extends ChangeNotifier implements VisualizerLabProvider {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-void main() {
+void main() => registerSeekProgressControlsTest();
+
+void registerSeekProgressControlsTest({
+  Future<void> Function(WidgetTester tester, Future<void> Function() attempt)?
+  verifyNoSeek,
+}) {
   testWidgets('both seek sliders disable when the sequential queue stops', (
     tester,
   ) async {
@@ -138,16 +143,24 @@ void main() {
       false,
       false,
     ], reason: 'a stopped queue must disable both seek sliders');
-    for (var index = 0; index < 2; index++) {
-      await tester.tap(sliders.at(index), warnIfMissed: false);
-      await tester.pump();
+    Future<void> attemptSeeks() async {
+      for (var index = 0; index < 2; index++) {
+        await tester.tap(sliders.at(index), warnIfMissed: false);
+        await tester.pump();
+      }
+      // A drag can still hold a callback from before the stopped update.
+      for (final callback in activeCallbacks) {
+        expect(() => callback(50), returnsNormally);
+      }
+      expect(seekAbsolute(5, status.playbackStatus), isFalse);
     }
-    // A drag can still hold a callback from before the stopped update.
-    // Sending a request would fail in this harness, which has no native bridge.
-    for (final callback in activeCallbacks) {
-      expect(() => callback(50), returnsNormally);
+
+    if (verifyNoSeek == null) {
+      // Sending a request would fail in the widget harness without a bridge.
+      await attemptSeeks();
+    } else {
+      await verifyNoSeek(tester, attemptSeeks);
     }
-    expect(seekAbsolute(5, status.playbackStatus), isFalse);
     expect(tester.takeException(), isNull);
 
     await deliver(PlaybackState.paused, ready: false);
