@@ -111,6 +111,11 @@ impl Screen {
 
     /// The linear colour of the middle pixel.
     fn middle(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> [f32; 3] {
+        self.pixel_srgb(device, queue, SIZE.0 / 2, SIZE.1 / 2)
+            .map(srgb_to_linear)
+    }
+
+    fn pixel_srgb(&self, device: &wgpu::Device, queue: &wgpu::Queue, x: u32, y: u32) -> [u8; 3] {
         let row = (SIZE.0 * 4).next_multiple_of(256);
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
@@ -140,12 +145,8 @@ impl Screen {
             })
             .unwrap();
         let data = buffer.slice(..).get_mapped_range().unwrap();
-        let at = ((SIZE.1 / 2) * row + (SIZE.0 / 2) * 4) as usize;
-        [
-            srgb_to_linear(data[at]),
-            srgb_to_linear(data[at + 1]),
-            srgb_to_linear(data[at + 2]),
-        ]
+        let at = (y * row + x * 4) as usize;
+        [data[at], data[at + 1], data[at + 2]]
     }
 }
 
@@ -371,6 +372,75 @@ fn the_post_processing_makes_a_sensible_frame() {
         c[0] > 0.5 && c[0] < 1.0 && c[0] > c[1] && c[1] > c[2],
         "{c:?}"
     );
+}
+
+#[test]
+fn paperclip_exposes_the_picture_once_before_choosing_its_palette() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("SKIPPED: no GPU adapter");
+        return;
+    };
+    let mut manifest: toml::Table = include_str!("../../scenes/paperclip/scene.toml")
+        .parse()
+        .unwrap();
+    manifest.remove("effects");
+    let dir = folder(
+        "paperclip-exposure",
+        &[
+            (
+                "state.wgsl",
+                include_str!("../../scenes/paperclip/state.wgsl"),
+            ),
+            (
+                "update.wgsl",
+                include_str!("../../scenes/paperclip/update.wgsl"),
+            ),
+            (
+                "clip.wgsl",
+                include_str!("../../scenes/paperclip/clip.wgsl"),
+            ),
+            (
+                "pixel.wgsl",
+                include_str!("../../scenes/paperclip/pixel.wgsl"),
+            ),
+            // Replace only the geometry pass with a midtone, an HDR highlight and black.
+            (
+                "view.wgsl",
+                "fn shade(px: Pixel) -> vec4f { return vec4f(0.125, 3.0, 0.0, 1.0); }",
+            ),
+        ],
+    );
+    let screen = Screen::new(&device);
+    for ev in [0.0_f64, 1.0, -1.0] {
+        let exposure = manifest
+            .get_mut("param")
+            .unwrap()
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|param| param["id"].as_str() == Some("exposure"))
+            .unwrap();
+        exposure["default"] = toml::Value::Float(ev);
+        std::fs::write(dir.join(MANIFEST), toml::to_string(&manifest).unwrap()).unwrap();
+        let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
+        frame(&mut scene, (&device, &queue), &screen, 0.0, 0.0);
+
+        // At quarter resolution these sample cells (8, 4) and (9, 4), the first two
+        // entries of the Bayer pattern. The default seven levels divide sRGB into sixths.
+        for (x, bayer) in [(32, 0.0), (36, 8.0)] {
+            let exposed = 0.125 * ev.exp2();
+            let srgb = 1.055 * exposed.powf(1.0 / 2.4) - 0.055;
+            let level = (srgb * 6.0 + (bayer + 0.5) / 16.0).floor();
+            let expected = [(255.0 * level / 6.0).round() as u8, 255, 0];
+            let actual = screen.pixel_srgb(&device, &queue, x, 16);
+            // The compositor's final 8-bit dither can move a channel by one byte.
+            assert!(
+                actual.iter().zip(expected).all(|(a, b)| a.abs_diff(b) <= 1),
+                "Paperclip at {ev:+} EV, x={x}: got {actual:?}, expected {expected:?}"
+            );
+        }
+    }
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
