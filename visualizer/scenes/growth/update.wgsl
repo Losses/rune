@@ -245,8 +245,12 @@ fn update() {
   // changes smoothly: it never lurches up on a beat.
   let a = state.azimuth;
   let w = 2.0 / max(params.follow, 0.1);
-  state.cam_rise += (w * w * (state.top - state.cam_top) - 2.0 * w * state.cam_rise) * dt;
-  state.cam_top += state.cam_rise * dt;
+  // Advance the critically damped spring with the tip held fixed for this frame.
+  let offset = state.cam_top - state.top;
+  let slope = state.cam_rise + w * offset;
+  let decay = exp(-w * dt);
+  state.cam_top = state.top + (offset + slope * dt) * decay;
+  state.cam_rise = (state.cam_rise - w * slope * dt) * decay;
   let out = vec2f(cos(a), sin(a));
   state.cam_pos = vec3f(out.x * state.dist, state.cam_top - state.below, out.y * state.dist);
   state.look = vec3f(out.x * state.dist * 0.1, state.cam_top - state.aim, out.y * state.dist * 0.1);

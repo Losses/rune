@@ -1460,3 +1460,135 @@ bloom = { intensity = 0.0 }
         "expected (box hit, inside circle, listed in tile) for every witness: {observed:?}"
     );
 }
+
+#[test]
+fn growth_camera_settles_after_a_growth_step() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("SKIPPED: no GPU adapter");
+        return;
+    };
+    let source = crate::builtin::find("Growth").unwrap().source;
+    let files = Files::read(&source).unwrap();
+    let follow_index = files
+        .manifest
+        .params
+        .iter()
+        .position(|param| param.id == "follow")
+        .unwrap();
+    let follow_param = &files.manifest.params[follow_index];
+    let default_follow = follow_param.default.as_float().unwrap();
+    let (update_name, update) = files.update.as_ref().unwrap();
+    let module = wgsl::update_source(&files.manifest, files.state(), (update_name, update))
+        .check()
+        .unwrap();
+    let state = module
+        .types
+        .iter()
+        .find(|(_, ty)| ty.name.as_deref() == Some("State"))
+        .unwrap()
+        .1;
+    let naga::TypeInner::Struct { members, .. } = &state.inner else {
+        panic!("Growth state must be a struct");
+    };
+    let offsets = ["top_to", "top", "cam_top", "cam_rise", "cam_pos"].map(|name| {
+        members
+            .iter()
+            .find(|member| member.name.as_deref() == Some(name))
+            .unwrap()
+            .offset as usize
+    });
+    let screen = Screen::new(&device);
+
+    // Compare the short follow at normal cadence and the default at slow cadence before
+    // checking the short follow at 20 fps. Include the long end of the scene's range.
+    for (setting, dt) in [
+        (Some(0.05), 1.0 / 60.0),
+        (None, 0.05),
+        (follow_param.max, 0.05),
+        (Some(0.05), 0.05),
+    ] {
+        let mut files = files.clone();
+        let follow = setting.unwrap_or(default_follow);
+        if let Some(value) = setting {
+            assert!((follow_param.min.unwrap()..=follow_param.max.unwrap()).contains(&value));
+            files.manifest.params[follow_index].default = toml::Value::Float(value);
+        }
+        let mut scene =
+            Scene::build(&device, &queue, source.clone(), files, FORMAT, SIZE, 48_000).unwrap();
+        let readback = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Growth state readback"),
+            size: scene.state.size(),
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let read = |scene: &Scene| {
+            let mut encoder = device.create_command_encoder(&Default::default());
+            encoder.copy_buffer_to_buffer(&scene.state, 0, &readback, 0, scene.state.size());
+            queue.submit(Some(encoder.finish()));
+            readback
+                .slice(..)
+                .map_async(wgpu::MapMode::Read, |result| result.unwrap());
+            device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+            let data = readback.slice(..).get_mapped_range().unwrap();
+            let [target, tip, height, velocity, y] = offsets;
+            let values = [target, tip, height, velocity, y + 4]
+                .map(|offset| f32::from_le_bytes(data[offset..offset + 4].try_into().unwrap()));
+            drop(data);
+            readback.unmap();
+            values
+        };
+
+        let draw = |scene: &mut Scene, i, beat| {
+            frame(scene, (&device, &queue), &screen, f64::from(i) * dt, beat);
+        };
+        assert!(scene.hold_shot(Some(0)));
+        draw(&mut scene, 0, 0.5);
+        let [start, _, _, _, _] = read(&scene);
+        let steps = ((6.0 * follow).max(2.0) / dt).ceil() as u32;
+        let mut highest_error = 0.0_f32;
+        let mut fastest = 0.0_f32;
+        for i in 1..=steps {
+            // One beat crossing, then no other growth.
+            draw(&mut scene, i, 1.2);
+            let [_, tip, height, velocity, _] = read(&scene);
+            if setting.is_none() && i == 1 {
+                assert!(
+                    start < height && height < tip,
+                    "the default camera begins to follow without jumping to the tip"
+                );
+            }
+            highest_error = highest_error.max((height - start).abs());
+            fastest = fastest.max(velocity.abs());
+        }
+        let [target, tip, height, velocity, y] = read(&scene);
+        let rise = target - start;
+        assert!(
+            rise > 0.0 && (tip - target).abs() < 0.01,
+            "tower did not grow and settle"
+        );
+        let context =
+            format!("follow {follow}s, dt {dt}s: tip {tip}, camera {height}, velocity {velocity}");
+        assert!(
+            (height - tip).abs() < 0.01,
+            "camera did not settle: {context}"
+        );
+        assert!(
+            velocity.abs() < 0.01,
+            "camera did not come to rest: {context}"
+        );
+        assert!(
+            highest_error <= rise + 0.01 && fastest <= 20.0 * rise,
+            "camera did not stay bounded: {context}"
+        );
+
+        if setting.is_none() {
+            assert!(scene.hold_shot(Some(3)));
+            draw(&mut scene, steps + 1, 1.2);
+            let [_, _, after, _, after_y] = read(&scene);
+            assert!(
+                (after - height).abs() < 0.01 && after_y > y + 5.0,
+                "the cut must change the view immediately without moving its follow height"
+            );
+        }
+    }
+}
