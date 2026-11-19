@@ -1,6 +1,6 @@
 use super::{
-    BaseManifest, CollectionSummary, FormatError, SharePeer, StoreError, base_key, chunk_key,
-    decode_chunk, decode_manifest,
+    BaseManifest, BucketSummary, CollectionSummary, FormatError, SharePeer, StoreError, base_key,
+    chunk_key, decode_chunk, decode_manifest,
 };
 use crate::protocol::{
     BoxFuture, Candidate, CandidateCursor, CollectionContext, ContextRef, Fragment, KeyRange,
@@ -13,9 +13,11 @@ use crate::protocol::{
 };
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use std::{
+    collections::BTreeMap,
     fs,
     io::{self, Read, Write},
     path::{Path, PathBuf},
+    sync::MutexGuard,
     time::SystemTime,
 };
 use uuid::Uuid;
@@ -31,6 +33,190 @@ pub(super) struct SnapshotBinding<M: SyncModel> {
     pub(super) head: ReceiveProgress,
     pub(super) roots: Vec<RangeSummary<M>>,
     pub(super) contexts: Vec<CollectionContext<M>>,
+}
+
+/// Summaries and splits in progress at once, as many as the memory source allows.
+const MAX_RANGE_WORK: usize = 256;
+
+/// A summary or split of a range the manifest does not list. It reads the candidates of the
+/// range in two passes, one step at a time within the caller's row and byte budget, and a step
+/// loads only the chunks of the buckets it reads from.
+#[derive(Clone)]
+pub(super) struct RangeWork<M: SyncModel> {
+    snapshot: Uuid,
+    range: KeyRange<M>,
+    /// Candidates read in all steps so far, the position of the work cursor.
+    position: u64,
+    /// Where the current pass continues: the index among the buckets that intersect the range,
+    /// and the offset of the next candidate of the range in that bucket's chunk.
+    bucket: usize,
+    offset: usize,
+    pass: RangePass<M>,
+}
+
+#[derive(Clone)]
+enum RangePass<M: SyncModel> {
+    /// A summary counts the candidates and their bytes, then hashes them.
+    Count { count: u64, bytes: u64 },
+    Hash {
+        count: u64,
+        bytes: u64,
+        hasher: RangeHasher<M>,
+    },
+    /// A split adds up the candidate bytes, then looks for the first key after half of them,
+    /// keeping the last key it saw for when one key holds more than half.
+    Total { bytes: u64 },
+    Pivot {
+        half: u64,
+        before: u64,
+        previous: Option<Uuid>,
+        last: Option<Uuid>,
+    },
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RangeTask {
+    Summary,
+    Split,
+}
+
+enum RangeResult<M: SyncModel> {
+    Summary(RangeSummary<M>),
+    Split(Vec<KeyRange<M>>),
+}
+
+impl<M: SyncModel> SharePeer<M> {
+    fn range_works(&self) -> ProtocolResult<MutexGuard<'_, BTreeMap<Uuid, RangeWork<M>>>> {
+        self.works
+            .lock()
+            .map_err(|_| SyncError::Storage("share work lock poisoned".into()))
+    }
+
+    /// Runs one step of the range work that `resume` names, or of a new one, from where the
+    /// work stopped and within `limits`.
+    async fn step_range_work(
+        &self,
+        binding: &SnapshotBinding<M>,
+        collection: &CollectionSummary<M>,
+        range: KeyRange<M>,
+        task: RangeTask,
+        limits: WorkLimits,
+        resume: Option<WorkCursor>,
+    ) -> ProtocolResult<WorkOutcome<RangeResult<M>>> {
+        let (id, mut work) = match &resume {
+            None => (Uuid::new_v4(), RangeWork::new(binding.id, range, task)),
+            Some(cursor) => {
+                let work = self
+                    .range_works()?
+                    .get(&cursor.operation_id)
+                    .filter(|work| {
+                        cursor.generation == self.generation
+                            && cursor.position == work.position
+                            && work.snapshot == binding.id
+                            && work.range == range
+                            && work.task() == task
+                    })
+                    .cloned()
+                    .ok_or(SyncError::StaleWork)?;
+                (cursor.operation_id, work)
+            }
+        };
+        let start = work.position;
+        let buckets: Vec<_> = collection
+            .buckets
+            .iter()
+            .filter(|bucket| ranges_intersect(&bucket.range, &work.range))
+            .collect();
+        let result = self
+            .advance_range_work(&mut work, &binding.owner_prefix, &buckets, limits)
+            .await?;
+        let mut works = self.range_works()?;
+        if resume.is_some() && works.get(&id).is_none_or(|stored| stored.position != start) {
+            return Err(SyncError::StaleWork);
+        }
+        Ok(match result {
+            Some(result) => {
+                works.remove(&id);
+                WorkOutcome::Ready(result)
+            }
+            None => {
+                if resume.is_none() && works.len() >= MAX_RANGE_WORK {
+                    return Err(SyncError::StageQuota);
+                }
+                let cursor = WorkCursor {
+                    operation_id: id,
+                    generation: self.generation,
+                    position: work.position,
+                };
+                works.insert(id, work);
+                WorkOutcome::Incomplete { cursor }
+            }
+        })
+    }
+
+    /// Reads the candidates of the work's range from where it stopped, one bucket's verified
+    /// chunk at a time, until the work finishes or the next candidate does not fit `limits`. As
+    /// in the memory source, each candidate is a scanned row and its canonical bytes count
+    /// against the byte budget. A step loads a chunk only while it has rows and bytes left, and
+    /// it moves past a bucket as soon as it has read the bucket's last candidate of the range.
+    async fn advance_range_work(
+        &self,
+        work: &mut RangeWork<M>,
+        prefix: &str,
+        buckets: &[&BucketSummary<M>],
+        limits: WorkLimits,
+    ) -> ProtocolResult<Option<RangeResult<M>>> {
+        let (mut rows, mut bytes) = (0u64, 0u64);
+        let mut loaded = None;
+        let mut candidates = Vec::new();
+        loop {
+            let Some(bucket) = buckets.get(work.bucket) else {
+                match work.end_pass()? {
+                    Some(result) => return Ok(Some(result)),
+                    None => continue,
+                }
+            };
+            // Every candidate has canonical bytes, so a used-up byte budget fits no further one.
+            // Both budgets are positive, so a step that stops here has read a candidate.
+            if rows == limits.max_rows_scanned || bytes == limits.max_bytes {
+                return Ok(None);
+            }
+            if loaded != Some(work.bucket) {
+                candidates = self.bucket_candidates(prefix, bucket, &work.range).await?;
+                loaded = Some(work.bucket);
+            }
+            let Some(candidate) = candidates.get(work.offset) else {
+                work.bucket += 1;
+                work.offset = 0;
+                continue;
+            };
+            let size = canonical_candidate(candidate)?.len() as u64;
+            if bytes
+                .checked_add(size)
+                .is_none_or(|total| total > limits.max_bytes)
+            {
+                if rows == 0 {
+                    return Err(SyncError::LimitTooSmall { required: size });
+                }
+                return Ok(None);
+            }
+            rows += 1;
+            bytes += size;
+            work.position = work
+                .position
+                .checked_add(1)
+                .ok_or(SyncError::ClockExhausted)?;
+            work.offset += 1;
+            let result = work.read(candidate, size)?;
+            if work.offset == candidates.len() {
+                work.bucket += 1;
+                work.offset = 0;
+            }
+            if result.is_some() {
+                return Ok(result);
+            }
+        }
+    }
 }
 
 impl<M: SyncModel> SharePeer<M> {
@@ -124,10 +310,13 @@ impl<M: SyncModel> SharePeer<M> {
 impl<M: SyncModel> SnapshotSource<M> for SharePeer<M> {
     fn release_request(&self, request_id: Uuid) -> BoxFuture<'_, ()> {
         Box::pin(async move {
-            self.snapshots
+            let mut snapshots = self
+                .snapshots
                 .lock()
-                .map_err(|_| SyncError::Storage("share snapshot lock poisoned".into()))?
-                .retain(|_, binding| binding.request_id != request_id);
+                .map_err(|_| SyncError::Storage("share snapshot lock poisoned".into()))?;
+            snapshots.retain(|_, binding| binding.request_id != request_id);
+            self.range_works()?
+                .retain(|_, work| snapshots.contains_key(&work.snapshot));
             Ok(())
         })
     }
@@ -138,6 +327,8 @@ impl<M: SyncModel> SnapshotSource<M> for SharePeer<M> {
                 .lock()
                 .map_err(|_| SyncError::Storage("share snapshot lock poisoned".into()))?
                 .remove(&snapshot);
+            self.range_works()?
+                .retain(|_, work| work.snapshot != snapshot);
             Ok(())
         })
     }
@@ -238,9 +429,6 @@ impl<M: SyncModel> SnapshotSource<M> for SharePeer<M> {
     ) -> BoxFuture<'_, WorkOutcome<RangeSummary<M>>> {
         Box::pin(async move {
             validate_work_limits(limits)?;
-            if resume.is_some() {
-                return Err(SyncError::StaleWork);
-            }
             let binding = self.snapshot_binding(snapshot)?;
             if binding.scope != full_model_scope::<M>() {
                 return Err(SyncError::Invalid(
@@ -253,10 +441,30 @@ impl<M: SyncModel> SnapshotSource<M> for SharePeer<M> {
                 .collections
                 .get(M::collection_tag(&range.collection))
                 .ok_or(SyncError::IncompatibleModel)?;
-            let summary = known_summary(collection, &range, binding.id).ok_or_else(|| {
-                SyncError::Invalid("requested summary is not present in the base manifest".into())
-            })?;
-            Ok(WorkOutcome::Ready(summary))
+            if resume.is_none()
+                && let Some(summary) = known_summary(collection, &range, binding.id)
+            {
+                return Ok(WorkOutcome::Ready(summary));
+            }
+            // Ranges the manifest does not list, such as the halves of a split bucket, are
+            // summarized from the chunks they intersect.
+            let step = self
+                .step_range_work(
+                    &binding,
+                    collection,
+                    range,
+                    RangeTask::Summary,
+                    limits,
+                    resume,
+                )
+                .await?;
+            match step {
+                WorkOutcome::Ready(RangeResult::Summary(summary)) => {
+                    Ok(WorkOutcome::Ready(summary))
+                }
+                WorkOutcome::Ready(RangeResult::Split(_)) => Err(SyncError::StaleWork),
+                WorkOutcome::Incomplete { cursor } => Ok(WorkOutcome::Incomplete { cursor }),
+            }
         })
     }
 
@@ -269,9 +477,6 @@ impl<M: SyncModel> SnapshotSource<M> for SharePeer<M> {
     ) -> BoxFuture<'_, WorkOutcome<Vec<KeyRange<M>>>> {
         Box::pin(async move {
             validate_work_limits(limits)?;
-            if resume.is_some() {
-                return Err(SyncError::StaleWork);
-            }
             let binding = self.snapshot_binding(snapshot)?;
             validate_range(&binding.scope, &range)?;
             let collection = binding
@@ -279,13 +484,39 @@ impl<M: SyncModel> SnapshotSource<M> for SharePeer<M> {
                 .collections
                 .get(M::collection_tag(&range.collection))
                 .ok_or(SyncError::IncompatibleModel)?;
-            let children: Vec<_> = collection
+            let mut buckets: Vec<_> = collection
                 .buckets
                 .iter()
                 .filter(|bucket| ranges_intersect(&bucket.range, &range))
                 .map(|bucket| bucket.range.clone())
                 .collect();
-            Ok(WorkOutcome::Ready(children))
+            if resume.is_none() && buckets.len() > 1 {
+                // The outer children end where the requested range does. The manifest's
+                // boundaries stay between them, so the receiver still checks that they meet.
+                let last = buckets.len() - 1;
+                buckets[0].lower = range.lower;
+                buckets[last].upper = range.upper;
+                return Ok(WorkOutcome::Ready(buckets));
+            }
+            // A range inside one bucket splits at a key of its chunk, so that a bucket holding
+            // more than a receiver applies at once can still be received.
+            let step = self
+                .step_range_work(
+                    &binding,
+                    collection,
+                    range,
+                    RangeTask::Split,
+                    limits,
+                    resume,
+                )
+                .await?;
+            match step {
+                WorkOutcome::Ready(RangeResult::Split(children)) => {
+                    Ok(WorkOutcome::Ready(children))
+                }
+                WorkOutcome::Ready(RangeResult::Summary(_)) => Err(SyncError::StaleWork),
+                WorkOutcome::Incomplete { cursor } => Ok(WorkOutcome::Incomplete { cursor }),
+            }
         })
     }
 
@@ -461,73 +692,83 @@ impl<M: SyncModel> SharePeer<M> {
         summary: &CollectionSummary<M>,
         range: &KeyRange<M>,
     ) -> ProtocolResult<Vec<Candidate<M>>> {
-        // Base exporters hash all buckets against the full model scope, even when
-        // a reader asks this immutable source for only one collection.
-        let scope = full_model_scope::<M>();
         let mut candidates = Vec::new();
         for bucket in &summary.buckets {
-            if !ranges_intersect(&bucket.range, range) {
-                continue;
-            }
-            let bytes = self.load_object(prefix, &bucket.chunk).await?;
-            let value = decode_chunk(&bucket.chunk, &gzip_bytes(&bytes)?)
-                .map_err(|_| SyncError::SnapshotSourceUnavailable)?;
-            let wire: serde_json::Value = serde_json::from_slice(&value.canonical_bytes)
-                .map_err(|error| SyncError::Storage(error.to_string()))?;
-            let rows: Vec<Candidate<M>> = serde_json::from_value(wire["candidates"].clone())
-                .map_err(|error| SyncError::Storage(error.to_string()))?;
-            let mut candidate_bytes = 0u64;
-            let mut hasher = RangeHasher::new(
-                &scope,
-                bucket.range.clone(),
-                bucket.candidate_count,
-                bucket.candidate_bytes,
-            )?;
-            for (index, candidate) in rows.iter().enumerate() {
-                canonical_candidate(candidate)?;
-                let cursor = CandidateCursor {
-                    key: candidate.key.clone(),
-                    dot: candidate.dot,
-                };
-                if candidate.key.collection != bucket.range.collection
-                    || bucket
-                        .range
-                        .lower
-                        .is_some_and(|lower| candidate.key.id < lower)
-                    || bucket
-                        .range
-                        .upper
-                        .is_some_and(|upper| candidate.key.id >= upper)
-                    || (index > 0
-                        && cursor
-                            <= (CandidateCursor {
-                                key: rows[index - 1].key.clone(),
-                                dot: rows[index - 1].dot,
-                            }))
-                {
-                    return Err(SyncError::SnapshotSourceUnavailable);
-                }
-                candidate_bytes = candidate_bytes
-                    .checked_add(canonical_candidate(candidate)?.len() as u64)
-                    .ok_or(SyncError::LogicalLimit)?;
-                hasher.push_candidate(candidate)?;
-            }
-            if rows.len() as u64 != bucket.candidate_count
-                || candidate_bytes != bucket.candidate_bytes
-                || hasher.finish()? != bucket.aggregate
-            {
-                return Err(SyncError::SnapshotSourceUnavailable);
-            }
-            for candidate in rows {
-                if candidate.key.collection == range.collection
-                    && range.lower.is_none_or(|lower| candidate.key.id >= lower)
-                    && range.upper.is_none_or(|upper| candidate.key.id < upper)
-                {
-                    candidates.push(candidate);
-                }
+            if ranges_intersect(&bucket.range, range) {
+                candidates.extend(self.bucket_candidates(prefix, bucket, range).await?);
             }
         }
         Ok(candidates)
+    }
+
+    /// The candidates of `range` in the chunk of `bucket`, after the whole chunk has been
+    /// checked against the bucket's summary.
+    async fn bucket_candidates(
+        &self,
+        prefix: &str,
+        bucket: &BucketSummary<M>,
+        range: &KeyRange<M>,
+    ) -> ProtocolResult<Vec<Candidate<M>>> {
+        // Base exporters hash all buckets against the full model scope, even when
+        // a reader asks this immutable source for only one collection.
+        let scope = full_model_scope::<M>();
+        let bytes = self.load_object(prefix, &bucket.chunk).await?;
+        let value = decode_chunk(&bucket.chunk, &gzip_bytes(&bytes)?)
+            .map_err(|_| SyncError::SnapshotSourceUnavailable)?;
+        let wire: serde_json::Value = serde_json::from_slice(&value.canonical_bytes)
+            .map_err(|error| SyncError::Storage(error.to_string()))?;
+        let rows: Vec<Candidate<M>> = serde_json::from_value(wire["candidates"].clone())
+            .map_err(|error| SyncError::Storage(error.to_string()))?;
+        let mut candidate_bytes = 0u64;
+        let mut hasher = RangeHasher::new(
+            &scope,
+            bucket.range.clone(),
+            bucket.candidate_count,
+            bucket.candidate_bytes,
+        )?;
+        for (index, candidate) in rows.iter().enumerate() {
+            canonical_candidate(candidate)?;
+            let cursor = CandidateCursor {
+                key: candidate.key.clone(),
+                dot: candidate.dot,
+            };
+            if candidate.key.collection != bucket.range.collection
+                || bucket
+                    .range
+                    .lower
+                    .is_some_and(|lower| candidate.key.id < lower)
+                || bucket
+                    .range
+                    .upper
+                    .is_some_and(|upper| candidate.key.id >= upper)
+                || (index > 0
+                    && cursor
+                        <= (CandidateCursor {
+                            key: rows[index - 1].key.clone(),
+                            dot: rows[index - 1].dot,
+                        }))
+            {
+                return Err(SyncError::SnapshotSourceUnavailable);
+            }
+            candidate_bytes = candidate_bytes
+                .checked_add(canonical_candidate(candidate)?.len() as u64)
+                .ok_or(SyncError::LogicalLimit)?;
+            hasher.push_candidate(candidate)?;
+        }
+        if rows.len() as u64 != bucket.candidate_count
+            || candidate_bytes != bucket.candidate_bytes
+            || hasher.finish()? != bucket.aggregate
+        {
+            return Err(SyncError::SnapshotSourceUnavailable);
+        }
+        Ok(rows
+            .into_iter()
+            .filter(|candidate| {
+                candidate.key.collection == range.collection
+                    && range.lower.is_none_or(|lower| candidate.key.id >= lower)
+                    && range.upper.is_none_or(|upper| candidate.key.id < upper)
+            })
+            .collect())
     }
 }
 
@@ -558,6 +799,122 @@ fn known_summary<M: SyncModel>(
                 candidate_bytes: bucket.candidate_bytes,
                 aggregate: bucket.aggregate,
             })
+    }
+}
+
+impl<M: SyncModel> RangeWork<M> {
+    fn new(snapshot: Uuid, range: KeyRange<M>, task: RangeTask) -> Self {
+        let pass = match task {
+            RangeTask::Summary => RangePass::Count { count: 0, bytes: 0 },
+            RangeTask::Split => RangePass::Total { bytes: 0 },
+        };
+        Self {
+            snapshot,
+            range,
+            position: 0,
+            bucket: 0,
+            offset: 0,
+            pass,
+        }
+    }
+
+    fn task(&self) -> RangeTask {
+        match self.pass {
+            RangePass::Count { .. } | RangePass::Hash { .. } => RangeTask::Summary,
+            RangePass::Total { .. } | RangePass::Pivot { .. } => RangeTask::Split,
+        }
+    }
+
+    /// Starts the second pass at the first bucket, or finishes the work after it.
+    fn end_pass(&mut self) -> ProtocolResult<Option<RangeResult<M>>> {
+        self.bucket = 0;
+        self.offset = 0;
+        match self.pass {
+            RangePass::Count { count, bytes } => {
+                let hasher =
+                    RangeHasher::new(&full_model_scope::<M>(), self.range.clone(), count, bytes)?;
+                self.pass = RangePass::Hash {
+                    count,
+                    bytes,
+                    hasher,
+                };
+                Ok(None)
+            }
+            RangePass::Hash {
+                count,
+                bytes,
+                ref hasher,
+            } => Ok(Some(RangeResult::Summary(RangeSummary {
+                snapshot_id: self.snapshot,
+                range: self.range.clone(),
+                candidate_count: count,
+                candidate_bytes: bytes,
+                aggregate: hasher.clone().finish()?,
+            }))),
+            RangePass::Total { bytes } => {
+                self.pass = RangePass::Pivot {
+                    half: bytes / 2,
+                    before: 0,
+                    previous: None,
+                    last: None,
+                };
+                Ok(None)
+            }
+            RangePass::Pivot { last, .. } => {
+                Ok(Some(RangeResult::Split(halves(&self.range, last))))
+            }
+        }
+    }
+
+    /// Takes one candidate into the current pass.
+    fn read(
+        &mut self,
+        candidate: &Candidate<M>,
+        size: u64,
+    ) -> ProtocolResult<Option<RangeResult<M>>> {
+        match &mut self.pass {
+            RangePass::Count { count, bytes } => {
+                *count += 1;
+                *bytes = bytes.checked_add(size).ok_or(SyncError::LogicalLimit)?;
+            }
+            RangePass::Hash { hasher, .. } => hasher.push_candidate(candidate)?,
+            RangePass::Total { bytes } => {
+                *bytes = bytes.checked_add(size).ok_or(SyncError::LogicalLimit)?;
+            }
+            RangePass::Pivot {
+                half,
+                before,
+                previous,
+                last,
+            } => {
+                if previous.is_some_and(|key| key != candidate.key.id) {
+                    *last = Some(candidate.key.id);
+                    if *before >= *half {
+                        return Ok(Some(RangeResult::Split(halves(&self.range, *last))));
+                    }
+                }
+                *before += size;
+                *previous = Some(candidate.key.id);
+            }
+        }
+        Ok(None)
+    }
+}
+
+/// `range` split in two at `key`, or `range` whole without a key.
+fn halves<M: SyncModel>(range: &KeyRange<M>, key: Option<Uuid>) -> Vec<KeyRange<M>> {
+    match key {
+        Some(key) => vec![
+            KeyRange {
+                upper: Some(key),
+                ..range.clone()
+            },
+            KeyRange {
+                lower: Some(key),
+                ..range.clone()
+            },
+        ],
+        None => vec![range.clone()],
     }
 }
 

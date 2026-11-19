@@ -1,12 +1,13 @@
 use super::*;
 use crate::protocol::{
-    ApplyLimits, CheckpointKey, Coordinator, DEFAULT_LOGICAL_BYTES, DEFAULT_LOGICAL_ITEMS,
-    DEFAULT_STAGE_BYTES, DEFAULT_STAGES, Event, EventRef, HistoryStatus, KeyDelta, KeyRange,
-    LocalAuthor, MemorySyncStore, ModelId, ObjectKey as SyncObjectKey, PageLimits, PageRead,
-    PageRequest, RangeSummary, ReceiveProgress, ReceiveStore, Result as ProtocolResult, Revision,
-    Scope, SessionAdvance, SessionLimits, SnapshotSource, StageLimits, StoreIdentity, SyncError,
-    SyncModel, SyncPeer, SyncStore, WorkLimits, WorkOutcome, decode_event, event_digest,
-    fragment_digest, initial_anchor, next_anchor, scope_id,
+    ApplyLimits, BoxFuture, CheckpointKey, Coordinator, DEFAULT_LOGICAL_BYTES,
+    DEFAULT_LOGICAL_ITEMS, DEFAULT_STAGE_BYTES, DEFAULT_STAGES, Event, EventRef, HistoryStatus,
+    KeyDelta, KeyRange, LocalAuthor, MemorySyncStore, ModelId, ObjectKey as SyncObjectKey,
+    PageLimits, PageRead, PageRequest, RangeSummary, ReceiveProgress, ReceiveStore,
+    Result as ProtocolResult, Revision, Scope, SessionAdvance, SessionLimits, SnapshotDescriptor,
+    SnapshotSink, SnapshotSource, StageLimits, StoreIdentity, SyncError, SyncModel, SyncPeer,
+    SyncStore, WorkCursor, WorkLimits, WorkOutcome, decode_event, event_digest, fragment_digest,
+    initial_anchor, next_anchor, scope_id,
 };
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use serde::{Deserialize, Serialize};
@@ -172,6 +173,11 @@ fn share_cache_dir() -> PathBuf {
 }
 
 async fn base_peer_fixture(count: u64) -> PeerFixture {
+    bucketed_base_peer_fixture(count, &[]).await
+}
+
+/// A base whose buckets meet at `boundaries`; without boundaries it has a single bucket.
+async fn bucketed_base_peer_fixture(count: u64, boundaries: &[u128]) -> PeerFixture {
     let fixture = peer_fixture(count).await;
     let descriptor = match SnapshotSource::open_snapshot(
         &*fixture.source,
@@ -208,19 +214,51 @@ async fn base_peer_fixture(count: u64) -> PeerFixture {
             break;
         }
     }
-    let values = candidates
-        .iter()
-        .map(serde_json::to_value)
-        .collect::<Result<Vec<_>, _>>()
-        .unwrap();
-    let canonical_candidates = serde_json::to_vec(&serde_json::Value::Array(values)).unwrap();
-    let (chunk_name, chunk_bytes) = encode_chunk(canonical_candidates).unwrap();
     let prefix = share_prefix(&fixture.identity);
-    fixture
-        .objects
-        .put(&chunk_key(&prefix, &chunk_name).unwrap(), &chunk_bytes)
-        .await
-        .unwrap();
+    // Like the exporter, a collection without candidates has no buckets.
+    let uppers: Vec<_> = if root.candidate_count == 0 {
+        Vec::new()
+    } else {
+        boundaries
+            .iter()
+            .map(|id| Some(Uuid::from_u128(*id)))
+            .chain([None])
+            .collect()
+    };
+    let mut buckets = Vec::new();
+    let mut lower = None;
+    for upper in uppers {
+        let range = KeyRange {
+            lower,
+            upper,
+            ..root.range.clone()
+        };
+        let values = candidates
+            .iter()
+            .filter(|candidate| {
+                lower.is_none_or(|lower| candidate.key.id >= lower)
+                    && upper.is_none_or(|upper| candidate.key.id < upper)
+            })
+            .map(serde_json::to_value)
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let canonical_candidates = serde_json::to_vec(&serde_json::Value::Array(values)).unwrap();
+        let (chunk_name, chunk_bytes) = encode_chunk(canonical_candidates).unwrap();
+        fixture
+            .objects
+            .put(&chunk_key(&prefix, &chunk_name).unwrap(), &chunk_bytes)
+            .await
+            .unwrap();
+        let summary = ready_summary(&*fixture.source, descriptor.snapshot_id, range).await;
+        buckets.push(BucketSummary {
+            range: summary.range,
+            candidate_count: summary.candidate_count,
+            candidate_bytes: summary.candidate_bytes,
+            aggregate: summary.aggregate,
+            chunk: chunk_name,
+        });
+        lower = upper;
+    }
     let context = &descriptor.contexts[0];
     let mut context_names = Vec::new();
     for ordinal in 0..context.context.manifest.fragment_count {
@@ -249,18 +287,7 @@ async fn base_peer_fixture(count: u64) -> PeerFixture {
         seq: head.sequence,
         anchor: head.anchor,
     };
-    let bucket_count = if root.candidate_count == 0 { 0 } else { 1 };
-    let buckets = if bucket_count == 0 {
-        Vec::new()
-    } else {
-        vec![BucketSummary {
-            range: root.range.clone(),
-            candidate_count: root.candidate_count,
-            candidate_bytes: root.candidate_bytes,
-            aggregate: root.aggregate,
-            chunk: chunk_name,
-        }]
-    };
+    let bucket_count = buckets.len() as u32;
     let manifest = BaseManifest {
         format: FORMAT_VERSION,
         covers: BTreeMap::from([(
@@ -658,8 +685,8 @@ async fn equal_base_buckets_use_precomputed_summaries_without_chunk_reads() {
         chunk,
     )
     .unwrap();
-    let chunk_name = &manifest.collections["notes"].buckets[0].chunk;
-    let object_key = chunk_key(&prefix, chunk_name).unwrap();
+    let bucket = &manifest.collections["notes"].buckets[0];
+    let object_key = chunk_key(&prefix, &bucket.chunk).unwrap();
     let before = fixture.objects.get_count(&object_key);
     assert_eq!(
         SnapshotSource::summarize(
@@ -673,23 +700,10 @@ async fn equal_base_buckets_use_precomputed_summaries_without_chunk_reads() {
         .unwrap(),
         WorkOutcome::Ready(root.clone())
     );
-    let children = SnapshotSource::split(
-        &peer,
-        descriptor.snapshot_id,
-        root.range.clone(),
-        share_limits().work,
-        None,
-    )
-    .await
-    .unwrap();
-    let WorkOutcome::Ready(children) = children else {
-        panic!("split is immediate")
-    };
-    assert_eq!(children.len(), 1);
     let child = SnapshotSource::summarize(
         &peer,
         descriptor.snapshot_id,
-        children[0].clone(),
+        bucket.range.clone(),
         share_limits().work,
         None,
     )
@@ -697,6 +711,487 @@ async fn equal_base_buckets_use_precomputed_summaries_without_chunk_reads() {
     .unwrap();
     assert!(matches!(child, WorkOutcome::Ready(_)));
     assert_eq!(fixture.objects.get_count(&object_key), before);
+}
+
+async fn ready_snapshot(source: &dyn SnapshotSource<Model>) -> SnapshotDescriptor<Model> {
+    match source
+        .open_snapshot(Uuid::new_v4(), share_scope(), share_limits().work, None)
+        .await
+        .unwrap()
+    {
+        WorkOutcome::Ready(descriptor) => descriptor,
+        WorkOutcome::Incomplete { .. } => panic!("fixture snapshots are bounded"),
+    }
+}
+
+async fn ready_summary(
+    source: &dyn SnapshotSource<Model>,
+    snapshot: Uuid,
+    range: KeyRange<Model>,
+) -> RangeSummary<Model> {
+    match source
+        .summarize(snapshot, range, share_limits().work, None)
+        .await
+        .unwrap()
+    {
+        WorkOutcome::Ready(summary) => summary,
+        WorkOutcome::Incomplete { .. } => panic!("fixture summaries are bounded"),
+    }
+}
+
+async fn ready_split(
+    source: &dyn SnapshotSource<Model>,
+    snapshot: Uuid,
+    range: KeyRange<Model>,
+) -> Vec<KeyRange<Model>> {
+    match source
+        .split(snapshot, range, share_limits().work, None)
+        .await
+        .unwrap()
+    {
+        WorkOutcome::Ready(children) => children,
+        WorkOutcome::Incomplete { .. } => panic!("fixture splits are bounded"),
+    }
+}
+
+/// Calls `step` again with each cursor it returns until it is ready, checking that every cursor
+/// moves forward, and returns the value with the number of calls.
+async fn resumed<'a, T>(
+    mut step: impl FnMut(Option<WorkCursor>) -> BoxFuture<'a, WorkOutcome<T>>,
+) -> (T, u32) {
+    let mut cursor: Option<WorkCursor> = None;
+    for calls in 1..=1000 {
+        match step(cursor.clone()).await.unwrap() {
+            WorkOutcome::Ready(value) => return (value, calls),
+            WorkOutcome::Incomplete { cursor: next } => {
+                assert!(
+                    cursor
+                        .as_ref()
+                        .is_none_or(|previous| next.position > previous.position)
+                );
+                cursor = Some(next);
+            }
+        }
+    }
+    panic!("the work did not finish");
+}
+
+/// A bucket with more candidates than the receiver applies at once is divided at one of its
+/// keys, and each half is summarized exactly as the source that exported it summarizes it.
+#[tokio::test]
+async fn share_bucket_above_the_apply_limit_is_split_at_its_keys() {
+    let fixture = base_peer_fixture(20).await;
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        share_prefix(&fixture.identity),
+        share_cache_dir(),
+    )
+    .unwrap();
+    let shared = ready_snapshot(&peer).await;
+    let source = ready_snapshot(&*fixture.source).await;
+    let root = shared.roots[0].range.clone();
+    let children = ready_split(&peer, shared.snapshot_id, root.clone()).await;
+    let [left, right] = &children[..] else {
+        panic!("the bucket was not split in two: {children:?}")
+    };
+    assert_eq!((left.lower, right.upper), (root.lower, root.upper));
+    assert_eq!(left.upper, right.lower);
+    assert!(
+        left.upper
+            .is_some_and(|key| (102..=120).contains(&key.as_u128()))
+    );
+    for child in &children {
+        let half = ready_summary(&peer, shared.snapshot_id, child.clone()).await;
+        let exported = ready_summary(&*fixture.source, source.snapshot_id, child.clone()).await;
+        assert_eq!(
+            (half.candidate_count, half.candidate_bytes, half.aggregate),
+            (
+                exported.candidate_count,
+                exported.candidate_bytes,
+                exported.aggregate
+            )
+        );
+    }
+    let target = fresh_receiver();
+    advance_to_complete(&peer, &target).await;
+    for id in 101..=120 {
+        let key = SyncObjectKey {
+            collection: Collection::Notes,
+            id: Uuid::from_u128(id),
+        };
+        assert_eq!(
+            target.get(&key).await.unwrap(),
+            fixture.source.get(&key).await.unwrap()
+        );
+    }
+}
+
+/// The receiver accepts the halves of a split bucket and still rejects a split that does not
+/// partition its parent: a single child, an overlap, a gap such as an inclusive upper bound, an
+/// empty or reversed child, or a last child that stops short of the parent.
+#[tokio::test]
+async fn receiver_still_rejects_share_splits_that_do_not_partition_their_parent() {
+    let fixture = base_peer_fixture(20).await;
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        share_prefix(&fixture.identity),
+        share_cache_dir(),
+    )
+    .unwrap();
+    let target = fresh_receiver();
+    let remote = ready_snapshot(&peer).await;
+    let session = target
+        .begin_reconciliation(
+            Uuid::new_v4(),
+            remote.clone(),
+            ready_snapshot(&target).await,
+        )
+        .await
+        .unwrap();
+    let root = remote.roots[0].range.clone();
+    let mut halves = Vec::new();
+    for child in ready_split(&peer, remote.snapshot_id, root.clone()).await {
+        halves.push(ready_summary(&peer, remote.snapshot_id, child).await);
+    }
+    let key = halves[0].range.upper.unwrap();
+    let below = Some(Uuid::from_u128(key.as_u128() - 1));
+    let above = Some(Uuid::from_u128(key.as_u128() + 1));
+    let key = Some(key);
+    let child = |lower, upper| RangeSummary {
+        range: KeyRange {
+            lower,
+            upper,
+            ..root.clone()
+        },
+        ..halves[0].clone()
+    };
+    let coverage = || SyncError::Invalid("invalid split coverage".into());
+    for (children, error) in [
+        (
+            vec![halves[0].clone()],
+            SyncError::Invalid("invalid split size".into()),
+        ),
+        (vec![child(None, above), child(key, None)], coverage()),
+        (vec![child(None, below), child(key, None)], coverage()),
+        (
+            vec![child(None, key), child(key, key), child(key, None)],
+            coverage(),
+        ),
+        (vec![child(None, key), child(key, below)], coverage()),
+        (
+            vec![child(None, key), child(key, above)],
+            SyncError::IncompleteCoverage,
+        ),
+    ] {
+        assert_eq!(
+            target.split_range(session, root.clone(), children).await,
+            Err(error)
+        );
+    }
+    target.split_range(session, root, halves).await.unwrap();
+}
+
+/// Splitting a range that crosses a bucket boundary keeps the requested outer bounds and the
+/// manifest's boundary between them, so the receiver accepts the children.
+#[tokio::test]
+async fn share_split_across_buckets_stays_inside_the_requested_range() {
+    let fixture = bucketed_base_peer_fixture(20, &[110]).await;
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        share_prefix(&fixture.identity),
+        share_cache_dir(),
+    )
+    .unwrap();
+    let target = fresh_receiver();
+    let remote = ready_snapshot(&peer).await;
+    let session = target
+        .begin_reconciliation(
+            Uuid::new_v4(),
+            remote.clone(),
+            ready_snapshot(&target).await,
+        )
+        .await
+        .unwrap();
+    let root = remote.roots[0].range.clone();
+    let range = |lower: Option<u128>, upper: Option<u128>| KeyRange {
+        lower: lower.map(Uuid::from_u128),
+        upper: upper.map(Uuid::from_u128),
+        ..root.clone()
+    };
+    let mut thirds = Vec::new();
+    for third in [
+        range(None, Some(105)),
+        range(Some(105), Some(115)),
+        range(Some(115), None),
+    ] {
+        thirds.push(ready_summary(&peer, remote.snapshot_id, third).await);
+    }
+    target
+        .split_range(session, root.clone(), thirds)
+        .await
+        .unwrap();
+
+    let parent = range(Some(105), Some(115));
+    let children = ready_split(&peer, remote.snapshot_id, parent.clone()).await;
+    assert_eq!(
+        children,
+        vec![range(Some(105), Some(110)), range(Some(110), Some(115))]
+    );
+    let mut summaries = Vec::new();
+    for child in children {
+        summaries.push(ready_summary(&peer, remote.snapshot_id, child).await);
+    }
+    target
+        .split_range(session, parent, summaries)
+        .await
+        .unwrap();
+}
+
+/// Summaries and splits of ranges the manifest does not list stay within the caller's row and
+/// byte budget and resume from their cursors to the result of an unbounded call. Ranges the
+/// manifest lists still answer at once.
+#[tokio::test]
+async fn share_range_work_resumes_within_row_and_byte_budgets() {
+    let fixture = base_peer_fixture(20).await;
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        share_prefix(&fixture.identity),
+        share_cache_dir(),
+    )
+    .unwrap();
+    let shared = ready_snapshot(&peer).await;
+    let source = ready_snapshot(&*fixture.source).await;
+    let root = shared.roots[0].clone();
+    let part = KeyRange {
+        upper: Some(Uuid::from_u128(115)),
+        ..root.range.clone()
+    };
+    let exported = ready_summary(&*fixture.source, source.snapshot_id, part.clone()).await;
+    let halves = ready_split(&peer, shared.snapshot_id, root.range.clone()).await;
+    let one_row = WorkLimits {
+        max_rows_scanned: 1,
+        ..share_limits().work
+    };
+    let two_notes = WorkLimits {
+        max_bytes: 2 * root.candidate_bytes / root.candidate_count,
+        ..share_limits().work
+    };
+    for limits in [one_row, two_notes] {
+        let (children, calls) = resumed(|cursor| {
+            SnapshotSource::split(
+                &peer,
+                shared.snapshot_id,
+                root.range.clone(),
+                limits,
+                cursor,
+            )
+        })
+        .await;
+        assert!(
+            calls > 1,
+            "the split finished in one call within {limits:?}"
+        );
+        assert_eq!(children, halves);
+        let (summary, calls) = resumed(|cursor| {
+            SnapshotSource::summarize(&peer, shared.snapshot_id, part.clone(), limits, cursor)
+        })
+        .await;
+        assert!(
+            calls > 1,
+            "the summary finished in one call within {limits:?}"
+        );
+        assert_eq!(
+            (
+                summary.candidate_count,
+                summary.candidate_bytes,
+                summary.aggregate
+            ),
+            (
+                exported.candidate_count,
+                exported.candidate_bytes,
+                exported.aggregate
+            )
+        );
+        assert_eq!(
+            SnapshotSource::summarize(&peer, shared.snapshot_id, root.range.clone(), limits, None)
+                .await
+                .unwrap(),
+            WorkOutcome::Ready(root.clone())
+        );
+    }
+    let WorkOutcome::Incomplete { cursor } =
+        SnapshotSource::split(&peer, shared.snapshot_id, root.range.clone(), one_row, None)
+            .await
+            .unwrap()
+    else {
+        panic!("a one-row split finished in one call");
+    };
+    assert_eq!(
+        SnapshotSource::summarize(
+            &peer,
+            shared.snapshot_id,
+            root.range.clone(),
+            one_row,
+            Some(cursor)
+        )
+        .await,
+        Err(SyncError::StaleWork)
+    );
+
+    let fixture = bucketed_base_peer_fixture(20, &[110]).await;
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        share_prefix(&fixture.identity),
+        share_cache_dir(),
+    )
+    .unwrap();
+    let shared = ready_snapshot(&peer).await;
+    let root = shared.roots[0].range.clone();
+    let WorkOutcome::Ready(buckets) =
+        SnapshotSource::split(&peer, shared.snapshot_id, root, one_row, None)
+            .await
+            .unwrap()
+    else {
+        panic!("a split into manifest buckets did not answer at once");
+    };
+    for bucket in buckets {
+        assert!(matches!(
+            SnapshotSource::summarize(&peer, shared.snapshot_id, bucket, one_row, None)
+                .await
+                .unwrap(),
+            WorkOutcome::Ready(_)
+        ));
+    }
+}
+
+/// A summary across four buckets under a one-row budget loads only the chunk it reads from in
+/// each step, and still ends with the source's summary. A step whose bytes run out with the last
+/// candidate of a bucket does not load the next bucket's chunk either.
+#[tokio::test]
+async fn share_range_work_loads_one_chunk_per_step() {
+    let fixture = bucketed_base_peer_fixture(20, &[105, 110, 115]).await;
+    let prefix = share_prefix(&fixture.identity);
+    let cache = share_cache_dir();
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        prefix.clone(),
+        cache.clone(),
+    )
+    .unwrap();
+    let shared = ready_snapshot(&peer).await;
+    let source = ready_snapshot(&*fixture.source).await;
+    let base_id = &fixture.head.bases[0].base_id;
+    let manifest = decode_manifest::<Model>(
+        &fixture
+            .objects
+            .get(&base_key(&prefix, base_id).unwrap())
+            .await
+            .unwrap()
+            .bytes,
+        base_id,
+    )
+    .unwrap();
+    let chunks: Vec<_> = manifest.collections["notes"]
+        .buckets
+        .iter()
+        .map(|bucket| chunk_key(&prefix, &bucket.chunk).unwrap())
+        .collect();
+    assert_eq!(chunks.len(), 4);
+    let range = KeyRange {
+        lower: Some(Uuid::from_u128(103)),
+        upper: Some(Uuid::from_u128(118)),
+        ..shared.roots[0].range.clone()
+    };
+    // Each step starts without cached chunks, so every chunk it loads is read from the store.
+    let start_step = || {
+        let _ = std::fs::remove_dir_all(&cache);
+        chunks
+            .iter()
+            .map(|key| fixture.objects.get_count(key))
+            .collect::<Vec<_>>()
+    };
+    let chunks_loaded = |reads: &[u64]| {
+        chunks
+            .iter()
+            .zip(reads)
+            .filter(|(key, count)| fixture.objects.get_count(key) > **count)
+            .count()
+    };
+    let one_row = WorkLimits {
+        max_rows_scanned: 1,
+        ..share_limits().work
+    };
+    let mut cursor = None;
+    let mut step = 0;
+    let summary = loop {
+        let reads = start_step();
+        let outcome = SnapshotSource::summarize(
+            &peer,
+            shared.snapshot_id,
+            range.clone(),
+            one_row,
+            cursor.take(),
+        )
+        .await
+        .unwrap();
+        let loaded = chunks_loaded(&reads);
+        assert_eq!(loaded, 1, "step {step} loaded {loaded} chunks");
+        step += 1;
+        match outcome {
+            WorkOutcome::Ready(summary) => break summary,
+            WorkOutcome::Incomplete { cursor: next } => cursor = Some(next),
+        }
+    };
+    let exported = ready_summary(&*fixture.source, source.snapshot_id, range.clone()).await;
+    assert_eq!(
+        (
+            summary.candidate_count,
+            summary.candidate_bytes,
+            summary.aggregate
+        ),
+        (
+            exported.candidate_count,
+            exported.candidate_bytes,
+            exported.aggregate
+        )
+    );
+
+    // The range's candidates in the first bucket fill the byte budget exactly.
+    let first = ready_summary(
+        &*fixture.source,
+        source.snapshot_id,
+        KeyRange {
+            upper: Some(Uuid::from_u128(105)),
+            ..range.clone()
+        },
+    )
+    .await;
+    let reads = start_step();
+    let outcome = SnapshotSource::summarize(
+        &peer,
+        shared.snapshot_id,
+        range,
+        WorkLimits {
+            max_bytes: first.candidate_bytes,
+            ..share_limits().work
+        },
+        None,
+    )
+    .await
+    .unwrap();
+    let WorkOutcome::Incomplete { cursor } = outcome else {
+        panic!("the byte budget did not stop the first step")
+    };
+    assert_eq!(
+        (cursor.position, chunks_loaded(&reads)),
+        (first.candidate_count, 1)
+    );
 }
 
 #[tokio::test]
@@ -872,7 +1367,10 @@ async fn peer_fixture(count: u64) -> PeerFixture {
                 anchor: initial,
             },
             through: source.head().await.unwrap(),
-            limits: share_limits().pages,
+            limits: PageLimits {
+                max_scanned: 128,
+                max_bytes: 4 * 1024 * 1024,
+            },
         })
         .await
         .unwrap()

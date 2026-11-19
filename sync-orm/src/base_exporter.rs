@@ -373,25 +373,22 @@ fn choose_initial_bits(bytes: u64, previous: Option<u32>) -> u32 {
     bits
 }
 
+/// Bucket `index` of `2^bits` holds the keys whose leading `bits` bits equal `index`. Ranges are
+/// half-open, so a bucket ends where the next one starts, and the outer buckets are unbounded
+/// like the collection root: together the buckets partition the root.
 fn prefix_range<M: p::SyncModel>(
     collection: M::Collection,
     bits: u32,
     index: u32,
 ) -> p::KeyRange<M> {
-    if bits == 0 {
-        return p::KeyRange {
-            collection,
-            lower: None,
-            upper: None,
-        };
-    }
-    let shift = 128 - bits;
-    let lower = u128::from(index) << shift;
-    let upper = lower | ((1_u128 << shift) - 1);
+    let start = |bucket: u32| {
+        (bucket > 0 && u64::from(bucket) < 1 << bits)
+            .then(|| Uuid::from_u128(u128::from(bucket) << (128 - bits)))
+    };
     p::KeyRange {
         collection,
-        lower: Some(Uuid::from_u128(lower)),
-        upper: Some(Uuid::from_u128(upper)),
+        lower: start(index),
+        upper: start(index + 1),
     }
 }
 
