@@ -1798,6 +1798,7 @@ fn store_probe_objects_parse_in_any_probed_folder_and_near_misses_are_rejected()
     let device = format!("{}.{}", Uuid::from_u128(2), Uuid::from_u128(3));
     // The Add Library guide probes a folder that is not a device prefix.
     let guide = format!("{}.1", Uuid::from_u128(5));
+    let nested = format!("{device}/nested");
     for object in [
         ProbeObject::Roundtrip,
         ProbeObject::ConditionalCreate,
@@ -1805,7 +1806,7 @@ fn store_probe_objects_parse_in_any_probed_folder_and_near_misses_are_rejected()
         ProbeObject::ConditionalGet,
     ] {
         let name = object.name(id);
-        for folder in [&device, &guide] {
+        for folder in [&device, &guide, &nested] {
             let key = format!("devices/{folder}/{name}");
             assert_eq!(parse_key(&key).unwrap(), ObjectKey::Probe, "{key}");
         }
@@ -1815,6 +1816,20 @@ fn store_probe_objects_parse_in_any_probed_folder_and_near_misses_are_rejected()
             format!("devices/{device}/{name}.json"),
         ] {
             assert!(parse_key(&foreign).is_err(), "{foreign}");
+        }
+        // A probe never runs in a folder with an empty, `.` or `..` segment.
+        for folder in [
+            String::new(),
+            ".".into(),
+            "..".into(),
+            format!("{device}/"),
+            format!("{device}/."),
+            format!("{device}/.."),
+            format!("../{device}"),
+            format!("{device}//nested"),
+        ] {
+            let key = format!("devices/{folder}/{name}");
+            assert!(parse_key(&key).is_err(), "{key}");
         }
     }
     for foreign in [

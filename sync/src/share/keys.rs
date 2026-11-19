@@ -157,6 +157,13 @@ pub fn chunk_key(prefix: &str, digest: &str) -> Result<String, FormatError> {
     }
     Ok(format!("devices/{prefix}/obj/{digest}.gz"))
 }
+/// Whether `folder`, below `devices/`, is a folder a store probe can run in: one or more segments,
+/// none of them empty, `.` or `..`, as `OpenDalObjectStore::probe` (fsio) requires.
+fn is_probe_folder(folder: &str) -> bool {
+    folder
+        .split('/')
+        .all(|segment| !matches!(segment, "" | "." | ".."))
+}
 pub(super) fn valid_prefix(prefix: &str) -> Result<(), FormatError> {
     let parsed = DevicePrefix::from_str(prefix)?;
     if parsed.to_string() != prefix {
@@ -172,7 +179,7 @@ pub fn parse_key(key: &str) -> Result<ObjectKey, FormatError> {
     if key
         .strip_prefix("devices/")
         .and_then(|value| value.rsplit_once('/'))
-        .is_some_and(|(_, name)| ProbeObject::is_name(name))
+        .is_some_and(|(folder, name)| is_probe_folder(folder) && ProbeObject::is_name(name))
     {
         return Ok(ObjectKey::Probe);
     }
