@@ -2,6 +2,7 @@ use database::test_fixtures::causal_library as support;
 
 use anyhow::{Context, Result, ensure};
 use database::sync::model::{Collection, ObjectKey, RuneModel};
+use database::sync::replica::PendingShareChange;
 use database::sync::share::{
     PublishJournalRequest, ShareCapabilities, SharePullError, SharePushError, SharePushResult,
     ShareState, ShareWriter, load_or_create_state, publish_journal, save_state,
@@ -26,6 +27,8 @@ use sync::share::{
 use sync::{self as p, SyncModel, SyncPeer, SyncStore, share};
 use sync_orm::base_exporter::{BaseExportOptions, export_base};
 use sync_orm::causal_capabilities::CausalEndpoint;
+use sync_orm::causal_export_cursors::EXPORT_CURSOR_MAX_AGE_MS;
+use sync_orm::maintenance::Maintenance;
 use uuid::Uuid;
 
 struct Published {
@@ -2104,6 +2107,147 @@ async fn share_prefix_whose_head_another_writer_session_wrote_is_never_removed()
     assert_eq!(
         share_prefix_keys(&store, &creator_prefix).await?,
         creator_keys
+    );
+    Ok(())
+}
+
+async fn journal_head_and_floor(library: &SqlLibrary) -> Result<(i64, i64)> {
+    let row = library
+        .db
+        .query_one(
+            &Query::select()
+                .columns([Alias::new("head"), Alias::new("history_floor")])
+                .from(Alias::new("sync_meta"))
+                .to_owned(),
+        )
+        .await?
+        .context("missing journal metadata")?;
+    Ok((row.try_get_by_index(0)?, row.try_get_by_index(1)?))
+}
+
+/// Runs maintenance, as the hub does in the background, until compaction has moved the
+/// history floor up to the journal head.
+async fn compact_journal(library: &SqlLibrary) -> Result<i64> {
+    let mut maintenance = Maintenance::default();
+    for _ in 0..64 {
+        let (head, floor) = journal_head_and_floor(library).await?;
+        if floor == head {
+            return Ok(floor);
+        }
+        library.sync_store.maintain(&mut maintenance).await?;
+    }
+    anyhow::bail!("maintenance did not compact the journal")
+}
+
+/// Runs what the share worker runs for a pass: it asks for pending changes, then pulls and
+/// pushes.
+async fn share_worker_pass(device: &SqlLibrary, store: &Arc<MemoryObjectStore>) -> Result<Head> {
+    let namespace = device.sync_store.identity().await?.namespace;
+    let pending = device
+        .sync_store
+        .share_pending_changes(cache_path())
+        .await?
+        .context("the compacted journal tail was not reported as work to publish")?;
+    ensure!(
+        pending.change == PendingShareChange::Content,
+        "the compacted journal tail was reported as statistics only"
+    );
+    device
+        .sync_store
+        .pull_share(store.clone(), namespace, cache_path(), Default::default())
+        .await?;
+    device
+        .sync_store
+        .push_share(store.clone(), namespace, cache_path(), Default::default())
+        .await?
+        .context("the push pass published no head")
+}
+
+#[tokio::test]
+async fn journal_compacted_before_the_first_publication_is_published_as_a_base() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let device = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let key = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(2301),
+    };
+    device
+        .sync_store
+        .write_local(
+            key.clone(),
+            support::playlist("written before the first publication"),
+        )
+        .await?;
+    // Nothing pins the journal before the first publication creates the export cursor.
+    let floor = compact_journal(&device).await?;
+    ensure!(floor > 0, "maintenance left the journal uncompacted");
+
+    let store = Arc::new(MemoryObjectStore::default());
+    let head = share_worker_pass(&device, &store).await?;
+    ensure!(head.bases.len() == 1, "the first publication is not a base");
+    let joining = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    joining
+        .sync_store
+        .pull_share(store, namespace, cache_path(), Default::default())
+        .await?;
+    assert_eq!(
+        joining.sync_store.get(&key).await?,
+        device.sync_store.get(&key).await?
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn journal_compacted_past_an_expired_export_cursor_is_published_as_a_base() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let device = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let store = Arc::new(MemoryObjectStore::default());
+    let first = device
+        .sync_store
+        .push_share(store.clone(), namespace, cache_path(), Default::default())
+        .await?
+        .context("the first push published no head")?;
+    let key = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(2302),
+    };
+    device
+        .sync_store
+        .write_local(
+            key.clone(),
+            support::playlist("written after the export cursor expired"),
+        )
+        .await?;
+    // An export cursor older than its maximum age stops pinning, so compaction passes it.
+    let expired = chrono::Utc::now().timestamp_millis() - EXPORT_CURSOR_MAX_AGE_MS - 60_000;
+    device
+        .db
+        .execute(
+            &Query::update()
+                .table(Alias::new("sync_export_cursors"))
+                .value(Alias::new("advanced_at_ms"), expired)
+                .to_owned(),
+        )
+        .await?;
+    let floor = compact_journal(&device).await?;
+    ensure!(
+        u64::try_from(floor)? > first.local_cursor,
+        "compaction did not pass the export cursor"
+    );
+
+    let head = share_worker_pass(&device, &store).await?;
+    ensure!(
+        head.bases.len() == first.bases.len() + 1,
+        "the publication after compaction is not a base"
+    );
+    let joining = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    joining
+        .sync_store
+        .pull_share(store, namespace, cache_path(), Default::default())
+        .await?;
+    assert_eq!(
+        joining.sync_store.get(&key).await?,
+        device.sync_store.get(&key).await?
     );
     Ok(())
 }

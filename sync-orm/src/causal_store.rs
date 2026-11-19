@@ -1449,13 +1449,19 @@ impl<M: SyncModel> CausalReplica<M> {
         Ok(self.read_page_with_origins(request).await?.read)
     }
 
-    /// Return the journal checkpoint at a retained sequence for export readers.
-    pub async fn progress_at(&self, sequence: u64) -> Result<protocol::ReceiveProgress> {
+    /// Return the journal checkpoint at a sequence for export readers, or `None` when
+    /// compaction has already moved the history floor past it.
+    pub async fn progress_at(&self, sequence: u64) -> Result<Option<protocol::ReceiveProgress>> {
         let tx = self.db.begin().await?;
         let (_, meta) = self.meta_on(&tx).await?;
-        let anchor = self.anchor_at_on(&tx, &meta, sequence).await?;
+        let progress = if i64::try_from(sequence)? < meta.history_floor {
+            None
+        } else {
+            let anchor = self.anchor_at_on(&tx, &meta, sequence).await?;
+            Some(protocol::ReceiveProgress { sequence, anchor })
+        };
         tx.commit().await?;
-        Ok(protocol::ReceiveProgress { sequence, anchor })
+        Ok(progress)
     }
 
     /// Read a peer page with local-only journal origin metadata. Origins are
