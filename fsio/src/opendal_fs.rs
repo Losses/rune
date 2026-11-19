@@ -1,13 +1,13 @@
 use std::collections::HashSet;
 use std::fmt;
+use std::future::Future;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
-use opendal::blocking::{Operator, Reader};
 use opendal::services;
-use opendal::{ErrorKind, HttpTransporter, OperationContext, Operator as AsyncOperator};
+use opendal::{ErrorKind, HttpTransporter, OperationContext, Operator, Reader};
 use opendal_http_transport_reqwest::ReqwestTransport;
 use rustls::{ClientConfig, RootCertStore};
 use tokio::runtime::Handle;
@@ -67,9 +67,11 @@ impl fmt::Debug for OpenDalConfig {
     }
 }
 
-/// Read-only remote filesystem. Sync calls use OpenDAL's blocking facade on the
-/// supplied runtime; callers must construct with a live Tokio handle. Calls from
-/// Tokio workers should be moved to `spawn_blocking` so they never block a worker.
+/// Read-only remote filesystem on the supplied runtime. Sync calls, and reads of
+/// the files it opens, block the calling thread until that runtime has completed
+/// the request, so they belong on threads that drive no runtime, such as
+/// `spawn_blocking` ones. An open file holds no runtime work, so any thread can
+/// drop it.
 #[derive(Clone)]
 pub(crate) struct OpenDalFsIo {
     operator: Operator,
@@ -97,7 +99,7 @@ impl OpenDalFsIo {
                 .map_err(|_| remote_error("configure"))?
         };
         let http_transport = HttpTransporter::new(ReqwestTransport::new(http_client));
-        let op = match config {
+        let operator = match config {
             OpenDalConfig::WebDav {
                 endpoint,
                 root,
@@ -110,7 +112,7 @@ impl OpenDalFsIo {
                     .username(&username)
                     .password(&password);
                 let _guard = handle.enter();
-                AsyncOperator::new(builder)
+                Operator::new(builder)
                     .map_err(|_| remote_error("configure"))?
                     .with_context(OperationContext::new().with_http_transport(http_transport))
             }
@@ -131,35 +133,31 @@ impl OpenDalFsIo {
                     .secret_access_key(&secret_access_key)
                     .disable_config_load();
                 let _guard = handle.enter();
-                AsyncOperator::new(builder)
+                Operator::new(builder)
                     .map_err(|_| remote_error("configure"))?
                     .with_context(OperationContext::new().with_http_transport(http_transport))
             }
         };
-        let _guard = handle.enter();
-        let operator = Operator::new(op).map_err(|_| remote_error("configure"))?;
         Ok(Self { operator, handle })
-    }
-
-    fn enter(&self) -> tokio::runtime::EnterGuard<'_> {
-        self.handle.enter()
     }
 
     fn key(&self, path: &Path) -> Result<String, FileIoError> {
         path_to_key(path)
     }
 
+    /// Blocks the calling thread until the supplied runtime has completed `request`.
     fn run<T>(
         &self,
         operation: &str,
-        f: impl FnOnce(&Operator) -> opendal::Result<T>,
+        request: impl Future<Output = opendal::Result<T>>,
     ) -> Result<T, FileIoError> {
-        let _guard = self.enter();
-        f(&self.operator).map_err(|error| map_open_error(&error, operation))
+        self.handle
+            .block_on(request)
+            .map_err(|error| map_open_error(&error, operation))
     }
 
     fn node(&self, key: &str, path: PathBuf, filename: String) -> Result<FsNode, FileIoError> {
-        let meta = self.run("stat", |op| op.stat(key))?;
+        let meta = self.run("stat", self.operator.stat(key))?;
         Ok(FsNode {
             filename,
             path,
@@ -191,7 +189,7 @@ impl OpenDalFsIo {
 
     fn directory_exists(&self, key: &str) -> Result<bool, FileIoError> {
         let prefix = directory_key(key);
-        self.run("list", |op| op.list(&prefix))
+        self.run("list", self.operator.list(&prefix))
             .map(|entries| !entries.is_empty())
     }
 
@@ -225,9 +223,7 @@ impl OpenDalFsIo {
         if !visited.insert(key.clone()) {
             return Ok(());
         }
-        let entries = self.run("list", |op| {
-            op.lister(&key)?.collect::<opendal::Result<Vec<_>>>()
-        })?;
+        let entries = self.run("list", self.operator.list(&key))?;
         let current = key.trim_matches('/');
         let mut seen = HashSet::new();
         for entry in entries {
@@ -248,9 +244,7 @@ impl OpenDalFsIo {
 
     fn list_one(&self, key: &str) -> Result<Vec<FsNode>, FileIoError> {
         let key = directory_key(key);
-        let entries = self.run("list", |op| {
-            op.lister(&key)?.collect::<opendal::Result<Vec<_>>>()
-        })?;
+        let entries = self.run("list", self.operator.list(&key))?;
         let current = key.trim_matches('/');
         let mut seen = HashSet::new();
         let mut nodes = Vec::new();
@@ -348,8 +342,12 @@ fn map_open_error(error: &opendal::Error, operation: &str) -> FileIoError {
     }
 }
 
+/// A remote file read in ranges. A read blocks until the runtime that opened the
+/// file has completed its request; the reader holds no runtime work, so the file
+/// can be dropped on any thread, also on one that drives a runtime.
 struct RemoteFile {
     reader: Reader,
+    handle: Handle,
     position: u64,
     length: u64,
     buffer_start: u64,
@@ -365,7 +363,8 @@ impl Read for RemoteFile {
             || self.position >= self.buffer_start.saturating_add(self.buffer.len() as u64)
         {
             let end = self.position.saturating_add(256 * 1024).min(self.length);
-            let bytes = self.reader.read(self.position..end).map_err(|error| {
+            let request = self.reader.read(self.position..end);
+            let bytes = self.handle.block_on(request).map_err(|error| {
                 let mapped = map_open_error(&error, "read");
                 let kind = match mapped {
                     FileIoError::PermissionDenied(_) => IoErrorKind::PermissionDenied,
@@ -430,11 +429,15 @@ impl FileIo for OpenDalFsIo {
             return Err(FileIoError::NotSupported("remote write access".into()));
         }
         let key = self.key(path)?;
-        let (reader, length) = self.run("open", |op| {
-            Ok((op.reader(&key)?, op.stat(&key)?.content_length()))
+        let (reader, length) = self.run("open", async {
+            Ok((
+                self.operator.reader(&key).await?,
+                self.operator.stat(&key).await?.content_length(),
+            ))
         })?;
         Ok(Box::new(RemoteFile {
             reader,
+            handle: self.handle.clone(),
             position: 0,
             length,
             buffer_start: 0,
@@ -455,7 +458,8 @@ impl FileIo for OpenDalFsIo {
     }
     fn read(&self, path: &Path) -> Result<Vec<u8>, FileIoError> {
         let key = self.key(path)?;
-        self.run("read", |op| op.read(&key)).map(|b| b.to_vec())
+        self.run("read", self.operator.read(&key))
+            .map(|b| b.to_vec())
     }
     fn read_to_string(&self, path: &Path) -> Result<String, FileIoError> {
         String::from_utf8(self.read(path)?).map_err(|_| FileIoError::InvalidPath)
@@ -506,7 +510,7 @@ impl FileIo for OpenDalFsIo {
 
     fn exists(&self, path: &Path) -> Result<bool, FileIoError> {
         let key = self.key(path)?;
-        if self.run("exists", |op| op.exists(&key))? {
+        if self.run("exists", self.operator.exists(&key))? {
             Ok(true)
         } else {
             self.directory_exists(&key)
@@ -556,7 +560,7 @@ impl FileIo for OpenDalFsIo {
     }
     fn modified_time(&self, path: &Path) -> Result<u64, FileIoError> {
         let key = self.key(path)?;
-        self.run("stat", |op| op.stat(&key)).map(|meta| {
+        self.run("stat", self.operator.stat(&key)).map(|meta| {
             meta.last_modified()
                 .map(SystemTime::from)
                 .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
@@ -566,7 +570,7 @@ impl FileIo for OpenDalFsIo {
     }
     fn change_token(&self, path: &Path) -> Result<Option<String>, FileIoError> {
         let key = self.key(path)?;
-        self.run("stat", |op| op.stat(&key)).map(|meta| {
+        self.run("stat", self.operator.stat(&key)).map(|meta| {
             meta.etag().map(str::to_owned).or_else(|| {
                 meta.last_modified()
                     .map(SystemTime::from)

@@ -210,6 +210,10 @@ impl FsIo {
     }
 
     /// Create a read-only WebDAV or S3 filesystem using the supplied runtime.
+    /// Its sync methods, and reads of the files it opens, block the calling
+    /// thread until that runtime has completed the request, so call them on a
+    /// thread that drives no runtime, such as a `spawn_blocking` one. The files
+    /// can be dropped on any thread.
     pub fn new_opendal(
         config: OpenDalConfig,
         handle: tokio::runtime::Handle,

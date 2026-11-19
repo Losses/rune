@@ -2414,12 +2414,18 @@ pub async fn parse_media_files(
             let _ = &fsio;
             Ok(Path::new(&file.directory).join(&file.file_name))
         };
+        // Canonicalizing asks the library's storage, which blocks on a remote
+        // library, so it runs off the runtime.
         #[cfg(not(target_os = "android"))]
-        let media_path = fsio.canonicalize_path(
-            &Path::new(lib_path.as_ref())
+        let media_path = {
+            let fsio = fsio.clone();
+            let path = Path::new(lib_path.as_ref())
                 .join(&file.directory)
-                .join(&file.file_name),
-        );
+                .join(&file.file_name);
+            tokio::task::spawn_blocking(move || fsio.canonicalize_path(&path))
+                .await
+                .context("media path task failed")?
+        };
 
         use crate::messages::AudioAvailability as ApiState;
         use database::actions::file::AudioAvailability as LocalState;
