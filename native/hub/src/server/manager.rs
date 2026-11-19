@@ -2510,18 +2510,19 @@ mod lifecycle_tests {
         let fingerprint = info(&b).await?.fingerprint;
         let base = peer_base("127.0.0.1", addr.port())?;
         let client = pinned_anonymous_client(&b.global_params, None).await?;
-        // Keep this token out of the shared client cache so no request uses it while blocked.
-        let token = obtain_token(
-            &client,
-            &base,
-            &fingerprint,
-            &b.private_key,
-            &info(&a).await?.fingerprint,
-        )
-        .await?;
-        let access = || client.get(format!("{base}/access")).bearer_auth(&token);
-        assert_eq!(access().send().await?.status(), reqwest::StatusCode::OK);
+        let server_fingerprint = info(&a).await?.fingerprint;
         for remove in [false, true] {
+            // Keep this token out of the shared cache so it is unused during revocation.
+            let token = obtain_token(
+                &client,
+                &base,
+                &fingerprint,
+                &b.private_key,
+                &server_fingerprint,
+            )
+            .await?;
+            let access = || client.get(format!("{base}/access")).bearer_auth(&token);
+            assert_eq!(access().send().await?.status(), reqwest::StatusCode::OK);
             let mut socket = connect_remote(
                 "127.0.0.1",
                 addr.port(),
@@ -2579,7 +2580,9 @@ mod lifecycle_tests {
                     .then_some(()))
             })
             .await?;
-            if !remove {
+            if remove {
+                pair(&a, &b).await?;
+            } else {
                 assert!(matches!(
                     connect_remote(
                         "127.0.0.1",
@@ -2597,14 +2600,13 @@ mod lifecycle_tests {
                     .await
                     .change_user_status(&fingerprint, UserStatus::Approved)
                     .await?;
-                // Once approved again, the old token can only fail if revocation purged it.
-                assert_eq!(
-                    access().send().await?.status(),
-                    reqwest::StatusCode::UNAUTHORIZED
-                );
             }
+            // Approval is restored, so denial proves the old token was purged.
+            assert_eq!(
+                access().send().await?.status(),
+                reqwest::StatusCode::UNAUTHORIZED
+            );
         }
-        pair(&a, &b).await?;
         let mut socket = connect_remote(
             "127.0.0.1",
             addr.port(),
