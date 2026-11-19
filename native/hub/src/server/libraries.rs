@@ -488,14 +488,13 @@ pub(super) async fn list_peer_libraries(
     private_key: &str,
     fingerprint: &str,
 ) -> Result<Vec<PeerLibrary>, RemoteConnectError> {
-    if params
+    let hosts = params
         .cert_validator
         .read()
         .await
         .get_hosts_for_fingerprint(fingerprint)
-        .await
-        .is_empty()
-    {
+        .await;
+    if hosts.is_empty() {
         return Err(RemoteConnectError::UntrustedEndpoint);
     }
     if params
@@ -509,21 +508,21 @@ pub(super) async fn list_peer_libraries(
         return Err(RemoteConnectError::NotAuthorized);
     }
     let own = params.device_info().await.map_err(token_error)?;
-    let endpoints = peer_endpoints(params, &own.fingerprint)
-        .await
-        .into_iter()
-        .flatten()
-        .filter(|endpoint| endpoint.fingerprint == fingerprint);
+    // The trusted hosts rather than `peer_endpoints`, which skips a peer this device has not
+    // approved: a peer that never paired with this device has no entry here to approve.
+    let addresses = hosts
+        .iter()
+        .filter_map(|host| host.parse::<DeviceAddress>().ok());
     let mut failure = RemoteConnectError::Unreachable;
-    for endpoint in endpoints {
+    for address in addresses {
         let result = async {
             let response = send_authenticated_request(
                 params,
                 &own.fingerprint,
                 private_key,
                 fingerprint,
-                &endpoint.host,
-                endpoint.port,
+                address.host(),
+                address.port(),
                 |base, client| client.get(format!("{base}/libraries")),
             )
             .await?
