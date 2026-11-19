@@ -1973,7 +1973,8 @@ fn base_candidates(peers: &[(DevicePrefix, Head)]) -> SharePullResult<Vec<BaseCa
 }
 
 /// Selects the live base covering `target` with the largest total coverage. A base whose
-/// manifest is missing is skipped, as are the `unavailable_bases` this pull could not read.
+/// manifest is missing, does not decode or fails its digest is skipped for this selection, as
+/// are the `unavailable_bases` this pull could not read.
 async fn choose_live_base<M: SyncModel>(
     store: &dyn ObjectStore,
     candidates: &[BaseCandidate],
@@ -2004,8 +2005,9 @@ async fn choose_live_base<M: SyncModel>(
             Err(StoreError::NotFound) => continue,
             Err(error) => return Err(store_error(error)),
         };
-        let manifest = decode_manifest::<M>(&object.bytes, &candidate.base_id)
-            .map_err(|error| SharePullError::Invalid(error.to_string()))?;
+        let Ok(manifest) = decode_manifest::<M>(&object.bytes, &candidate.base_id) else {
+            continue;
+        };
         validate_manifest_covers(&manifest)?;
         for (prefix, cover) in &candidate.covers {
             if manifest.covers.get(prefix) != Some(cover) {

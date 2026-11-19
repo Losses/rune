@@ -2093,9 +2093,20 @@ async fn publish_newer_base(
     Ok((newer.base_id, newer.manifest))
 }
 
+#[derive(Clone, Copy, Debug)]
+enum Corruption {
+    ContextChunk,
+    BucketChunk,
+    Manifest,
+}
+
 #[tokio::test]
 async fn corrupt_preferred_base_falls_back_to_another_live_base_in_the_same_pull() -> Result<()> {
-    for corrupt_context in [true, false] {
+    for corruption in [
+        Corruption::ContextChunk,
+        Corruption::BucketChunk,
+        Corruption::Manifest,
+    ] {
         let namespace = Uuid::new_v4();
         let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
         source
@@ -2111,45 +2122,66 @@ async fn corrupt_preferred_base_falls_back_to_another_live_base_in_the_same_pull
         let store = Arc::new(MemoryObjectStore::default());
         let mut published = publish_base(&source, store.clone(), Default::default()).await?;
         append_segment(&mut published, 61, "covered by the newer base").await?;
-        let (_, newer) = publish_newer_base(&mut published).await?;
+        let (newer_id, newer) = publish_newer_base(&mut published).await?;
 
-        let newer_playlists = playlist_summary(&newer)?;
-        let name = if corrupt_context {
-            newer_playlists
-                .context_fragments
-                .first()
-                .context("newer playlist context has no chunk")?
+        let corrupt = if let Corruption::Manifest = corruption {
+            // Canonical, but no longer the manifest its base id names.
+            let mut tampered = newer.clone();
+            tampered
+                .collections
+                .get_mut(RuneModel::collection_tag(&Collection::Playlists))
+                .context("newer base has no playlist collection")?
+                .root
+                .candidate_count += 1;
+            let (_, bytes) = share::encode_manifest(&tampered)?;
+            let key = share::base_key(&published.prefix, &newer_id)?;
+            store
+                .put(&key, &bytes)
+                .await
+                .map_err(|error| anyhow::anyhow!("corrupt newer manifest: {error:?}"))?;
+            key
         } else {
-            &newer_playlists
-                .buckets
-                .first()
-                .context("newer playlist collection has no bucket")?
-                .chunk
+            let newer_playlists = playlist_summary(&newer)?;
+            let name = if let Corruption::ContextChunk = corruption {
+                newer_playlists
+                    .context_fragments
+                    .first()
+                    .context("newer playlist context has no chunk")?
+            } else {
+                &newer_playlists
+                    .buckets
+                    .first()
+                    .context("newer playlist collection has no bucket")?
+                    .chunk
+            };
+            let floor = base_manifest(
+                &store,
+                &published.prefix,
+                &published.head.floor_base.base_id,
+            )
+            .await?;
+            ensure!(
+                floor.collections.values().all(|collection| {
+                    !collection.context_fragments.contains(name)
+                        && collection
+                            .buckets
+                            .iter()
+                            .all(|bucket| &bucket.chunk != name)
+                }),
+                "the floor base shares the chunk that is corrupted"
+            );
+            let key = share::chunk_key(&published.prefix, name)?;
+            store
+                .put(&key, b"corrupt gzip")
+                .await
+                .map_err(|error| anyhow::anyhow!("corrupt newer base chunk: {error:?}"))?;
+            key
         };
-        let floor = base_manifest(
-            &store,
-            &published.prefix,
-            &published.head.floor_base.base_id,
-        )
-        .await?;
-        ensure!(
-            floor.collections.values().all(|collection| {
-                !collection.context_fragments.contains(name)
-                    && collection
-                        .buckets
-                        .iter()
-                        .all(|bucket| &bucket.chunk != name)
-            }),
-            "the floor base shares the chunk that is corrupted"
-        );
-        let corrupt = share::chunk_key(&published.prefix, name)?;
-        store
-            .put(&corrupt, b"corrupt gzip")
-            .await
-            .map_err(|error| anyhow::anyhow!("corrupt newer base chunk: {error:?}"))?;
 
         let target = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
-        pull(&published, &target).await?;
+        pull(&published, &target)
+            .await
+            .with_context(|| format!("pull with a corrupt newer {corruption:?}"))?;
         assert_ne!(
             store.get_count(&corrupt),
             0,
