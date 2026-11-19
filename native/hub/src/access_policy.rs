@@ -88,14 +88,22 @@ impl DeviceGrants {
         Self {
             control: true,
             connection: LibraryGrants {
-                all_libraries: Some(ConnectionLevel::View),
+                all_libraries: None,
                 libraries: BTreeMap::new(),
             },
             sync: LibraryGrants {
-                all_libraries: Some(SyncLevel::None),
+                all_libraries: None,
                 libraries: BTreeMap::new(),
             },
             administer: false,
+        }
+    }
+    fn migrate_from_v2(&mut self) {
+        if self.connection.all_libraries == Some(ConnectionLevel::View)
+            && self.sync.all_libraries.unwrap_or_default() == SyncLevel::None
+        {
+            self.connection.all_libraries = None;
+            self.sync.all_libraries = None;
         }
     }
     pub fn connection_level(&self, library_id: Uuid) -> ConnectionLevel {
@@ -120,8 +128,9 @@ pub enum Denial {
     Unavailable,
 }
 
-/// Version 2 stores separate Connection and Sync grants per library.
-const GRANTS_VERSION: u32 = 2;
+/// Version 3 removes wildcard ConnectionView from stored Guest grants.
+const GRANTS_VERSION: u32 = 3;
+const LEGACY_V2_GRANTS_VERSION: u32 = 2;
 
 #[derive(Clone, Serialize, Deserialize)]
 struct GrantsFile {
@@ -148,12 +157,16 @@ impl RuneAccessPolicy {
         // reset, and its approved devices fall back to the least-privileged
         // preset rather than gaining access they may never have had.
         let (mut file, reset) = match fs::read(&path) {
-            Ok(data) => match serde_json::from_slice::<GrantsFile>(&data)
-                .ok()
-                .filter(|file| file.version == GRANTS_VERSION)
-            {
-                Some(file) => (file, false),
-                None => {
+            Ok(data) => match serde_json::from_slice::<GrantsFile>(&data).ok() {
+                Some(file) if file.version == GRANTS_VERSION => (file, false),
+                Some(mut file) if file.version == LEGACY_V2_GRANTS_VERSION => {
+                    file.version = GRANTS_VERSION;
+                    for grants in file.devices.values_mut() {
+                        grants.migrate_from_v2();
+                    }
+                    (file, false)
+                }
+                _ => {
                     log::warn!("Device grants file is not in the current format; resetting it");
                     (fresh(), true)
                 }
@@ -240,6 +253,11 @@ impl RuneAccessPolicy {
             devices.insert(fingerprint.to_owned(), grants);
         })
     }
+    pub fn library_visible(&self, peer: &PeerIdentity, library_id: Uuid) -> bool {
+        self.check(peer, &Action::ConnectionView { library_id })
+            .is_ok()
+            || self.check(peer, &Action::SyncPull { library_id }).is_ok()
+    }
     pub fn trust_changed(&self, fingerprint: &str, status: Option<&UserStatus>) -> Result<()> {
         self.update(|devices| {
             if status == Some(&UserStatus::Approved) {
@@ -325,6 +343,74 @@ mod load_tests {
         )?;
         let policy = RuneAccessPolicy::load(dir.path(), &[approved("a")])?;
         assert_eq!(policy.grants("a")?, DeviceGrants::guest());
+        Ok(())
+    }
+
+    #[test]
+    fn stored_v2_guest_grants_drop_wildcard_view_without_granting_sync() -> anyhow::Result<()> {
+        use super::{ConnectionLevel, SyncLevel};
+        use uuid::Uuid;
+
+        let dir = tempfile::tempdir()?;
+        let shared = Uuid::new_v4();
+        let unshared = Uuid::new_v4();
+        std::fs::write(
+            dir.path().join("grants.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "version": 2,
+                "devices": {
+                    "guest_plain": {
+                        "control": true,
+                        "connection": { "all_libraries": "View", "libraries": {} },
+                        "sync": { "all_libraries": "None", "libraries": {} },
+                        "administer": false
+                    },
+                    "guest_with_shared": {
+                        "control": true,
+                        "connection": {
+                            "all_libraries": "View",
+                            "libraries": { shared.to_string(): "View" }
+                        },
+                        "sync": {
+                            "all_libraries": "None",
+                            "libraries": { shared.to_string(): "None" }
+                        },
+                        "administer": false
+                    },
+                    "owner": {
+                        "control": true,
+                        "connection": { "all_libraries": "ViewEdit", "libraries": {} },
+                        "sync": { "all_libraries": "PullPush", "libraries": {} },
+                        "administer": false
+                    }
+                }
+            }))?,
+        )?;
+        let policy = RuneAccessPolicy::load(
+            dir.path(),
+            &[
+                approved("guest_plain"),
+                approved("guest_with_shared"),
+                approved("owner"),
+            ],
+        )?;
+        assert_eq!(
+            policy.grants("guest_plain")?.connection_level(unshared),
+            ConnectionLevel::None
+        );
+        assert_eq!(
+            policy.grants("guest_plain")?.sync_level(unshared),
+            SyncLevel::None
+        );
+        let with_shared = policy.grants("guest_with_shared")?;
+        assert_eq!(with_shared.connection_level(shared), ConnectionLevel::View);
+        assert_eq!(with_shared.sync_level(shared), SyncLevel::None);
+        assert_eq!(
+            with_shared.connection_level(unshared),
+            ConnectionLevel::None
+        );
+        assert_eq!(with_shared.sync_level(unshared), SyncLevel::None);
+        assert_eq!(policy.grants("owner")?, DeviceGrants::my_device());
         Ok(())
     }
 }

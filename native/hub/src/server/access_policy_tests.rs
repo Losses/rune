@@ -673,7 +673,7 @@ mod access_policy_tests {
         pair.client = PolicyPair::client_for(&pair.a, &pair.b, pair.addr).await?;
         let json: serde_json::Value =
             serde_json::from_slice(&fs::read(config.join("grants.json"))?)?;
-        assert_eq!(json["version"], 2);
+        assert_eq!(json["version"], 3);
         assert_eq!(
             json["devices"][&fingerprint],
             serde_json::to_value(DeviceGrants::my_device())?
@@ -1062,9 +1062,10 @@ mod access_policy_tests {
         use crate::messages::CreatePlaylistRequest;
 
         let pair = PolicyPair::new().await?;
+        let fingerprint = info(&pair.b).await?.fingerprint;
         let request = SetDeviceGrantsRequest {
             call_id: None,
-            fingerprint: info(&pair.b).await?.fingerprint,
+            fingerprint: fingerprint.clone(),
             grants: DeviceGrantsChange::Preset(DevicePreset::Guest),
         };
         request
@@ -1072,6 +1073,28 @@ mod access_policy_tests {
                 request.extract_params(&pair.a.global_params),
                 None,
                 &request,
+            )
+            .await?;
+        let share_request = SetDeviceGrantsRequest {
+            call_id: None,
+            fingerprint,
+            grants: DeviceGrantsChange::Set(DeviceGrantsInfo {
+                control: true,
+                all_connection: None,
+                all_sync: None,
+                libraries: vec![DeviceLibraryGrant {
+                    library_id: pair.id.to_string(),
+                    connection: DeviceConnectionLevel::View,
+                    sync: DeviceSyncLevel::None,
+                }],
+                administer: false,
+            }),
+        };
+        share_request
+            .handle(
+                share_request.extract_params(&pair.a.global_params),
+                None,
+                &share_request,
             )
             .await?;
         let mut socket = connect_remote(
@@ -1136,6 +1159,367 @@ mod access_policy_tests {
                 .status(),
             reqwest::StatusCode::FORBIDDEN
         );
+        socket.close(None).await?;
+        pair.close().await
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn guest_sees_and_browses_only_explicitly_shared_libraries() -> Result<()> {
+        use crate::backends::remote::RemoteStream;
+        use crate::messages::{
+            FetchAllPlaylistsRequest, GetOpenLibraryRequest, GetOpenLibraryResponse,
+            SearchForRequest,
+        };
+
+        let mut pair = PolicyPair::new().await?;
+        let shared_id = pair.id;
+        LibraryRegistry::update(Path::new(&*pair.a.global_params.config_path), |registry| {
+            let record = registry
+                .libraries
+                .iter_mut()
+                .find(|record| record.catalog_library_id() == Some(shared_id))
+                .context("shared library record")?;
+            record.alias = "Shared Music".into();
+            Ok(())
+        })
+        .await?;
+        scan_held_track(&pair.a, shared_id, "shared.ogg").await?;
+
+        let unshared_dir = tempfile::tempdir()?;
+        let unshared_registered = register_local_library_on_node(
+            &RegisterLocalLibraryRequest {
+                call_id: None,
+                path: unshared_dir
+                    .path()
+                    .to_str()
+                    .context("unshared path")?
+                    .into(),
+                alias: "Private Archive".into(),
+                mode: Some(LibraryInitializeMode::Portable),
+            },
+            &pair.a.global_params.node,
+        )
+        .await?
+        .record
+        .context("unshared library record")?;
+        pair.a = fixture_open_record(&pair.a, unshared_registered.record_id).await?;
+        let unshared_id = pair
+            .a
+            .global_params
+            .library_id
+            .context("unshared library id")?;
+        pair.a.stop_worker().await?;
+        scan_held_track(&pair.a, unshared_id, "private.ogg").await?;
+        announce_peer(&pair.b, &info(&pair.a).await?, pair.addr).await?;
+
+        let guest_fingerprint = info(&pair.b).await?.fingerprint;
+        let host_fingerprint = info(&pair.a).await?.fingerprint;
+        let preset_request = SetDeviceGrantsRequest {
+            call_id: None,
+            fingerprint: guest_fingerprint.clone(),
+            grants: DeviceGrantsChange::Preset(DevicePreset::Guest),
+        };
+        preset_request
+            .handle(
+                preset_request.extract_params(&pair.a.global_params),
+                None,
+                &preset_request,
+            )
+            .await?;
+
+        let load_grants = || {
+            let node = pair.a.global_params.node.clone();
+            let fingerprint = guest_fingerprint.clone();
+            async move {
+                let request = GetDeviceGrantsRequest {
+                    call_id: None,
+                    fingerprint,
+                };
+                request
+                    .handle(node, None, &request)
+                    .await?
+                    .context("loaded guest grants")
+            }
+        };
+        let save_library_grants = |libraries: Vec<DeviceLibraryGrant>| {
+            let params = pair.a.global_params.clone();
+            let fingerprint = guest_fingerprint.clone();
+            async move {
+                let current = load_grants().await?.grants;
+                let request = SetDeviceGrantsRequest {
+                    call_id: None,
+                    fingerprint,
+                    grants: DeviceGrantsChange::Set(DeviceGrantsInfo {
+                        control: current.control,
+                        all_connection: current.all_connection,
+                        all_sync: current.all_sync,
+                        libraries,
+                        administer: current.administer,
+                    }),
+                };
+                request
+                    .handle(request.extract_params(&params), None, &request)
+                    .await?;
+                Ok::<_, anyhow::Error>(())
+            }
+        };
+        let listed_pairs = || async {
+            let value = pair.listings().await?;
+            let entries = value.as_array().context("library list array")?;
+            let mut pairs: Vec<(String, String, String, String)> = entries
+                .iter()
+                .map(|entry| {
+                    (
+                        entry["library_id"].as_str().unwrap_or_default().to_owned(),
+                        entry["alias"].as_str().unwrap_or_default().to_owned(),
+                        entry["connection"].as_str().unwrap_or_default().to_owned(),
+                        entry["sync"].as_str().unwrap_or_default().to_owned(),
+                    )
+                })
+                .collect();
+            pairs.sort();
+            Ok::<_, anyhow::Error>(pairs)
+        };
+
+        // Share only `shared_id` with browse-only access (`View`, sync `None`) on the Guest preset.
+        save_library_grants(vec![DeviceLibraryGrant {
+            library_id: shared_id.to_string(),
+            connection: DeviceConnectionLevel::View,
+            sync: DeviceSyncLevel::None,
+        }])
+        .await?;
+
+        // Add a third native library after the Guest grant; it is not shared.
+        let later_dir = tempfile::tempdir()?;
+        let later_registered = register_local_library_on_node(
+            &RegisterLocalLibraryRequest {
+                call_id: None,
+                path: later_dir.path().to_str().context("later path")?.into(),
+                alias: "Added Later Secret".into(),
+                mode: Some(LibraryInitializeMode::Portable),
+            },
+            &pair.a.global_params.node,
+        )
+        .await?
+        .record
+        .context("later library record")?;
+        let later_id = LibraryRegistry::load(Path::new(&*pair.a.global_params.config_path))?
+            .libraries
+            .into_iter()
+            .find(|record| record.record_id.0.to_string() == later_registered.record_id)
+            .and_then(|record| record.catalog_library_id())
+            .context("later library id")?;
+        scan_held_track(&pair.a, later_id, "later.ogg").await?;
+
+        assert_eq!(
+            listed_pairs().await?,
+            vec![(
+                shared_id.to_string(),
+                "Shared Music".to_owned(),
+                "View".to_owned(),
+                "None".to_owned(),
+            )],
+        );
+        let peer_listed = list_peer_libraries(
+            &pair.b.global_params.node,
+            &pair.b.private_key,
+            &host_fingerprint,
+        )
+        .await?;
+        assert_eq!(peer_listed.len(), 1);
+        assert_eq!(peer_listed[0].library_id, shared_id.to_string());
+        assert_eq!(peer_listed[0].alias, "Shared Music");
+
+        let mut socket = connect_remote(
+            "127.0.0.1",
+            pair.addr.port(),
+            &pair.b.global_params.config_path,
+            pair.b.global_params.cert_validator.read().await.clone(),
+            &pair.b.global_params.node.sync_tokens,
+        )
+        .await?;
+
+        // Host's active UI library is `unshared_id`; `GetOpenLibraryRequest` must not reveal it.
+        let (open_name, open_payload) = socket_request(
+            &mut socket,
+            "GetOpenLibraryRequest",
+            &rinf::serialize(&GetOpenLibraryRequest { call_id: None })?,
+        )
+        .await?;
+        assert_eq!(open_name, "GetOpenLibraryResponse");
+        let open_response: GetOpenLibraryResponse = rinf::deserialize(&open_payload)?;
+        assert_eq!(open_response.library_id, None);
+
+        async fn assert_catalog_allowed(socket: &mut RemoteStream, library_id: Uuid) -> Result<()> {
+            let (name, payload) = socket_request_for_library(
+                socket,
+                "GetMediaFilesCountRequest",
+                &rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?,
+                library_id,
+            )
+            .await?;
+            assert_eq!(name, "GetMediaFilesCountResponse");
+            let count: GetMediaFilesCountResponse = rinf::deserialize(&payload)?;
+            assert_eq!(count.count, 1);
+
+            let (name, _) = socket_request_for_library(
+                socket,
+                "FetchAllPlaylistsRequest",
+                &rinf::serialize(&FetchAllPlaylistsRequest { call_id: None })?,
+                library_id,
+            )
+            .await?;
+            assert_eq!(name, "FetchAllPlaylistsResponse");
+
+            let (name, _) = socket_request_for_library(
+                socket,
+                "SearchForRequest",
+                &rinf::serialize(&SearchForRequest {
+                    call_id: None,
+                    query_str: "a".into(),
+                    fields: Vec::new(),
+                    n: 10,
+                })?,
+                library_id,
+            )
+            .await?;
+            assert_eq!(name, "SearchForResponse");
+            Ok(())
+        }
+
+        async fn assert_catalog_denied(socket: &mut RemoteStream, library_id: Uuid) -> Result<()> {
+            for (request_name, payload) in [
+                (
+                    "GetMediaFilesCountRequest",
+                    rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?,
+                ),
+                (
+                    "FetchAllPlaylistsRequest",
+                    rinf::serialize(&FetchAllPlaylistsRequest { call_id: None })?,
+                ),
+                (
+                    "SearchForRequest",
+                    rinf::serialize(&SearchForRequest {
+                        call_id: None,
+                        query_str: "a".into(),
+                        fields: Vec::new(),
+                        n: 10,
+                    })?,
+                ),
+            ] {
+                let (name, reply) =
+                    socket_request_for_library(socket, request_name, &payload, library_id).await?;
+                assert_eq!(name, "RemoteRequestFailed", "{request_name} on {library_id}");
+                let failure: RemoteRequestFailed = rinf::deserialize(&reply)?;
+                assert_eq!(
+                    failure.kind,
+                    RequestErrorKind::PermissionDenied,
+                    "{request_name} on {library_id}"
+                );
+            }
+            Ok(())
+        }
+
+        assert_catalog_allowed(&mut socket, shared_id).await?;
+        assert_catalog_denied(&mut socket, unshared_id).await?;
+        assert_catalog_denied(&mut socket, later_id).await?;
+
+        // Sync remains None on the shared library and forbidden on unshared libraries.
+        for library_id in [shared_id, unshared_id, later_id] {
+            let sync_response = pair
+                .client
+                .post(format!(
+                    "https://{}/libraries/{library_id}/sync/metadata",
+                    pair.addr
+                ))
+                .json(&serde_json::json!({"operation": "identity"}))
+                .send()
+                .await?;
+            assert_eq!(sync_response.status(), reqwest::StatusCode::FORBIDDEN);
+        }
+
+        // Explicitly share `later_id` as well; `unshared_id` remains hidden.
+        save_library_grants(vec![
+            DeviceLibraryGrant {
+                library_id: shared_id.to_string(),
+                connection: DeviceConnectionLevel::View,
+                sync: DeviceSyncLevel::None,
+            },
+            DeviceLibraryGrant {
+                library_id: later_id.to_string(),
+                connection: DeviceConnectionLevel::View,
+                sync: DeviceSyncLevel::None,
+            },
+        ])
+        .await?;
+        let mut expected_two = vec![
+            (
+                shared_id.to_string(),
+                "Shared Music".to_owned(),
+                "View".to_owned(),
+                "None".to_owned(),
+            ),
+            (
+                later_id.to_string(),
+                "Added Later Secret".to_owned(),
+                "View".to_owned(),
+                "None".to_owned(),
+            ),
+        ];
+        expected_two.sort();
+        assert_eq!(listed_pairs().await?, expected_two);
+        assert_catalog_allowed(&mut socket, later_id).await?;
+        assert_catalog_denied(&mut socket, unshared_id).await?;
+
+        // Revoke `shared_id` (`Not Shared`); visibility and catalog access drop immediately,
+        // and `/access` does not leak `shared_id` or `unshared_id`.
+        save_library_grants(vec![
+            DeviceLibraryGrant {
+                library_id: shared_id.to_string(),
+                connection: DeviceConnectionLevel::None,
+                sync: DeviceSyncLevel::None,
+            },
+            DeviceLibraryGrant {
+                library_id: later_id.to_string(),
+                connection: DeviceConnectionLevel::View,
+                sync: DeviceSyncLevel::None,
+            },
+        ])
+        .await?;
+        assert_eq!(
+            listed_pairs().await?,
+            vec![(
+                later_id.to_string(),
+                "Added Later Secret".to_owned(),
+                "View".to_owned(),
+                "None".to_owned(),
+            )],
+        );
+        let access_body: serde_json::Value = pair
+            .client
+            .get(format!("https://{}/access", pair.addr))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        let access_text = access_body.to_string();
+        assert!(!access_text.contains(&shared_id.to_string()));
+        assert!(!access_text.contains(&unshared_id.to_string()));
+        assert_catalog_denied(&mut socket, shared_id).await?;
+        assert_catalog_allowed(&mut socket, later_id).await?;
+
+        // Re-applying the pure Guest preset hides every library.
+        preset_request
+            .handle(
+                preset_request.extract_params(&pair.a.global_params),
+                None,
+                &preset_request,
+            )
+            .await?;
+        assert_eq!(listed_pairs().await?, Vec::new());
+        assert_catalog_denied(&mut socket, later_id).await?;
+
         socket.close(None).await?;
         pair.close().await
     }
@@ -1708,7 +2092,7 @@ mod access_policy_tests {
         );
         assert_eq!(
             DeviceGrants::guest().connection_level(Uuid::new_v4()),
-            ConnectionLevel::View
+            ConnectionLevel::None
         );
         assert_eq!(
             DeviceGrants::guest().sync_level(Uuid::new_v4()),
@@ -1725,7 +2109,11 @@ mod access_policy_tests {
         assert_eq!(response.libraries.len(), 1);
         assert!(matches!(
             response.libraries[0].connection,
-            DeviceConnectionLevel::View
+            DeviceConnectionLevel::None
+        ));
+        assert!(matches!(
+            response.libraries[0].sync,
+            DeviceSyncLevel::None
         ));
         let mut grants = DeviceGrants::my_device();
         let later = Uuid::new_v4();

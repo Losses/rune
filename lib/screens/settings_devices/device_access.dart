@@ -14,11 +14,12 @@ String deviceAccessSummary(DeviceGrantsInfo? grants, AppLocalizations s) {
         )) {
       return s.myDevice;
     }
-    if (grants.allConnection == DeviceConnectionLevel.view &&
-        grants.allSync == DeviceSyncLevel.none &&
+    if ((grants.allConnection == null ||
+            grants.allConnection == DeviceConnectionLevel.none) &&
+        (grants.allSync == null || grants.allSync == DeviceSyncLevel.none) &&
         grants.libraries.every(
           (entry) =>
-              entry.connection == DeviceConnectionLevel.view &&
+              entry.connection == DeviceConnectionLevel.none &&
               entry.sync == DeviceSyncLevel.none,
         )) {
       return s.guest;

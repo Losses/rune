@@ -3067,7 +3067,7 @@ mod lifecycle_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn access_policy_guest_websocket() -> Result<()> {
-        use crate::access_policy::DeviceGrants;
+        use crate::access_policy::{ConnectionLevel, DeviceGrants};
         use crate::backends::remote::connect_remote;
         let first = tempfile::tempdir()?;
         let second = tempfile::tempdir()?;
@@ -3104,6 +3104,26 @@ mod lifecycle_tests {
         )
         .await?;
         let renderer_id = a.global_params.library_id.context("renderer library")?;
+        let (name, payload) = socket_request_for_library(
+            &mut socket,
+            "GetMediaFilesCountRequest",
+            &rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?,
+            renderer_id,
+        )
+        .await?;
+        assert_eq!(name, "RemoteRequestFailed");
+        let failure: RemoteRequestFailed = rinf::deserialize(&payload)?;
+        assert_eq!(failure.kind, RequestErrorKind::PermissionDenied);
+
+        let mut shared_guest = DeviceGrants::guest();
+        shared_guest
+            .connection
+            .libraries
+            .insert(renderer_id, ConnectionLevel::View);
+        a.global_params
+            .node
+            .access_policy
+            .set(&fingerprint, shared_guest)?;
         let (name, _) = socket_request_for_library(
             &mut socket,
             "GetMediaFilesCountRequest",
