@@ -123,11 +123,12 @@ String requestFailureMessage(AppLocalizations s, RequestFailure failure) =>
       },
     };
 
-/// Show a request failure in the app's error notice.
+/// Show a request failure in the app's error notice. The notice builds from
+/// its own context, so it can outlast [context].
 void showRequestFailureInfoBar(BuildContext context, RequestFailure failure) {
   displayInfoBar(
     context,
-    builder: (_, close) => InfoBar(
+    builder: (context, close) => InfoBar(
       title: Text(requestFailureMessage(S.of(context), failure)),
       severity: InfoBarSeverity.error,
       onClose: close,
