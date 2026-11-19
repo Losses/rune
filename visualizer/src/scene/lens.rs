@@ -74,6 +74,20 @@ pub struct LensFrame {
 }
 
 impl LensFrame {
+    /// The flare is omitted when the render quality is too low.
+    pub(super) fn at_quality(self, quality: f32) -> Self {
+        if quality >= FLARE_MIN_QUALITY {
+            self
+        } else {
+            Self {
+                flare: 0.0,
+                flare_stretch: 0.0,
+                flare_angle: 0.0,
+                ..self
+            }
+        }
+    }
+
     /// The uniform `struct Lens` of `post.wgsl`.
     pub fn bytes(&self) -> [u8; LENS_SIZE as usize] {
         let mut bytes = [0; LENS_SIZE as usize];
@@ -447,12 +461,10 @@ impl Lens {
             if run.course.is_over() {
                 self.flare = None;
             } else {
-                if quality >= FLARE_MIN_QUALITY {
-                    frame.flare = FLARE_PEAK * run.level();
-                    frame.flare_angle = self.flare_angle;
-                    frame.flare_stretch = FLARE_STRETCH_FROM
-                        + (FLARE_STRETCH - FLARE_STRETCH_FROM) * run.course.shape();
-                }
+                frame.flare = FLARE_PEAK * run.level();
+                frame.flare_angle = self.flare_angle;
+                frame.flare_stretch =
+                    FLARE_STRETCH_FROM + (FLARE_STRETCH - FLARE_STRETCH_FROM) * run.course.shape();
                 run.course.tick(dt, music);
             }
         }
@@ -476,7 +488,7 @@ impl Lens {
             }
         }
 
-        frame
+        frame.at_quality(quality)
     }
 }
 
