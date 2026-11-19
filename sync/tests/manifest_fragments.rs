@@ -187,3 +187,21 @@ fn snapshot_collections_share_session_admission_but_keep_individual_limits() {
         Err(SyncError::StageQuota)
     ));
 }
+
+#[test]
+fn fragment_response_bytes_matches_serialized_response_and_enforces_limit() {
+    let m = descriptor().manifest;
+    for ordinal in 0..m.fragment_count {
+        let (start, end) = fragment_bounds(&m, ordinal).unwrap();
+        let bytes: Vec<u8> = (start..end).map(|i| i as u8).collect();
+        let f = fragment(&m, ordinal, start, &bytes);
+        let actual = serde_json::to_vec(&Ok::<Fragment, SyncError>(f))
+            .unwrap()
+            .len() as u64;
+        assert_eq!(fragment_response_bytes(&m, ordinal, 3).unwrap(), actual);
+        assert_eq!(
+            fragment_response_bytes(&m, ordinal, 2),
+            Err(SyncError::LimitTooSmall { required: 3 })
+        );
+    }
+}
