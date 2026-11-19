@@ -100,9 +100,6 @@ pub struct Stepper {
     lens: LensFrame,
     /// Whether the event log of the steps is made (see [`Stepper::record`]).
     record: bool,
-    /// Tests only: every step taken on screen, with what it decided.
-    #[cfg(test)]
-    decided: Vec<(u32, Decision)>,
 }
 
 /// How many steps are due at song time `time`: those at song times up to it.
@@ -247,8 +244,6 @@ impl Stepper {
                 forced.take(),
                 quality,
             );
-            #[cfg(test)]
-            self.decided.push((step, decision.clone()));
             events.extend(self.events(decider, f64::from(step) * STEP, &decision, false));
             merge(&mut frame, decision);
             self.steps += 1;
@@ -323,8 +318,6 @@ impl Stepper {
             self.on = Some(song.clone());
             self.steps = steps;
             self.pure = true;
-            #[cfg(test)]
-            self.decided.push((steps - 1, decision.clone()));
             let at = f64::from(step) * STEP;
             let mut events = self.events(decider, at, &decision, false);
             let mut frame = decision;
@@ -451,6 +444,8 @@ mod tests {
         }
     }
 
+    use std::ops::Range;
+
     use super::*;
     use crate::scene::MusicValues;
     use crate::scene::Pace;
@@ -481,33 +476,99 @@ mod tests {
         reference_with(song, |_| unheard())
     }
 
-    /// Every step the screen took decided what the fresh decider did at that step; the steps taken.
-    fn check(stepper: &Stepper, reference: &[Decision]) -> Vec<u32> {
-        for (step, decision) in &stepper.decided {
-            assert_eq!(decision, &reference[*step as usize], "step {step}");
-        }
-        stepper.decided.iter().map(|(step, _)| *step).collect()
+    /// The chart clock is 60 Hz, with the first step due at time zero.
+    fn steps_due(time: f64) -> u32 {
+        (time * 60.0).floor() as u32 + 1
     }
 
-    /// Plays `song` on screen through these song times, one frame each, the first being the
-    /// scene's first; the song times of the frames that jumped.
-    fn play(
-        stepper: &mut Stepper,
-        decider: &mut Decider,
-        song: &SongChart,
-        times: &[f64],
-    ) -> Vec<f64> {
-        let manifest = fixtures::manifest();
-        let mut jumps = Vec::new();
-        for (i, &t) in times.iter().enumerate() {
-            let stepped = stepper
-                .frame(decider, &manifest, song, t, &mut None, 1.0, i == 0, 0)
-                .expect("stepped");
-            if stepped.jumped {
-                jumps.push(t);
+    /// Compare the frame's decision and its timed lab events to a decider played from the start.
+    fn assert_frame(
+        stepped: Stepped,
+        decider: &Decider,
+        reference: &[Decision],
+        steps: Range<u32>,
+        time: f64,
+    ) {
+        let played = &reference[steps.start as usize..steps.end as usize];
+        let last = &reference[steps.end as usize - 1];
+        let look_on = |end: u32| reference[..end as usize].iter().rev().find_map(|d| d.look);
+        let expected = Decision {
+            cut: played.iter().rev().find_map(|d| d.cut),
+            shot: last.shot,
+            look: played.iter().rev().find_map(|d| d.look).or_else(|| {
+                if stepped.jumped {
+                    look_on(steps.end)
+                } else if stepped.replaced {
+                    look_on(steps.start + 1)
+                } else {
+                    None
+                }
+            }),
+            moment: played.iter().rev().find_map(|d| d.moment),
+            lens: last.lens,
+            overlay: played.iter().rev().find_map(|d| d.overlay),
+        };
+        assert_eq!(
+            stepped.decision, expected,
+            "decision at {time:.6}s for {steps:?}"
+        );
+        let mut events = Vec::new();
+        if stepped.jumped {
+            events.extend(decider.events(time, &expected, true));
+        }
+        for (step, decision) in steps.clone().zip(played) {
+            let at = f64::from(step) * STEP;
+            events.extend(decider.events(at, decision, false));
+            if stepped.replaced && step == steps.start && decision.look.is_none() {
+                // A takeover also reports which look is already on screen.
+                events.extend(decider.events(
+                    at,
+                    &Decision {
+                        cut: None,
+                        look: look_on(step + 1),
+                        moment: None,
+                        ..decision.clone()
+                    },
+                    false,
+                ));
             }
         }
-        jumps
+        assert_eq!(stepped.events, events, "events at {time:.6}s for {steps:?}");
+        let since = (time - f64::from(steps.end - 1) * STEP).max(0.0);
+        assert_eq!(stepped.since_step, since, "last step at {time:.6}s");
+    }
+
+    /// Play each segment continuously, with a jump at its start.
+    fn play(stepper: &mut Stepper, song: &SongChart, segments: &[&[f64]]) {
+        let manifest = fixtures::manifest();
+        let mut decider = fixtures::decider();
+        let reference = reference(song);
+        stepper.record(true);
+        for (segment, times) in segments.iter().enumerate() {
+            let mut start = steps_due(times[0]);
+            for (i, &time) in times.iter().enumerate() {
+                let end = steps_due(time);
+                let stepped = stepper
+                    .frame(
+                        &mut decider,
+                        &manifest,
+                        song,
+                        time,
+                        &mut None,
+                        1.0,
+                        segment == 0 && i == 0,
+                        0,
+                    )
+                    .expect("stepped");
+                assert_eq!(
+                    (stepped.jumped, stepped.replaced),
+                    (i == 0, i == 0),
+                    "at {time:.6}s"
+                );
+                assert_frame(stepped, &decider, &reference, start..end, time);
+                start = end;
+            }
+        }
     }
 
     #[test]
@@ -556,11 +617,6 @@ mod tests {
         times
     }
 
-    /// The steps from the one after song time `from` to the one at `to`.
-    fn steps_between(from: f64, to: f64) -> Vec<u32> {
-        (steps_until(from)..steps_until(to)).collect()
-    }
-
     #[test]
     fn the_seed_follows_the_song() {
         assert_eq!(song_seed(""), 0x811c_9dc5);
@@ -602,24 +658,19 @@ mod tests {
     #[test]
     fn the_screen_decides_what_the_song_does_at_any_frame_rate() {
         let song = song();
-        let mut decider = fixtures::decider();
-        let mut stepper = Stepper::default();
-        let times = jittery(0.0, 100.0);
-        assert_eq!(play(&mut stepper, &mut decider, &song, &times), [0.0]);
-        let steps = check(&stepper, &reference(&song));
-        // Every step after the first, which the opening took silently.
-        assert_eq!(steps, steps_between(0.0, *times.last().unwrap()));
+        // Put one step in each frame to compare every decision, including the lens and overlays.
+        let one_per_step: Vec<_> = (0..SONG_STEPS)
+            .map(|step| (f64::from(step) + 0.25) * STEP)
+            .collect();
+        play(&mut Stepper::default(), &song, &[&one_per_step]);
+        // A faster or slower frame reports no new decision or combines several steps.
+        play(&mut Stepper::default(), &song, &[&jittery(0.0, 100.0)]);
     }
 
     #[test]
     fn a_scene_opened_on_a_song_under_way_goes_on_as_if_it_had_played_it_all() {
-        let song = song();
-        let mut decider = fixtures::decider();
         let mut stepper = Stepper::default();
-        let times = jittery(47.3, 100.0);
-        assert_eq!(play(&mut stepper, &mut decider, &song, &times), [47.3]);
-        let steps = check(&stepper, &reference(&song));
-        assert_eq!(steps, steps_between(47.3, *times.last().unwrap()));
+        play(&mut stepper, &song(), &[&jittery(47.3, 100.0)]);
         // Snapshots are kept every ten seconds of song: from the replay up to the opening, then
         // from playing on.
         let every_ten: Vec<u32> = (0..10).map(|i| i * 600).collect();
@@ -628,22 +679,15 @@ mod tests {
 
     #[test]
     fn a_seek_jumps_and_the_song_goes_on_from_there_as_it_would() {
-        let song = song();
-        let mut decider = fixtures::decider();
-        let mut stepper = Stepper::default();
-        let segments = [
-            jittery(0.0, 60.0),
-            jittery(21.0, 40.0),
-            jittery(80.0, 100.0),
-        ];
-        let jumps = play(&mut stepper, &mut decider, &song, &segments.concat());
-        assert_eq!(jumps, [0.0, 21.0, 80.0]);
-        let steps = check(&stepper, &reference(&song));
-        let expected: Vec<u32> = segments
-            .iter()
-            .flat_map(|times| steps_between(times[0], *times.last().unwrap()))
-            .collect();
-        assert_eq!(steps, expected);
+        play(
+            &mut Stepper::default(),
+            &song(),
+            &[
+                &jittery(0.0, 60.0),
+                &jittery(21.0, 40.0),
+                &jittery(80.0, 100.0),
+            ],
+        );
     }
 
     #[test]
@@ -675,52 +719,41 @@ mod tests {
         let manifest = fixtures::manifest();
         let mut decider = fixtures::decider();
         let mut stepper = Stepper::default();
+        stepper.record(true);
         // The scene has been on for a while, deciding by itself.
-        let mut times = jittery(5.0, 100.0).into_iter();
-        let first = times.next().unwrap();
-        assert!(
-            stepper
-                .frame(
-                    &mut decider,
-                    &manifest,
-                    &song,
-                    first,
-                    &mut None,
-                    1.0,
-                    false,
-                    0
-                )
-                .is_none()
-        );
-        let next_cut = (steps_until(first)..SONG_STEPS)
+        let first = 5.0;
+        let next_cut = (steps_due(first)..SONG_STEPS)
             .find(|&step| reference[step as usize].cut.is_some())
             .expect("a cut");
-        let mut took_over = false;
-        for t in times.by_ref() {
-            if let Some(stepped) =
-                stepper.frame(&mut decider, &manifest, &song, t, &mut None, 1.0, false, 0)
-            {
-                assert!(stepped.replaced && !stepped.jumped);
-                assert!(stepped.decision.cut.is_some());
-                took_over = true;
-                break;
+        let mut start = next_cut;
+        for time in jittery(first, 100.0) {
+            let end = steps_due(time);
+            let stepped = stepper.frame(
+                &mut decider,
+                &manifest,
+                &song,
+                time,
+                &mut None,
+                1.0,
+                false,
+                0,
+            );
+            if end <= next_cut {
+                assert!(
+                    stepped.is_none(),
+                    "took over before the chart's cut at {time:.6}s"
+                );
+                continue;
             }
+            let stepped = stepped.expect("the chart's cut is due");
+            assert_eq!(
+                (stepped.jumped, stepped.replaced),
+                (false, start == next_cut)
+            );
+            assert_frame(stepped, &decider, &reference, start..end, time);
+            start = end;
         }
-        assert!(took_over);
-        // It took over on that cut, and from then on it is the song's decider.
-        let later: Vec<f64> = times.collect();
-        for &t in &later {
-            let stepped = stepper
-                .frame(&mut decider, &manifest, &song, t, &mut None, 1.0, false, 0)
-                .expect("stepped");
-            assert!(!stepped.jumped && !stepped.replaced);
-        }
-        let steps = check(&stepper, &reference);
-        assert_eq!(steps[0], next_cut);
-        assert_eq!(
-            steps,
-            (next_cut..steps_until(*later.last().unwrap())).collect::<Vec<_>>()
-        );
+        assert!(start > next_cut, "the chart took over");
     }
 
     #[test]
