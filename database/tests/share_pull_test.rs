@@ -2050,6 +2050,49 @@ async fn restarted_receiver_reuses_its_base_after_a_missing_context_chunk_return
     Ok(())
 }
 
+/// Exports the stream's current state as another base of its own and lists it in the head
+/// without moving the floor. It covers more of the stream than the floor base, so a receiver
+/// tries it first.
+async fn publish_newer_base(
+    published: &mut Published,
+) -> Result<(String, share::BaseManifest<RuneModel>)> {
+    let newer = export_base(
+        &published.endpoint,
+        BaseExportOptions {
+            own_prefix: published.prefix.clone(),
+            ..BaseExportOptions::default()
+        },
+    )
+    .await?;
+    for object in &newer.objects {
+        let key = if object.name == newer.base_id {
+            share::base_key(&published.prefix, &object.name)?
+        } else {
+            share::chunk_key(&published.prefix, &object.name)?
+        };
+        published
+            .store
+            .put(&key, &object.bytes)
+            .await
+            .map_err(|error| anyhow::anyhow!("put newer base object: {error:?}"))?;
+    }
+    published.head.counter += 1;
+    published.head.bases.push(BaseRef {
+        base_id: newer.base_id.clone(),
+        covers: newer.manifest.covers.clone(),
+    });
+    published.head.updated_ms += 1;
+    published
+        .store
+        .put(
+            &share::head_key(&published.prefix, (published.head.counter % 2) as u8)?,
+            &share::encode_head(&published.head)?,
+        )
+        .await
+        .map_err(|error| anyhow::anyhow!("publish newer base: {error:?}"))?;
+    Ok((newer.base_id, newer.manifest))
+}
+
 #[tokio::test]
 async fn corrupt_preferred_base_falls_back_to_another_live_base_in_the_same_pull() -> Result<()> {
     for corrupt_context in [true, false] {
@@ -2068,42 +2111,9 @@ async fn corrupt_preferred_base_falls_back_to_another_live_base_in_the_same_pull
         let store = Arc::new(MemoryObjectStore::default());
         let mut published = publish_base(&source, store.clone(), Default::default()).await?;
         append_segment(&mut published, 61, "covered by the newer base").await?;
+        let (_, newer) = publish_newer_base(&mut published).await?;
 
-        // The newer base covers more of the stream, so a receiver tries it before the floor base.
-        let newer = export_base(
-            &published.endpoint,
-            BaseExportOptions {
-                own_prefix: published.prefix.clone(),
-                ..BaseExportOptions::default()
-            },
-        )
-        .await?;
-        for object in &newer.objects {
-            let key = if object.name == newer.base_id {
-                share::base_key(&published.prefix, &object.name)?
-            } else {
-                share::chunk_key(&published.prefix, &object.name)?
-            };
-            store
-                .put(&key, &object.bytes)
-                .await
-                .map_err(|error| anyhow::anyhow!("put newer base object: {error:?}"))?;
-        }
-        published.head.counter += 1;
-        published.head.bases.push(BaseRef {
-            base_id: newer.base_id.clone(),
-            covers: newer.manifest.covers.clone(),
-        });
-        published.head.updated_ms += 1;
-        store
-            .put(
-                &share::head_key(&published.prefix, (published.head.counter % 2) as u8)?,
-                &share::encode_head(&published.head)?,
-            )
-            .await
-            .map_err(|error| anyhow::anyhow!("publish newer base: {error:?}"))?;
-
-        let newer_playlists = playlist_summary(&newer.manifest)?;
+        let newer_playlists = playlist_summary(&newer)?;
         let name = if corrupt_context {
             newer_playlists
                 .context_fragments
@@ -2170,6 +2180,77 @@ async fn corrupt_preferred_base_falls_back_to_another_live_base_in_the_same_pull
             })
         );
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn bases_failing_after_reconciliation_began_leave_room_for_a_valid_base() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    source
+        .sync_store
+        .write_local(
+            ObjectKey {
+                collection: Collection::Playlists,
+                id: Uuid::from_u128(70),
+            },
+            support::playlist("covered by the floor base"),
+        )
+        .await?;
+    let store = Arc::new(MemoryObjectStore::default());
+    let mut published = publish_base(&source, store.clone(), Default::default()).await?;
+    // Four newer bases rank above the floor base. Each one fails on its playlist bucket chunk,
+    // which a receiver reads only after it has begun a reconciliation session.
+    let mut corrupt = Vec::new();
+    for id in 71..75 {
+        append_segment(&mut published, id, "covered by a newer base").await?;
+        let (_, newer) = publish_newer_base(&mut published).await?;
+        let bucket = &playlist_summary(&newer)?
+            .buckets
+            .first()
+            .context("newer playlist collection has no bucket")?
+            .chunk;
+        let key = share::chunk_key(&published.prefix, bucket)?;
+        store
+            .put(&key, b"corrupt gzip")
+            .await
+            .map_err(|error| anyhow::anyhow!("corrupt newer base chunk: {error:?}"))?;
+        corrupt.push(key);
+    }
+
+    let target = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    pull(&published, &target).await?;
+    for key in &corrupt {
+        assert_ne!(
+            store.get_count(key),
+            0,
+            "the receiver did not try every newer base"
+        );
+    }
+    for id in 70..75 {
+        let key = ObjectKey {
+            collection: Collection::Playlists,
+            id: Uuid::from_u128(id),
+        };
+        assert_eq!(
+            target.sync_store.get(&key).await?,
+            source.sync_store.get(&key).await?,
+            "playlist {id} did not converge from the floor base"
+        );
+    }
+    let checkpoint = p::CheckpointKey {
+        namespace,
+        source_replica: published.head.stream,
+        source_generation: published.head.generation,
+        scope_id: p::scope_id(&full_scope())?,
+    };
+    assert_eq!(
+        p::ReceiveStore::checkpoint(&target.sync_store.endpoint(), &checkpoint).await?,
+        Some(p::ReceiveProgress {
+            sequence: published.head.head.seq,
+            anchor: published.head.head.anchor,
+        })
+    );
     Ok(())
 }
 

@@ -1366,6 +1366,10 @@ pub async fn pull<M: SyncModel>(
                         if matches!(&error, SyncError::SnapshotSourceUnavailable)
                             && let Some(base) = &selected_base
                         {
+                            // An attempt that began reconciling holds a receiver session, and
+                            // the next base needs room for its own.
+                            abort_coordinator(&mut coordinator, local, sink, local_source, &peer)
+                                .await?;
                             unavailable_bases
                                 .insert((base.owner_prefix.clone(), base.base_id.clone()));
                             continue 'selection;
@@ -1385,6 +1389,32 @@ pub async fn pull<M: SyncModel>(
     }
     save_state(db, &local_state).await.map_err(internal_error)?;
     Ok(progress)
+}
+
+/// Drives a coordinator that the pull gives up on through its abort path. That cancels its
+/// receiver session and releases both snapshot requests; what it already committed stays.
+async fn abort_coordinator<M: SyncModel>(
+    coordinator: &mut Coordinator<M>,
+    local: &dyn sync::ReceiveStore<M>,
+    sink: &dyn sync::SnapshotSink<M>,
+    local_source: &dyn sync::SnapshotSource<M>,
+    peer: &SharePeer<M>,
+) -> SharePullResult<()> {
+    coordinator.start_abort();
+    for _ in 0..100_000 {
+        match coordinator
+            .advance(local, sink, local_source, peer, peer)
+            .await
+            .map_err(sync_error)?
+        {
+            SessionAdvance::Cancelled => return Ok(()),
+            SessionAdvance::BudgetExhausted => coordinator.start_pass(),
+            SessionAdvance::Incomplete | SessionAdvance::Complete(_) => (),
+        }
+    }
+    Err(SharePullError::Store(
+        "share coordinator exceeded its work bound".into(),
+    ))
 }
 
 /// Publish a prepared local journal range after the caller has completed pull.
