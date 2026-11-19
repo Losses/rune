@@ -6,6 +6,7 @@ use database::sync::share::{
     PublishJournalRequest, ShareCapabilities, SharePullError, SharePushError, SharePushResult,
     ShareState, ShareWriter, load_or_create_state, publish_journal, save_state,
 };
+use rand::{Rng, SeedableRng, distributions::Alphanumeric, rngs::StdRng};
 use sea_orm::{
     ConnectionTrait, ExprTrait, TransactionTrait,
     sea_query::{Alias, Expr, Query},
@@ -909,6 +910,88 @@ async fn first_share_push_creates_a_base_before_its_head() -> Result<()> {
         target.sync_store.get(&key).await? == source.sync_store.get(&key).await?,
         "first base did not initialize a new device"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn new_device_receives_every_record_of_a_multi_bucket_base() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let target = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    // Random 8 KiB names keep the compressed base large enough for eight key-space buckets.
+    // The ids include the outermost keys and both keys at every bucket boundary.
+    let mut ids = BTreeSet::from([1, u128::MAX]);
+    for bucket in 1..8_u128 {
+        ids.extend([(bucket << 125) - 1, bucket << 125]);
+    }
+    let mut rng = StdRng::seed_from_u64(577);
+    while ids.len() < 1024 {
+        ids.insert(rng.gen_range(1..=u128::MAX));
+    }
+    let mut keys = Vec::with_capacity(ids.len());
+    for id in ids {
+        let name: String = (&mut rng)
+            .sample_iter(Alphanumeric)
+            .take(8192)
+            .map(char::from)
+            .collect();
+        let key = ObjectKey {
+            collection: Collection::Playlists,
+            id: Uuid::from_u128(id),
+        };
+        source
+            .sync_store
+            .write_local(key.clone(), support::playlist(&name))
+            .await?;
+        keys.push(key);
+    }
+    let store = Arc::new(MemoryObjectStore::default());
+    let head = source
+        .sync_store
+        .push_share(
+            store.clone(),
+            namespace,
+            source.root.path().join("share-cache"),
+            Default::default(),
+        )
+        .await?
+        .context("first push did not publish a base")?;
+    let base = head.bases.last().context("published head names no base")?;
+    let prefix = format!("{}.{}", head.stream, head.generation);
+    let object = store
+        .get(&share::base_key(&prefix, &base.base_id)?)
+        .await
+        .map_err(|error| anyhow::anyhow!("read published base: {error:?}"))?;
+    let manifest = share::decode_manifest::<RuneModel>(&object.bytes, &base.base_id)?;
+    let buckets = manifest
+        .collections
+        .get("playlists")
+        .context("published base omitted playlists")?
+        .bucket_count;
+    ensure!(
+        buckets == 8,
+        "the fixture published {buckets} playlist buckets instead of eight"
+    );
+    for attempt in 1..=2 {
+        target
+            .sync_store
+            .pull_share(
+                store.clone(),
+                namespace,
+                target.root.path().join("share-cache"),
+                Default::default(),
+            )
+            .await
+            .with_context(|| format!("pull {attempt} of the multi-bucket base"))?;
+        for key in &keys {
+            let received = target.sync_store.get(key).await?;
+            ensure!(
+                received.is_some() && received == source.sync_store.get(key).await?,
+                "pull {attempt} did not deliver playlist {}",
+                key.id
+            );
+        }
+    }
     Ok(())
 }
 

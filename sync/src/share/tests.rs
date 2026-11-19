@@ -4,9 +4,9 @@ use crate::protocol::{
     DEFAULT_STAGE_BYTES, DEFAULT_STAGES, Event, EventRef, HistoryStatus, KeyDelta, KeyRange,
     LocalAuthor, MemorySyncStore, ModelId, ObjectKey as SyncObjectKey, PageLimits, PageRead,
     PageRequest, RangeSummary, ReceiveProgress, ReceiveStore, Result as ProtocolResult, Revision,
-    Scope, SessionAdvance, SessionLimits, SnapshotSource, StageLimits, StoreIdentity, SyncError,
-    SyncModel, SyncPeer, SyncStore, WorkLimits, WorkOutcome, decode_event, event_digest,
-    fragment_digest, initial_anchor, next_anchor, scope_id,
+    Scope, SessionAdvance, SessionLimits, SnapshotDescriptor, SnapshotSink, SnapshotSource,
+    StageLimits, StoreIdentity, SyncError, SyncModel, SyncPeer, SyncStore, WorkLimits, WorkOutcome,
+    decode_event, event_digest, fragment_digest, initial_anchor, next_anchor, scope_id,
 };
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use serde::{Deserialize, Serialize};
@@ -658,8 +658,8 @@ async fn equal_base_buckets_use_precomputed_summaries_without_chunk_reads() {
         chunk,
     )
     .unwrap();
-    let chunk_name = &manifest.collections["notes"].buckets[0].chunk;
-    let object_key = chunk_key(&prefix, chunk_name).unwrap();
+    let bucket = &manifest.collections["notes"].buckets[0];
+    let object_key = chunk_key(&prefix, &bucket.chunk).unwrap();
     let before = fixture.objects.get_count(&object_key);
     assert_eq!(
         SnapshotSource::summarize(
@@ -673,23 +673,10 @@ async fn equal_base_buckets_use_precomputed_summaries_without_chunk_reads() {
         .unwrap(),
         WorkOutcome::Ready(root.clone())
     );
-    let children = SnapshotSource::split(
-        &peer,
-        descriptor.snapshot_id,
-        root.range.clone(),
-        share_limits().work,
-        None,
-    )
-    .await
-    .unwrap();
-    let WorkOutcome::Ready(children) = children else {
-        panic!("split is immediate")
-    };
-    assert_eq!(children.len(), 1);
     let child = SnapshotSource::summarize(
         &peer,
         descriptor.snapshot_id,
-        children[0].clone(),
+        bucket.range.clone(),
         share_limits().work,
         None,
     )
@@ -697,6 +684,164 @@ async fn equal_base_buckets_use_precomputed_summaries_without_chunk_reads() {
     .unwrap();
     assert!(matches!(child, WorkOutcome::Ready(_)));
     assert_eq!(fixture.objects.get_count(&object_key), before);
+}
+
+async fn ready_snapshot(source: &dyn SnapshotSource<Model>) -> SnapshotDescriptor<Model> {
+    match source
+        .open_snapshot(Uuid::new_v4(), share_scope(), share_limits().work, None)
+        .await
+        .unwrap()
+    {
+        WorkOutcome::Ready(descriptor) => descriptor,
+        WorkOutcome::Incomplete { .. } => panic!("fixture snapshots are bounded"),
+    }
+}
+
+async fn ready_summary(
+    source: &dyn SnapshotSource<Model>,
+    snapshot: Uuid,
+    range: KeyRange<Model>,
+) -> RangeSummary<Model> {
+    match source
+        .summarize(snapshot, range, share_limits().work, None)
+        .await
+        .unwrap()
+    {
+        WorkOutcome::Ready(summary) => summary,
+        WorkOutcome::Incomplete { .. } => panic!("fixture summaries are bounded"),
+    }
+}
+
+async fn ready_split(
+    source: &dyn SnapshotSource<Model>,
+    snapshot: Uuid,
+    range: KeyRange<Model>,
+) -> Vec<KeyRange<Model>> {
+    match source
+        .split(snapshot, range, share_limits().work, None)
+        .await
+        .unwrap()
+    {
+        WorkOutcome::Ready(children) => children,
+        WorkOutcome::Incomplete { .. } => panic!("fixture splits are bounded"),
+    }
+}
+
+/// A bucket with more candidates than the receiver applies at once is divided at one of its
+/// keys, and each half is summarized exactly as the source that exported it summarizes it.
+#[tokio::test]
+async fn share_bucket_above_the_apply_limit_is_split_at_its_keys() {
+    let fixture = base_peer_fixture(20).await;
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        share_prefix(&fixture.identity),
+        share_cache_dir(),
+    )
+    .unwrap();
+    let shared = ready_snapshot(&peer).await;
+    let source = ready_snapshot(&*fixture.source).await;
+    let root = shared.roots[0].range.clone();
+    let children = ready_split(&peer, shared.snapshot_id, root.clone()).await;
+    let [left, right] = &children[..] else {
+        panic!("the bucket was not split in two: {children:?}")
+    };
+    assert_eq!((left.lower, right.upper), (root.lower, root.upper));
+    assert_eq!(left.upper, right.lower);
+    assert!(
+        left.upper
+            .is_some_and(|key| (102..=120).contains(&key.as_u128()))
+    );
+    for child in &children {
+        let half = ready_summary(&peer, shared.snapshot_id, child.clone()).await;
+        let exported = ready_summary(&*fixture.source, source.snapshot_id, child.clone()).await;
+        assert_eq!(
+            (half.candidate_count, half.candidate_bytes, half.aggregate),
+            (
+                exported.candidate_count,
+                exported.candidate_bytes,
+                exported.aggregate
+            )
+        );
+    }
+    let target = fresh_receiver();
+    advance_to_complete(&peer, &target).await;
+    for id in 101..=120 {
+        let key = SyncObjectKey {
+            collection: Collection::Notes,
+            id: Uuid::from_u128(id),
+        };
+        assert_eq!(
+            target.get(&key).await.unwrap(),
+            fixture.source.get(&key).await.unwrap()
+        );
+    }
+}
+
+/// The receiver accepts the halves of a split bucket and still rejects a split that does not
+/// partition its parent: a single child, an overlap, a gap such as an inclusive upper bound, an
+/// empty or reversed child, or a last child that stops short of the parent.
+#[tokio::test]
+async fn receiver_still_rejects_share_splits_that_do_not_partition_their_parent() {
+    let fixture = base_peer_fixture(20).await;
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        share_prefix(&fixture.identity),
+        share_cache_dir(),
+    )
+    .unwrap();
+    let target = fresh_receiver();
+    let remote = ready_snapshot(&peer).await;
+    let session = target
+        .begin_reconciliation(
+            Uuid::new_v4(),
+            remote.clone(),
+            ready_snapshot(&target).await,
+        )
+        .await
+        .unwrap();
+    let root = remote.roots[0].range.clone();
+    let mut halves = Vec::new();
+    for child in ready_split(&peer, remote.snapshot_id, root.clone()).await {
+        halves.push(ready_summary(&peer, remote.snapshot_id, child).await);
+    }
+    let key = halves[0].range.upper.unwrap();
+    let below = Some(Uuid::from_u128(key.as_u128() - 1));
+    let above = Some(Uuid::from_u128(key.as_u128() + 1));
+    let key = Some(key);
+    let child = |lower, upper| RangeSummary {
+        range: KeyRange {
+            lower,
+            upper,
+            ..root.clone()
+        },
+        ..halves[0].clone()
+    };
+    let coverage = || SyncError::Invalid("invalid split coverage".into());
+    for (children, error) in [
+        (
+            vec![halves[0].clone()],
+            SyncError::Invalid("invalid split size".into()),
+        ),
+        (vec![child(None, above), child(key, None)], coverage()),
+        (vec![child(None, below), child(key, None)], coverage()),
+        (
+            vec![child(None, key), child(key, key), child(key, None)],
+            coverage(),
+        ),
+        (vec![child(None, key), child(key, below)], coverage()),
+        (
+            vec![child(None, key), child(key, above)],
+            SyncError::IncompleteCoverage,
+        ),
+    ] {
+        assert_eq!(
+            target.split_range(session, root.clone(), children).await,
+            Err(error)
+        );
+    }
+    target.split_range(session, root, halves).await.unwrap();
 }
 
 #[tokio::test]
@@ -872,7 +1017,10 @@ async fn peer_fixture(count: u64) -> PeerFixture {
                 anchor: initial,
             },
             through: source.head().await.unwrap(),
-            limits: share_limits().pages,
+            limits: PageLimits {
+                max_scanned: 128,
+                max_bytes: 4 * 1024 * 1024,
+            },
         })
         .await
         .unwrap()

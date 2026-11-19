@@ -253,10 +253,19 @@ impl<M: SyncModel> SnapshotSource<M> for SharePeer<M> {
                 .collections
                 .get(M::collection_tag(&range.collection))
                 .ok_or(SyncError::IncompatibleModel)?;
-            let summary = known_summary(collection, &range, binding.id).ok_or_else(|| {
-                SyncError::Invalid("requested summary is not present in the base manifest".into())
-            })?;
-            Ok(WorkOutcome::Ready(summary))
+            if let Some(summary) = known_summary(collection, &range, binding.id) {
+                return Ok(WorkOutcome::Ready(summary));
+            }
+            // Ranges the manifest does not list, such as the halves of a split bucket, are
+            // summarized from the chunks they intersect.
+            let candidates = self
+                .candidates_in_range(&binding.owner_prefix, collection, &range)
+                .await?;
+            Ok(WorkOutcome::Ready(range_summary(
+                binding.id,
+                range,
+                &candidates,
+            )?))
         })
     }
 
@@ -279,13 +288,33 @@ impl<M: SyncModel> SnapshotSource<M> for SharePeer<M> {
                 .collections
                 .get(M::collection_tag(&range.collection))
                 .ok_or(SyncError::IncompatibleModel)?;
-            let children: Vec<_> = collection
+            let buckets: Vec<_> = collection
                 .buckets
                 .iter()
                 .filter(|bucket| ranges_intersect(&bucket.range, &range))
                 .map(|bucket| bucket.range.clone())
                 .collect();
-            Ok(WorkOutcome::Ready(children))
+            if buckets.len() > 1 {
+                return Ok(WorkOutcome::Ready(buckets));
+            }
+            // A range inside one bucket splits at a key of its chunk, so that a bucket holding
+            // more than a receiver applies at once can still be received.
+            let candidates = self
+                .candidates_in_range(&binding.owner_prefix, collection, &range)
+                .await?;
+            Ok(WorkOutcome::Ready(match median_key(&candidates)? {
+                Some(key) => vec![
+                    KeyRange {
+                        upper: Some(key),
+                        ..range.clone()
+                    },
+                    KeyRange {
+                        lower: Some(key),
+                        ..range
+                    },
+                ],
+                None => vec![range],
+            }))
         })
     }
 
@@ -566,6 +595,59 @@ fn known_summary<M: SyncModel>(
                 aggregate: bucket.aggregate,
             })
     }
+}
+
+/// The summary of `range` from its sorted candidates, hashed against the full model scope like
+/// the summaries in the manifest.
+fn range_summary<M: SyncModel>(
+    snapshot_id: Uuid,
+    range: KeyRange<M>,
+    candidates: &[Candidate<M>],
+) -> ProtocolResult<RangeSummary<M>> {
+    let candidate_bytes = candidates.iter().try_fold(0u64, |total, candidate| {
+        total
+            .checked_add(canonical_candidate(candidate)?.len() as u64)
+            .ok_or(SyncError::LogicalLimit)
+    })?;
+    let mut hasher = RangeHasher::new(
+        &full_model_scope::<M>(),
+        range.clone(),
+        candidates.len() as u64,
+        candidate_bytes,
+    )?;
+    for candidate in candidates {
+        hasher.push_candidate(candidate)?;
+    }
+    Ok(RangeSummary {
+        snapshot_id,
+        range,
+        candidate_count: candidates.len() as u64,
+        candidate_bytes,
+        aggregate: hasher.finish()?,
+    })
+}
+
+/// The key to split a range with these sorted candidates at, near their median canonical byte as
+/// the sync specification asks of snapshot sources: the first key after half of the bytes, or the
+/// last key when it holds more than half of them. `None` when there are fewer than two keys.
+fn median_key<M: SyncModel>(candidates: &[Candidate<M>]) -> ProtocolResult<Option<Uuid>> {
+    let sizes = candidates
+        .iter()
+        .map(|candidate| Ok(canonical_candidate(candidate)?.len() as u64))
+        .collect::<ProtocolResult<Vec<_>>>()?;
+    let half = sizes.iter().sum::<u64>() / 2;
+    let mut before = 0;
+    let mut key = None;
+    for (pair, size) in candidates.windows(2).zip(sizes) {
+        before += size;
+        if pair[0].key.id != pair[1].key.id {
+            key = Some(pair[1].key.id);
+            if before >= half {
+                break;
+            }
+        }
+    }
+    Ok(key)
 }
 
 fn descriptor_from_binding<M: SyncModel>(
