@@ -93,11 +93,20 @@ pub struct DiscoveryService {
     /// A map storing detailed information about all discovered devices, indexed by fingerprint.
     device_states: Arc<DashMap<String, DiscoveredDevice>>,
 
-    /// Cancellation token for managing the lifecycle of announcement tasks.
-    announcements_cancel_token: Mutex<Option<CancellationToken>>,
+    announcements: Mutex<Option<AnnouncementTask>>,
     /// Cancellation token for controlling the lifecycle of device listening tasks.
     listening_cancel_token: Mutex<Option<CancellationToken>>,
 }
+
+struct AnnouncementTask {
+    cancel: CancellationToken,
+    handle: JoinHandle<()>,
+}
+
+/// An announcement operation is already active.
+#[derive(Debug, thiserror::Error)]
+#[error("Announcements already running")]
+pub struct AnnouncementsAlreadyRunning;
 
 /// Configuration for defining the retry behavior of network operations.
 ///
@@ -169,7 +178,7 @@ impl DiscoveryService {
             retry_policy: RetryPolicy::default(),
             device_states: Arc::new(DashMap::new()),
 
-            announcements_cancel_token: Mutex::new(None),
+            announcements: Mutex::new(None),
             listening_cancel_token: Mutex::new(None),
         };
 
@@ -196,7 +205,7 @@ impl DiscoveryService {
             retry_policy: RetryPolicy::default(),
             device_states: Arc::new(DashMap::new()),
 
-            announcements_cancel_token: Mutex::new(None),
+            announcements: Mutex::new(None),
             listening_cancel_token: Mutex::new(None),
         };
         info!("Discovery service initialized without store");
@@ -382,84 +391,62 @@ impl DiscoveryService {
         interval: Duration,
         duration_limit: Option<Duration>,
     ) -> Result<()> {
+        let mut announcements = self.announcements.lock().await;
+        if announcements
+            .as_ref()
+            .is_some_and(|task| !task.handle.is_finished())
         {
-            let announcements_cancel_token_guard = self.announcements_cancel_token.lock().await;
-            if announcements_cancel_token_guard.is_some() {
-                error!("Announcements already running");
-                return Err(anyhow::anyhow!("Announcements already running"));
-            }
+            return Err(AnnouncementsAlreadyRunning.into());
         }
+
+        let sockets = self.get_sockets_with_retry().await?;
+        let deadline = duration_limit.map(|limit| tokio::time::Instant::now() + limit);
+        let cancel = CancellationToken::new();
+        let task_cancel = cancel.clone();
 
         info!("Starting device announcements");
         info!("The device fingerprint is: {}", device_info.fingerprint);
-        let cancel_token = CancellationToken::new();
-        let cancel_token_clone = cancel_token.clone();
 
-        {
-            let mut announcements_cancel_token_guard = self.announcements_cancel_token.lock().await;
-            *announcements_cancel_token_guard = Some(cancel_token);
-        }
-
-        // Get sockets before spawning the task to ensure sockets are available
-        let sockets = self.get_sockets_with_retry().await?;
-
-        // Clone necessary data for the announcement task
-        let sockets = Arc::new(sockets);
-        let device_info = Arc::new(device_info);
-
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(interval);
-            interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
-            let send_announcement_message = || async {
-                let announcement = announcement_message(&device_info);
-                if let Err(e) = Self::send_announcement(&sockets, &announcement).await {
-                    error!("Announcement failed: {e}");
+        let handle = tokio::spawn(async move {
+            let expire = async {
+                match deadline {
+                    Some(deadline) => tokio::time::sleep_until(deadline).await,
+                    None => std::future::pending().await,
                 }
             };
-
-            if let Some(limit) = duration_limit {
-                let sleep = tokio::time::sleep(limit);
-                tokio::pin!(sleep);
-
+            let announce = async {
+                let mut interval = tokio::time::interval(interval);
+                interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+                let announcement = announcement_message(&device_info);
                 loop {
-                    tokio::select! {
-                        _ = interval.tick() => send_announcement_message().await,
-                        _ = cancel_token_clone.cancelled() => break,
-                        _ = &mut sleep => {
-                            info!("Announcement duration limit reached");
-                            break;
-                        }
+                    interval.tick().await;
+                    if let Err(error) = Self::send_announcement(&sockets, &announcement).await {
+                        error!("Announcement failed: {error}");
                     }
                 }
-            } else {
-                loop {
-                    tokio::select! {
-                        _ = interval.tick() => send_announcement_message().await,
-                        _ = cancel_token_clone.cancelled() => break,
-                    }
-                }
+            };
+            tokio::select! {
+                biased;
+                _ = task_cancel.cancelled() => {}
+                _ = expire => info!("Announcement duration limit reached"),
+                _ = announce => {}
             }
         });
+        *announcements = Some(AnnouncementTask { cancel, handle });
 
         Ok(())
     }
 
     /// Stops the device announcement service.
     ///
-    /// This method cancels the ongoing device announcement task, causing it to stop broadcasting device information.
-    /// It does not immediately terminate any announcements currently in progress but signals the task to stop after the current iteration.
-    ///
-    /// # Note
-    /// This method only stops device announcements. To stop listening for announcements from other devices, use [`stop_listening`].
+    /// Cancels the task and waits for it to finish before allowing another start.
     pub async fn stop_announcements(&self) {
-        let mut announcements_cancel_token_guard = self.announcements_cancel_token.lock().await;
-        if let Some(token) = &*announcements_cancel_token_guard {
-            info!("Stop announcementing this device");
-            token.cancel();
-            *announcements_cancel_token_guard = None;
-        } else {
-            info!("Announcements not running");
+        let mut announcements = self.announcements.lock().await;
+        if let Some(task) = announcements.take() {
+            task.cancel.cancel();
+            if let Err(error) = task.handle.await {
+                error!("Announcement task failed: {error}");
+            }
         }
     }
 
@@ -753,7 +740,11 @@ impl DiscoveryService {
     /// # Returns
     /// `bool` - A boolean flags indicating the announcement status.
     pub async fn is_announcing(&self) -> bool {
-        self.announcements_cancel_token.lock().await.is_some()
+        self.announcements
+            .lock()
+            .await
+            .as_ref()
+            .is_some_and(|task| !task.handle.is_finished())
     }
 
     /// Retrieves the current status of the discovery service, indicating if it's listening.

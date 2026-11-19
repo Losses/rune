@@ -19,6 +19,7 @@ class BroadcastProvider extends ChangeNotifier {
   StreamSubscription? _clientsChangedSubscription;
   int _remainingSeconds = 0;
   bool _isBroadcasting = false;
+  bool _isUpdatingBroadcast = false;
   String? _errorMessage;
   String? _deviceAlias;
   String? _fingerprint;
@@ -33,6 +34,7 @@ class BroadcastProvider extends ChangeNotifier {
 
   int get remainingSeconds => _remainingSeconds;
   bool get isBroadcasting => _isBroadcasting;
+  bool get isUpdatingBroadcast => _isUpdatingBroadcast;
   String? get errorMessage => _errorMessage;
   String? get deviceAlias => _deviceAlias;
   String? get fingerprint => _fingerprint;
@@ -89,7 +91,7 @@ class BroadcastProvider extends ChangeNotifier {
   }
 
   Future<void> startBroadcast([int? customDuration]) async {
-    if (_isBroadcasting) return;
+    if (_isBroadcasting || _isUpdatingBroadcast) return;
     if (!_isServerRunning) {
       _errorMessage = 'Server must be running to broadcast';
       notifyListeners();
@@ -97,42 +99,69 @@ class BroadcastProvider extends ChangeNotifier {
     }
 
     final duration = customDuration ?? _defaultDuration;
-    _isBroadcasting = true;
-    _errorMessage = null;
-    _remainingSeconds = duration;
+    await _updateBroadcast(() async {
+      try {
+        await awaitResponse(
+          'StartBroadcastRequest',
+          StartBroadcastResponse.rustSignalStream,
+          responseCallId: (response) => response.message.callId?.toInt(),
+          send: (callId) => StartBroadcastRequest(
+            durationSeconds: duration,
+            alias: _deviceAlias ?? '',
+            callId: callId,
+          ).sendSignalToRust(),
+        );
+      } on RequestFailure catch (error) {
+        if (error.kind != RequestErrorKind.conflict) rethrow;
+        // The server already started announcements without this countdown.
+        _isBroadcasting = true;
+        return;
+      }
 
-    notifyListeners();
-
-    StartBroadcastRequest(
-      durationSeconds: duration,
-      alias: _deviceAlias ?? "",
-    ).sendSignalToRust();
-
-    _startCountdownTimer(duration);
+      _isBroadcasting = duration > 0;
+      _remainingSeconds = duration;
+      if (_isBroadcasting) _startCountdownTimer(duration);
+    });
   }
 
   Future<void> stopBroadcast() async {
-    if (!_isBroadcasting) return;
+    if (!_isBroadcasting || _isUpdatingBroadcast) return;
 
-    StopBroadcastRequest().sendSignalToRust();
+    await _updateBroadcast(() async {
+      await awaitResponse(
+        'StopBroadcastRequest',
+        StopBroadcastResponse.rustSignalStream,
+        responseCallId: (response) => response.message.callId?.toInt(),
+        send: (callId) =>
+            StopBroadcastRequest(callId: callId).sendSignalToRust(),
+      );
+      _clearBroadcast();
+    });
+  }
+
+  Future<void> _updateBroadcast(Future<void> Function() update) async {
+    _isUpdatingBroadcast = true;
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      await update();
+    } finally {
+      _isUpdatingBroadcast = false;
+      notifyListeners();
+    }
+  }
+
+  void _clearBroadcast() {
     _countdownTimer?.cancel();
     _isBroadcasting = false;
-    notifyListeners();
+    _remainingSeconds = 0;
   }
 
   void _startCountdownTimer(int totalSeconds) {
-    var startTime = DateTime.now().millisecondsSinceEpoch;
-
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      final elapsed =
-          (DateTime.now().millisecondsSinceEpoch - startTime) ~/ 1000;
-      _remainingSeconds = totalSeconds - elapsed;
+      _remainingSeconds = totalSeconds - timer.tick;
 
-      if (_remainingSeconds <= 0) {
-        timer.cancel();
-        _isBroadcasting = false;
-        _remainingSeconds = _defaultDuration;
-      }
+      if (_remainingSeconds <= 0) _clearBroadcast();
 
       notifyListeners();
     });
@@ -167,20 +196,20 @@ class BroadcastProvider extends ChangeNotifier {
 
   /// Stop the server. A failure is left to the global handler.
   void stopServer() {
-    if (!_isServerRunning) return;
-    unawaited(_stopServer());
-  }
-
-  Future<void> _stopServer() async {
-    await awaitResponse(
-      'StopServerRequest',
-      StopServerResponse.rustSignalStream,
-      responseCallId: (response) => response.message.callId?.toInt(),
-      send: (callId) => StopServerRequest(callId: callId).sendSignalToRust(),
+    if (!_isServerRunning || _isUpdatingBroadcast) return;
+    unawaited(
+      _updateBroadcast(() async {
+        await awaitResponse(
+          'StopServerRequest',
+          StopServerResponse.rustSignalStream,
+          responseCallId: (response) => response.message.callId?.toInt(),
+          send: (callId) =>
+              StopServerRequest(callId: callId).sendSignalToRust(),
+        );
+        _isServerRunning = false;
+        _clearBroadcast();
+      }),
     );
-    _isServerRunning = false;
-    stopBroadcast();
-    notifyListeners();
   }
 
   /// Reload the trusted devices. A failure is left to the global handler.

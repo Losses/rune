@@ -243,8 +243,16 @@ mod node_request_loop_tests {
             StopServerRequest,
             StopServerResponse
         );
-        error_handler!(handle_start_broadcast_request, StartBroadcastRequest, ());
-        error_handler!(handle_stop_broadcast_request, StopBroadcastRequest, ());
+        error_handler!(
+            handle_start_broadcast_request,
+            StartBroadcastRequest,
+            StartBroadcastResponse
+        );
+        error_handler!(
+            handle_stop_broadcast_request,
+            StopBroadcastRequest,
+            StopBroadcastResponse
+        );
         error_handler!(handle_start_listening_request, StartListeningRequest, ());
         error_handler!(handle_stop_listening_request, StopListeningRequest, ());
         error_handler!(

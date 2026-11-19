@@ -1220,7 +1220,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         // Neighbors
         RequestResponse {
             request: "StartBroadcastRequest".to_string(),
-            response: None,
+            response: Some("StartBroadcastResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
             body_libraries: BodyLibraries::NoLibrary,
@@ -1229,7 +1229,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         },
         RequestResponse {
             request: "StopBroadcastRequest".to_string(),
-            response: None,
+            response: Some("StopBroadcastResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
             body_libraries: BodyLibraries::NoLibrary,

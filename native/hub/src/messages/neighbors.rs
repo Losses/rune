@@ -54,8 +54,20 @@ pub struct StartBroadcastRequest {
     pub call_id: Option<u64>,
 }
 
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct StartBroadcastResponse {
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct StopBroadcastRequest {
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct StopBroadcastResponse {
     #[serde(default)]
     pub call_id: Option<u64>,
 }
