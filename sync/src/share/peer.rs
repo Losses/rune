@@ -1,5 +1,5 @@
 //! Pull-only SyncPeer adapter for one immutable share device prefix.
-use super::snapshot::SnapshotBinding;
+use super::snapshot::{RangeWork, SnapshotBinding};
 use super::{
     BaseManifest, DevicePrefix, FormatError, Head, ObjectStore, Segment, SegmentRef, StoreError,
     decode_head, decode_library, decode_segment, head_key, library_key, segment_key,
@@ -31,6 +31,8 @@ pub struct SharePeer<M: SyncModel> {
     pub(super) selected_base: Option<SelectedBase<M>>,
     pub(super) cache_dir: PathBuf,
     pub(super) snapshots: Mutex<BTreeMap<Uuid, SnapshotBinding<M>>>,
+    /// Summaries and splits in progress, keyed by the operation of their work cursor.
+    pub(super) works: Mutex<BTreeMap<Uuid, RangeWork<M>>>,
     marker: PhantomData<M>,
 }
 
@@ -66,6 +68,7 @@ impl<M: SyncModel> SharePeer<M> {
             selected_base: None,
             cache_dir: cache_dir.into(),
             snapshots: Mutex::new(BTreeMap::new()),
+            works: Mutex::new(BTreeMap::new()),
             marker: std::marker::PhantomData,
         })
     }

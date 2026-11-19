@@ -1,12 +1,13 @@
 use super::*;
 use crate::protocol::{
-    ApplyLimits, CheckpointKey, Coordinator, DEFAULT_LOGICAL_BYTES, DEFAULT_LOGICAL_ITEMS,
-    DEFAULT_STAGE_BYTES, DEFAULT_STAGES, Event, EventRef, HistoryStatus, KeyDelta, KeyRange,
-    LocalAuthor, MemorySyncStore, ModelId, ObjectKey as SyncObjectKey, PageLimits, PageRead,
-    PageRequest, RangeSummary, ReceiveProgress, ReceiveStore, Result as ProtocolResult, Revision,
-    Scope, SessionAdvance, SessionLimits, SnapshotDescriptor, SnapshotSink, SnapshotSource,
-    StageLimits, StoreIdentity, SyncError, SyncModel, SyncPeer, SyncStore, WorkLimits, WorkOutcome,
-    decode_event, event_digest, fragment_digest, initial_anchor, next_anchor, scope_id,
+    ApplyLimits, BoxFuture, CheckpointKey, Coordinator, DEFAULT_LOGICAL_BYTES,
+    DEFAULT_LOGICAL_ITEMS, DEFAULT_STAGE_BYTES, DEFAULT_STAGES, Event, EventRef, HistoryStatus,
+    KeyDelta, KeyRange, LocalAuthor, MemorySyncStore, ModelId, ObjectKey as SyncObjectKey,
+    PageLimits, PageRead, PageRequest, RangeSummary, ReceiveProgress, ReceiveStore,
+    Result as ProtocolResult, Revision, Scope, SessionAdvance, SessionLimits, SnapshotDescriptor,
+    SnapshotSink, SnapshotSource, StageLimits, StoreIdentity, SyncError, SyncModel, SyncPeer,
+    SyncStore, WorkCursor, WorkLimits, WorkOutcome, decode_event, event_digest, fragment_digest,
+    initial_anchor, next_anchor, scope_id,
 };
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use serde::{Deserialize, Serialize};
@@ -753,6 +754,28 @@ async fn ready_split(
     }
 }
 
+/// Calls `step` again with each cursor it returns until it is ready, checking that every cursor
+/// moves forward, and returns the value with the number of calls.
+async fn resumed<'a, T>(
+    mut step: impl FnMut(Option<WorkCursor>) -> BoxFuture<'a, WorkOutcome<T>>,
+) -> (T, u32) {
+    let mut cursor: Option<WorkCursor> = None;
+    for calls in 1..=1000 {
+        match step(cursor.clone()).await.unwrap() {
+            WorkOutcome::Ready(value) => return (value, calls),
+            WorkOutcome::Incomplete { cursor: next } => {
+                assert!(
+                    cursor
+                        .as_ref()
+                        .is_none_or(|previous| next.position > previous.position)
+                );
+                cursor = Some(next);
+            }
+        }
+    }
+    panic!("the work did not finish");
+}
+
 /// A bucket with more candidates than the receiver applies at once is divided at one of its
 /// keys, and each half is summarized exactly as the source that exported it summarizes it.
 #[tokio::test]
@@ -925,6 +948,250 @@ async fn share_split_across_buckets_stays_inside_the_requested_range() {
         .split_range(session, parent, summaries)
         .await
         .unwrap();
+}
+
+/// Summaries and splits of ranges the manifest does not list stay within the caller's row and
+/// byte budget and resume from their cursors to the result of an unbounded call. Ranges the
+/// manifest lists still answer at once.
+#[tokio::test]
+async fn share_range_work_resumes_within_row_and_byte_budgets() {
+    let fixture = base_peer_fixture(20).await;
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        share_prefix(&fixture.identity),
+        share_cache_dir(),
+    )
+    .unwrap();
+    let shared = ready_snapshot(&peer).await;
+    let source = ready_snapshot(&*fixture.source).await;
+    let root = shared.roots[0].clone();
+    let part = KeyRange {
+        upper: Some(Uuid::from_u128(115)),
+        ..root.range.clone()
+    };
+    let exported = ready_summary(&*fixture.source, source.snapshot_id, part.clone()).await;
+    let halves = ready_split(&peer, shared.snapshot_id, root.range.clone()).await;
+    let one_row = WorkLimits {
+        max_rows_scanned: 1,
+        ..share_limits().work
+    };
+    let two_notes = WorkLimits {
+        max_bytes: 2 * root.candidate_bytes / root.candidate_count,
+        ..share_limits().work
+    };
+    for limits in [one_row, two_notes] {
+        let (children, calls) = resumed(|cursor| {
+            SnapshotSource::split(
+                &peer,
+                shared.snapshot_id,
+                root.range.clone(),
+                limits,
+                cursor,
+            )
+        })
+        .await;
+        assert!(
+            calls > 1,
+            "the split finished in one call within {limits:?}"
+        );
+        assert_eq!(children, halves);
+        let (summary, calls) = resumed(|cursor| {
+            SnapshotSource::summarize(&peer, shared.snapshot_id, part.clone(), limits, cursor)
+        })
+        .await;
+        assert!(
+            calls > 1,
+            "the summary finished in one call within {limits:?}"
+        );
+        assert_eq!(
+            (
+                summary.candidate_count,
+                summary.candidate_bytes,
+                summary.aggregate
+            ),
+            (
+                exported.candidate_count,
+                exported.candidate_bytes,
+                exported.aggregate
+            )
+        );
+        assert_eq!(
+            SnapshotSource::summarize(&peer, shared.snapshot_id, root.range.clone(), limits, None)
+                .await
+                .unwrap(),
+            WorkOutcome::Ready(root.clone())
+        );
+    }
+    let WorkOutcome::Incomplete { cursor } =
+        SnapshotSource::split(&peer, shared.snapshot_id, root.range.clone(), one_row, None)
+            .await
+            .unwrap()
+    else {
+        panic!("a one-row split finished in one call");
+    };
+    assert_eq!(
+        SnapshotSource::summarize(
+            &peer,
+            shared.snapshot_id,
+            root.range.clone(),
+            one_row,
+            Some(cursor)
+        )
+        .await,
+        Err(SyncError::StaleWork)
+    );
+
+    let fixture = bucketed_base_peer_fixture(20, &[110]).await;
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        share_prefix(&fixture.identity),
+        share_cache_dir(),
+    )
+    .unwrap();
+    let shared = ready_snapshot(&peer).await;
+    let root = shared.roots[0].range.clone();
+    let WorkOutcome::Ready(buckets) =
+        SnapshotSource::split(&peer, shared.snapshot_id, root, one_row, None)
+            .await
+            .unwrap()
+    else {
+        panic!("a split into manifest buckets did not answer at once");
+    };
+    for bucket in buckets {
+        assert!(matches!(
+            SnapshotSource::summarize(&peer, shared.snapshot_id, bucket, one_row, None)
+                .await
+                .unwrap(),
+            WorkOutcome::Ready(_)
+        ));
+    }
+}
+
+/// A summary across four buckets under a one-row budget loads only the chunk it reads from in
+/// each step, and still ends with the source's summary. A step whose bytes run out with the last
+/// candidate of a bucket does not load the next bucket's chunk either.
+#[tokio::test]
+async fn share_range_work_loads_one_chunk_per_step() {
+    let fixture = bucketed_base_peer_fixture(20, &[105, 110, 115]).await;
+    let prefix = share_prefix(&fixture.identity);
+    let cache = share_cache_dir();
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        prefix.clone(),
+        cache.clone(),
+    )
+    .unwrap();
+    let shared = ready_snapshot(&peer).await;
+    let source = ready_snapshot(&*fixture.source).await;
+    let base_id = &fixture.head.bases[0].base_id;
+    let manifest = decode_manifest::<Model>(
+        &fixture
+            .objects
+            .get(&base_key(&prefix, base_id).unwrap())
+            .await
+            .unwrap()
+            .bytes,
+        base_id,
+    )
+    .unwrap();
+    let chunks: Vec<_> = manifest.collections["notes"]
+        .buckets
+        .iter()
+        .map(|bucket| chunk_key(&prefix, &bucket.chunk).unwrap())
+        .collect();
+    assert_eq!(chunks.len(), 4);
+    let range = KeyRange {
+        lower: Some(Uuid::from_u128(103)),
+        upper: Some(Uuid::from_u128(118)),
+        ..shared.roots[0].range.clone()
+    };
+    // Each step starts without cached chunks, so every chunk it loads is read from the store.
+    let start_step = || {
+        let _ = std::fs::remove_dir_all(&cache);
+        chunks
+            .iter()
+            .map(|key| fixture.objects.get_count(key))
+            .collect::<Vec<_>>()
+    };
+    let chunks_loaded = |reads: &[u64]| {
+        chunks
+            .iter()
+            .zip(reads)
+            .filter(|(key, count)| fixture.objects.get_count(key) > **count)
+            .count()
+    };
+    let one_row = WorkLimits {
+        max_rows_scanned: 1,
+        ..share_limits().work
+    };
+    let mut cursor = None;
+    let mut step = 0;
+    let summary = loop {
+        let reads = start_step();
+        let outcome = SnapshotSource::summarize(
+            &peer,
+            shared.snapshot_id,
+            range.clone(),
+            one_row,
+            cursor.take(),
+        )
+        .await
+        .unwrap();
+        let loaded = chunks_loaded(&reads);
+        assert_eq!(loaded, 1, "step {step} loaded {loaded} chunks");
+        step += 1;
+        match outcome {
+            WorkOutcome::Ready(summary) => break summary,
+            WorkOutcome::Incomplete { cursor: next } => cursor = Some(next),
+        }
+    };
+    let exported = ready_summary(&*fixture.source, source.snapshot_id, range.clone()).await;
+    assert_eq!(
+        (
+            summary.candidate_count,
+            summary.candidate_bytes,
+            summary.aggregate
+        ),
+        (
+            exported.candidate_count,
+            exported.candidate_bytes,
+            exported.aggregate
+        )
+    );
+
+    // The range's candidates in the first bucket fill the byte budget exactly.
+    let first = ready_summary(
+        &*fixture.source,
+        source.snapshot_id,
+        KeyRange {
+            upper: Some(Uuid::from_u128(105)),
+            ..range.clone()
+        },
+    )
+    .await;
+    let reads = start_step();
+    let outcome = SnapshotSource::summarize(
+        &peer,
+        shared.snapshot_id,
+        range,
+        WorkLimits {
+            max_bytes: first.candidate_bytes,
+            ..share_limits().work
+        },
+        None,
+    )
+    .await
+    .unwrap();
+    let WorkOutcome::Incomplete { cursor } = outcome else {
+        panic!("the byte budget did not stop the first step")
+    };
+    assert_eq!(
+        (cursor.position, chunks_loaded(&reads)),
+        (first.candidate_count, 1)
+    );
 }
 
 #[tokio::test]
