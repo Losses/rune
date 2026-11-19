@@ -70,6 +70,7 @@ impl LibrarySyncStore {
         Ok(format!("{}.{}", state.stream, state.generation))
     }
     /// Classify the local journal tail after the share export cursor for timer selection.
+    /// A tail that compaction has already passed counts as content: it is published as a base.
     pub async fn share_pending_changes(
         &self,
         cache_path: PathBuf,
@@ -91,7 +92,12 @@ impl LibrarySyncStore {
         let scope = sync::Scope {
             collections: RuneModel::collections().into_iter().collect(),
         };
-        let mut after = journal.progress_at(state.local_cursor).await?;
+        let Some(mut after) = journal.progress_at(state.local_cursor).await? else {
+            return Ok(Some(SharePendingChanges {
+                journal_head: through.sequence,
+                change: PendingShareChange::Content,
+            }));
+        };
         let mut change = PendingShareChange::StatisticsOnly;
         while after.sequence < through.sequence {
             let page_read = journal
@@ -483,10 +489,13 @@ impl LibrarySyncStore {
         let through = SyncPeer::head(&self.endpoint)
             .await
             .map_err(|error| SharePushError::Failed(error.to_string()))?;
-        let mut after = journal
+        let retained = journal
             .progress_at(state.local_cursor)
             .await
-            .map_err(|_| SharePushError::NeedsBase)?;
+            .map_err(|error| SharePushError::Failed(error.to_string()))?;
+        // A tail that compaction has already passed is not read: it goes out as a base.
+        let tail_compacted = retained.is_none();
+        let mut after = retained.unwrap_or_else(|| through.clone());
         let mut entries = Vec::<JournalEvent<RuneModel>>::new();
         while after.sequence < through.sequence {
             let page_read = journal
@@ -541,7 +550,7 @@ impl LibrarySyncStore {
             tx.commit()
                 .await
                 .map_err(|error| SharePushError::Failed(error.to_string()))?;
-            if cursor.is_some_and(|cursor| cursor.needs_base()) {
+            if tail_compacted || cursor.is_some_and(|cursor| cursor.needs_base()) {
                 ExportCursorStatus::NeedsBase
             } else {
                 ExportCursorStatus::Current
