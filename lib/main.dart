@@ -114,7 +114,7 @@ void main(List<String> arguments) async {
     if (error.cause is RequestFailureCauseSubsonicNotAuthorized) return true;
     if (error.kind != RequestErrorKind.internal) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        final context = rootNavigatorKey.currentState?.overlay?.context;
+        final context = _noticeContext();
         if (context != null && context.mounted) {
           showRequestFailureInfoBar(context, error);
         }
@@ -465,6 +465,22 @@ void mainLoop(
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 
+/// A context inside the root navigator's overlay, for the notices shown over
+/// every page. [Overlay.of] finds an overlay only from inside one of its
+/// entries, so the overlay's own context will not do. The context belongs to
+/// the bottom page, which can close while the notice is up, so a notice
+/// builds from its own context instead of this one.
+BuildContext? _noticeContext() {
+  final overlay = rootNavigatorKey.currentState?.overlay;
+  var context = overlay?.context;
+  while (context != null && Overlay.maybeOf(context) != overlay) {
+    BuildContext? child;
+    context.visitChildElements((element) => child ??= element);
+    context = child;
+  }
+  return context;
+}
+
 Locale getLocaleFromPlatform() {
   final String localeName = Platform.localeName;
 
@@ -642,7 +658,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
             failure.kind == RequestErrorKind.internal) {
           return;
         }
-        final noticeContext = rootNavigatorKey.currentState?.overlay?.context;
+        final noticeContext = _noticeContext();
         if (noticeContext == null || !mounted || !noticeContext.mounted) return;
         showRequestFailureInfoBar(
           noticeContext,
@@ -689,7 +705,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
         (signal) => signal.message,
       ),
       showNotice: (failure) {
-        final context = rootNavigatorKey.currentState?.overlay?.context;
+        final context = _noticeContext();
         if (context == null || !context.mounted) return;
         final message = shareSyncFailureMessage(S.of(context), failure);
         if (message == null) return;
@@ -706,11 +722,11 @@ class RuneLifecycleState extends State<RuneLifecycle> {
     _rendererLinkLoss = RendererLinkLossHandler(
       losses: RendererLinkLost.rustSignalStream.map((signal) => signal.message),
       showNotice: (alias) {
-        final context = rootNavigatorKey.currentState?.overlay?.context;
+        final context = _noticeContext();
         if (context == null || !context.mounted) return;
         displayInfoBar(
           context,
-          builder: (_, close) => InfoBar(
+          builder: (context, close) => InfoBar(
             title: Text(S.of(context).rendererLinkLost(alias)),
             severity: InfoBarSeverity.warning,
             onClose: close,
