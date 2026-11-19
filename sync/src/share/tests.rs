@@ -172,6 +172,11 @@ fn share_cache_dir() -> PathBuf {
 }
 
 async fn base_peer_fixture(count: u64) -> PeerFixture {
+    bucketed_base_peer_fixture(count, &[]).await
+}
+
+/// A base whose buckets meet at `boundaries`; without boundaries it has a single bucket.
+async fn bucketed_base_peer_fixture(count: u64, boundaries: &[u128]) -> PeerFixture {
     let fixture = peer_fixture(count).await;
     let descriptor = match SnapshotSource::open_snapshot(
         &*fixture.source,
@@ -208,19 +213,51 @@ async fn base_peer_fixture(count: u64) -> PeerFixture {
             break;
         }
     }
-    let values = candidates
-        .iter()
-        .map(serde_json::to_value)
-        .collect::<Result<Vec<_>, _>>()
-        .unwrap();
-    let canonical_candidates = serde_json::to_vec(&serde_json::Value::Array(values)).unwrap();
-    let (chunk_name, chunk_bytes) = encode_chunk(canonical_candidates).unwrap();
     let prefix = share_prefix(&fixture.identity);
-    fixture
-        .objects
-        .put(&chunk_key(&prefix, &chunk_name).unwrap(), &chunk_bytes)
-        .await
-        .unwrap();
+    // Like the exporter, a collection without candidates has no buckets.
+    let uppers: Vec<_> = if root.candidate_count == 0 {
+        Vec::new()
+    } else {
+        boundaries
+            .iter()
+            .map(|id| Some(Uuid::from_u128(*id)))
+            .chain([None])
+            .collect()
+    };
+    let mut buckets = Vec::new();
+    let mut lower = None;
+    for upper in uppers {
+        let range = KeyRange {
+            lower,
+            upper,
+            ..root.range.clone()
+        };
+        let values = candidates
+            .iter()
+            .filter(|candidate| {
+                lower.is_none_or(|lower| candidate.key.id >= lower)
+                    && upper.is_none_or(|upper| candidate.key.id < upper)
+            })
+            .map(serde_json::to_value)
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let canonical_candidates = serde_json::to_vec(&serde_json::Value::Array(values)).unwrap();
+        let (chunk_name, chunk_bytes) = encode_chunk(canonical_candidates).unwrap();
+        fixture
+            .objects
+            .put(&chunk_key(&prefix, &chunk_name).unwrap(), &chunk_bytes)
+            .await
+            .unwrap();
+        let summary = ready_summary(&*fixture.source, descriptor.snapshot_id, range).await;
+        buckets.push(BucketSummary {
+            range: summary.range,
+            candidate_count: summary.candidate_count,
+            candidate_bytes: summary.candidate_bytes,
+            aggregate: summary.aggregate,
+            chunk: chunk_name,
+        });
+        lower = upper;
+    }
     let context = &descriptor.contexts[0];
     let mut context_names = Vec::new();
     for ordinal in 0..context.context.manifest.fragment_count {
@@ -249,18 +286,7 @@ async fn base_peer_fixture(count: u64) -> PeerFixture {
         seq: head.sequence,
         anchor: head.anchor,
     };
-    let bucket_count = if root.candidate_count == 0 { 0 } else { 1 };
-    let buckets = if bucket_count == 0 {
-        Vec::new()
-    } else {
-        vec![BucketSummary {
-            range: root.range.clone(),
-            candidate_count: root.candidate_count,
-            candidate_bytes: root.candidate_bytes,
-            aggregate: root.aggregate,
-            chunk: chunk_name,
-        }]
-    };
+    let bucket_count = buckets.len() as u32;
     let manifest = BaseManifest {
         format: FORMAT_VERSION,
         covers: BTreeMap::from([(
@@ -842,6 +868,63 @@ async fn receiver_still_rejects_share_splits_that_do_not_partition_their_parent(
         );
     }
     target.split_range(session, root, halves).await.unwrap();
+}
+
+/// Splitting a range that crosses a bucket boundary keeps the requested outer bounds and the
+/// manifest's boundary between them, so the receiver accepts the children.
+#[tokio::test]
+async fn share_split_across_buckets_stays_inside_the_requested_range() {
+    let fixture = bucketed_base_peer_fixture(20, &[110]).await;
+    let peer = SharePeer::<Model>::new(
+        fixture.objects.clone(),
+        fixture.identity.namespace,
+        share_prefix(&fixture.identity),
+        share_cache_dir(),
+    )
+    .unwrap();
+    let target = fresh_receiver();
+    let remote = ready_snapshot(&peer).await;
+    let session = target
+        .begin_reconciliation(
+            Uuid::new_v4(),
+            remote.clone(),
+            ready_snapshot(&target).await,
+        )
+        .await
+        .unwrap();
+    let root = remote.roots[0].range.clone();
+    let range = |lower: Option<u128>, upper: Option<u128>| KeyRange {
+        lower: lower.map(Uuid::from_u128),
+        upper: upper.map(Uuid::from_u128),
+        ..root.clone()
+    };
+    let mut thirds = Vec::new();
+    for third in [
+        range(None, Some(105)),
+        range(Some(105), Some(115)),
+        range(Some(115), None),
+    ] {
+        thirds.push(ready_summary(&peer, remote.snapshot_id, third).await);
+    }
+    target
+        .split_range(session, root.clone(), thirds)
+        .await
+        .unwrap();
+
+    let parent = range(Some(105), Some(115));
+    let children = ready_split(&peer, remote.snapshot_id, parent.clone()).await;
+    assert_eq!(
+        children,
+        vec![range(Some(105), Some(110)), range(Some(110), Some(115))]
+    );
+    let mut summaries = Vec::new();
+    for child in children {
+        summaries.push(ready_summary(&peer, remote.snapshot_id, child).await);
+    }
+    target
+        .split_range(session, parent, summaries)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

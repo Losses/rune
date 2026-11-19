@@ -288,13 +288,18 @@ impl<M: SyncModel> SnapshotSource<M> for SharePeer<M> {
                 .collections
                 .get(M::collection_tag(&range.collection))
                 .ok_or(SyncError::IncompatibleModel)?;
-            let buckets: Vec<_> = collection
+            let mut buckets: Vec<_> = collection
                 .buckets
                 .iter()
                 .filter(|bucket| ranges_intersect(&bucket.range, &range))
                 .map(|bucket| bucket.range.clone())
                 .collect();
             if buckets.len() > 1 {
+                // The outer children end where the requested range does. The manifest's
+                // boundaries stay between them, so the receiver still checks that they meet.
+                let last = buckets.len() - 1;
+                buckets[0].lower = range.lower;
+                buckets[last].upper = range.upper;
                 return Ok(WorkOutcome::Ready(buckets));
             }
             // A range inside one bucket splits at a key of its chunk, so that a bucket holding
