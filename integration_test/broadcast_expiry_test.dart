@@ -8,6 +8,7 @@ import 'package:path_provider_platform_interface/path_provider_platform_interfac
 import 'package:rinf/rinf.dart';
 import 'package:rune/bindings/bindings.dart';
 import 'package:rune/providers/broadcast.dart';
+import 'package:rune/utils/api/get_sync_settings.dart';
 import 'package:rune/utils/api/request_failure.dart';
 import 'package:rune/utils/storage_key_manager.dart';
 
@@ -150,16 +151,20 @@ void main() {
         reason: 'explicit stop also ends native announcements',
       );
 
-      await awaitResponse(
-        'StartBroadcastRequest',
-        StartBroadcastResponse.rustSignalStream,
-        responseCallId: (response) => response.message.callId?.toInt(),
-        send: (callId) => StartBroadcastRequest(
-          durationSeconds: 20,
-          alias: timedAlias,
-          callId: callId,
-        ).sendSignalToRust(),
-      );
+      Future<void> startNativeBroadcast(int duration) async {
+        await awaitResponse(
+          'StartBroadcastRequest',
+          StartBroadcastResponse.rustSignalStream,
+          responseCallId: (response) => response.message.callId?.toInt(),
+          send: (callId) => StartBroadcastRequest(
+            durationSeconds: duration,
+            alias: timedAlias,
+            callId: callId,
+          ).sendSignalToRust(),
+        );
+      }
+
+      await startNativeBroadcast(20);
       await expectLater(
         provider.startBroadcast(5),
         throwsA(
@@ -173,8 +178,24 @@ void main() {
       expect(
         provider.isBroadcasting,
         isFalse,
-        reason: 'a conflicting timed broadcast must not leave the UI active',
+        reason: 'Settings does not adopt a timed broadcast started elsewhere',
       );
+
+      await awaitResponse(
+        'StopBroadcastRequest',
+        StopBroadcastResponse.rustSignalStream,
+        responseCallId: (response) => response.message.callId?.toInt(),
+        send: (callId) =>
+            StopBroadcastRequest(callId: callId).sendSignalToRust(),
+      );
+      expect((await getSyncSettings()).listen, isTrue);
+      await provider.startBroadcast(20);
+      expect(provider.isBroadcasting, isTrue);
+      provider.stopServer();
+      await _waitUntilStopped(provider);
+      expect(provider.isServerRunning, isFalse);
+      // A new native start would conflict if the sync listener were announcing.
+      await startNativeBroadcast(1);
     });
   });
 }

@@ -133,15 +133,18 @@ class BroadcastProvider extends ChangeNotifier {
     if (!_isBroadcasting || _isUpdatingBroadcast) return;
 
     await _updateBroadcast(() async {
-      await awaitResponse(
-        'StopBroadcastRequest',
-        StopBroadcastResponse.rustSignalStream,
-        responseCallId: (response) => response.message.callId?.toInt(),
-        send: (callId) =>
-            StopBroadcastRequest(callId: callId).sendSignalToRust(),
-      );
+      await _requestBroadcastStop();
       _clearBroadcast();
     });
+  }
+
+  Future<void> _requestBroadcastStop() async {
+    await awaitResponse(
+      'StopBroadcastRequest',
+      StopBroadcastResponse.rustSignalStream,
+      responseCallId: (response) => response.message.callId?.toInt(),
+      send: (callId) => StopBroadcastRequest(callId: callId).sendSignalToRust(),
+    );
   }
 
   Future<void> _updateBroadcast(Future<void> Function() update) async {
@@ -202,6 +205,7 @@ class BroadcastProvider extends ChangeNotifier {
   /// Stop the server. A failure is left to the global handler.
   void stopServer() {
     if (!_isServerRunning || _isUpdatingBroadcast) return;
+    final wasBroadcasting = _isBroadcasting;
     unawaited(
       _updateBroadcast(() async {
         await awaitResponse(
@@ -212,6 +216,7 @@ class BroadcastProvider extends ChangeNotifier {
               StopServerRequest(callId: callId).sendSignalToRust(),
         );
         _isServerRunning = false;
+        if (wasBroadcasting) await _requestBroadcastStop();
         _clearBroadcast();
       }),
     );
