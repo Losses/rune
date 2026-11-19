@@ -7,7 +7,7 @@ use database::sync::share::{
     ShareState, ShareWriter, load_or_create_state, publish_journal, save_state,
 };
 use sea_orm::{
-    ConnectionTrait, ExprTrait, TransactionTrait,
+    ConnectionTrait, Database, ExprTrait, TransactionTrait,
     sea_query::{Alias, Expr, Query},
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -1929,6 +1929,247 @@ async fn deleted_floor_base_reconciles_from_another_live_base() -> Result<()> {
             anchor: published.head.head.anchor,
         })
     );
+    Ok(())
+}
+
+async fn base_manifest(
+    store: &MemoryObjectStore,
+    prefix: &str,
+    base_id: &str,
+) -> Result<share::BaseManifest<RuneModel>> {
+    let object = store
+        .get(&share::base_key(prefix, base_id)?)
+        .await
+        .map_err(|error| anyhow::anyhow!("read base manifest: {error:?}"))?;
+    Ok(share::decode_manifest(&object.bytes, base_id)?)
+}
+
+fn playlist_summary(
+    manifest: &share::BaseManifest<RuneModel>,
+) -> Result<&share::CollectionSummary<RuneModel>> {
+    manifest
+        .collections
+        .get(RuneModel::collection_tag(&Collection::Playlists))
+        .context("base has no playlist collection")
+}
+
+#[tokio::test]
+async fn restarted_receiver_reuses_its_base_after_a_missing_context_chunk_returns() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let playlist = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(50),
+    };
+    source
+        .sync_store
+        .write_local(
+            playlist.clone(),
+            support::playlist("behind a missing chunk"),
+        )
+        .await?;
+    let store = Arc::new(MemoryObjectStore::default());
+    let published = publish_base(&source, store.clone(), Default::default()).await?;
+    let base = base_manifest(
+        &store,
+        &published.prefix,
+        &published.head.floor_base.base_id,
+    )
+    .await?;
+    let chunk = share::chunk_key(
+        &published.prefix,
+        playlist_summary(&base)?
+            .context_fragments
+            .first()
+            .context("playlist context has no chunk")?,
+    )?;
+
+    let directory = tempfile::tempdir()?;
+    let database = directory.path().join("receiver.sqlite");
+    let cache = directory.path().join("share-cache");
+    let actor = Uuid::new_v4();
+    let mut db = support::fixtures::disk_database(&database, actor).await?;
+    let mut receiver = support::fixtures::open_library(db.clone(), actor, Some(namespace)).await?;
+    // The share answers not-found for the chunk while its service recovers.
+    let bytes = store
+        .get(&chunk)
+        .await
+        .map_err(|error| anyhow::anyhow!("read context chunk: {error:?}"))?
+        .bytes;
+    store
+        .delete(&chunk)
+        .await
+        .map_err(|error| anyhow::anyhow!("hide context chunk: {error:?}"))?;
+    let result = receiver
+        .pull_share(store.clone(), namespace, cache.clone(), Default::default())
+        .await;
+    assert!(
+        matches!(result, Err(SharePullError::MissingObject(_))),
+        "a missing context chunk was not reported as missing: {result:?}"
+    );
+    assert!(receiver.get(&playlist).await?.is_none());
+
+    // The same chunk is back. Each retry starts the same receiver database cold.
+    store
+        .put(&chunk, &bytes)
+        .await
+        .map_err(|error| anyhow::anyhow!("restore context chunk: {error:?}"))?;
+    let reads = store.get_count(&chunk);
+    for restart in 1..=2 {
+        receiver.clean_close().await?;
+        drop(receiver);
+        db.close().await?;
+        db = Database::connect(format!("sqlite://{}", database.display())).await?;
+        receiver = support::fixtures::open_library(db.clone(), actor, Some(namespace)).await?;
+        receiver
+            .pull_share(store.clone(), namespace, cache.clone(), Default::default())
+            .await
+            .map_err(|error| anyhow::anyhow!("share pull after restart {restart}: {error}"))?;
+    }
+    assert!(
+        store.get_count(&chunk) > reads,
+        "the receiver did not read the context chunk of its base again"
+    );
+    assert_eq!(
+        receiver.get(&playlist).await?,
+        source.sync_store.get(&playlist).await?
+    );
+    let checkpoint = p::CheckpointKey {
+        namespace,
+        source_replica: published.head.stream,
+        source_generation: published.head.generation,
+        scope_id: p::scope_id(&full_scope())?,
+    };
+    assert_eq!(
+        p::ReceiveStore::checkpoint(&receiver.endpoint(), &checkpoint).await?,
+        Some(p::ReceiveProgress {
+            sequence: published.head.head.seq,
+            anchor: published.head.head.anchor,
+        })
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn corrupt_preferred_base_falls_back_to_another_live_base_in_the_same_pull() -> Result<()> {
+    for corrupt_context in [true, false] {
+        let namespace = Uuid::new_v4();
+        let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+        source
+            .sync_store
+            .write_local(
+                ObjectKey {
+                    collection: Collection::Playlists,
+                    id: Uuid::from_u128(60),
+                },
+                support::playlist("covered by the floor base"),
+            )
+            .await?;
+        let store = Arc::new(MemoryObjectStore::default());
+        let mut published = publish_base(&source, store.clone(), Default::default()).await?;
+        append_segment(&mut published, 61, "covered by the newer base").await?;
+
+        // The newer base covers more of the stream, so a receiver tries it before the floor base.
+        let newer = export_base(
+            &published.endpoint,
+            BaseExportOptions {
+                own_prefix: published.prefix.clone(),
+                ..BaseExportOptions::default()
+            },
+        )
+        .await?;
+        for object in &newer.objects {
+            let key = if object.name == newer.base_id {
+                share::base_key(&published.prefix, &object.name)?
+            } else {
+                share::chunk_key(&published.prefix, &object.name)?
+            };
+            store
+                .put(&key, &object.bytes)
+                .await
+                .map_err(|error| anyhow::anyhow!("put newer base object: {error:?}"))?;
+        }
+        published.head.counter += 1;
+        published.head.bases.push(BaseRef {
+            base_id: newer.base_id.clone(),
+            covers: newer.manifest.covers.clone(),
+        });
+        published.head.updated_ms += 1;
+        store
+            .put(
+                &share::head_key(&published.prefix, (published.head.counter % 2) as u8)?,
+                &share::encode_head(&published.head)?,
+            )
+            .await
+            .map_err(|error| anyhow::anyhow!("publish newer base: {error:?}"))?;
+
+        let newer_playlists = playlist_summary(&newer.manifest)?;
+        let name = if corrupt_context {
+            newer_playlists
+                .context_fragments
+                .first()
+                .context("newer playlist context has no chunk")?
+        } else {
+            &newer_playlists
+                .buckets
+                .first()
+                .context("newer playlist collection has no bucket")?
+                .chunk
+        };
+        let floor = base_manifest(
+            &store,
+            &published.prefix,
+            &published.head.floor_base.base_id,
+        )
+        .await?;
+        ensure!(
+            floor.collections.values().all(|collection| {
+                !collection.context_fragments.contains(name)
+                    && collection
+                        .buckets
+                        .iter()
+                        .all(|bucket| &bucket.chunk != name)
+            }),
+            "the floor base shares the chunk that is corrupted"
+        );
+        let corrupt = share::chunk_key(&published.prefix, name)?;
+        store
+            .put(&corrupt, b"corrupt gzip")
+            .await
+            .map_err(|error| anyhow::anyhow!("corrupt newer base chunk: {error:?}"))?;
+
+        let target = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+        pull(&published, &target).await?;
+        assert_ne!(
+            store.get_count(&corrupt),
+            0,
+            "the receiver did not try the newer base first"
+        );
+        for id in [60, 61] {
+            let key = ObjectKey {
+                collection: Collection::Playlists,
+                id: Uuid::from_u128(id),
+            };
+            assert_eq!(
+                target.sync_store.get(&key).await?,
+                source.sync_store.get(&key).await?,
+                "playlist {id} did not converge from the floor base"
+            );
+        }
+        let checkpoint = p::CheckpointKey {
+            namespace,
+            source_replica: published.head.stream,
+            source_generation: published.head.generation,
+            scope_id: p::scope_id(&full_scope())?,
+        };
+        assert_eq!(
+            p::ReceiveStore::checkpoint(&target.sync_store.endpoint(), &checkpoint).await?,
+            Some(p::ReceiveProgress {
+                sequence: published.head.head.seq,
+                anchor: published.head.head.anchor,
+            })
+        );
+    }
     Ok(())
 }
 
