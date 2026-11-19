@@ -108,7 +108,7 @@ impl ParamsExtractor for StartBroadcastRequest {
 
 impl Signal for StartBroadcastRequest {
     type Params = (Arc<DiscoveryService>, Arc<String>, RunMode);
-    type Response = ();
+    type Response = StartBroadcastResponse;
 
     async fn handle(
         &self,
@@ -128,11 +128,23 @@ impl Signal for StartBroadcastRequest {
         scanner
             .start_announcements(
                 local_device_info(request.alias.clone(), fingerprint, run_mode),
-                Duration::from_secs(request.duration_seconds.into()),
-                None,
+                Duration::from_secs(3),
+                Some(Duration::from_secs(request.duration_seconds.into())),
             )
-            .await?;
-        Ok(None)
+            .await
+            .map_err(|error| {
+                if let Some(running) =
+                    error.downcast_ref::<discovery::protocol::AnnouncementsAlreadyRunning>()
+                {
+                    ExpectedRequestError::BroadcastAlreadyRunning {
+                        indefinite: running.indefinite,
+                    }
+                    .into()
+                } else {
+                    error
+                }
+            })?;
+        Ok(Some(StartBroadcastResponse { call_id: None }))
     }
 }
 
@@ -146,7 +158,7 @@ impl ParamsExtractor for StopBroadcastRequest {
 
 impl Signal for StopBroadcastRequest {
     type Params = (Arc<DiscoveryService>,);
-    type Response = ();
+    type Response = StopBroadcastResponse;
 
     async fn handle(
         &self,
@@ -155,7 +167,7 @@ impl Signal for StopBroadcastRequest {
         _: &Self,
     ) -> Result<Option<Self::Response>> {
         scanner.stop_announcements().await;
-        Ok(None)
+        Ok(Some(StopBroadcastResponse { call_id: None }))
     }
 }
 
