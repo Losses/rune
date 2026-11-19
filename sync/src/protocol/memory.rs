@@ -312,13 +312,7 @@ fn memory_fragment_bounds(
     ))
 }
 fn check_fragment_size(fragment: &Fragment, limit: u64) -> Result<()> {
-    let size = serde_json::to_vec(fragment)
-        .map_err(|e| SyncError::Storage(e.to_string()))?
-        .len() as u64;
-    if size > limit {
-        return Err(SyncError::LimitTooSmall { required: size });
-    }
-    Ok(())
+    fragment_response_bytes(&fragment.manifest, fragment.ordinal, limit).map(|_| ())
 }
 fn event_manifest<M: SyncModel>(
     event: &Event<M>,

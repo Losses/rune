@@ -2,15 +2,14 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../../utils/api/request_failure.dart';
 import '../../../utils/l10n.dart';
 import '../../../utils/router/router_aware_flyout_controller.dart';
 import '../../../widgets/settings/settings_box_base.dart';
 import '../../../providers/broadcast.dart';
 
 class EnableBroadcastSetting extends StatefulWidget {
-  const EnableBroadcastSetting({
-    super.key,
-  });
+  const EnableBroadcastSetting({super.key});
 
   @override
   State<EnableBroadcastSetting> createState() => _EnableBroadcastSettingState();
@@ -18,6 +17,21 @@ class EnableBroadcastSetting extends StatefulWidget {
 
 class _EnableBroadcastSettingState extends State<EnableBroadcastSetting> {
   final _menuController = RouterAwareFlyoutController();
+
+  Future<void> _toggleBroadcast(
+    BuildContext context,
+    BroadcastProvider broadcast,
+  ) async {
+    try {
+      if (broadcast.isBroadcasting) {
+        await broadcast.stopBroadcast();
+      } else {
+        await broadcast.startBroadcast();
+      }
+    } on RequestFailure catch (error) {
+      if (context.mounted) showRequestFailureInfoBar(context, error);
+    }
+  }
 
   Widget buildExpanderContent(BuildContext context) {
     final broadcast = Provider.of<BroadcastProvider>(context, listen: false);
@@ -27,10 +41,8 @@ class _EnableBroadcastSettingState extends State<EnableBroadcastSetting> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Button(
-          onPressed: broadcast.isServerRunning
-              ? () => broadcast.isBroadcasting
-                  ? broadcast.stopBroadcast()
-                  : broadcast.startBroadcast()
+          onPressed: broadcast.isServerRunning && !broadcast.isUpdatingBroadcast
+              ? () => _toggleBroadcast(context, broadcast)
               : null,
           child: broadcast.isBroadcasting ? Text(s.stop) : Text(s.start),
         ),
@@ -45,10 +57,8 @@ class _EnableBroadcastSettingState extends State<EnableBroadcastSetting> {
     return FlyoutTarget(
       controller: _menuController.controller,
       child: Button(
-        onPressed: broadcast.isServerRunning
-            ? () => broadcast.isBroadcasting
-                ? broadcast.stopBroadcast()
-                : broadcast.startBroadcast()
+        onPressed: broadcast.isServerRunning && !broadcast.isUpdatingBroadcast
+            ? () => _toggleBroadcast(context, broadcast)
             : null,
         child: broadcast.isBroadcasting ? Text(s.stop) : Text(s.start),
       ),

@@ -31,6 +31,36 @@ pub fn fragment_bounds(manifest: &ManifestRef, ordinal: u32) -> Result<(u64, u64
             .min(manifest.encoded_bytes),
     ))
 }
+/// Exact canonical `Result<Fragment, SyncError>` JSON size of fragment `ordinal`
+/// of `manifest`. Fragment bytes are hex encoded, so the response is about twice
+/// the raw payload. Returns `LimitTooSmall` when the raw payload exceeds
+/// `max_fragment_bytes`; this is the one rule shared by every fragment reader.
+pub fn fragment_response_bytes(
+    manifest: &ManifestRef,
+    ordinal: u32,
+    max_fragment_bytes: u64,
+) -> Result<u64> {
+    let (start, end) = fragment_bounds(manifest, ordinal)?;
+    let raw_bytes = end.checked_sub(start).ok_or(SyncError::LogicalLimit)?;
+    if raw_bytes > max_fragment_bytes {
+        return Err(SyncError::LimitTooSmall {
+            required: raw_bytes,
+        });
+    }
+    let envelope_bytes = serde_json::to_vec(&Ok::<Fragment, SyncError>(Fragment {
+        manifest: manifest.clone(),
+        ordinal,
+        offset: start,
+        bytes: Vec::new(),
+        digest: [0; 32],
+    }))
+    .map_err(|e| SyncError::Storage(e.to_string()))?
+    .len() as u64;
+    raw_bytes
+        .checked_mul(2)
+        .and_then(|hex_bytes| hex_bytes.checked_add(envelope_bytes))
+        .ok_or(SyncError::LogicalLimit)
+}
 fn lp(v: &mut Vec<u8>, s: &[u8]) -> Result<()> {
     let n = u32::try_from(s.len()).map_err(|_| SyncError::LogicalLimit)?;
     v.extend(n.to_be_bytes());

@@ -216,8 +216,8 @@ impl ShareFixture {
     }
 }
 
-async fn real_share(backend: ShareBackend) -> (ShareFixture, ShareStoreSession) {
-    let (fixture, config) = match backend {
+async fn share_fixture(backend: ShareBackend) -> (ShareFixture, OpenDalConfig) {
+    match backend {
         ShareBackend::WebDav => {
             let fixture = WebDavFixture::start(Vec::new()).await.unwrap();
             let config = OpenDalConfig::WebDav {
@@ -240,7 +240,11 @@ async fn real_share(backend: ShareBackend) -> (ShareFixture, ShareStoreSession) 
             };
             (ShareFixture::S3 { _server: fixture }, config)
         }
-    };
+    }
+}
+
+async fn real_share(backend: ShareBackend) -> (ShareFixture, ShareStoreSession) {
+    let (fixture, config) = share_fixture(backend).await;
     let store = Arc::new(OpenDalObjectStore::new(config).unwrap());
     let capabilities = store.probe("devices/probe.generation").await.unwrap();
     let session = ShareStoreSession {
@@ -251,6 +255,49 @@ async fn real_share(backend: ShareBackend) -> (ShareFixture, ShareStoreSession) 
         },
     };
     (fixture, session)
+}
+
+/// The storage adapter of a library kept in the share at `config`, with the share's
+/// secret saved in `credentials` as the Add Library guide saves it.
+async fn share_adapter(config: OpenDalConfig, credentials: &CredentialStore) -> Result<FsAdapter> {
+    Ok(match config {
+        OpenDalConfig::WebDav {
+            endpoint,
+            root,
+            username,
+            password,
+        } => FsAdapter::WebDav {
+            credential: credentials
+                .put(Credential {
+                    username: username.clone(),
+                    secret: Secret::new(password.into_bytes()),
+                })
+                .await?,
+            endpoint,
+            root,
+            username,
+        },
+        OpenDalConfig::S3 {
+            endpoint,
+            bucket,
+            region,
+            root,
+            access_key_id,
+            secret_access_key,
+        } => FsAdapter::S3 {
+            credential: credentials
+                .put(Credential {
+                    username: access_key_id.clone(),
+                    secret: Secret::new(secret_access_key.into_bytes()),
+                })
+                .await?,
+            endpoint,
+            bucket,
+            region,
+            root,
+            access_key_id,
+        },
+    })
 }
 
 async fn hubs_on_share(namespace: Uuid, count: usize) -> Vec<support::SqlLibrary> {
@@ -268,19 +315,22 @@ async fn hubs_on_share(namespace: Uuid, count: usize) -> Vec<support::SqlLibrary
 #[derive(Default)]
 struct QuietBroadcaster {
     messages: std::sync::Mutex<Vec<String>>,
+    share_statuses: std::sync::Mutex<Vec<Option<ShareSyncFailure>>>,
     successful_share_passes: AtomicUsize,
     successful_share_pass: Notify,
 }
 
 impl Broadcaster for QuietBroadcaster {
     fn broadcast(&self, message: &dyn RinfRustSignal) {
-        if message
-            .as_any()
-            .downcast_ref::<LibrarySyncStatusUpdated>()
-            .is_some_and(|status| status.share_failure.is_none())
-        {
-            self.successful_share_passes.fetch_add(1, Ordering::SeqCst);
-            self.successful_share_pass.notify_waiters();
+        if let Some(status) = message.as_any().downcast_ref::<LibrarySyncStatusUpdated>() {
+            self.share_statuses
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .push(status.share_failure);
+            if status.share_failure.is_none() {
+                self.successful_share_passes.fetch_add(1, Ordering::SeqCst);
+                self.successful_share_pass.notify_waiters();
+            }
         }
         let status = if message.name() == "LibrarySyncStatusUpdated" {
             format!(
@@ -342,7 +392,8 @@ impl WorkerHub {
         self.node.shutdown().await?;
         self._directory = tempfile::tempdir()?;
         let (node, broadcaster, handle) =
-            register_worker_library(&self._directory, self.namespace, &self.library).await?;
+            register_worker_library(&self._directory, test_record(self.namespace), &self.library)
+                .await?;
         self.node = node;
         self.broadcaster = broadcaster;
         self.handle = Some(handle);
@@ -384,9 +435,12 @@ fn write_quick_identity(directory: &std::path::Path) -> Result<()> {
 
 async fn register_worker_library(
     directory: &tempfile::TempDir,
-    namespace: Uuid,
+    record: LibraryRecord,
     library: &support::SqlLibrary,
 ) -> Result<(Arc<NodeContext>, Arc<QuietBroadcaster>, LibraryHandle)> {
+    let namespace = record
+        .catalog_library_id()
+        .context("share test record has no library id")?;
     let path = directory.path().to_string_lossy().into_owned();
     write_quick_identity(directory.path())?;
     let broadcaster = Arc::new(QuietBroadcaster::default());
@@ -399,7 +453,6 @@ async fn register_worker_library(
         Arc::new(::visualizer::Visualizer::new()),
     )
     .await?;
-    let record = test_record(namespace);
     std::fs::write(
         directory.path().join("libraries.json"),
         serde_json::to_vec(&json!({
@@ -416,7 +469,7 @@ async fn register_worker_library(
         recommend_db: Arc::new(RecommendationDbConnection::new()),
         fsio: Arc::new(fsio::FsIo::new()),
         media_root: library.root.path().to_string_lossy().into_owned(),
-        descriptor: test_record(namespace),
+        descriptor: record,
     };
     let handle = node.library_pool.register_ui(resources).await?;
     anyhow::ensure!(
@@ -464,7 +517,7 @@ async fn worker_hub_on_share_prepared(
     let factory: Arc<dyn ShareStoreFactory> = Arc::new(FixedShareFactory { session });
     let directory = tempfile::tempdir()?;
     let (node, broadcaster, handle) =
-        register_worker_library(&directory, namespace, &library).await?;
+        register_worker_library(&directory, test_record(namespace), &library).await?;
     let cancel = CancellationToken::new();
     Ok(WorkerHub {
         _directory: directory,
@@ -1058,8 +1111,12 @@ async fn read_only_webdav_in_share_probe_reports_typed_state_without_persisting_
         credential,
     }];
 
+    let prefix = DevicePrefix {
+        stream: Uuid::new_v4(),
+        generation: Uuid::new_v4(),
+    };
     let result = OpenDalShareStoreFactory
-        .open(&record, "devices/fixture", &credentials)
+        .open(&record, &prefix.to_string(), &credentials)
         .await;
     assert_eq!(
         result.as_ref().err().copied(),
@@ -1079,6 +1136,63 @@ async fn read_only_webdav_in_share_probe_reports_typed_state_without_persisting_
             .all(|operation| matches!(operation.as_str(), "MKCOL" | "PUT" | "DELETE")),
         "unexpected write operation in share probe: {refused_operations:?}"
     );
+    Ok(())
+}
+
+/// The share worker opens a WebDAV or S3 share through `OpenDalShareStoreFactory` with this
+/// device's `<stream>.<generation>` prefix. Its first pass has to get through the store
+/// probe and publish the device's head in its own folder of the share.
+#[tokio::test]
+async fn share_worker_syncs_webdav_and_s3_shares_through_the_opendal_factory() -> Result<()> {
+    for backend in [ShareBackend::WebDav, ShareBackend::S3] {
+        let (_fixture, config) = share_fixture(backend).await;
+        let namespace = Uuid::new_v4();
+        let library = support::SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+        let directory = tempfile::tempdir()?;
+        let mut record = test_record(namespace);
+        record.fs =
+            vec![share_adapter(config.clone(), &CredentialStore::open(directory.path())).await?];
+        // The node starts its sync worker, whose share worker opens stores through
+        // `OpenDalShareStoreFactory`, as in the app.
+        let (node, broadcaster, handle) =
+            register_worker_library(&directory, record, &library).await?;
+        let first_status = wait_until("the share worker's first pass", || async {
+            Ok(broadcaster
+                .share_statuses
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .first()
+                .copied())
+        })
+        .await?;
+        assert_eq!(
+            first_status, None,
+            "{backend:?}: the share worker's first pass failed"
+        );
+
+        let prefix = library
+            .sync_store
+            .share_prefix(
+                PathBuf::from(node.config_path.as_str())
+                    .join("share-cache")
+                    .join(namespace.to_string()),
+            )
+            .await?;
+        let store =
+            OpenDalObjectStore::new(config).map_err(|error| anyhow::anyhow!("{error:?}"))?;
+        let objects = store
+            .list_prefix(&format!("devices/{prefix}/"))
+            .await
+            .map_err(|error| anyhow::anyhow!("{error:?}"))?;
+        assert!(
+            objects
+                .iter()
+                .any(|key| key.starts_with(&format!("devices/{prefix}/head."))),
+            "{backend:?}: no head in devices/{prefix}/ of the share: {objects:?}"
+        );
+        drop(handle);
+        node.shutdown().await?;
+    }
     Ok(())
 }
 

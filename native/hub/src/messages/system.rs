@@ -83,6 +83,7 @@ pub enum RequestFailureCause {
     ScrobbleAuthentication {
         failure: ScrobbleAuthenticationFailure,
     },
+    IndefiniteBroadcastAlreadyRunning,
 }
 
 #[derive(Deserialize, Serialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]

@@ -11,14 +11,19 @@ use super::share::{
 };
 use crate::sync::{import, legacy};
 use anyhow::{Result, ensure};
-use sea_orm::{DatabaseConnection, TransactionTrait};
+use sea_orm::{
+    ConnectionTrait, DatabaseConnection, DatabaseTransaction, TransactionTrait,
+    sea_query::{Alias, Expr, Query},
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::PathBuf,
     sync::Arc,
 };
 use sync::{
-    EventRef, PageRead, ReceiveStore, StoreIdentity, SyncModel, SyncPeer, SyncStore,
+    Candidate, EventRef, ExactContext, MAX_MUTATIONS, MergeDelta, ModelId, PageRead, ReceiveStore,
+    Revision, StoreIdentity, SyncModel, SyncPeer, SyncStore, candidate_digest, candidate_rank,
+    decode_candidate,
     share::{
         BaseSize, Checkpoint, DevicePrefix, ExportCursorStatus, FormatError, Head, JournalEvent,
         KeeperDecision, NewestBase, ObjectKey as ShareObjectKey, ObjectStore, PublishDecision,
@@ -27,13 +32,277 @@ use sync::{
     },
 };
 use sync_orm::{
+    causal_candidates::{CandidatePageRequest, CandidateRow, page_on as candidate_page_on},
     causal_capabilities::CausalEndpoint,
     causal_export_cursors::read_on,
+    causal_leases::lock_on,
     causal_schema::clear_namespace_on,
     causal_store::namespace_model_on,
     registry::{ProjectionBudget, RegistryProjection},
 };
 use uuid::Uuid;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Schema1PlaybackStatistics;
+
+impl SyncModel for Schema1PlaybackStatistics {
+    type Collection = Collection;
+    type Payload = Payload;
+
+    fn model_id() -> &'static str {
+        RuneModel::model_id()
+    }
+
+    fn schema_id() -> &'static str {
+        "1"
+    }
+
+    fn collections() -> Vec<Collection> {
+        RuneModel::collections()
+    }
+
+    fn collection_tag(collection: &Collection) -> &'static str {
+        RuneModel::collection_tag(collection)
+    }
+
+    fn collection_from_tag(tag: &str) -> Option<Collection> {
+        RuneModel::collection_from_tag(tag)
+    }
+
+    fn validate(key: &sync::ObjectKey<Self>, value: &Option<Payload>) -> sync::Result<()> {
+        RuneModel::validate(
+            &ObjectKey {
+                collection: key.collection,
+                id: key.id,
+            },
+            value,
+        )
+    }
+
+    fn validate_revision(
+        key: &sync::ObjectKey<Self>,
+        value: &Option<Payload>,
+        revision: &Revision,
+    ) -> sync::Result<()> {
+        RuneModel::validate_revision(
+            &ObjectKey {
+                collection: key.collection,
+                id: key.id,
+            },
+            value,
+            revision,
+        )
+    }
+}
+
+fn decode_schema_1_statistics_candidate(
+    namespace: Uuid,
+    row: &CandidateRow,
+) -> Result<Candidate<Schema1PlaybackStatistics>> {
+    let candidate = decode_candidate::<Schema1PlaybackStatistics>(&row.body)?;
+    ensure!(
+        candidate.namespace == namespace
+            && candidate.key.collection == Collection::PlaybackStatistics
+            && candidate.key.id.as_bytes() == row.object.as_slice()
+            && candidate.dot.writer_incarnation.as_bytes() == row.writer.as_slice()
+            && i64::try_from(candidate.dot.counter)? == row.counter
+            && candidate.revision.actor.as_bytes() == row.author.as_slice()
+            && i64::try_from(candidate.revision.counter)? == row.revision
+            && candidate_digest(&candidate)?.as_slice() == row.digest.as_slice(),
+        "stored schema 1 statistics candidate identity mismatch"
+    );
+    Ok(candidate)
+}
+
+fn select_schema_1_winner(
+    candidates: &[Candidate<Schema1PlaybackStatistics>],
+) -> Result<Option<Candidate<RuneModel>>> {
+    type CandidateRank = (Revision, sync::Digest, sync::Dot);
+    let mut best: Option<(CandidateRank, &Candidate<Schema1PlaybackStatistics>)> = None;
+    for candidate in candidates {
+        let rank = candidate_rank(candidate)?;
+        if best.as_ref().is_none_or(|(previous, _)| rank > *previous) {
+            best = Some((rank, candidate));
+        }
+    }
+    Ok(best.map(|(_, winner)| Candidate {
+        model: ModelId {
+            model: RuneModel::model_id().into(),
+            schema: RuneModel::schema_id().into(),
+        },
+        namespace: winner.namespace,
+        key: ObjectKey {
+            collection: winner.key.collection,
+            id: winner.key.id,
+        },
+        dot: winner.dot,
+        revision: winner.revision,
+        payload: winner.payload.clone(),
+    }))
+}
+
+async fn collect_schema_1_accepted_statistics(
+    tx: &DatabaseTransaction,
+    namespace: Uuid,
+    state_seq: i64,
+) -> Result<Vec<Candidate<RuneModel>>> {
+    let tag = RuneModel::collection_tag(&Collection::PlaybackStatistics).as_bytes();
+    let mut after = None;
+    let mut current_key: Option<Uuid> = None;
+    let mut current_group = Vec::new();
+    let mut winners = Vec::new();
+    loop {
+        let page = candidate_page_on(
+            tx,
+            CandidatePageRequest {
+                namespace,
+                collection: tag,
+                state_seq,
+                lower: None,
+                upper: None,
+                after: after.clone(),
+                max_items: 128,
+                max_bytes: 4 * 1024 * 1024,
+            },
+        )
+        .await?;
+        for row in &page.rows {
+            let candidate = decode_schema_1_statistics_candidate(namespace, row)?;
+            if current_key != Some(candidate.key.id) {
+                if let Some(winner) = select_schema_1_winner(&current_group)? {
+                    winners.push(winner);
+                }
+                current_group.clear();
+                current_key = Some(candidate.key.id);
+            }
+            current_group.push(candidate);
+        }
+        if page.done {
+            break;
+        }
+        ensure!(
+            page.next != after,
+            "schema 1 statistics traversal made no progress"
+        );
+        after = page.next;
+    }
+    if let Some(winner) = select_schema_1_winner(&current_group)? {
+        winners.push(winner);
+    }
+    Ok(winners)
+}
+
+async fn rebuild_schema_1_encoding(
+    db: &DatabaseConnection,
+    namespace: Uuid,
+    node_id: Uuid,
+    file_token: Option<Uuid>,
+) -> Result<Option<SeaOrmSyncStore>> {
+    use sea_orm::ExprTrait as _;
+    let tx = db.begin().await?;
+    lock_on(&tx, namespace).await?;
+    let meta_query = Query::select()
+        .columns(
+            [
+                "model",
+                "schema",
+                "codec",
+                "replica",
+                "generation",
+                "state_seq",
+                "revision_counter",
+            ]
+            .map(Alias::new),
+        )
+        .from(Alias::new("sync_meta"))
+        .and_where(Expr::col(Alias::new("namespace")).eq(namespace.as_bytes().to_vec()))
+        .to_owned();
+    let Some(row) = tx.query_one(&meta_query).await? else {
+        tx.commit().await?;
+        return Ok(None);
+    };
+    let model: String = row.try_get_by_index(0)?;
+    let schema: String = row.try_get_by_index(1)?;
+    if model != RuneModel::model_id() || schema != "1" {
+        tx.commit().await?;
+        return Ok(None);
+    }
+    let codec: String = row.try_get_by_index(2)?;
+    ensure!(codec == "canonical-json-1", "incompatible schema 1 codec");
+    let replica = Uuid::from_slice(&row.try_get_by_index::<Vec<u8>>(3)?)?;
+    let generation = Uuid::from_slice(&row.try_get_by_index::<Vec<u8>>(4)?)?;
+    let state_seq: i64 = row.try_get_by_index(5)?;
+    let revision_counter: i64 = row.try_get_by_index(6)?;
+    ensure!(
+        !replica.is_nil() && !generation.is_nil() && state_seq >= 0 && revision_counter >= 0,
+        "invalid schema 1 replica metadata"
+    );
+    let old_identity = StoreIdentity {
+        namespace,
+        model: ModelId { model, schema },
+        replica,
+        generation,
+    };
+
+    // Preserve accepted playback statistics across the schema 1 -> 2 encoding rebuild so
+    // records owned by other devices remain forwardable without authoring them as local.
+    let preserved_stats = collect_schema_1_accepted_statistics(&tx, namespace, state_seq).await?;
+
+    // Candidate digests bind the old JSON arrays; rebuild causal history from source rows
+    // while restoring previously accepted statistics atomically in the same transaction.
+    clear_namespace_on(&tx, namespace).await?;
+    let inner =
+        SeaOrmSyncStore::create_empty_on(&tx, db.clone(), namespace, node_id, file_token).await?;
+    if revision_counter > 0 {
+        let update = Query::update()
+            .table(Alias::new("sync_meta"))
+            .value(Alias::new("revision_counter"), revision_counter)
+            .and_where(Expr::col(Alias::new("namespace")).eq(namespace.as_bytes().to_vec()))
+            .to_owned();
+        ensure!(
+            tx.execute(&update).await?.rows_affected() == 1,
+            "missing causal namespace after schema 2 creation"
+        );
+    }
+    let apply_limits = super::session_limits().apply;
+    let chunk_size = apply_limits.max_projection_items as usize;
+    for chunk in preserved_stats.chunks(chunk_size) {
+        let delta = MergeDelta {
+            collection: Collection::PlaybackStatistics,
+            added: chunk.to_vec(),
+            observed: ExactContext {
+                writers: Vec::new(),
+            },
+        };
+        let mut budget = MAX_MUTATIONS;
+        let (_, batch) = inner
+            .apply_merge_on(&tx, &delta, &old_identity, apply_limits, &mut budget)
+            .await?;
+        for change in &batch.changes {
+            let Some(winner) = change.after.as_ref() else {
+                continue;
+            };
+            if winner.revision.actor == node_id {
+                match RuneModel::encode_on(&tx, &change.key).await? {
+                    None => {
+                        RuneModel::project_on(&tx, &change.key, Some(&winner.payload)).await?;
+                    }
+                    Some(local_payload) if local_payload != winner.payload => {
+                        inner
+                            .author_on(&tx, change.key.clone(), Some(local_payload.clone()))
+                            .await?;
+                        RuneModel::project_on(&tx, &change.key, Some(&local_payload)).await?;
+                    }
+                    Some(_) => {}
+                }
+            } else {
+                RuneModel::project_on(&tx, &change.key, Some(&winner.payload)).await?;
+            }
+        }
+    }
+    tx.commit().await?;
+    Ok(Some(inner))
+}
 
 #[derive(Clone)]
 pub struct LibrarySyncStore {
@@ -70,6 +339,7 @@ impl LibrarySyncStore {
         Ok(format!("{}.{}", state.stream, state.generation))
     }
     /// Classify the local journal tail after the share export cursor for timer selection.
+    /// A tail that compaction has already passed counts as content: it is published as a base.
     pub async fn share_pending_changes(
         &self,
         cache_path: PathBuf,
@@ -91,7 +361,12 @@ impl LibrarySyncStore {
         let scope = sync::Scope {
             collections: RuneModel::collections().into_iter().collect(),
         };
-        let mut after = journal.progress_at(state.local_cursor).await?;
+        let Some(mut after) = journal.progress_at(state.local_cursor).await? else {
+            return Ok(Some(SharePendingChanges {
+                journal_head: through.sequence,
+                change: PendingShareChange::Content,
+            }));
+        };
         let mut change = PendingShareChange::StatisticsOnly;
         while after.sequence < through.sequence {
             let page_read = journal
@@ -219,19 +494,19 @@ impl LibrarySyncStore {
             library_id.is_none_or(|id| id == actual),
             "namespace mismatch"
         );
-        let mut rebuild_encoding = false;
-        if !existing.is_empty()
+        let rebuilt = if !existing.is_empty()
             && let Some(model) = namespace_model_on(&db, actual).await?
             && model.model == RuneModel::model_id()
             && model.schema == "1"
         {
-            // Candidate digests bind the old JSON arrays; rebuild causal history from source rows.
-            let tx = db.begin().await?;
-            clear_namespace_on(&tx, actual).await?;
-            tx.commit().await?;
-            rebuild_encoding = true;
-        }
-        let inner = if existing.is_empty() || rebuild_encoding {
+            rebuild_schema_1_encoding(&db, actual, node_id, file_token).await?
+        } else {
+            None
+        };
+        let rebuild_encoding = rebuilt.is_some();
+        let inner = if let Some(inner) = rebuilt {
+            inner
+        } else if existing.is_empty() {
             SeaOrmSyncStore::create_empty_with_file_token(db.clone(), actual, node_id, file_token)
                 .await?
         } else {
@@ -483,10 +758,13 @@ impl LibrarySyncStore {
         let through = SyncPeer::head(&self.endpoint)
             .await
             .map_err(|error| SharePushError::Failed(error.to_string()))?;
-        let mut after = journal
+        let retained = journal
             .progress_at(state.local_cursor)
             .await
-            .map_err(|_| SharePushError::NeedsBase)?;
+            .map_err(|error| SharePushError::Failed(error.to_string()))?;
+        // A tail that compaction has already passed is not read: it goes out as a base.
+        let tail_compacted = retained.is_none();
+        let mut after = retained.unwrap_or_else(|| through.clone());
         let mut entries = Vec::<JournalEvent<RuneModel>>::new();
         while after.sequence < through.sequence {
             let page_read = journal
@@ -541,7 +819,7 @@ impl LibrarySyncStore {
             tx.commit()
                 .await
                 .map_err(|error| SharePushError::Failed(error.to_string()))?;
-            if cursor.is_some_and(|cursor| cursor.needs_base()) {
+            if tail_compacted || cursor.is_some_and(|cursor| cursor.needs_base()) {
                 ExportCursorStatus::NeedsBase
             } else {
                 ExportCursorStatus::Current

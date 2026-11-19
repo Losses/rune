@@ -150,7 +150,11 @@ pub trait FileIo: Send + Sync {
     }
     async fn remove_dir_all(&self, path: &Path) -> Result<(), FileIoError>;
     /// Every entry under `path`, with entries whose path is not valid Unicode
-    /// reported apart in [`DirWalk::skipped`].
+    /// reported apart in [`DirWalk::skipped`]. The standard file system fails
+    /// when `path` itself is missing or cannot be read, so it is not taken for
+    /// an empty folder, and leaves out entries below it that it cannot read.
+    /// OpenDAL and NoOp list a missing `path` as empty, and the Android cache
+    /// returns what it last cached.
     fn walk_dir(&self, path: &Path, follow_links: bool) -> Result<DirWalk, FileIoError>;
     fn exists(&self, path: &Path) -> Result<bool, FileIoError>;
     async fn is_file(&self, path: &Path) -> Result<bool, FileIoError>;

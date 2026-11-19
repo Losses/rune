@@ -9,7 +9,7 @@ use crate::protocol::{
     RangeHasher, RangeSummary, ReceiveProgress, Result as ProtocolResult, Scope,
     SnapshotDescriptor, SnapshotSource, StoreIdentity, SyncError, SyncModel, WorkCursor,
     WorkLimits, WorkOutcome, canonical_candidate, content_digest, context_digest, decode_context,
-    fragment_bounds, fragment_digest, manifest_digest, scope_id,
+    fragment_bounds, fragment_digest, fragment_response_bytes, manifest_digest, scope_id,
 };
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use std::{
@@ -393,6 +393,7 @@ impl<M: SyncModel> SnapshotSource<M> for SharePeer<M> {
                     continue;
                 }
                 let bytes = self.context_bytes(&binding.owner_prefix, summary).await?;
+                fragment_response_bytes(&manifest_ref, ordinal, max_bytes)?;
                 let (start, end) = fragment_bounds(&manifest_ref, ordinal)?;
                 let start = usize::try_from(start).map_err(|_| SyncError::LogicalLimit)?;
                 let end = usize::try_from(end).map_err(|_| SyncError::LogicalLimit)?;
@@ -404,14 +405,6 @@ impl<M: SyncModel> SnapshotSource<M> for SharePeer<M> {
                     digest: [0; 32],
                 };
                 fragment.digest = fragment_digest(&fragment)?;
-                let response_size = serde_json::to_vec(&fragment)
-                    .map_err(|error| SyncError::Storage(error.to_string()))?
-                    .len() as u64;
-                if response_size > max_bytes {
-                    return Err(SyncError::LimitTooSmall {
-                        required: response_size,
-                    });
-                }
                 return Ok(fragment);
             }
             Err(SyncError::SnapshotExpired)

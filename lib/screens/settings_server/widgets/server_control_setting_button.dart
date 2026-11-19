@@ -25,9 +25,11 @@ class _ServerControlSettingState extends State<ServerControlSetting> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Button(
-          onPressed: () => broadcast.isServerRunning
-              ? broadcast.stopServer()
-              : broadcast.startServer('0.0.0.0'),
+          onPressed: broadcast.isUpdatingBroadcast
+              ? null
+              : () => broadcast.isServerRunning
+                    ? broadcast.stopServer()
+                    : broadcast.startServer('0.0.0.0'),
           child: Text(broadcast.isServerRunning ? s.stop : s.start),
         ),
       ],
@@ -41,9 +43,11 @@ class _ServerControlSettingState extends State<ServerControlSetting> {
     return FlyoutTarget(
       controller: _menuController.controller,
       child: Button(
-        onPressed: () => broadcast.isServerRunning
-            ? broadcast.stopServer()
-            : broadcast.startServer('0.0.0.0'),
+        onPressed: broadcast.isUpdatingBroadcast
+            ? null
+            : () => broadcast.isServerRunning
+                  ? broadcast.stopServer()
+                  : broadcast.startServer('0.0.0.0'),
         child: Text(broadcast.isServerRunning ? s.stop : s.start),
       ),
     );

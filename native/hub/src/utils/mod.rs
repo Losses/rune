@@ -477,7 +477,7 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
         &self,
         node: &NodeSlot,
         request: &StartBroadcastRequest,
-    ) -> impl Future<Output = Result<Option<()>>> + Send {
+    ) -> impl Future<Output = Result<Option<StartBroadcastResponse>>> + Send {
         async move {
             let node = node.current().await?;
             request
@@ -498,7 +498,7 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
         &self,
         node: &NodeSlot,
         request: &StopBroadcastRequest,
-    ) -> impl Future<Output = Result<Option<()>>> + Send {
+    ) -> impl Future<Output = Result<Option<StopBroadcastResponse>>> + Send {
         async move {
             let node = node.current().await?;
             request

@@ -34,6 +34,8 @@ pub enum ExpectedRequestError {
     PublicKeyMismatch,
     #[error("A device with this fingerprint is already registered")]
     RegistrationConflict,
+    #[error("Device announcements are already running")]
+    BroadcastAlreadyRunning { indefinite: bool },
     #[error(
         "protocol versions are incompatible: this device {local_version}, peer {peer_version:?}"
     )]
@@ -190,7 +192,10 @@ pub fn classify(error: &Error) -> RequestErrorKind {
                 ExpectedRequestError::SubsonicNotAuthorized => RequestErrorKind::PermissionDenied,
                 ExpectedRequestError::CertificateMismatch => RequestErrorKind::InvalidInput,
                 ExpectedRequestError::PublicKeyMismatch => RequestErrorKind::InvalidInput,
-                ExpectedRequestError::RegistrationConflict => RequestErrorKind::Conflict,
+                ExpectedRequestError::RegistrationConflict
+                | ExpectedRequestError::BroadcastAlreadyRunning { .. } => {
+                    RequestErrorKind::Conflict
+                }
                 ExpectedRequestError::PeerNeedsUpdate { .. } => RequestErrorKind::PeerNeedsUpdate,
                 ExpectedRequestError::Remote { kind, .. } => *kind,
                 ExpectedRequestError::UnexpectedResponse { .. } => RequestErrorKind::Internal,
@@ -275,6 +280,9 @@ pub fn request_failure_cause(error: &Error) -> Option<RequestFailureCause> {
                 }
                 ExpectedRequestError::PublicKeyMismatch => {
                     return Some(RequestFailureCause::PublicKeyMismatch);
+                }
+                ExpectedRequestError::BroadcastAlreadyRunning { indefinite: true } => {
+                    return Some(RequestFailureCause::IndefiniteBroadcastAlreadyRunning);
                 }
                 ExpectedRequestError::RegistrationConflict => {
                     return Some(RequestFailureCause::RegistrationConflict);

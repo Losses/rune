@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::path::Path;
 
 use fsio::{FileIoError, FsIo, OpenMode, StorageLocation};
@@ -149,6 +149,38 @@ async fn std_walk_dir_finds_nested_files() {
     assert!(names.contains(&"f2"));
 }
 
+#[tokio::test]
+async fn std_walk_dir_of_an_empty_root_lists_only_the_root() {
+    let temp = tempfile::tempdir().unwrap();
+    let (fsio, root) = std_fsio_in(&temp);
+
+    let walk = fsio.walk_dir(&root, false).unwrap();
+    let listed: Vec<_> = walk.nodes.iter().map(|node| node.path.as_path()).collect();
+    assert_eq!(listed, [root.as_path()]);
+    assert!(walk.skipped.is_empty());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn std_walk_dir_errors_on_a_root_it_cannot_read() {
+    use std::fs::Permissions;
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let (fsio, root) = std_fsio_in(&temp);
+    let locked = root.join("locked");
+    fsio.create_dir_all(&locked).unwrap();
+    fsio.write(&locked.join("track.ogg"), b"1").await.unwrap();
+    std::fs::set_permissions(&locked, Permissions::from_mode(0o000)).unwrap();
+    let walk = fsio.walk_dir(&locked, false);
+    std::fs::set_permissions(&locked, Permissions::from_mode(0o755)).unwrap();
+
+    assert!(
+        matches!(&walk, Err(FileIoError::Io(error)) if error.kind() == ErrorKind::PermissionDenied),
+        "{walk:?}"
+    );
+}
+
 #[cfg(any(windows, all(unix, not(target_vendor = "apple"))))]
 #[tokio::test]
 async fn std_walk_dir_reports_paths_that_are_not_unicode_apart() {
@@ -294,6 +326,11 @@ async fn std_errors_on_missing_paths() {
     assert!(fsio.is_file(&missing).await.is_err());
     assert!(fsio.is_dir(&missing).await.is_err());
     assert!(!fsio.exists(&missing).unwrap());
+    let walk = fsio.walk_dir(&missing, false);
+    assert!(
+        matches!(&walk, Err(FileIoError::Io(error)) if error.kind() == ErrorKind::NotFound),
+        "{walk:?}"
+    );
 }
 
 #[tokio::test]
