@@ -37,7 +37,7 @@ async fn assert_read_contract(config: OpenDalConfig) {
     let fs = FsIo::new_opendal(config, Handle::current()).unwrap();
     let blocking_fs = fs.clone();
     spawn_blocking(move || {
-        let files = blocking_fs.walk_dir(Path::new(""), false).unwrap();
+        let files = blocking_fs.walk_dir(Path::new(""), false).unwrap().nodes;
         let audio = files
             .iter()
             .find(|node| node.filename == "audio.mp3")

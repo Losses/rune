@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
@@ -5,15 +6,20 @@ use async_trait::async_trait;
 use tokio::fs;
 use walkdir::WalkDir;
 
-use super::{FileIo, FileIoError, FileStream, FsNode, OpenMode, StorageLocation};
+use super::{DirWalk, FileIo, FileIoError, FileStream, FsNode, OpenMode, StorageLocation};
 
-/// The canonical form of `path` with its metadata.
+/// The canonical form of `path` with its metadata, or `InvalidPath` when that
+/// form is not valid Unicode.
 fn canonical_node(path: &Path) -> Result<FsNode, FileIoError> {
     let path = dunce::canonicalize(path).map_err(FileIoError::Io)?;
     let metadata = std::fs::metadata(&path)?;
     Ok(FsNode {
-        filename: path.file_name().unwrap().to_str().unwrap().to_string(),
-        raw_path: path.to_str().unwrap_or_default().to_string(),
+        filename: path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .ok_or(FileIoError::InvalidPath)?
+            .to_string(),
+        raw_path: path.to_str().ok_or(FileIoError::InvalidPath)?.to_string(),
         path,
         is_dir: metadata.is_dir(),
         is_file: metadata.is_file(),
@@ -106,10 +112,15 @@ impl FileIo for StdFsIo {
         let mut nodes = Vec::new();
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
+            let file_name = entry.file_name();
+            let (Some(filename), Some(raw_path)) = (file_name.to_str(), path.to_str()) else {
+                log::warn!("Skipped {path:?}: its path is not valid Unicode");
+                continue;
+            };
             let metadata = entry.metadata().await?;
             nodes.push(FsNode {
-                filename: entry.file_name().to_str().unwrap().to_string(),
-                raw_path: path.to_str().unwrap_or_default().to_string(),
+                filename: filename.to_string(),
+                raw_path: raw_path.to_string(),
                 path,
                 is_dir: metadata.is_dir(),
                 is_file: metadata.is_file(),
@@ -141,25 +152,35 @@ impl FileIo for StdFsIo {
         fs::remove_dir_all(path).await.map_err(FileIoError::Io)
     }
 
-    fn walk_dir(&self, path: &Path, follow_links: bool) -> Result<Vec<FsNode>, FileIoError> {
-        let path = path.to_path_buf();
-        WalkDir::new(path)
-            .follow_links(follow_links)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .map(|entry| {
-                let path = entry.path().to_path_buf();
-                let metadata = entry.metadata().map_err(|e| FileIoError::Io(e.into()))?;
-                Ok(FsNode {
-                    filename: entry.file_name().to_str().unwrap().to_string(),
-                    raw_path: path.to_str().unwrap_or_default().to_string(),
-                    path,
-                    is_dir: metadata.is_dir(),
-                    is_file: metadata.is_file(),
-                    size: metadata.len(),
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()
+    fn walk_dir(&self, path: &Path, follow_links: bool) -> Result<DirWalk, FileIoError> {
+        let mut walk = DirWalk::default();
+        let mut entries = WalkDir::new(path).follow_links(follow_links).into_iter();
+        while let Some(entry) = entries.next() {
+            let Ok(entry) = entry else {
+                continue;
+            };
+            let (Some(filename), Some(raw_path)) =
+                (entry.file_name().to_str(), entry.path().to_str())
+            else {
+                // walkdir enters a root that links to a directory even without
+                // follow_links, and that entry does not report itself as one.
+                if entry.depth() == 0 || entry.file_type().is_dir() {
+                    entries.skip_current_dir();
+                }
+                walk.skipped.push(entry.into_path());
+                continue;
+            };
+            let metadata = entry.metadata().map_err(|e| FileIoError::Io(e.into()))?;
+            walk.nodes.push(FsNode {
+                filename: filename.to_string(),
+                raw_path: raw_path.to_string(),
+                path: entry.path().to_path_buf(),
+                is_dir: metadata.is_dir(),
+                is_file: metadata.is_file(),
+                size: metadata.len(),
+            });
+        }
+        Ok(walk)
     }
 
     fn exists(&self, path: &Path) -> Result<bool, FileIoError> {
@@ -192,8 +213,12 @@ impl FileIo for StdFsIo {
         let path = self.canonicalize_path_str(path)?;
         let metadata = std::fs::metadata(&path)?;
         Ok(FsNode {
-            filename: path.file_name().unwrap().to_str().unwrap().to_string(),
-            raw_path: path.to_str().unwrap_or_default().to_string(),
+            filename: path
+                .file_name()
+                .and_then(OsStr::to_str)
+                .ok_or(FileIoError::InvalidPath)?
+                .to_string(),
+            raw_path: path.to_str().ok_or(FileIoError::InvalidPath)?.to_string(),
             path,
             is_dir: metadata.is_dir(),
             is_file: metadata.is_file(),

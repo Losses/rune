@@ -36,6 +36,7 @@ ndk-saf = { git = "https://github.com/Losses/Rust-SAF", version = "0.1.11" }
 
 [dev-dependencies]
 tempfile = "3.20.0"
+fsio = { path = ".", features = ["test-fixtures"] }
 
 [lints]
 workspace = true

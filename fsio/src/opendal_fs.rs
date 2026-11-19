@@ -12,7 +12,7 @@ use opendal_http_transport_reqwest::ReqwestTransport;
 use rustls::{ClientConfig, RootCertStore};
 use tokio::runtime::Handle;
 
-use crate::{FileIo, FileIoError, FileStream, FsNode, OpenMode, StorageLocation};
+use crate::{DirWalk, FileIo, FileIoError, FileStream, FsNode, OpenMode, StorageLocation};
 
 /// Credentials and location for a read-only OpenDAL filesystem.
 #[derive(Clone)]
@@ -493,11 +493,15 @@ impl FileIo for OpenDalFsIo {
         Err(FileIoError::NotSupported("remote delete".into()))
     }
 
-    fn walk_dir(&self, path: &Path, _follow_links: bool) -> Result<Vec<FsNode>, FileIoError> {
+    fn walk_dir(&self, path: &Path, _follow_links: bool) -> Result<DirWalk, FileIoError> {
         let key = self.key(path)?;
         let mut nodes = Vec::new();
         self.list_recursive(&key, &mut HashSet::new(), &mut nodes)?;
-        Ok(nodes)
+        // OpenDAL keys are text, so every entry has a node.
+        Ok(DirWalk {
+            nodes,
+            skipped: Vec::new(),
+        })
     }
 
     fn exists(&self, path: &Path) -> Result<bool, FileIoError> {

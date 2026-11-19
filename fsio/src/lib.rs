@@ -41,6 +41,18 @@ pub struct FsNode {
     pub size: u64,
 }
 
+/// What [`FileIo::walk_dir`] found under a directory.
+#[derive(Debug, Clone, Default)]
+pub struct DirWalk {
+    /// Every entry under the directory. Whether the directory itself is listed
+    /// depends on the backend: the standard file system lists it, OpenDAL does not.
+    pub nodes: Vec<FsNode>,
+    /// Entries left out because their path is not valid Unicode. An [`FsNode`]
+    /// holds names as text, and a lossy copy could name a different file.
+    /// Nothing under a skipped directory is walked.
+    pub skipped: Vec<PathBuf>,
+}
+
 /// Where a backend keeps its files, which decides how reads fail and how streams are read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageLocation {
@@ -127,6 +139,8 @@ pub trait FileIo: Send + Sync {
     async fn write_string(&self, path: &Path, contents: &str) -> Result<(), FileIoError>;
     async fn create_dir(&self, parent: &Path, name: &str) -> Result<PathBuf, FileIoError>;
     fn create_dir_all(&self, path: &Path) -> Result<(), FileIoError>;
+    /// The entries directly inside `path`, leaving out any whose path is not
+    /// valid Unicode.
     async fn read_dir(&self, path: &Path) -> Result<Vec<FsNode>, FileIoError>;
     async fn remove_file(&self, path: &Path) -> Result<(), FileIoError>;
     /// Rename a file within its current directory. Backends must finish the
@@ -135,7 +149,9 @@ pub trait FileIo: Send + Sync {
         Err(FileIoError::NotSupported("file rename".into()))
     }
     async fn remove_dir_all(&self, path: &Path) -> Result<(), FileIoError>;
-    fn walk_dir(&self, path: &Path, follow_links: bool) -> Result<Vec<FsNode>, FileIoError>;
+    /// Every entry under `path`, with entries whose path is not valid Unicode
+    /// reported apart in [`DirWalk::skipped`].
+    fn walk_dir(&self, path: &Path, follow_links: bool) -> Result<DirWalk, FileIoError>;
     fn exists(&self, path: &Path) -> Result<bool, FileIoError>;
     async fn is_file(&self, path: &Path) -> Result<bool, FileIoError>;
     async fn is_dir(&self, path: &Path) -> Result<bool, FileIoError>;

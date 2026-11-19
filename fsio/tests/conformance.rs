@@ -141,12 +141,89 @@ async fn std_walk_dir_finds_nested_files() {
     fsio.write(&root.join("x/y/f1"), b"1").await.unwrap();
     fsio.write(&root.join("f2"), b"2").await.unwrap();
 
-    let nodes = fsio.walk_dir(&root, false).unwrap();
+    let nodes = fsio.walk_dir(&root, false).unwrap().nodes;
     let names: Vec<_> = nodes.iter().map(|n| n.filename.as_str()).collect();
     assert!(names.contains(&"x"));
     assert!(names.contains(&"y"));
     assert!(names.contains(&"f1"));
     assert!(names.contains(&"f2"));
+}
+
+#[cfg(any(windows, all(unix, not(target_vendor = "apple"))))]
+#[tokio::test]
+async fn std_walk_dir_reports_paths_that_are_not_unicode_apart() {
+    use fsio::test_fixtures::non_unicode_name;
+
+    let temp = tempfile::tempdir().unwrap();
+    let (fsio, root) = std_fsio_in(&temp);
+    fsio.write(&root.join("kept"), b"1").await.unwrap();
+    let file = root.join(non_unicode_name("file-", ""));
+    fsio.write(&file, b"2").await.unwrap();
+    let folder = root.join(non_unicode_name("folder-", ""));
+    fsio.create_dir_all(&folder).unwrap();
+    fsio.write(&folder.join("inside"), b"3").await.unwrap();
+    fsio.create_dir_all(&root.join("nested")).unwrap();
+    let nested = root.join("nested").join(non_unicode_name("nested-", ""));
+    fsio.write(&nested, b"4").await.unwrap();
+
+    let walk = fsio.walk_dir(&root, false).unwrap();
+    let mut listed: Vec<_> = walk.nodes.iter().map(|node| node.path.clone()).collect();
+    listed.sort();
+    assert_eq!(
+        listed,
+        [root.clone(), root.join("kept"), root.join("nested")]
+    );
+    let mut skipped = walk.skipped;
+    skipped.sort();
+    let mut expected = vec![file, folder, nested];
+    expected.sort();
+    assert_eq!(skipped, expected);
+}
+
+#[cfg(all(unix, not(target_vendor = "apple")))]
+#[tokio::test]
+async fn std_walk_dir_reports_a_root_link_that_is_not_unicode_alone() {
+    use std::os::unix::fs::symlink;
+
+    use fsio::test_fixtures::non_unicode_name;
+
+    let temp = tempfile::tempdir().unwrap();
+    let (fsio, root) = std_fsio_in(&temp);
+    let target = root.join("target");
+    fsio.create_dir_all(&target).unwrap();
+    fsio.write(&target.join("inside"), b"1").await.unwrap();
+    let link = root.join(non_unicode_name("link-", ""));
+    symlink(&target, &link).unwrap();
+
+    // walkdir enters a root link even when it does not follow links.
+    let walk = fsio.walk_dir(&link, false).unwrap();
+    assert!(walk.nodes.is_empty());
+    assert_eq!(walk.skipped, [link]);
+}
+
+#[cfg(any(windows, all(unix, not(target_vendor = "apple"))))]
+#[tokio::test]
+async fn std_read_dir_and_canonicalize_reject_paths_that_are_not_unicode() {
+    use fsio::test_fixtures::non_unicode_name;
+
+    let temp = tempfile::tempdir().unwrap();
+    let (fsio, root) = std_fsio_in(&temp);
+    fsio.write(&root.join("kept"), b"1").await.unwrap();
+    let file = root.join(non_unicode_name("file-", ""));
+    fsio.write(&file, b"2").await.unwrap();
+
+    let names: Vec<_> = fsio
+        .read_dir(&root)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|node| node.filename)
+        .collect();
+    assert_eq!(names, ["kept"]);
+    assert!(matches!(
+        fsio.canonicalize(&file),
+        Err(FileIoError::InvalidPath)
+    ));
 }
 
 #[tokio::test]
@@ -252,7 +329,7 @@ async fn noop_stub_contract() {
     assert!(!fsio.is_file(path).await.unwrap());
     assert!(!fsio.is_dir(path).await.unwrap());
     assert!(fsio.read_dir(path).await.unwrap().is_empty());
-    assert!(fsio.walk_dir(path, false).unwrap().is_empty());
+    assert!(fsio.walk_dir(path, false).unwrap().nodes.is_empty());
 
     fsio.create_dir_all(path).unwrap();
     fsio.remove_file(path).await.unwrap();

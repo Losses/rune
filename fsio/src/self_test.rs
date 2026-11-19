@@ -195,7 +195,7 @@ async fn layer_streaming_io(fsio: &FsIo, root: &Path) -> LayerOutput {
 }
 
 async fn layer_walk_dir(fsio: &FsIo, root: &Path) -> LayerOutput {
-    let nodes = fsio.walk_dir(root, false)?;
+    let nodes = fsio.walk_dir(root, false)?.nodes;
     if nodes.is_empty() {
         return Ok(LayerStatus::Skipped(
             "walk_dir returned 0 entries; directory appears empty".to_string(),
@@ -213,7 +213,7 @@ async fn layer_walk_dir(fsio: &FsIo, root: &Path) -> LayerOutput {
 }
 
 async fn layer_direct_read(fsio: &FsIo, root: &Path) -> LayerOutput {
-    let nodes = fsio.walk_dir(root, false)?;
+    let nodes = fsio.walk_dir(root, false)?.nodes;
     let Some(target) = nodes.iter().find(|n| n.is_file) else {
         return Ok(LayerStatus::Skipped(
             "no file found in the directory; nothing to read".to_string(),

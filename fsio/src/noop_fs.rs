@@ -5,7 +5,7 @@ use std::{
 
 use async_trait::async_trait;
 
-use crate::{FileIo, FileIoError, FileStream, FsNode, OpenMode, StorageLocation};
+use crate::{DirWalk, FileIo, FileIoError, FileStream, FsNode, OpenMode, StorageLocation};
 
 pub struct NoOpFsIo;
 
@@ -125,8 +125,8 @@ impl FileIo for NoOpFsIo {
         Ok(())
     }
 
-    fn walk_dir(&self, _path: &Path, _follow_links: bool) -> Result<Vec<FsNode>, FileIoError> {
-        Ok(Vec::new())
+    fn walk_dir(&self, _path: &Path, _follow_links: bool) -> Result<DirWalk, FileIoError> {
+        Ok(DirWalk::default())
     }
 
     fn exists(&self, _path: &Path) -> Result<bool, FileIoError> {

@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use ndk_saf::{from_tree_url, open_content_url, AndroidFile, AndroidFileOps};
 use rusqlite::{params, Connection};
 
-use super::{FileIo, FileIoError, FileStream, FsNode, OpenMode, StorageLocation};
+use super::{DirWalk, FileIo, FileIoError, FileStream, FsNode, OpenMode, StorageLocation};
 
 pub(crate) struct AndroidFsIo {
     db: Arc<Mutex<Connection>>,
@@ -553,7 +553,7 @@ impl FileIo for AndroidFsIo {
         Ok(())
     }
 
-    fn walk_dir(&self, path: &Path, _follow_links: bool) -> Result<Vec<FsNode>, FileIoError> {
+    fn walk_dir(&self, path: &Path, _follow_links: bool) -> Result<DirWalk, FileIoError> {
         let path_str = path.to_str().unwrap();
         let conn = self.db.lock().unwrap();
 
@@ -594,7 +594,11 @@ impl FileIo for AndroidFsIo {
                 nodes.push(node.map_err(|e| FileIoError::Database(e.to_string()))?);
             }
         }
-        Ok(nodes)
+        // The cache stores names as text, so every entry has a node.
+        Ok(DirWalk {
+            nodes,
+            skipped: Vec::new(),
+        })
     }
 
     fn exists(&self, path: &Path) -> Result<bool, FileIoError> {

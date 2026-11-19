@@ -352,3 +352,234 @@ async fn oversized_tag_does_not_abort_library_scan() -> Result<()> {
     db.close().await?;
     Ok(())
 }
+
+/// A path that is not valid Unicode cannot be stored without loss, so the scan
+/// skips it, reports it in the library log and indexes the tracks beside it. A
+/// folder with such a name is skipped whole: its tracks would otherwise be
+/// stored as if they sat in the library root.
+#[cfg(any(windows, all(unix, not(target_vendor = "apple"))))]
+#[tokio::test]
+async fn paths_that_are_not_unicode_are_skipped_and_reported() -> Result<()> {
+    use database::actions::logging::list_log;
+    use fsio::test_fixtures::non_unicode_name;
+
+    async fn indexed(db: &sea_orm::DatabaseConnection) -> Result<Vec<(String, String)>> {
+        Ok(media_files::Entity::find()
+            .all(db)
+            .await?
+            .into_iter()
+            .map(|file| (file.directory, file.file_name))
+            .collect())
+    }
+
+    let temp = tempfile::tempdir()?;
+    let root = temp.path();
+    write_tagged_wav(&root.join("track.wav"), "kept")?;
+    let track = root.join(non_unicode_name("track-", ".wav"));
+    write_tagged_wav(&track, "skipped track")?;
+    let folder = root.join(non_unicode_name("folder-", ""));
+    std::fs::create_dir(&folder)?;
+    write_tagged_wav(&folder.join("track.wav"), "skipped folder")?;
+    let fs = FsIo::new();
+    let node = uuid::Uuid::new_v4();
+    let db = connect_main_db(&fs, root.to_str().unwrap(), None, &node.to_string()).await?;
+    let library = fixtures::open_library(db.clone(), node, None).await?;
+    let store = library.record_store();
+    let options = || ScanOptions {
+        cleanup: true,
+        force: false,
+        missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+        cancel_token: None,
+    };
+    let kept = [(String::new(), "track.wav".to_owned())];
+
+    scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
+    assert_eq!(indexed(&db).await?, kept);
+    let mut reported: Vec<_> = list_log(&db, 0, 100)
+        .await?
+        .into_iter()
+        .filter(|log| log.level == "WARNING")
+        .map(|log| log.detail)
+        .collect();
+    reported.sort();
+    let mut expected =
+        [track, folder].map(|path| format!("Skipped {path:?}: its path is not valid Unicode"));
+    expected.sort();
+    assert_eq!(reported, expected);
+
+    // A retry keeps the track and leaves the skipped paths out again.
+    scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
+    assert_eq!(indexed(&db).await?, kept);
+    db.close().await?;
+    Ok(())
+}
+
+/// A walk that skipped a folder cannot tell whether the tracks indexed from it
+/// still exist, so cleanup leaves them as they are.
+#[cfg(any(windows, all(unix, not(target_vendor = "apple"))))]
+#[tokio::test]
+async fn folder_renamed_to_a_non_unicode_name_keeps_its_tracks() -> Result<()> {
+    use fsio::test_fixtures::non_unicode_name;
+
+    async fn rows(db: &sea_orm::DatabaseConnection) -> Result<Vec<(i32, bool)>> {
+        Ok(media_files::Entity::find()
+            .all(db)
+            .await?
+            .into_iter()
+            .map(|file| (file.id, file.local_available))
+            .collect())
+    }
+
+    let temp = tempfile::tempdir()?;
+    let root = temp.path();
+    let album = root.join("album");
+    std::fs::create_dir(&album)?;
+    write_tagged_wav(&album.join("track.wav"), "renamed folder")?;
+    let fs = FsIo::new();
+    let node = uuid::Uuid::new_v4();
+    let db = connect_main_db(&fs, root.to_str().unwrap(), None, &node.to_string()).await?;
+    let library = fixtures::open_library(db.clone(), node, None).await?;
+    let store = library.record_store();
+    let options = || ScanOptions {
+        cleanup: true,
+        force: false,
+        missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+        cancel_token: None,
+    };
+
+    scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
+    let track = media_files::Entity::find()
+        .one(&db)
+        .await?
+        .context("the track was not indexed")?;
+    assert_eq!(rows(&db).await?, [(track.id, true)]);
+
+    let renamed = root.join(non_unicode_name("album-", ""));
+    std::fs::rename(&album, &renamed)?;
+    scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
+    assert_eq!(
+        rows(&db).await?,
+        [(track.id, true)],
+        "a scan that skipped a folder must leave its tracks alone"
+    );
+
+    std::fs::rename(&renamed, &album)?;
+    scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
+    assert_eq!(rows(&db).await?, [(track.id, true)]);
+    db.close().await?;
+    Ok(())
+}
+
+/// A track deleted while the walk skips an unrelated path is removed by the
+/// next scan that reads every path.
+#[cfg(any(windows, all(unix, not(target_vendor = "apple"))))]
+#[tokio::test]
+async fn removal_waits_for_a_walk_that_skips_nothing() -> Result<()> {
+    use fsio::test_fixtures::non_unicode_name;
+
+    async fn names(db: &sea_orm::DatabaseConnection) -> Result<Vec<String>> {
+        let mut names: Vec<_> = media_files::Entity::find()
+            .all(db)
+            .await?
+            .into_iter()
+            .map(|file| file.file_name)
+            .collect();
+        names.sort();
+        Ok(names)
+    }
+
+    let temp = tempfile::tempdir()?;
+    let root = temp.path();
+    write_tagged_wav(&root.join("deleted.wav"), "deleted")?;
+    write_tagged_wav(&root.join("kept.wav"), "kept")?;
+    let fs = FsIo::new();
+    let node = uuid::Uuid::new_v4();
+    let db = connect_main_db(&fs, root.to_str().unwrap(), None, &node.to_string()).await?;
+    let library = fixtures::open_library(db.clone(), node, None).await?;
+    let store = library.record_store();
+    let options = || ScanOptions {
+        cleanup: true,
+        force: false,
+        missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+        cancel_token: None,
+    };
+
+    scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
+    assert_eq!(names(&db).await?, ["deleted.wav", "kept.wav"]);
+
+    std::fs::remove_file(root.join("deleted.wav"))?;
+    let stray = root.join(non_unicode_name("stray-", ".txt"));
+    std::fs::write(&stray, b"")?;
+    scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
+    assert_eq!(names(&db).await?, ["deleted.wav", "kept.wav"]);
+
+    std::fs::remove_file(&stray)?;
+    scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
+    assert_eq!(
+        names(&db).await?,
+        ["kept.wav"],
+        "the first scan that reads every path removes the deleted track"
+    );
+    db.close().await?;
+    Ok(())
+}
+
+/// A walk that fails reports none of the paths it skipped, so the scan leaves
+/// cleanup to a later scan and keeps the tracks of a folder renamed to a name
+/// that is not valid Unicode.
+#[cfg(all(unix, not(target_vendor = "apple")))]
+#[tokio::test]
+async fn failed_walk_keeps_tracks_below_a_skipped_folder() -> Result<()> {
+    use std::fs::Permissions;
+    use std::os::unix::fs::PermissionsExt;
+
+    use fsio::test_fixtures::non_unicode_name;
+
+    let temp = tempfile::tempdir()?;
+    let root = temp.path();
+    let album = root.join("album");
+    std::fs::create_dir(&album)?;
+    write_tagged_wav(&album.join("track.wav"), "renamed folder")?;
+    let fs = FsIo::new();
+    let node = uuid::Uuid::new_v4();
+    let actor = node.to_string();
+    let db = connect_main_db(&fs, root.to_str().unwrap(), None, &actor).await?;
+    let library = fixtures::open_library(db.clone(), node, None).await?;
+    let store = library.record_store();
+    let scan = || {
+        fixtures::cleanup_scan(
+            &fs,
+            &db,
+            &actor,
+            root,
+            &store,
+            MissingHostFilePolicy::RemoveEverywhere,
+        )
+    };
+
+    scan().await?;
+    let indexed = media_files::Entity::find().all(&db).await?;
+    assert_eq!(indexed.len(), 1);
+
+    std::fs::rename(&album, root.join(non_unicode_name("album-", "")))?;
+    // The walk lists a folder without search permission, but cannot read the
+    // metadata of its entries, so it fails.
+    let blocked = root.join("blocked");
+    std::fs::create_dir(&blocked)?;
+    std::fs::write(blocked.join("unreadable"), b"")?;
+    std::fs::set_permissions(&blocked, Permissions::from_mode(0o444))?;
+    let failed = scan().await;
+    std::fs::set_permissions(&blocked, Permissions::from_mode(0o755))?;
+
+    assert!(
+        failed.is_err(),
+        "the walk should fail on the entry it cannot read"
+    );
+    assert_eq!(
+        media_files::Entity::find().all(&db).await?,
+        indexed,
+        "a failed walk must not clean up tracks below a skipped folder"
+    );
+    db.close().await?;
+    Ok(())
+}

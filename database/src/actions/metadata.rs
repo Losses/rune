@@ -19,7 +19,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
@@ -801,22 +801,34 @@ where
     } = options;
     let fsio_for_scan = fsio.clone();
     let root_for_scan = lib_path.to_path_buf();
-    let mut scanner = match tokio::task::spawn_blocking(move || {
-        AudioScanner::new(&fsio_for_scan, &root_for_scan)
-    })
-    .await?
-    {
-        Ok(scanner) => scanner,
-        Err(error) => {
-            if cleanup
-                && let Err(cleanup_error) =
-                    clean_up_database(fsio, main_db, lib_path, policy, store).await
-            {
-                log::error!("Unable to clean up unavailable library: {cleanup_error:#}");
-            }
-            return Err(error.into());
+    // A failed walk reports none of the paths it skipped, so cleanup waits for a
+    // later scan, as it does when the walk skips paths.
+    let mut scanner =
+        tokio::task::spawn_blocking(move || AudioScanner::new(&fsio_for_scan, &root_for_scan))
+            .await??;
+
+    for path in scanner.skipped() {
+        let detail = format!("Skipped {path:?}: its path is not valid Unicode");
+        warn!("{detail}");
+        if let Err(error) = insert_log(
+            main_db,
+            LogLevel::Warning,
+            "actions::metadata::scan_audio_library".to_string(),
+            detail,
+        )
+        .await
+        {
+            error!("Failed to log a skipped path: {error:#}");
         }
-    };
+    }
+    // Cleanup cannot tell a track under a skipped path from a deleted one, so it
+    // waits for a walk that skips nothing and leaves the rows as they are until
+    // then. Marking them unavailable instead would hide them from later
+    // cleanups, which only check available tracks.
+    let walk_complete = scanner.skipped().is_empty();
+    if cleanup && !walk_complete {
+        warn!("Leaving cleanup for a scan that can read every path");
+    }
 
     info!("Starting audio library scan with last-modified pre-filtering");
 
@@ -944,6 +956,7 @@ where
     }
 
     if cleanup
+        && walk_complete
         && !cancel_token
             .as_ref()
             .is_some_and(|token| token.is_cancelled())

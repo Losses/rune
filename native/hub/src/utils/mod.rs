@@ -1055,7 +1055,7 @@ pub(crate) async fn register_opendal_library_on_node(
     let probe = tokio::task::spawn_blocking(move || {
         catch_unwind(AssertUnwindSafe(|| -> Result<usize, FileIoError> {
             let fsio = FsIo::new_opendal(fs_config, handle)?;
-            let nodes = fsio.walk_dir(Path::new(""), false)?;
+            let nodes = fsio.walk_dir(Path::new(""), false)?.nodes;
             match fsio.canonicalize(Path::new("")) {
                 Ok(root) if root.is_dir => {}
                 Ok(_) => {
