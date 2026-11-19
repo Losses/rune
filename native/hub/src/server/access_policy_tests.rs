@@ -17,6 +17,7 @@ mod access_policy_tests {
     };
     use crate::messages::{ExcludedItems, ResolveMixQueryRequest};
     use crate::request_error::ExpectedRequestError;
+    use crate::server::api::remove_trusted_device;
     use crate::server::libraries::{
         cast_library_state, list_peer_libraries, list_renderer_candidates,
     };
@@ -777,6 +778,101 @@ mod access_policy_tests {
             candidate.fingerprint == a_fingerprint
                 && candidate.availability == RendererAvailability::NotApproved
         }));
+        a.global_params.node.shutdown().await?;
+        b.global_params.node.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn approving_peer_lists_libraries_without_reverse_pairing() -> Result<()> {
+        let first = tempfile::tempdir()?;
+        let second = tempfile::tempdir()?;
+        let id = Uuid::new_v4();
+        let a = fixture_with_library(first.path(), id).await?;
+        let b = fixture(second.path()).await?;
+        // B paired with A and A approved it. A never paired with B, so B has no entry for A.
+        let (_, a_fingerprint) = start_test_tls_server(&a).await?;
+        pair(&a, &b).await?;
+        let b_fingerprint = info(&b).await?.fingerprint;
+        let a_permissions = &a.global_params.permission_manager;
+        let b_permissions = &b.global_params.permission_manager;
+        assert!(
+            b_permissions
+                .read()
+                .await
+                .verify_by_fingerprint(&a_fingerprint)
+                .await
+                .is_none()
+        );
+        let list = || list_peer_libraries(&b.global_params.node, &b.private_key, &a_fingerprint);
+
+        let listed = list()
+            .await
+            .context("listing the libraries of a peer that approved this device")?;
+        assert_eq!(
+            listed
+                .iter()
+                .filter(|library| library.library_id == id.to_string())
+                .count(),
+            1,
+            "{listed:?}"
+        );
+
+        // A refuses a device it does not approve.
+        a_permissions
+            .write()
+            .await
+            .change_user_status(&b_fingerprint, UserStatus::Pending)
+            .await?;
+        let refused = list().await;
+        assert!(
+            matches!(refused, Err(RemoteConnectError::NotAuthorized)),
+            "{refused:?}"
+        );
+        a_permissions
+            .write()
+            .await
+            .change_user_status(&b_fingerprint, UserStatus::Approved)
+            .await?;
+
+        // B refuses A once B holds an entry for A that is pending or blocked.
+        b_permissions
+            .write()
+            .await
+            .add_user(
+                a.certificate.clone(),
+                a_fingerprint.clone(),
+                "paired".into(),
+                "test".into(),
+                DeviceType::Desktop,
+                "127.0.0.2".into(),
+            )
+            .await?;
+        for status in [UserStatus::Pending, UserStatus::Blocked] {
+            b_permissions
+                .write()
+                .await
+                .change_user_status(&a_fingerprint, status.clone())
+                .await?;
+            let refused = list().await;
+            assert!(
+                matches!(refused, Err(RemoteConnectError::NotAuthorized)),
+                "{status:?}: {refused:?}"
+            );
+        }
+
+        // Once B removes A, A still approving B is not enough.
+        remove_trusted_device(
+            &*b_permissions.read().await,
+            &*b.global_params.cert_validator.read().await,
+            &a_fingerprint,
+        )
+        .await?;
+        let refused = list().await;
+        assert!(
+            matches!(refused, Err(RemoteConnectError::UntrustedEndpoint)),
+            "{refused:?}"
+        );
         a.global_params.node.shutdown().await?;
         b.global_params.node.shutdown().await?;
         Ok(())
