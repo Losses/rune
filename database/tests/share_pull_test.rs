@@ -2688,3 +2688,132 @@ async fn journal_compacted_past_an_expired_export_cursor_is_published_as_a_base(
     );
     Ok(())
 }
+
+/// Puts the scratch objects that `OpenDalObjectStore::probe` (fsio) writes into the folder it
+/// probes, `devices/<folder>/`, as the share holds them while a probe runs, or after a probe was cut
+/// short or could not delete them. The names are the ones shares already hold.
+async fn put_store_probe_objects(store: &MemoryObjectStore, folder: &str) -> Result<Vec<String>> {
+    let mut keys = Vec::new();
+    for name in [
+        ".probe-",
+        ".conditional-create-",
+        ".conditional-put-",
+        ".conditional-get-",
+    ] {
+        let key = format!("devices/{folder}/{name}{}", Uuid::new_v4());
+        store
+            .put(&key, b"rune object-store probe")
+            .await
+            .map_err(|error| anyhow::anyhow!("put probe object {key}: {error:?}"))?;
+        keys.push(key);
+    }
+    keys.sort();
+    Ok(keys)
+}
+
+/// A device publishes to the share, a store probe's scratch objects are in `devices/<folder>/`, and
+/// a new device pulls the share as usual.
+async fn pull_passes_over_store_probe_objects_in(folder: &str) -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let store = Arc::new(MemoryObjectStore::default());
+    let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    publish_first_share_pass(&source, &store, namespace, 1731).await?;
+    put_store_probe_objects(&store, folder).await?;
+    let target = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    target
+        .sync_store
+        .pull_share(store, namespace, cache_path(), Default::default())
+        .await
+        .map_err(|error| anyhow::anyhow!("pull with probe objects in {folder}: {error:?}"))?;
+    let playlist = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(1731),
+    };
+    ensure!(
+        target.sync_store.get(&playlist).await?.is_some(),
+        "the pull did not receive the published playlist"
+    );
+    assert_eq!(
+        target.sync_store.get(&playlist).await?,
+        source.sync_store.get(&playlist).await?
+    );
+    Ok(())
+}
+
+/// The share worker probes the device's own folder each time it opens the store, so another device
+/// can list the share while that folder holds the probe's scratch objects.
+#[tokio::test]
+async fn pull_passes_over_store_probe_objects_in_a_device_folder() -> Result<()> {
+    pull_passes_over_store_probe_objects_in(&format!("{}.{}", Uuid::new_v4(), Uuid::new_v4())).await
+}
+
+/// The Add Library guide probes `devices/<uuid>.1/`, a folder that is not a device prefix.
+#[tokio::test]
+async fn pull_passes_over_store_probe_objects_in_the_add_library_guides_folder() -> Result<()> {
+    pull_passes_over_store_probe_objects_in(&format!("{}.1", Uuid::new_v4())).await
+}
+
+/// A probe of the device's own folder that could not delete its scratch objects leaves them in the
+/// folder that every push pass lists for the device's own garbage collection. The pass publishes
+/// as usual and leaves them alone: only the probe deletes them, since one can be running there.
+#[tokio::test]
+async fn push_passes_over_store_probe_objects_in_its_own_folder() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let store = Arc::new(MemoryObjectStore::default());
+    let device = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let prefix = publish_first_share_pass(&device, &store, namespace, 1741).await?;
+    let probe_keys = put_store_probe_objects(&store, &prefix).await?;
+    let playlist = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(1742),
+    };
+    device
+        .sync_store
+        .write_local(playlist.clone(), support::playlist("after the probe"))
+        .await?;
+    let published = device
+        .sync_store
+        .push_share(store.clone(), namespace, cache_path(), Default::default())
+        .await
+        .map_err(|error| anyhow::anyhow!("push with probe objects in its own folder: {error:?}"))?;
+    ensure!(published.is_some(), "the push pass published nothing");
+    let target = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    target
+        .sync_store
+        .pull_share(store.clone(), namespace, cache_path(), Default::default())
+        .await?;
+    assert_eq!(
+        target.sync_store.get(&playlist).await?,
+        device.sync_store.get(&playlist).await?
+    );
+    let left = share_prefix_keys(&store, &prefix).await?;
+    for key in &probe_keys {
+        assert!(left.contains(key), "the push pass deleted {key}");
+    }
+    Ok(())
+}
+
+/// A device that lost the share creation removes what it published to its folder and passes over
+/// the scratch objects that its store probe left there.
+#[tokio::test]
+async fn device_that_lost_the_share_creation_passes_over_store_probe_objects() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let store = Arc::new(MemoryObjectStore::default());
+    let creator = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let creator_prefix = publish_first_share_pass(&creator, &store, namespace, 1751).await?;
+    let probe_keys = put_store_probe_objects(&store, &creator_prefix).await?;
+    hand_share_to_another_library(&store).await?;
+    assert_eq!(
+        creator
+            .sync_store
+            .pull_share(store.clone(), namespace, cache_path(), Default::default())
+            .await
+            .unwrap_err(),
+        SharePullError::ShareChanged
+    );
+    assert_eq!(
+        share_prefix_keys(&store, &creator_prefix).await?,
+        probe_keys
+    );
+    Ok(())
+}

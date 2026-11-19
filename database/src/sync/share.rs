@@ -541,6 +541,7 @@ pub(crate) async fn collect_own_prefix(
             | ObjectKey::Segment { prefix, .. }
             | ObjectKey::Base { prefix, .. }
             | ObjectKey::Chunk { prefix, .. } => prefix,
+            ObjectKey::Probe => continue,
             _ => {
                 return Err(SharePushError::Failed(
                     "invalid object in own prefix listing".into(),
@@ -1130,6 +1131,7 @@ pub async fn discard_lost_creation(
                 objects.push(key.clone());
                 prefix
             }
+            ObjectKey::Probe => continue,
             _ => anyhow::bail!("own-prefix listing returned {key}"),
         };
         ensure!(

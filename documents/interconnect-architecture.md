@@ -265,6 +265,7 @@ Own-prefix garbage collection runs through the same writer as push and deletes o
 - Required: whole-object GET, PUT and DELETE, and a one-level LIST.
 - Used when a probe confirms them, with a fallback otherwise: conditional GET for polls, create-if-absent for `library.json`, If-Match on the device's own head. OpenDAL capabilities are static, so each conditional feature is probed by its effect on the device's own prefix. WebDAV through OpenDAL has no conditional writes and always takes the fallback.
 - A write probe runs at setup and at each start; if it fails, share sync is off for that library and the state reaches Dart as a typed state.
+- The probe writes scratch objects (`.probe-<uuid>`, `.conditional-create-<uuid>`, `.conditional-put-<uuid>`, `.conditional-get-<uuid>`) into the folder it probes, which is the device's own folder or, at setup, a new `devices/<uuid>.1/`, and deletes them again. Share sync passes over them, also over ones a probe left behind, and never deletes them, because a probe can be running in that folder.
 - Not required: rename, append, multipart, locks, versioning, server time, recursive or consistent listing.
 
 ### Sizing

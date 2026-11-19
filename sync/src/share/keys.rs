@@ -60,7 +60,55 @@ pub enum ObjectKey {
         prefix: DevicePrefix,
         digest: String,
     },
-    Other(String),
+    /// A scratch object of a store probe: an object below `devices/` named by [`ProbeObject`].
+    /// It is not share data. Listings pass over it, and only the probe that wrote it deletes it,
+    /// since a probe can still be running in that folder.
+    Probe,
+}
+
+/// A scratch object that a store probe writes into the folder it probes and deletes again before
+/// it returns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProbeObject {
+    /// The required write, read, list and delete roundtrip.
+    Roundtrip,
+    /// Create-if-absent.
+    ConditionalCreate,
+    /// Overwrite with If-Match.
+    ConditionalPut,
+    /// GET with If-None-Match.
+    ConditionalGet,
+}
+
+impl ProbeObject {
+    const ALL: [Self; 4] = [
+        Self::Roundtrip,
+        Self::ConditionalCreate,
+        Self::ConditionalPut,
+        Self::ConditionalGet,
+    ];
+
+    fn stem(self) -> &'static str {
+        match self {
+            Self::Roundtrip => ".probe-",
+            Self::ConditionalCreate => ".conditional-create-",
+            Self::ConditionalPut => ".conditional-put-",
+            Self::ConditionalGet => ".conditional-get-",
+        }
+    }
+
+    /// The object's name in the probed folder; `id` keeps probes apart.
+    pub fn name(self, id: Uuid) -> String {
+        format!("{}{id}", self.stem())
+    }
+
+    fn is_name(name: &str) -> bool {
+        Self::ALL.into_iter().any(|object| {
+            name.strip_prefix(object.stem())
+                .and_then(|id| Uuid::parse_str(id).ok())
+                .is_some_and(|id| object.name(id) == name)
+        })
+    }
 }
 
 pub fn library_key() -> String {
@@ -109,6 +157,13 @@ pub fn chunk_key(prefix: &str, digest: &str) -> Result<String, FormatError> {
     }
     Ok(format!("devices/{prefix}/obj/{digest}.gz"))
 }
+/// Whether `folder`, below `devices/`, is a folder a store probe can run in: one or more segments,
+/// none of them empty, `.` or `..`, as `OpenDalObjectStore::probe` (fsio) requires.
+fn is_probe_folder(folder: &str) -> bool {
+    folder
+        .split('/')
+        .all(|segment| !matches!(segment, "" | "." | ".."))
+}
 pub(super) fn valid_prefix(prefix: &str) -> Result<(), FormatError> {
     let parsed = DevicePrefix::from_str(prefix)?;
     if parsed.to_string() != prefix {
@@ -119,6 +174,14 @@ pub(super) fn valid_prefix(prefix: &str) -> Result<(), FormatError> {
 pub fn parse_key(key: &str) -> Result<ObjectKey, FormatError> {
     if key == library_key() {
         return Ok(ObjectKey::Library);
+    }
+    // Not only device prefixes are probed: the Add Library guide probes `devices/<uuid>.1/`.
+    if key
+        .strip_prefix("devices/")
+        .and_then(|value| value.rsplit_once('/'))
+        .is_some_and(|(folder, name)| is_probe_folder(folder) && ProbeObject::is_name(name))
+    {
+        return Ok(ObjectKey::Probe);
     }
     if let Some((prefix_text, tail)) = key
         .strip_prefix("devices/")
