@@ -719,6 +719,11 @@ impl<M: SyncModel> Coordinator<M> {
                     })?
                     .1
                     .clone();
+                let response_cap = fragment_response_bytes(
+                    &manifest,
+                    self.ordinal,
+                    self.limits.stages.max_fragment_bytes,
+                )?;
                 let fragment = endpoint!(
                     (
                         "read_fragment",
@@ -727,7 +732,7 @@ impl<M: SyncModel> Coordinator<M> {
                         self.ordinal,
                         self.limits.stages.max_fragment_bytes
                     ),
-                    self.limits.stages.max_fragment_bytes.saturating_add(256),
+                    response_cap,
                     remote_source.read_fragment(
                         remote.snapshot_id,
                         manifest.clone(),
@@ -1062,6 +1067,11 @@ impl<M: SyncModel> Coordinator<M> {
                     })?
                     .manifest
                     .clone();
+                let response_cap = fragment_response_bytes(
+                    &manifest,
+                    self.ordinal,
+                    self.limits.stages.max_fragment_bytes,
+                )?;
                 let fragment = endpoint!(
                     (
                         "read_fragment",
@@ -1069,7 +1079,7 @@ impl<M: SyncModel> Coordinator<M> {
                         self.ordinal,
                         self.limits.stages.max_fragment_bytes
                     ),
-                    self.limits.stages.max_fragment_bytes.saturating_add(256),
+                    response_cap,
                     peer.read_fragment(
                         manifest.clone(),
                         self.ordinal,
@@ -1396,5 +1406,234 @@ mod tests {
             matches!(c.advance(&*store,&*store,&*store,&peer,&*store).await,Err(SyncError::LimitTooSmall {required}) if required>10000)
         );
         assert_eq!(c.pass_usage().requests, 0);
+    }
+
+    fn test_identity(replica: u128, generation: u128) -> StoreIdentity {
+        StoreIdentity {
+            namespace: Uuid::from_u128(1),
+            model: ModelId {
+                model: "budget".into(),
+                schema: "one".into(),
+            },
+            replica: Uuid::from_u128(replica),
+            generation: Uuid::from_u128(generation),
+        }
+    }
+
+    fn test_store(replica: u128) -> Arc<MemorySyncStore<Test>> {
+        Arc::new(
+            MemorySyncStore::<Test>::new(
+                test_identity(replica, replica + 10),
+                LocalAuthor {
+                    author: Uuid::from_u128(replica + 20),
+                    writer_incarnation: Uuid::from_u128(replica + 30),
+                },
+            )
+            .unwrap(),
+        )
+    }
+
+    fn test_scope() -> Scope<Test> {
+        Scope {
+            collections: [Collection::One].into_iter().collect(),
+        }
+    }
+
+    async fn run_session(
+        coordinator: &mut Coordinator<Test>,
+        source: &Arc<MemorySyncStore<Test>>,
+        target: &Arc<MemorySyncStore<Test>>,
+    ) -> Result<ReceiveProgress> {
+        let peer = StorePeer(source.clone());
+        let max_bytes = coordinator.limits.work.max_bytes;
+        let max_requests = coordinator.limits.work.max_requests;
+        for _ in 0..2000 {
+            let step = coordinator
+                .advance(&**target, &**target, &**target, &peer, &**source)
+                .await?;
+            let usage = coordinator.pass_usage();
+            assert!(
+                usage.requests <= max_requests && usage.encoded_bytes <= max_bytes,
+                "pass usage {usage:?} exceeded work budget"
+            );
+            match step {
+                SessionAdvance::Complete(progress) => return Ok(progress),
+                SessionAdvance::BudgetExhausted => coordinator.start_pass(),
+                SessionAdvance::Incomplete => (),
+                SessionAdvance::Cancelled => panic!("unexpected cancellation"),
+            }
+        }
+        panic!("coordinator did not finish within step bound");
+    }
+
+    #[tokio::test]
+    async fn journal_and_snapshot_fragments_fit_serialized_response_and_pass_budgets() {
+        let source = test_store(2);
+        let target = test_store(3);
+        let first_key = ObjectKey {
+            collection: Collection::One,
+            id: Uuid::from_u128(100),
+        };
+        source
+            .write_local(first_key.clone(), Some("seed".repeat(40)))
+            .await
+            .unwrap();
+
+        // Snapshot context transfer with a tight raw fragment limit (256 bytes)
+        // whose hex-encoded JSON response (~530+ bytes) exceeds raw + 256.
+        let snapshot_limits = SessionLimits {
+            pages: PageLimits {
+                max_scanned: 8,
+                max_bytes: 16 * 1024,
+            },
+            stages: StageLimits {
+                max_total_bytes: DEFAULT_STAGE_BYTES,
+                max_stages: DEFAULT_STAGES,
+                max_event_bytes: DEFAULT_LOGICAL_BYTES,
+                max_event_items: DEFAULT_LOGICAL_ITEMS,
+                max_fragment_bytes: 256,
+            },
+            apply: ApplyLimits {
+                max_projection_items: 8,
+                max_projection_bytes: 16 * 1024,
+                max_mutations: 128,
+            },
+            work: WorkLimits {
+                max_requests: 4,
+                max_bytes: 48 * 1024,
+                max_depth: 16,
+                max_rows_scanned: 64,
+                max_mutations: 128,
+            },
+        };
+        let mut snapshot_coordinator = Coordinator::new(test_scope(), snapshot_limits).unwrap();
+        let progress = run_session(&mut snapshot_coordinator, &source, &target)
+            .await
+            .unwrap();
+        assert_eq!(progress.sequence, 1);
+        assert_eq!(
+            target.get(&first_key).await.unwrap().unwrap().value,
+            Some("seed".repeat(40))
+        );
+
+        // Large legal journal event (~20 KiB) exceeding the 16 KiB page budget,
+        // split into ~6.8 KiB raw fragments (~14 KiB hex-encoded JSON) under an
+        // 8 KiB raw fragment limit (old raw + 256 = 8,448 bytes) and a multi-pass work budget.
+        let second_key = ObjectKey {
+            collection: Collection::One,
+            id: Uuid::from_u128(101),
+        };
+        let large_value = "L".repeat(20_000);
+        source
+            .write_local(second_key.clone(), Some(large_value.clone()))
+            .await
+            .unwrap();
+
+        let journal_limits = SessionLimits {
+            pages: PageLimits {
+                max_scanned: 4,
+                max_bytes: 16 * 1024,
+            },
+            stages: StageLimits {
+                max_total_bytes: DEFAULT_STAGE_BYTES,
+                max_stages: DEFAULT_STAGES,
+                max_event_bytes: DEFAULT_LOGICAL_BYTES,
+                max_event_items: DEFAULT_LOGICAL_ITEMS,
+                max_fragment_bytes: 8 * 1024,
+            },
+            apply: ApplyLimits {
+                max_projection_items: 4,
+                max_projection_bytes: 32 * 1024,
+                max_mutations: 128,
+            },
+            work: WorkLimits {
+                max_requests: 4,
+                max_bytes: 104 * 1024,
+                max_depth: 16,
+                max_rows_scanned: 64,
+                max_mutations: 128,
+            },
+        };
+        let mut journal_coordinator = Coordinator::new(test_scope(), journal_limits).unwrap();
+        let progress = run_session(&mut journal_coordinator, &source, &target)
+            .await
+            .unwrap();
+        assert_eq!(progress.sequence, 2);
+        assert_eq!(
+            target.get(&second_key).await.unwrap().unwrap().value,
+            Some(large_value)
+        );
+    }
+
+    #[tokio::test]
+    async fn too_small_fragment_limits_return_typed_limit_too_small_for_snapshot_and_journal() {
+        let source = test_store(4);
+        let snapshot_target = test_store(5);
+        let key = ObjectKey {
+            collection: Collection::One,
+            id: Uuid::from_u128(200),
+        };
+        source
+            .write_local(key.clone(), Some("v".repeat(50_000)))
+            .await
+            .unwrap();
+
+        let too_small_snapshot = SessionLimits {
+            pages: PageLimits {
+                max_scanned: 4,
+                max_bytes: 32 * 1024,
+            },
+            stages: StageLimits {
+                max_total_bytes: DEFAULT_STAGE_BYTES,
+                max_stages: DEFAULT_STAGES,
+                max_event_bytes: DEFAULT_LOGICAL_BYTES,
+                max_event_items: DEFAULT_LOGICAL_ITEMS,
+                max_fragment_bytes: 8,
+            },
+            apply: ApplyLimits {
+                max_projection_items: 4,
+                max_projection_bytes: 64 * 1024,
+                max_mutations: 128,
+            },
+            work: WorkLimits {
+                max_requests: 32,
+                max_bytes: 128 * 1024,
+                max_depth: 16,
+                max_rows_scanned: 64,
+                max_mutations: 128,
+            },
+        };
+        let mut snapshot_coordinator = Coordinator::new(test_scope(), too_small_snapshot).unwrap();
+        assert!(matches!(
+            run_session(&mut snapshot_coordinator, &source, &snapshot_target).await,
+            Err(SyncError::LimitTooSmall { required }) if required > 8
+        ));
+
+        let journal_target = test_store(6);
+        let mut init_limits = too_small_snapshot;
+        init_limits.pages.max_bytes = 64 * 1024;
+        init_limits.stages.max_fragment_bytes = 64 * 1024;
+        init_limits.work.max_bytes = 256 * 1024;
+        let mut init_coordinator = Coordinator::new(test_scope(), init_limits).unwrap();
+        run_session(&mut init_coordinator, &source, &journal_target)
+            .await
+            .unwrap();
+
+        let second_key = ObjectKey {
+            collection: Collection::One,
+            id: Uuid::from_u128(201),
+        };
+        source
+            .write_local(second_key, Some("w".repeat(50_000)))
+            .await
+            .unwrap();
+
+        let mut too_small_journal = too_small_snapshot;
+        too_small_journal.stages.max_fragment_bytes = 4 * 1024;
+        let mut journal_coordinator = Coordinator::new(test_scope(), too_small_journal).unwrap();
+        assert!(matches!(
+            run_session(&mut journal_coordinator, &source, &journal_target).await,
+            Err(SyncError::LimitTooSmall { required }) if required > 4 * 1024 && required <= 16 * 1024
+        ));
     }
 }

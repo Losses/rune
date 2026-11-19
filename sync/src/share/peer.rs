@@ -9,7 +9,8 @@ use crate::protocol::{
     MAX_FRAGMENTS, MAX_PAGE_BYTES, MAX_PAGE_ITEMS, ManifestKind, ManifestRef, ModelId, PageLimits,
     PageRead, PageRequest, ReceiveProgress, Result as ProtocolResult, ScanLink, StoreIdentity,
     SyncError, SyncModel, SyncPeer, canonical_event, content_digest, event_digest, fragment_bounds,
-    fragment_digest, initial_anchor, manifest_digest, next_anchor, scope_id,
+    fragment_digest, fragment_response_bytes, initial_anchor, manifest_digest, next_anchor,
+    scope_id,
 };
 use std::{
     collections::BTreeMap,
@@ -520,6 +521,7 @@ impl<M: SyncModel> SyncPeer<M> for SharePeer<M> {
             let event = found
                 .ok_or_else(|| SyncError::Storage("fragment event is no longer retained".into()))?;
             let bytes = canonical_event(&event)?;
+            fragment_response_bytes(&manifest, ordinal, max_bytes)?;
             let (start, end) = fragment_bounds(&manifest, ordinal)?;
             let start = usize::try_from(start).map_err(|_| SyncError::LogicalLimit)?;
             let end = usize::try_from(end).map_err(|_| SyncError::LogicalLimit)?;
@@ -531,12 +533,6 @@ impl<M: SyncModel> SyncPeer<M> for SharePeer<M> {
                 digest: [0; 32],
             };
             fragment.digest = fragment_digest(&fragment)?;
-            let response_bytes = serde_json::to_vec(&fragment).map_err(storage_error)?.len() as u64;
-            if response_bytes > max_bytes {
-                return Err(SyncError::LimitTooSmall {
-                    required: response_bytes,
-                });
-            }
             Ok(fragment)
         })
     }
