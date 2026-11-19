@@ -156,8 +156,12 @@ impl FileIo for StdFsIo {
         let mut walk = DirWalk::default();
         let mut entries = WalkDir::new(path).follow_links(follow_links).into_iter();
         while let Some(entry) = entries.next() {
-            let Ok(entry) = entry else {
-                continue;
+            let entry = match entry {
+                Ok(entry) => entry,
+                // A root that is missing or cannot be read would otherwise
+                // look like an empty folder.
+                Err(error) if error.depth() == 0 => return Err(FileIoError::Io(error.into())),
+                Err(_) => continue,
             };
             let (Some(filename), Some(raw_path)) =
                 (entry.file_name().to_str(), entry.path().to_str())
