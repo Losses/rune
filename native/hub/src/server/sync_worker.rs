@@ -178,8 +178,9 @@ impl ShareStoreFactory for OpenDalShareStoreFactory {
             };
             let store =
                 OpenDalObjectStore::new(config).map_err(|_| ShareSyncFailure::ProbeFailed)?;
+            // `prefix` is this device's `<stream>.<generation>`; probe in its own folder.
             let probed = store
-                .probe(prefix)
+                .probe(&format!("devices/{prefix}"))
                 .await
                 .map_err(classify_share_store_error)?;
             Ok(ShareStoreSession {
