@@ -133,8 +133,13 @@ impl Signal for StartBroadcastRequest {
             )
             .await
             .map_err(|error| {
-                if error.is::<discovery::protocol::AnnouncementsAlreadyRunning>() {
-                    ExpectedRequestError::BroadcastAlreadyRunning.into()
+                if let Some(running) =
+                    error.downcast_ref::<discovery::protocol::AnnouncementsAlreadyRunning>()
+                {
+                    ExpectedRequestError::BroadcastAlreadyRunning {
+                        indefinite: running.indefinite,
+                    }
+                    .into()
                 } else {
                     error
                 }

@@ -54,6 +54,7 @@ pub struct StartBroadcastRequest {
     pub call_id: Option<u64>,
 }
 
+/// Confirms that the timed announcement task started.
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct StartBroadcastResponse {
     #[serde(default)]
@@ -66,6 +67,7 @@ pub struct StopBroadcastRequest {
     pub call_id: Option<u64>,
 }
 
+/// Confirms that the announcement task has stopped.
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct StopBroadcastResponse {
     #[serde(default)]

@@ -34,6 +34,8 @@ class BroadcastProvider extends ChangeNotifier {
 
   int get remainingSeconds => _remainingSeconds;
   bool get isBroadcasting => _isBroadcasting;
+
+  /// Whether a broadcast command or server stop is awaiting a reply.
   bool get isUpdatingBroadcast => _isUpdatingBroadcast;
   String? get errorMessage => _errorMessage;
   String? get deviceAlias => _deviceAlias;
@@ -112,7 +114,10 @@ class BroadcastProvider extends ChangeNotifier {
           ).sendSignalToRust(),
         );
       } on RequestFailure catch (error) {
-        if (error.kind != RequestErrorKind.conflict) rethrow;
+        if (error.cause
+            is! RequestFailureCauseIndefiniteBroadcastAlreadyRunning) {
+          rethrow;
+        }
         // The server already started announcements without this countdown.
         _isBroadcasting = true;
         return;

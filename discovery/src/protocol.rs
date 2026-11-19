@@ -101,12 +101,32 @@ pub struct DiscoveryService {
 struct AnnouncementTask {
     cancel: CancellationToken,
     handle: JoinHandle<()>,
+    deadline: Option<tokio::time::Instant>,
+}
+
+impl AnnouncementTask {
+    fn is_active(&self) -> bool {
+        !self.handle.is_finished()
+            && self
+                .deadline
+                .is_none_or(|deadline| deadline > tokio::time::Instant::now())
+    }
+
+    async fn stop(self) {
+        self.cancel.cancel();
+        if let Err(error) = self.handle.await {
+            error!("Announcement task failed: {error}");
+        }
+    }
 }
 
 /// An announcement operation is already active.
 #[derive(Debug, thiserror::Error)]
 #[error("Announcements already running")]
-pub struct AnnouncementsAlreadyRunning;
+pub struct AnnouncementsAlreadyRunning {
+    /// Whether the existing task has no expiration deadline.
+    pub indefinite: bool,
+}
 
 /// Configuration for defining the retry behavior of network operations.
 ///
@@ -392,11 +412,14 @@ impl DiscoveryService {
         duration_limit: Option<Duration>,
     ) -> Result<()> {
         let mut announcements = self.announcements.lock().await;
-        if announcements
-            .as_ref()
-            .is_some_and(|task| !task.handle.is_finished())
-        {
-            return Err(AnnouncementsAlreadyRunning.into());
+        if let Some(task) = announcements.as_ref().filter(|task| task.is_active()) {
+            return Err(AnnouncementsAlreadyRunning {
+                indefinite: task.deadline.is_none(),
+            }
+            .into());
+        }
+        if let Some(task) = announcements.take() {
+            task.stop().await;
         }
 
         let sockets = self.get_sockets_with_retry().await?;
@@ -432,7 +455,11 @@ impl DiscoveryService {
                 _ = announce => {}
             }
         });
-        *announcements = Some(AnnouncementTask { cancel, handle });
+        *announcements = Some(AnnouncementTask {
+            cancel,
+            handle,
+            deadline,
+        });
 
         Ok(())
     }
@@ -443,10 +470,7 @@ impl DiscoveryService {
     pub async fn stop_announcements(&self) {
         let mut announcements = self.announcements.lock().await;
         if let Some(task) = announcements.take() {
-            task.cancel.cancel();
-            if let Err(error) = task.handle.await {
-                error!("Announcement task failed: {error}");
-            }
+            task.stop().await;
         }
     }
 
@@ -744,7 +768,7 @@ impl DiscoveryService {
             .lock()
             .await
             .as_ref()
-            .is_some_and(|task| !task.handle.is_finished())
+            .is_some_and(AnnouncementTask::is_active)
     }
 
     /// Retrieves the current status of the discovery service, indicating if it's listening.

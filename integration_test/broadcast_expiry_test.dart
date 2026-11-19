@@ -149,6 +149,32 @@ void main() {
         isFalse,
         reason: 'explicit stop also ends native announcements',
       );
+
+      await awaitResponse(
+        'StartBroadcastRequest',
+        StartBroadcastResponse.rustSignalStream,
+        responseCallId: (response) => response.message.callId?.toInt(),
+        send: (callId) => StartBroadcastRequest(
+          durationSeconds: 20,
+          alias: timedAlias,
+          callId: callId,
+        ).sendSignalToRust(),
+      );
+      await expectLater(
+        provider.startBroadcast(5),
+        throwsA(
+          isA<RequestFailure>().having(
+            (error) => error.kind,
+            'kind',
+            RequestErrorKind.conflict,
+          ),
+        ),
+      );
+      expect(
+        provider.isBroadcasting,
+        isFalse,
+        reason: 'a conflicting timed broadcast must not leave the UI active',
+      );
     });
   });
 }
