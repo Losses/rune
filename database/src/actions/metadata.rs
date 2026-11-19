@@ -801,22 +801,11 @@ where
     } = options;
     let fsio_for_scan = fsio.clone();
     let root_for_scan = lib_path.to_path_buf();
-    let mut scanner = match tokio::task::spawn_blocking(move || {
-        AudioScanner::new(&fsio_for_scan, &root_for_scan)
-    })
-    .await?
-    {
-        Ok(scanner) => scanner,
-        Err(error) => {
-            if cleanup
-                && let Err(cleanup_error) =
-                    clean_up_database(fsio, main_db, lib_path, policy, store).await
-            {
-                log::error!("Unable to clean up unavailable library: {cleanup_error:#}");
-            }
-            return Err(error.into());
-        }
-    };
+    // A failed walk reports none of the paths it skipped, so cleanup waits for a
+    // later scan, as it does when the walk skips paths.
+    let mut scanner =
+        tokio::task::spawn_blocking(move || AudioScanner::new(&fsio_for_scan, &root_for_scan))
+            .await??;
 
     for path in scanner.skipped() {
         let detail = format!("Skipped {path:?}: its path is not valid Unicode");

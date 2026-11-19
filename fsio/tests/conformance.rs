@@ -183,6 +183,8 @@ async fn std_walk_dir_reports_paths_that_are_not_unicode_apart() {
 #[cfg(all(unix, not(target_vendor = "apple")))]
 #[tokio::test]
 async fn std_walk_dir_reports_a_root_link_that_is_not_unicode_alone() {
+    use std::os::unix::fs::symlink;
+
     use fsio::test_fixtures::non_unicode_name;
 
     let temp = tempfile::tempdir().unwrap();
@@ -191,7 +193,7 @@ async fn std_walk_dir_reports_a_root_link_that_is_not_unicode_alone() {
     fsio.create_dir_all(&target).unwrap();
     fsio.write(&target.join("inside"), b"1").await.unwrap();
     let link = root.join(non_unicode_name("link-", ""));
-    std::os::unix::fs::symlink(&target, &link).unwrap();
+    symlink(&target, &link).unwrap();
 
     // walkdir enters a root link even when it does not follow links.
     let walk = fsio.walk_dir(&link, false).unwrap();

@@ -523,3 +523,63 @@ async fn removal_waits_for_a_walk_that_skips_nothing() -> Result<()> {
     db.close().await?;
     Ok(())
 }
+
+/// A walk that fails reports none of the paths it skipped, so the scan leaves
+/// cleanup to a later scan and keeps the tracks of a folder renamed to a name
+/// that is not valid Unicode.
+#[cfg(all(unix, not(target_vendor = "apple")))]
+#[tokio::test]
+async fn failed_walk_keeps_tracks_below_a_skipped_folder() -> Result<()> {
+    use std::fs::Permissions;
+    use std::os::unix::fs::PermissionsExt;
+
+    use fsio::test_fixtures::non_unicode_name;
+
+    let temp = tempfile::tempdir()?;
+    let root = temp.path();
+    let album = root.join("album");
+    std::fs::create_dir(&album)?;
+    write_tagged_wav(&album.join("track.wav"), "renamed folder")?;
+    let fs = FsIo::new();
+    let node = uuid::Uuid::new_v4();
+    let actor = node.to_string();
+    let db = connect_main_db(&fs, root.to_str().unwrap(), None, &actor).await?;
+    let library = fixtures::open_library(db.clone(), node, None).await?;
+    let store = library.record_store();
+    let scan = || {
+        fixtures::cleanup_scan(
+            &fs,
+            &db,
+            &actor,
+            root,
+            &store,
+            MissingHostFilePolicy::RemoveEverywhere,
+        )
+    };
+
+    scan().await?;
+    let indexed = media_files::Entity::find().all(&db).await?;
+    assert_eq!(indexed.len(), 1);
+
+    std::fs::rename(&album, root.join(non_unicode_name("album-", "")))?;
+    // The walk lists a folder without search permission, but cannot read the
+    // metadata of its entries, so it fails.
+    let blocked = root.join("blocked");
+    std::fs::create_dir(&blocked)?;
+    std::fs::write(blocked.join("unreadable"), b"")?;
+    std::fs::set_permissions(&blocked, Permissions::from_mode(0o444))?;
+    let failed = scan().await;
+    std::fs::set_permissions(&blocked, Permissions::from_mode(0o755))?;
+
+    assert!(
+        failed.is_err(),
+        "the walk should fail on the entry it cannot read"
+    );
+    assert_eq!(
+        media_files::Entity::find().all(&db).await?,
+        indexed,
+        "a failed walk must not clean up tracks below a skipped folder"
+    );
+    db.close().await?;
+    Ok(())
+}
