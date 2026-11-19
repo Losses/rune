@@ -52,6 +52,7 @@ pub fn get_default_cover_art_path() -> &'static Path {
 pub struct MediaControlManager {
     pub controls: MediaControls,
     event_sender: SimpleSender<MediaControlEvent>,
+    // Dropped after `controls` so the hidden HWND stays valid until SMTC is released.
     #[cfg(target_os = "windows")]
     _dummy_window: windows::DummyWindow,
 }
@@ -109,17 +110,6 @@ impl MediaControlManager {
             Ok(x) => x,
             Err(e) => bail!(Error::msg(format!("{e:?}"))),
         };
-
-        thread::spawn(move || {
-            loop {
-                std::thread::sleep(Duration::from_millis(100));
-
-                // this must be run repeatedly by your program to ensure
-                // the Windows event queue is processed by your application
-                #[cfg(target_os = "windows")]
-                windows::pump_event_queue();
-            }
-        });
 
         Ok(())
     }
@@ -181,27 +171,90 @@ fn seek_target(event: &MediaControlEvent, current_position: Duration) -> Option<
 mod windows {
     use std::io::Error;
     use std::mem;
+    use std::sync::mpsc;
+    use std::thread::{self, JoinHandle};
 
     use anyhow::{Context, Result, bail};
 
-    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows::Win32::Foundation::{
+        ERROR_CLASS_ALREADY_EXISTS, GetLastError, HWND, LPARAM, LRESULT, WPARAM,
+    };
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::System::Threading::GetCurrentThreadId;
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GA_ROOT, GetAncestor,
-        IsDialogMessageW, MSG, PM_REMOVE, PeekMessageW, RegisterClassExW, TranslateMessage,
-        WINDOW_EX_STYLE, WINDOW_STYLE, WM_QUIT, WNDCLASSEXW,
+        CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, IsWindow,
+        MSG, PostMessageW, PostQuitMessage, PostThreadMessageW, RegisterClassExW, TranslateMessage,
+        WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE, WM_DESTROY, WM_QUIT, WNDCLASSEXW,
     };
     use windows::core::w;
 
     pub struct DummyWindow {
         pub handle: HWND,
+        thread_id: u32,
+        thread: Option<JoinHandle<()>>,
     }
 
     impl DummyWindow {
         pub fn new() -> Result<DummyWindow> {
+            let (ready_tx, ready_rx) = mpsc::sync_channel::<Result<(isize, u32)>>(1);
+
+            let thread = thread::Builder::new()
+                .name("rune-media-control-window".to_owned())
+                .spawn(move || {
+                    let handle = match Self::create_window() {
+                        Ok(handle) => handle,
+                        Err(err) => {
+                            let _ = ready_tx.send(Err(err));
+                            return;
+                        }
+                    };
+
+                    let thread_id = unsafe { GetCurrentThreadId() };
+                    if ready_tx.send(Ok((handle.0, thread_id))).is_err() {
+                        unsafe {
+                            DestroyWindow(handle);
+                        }
+                        return;
+                    }
+
+                    unsafe {
+                        let mut msg = MSG::default();
+                        while GetMessageW(&mut msg, HWND(0), 0, 0).0 > 0 {
+                            TranslateMessage(&msg);
+                            DispatchMessageW(&msg);
+                        }
+                        if IsWindow(handle).as_bool() {
+                            DestroyWindow(handle);
+                        }
+                    }
+                })
+                .context("Failed to spawn media control window thread")?;
+
+            let ready = match ready_rx.recv() {
+                Ok(result) => result,
+                Err(_) => {
+                    let _ = thread.join();
+                    bail!("Media control window thread exited before creating window");
+                }
+            };
+
+            match ready {
+                Ok((raw_handle, thread_id)) => Ok(DummyWindow {
+                    handle: HWND(raw_handle),
+                    thread_id,
+                    thread: Some(thread),
+                }),
+                Err(err) => {
+                    let _ = thread.join();
+                    Err(err)
+                }
+            }
+        }
+
+        fn create_window() -> Result<HWND> {
             let class_name = w!("SimpleTray");
 
-            let handle_result: Result<HWND> = unsafe {
+            unsafe {
                 let instance =
                     GetModuleHandleW(None).with_context(|| "Unable to get module handle")?;
 
@@ -213,7 +266,8 @@ mod windows {
                     ..Default::default()
                 };
 
-                if RegisterClassExW(&wnd_class) == 0 {
+                if RegisterClassExW(&wnd_class) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS
+                {
                     bail!("Registering class failed: {}", Error::last_os_error());
                 }
 
@@ -240,42 +294,37 @@ mod windows {
                 } else {
                     Ok(handle)
                 }
-            };
-
-            handle_result.map(|handle| DummyWindow { handle })
+            }
         }
+
         extern "system" fn wnd_proc(
             hwnd: HWND,
             msg: u32,
             wparam: WPARAM,
             lparam: LPARAM,
         ) -> LRESULT {
-            unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+            unsafe {
+                if msg == WM_DESTROY {
+                    PostQuitMessage(0);
+                    return LRESULT(0);
+                }
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
         }
     }
 
     impl Drop for DummyWindow {
         fn drop(&mut self) {
             unsafe {
-                DestroyWindow(self.handle);
-            }
-        }
-    }
-
-    pub fn pump_event_queue() -> bool {
-        unsafe {
-            let mut msg: MSG = std::mem::zeroed();
-            let mut has_message = PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool();
-            while msg.message != WM_QUIT && has_message {
-                if !IsDialogMessageW(GetAncestor(msg.hwnd, GA_ROOT), &msg).as_bool() {
-                    TranslateMessage(&msg);
-                    DispatchMessageW(&msg);
+                if !PostMessageW(self.handle, WM_CLOSE, WPARAM(0), LPARAM(0)).as_bool() {
+                    PostThreadMessageW(self.thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
                 }
-
-                has_message = PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool();
             }
-
-            msg.message == WM_QUIT
+            if let Some(thread) = self.thread.take()
+                && thread::current().id() != thread.thread().id()
+            {
+                let _ = thread.join();
+            }
         }
     }
 }
@@ -308,5 +357,159 @@ mod tests {
     #[test]
     fn other_events_do_not_seek() {
         assert_eq!(seek_target(&MediaControlEvent::Play, Duration::ZERO), None);
+    }
+
+    #[cfg(target_os = "windows")]
+    mod windows_tests {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        use ::windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+        use ::windows::Win32::System::Threading::GetCurrentThreadId;
+        use ::windows::Win32::UI::WindowsAndMessaging::{
+            CallWindowProcW, DefWindowProcW, GWLP_USERDATA, GWLP_WNDPROC, GetWindowLongPtrW,
+            GetWindowThreadProcessId, IsWindow, PostMessageW, SendMessageW, SetWindowLongPtrW,
+            WM_APP, WM_NULL, WNDPROC,
+        };
+
+        use super::super::MediaControlManager;
+
+        const DIAGNOSTIC_MESSAGE: u32 = WM_APP + 0x501;
+
+        struct DiagnosticSubclass {
+            prev_wnd_proc: isize,
+            dispatched_tx: mpsc::Sender<u32>,
+        }
+
+        extern "system" fn diagnostic_wnd_proc(
+            hwnd: HWND,
+            msg: u32,
+            wparam: WPARAM,
+            lparam: LPARAM,
+        ) -> LRESULT {
+            unsafe {
+                let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const DiagnosticSubclass;
+                if ptr.is_null() {
+                    return DefWindowProcW(hwnd, msg, wparam, lparam);
+                }
+                let subclass = &*ptr;
+                if msg == DIAGNOSTIC_MESSAGE {
+                    let _ = subclass.dispatched_tx.send(GetCurrentThreadId());
+                    return LRESULT(0);
+                }
+                let prev: WNDPROC = std::mem::transmute(subclass.prev_wnd_proc);
+                CallWindowProcW(prev, hwnd, msg, wparam, lparam)
+            }
+        }
+
+        fn post_diagnostic_and_wait(hwnd: HWND) -> (u32, Result<u32, mpsc::RecvTimeoutError>) {
+            let owner_thread_id = unsafe { GetWindowThreadProcessId(hwnd, None) };
+            assert_ne!(
+                owner_thread_id, 0,
+                "hidden window must have an owning thread"
+            );
+
+            let (dispatched_tx, dispatched_rx) = mpsc::channel();
+            let prev_wnd_proc = unsafe { GetWindowLongPtrW(hwnd, GWLP_WNDPROC) };
+            let subclass = Box::into_raw(Box::new(DiagnosticSubclass {
+                prev_wnd_proc,
+                dispatched_tx,
+            }));
+
+            unsafe {
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, subclass as isize);
+                SetWindowLongPtrW(
+                    hwnd,
+                    GWLP_WNDPROC,
+                    diagnostic_wnd_proc as *const () as usize as isize,
+                );
+
+                let posted = PostMessageW(hwnd, DIAGNOSTIC_MESSAGE, WPARAM(0), LPARAM(0));
+                assert!(
+                    posted.as_bool(),
+                    "PostMessageW to hidden window must succeed"
+                );
+            }
+
+            let dispatch_result = dispatched_rx.recv_timeout(Duration::from_secs(2));
+
+            unsafe {
+                SetWindowLongPtrW(hwnd, GWLP_WNDPROC, prev_wnd_proc);
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+                // Synchronize with the owning thread so no in-flight wnd_proc still reads `subclass`.
+                SendMessageW(hwnd, WM_NULL, WPARAM(0), LPARAM(0));
+                drop(Box::from_raw(subclass));
+            }
+
+            (owner_thread_id, dispatch_result)
+        }
+
+        #[test]
+        fn hidden_window_dispatches_posted_messages_on_its_owning_thread() {
+            let mut manager =
+                MediaControlManager::with_name("rune_test_501_dispatch").expect("create manager");
+            manager.initialize().expect("initialize manager");
+
+            let caller_thread_id = unsafe { GetCurrentThreadId() };
+            let hwnd = manager._dummy_window.handle;
+            let (owner_thread_id, dispatch_result) = post_diagnostic_and_wait(hwnd);
+
+            let _ = manager.controls.detach();
+            drop(manager);
+
+            let pump_thread_id = dispatch_result.unwrap_or_else(|_| {
+                panic!(
+                    "diagnostic message posted to hidden window (owner thread {owner_thread_id}) \
+                     was never dispatched by its window procedure"
+                )
+            });
+
+            assert_ne!(
+                owner_thread_id, caller_thread_id,
+                "hidden window should be owned by its dedicated pump thread"
+            );
+            assert_eq!(
+                pump_thread_id, owner_thread_id,
+                "hidden window message must be dispatched on its owning thread"
+            );
+
+            let still_exists = unsafe { IsWindow(hwnd).as_bool() };
+            assert!(
+                !still_exists,
+                "hidden window HWND must be destroyed when MediaControlManager is dropped"
+            );
+        }
+
+        #[test]
+        fn multiple_managers_create_and_tear_down_cleanly() {
+            let mut first =
+                MediaControlManager::with_name("rune_test_501_first").expect("create first");
+            first.initialize().expect("initialize first");
+
+            let mut second =
+                MediaControlManager::with_name("rune_test_501_second").expect("create second");
+            second.initialize().expect("initialize second");
+
+            let first_hwnd = first._dummy_window.handle;
+            let second_hwnd = second._dummy_window.handle;
+            assert_ne!(first_hwnd, second_hwnd);
+
+            let (first_owner, first_dispatched) = post_diagnostic_and_wait(first_hwnd);
+            let (second_owner, second_dispatched) = post_diagnostic_and_wait(second_hwnd);
+
+            assert_ne!(first_owner, second_owner);
+            assert_eq!(first_dispatched.expect("first dispatched"), first_owner);
+            assert_eq!(second_dispatched.expect("second dispatched"), second_owner);
+
+            let _ = first.controls.detach();
+            let _ = second.controls.detach();
+            drop(first);
+            drop(second);
+
+            unsafe {
+                assert!(!IsWindow(first_hwnd).as_bool());
+                assert!(!IsWindow(second_hwnd).as_bool());
+            }
+        }
     }
 }
