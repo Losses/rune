@@ -415,12 +415,20 @@ async fn paths_that_are_not_unicode_are_skipped_and_reported() -> Result<()> {
 }
 
 /// A walk that skipped a folder cannot tell whether the tracks indexed from it
-/// still exist, so cleanup keeps them, marked unavailable, until the folder can
-/// be read again.
+/// still exist, so cleanup leaves them as they are.
 #[cfg(any(windows, all(unix, not(target_vendor = "apple"))))]
 #[tokio::test]
 async fn folder_renamed_to_a_non_unicode_name_keeps_its_tracks() -> Result<()> {
     use fsio::test_fixtures::non_unicode_name;
+
+    async fn rows(db: &sea_orm::DatabaseConnection) -> Result<Vec<(i32, bool)>> {
+        Ok(media_files::Entity::find()
+            .all(db)
+            .await?
+            .into_iter()
+            .map(|file| (file.id, file.local_available))
+            .collect())
+    }
 
     let temp = tempfile::tempdir()?;
     let root = temp.path();
@@ -444,29 +452,73 @@ async fn folder_renamed_to_a_non_unicode_name_keeps_its_tracks() -> Result<()> {
         .one(&db)
         .await?
         .context("the track was not indexed")?;
-    assert!(track.local_available);
+    assert_eq!(rows(&db).await?, [(track.id, true)]);
 
     let renamed = root.join(non_unicode_name("album-", ""));
     std::fs::rename(&album, &renamed)?;
     scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
-    let kept = media_files::Entity::find().all(&db).await?;
     assert_eq!(
-        kept.iter()
-            .map(|file| (file.id, file.local_available))
-            .collect::<Vec<_>>(),
-        [(track.id, false)],
-        "a skipped folder must not make cleanup delete its tracks"
+        rows(&db).await?,
+        [(track.id, true)],
+        "a scan that skipped a folder must leave its tracks alone"
     );
 
     std::fs::rename(&renamed, &album)?;
     scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
-    let restored = media_files::Entity::find().all(&db).await?;
+    assert_eq!(rows(&db).await?, [(track.id, true)]);
+    db.close().await?;
+    Ok(())
+}
+
+/// A track deleted while the walk skips an unrelated path is removed by the
+/// next scan that reads every path.
+#[cfg(any(windows, all(unix, not(target_vendor = "apple"))))]
+#[tokio::test]
+async fn removal_waits_for_a_walk_that_skips_nothing() -> Result<()> {
+    use fsio::test_fixtures::non_unicode_name;
+
+    async fn names(db: &sea_orm::DatabaseConnection) -> Result<Vec<String>> {
+        let mut names: Vec<_> = media_files::Entity::find()
+            .all(db)
+            .await?
+            .into_iter()
+            .map(|file| file.file_name)
+            .collect();
+        names.sort();
+        Ok(names)
+    }
+
+    let temp = tempfile::tempdir()?;
+    let root = temp.path();
+    write_tagged_wav(&root.join("deleted.wav"), "deleted")?;
+    write_tagged_wav(&root.join("kept.wav"), "kept")?;
+    let fs = FsIo::new();
+    let node = uuid::Uuid::new_v4();
+    let db = connect_main_db(&fs, root.to_str().unwrap(), None, &node.to_string()).await?;
+    let library = fixtures::open_library(db.clone(), node, None).await?;
+    let store = library.record_store();
+    let options = || ScanOptions {
+        cleanup: true,
+        force: false,
+        missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+        cancel_token: None,
+    };
+
+    scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
+    assert_eq!(names(&db).await?, ["deleted.wav", "kept.wav"]);
+
+    std::fs::remove_file(root.join("deleted.wav"))?;
+    let stray = root.join(non_unicode_name("stray-", ".txt"));
+    std::fs::write(&stray, b"")?;
+    scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
+    assert_eq!(names(&db).await?, ["deleted.wav", "kept.wav"]);
+
+    std::fs::remove_file(&stray)?;
+    scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
     assert_eq!(
-        restored
-            .iter()
-            .map(|file| (file.id, file.local_available))
-            .collect::<Vec<_>>(),
-        [(track.id, true)]
+        names(&db).await?,
+        ["kept.wav"],
+        "the first scan that reads every path removes the deleted track"
     );
     db.close().await?;
     Ok(())

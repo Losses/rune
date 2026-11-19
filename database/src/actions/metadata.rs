@@ -832,13 +832,14 @@ where
             error!("Failed to log a skipped path: {error:#}");
         }
     }
-    // Cleanup cannot tell a track under a skipped path from a deleted one, so
-    // after an incomplete walk it only marks missing tracks unavailable.
-    let policy = if scanner.skipped().is_empty() {
-        policy
-    } else {
-        MissingHostFilePolicy::KeepAsRemote
-    };
+    // Cleanup cannot tell a track under a skipped path from a deleted one, so it
+    // waits for a walk that skips nothing and leaves the rows as they are until
+    // then. Marking them unavailable instead would hide them from later
+    // cleanups, which only check available tracks.
+    let walk_complete = scanner.skipped().is_empty();
+    if cleanup && !walk_complete {
+        warn!("Leaving cleanup for a scan that can read every path");
+    }
 
     info!("Starting audio library scan with last-modified pre-filtering");
 
@@ -966,6 +967,7 @@ where
     }
 
     if cleanup
+        && walk_complete
         && !cancel_token
             .as_ref()
             .is_some_and(|token| token.is_cancelled())
