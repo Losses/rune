@@ -208,3 +208,61 @@ async fn missing_host_removal_reaches_another_replica() -> Result<()> {
     );
     Ok(())
 }
+
+/// A library folder that is gone would otherwise look like one whose tracks
+/// were all deleted, so the scan fails and leaves the catalog as it is.
+#[tokio::test]
+async fn missing_library_root_fails_the_scan_and_keeps_its_tracks() -> Result<()> {
+    let node = Uuid::new_v4();
+    let db = Database::connect("sqlite::memory:").await?;
+    migration::up_with_actor(&db, Some(&node.to_string()), None).await?;
+    let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
+    let temp = tempfile::tempdir()?;
+    let root = temp.path().join("library");
+    std::fs::create_dir(&root)?;
+    std::fs::copy(fixtures::audio_fixture(), root.join("track.ogg"))?;
+    let fs = FsIo::new();
+    let actor = node.to_string();
+    let scan = || {
+        fixtures::cleanup_scan(
+            &fs,
+            &db,
+            &actor,
+            &root,
+            &store,
+            MissingHostFilePolicy::RemoveEverywhere,
+        )
+    };
+    assert_eq!(scan().await?, 1);
+    let indexed = media_files::Entity::find().all(&db).await?;
+
+    std::fs::rename(&root, temp.path().join("offline"))?;
+    let scanned = scan().await;
+
+    assert!(
+        scanned.is_err(),
+        "a missing library root was reported as a successful scan: {scanned:?}"
+    );
+    assert_eq!(media_files::Entity::find().all(&db).await?, indexed);
+    Ok(())
+}
+
+#[tokio::test]
+async fn empty_library_root_scans_successfully() -> Result<()> {
+    let node = Uuid::new_v4();
+    let db = Database::connect("sqlite::memory:").await?;
+    migration::up_with_actor(&db, Some(&node.to_string()), None).await?;
+    let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
+    let root = tempfile::tempdir()?;
+    let scanned = fixtures::cleanup_scan(
+        &FsIo::new(),
+        &db,
+        &node.to_string(),
+        root.path(),
+        &store,
+        MissingHostFilePolicy::RemoveEverywhere,
+    )
+    .await?;
+    assert_eq!(scanned, 0);
+    Ok(())
+}

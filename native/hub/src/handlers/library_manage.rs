@@ -1106,6 +1106,38 @@ mod scan_task_tests {
     }
 
     #[tokio::test]
+    async fn scan_lifecycle_scanning_a_missing_folder_ends_failed() -> Result<()> {
+        let (config, node_id, library) = open_test_library().await?;
+        std::fs::rename(&library.media_root, config.path().join("offline"))?;
+        let capture = Arc::new(Capture::default());
+        let request = ScanAudioLibraryRequest {
+            call_id: None,
+            force: false,
+        };
+        request
+            .handle(
+                (
+                    Some(library),
+                    Arc::new(node_id),
+                    capture.clone(),
+                    Arc::new(RwLock::new(SyncSettings::default())),
+                    Arc::new(StdMutex::new(LibraryTaskOwner::default())),
+                ),
+                None,
+                &request,
+            )
+            .await?;
+
+        assert_eq!(
+            wait_for_task_outcome(&capture, LibraryTaskKind::Scan)
+                .await?
+                .0,
+            LibraryTaskEnd::Scan(ScanOutcome::Failed(ScanFailure::ScanFailed))
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn a_scan_reports_its_phases_and_ends_in_the_phase_it_reached() -> Result<()> {
         let (_config, node_id, library) = open_test_library().await?;
         let audio = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg");
