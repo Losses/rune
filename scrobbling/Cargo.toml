@@ -11,7 +11,6 @@ path = "src/lib.rs"
 [dependencies]
 anyhow = "1.0.98"
 async-trait = "0.1.83"
-http = "1.5.0"
 md5 = "0.7.0"
 reqwest = { version = "0.12.9", features = ["blocking", "json", "socks"] }
 serde = "1.0.219"

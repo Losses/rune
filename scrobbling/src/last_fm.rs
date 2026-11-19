@@ -4,7 +4,7 @@ use std::{collections::HashMap, time::SystemTime};
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use md5;
-use reqwest::{Client, Response};
+use reqwest::Client;
 
 use crate::{
     AuthResponse, ScrobblingAuthFailure, ScrobblingClient, ScrobblingTrack,
@@ -114,7 +114,7 @@ impl ScrobblingClient for LastFmClient {
         }
     }
 
-    async fn update_now_playing(&self, track: &ScrobblingTrack) -> Result<Response> {
+    async fn update_now_playing(&self, track: &ScrobblingTrack) -> Result<()> {
         if self.session_key.is_none() {
             bail!("Not authenticated");
         }
@@ -149,7 +149,7 @@ impl ScrobblingClient for LastFmClient {
         .await
     }
 
-    async fn scrobble(&self, track: &ScrobblingTrack) -> Result<Response> {
+    async fn scrobble(&self, track: &ScrobblingTrack) -> Result<()> {
         if self.session_key.is_none() {
             bail!("Not authenticated");
         }
@@ -190,6 +190,8 @@ impl ScrobblingClient for LastFmClient {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::Ordering;
+
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpListener,
@@ -286,7 +288,7 @@ mod tests {
     async fn update_now_playing_and_scrobble_accept_valid_json_responses() {
         let now_body = r##"{"nowplaying":{"track":{"corrected":"0","#text":"Synthetic track"}}}"##;
         let scrobble_body = r#"{"scrobbles":{"@attr":{"accepted":1,"ignored":0}}}"#;
-        let (base_url, _, server) = spawn_sequence_server(vec![
+        let (base_url, request_count, server) = spawn_sequence_server(vec![
             ("200 OK", now_body.to_string()),
             ("200 OK", scrobble_body.to_string()),
         ])
@@ -298,13 +300,10 @@ mod tests {
         client.session_key = Some("synthetic-session".into());
         let track = sample_track();
 
-        let now = client.update_now_playing(&track).await.unwrap();
-        let scrobble = client.scrobble(&track).await.unwrap();
+        client.update_now_playing(&track).await.unwrap();
+        client.scrobble(&track).await.unwrap();
         server.await.unwrap();
 
-        assert_eq!(now.status(), 200);
-        assert_eq!(scrobble.status(), 200);
-        assert_eq!(now.text().await.unwrap(), now_body);
-        assert_eq!(scrobble.text().await.unwrap(), scrobble_body);
+        assert_eq!(request_count.load(Ordering::SeqCst), 2);
     }
 }

@@ -7,11 +7,7 @@ use std::collections::HashMap;
 
 use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
-use http::{
-    Response as HttpResponse,
-    header::{CONTENT_ENCODING, CONTENT_LENGTH},
-};
-use reqwest::{Client, Response, ResponseBuilderExt};
+use reqwest::{Client, Response};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -71,7 +67,7 @@ pub(crate) async fn send_audioscrobbler_request(
     params: &HashMap<String, String>,
     service: &str,
     action: &str,
-) -> Result<Response> {
+) -> Result<()> {
     let response = client
         .post(base_url)
         .form(params)
@@ -85,15 +81,12 @@ pub(crate) async fn validate_audioscrobbler_response(
     response: Response,
     service: &str,
     action: &str,
-) -> Result<Response> {
+) -> Result<()> {
     let status = response.status();
     if !status.is_success() {
         bail!("{service} {action} endpoint returned HTTP {status}");
     }
 
-    let version = response.version();
-    let url = response.url().clone();
-    let mut headers = response.headers().clone();
     let body = response.bytes().await?;
 
     let envelope: ApiErrorResponse = serde_json::from_slice(&body)
@@ -115,16 +108,7 @@ pub(crate) async fn validate_audioscrobbler_response(
         }
     }
 
-    headers.remove(CONTENT_ENCODING);
-    headers.remove(CONTENT_LENGTH);
-    let mut builder = HttpResponse::builder()
-        .status(status)
-        .version(version)
-        .url(url);
-    if let Some(builder_headers) = builder.headers_mut() {
-        *builder_headers = headers;
-    }
-    Ok(Response::from(builder.body(body.to_vec())?))
+    Ok(())
 }
 
 #[derive(Debug, Serialize)]
@@ -143,8 +127,8 @@ pub struct ScrobblingTrack {
 #[async_trait]
 pub trait ScrobblingClient: Send {
     async fn authenticate(&mut self, username: &str, password: &str) -> Result<()>;
-    async fn update_now_playing(&self, track: &ScrobblingTrack) -> Result<Response>;
-    async fn scrobble(&self, track: &ScrobblingTrack) -> Result<Response>;
+    async fn update_now_playing(&self, track: &ScrobblingTrack) -> Result<()>;
+    async fn scrobble(&self, track: &ScrobblingTrack) -> Result<()>;
     fn session_key(&self) -> Option<&str>;
 }
 

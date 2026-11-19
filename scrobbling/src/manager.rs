@@ -243,7 +243,7 @@ impl ScrobblingManager {
 
         loop {
             match client.update_now_playing(track).await {
-                Ok(_) => return Ok(()),
+                Ok(()) => return Ok(()),
                 Err(e) => {
                     attempts += 1;
                     if attempts >= max_retries {
@@ -268,7 +268,7 @@ impl ScrobblingManager {
 
         loop {
             match client.scrobble(track).await {
-                Ok(_) => return Ok(()),
+                Ok(()) => return Ok(()),
                 Err(e) => {
                     attempts += 1;
                     if attempts >= max_retries {
