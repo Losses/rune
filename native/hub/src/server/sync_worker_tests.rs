@@ -1,9 +1,15 @@
 use super::*;
 use crate::library_pool::{LibraryHandle, LibraryResources};
+use crate::messages::{
+    OpenDalLibraryService, OpenDalShareDataDetection, RegisterOpenDalLibraryRequest,
+    ShareDataChoice,
+};
 use crate::node::NodeContext;
 use crate::server::utils::device::RunMode;
 use crate::test_wait::{TEST_DEADLINE, wait_until};
-use crate::utils::{Broadcaster, RinfRustSignal};
+use crate::utils::{
+    Broadcaster, RinfRustSignal, detect_opendal_share_data, register_opendal_library_on_node,
+};
 use database::connection::RecommendationDbConnection;
 use database::credentials::{Credential, CredentialRef, CredentialStore, Secret};
 use database::library_registry::{CatalogPlacement, FsAdapter, LibraryRecordId, ProtocolAdapter};
@@ -245,16 +251,20 @@ async fn share_fixture(backend: ShareBackend) -> (ShareFixture, OpenDalConfig) {
 
 async fn real_share(backend: ShareBackend) -> (ShareFixture, ShareStoreSession) {
     let (fixture, config) = share_fixture(backend).await;
+    (fixture, opendal_share_session(config).await)
+}
+
+/// A session on the OpenDAL share `config` names, with the conditional features its probe found.
+async fn opendal_share_session(config: OpenDalConfig) -> ShareStoreSession {
     let store = Arc::new(OpenDalObjectStore::new(config).unwrap());
     let capabilities = store.probe("devices/probe.generation").await.unwrap();
-    let session = ShareStoreSession {
+    ShareStoreSession {
         store,
         capabilities: ShareCapabilities {
             conditional_create: capabilities.conditional_create,
             conditional_head_write: capabilities.conditional_put,
         },
-    };
-    (fixture, session)
+    }
 }
 
 /// The storage adapter of a library kept in the share at `config`, with the share's
@@ -2256,6 +2266,128 @@ async fn replaced_library_file_is_a_typed_share_change() -> Result<()> {
         store.get(&library_key()).await.unwrap().bytes,
         encode_library(&replacement).unwrap()
     );
+    Ok(())
+}
+
+/// A node on a device that has not added any library yet.
+async fn node_without_libraries(directory: &tempfile::TempDir) -> Result<Arc<NodeContext>> {
+    write_quick_identity(directory.path())?;
+    let path = directory.path().to_string_lossy().into_owned();
+    NodeContext::new(
+        &path,
+        &path,
+        Arc::new(QuietBroadcaster::default()),
+        false,
+        RunMode::App,
+        Arc::new(::visualizer::Visualizer::new()),
+    )
+    .await
+}
+
+/// Registers the share on `node` the way the Add Library guide does after detecting what the
+/// share holds, and returns the stored record.
+async fn register_share_library(
+    node: &Arc<NodeContext>,
+    service: &OpenDalLibraryService,
+    share_data_choice: ShareDataChoice,
+) -> Result<LibraryRecord> {
+    let response = register_opendal_library_on_node(
+        &RegisterOpenDalLibraryRequest {
+            service: service.clone(),
+            alias: "Shared music".into(),
+            share_data_choice,
+            call_id: None,
+        },
+        node,
+    )
+    .await?;
+    let record_id = response
+        .record
+        .context("registered share record")?
+        .record_id;
+    LibraryRegistry::load(Path::new(node.config_path.as_str()))?
+        .libraries
+        .into_iter()
+        .find(|record| record.record_id.0.to_string() == record_id)
+        .context("stored share record")
+}
+
+/// A device that adds a WebDAV folder where another device keeps a library, through the steps
+/// of the Add Library guide, joins that library: it detects the library the share names,
+/// registers the same identity, and its share pass accepts the share and receives the library.
+/// An empty folder still gets a new library, and a library with another identity is still
+/// refused without replacing the share's identity.
+#[tokio::test]
+async fn a_new_device_joins_a_published_share_with_its_identity() -> Result<()> {
+    let server = WebDavFixture::start(vec![("track.ogg".into(), Vec::new())]).await?;
+    let service = OpenDalLibraryService::WebDav {
+        endpoint: server.endpoint.clone(),
+        root: "/dav/library/".into(),
+        username: "user".into(),
+        password: "pass".into(),
+    };
+    let session = opendal_share_session(OpenDalConfig::WebDav {
+        endpoint: server.endpoint.clone(),
+        root: "/dav/library/".into(),
+        username: "user".into(),
+        password: "pass".into(),
+    })
+    .await;
+
+    // The first device finds the folder empty and keeps the new library's data in the share.
+    let first_directory = tempfile::tempdir()?;
+    let first_node = node_without_libraries(&first_directory).await?;
+    assert_eq!(
+        detect_opendal_share_data(&service).await,
+        Ok(OpenDalShareDataDetection::WritableEmpty)
+    );
+    let created =
+        register_share_library(&first_node, &service, ShareDataChoice::KeepInShare).await?;
+    assert!(matches!(created.catalog, CatalogPlacement::InShare(_)));
+    let library_id = created.library_id.context("new share library id")?;
+    let first = support::SqlLibrary::new(library_id, Uuid::new_v4()).await?;
+    let key = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::new_v4(),
+    };
+    first
+        .sync_store
+        .write_local(key.clone(), support::playlist("kept in the share"))
+        .await?;
+    sync_pass(&first.sync_store, library_id, &session)
+        .await
+        .unwrap();
+
+    // A second device with an empty registry adds the same folder.
+    let second_directory = tempfile::tempdir()?;
+    let second_node = node_without_libraries(&second_directory).await?;
+    let published = Ok(OpenDalShareDataDetection::ExistingLibrary {
+        library_id: library_id.to_string(),
+    });
+    assert_eq!(detect_opendal_share_data(&service).await, published);
+    // For a share that holds a library the guide asks nothing and sends this device only;
+    // registration joins the library in the share regardless.
+    let joined =
+        register_share_library(&second_node, &service, ShareDataChoice::ThisDeviceOnly).await?;
+    assert_eq!(joined.library_id, Some(library_id));
+    assert!(matches!(joined.catalog, CatalogPlacement::InShare(_)));
+    let second = support::SqlLibrary::new(library_id, Uuid::new_v4()).await?;
+    sync_pass(&second.sync_store, library_id, &session)
+        .await
+        .unwrap();
+    assert!(second.sync_store.get(&key).await?.is_some());
+
+    // A library with another identity cannot take the share over.
+    let other_id = Uuid::new_v4();
+    let other = support::SqlLibrary::new(other_id, Uuid::new_v4()).await?;
+    assert_eq!(
+        sync_pass(&other.sync_store, other_id, &session).await,
+        Err(ShareSyncFailure::ShareChanged)
+    );
+    assert_eq!(detect_opendal_share_data(&service).await, published);
+
+    first_node.shutdown().await?;
+    second_node.shutdown().await?;
     Ok(())
 }
 

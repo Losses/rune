@@ -60,7 +60,7 @@ use ::playback::{
 };
 use ::scrobbling::manager::ScrobblingManager;
 use ::sync::protocol::SyncModel;
-use ::sync::share::{ObjectStore, ObjectValue, StoreError, decode_library};
+use ::sync::share::{ObjectStore, ObjectValue, StoreError, decode_library, library_key};
 
 use crate::Signal;
 use crate::backends::{
@@ -908,7 +908,7 @@ async fn register_opendal_library(
     }
 }
 
-async fn detect_opendal_share_data(
+pub(crate) async fn detect_opendal_share_data(
     service: &OpenDalLibraryService,
 ) -> StdResult<OpenDalShareDataDetection, RegisterLibraryFailureKind> {
     let config = match service {
@@ -941,7 +941,7 @@ async fn detect_opendal_share_data(
     };
     let store = OpenDalObjectStore::new(config)
         .map_err(|_| RegisterLibraryFailureKind::OpenDalUnreachable)?;
-    let library = ObjectStore::get(&store, "library.json").await;
+    let library = ObjectStore::get(&store, &library_key()).await;
     let probe = if matches!(library, Err(StoreError::NotFound)) {
         let prefix = format!("devices/{}.1", Uuid::new_v4());
         store.probe(&prefix).await
@@ -991,7 +991,7 @@ async fn read_share_library_id(
 ) -> Result<Option<Uuid>, RegisterLibraryFailureKind> {
     let store = OpenDalObjectStore::new(config)
         .map_err(|_| RegisterLibraryFailureKind::OpenDalUnreachable)?;
-    match ObjectStore::get(&store, "library.json").await {
+    match ObjectStore::get(&store, &library_key()).await {
         Ok(value) => {
             let library = decode_library(&value.bytes)
                 .map_err(|_| RegisterLibraryFailureKind::OpenDalShareInvalid)?;

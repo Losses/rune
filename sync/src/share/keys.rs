@@ -111,8 +111,10 @@ impl ProbeObject {
     }
 }
 
+/// Key of the file that names the share's library. Like every other key it is relative to the
+/// share's `.rune/sync/` folder, so the file is `<root>/.rune/sync/library.json`.
 pub fn library_key() -> String {
-    ".rune/sync/library.json".into()
+    "library.json".into()
 }
 pub fn head_key(prefix: &str, slot: u8) -> Result<String, FormatError> {
     valid_prefix(prefix)?;
