@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
 use std::sync::{
     Arc,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use support::SqlLibrary;
 use sync::share::{
@@ -30,6 +30,7 @@ use sync_orm::base_exporter::{BaseExportOptions, export_base};
 use sync_orm::causal_capabilities::CausalEndpoint;
 use sync_orm::causal_export_cursors::EXPORT_CURSOR_MAX_AGE_MS;
 use sync_orm::maintenance::Maintenance;
+use tokio::sync::Notify;
 use uuid::Uuid;
 
 struct Published {
@@ -1242,6 +1243,370 @@ async fn interrupted_base_cut_leaves_orphans_for_delayed_own_gc() -> Result<()> 
             anyhow::anyhow!("own-prefix GC touched a foreign object: {error:?}")
         })?;
     }
+    Ok(())
+}
+
+/// A share in which the keeper has advertised the retirement of a device whose heads stayed
+/// unchanged for the whole retirement period, so the keeper's next pass deletes its prefix.
+/// The covered head is in slot 1 and the device's previous head in slot 0.
+struct DueRetirement {
+    namespace: Uuid,
+    store: Arc<MemoryObjectStore>,
+    keeper: SqlLibrary,
+    retired_device: SqlLibrary,
+    retired: Published,
+    covered_key: ObjectKey,
+}
+
+async fn due_retirement() -> Result<DueRetirement> {
+    let namespace = Uuid::new_v4();
+    let keeper = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let retired_device = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let covered_key = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(2201),
+    };
+    retired_device
+        .sync_store
+        .write_local(
+            covered_key.clone(),
+            support::playlist("covered by the keeper base"),
+        )
+        .await?;
+    let store = Arc::new(MemoryObjectStore::default());
+    let mut retired = publish_base(&retired_device, store.clone(), Default::default()).await?;
+    // The device wrote its head once more before it went quiet, as an acknowledgement update
+    // does, so both of its slots hold a head.
+    retired.head.counter += 1;
+    retired.head.updated_ms += 1;
+    store
+        .put(
+            &share::head_key(&retired.prefix, 1)?,
+            &share::encode_head(&retired.head)?,
+        )
+        .await
+        .map_err(|error| anyhow::anyhow!("put the covered head: {error:?}"))?;
+    let identity = keeper.sync_store.identity().await?;
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let mut state = load_or_create_state(
+        &keeper.db,
+        identity.replica,
+        namespace,
+        cache_path(),
+        now_ms,
+    )
+    .await?;
+    // The keeper first saw both heads a whole retirement period ago, and they have not changed
+    // since.
+    for slot in [0, 1] {
+        let head = store
+            .get(&share::head_key(&retired.prefix, slot)?)
+            .await
+            .map_err(|error| anyhow::anyhow!("read retired head: {error:?}"))?;
+        state.observe_tag(
+            ShareObjectKey::Head {
+                prefix: DevicePrefix::from_str(&retired.prefix)?,
+                slot,
+            },
+            head.tag,
+            now_ms - share::RETIREMENT_MS as i64 - 60_000,
+        );
+    }
+    save_state(&keeper.db, &state).await?;
+    // The first pass cuts the keeper base over the retired head and advertises the retirement.
+    // Deletion waits for a later pass.
+    let keeper_head = keeper
+        .sync_store
+        .push_share(store.clone(), namespace, cache_path(), Default::default())
+        .await?
+        .context("keeper published no head")?;
+    ensure!(
+        keeper_head.retired == [retired.prefix.clone()],
+        "keeper did not advertise the retirement: {:?}",
+        keeper_head.retired
+    );
+    ensure!(
+        !share_prefix_keys(&store, &retired.prefix).await?.is_empty(),
+        "the prefix was deleted in the pass that advertised its retirement"
+    );
+    Ok(DueRetirement {
+        namespace,
+        store,
+        keeper,
+        retired_device,
+        retired,
+        covered_key,
+    })
+}
+
+/// Where the keeper's cleanup waits when it lists the prefix it retires.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RetiredListing {
+    /// Before the listing, so the listing includes the change.
+    Before,
+    /// After the listing and before the head slots are read again.
+    After,
+}
+
+/// Holds a cleanup pass at its listing of a retired prefix until another device has changed
+/// that prefix.
+struct RetiredListingGate {
+    inner: Arc<MemoryObjectStore>,
+    prefix: String,
+    pause: RetiredListing,
+    held: AtomicBool,
+    reached: Notify,
+    resume: Notify,
+}
+
+impl RetiredListingGate {
+    async fn hold_at(&self, prefix: &str) {
+        if prefix == self.prefix && !self.held.swap(true, Ordering::SeqCst) {
+            self.reached.notify_one();
+            self.resume.notified().await;
+        }
+    }
+}
+
+impl ObjectStore for RetiredListingGate {
+    fn get<'a>(&'a self, key: &'a str) -> p::BoxFuture<'a, ObjectValue, StoreError> {
+        self.inner.get(key)
+    }
+
+    fn get_if_none_match<'a>(
+        &'a self,
+        key: &'a str,
+        tag: &'a ObjectTag,
+    ) -> p::BoxFuture<'a, ConditionalGet, StoreError> {
+        self.inner.get_if_none_match(key, tag)
+    }
+
+    fn put<'a>(&'a self, key: &'a str, bytes: &'a [u8]) -> p::BoxFuture<'a, ObjectTag, StoreError> {
+        self.inner.put(key, bytes)
+    }
+
+    fn create<'a>(
+        &'a self,
+        key: &'a str,
+        bytes: &'a [u8],
+    ) -> p::BoxFuture<'a, ObjectTag, StoreError> {
+        self.inner.create(key, bytes)
+    }
+
+    fn put_if_match<'a>(
+        &'a self,
+        key: &'a str,
+        tag: &'a ObjectTag,
+        bytes: &'a [u8],
+    ) -> p::BoxFuture<'a, ObjectTag, StoreError> {
+        self.inner.put_if_match(key, tag, bytes)
+    }
+
+    fn delete<'a>(&'a self, key: &'a str) -> p::BoxFuture<'a, (), StoreError> {
+        self.inner.delete(key)
+    }
+
+    fn list_prefix<'a>(&'a self, prefix: &'a str) -> p::BoxFuture<'a, Vec<String>, StoreError> {
+        Box::pin(async move {
+            if self.pause == RetiredListing::Before {
+                self.hold_at(prefix).await;
+            }
+            let listed = self.inner.list_prefix(prefix).await;
+            if self.pause == RetiredListing::After {
+                self.hold_at(prefix).await;
+            }
+            listed
+        })
+    }
+}
+
+/// Runs the keeper pass that deletes the retired prefix, with `change` running at that pass's
+/// listing of the prefix as another device's store operations would.
+async fn retire_with_change<T>(
+    due: &DueRetirement,
+    pause: RetiredListing,
+    change: impl Future<Output = Result<T>>,
+) -> Result<T> {
+    let gate = Arc::new(RetiredListingGate {
+        inner: due.store.clone(),
+        prefix: format!("devices/{}/", due.retired.prefix),
+        pause,
+        held: AtomicBool::new(false),
+        reached: Notify::new(),
+        resume: Notify::new(),
+    });
+    let (cleanup, changed) = tokio::join!(
+        async {
+            let cleanup = due
+                .keeper
+                .sync_store
+                .push_share(
+                    gate.clone(),
+                    due.namespace,
+                    cache_path(),
+                    Default::default(),
+                )
+                .await;
+            // Ends the wait below when the pass never listed the retired prefix.
+            gate.reached.notify_one();
+            cleanup
+        },
+        async {
+            gate.reached.notified().await;
+            ensure!(
+                gate.held.load(Ordering::SeqCst),
+                "the keeper pass did not list the retired prefix"
+            );
+            let changed = change.await;
+            gate.resume.notify_one();
+            changed
+        }
+    );
+    let changed = changed?;
+    cleanup.map_err(|error| anyhow::anyhow!("keeper cleanup pass: {error}"))?;
+    Ok(changed)
+}
+
+#[tokio::test]
+async fn retirement_deletes_an_unchanged_prefix_covered_by_the_keeper_base() -> Result<()> {
+    let due = due_retirement().await?;
+    due.keeper
+        .sync_store
+        .push_share(
+            due.store.clone(),
+            due.namespace,
+            cache_path(),
+            Default::default(),
+        )
+        .await?;
+    assert_eq!(
+        share_prefix_keys(&due.store, &due.retired.prefix).await?,
+        Vec::<String>::new()
+    );
+    // A device that joins later still gets the retired device's data from the keeper base.
+    let joining = SqlLibrary::new(due.namespace, Uuid::new_v4()).await?;
+    pull(&due.retired, &joining).await?;
+    assert_eq!(
+        joining.sync_store.get(&due.covered_key).await?,
+        due.retired_device.sync_store.get(&due.covered_key).await?
+    );
+    Ok(())
+}
+
+/// The retired device publishes to its prefix while the keeper deletes it, and the keeper
+/// must leave the newer publication available.
+async fn publication_during_retirement_stays_available(pause: RetiredListing) -> Result<()> {
+    let due = due_retirement().await?;
+    let key = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(2202),
+    };
+    due.retired_device
+        .sync_store
+        .write_local(
+            key.clone(),
+            support::playlist("published during retirement"),
+        )
+        .await?;
+    let identity = SyncPeer::identity(&due.retired.endpoint).await?;
+    let events = journal_events_since(&due.retired.endpoint, &due.retired.head).await?;
+    let mut state = state_for(&due.retired, &identity)?;
+    let writer = ShareWriter::default();
+    // The device pulled before the keeper advertised the retirement, so it still publishes to
+    // its old prefix: a segment the keeper base does not cover, then a newer head in slot 0,
+    // next to the covered head in slot 1.
+    let written = retire_with_change(&due, pause, async {
+        let head = push_entries(
+            &due.retired_device,
+            &mut state,
+            &writer,
+            &*due.store,
+            &identity,
+            &due.retired.head,
+            &events,
+        )
+        .await
+        .map_err(|error| anyhow::anyhow!("publish during retirement: {error}"))?
+        .context("the retired device published no head")?;
+        let sibling = due
+            .store
+            .get(&share::head_key(&due.retired.prefix, 0)?)
+            .await
+            .map_err(|error| anyhow::anyhow!("read the newer head: {error:?}"))?;
+        ensure!(
+            share::decode_head(&sibling.bytes)? == head
+                && head.head.seq > due.retired.head.head.seq,
+            "the publication did not put a newer head in the other slot"
+        );
+        share_prefix_keys(&due.store, &due.retired.prefix).await
+    })
+    .await?;
+    assert_eq!(
+        share_prefix_keys(&due.store, &due.retired.prefix).await?,
+        written,
+        "retirement cleanup deleted objects of a newer publication"
+    );
+    let joining = SqlLibrary::new(due.namespace, Uuid::new_v4()).await?;
+    pull(&due.retired, &joining).await?;
+    assert_eq!(
+        joining.sync_store.get(&key).await?,
+        due.retired_device.sync_store.get(&key).await?
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn retirement_keeps_a_publication_that_lands_before_the_final_listing() -> Result<()> {
+    publication_during_retirement_stays_available(RetiredListing::Before).await
+}
+
+#[tokio::test]
+async fn retirement_keeps_a_publication_that_lands_after_the_final_listing() -> Result<()> {
+    publication_during_retirement_stays_available(RetiredListing::After).await
+}
+
+#[tokio::test]
+async fn retirement_keeps_a_prefix_whose_other_head_slot_is_partly_written() -> Result<()> {
+    let due = due_retirement().await?;
+    let mut next = due.retired.head.clone();
+    next.counter += 1;
+    let bytes = share::encode_head(&next)?;
+    let sibling = share::head_key(&due.retired.prefix, 0)?;
+    // The device is still writing a newer head over its previous one, on a store whose writes
+    // are not atomic.
+    let kept = retire_with_change(&due, RetiredListing::Before, async {
+        due.store
+            .put(&sibling, &bytes[..bytes.len() / 2])
+            .await
+            .map_err(|error| anyhow::anyhow!("write partial head: {error:?}"))?;
+        share_prefix_keys(&due.store, &due.retired.prefix).await
+    })
+    .await?;
+    assert_eq!(
+        share_prefix_keys(&due.store, &due.retired.prefix).await?,
+        kept
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn retirement_keeps_a_prefix_whose_covered_head_is_missing() -> Result<()> {
+    let due = due_retirement().await?;
+    let covered = share::head_key(&due.retired.prefix, 1)?;
+    // Another device that retires the same prefix has already removed the covered head, and only
+    // the older head is left.
+    let kept = retire_with_change(&due, RetiredListing::Before, async {
+        due.store
+            .delete(&covered)
+            .await
+            .map_err(|error| anyhow::anyhow!("delete covered head: {error:?}"))?;
+        share_prefix_keys(&due.store, &due.retired.prefix).await
+    })
+    .await?;
+    assert_eq!(
+        share_prefix_keys(&due.store, &due.retired.prefix).await?,
+        kept
+    );
     Ok(())
 }
 

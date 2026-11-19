@@ -8,6 +8,7 @@ use sea_orm::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
+    cmp::Ordering,
     collections::{BTreeMap, BTreeSet, btree_map::Entry},
     path::PathBuf,
     str::FromStr,
@@ -21,9 +22,9 @@ use sync::{
         FORMAT_VERSION, FloorBase, FloorBaseSelection, FormatError, GcInput, GcObservation, Head,
         InProgressCut, JournalEvent, LibraryFile, ManifestStatus, ObjectGcState, ObjectKey,
         ObjectStore, ObjectTag, OwnBase, OwnChunk, OwnSegment, PublishDecision, PublishInput,
-        RetainedManifest, RetirementCandidate, RetirementReadStatus, RollupInput,
-        SEGMENT_RETENTION_MS, Segment, SegmentLink, SegmentRef, SelectedBase, SharePeer,
-        StoreError, SupersededSince, base_key, chunk_key, decode_head, decode_library,
+        RetainedManifest, RetirementCandidate, RetirementPrecondition, RetirementReadStatus,
+        RollupInput, SEGMENT_RETENTION_MS, Segment, SegmentLink, SegmentRef, SelectedBase,
+        SharePeer, StoreError, SupersededSince, base_key, chunk_key, decode_head, decode_library,
         decode_manifest, decode_segment, encode_head, encode_segment, head_key, library_key,
         parse_key, plan_gc, plan_publish, segment_key,
     },
@@ -859,28 +860,9 @@ pub(crate) async fn collect_own_prefix(
             .list_prefix(&format!("devices/{retired}/"))
             .await
             .map_err(push_store_error)?;
-        let mut verified = false;
-        for slot in [0, 1] {
-            let key = head_key(&retired, slot)
-                .map_err(|error| SharePushError::Failed(error.to_string()))?;
-            match store.get(&key).await {
-                Ok(value) => {
-                    let remote = decode_head(&value.bytes)
-                        .map_err(|error| SharePushError::Failed(error.to_string()))?;
-                    if remote.stream == precondition.stream_id
-                        && remote.generation == precondition.generation
-                        && remote.counter == precondition.expected_counter
-                        && remote.head.seq == precondition.expected_head.seq
-                        && remote.head.anchor == precondition.expected_head.anchor
-                    {
-                        verified = true;
-                    }
-                }
-                Err(StoreError::NotFound) => (),
-                Err(error) => return Err(push_store_error(error)),
-            }
-        }
-        if !verified {
+        // The slots are read after the listing, so a head published before this read keeps
+        // everything that was listed.
+        if !retired_head_is_current(store, &precondition).await? {
             continue;
         }
         for key in listed {
@@ -907,6 +889,42 @@ pub(crate) async fn collect_own_prefix(
         .await
         .map_err(|error| SharePushError::Failed(error.to_string()))?;
     Ok(final_head)
+}
+
+/// Whether the head that a retirement covers is still the newest head of the retired prefix.
+///
+/// Like `refresh_own_head`, this reads both slots and goes by the newest head: each slot must be
+/// empty, hold the covered head or hold an older head of the same stream, and one of them must
+/// hold the covered head. Unlike there, a slot that fails its checksum is not skipped, because it
+/// can be a newer head that the retired device is still writing.
+async fn retired_head_is_current(
+    store: &dyn ObjectStore,
+    retirement: &RetirementPrecondition,
+) -> SharePushResult<bool> {
+    let prefix = retirement.prefix.to_string();
+    let mut covered = false;
+    for slot in 0..=1 {
+        let key =
+            head_key(&prefix, slot).map_err(|error| SharePushError::Failed(error.to_string()))?;
+        let remote = match store.get(&key).await {
+            Ok(value) => match decode_head(&value.bytes) {
+                Ok(head) => head,
+                Err(FormatError::Checksum) => return Ok(false),
+                Err(error) => return Err(SharePushError::Failed(error.to_string())),
+            },
+            Err(StoreError::NotFound) => continue,
+            Err(error) => return Err(push_store_error(error)),
+        };
+        if remote.stream != retirement.stream_id || remote.generation != retirement.generation {
+            return Ok(false);
+        }
+        match remote.counter.cmp(&retirement.expected_counter) {
+            Ordering::Less => (),
+            Ordering::Equal if remote.head == retirement.expected_head => covered = true,
+            Ordering::Equal | Ordering::Greater => return Ok(false),
+        }
+    }
+    Ok(covered)
 }
 
 fn observed_head_last_change(state: &ShareState, prefix: &DevicePrefix) -> Option<u64> {
