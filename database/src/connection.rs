@@ -376,7 +376,10 @@ async fn connect_main_db_from_storage_info(
 
     let db = SqlxSqliteConnector::from_sqlx_sqlite_pool(pool);
 
-    initialize_db(&db, node_id).await?;
+    if let Err(err) = initialize_db(&db, node_id).await {
+        let _ = db.close().await;
+        return Err(err);
+    }
 
     Ok(db)
 }
