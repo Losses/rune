@@ -103,7 +103,7 @@ pub struct Stepper {
     pure: bool,
     /// The song's own decider while another is on screen, with the steps it took.
     shadow: Option<(SongChart, Decider, u32)>,
-    /// What the post pass was told by the last step.
+    /// The last step's lens output before applying render quality.
     lens: LensFrame,
     /// Whether the event log of the steps is made (see [`Stepper::record`]).
     record: bool,
@@ -153,30 +153,33 @@ impl Stepper {
     ) -> Option<Stepped> {
         self.check_snapshots(decider, song, runtime);
         let target = steps_until(time);
-        if !self.on.as_ref().is_some_and(|on| on.is(song)) {
+        let mut stepped = if !self.on.as_ref().is_some_and(|on| on.is(song)) {
             if first {
                 // Nothing on screen to keep: the scene opens where the song is.
                 self.shadow = None;
                 *forced = None;
-                self.restore(decider, manifest, song, target, quality);
-                return Some(self.jump(decider, time));
+                self.restore(decider, manifest, song, target);
+                self.jump(decider, time)
+            } else {
+                self.follow(decider, manifest, song, target, time, forced)?
             }
-            return self.follow(decider, manifest, song, target, time, forced, quality);
-        }
-        if target + BEHIND < self.steps || target > self.steps + AHEAD {
+        } else if target + BEHIND < self.steps || target > self.steps + AHEAD {
             // A cut a lab made is of the decider replaced.
             *forced = None;
-            self.restore(decider, manifest, song, target, quality);
-            return Some(self.jump(decider, time));
-        }
-        let (decision, events) = self.run(decider, song, target, forced, quality);
-        Some(Stepped {
-            decision,
-            events,
-            jumped: false,
-            replaced: false,
-            since_step: self.since_step(time),
-        })
+            self.restore(decider, manifest, song, target);
+            self.jump(decider, time)
+        } else {
+            let (decision, events) = self.run(decider, song, target, forced);
+            Stepped {
+                decision,
+                events,
+                jumped: false,
+                replaced: false,
+                since_step: self.since_step(time),
+            }
+        };
+        stepped.decision.lens = stepped.decision.lens.at_quality(quality);
+        Some(stepped)
     }
 
     /// The song has no chart (or a lab holds the music without one): the caller decides frame by
@@ -237,7 +240,6 @@ impl Stepper {
         song: &SongChart,
         target: u32,
         forced: &mut Option<CutInfo>,
-        quality: f32,
     ) -> (Decision, Vec<LabEvent>) {
         let mut frame = self.standing(decider);
         let mut events = Vec::new();
@@ -246,14 +248,8 @@ impl Stepper {
                 self.keep(self.steps, decider, frame.lens);
             }
             let step = self.steps;
-            let decision = decider.step_at(
-                &song.chart,
-                step,
-                song.seed,
-                unheard(),
-                forced.take(),
-                quality,
-            );
+            let decision =
+                decider.step_at(&song.chart, step, song.seed, unheard(), forced.take(), 1.0);
             #[cfg(test)]
             self.decided.push((step, decision.clone()));
             events.extend(self.events(decider, f64::from(step) * STEP, &decision, false));
@@ -267,7 +263,6 @@ impl Stepper {
     /// The song's own decider, stepped next to the one on screen until it cuts; then it is put on
     /// screen and the frame reports its cut. Where the decider on screen cannot cut (no shots, or a
     /// held shot) it is put on screen at once.
-    #[allow(clippy::too_many_arguments)]
     fn follow(
         &mut self,
         decider: &mut Decider,
@@ -276,7 +271,6 @@ impl Stepper {
         target: u32,
         time: f64,
         forced: &mut Option<CutInfo>,
-        quality: f32,
     ) -> Option<Stepped> {
         let (mut shadow, mut steps) = match self.shadow.take() {
             Some((of, shadow, steps))
@@ -285,10 +279,7 @@ impl Stepper {
                 (shadow, steps)
             }
             // Started now, or the song time jumped: from where the song is.
-            _ => (
-                self.replay(decider, manifest, song, target, quality),
-                target,
-            ),
+            _ => (self.replay(decider, manifest, song, target), target),
         };
         let cuts = decider
             .director()
@@ -297,7 +288,7 @@ impl Stepper {
             // No cut to wait for: the song's decider takes over now, with the look it is on.
             while steps < target {
                 self.lens = shadow
-                    .step_at(&song.chart, steps, song.seed, unheard(), None, quality)
+                    .step_at(&song.chart, steps, song.seed, unheard(), None, 1.0)
                     .lens;
                 steps += 1;
             }
@@ -318,7 +309,7 @@ impl Stepper {
             });
         }
         while steps < target {
-            let decision = shadow.step_at(&song.chart, steps, song.seed, unheard(), None, quality);
+            let decision = shadow.step_at(&song.chart, steps, song.seed, unheard(), None, 1.0);
             let step = steps;
             steps += 1;
             if decision.cut.is_none() {
@@ -350,7 +341,7 @@ impl Stepper {
                 events.extend(self.events(decider, at, &told, false));
             }
             self.lens = frame.lens;
-            let (rest, more) = self.run(decider, song, target, forced, quality);
+            let (rest, more) = self.run(decider, song, target, forced);
             merge(&mut frame, rest);
             events.extend(more);
             return Some(Stepped {
@@ -372,9 +363,8 @@ impl Stepper {
         manifest: &Manifest,
         song: &SongChart,
         target: u32,
-        quality: f32,
     ) {
-        *decider = self.replay(decider, manifest, song, target, quality);
+        *decider = self.replay(decider, manifest, song, target);
         self.on = Some(song.clone());
         self.steps = target;
         self.pure = true;
@@ -389,7 +379,6 @@ impl Stepper {
         manifest: &Manifest,
         song: &SongChart,
         target: u32,
-        quality: f32,
     ) -> Decider {
         let (mut steps, mut replayed, mut lens) = match self
             .snapshots
@@ -403,7 +392,7 @@ impl Stepper {
         while steps < target {
             self.keep(steps, &replayed, lens);
             lens = replayed
-                .step_at(&song.chart, steps, song.seed, unheard(), None, quality)
+                .step_at(&song.chart, steps, song.seed, unheard(), None, 1.0)
                 .lens;
             steps += 1;
         }
@@ -706,41 +695,46 @@ mod tests {
         assert_eq!(steps_until(snapshot_time), SNAPSHOT_EVERY);
         assert_eq!(steps_until(next_time), SNAPSHOT_EVERY + 1);
 
-        let frame = |stepper: &mut Stepper, decider: &mut Decider, time, first| {
+        let frame = |stepper: &mut Stepper, decider: &mut Decider, time, quality, first| {
             stepper
-                .frame(decider, &manifest, &song, time, &mut None, 1.0, first, 0)
+                .frame(
+                    decider, &manifest, &song, time, &mut None, quality, first, 0,
+                )
                 .unwrap()
         };
         let mut reference = configured();
         let mut fresh = Stepper::default();
-        let target = frame(&mut fresh, &mut reference, snapshot_time, true);
-        let next = frame(&mut fresh, &mut reference, next_time, false);
+        let target = frame(&mut fresh, &mut reference, snapshot_time, 1.0, true);
+        let next = frame(&mut fresh, &mut reference, next_time, 1.0, false);
         assert!(target.decision.lens.flare > 0.0);
 
         let mut decider = configured();
         let mut stepper = Stepper::default();
-        frame(&mut stepper, &mut decider, 9.5, true);
+        frame(&mut stepper, &mut decider, 9.5, 1.0, true);
         // Cross the snapshot inside a frame that takes several steps.
-        assert!(!frame(&mut stepper, &mut decider, 10.4, false).jumped);
-        let later = frame(&mut stepper, &mut decider, 14.0, false);
+        assert!(!frame(&mut stepper, &mut decider, 10.4, 0.25, false).jumped);
+        let later = frame(&mut stepper, &mut decider, 14.0, 1.0, false);
         assert!(stepper.snapshot_steps().contains(&SNAPSHOT_EVERY));
         assert_ne!(later.decision.lens, target.decision.lens);
 
-        let replayed = frame(&mut stepper, &mut decider, next_time, false);
+        let replayed = frame(&mut stepper, &mut decider, next_time, 1.0, false);
         assert!(replayed.jumped && replayed.replaced);
         assert_eq!(replayed.decision.lens, next.decision.lens);
-        frame(&mut stepper, &mut decider, 14.0, false);
+        frame(&mut stepper, &mut decider, 14.0, 1.0, false);
 
-        let restored = frame(&mut stepper, &mut decider, snapshot_time, false);
+        let restored = frame(&mut stepper, &mut decider, snapshot_time, 1.0, false);
         assert!(restored.jumped && restored.replaced);
         assert_eq!(
             restored.decision.lens, target.decision.lens,
             "zero-step restore must return the target lens"
         );
-        let repeated = frame(&mut stepper, &mut decider, snapshot_time, false);
+        let low_quality = frame(&mut stepper, &mut decider, snapshot_time, 0.25, false);
+        assert!(!low_quality.jumped);
+        assert_eq!(low_quality.decision.lens.flare, 0.0);
+        let repeated = frame(&mut stepper, &mut decider, snapshot_time, 1.0, false);
         assert!(!repeated.jumped);
         assert_eq!(repeated.decision.lens, target.decision.lens);
-        let stepped = frame(&mut stepper, &mut decider, next_time, false);
+        let stepped = frame(&mut stepper, &mut decider, next_time, 1.0, false);
         assert!(!stepped.jumped);
         assert_eq!(stepped.decision.lens, next.decision.lens);
     }
