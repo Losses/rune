@@ -299,6 +299,19 @@ impl<M: SyncModel> CausalReplica<M> {
         author: Uuid,
         file_token: Option<Uuid>,
     ) -> Result<Self> {
+        let tx = begin_write(&db).await?;
+        let replica = Self::create_empty_on(&tx, db.clone(), namespace, author, file_token).await?;
+        tx.commit().await?;
+        Ok(replica)
+    }
+    /// Initialize a new namespace inside an existing caller-owned write transaction.
+    pub async fn create_empty_on(
+        tx: &DatabaseTransaction,
+        db: DatabaseConnection,
+        namespace: Uuid,
+        author: Uuid,
+        file_token: Option<Uuid>,
+    ) -> Result<Self> {
         ensure!(
             !namespace.is_nil() && !author.is_nil(),
             "nil namespace or author"
@@ -316,10 +329,9 @@ impl<M: SyncModel> CausalReplica<M> {
             generation: Uuid::new_v4(),
         };
         let anchor = protocol::initial_anchor(&identity)?;
-        let tx = begin_write(&db).await?;
-        ensure_journal_origin_on(&tx).await?;
-        ensure_export_cursors_on(&tx).await?;
-        ensure_writer_columns_on(&tx).await?;
+        ensure_journal_origin_on(tx).await?;
+        ensure_export_cursors_on(tx).await?;
+        ensure_writer_columns_on(tx).await?;
         let q = Query::insert()
             .into_table(Alias::new("sync_meta"))
             .columns(
@@ -369,7 +381,6 @@ impl<M: SyncModel> CausalReplica<M> {
             ])
             .to_owned();
         tx.execute(&q).await?;
-        tx.commit().await?;
         let writer = Arc::new(
             WriterIncarnation::with_reservation(author, writer_id, 0, reserved_end as u64)
                 .map_err(anyhow::Error::msg)?,
