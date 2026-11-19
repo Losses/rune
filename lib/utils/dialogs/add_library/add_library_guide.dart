@@ -22,7 +22,6 @@ import '../../../utils/file_storage/mac_secure_manager.dart';
 import '../../../utils/router/navigation.dart';
 import '../../../widgets/no_shortcuts.dart';
 import '../../../widgets/subtitle_button.dart';
-import '../../../widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 import '../../../widgets/settings/settings_tile_title.dart';
 import '../../../screens/settings_neighbors/utils/show_add_remote_device_dialog.dart';
 import '../../../screens/settings_server/widgets/peer_libraries_dialog.dart';
@@ -461,10 +460,7 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
           widget.dependencies.scanLibrary ??
           (recordId) => manager!.scanLibrary(recordId, isInitializeTask: true);
       widget.$close(null);
-      if (runeWithNavigationBarAndPlaybackControllorNavigatorKey.currentState !=
-          null) {
-        $push('/library');
-      }
+      _navigateToLibrary(deferRootToScan: scanAfterOpen);
       if (scanAfterOpen) await scan(record.recordId);
     } catch (error) {
       if (mounted) {
@@ -608,7 +604,7 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
           widget.dependencies.scanLibrary ??
           (recordId) =>
               libraryManager!.scanLibrary(recordId, isInitializeTask: true);
-      if (await _openRecord(record.recordId)) {
+      if (await _openRecord(record.recordId, deferRootToScan: true)) {
         await scan(record.recordId);
       }
     } catch (error) {
@@ -848,7 +844,10 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
 
   /// Open the new record and leave the guide; false when opening failed and
   /// the failure was shown.
-  Future<bool> _openRecord(String recordId) async {
+  Future<bool> _openRecord(
+    String recordId, {
+    bool deferRootToScan = false,
+  }) async {
     final registry = Provider.of<LibraryRegistryProvider>(
       context,
       listen: false,
@@ -868,12 +867,16 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
       return false;
     }
     widget.$close(null);
-    // The welcome page has no library navigator; opening a library replaces it.
-    if (runeWithNavigationBarAndPlaybackControllorNavigatorKey.currentState !=
-        null) {
-      $push('/library');
-    }
+    _navigateToLibrary(deferRootToScan: deferRootToScan);
     return true;
+  }
+
+  void _navigateToLibrary({bool deferRootToScan = false}) {
+    if ($hasLibraryNavigator) {
+      $push('/library');
+    } else if (!deferRootToScan && $$hasRootNavigator) {
+      $$replace('/library');
+    }
   }
 
   Widget _sourceRow(

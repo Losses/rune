@@ -5,13 +5,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:rune/bindings/bindings.dart';
 import 'package:rune/l10n/app_localizations.dart';
+import 'package:rune/main.dart' show cafeMode, rootNavigatorKey;
 import 'package:rune/providers/library_manager.dart';
 import 'package:rune/providers/library_registry.dart';
 import 'package:rune/providers/broadcast.dart';
+import 'package:rune/providers/router_path.dart';
 import 'package:rune/utils/add_library_flows.dart';
 import 'package:rune/utils/api/request_failure.dart';
 import 'package:rune/utils/dialogs/add_library/add_library_guide.dart';
+import 'package:rune/utils/router/history.dart';
 import 'package:rune/providers/responsive_providers.dart';
+import 'package:rune/widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 
 LibraryRecordSummary _record() => const LibraryRecordSummary(
   recordId: 'record-1',
@@ -1221,4 +1225,351 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Check the username and password.'), findsOneWidget);
   });
+
+  testWidgets(
+    'Subsonic added from the welcome page navigates root to /library',
+    (tester) async {
+      cafeMode = false;
+      $history.reset();
+      $router.update('/', null);
+      addTearDown(() {
+        $history.reset();
+        $router.update('/library', null);
+      });
+      final registry = _emptyRegistry();
+      final manager = _testManager();
+      final opened = <String>[];
+      final rootRoutes = <String>[];
+      addTearDown(registry.dispose);
+      addTearDown(manager.dispose);
+
+      const subsonicRecord = LibraryRecordSummary(
+        recordId: 'subsonic-1',
+        alias: '127.0.0.1',
+        kind: LibraryRecordKindSummarySubsonic(
+          endpoint: 'http://127.0.0.1:4533',
+          account: 'alice',
+        ),
+      );
+
+      final sizes = ScreenSizeProvider.withWriter(null, (_) async {});
+      final responsive = ResponsiveProvider(sizes, () async => null);
+      final broadcast = _Broadcast();
+      addTearDown(sizes.dispose);
+      addTearDown(responsive.dispose);
+      addTearDown(broadcast.dispose);
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: sizes),
+            ChangeNotifierProvider.value(value: responsive),
+            ChangeNotifierProvider<LibraryRegistryProvider>.value(
+              value: registry,
+            ),
+            ChangeNotifierProvider<LibraryManagerProvider>.value(
+              value: manager,
+            ),
+            ChangeNotifierProvider<BroadcastProvider>.value(value: broadcast),
+          ],
+          child: FluentApp(
+            navigatorKey: rootNavigatorKey,
+            initialRoute: '/',
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            onGenerateRoute: (settings) {
+              final name = settings.name!;
+              rootRoutes.add(name);
+              return FluentPageRoute<void>(
+                settings: settings,
+                builder: (context) => name == '/library'
+                    ? const Text('Library Home')
+                    : Button(
+                        onPressed: () => showAddLibraryGuide(
+                          context,
+                          dependencies: AddLibraryGuideDependencies(
+                            registerSubsonic: (request) async {
+                              if (request.mode == null) {
+                                return const RegisterLibraryResponse(
+                                  outcome:
+                                      RegisterLibraryOutcomeNeedsSubsonicMode(
+                                        allowed: [
+                                          SubsonicOpenModeMessage
+                                              .playOnThisDevice,
+                                        ],
+                                      ),
+                                );
+                              }
+                              return const RegisterLibraryResponse(
+                                record: subsonicRecord,
+                                outcome: RegisterLibraryOutcomeRegistered(),
+                              );
+                            },
+                            openRecord: (recordId) async =>
+                                opened.add(recordId),
+                          ),
+                        ),
+                        child: const Text('Add Library'),
+                      ),
+              );
+            },
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Add Library'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Subsonic'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(Button, 'Confirm'));
+      await tester.pumpAndSettle();
+      for (final entry in <(int, String)>[
+        (0, 'http://127.0.0.1:4533'),
+        (1, 'alice'),
+        (2, 'secret'),
+      ]) {
+        await tester.enterText(find.byType(TextBox).at(entry.$1), entry.$2);
+      }
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(Button, 'Confirm'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Play on This Device'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(Button, 'Confirm'));
+      await tester.pumpAndSettle();
+
+      expect(opened, ['subsonic-1']);
+      expect(find.text('Library Home'), findsOneWidget);
+      expect(find.text('Add Library'), findsNothing);
+      expect(rootRoutes, ['/', '/library']);
+      expect($router.path, '/library');
+    },
+  );
+
+  testWidgets(
+    'Subsonic added from inside a library pushes /library on the library navigator',
+    (tester) async {
+      cafeMode = false;
+      $history.reset();
+      $router.update('/settings/library', null);
+      addTearDown(() {
+        $history.reset();
+        $router.update('/library', null);
+      });
+      final registry = _emptyRegistry();
+      final manager = _testManager();
+      final opened = <String>[];
+      final rootRoutes = <String>[];
+      final nestedRoutes = <String>[];
+      addTearDown(registry.dispose);
+      addTearDown(manager.dispose);
+
+      const subsonicRecord = LibraryRecordSummary(
+        recordId: 'subsonic-2',
+        alias: '127.0.0.1',
+        kind: LibraryRecordKindSummarySubsonic(
+          endpoint: 'http://127.0.0.1:4533',
+          account: 'alice',
+        ),
+      );
+
+      final sizes = ScreenSizeProvider.withWriter(null, (_) async {});
+      final responsive = ResponsiveProvider(sizes, () async => null);
+      final broadcast = _Broadcast();
+      addTearDown(sizes.dispose);
+      addTearDown(responsive.dispose);
+      addTearDown(broadcast.dispose);
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: sizes),
+            ChangeNotifierProvider.value(value: responsive),
+            ChangeNotifierProvider<LibraryRegistryProvider>.value(
+              value: registry,
+            ),
+            ChangeNotifierProvider<LibraryManagerProvider>.value(
+              value: manager,
+            ),
+            ChangeNotifierProvider<BroadcastProvider>.value(value: broadcast),
+          ],
+          child: FluentApp(
+            navigatorKey: rootNavigatorKey,
+            initialRoute: '/',
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            onGenerateRoute: (settings) {
+              rootRoutes.add(settings.name!);
+              return FluentPageRoute<void>(
+                settings: settings,
+                builder: (_) => Navigator(
+                  key: runeWithNavigationBarAndPlaybackControllorNavigatorKey,
+                  initialRoute: '/',
+                  onGenerateRoute: (nestedSettings) {
+                    final name = nestedSettings.name!;
+                    nestedRoutes.add(name);
+                    return FluentPageRoute<void>(
+                      settings: nestedSettings,
+                      builder: (context) => name == '/library'
+                          ? const Text('Nested Library Home')
+                          : Button(
+                              onPressed: () => showAddLibraryGuide(
+                                context,
+                                dependencies: AddLibraryGuideDependencies(
+                                  registerSubsonic: (request) async {
+                                    if (request.mode == null) {
+                                      return const RegisterLibraryResponse(
+                                        outcome:
+                                            RegisterLibraryOutcomeNeedsSubsonicMode(
+                                              allowed: [
+                                                SubsonicOpenModeMessage
+                                                    .playOnThisDevice,
+                                              ],
+                                            ),
+                                      );
+                                    }
+                                    return const RegisterLibraryResponse(
+                                      record: subsonicRecord,
+                                      outcome:
+                                          RegisterLibraryOutcomeRegistered(),
+                                    );
+                                  },
+                                  openRecord: (recordId) async =>
+                                      opened.add(recordId),
+                                ),
+                              ),
+                              child: const Text('Add Library'),
+                            ),
+                    );
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Add Library'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Subsonic'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(Button, 'Confirm'));
+      await tester.pumpAndSettle();
+      for (final entry in <(int, String)>[
+        (0, 'http://127.0.0.1:4533'),
+        (1, 'alice'),
+        (2, 'secret'),
+      ]) {
+        await tester.enterText(find.byType(TextBox).at(entry.$1), entry.$2);
+      }
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(Button, 'Confirm'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Play on This Device'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(Button, 'Confirm'));
+      await tester.pumpAndSettle();
+
+      expect(opened, ['subsonic-2']);
+      expect(find.text('Nested Library Home'), findsOneWidget);
+      expect(rootRoutes, ['/']);
+      expect(nestedRoutes, ['/', '/library']);
+      expect($router.path, '/library');
+    },
+  );
+
+  testWidgets(
+    'failed Subsonic registration from the welcome page shows its error without navigating',
+    (tester) async {
+      cafeMode = false;
+      $history.reset();
+      $router.update('/', null);
+      addTearDown(() {
+        $history.reset();
+        $router.update('/library', null);
+      });
+      final registry = _emptyRegistry();
+      final manager = _testManager();
+      final rootRoutes = <String>[];
+      addTearDown(registry.dispose);
+      addTearDown(manager.dispose);
+
+      final sizes = ScreenSizeProvider.withWriter(null, (_) async {});
+      final responsive = ResponsiveProvider(sizes, () async => null);
+      final broadcast = _Broadcast();
+      addTearDown(sizes.dispose);
+      addTearDown(responsive.dispose);
+      addTearDown(broadcast.dispose);
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: sizes),
+            ChangeNotifierProvider.value(value: responsive),
+            ChangeNotifierProvider<LibraryRegistryProvider>.value(
+              value: registry,
+            ),
+            ChangeNotifierProvider<LibraryManagerProvider>.value(
+              value: manager,
+            ),
+            ChangeNotifierProvider<BroadcastProvider>.value(value: broadcast),
+          ],
+          child: FluentApp(
+            navigatorKey: rootNavigatorKey,
+            initialRoute: '/',
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            onGenerateRoute: (settings) {
+              final name = settings.name!;
+              rootRoutes.add(name);
+              return FluentPageRoute<void>(
+                settings: settings,
+                builder: (context) => name == '/library'
+                    ? const Text('Library Home')
+                    : Button(
+                        onPressed: () => showAddLibraryGuide(
+                          context,
+                          dependencies: AddLibraryGuideDependencies(
+                            registerSubsonic: (_) async =>
+                                throw const RequestFailure(
+                                  'RegisterSubsonicLibraryRequest',
+                                  RequestErrorKind.permissionDenied,
+                                  'The Subsonic credentials were rejected',
+                                  RequestFailureCauseLibraryRegistrationFailed(
+                                    kind: RegisterLibraryFailureKind
+                                        .subsonicWrongCredentials,
+                                  ),
+                                ),
+                          ),
+                        ),
+                        child: const Text('Add Library'),
+                      ),
+              );
+            },
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Add Library'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Subsonic'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(Button, 'Confirm'));
+      await tester.pumpAndSettle();
+      for (final entry in <(int, String)>[
+        (0, 'http://127.0.0.1:4533'),
+        (1, 'alice'),
+        (2, 'wrong'),
+      ]) {
+        await tester.enterText(find.byType(TextBox).at(entry.$1), entry.$2);
+      }
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(Button, 'Confirm'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Check the username and password.'), findsOneWidget);
+      expect(find.text('Library Home'), findsNothing);
+      expect(rootRoutes, ['/']);
+    },
+  );
 }

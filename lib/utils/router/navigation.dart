@@ -140,6 +140,8 @@ Future<T?>? $replace<T extends Object?>(
   return navigation.pushReplacementNamed(routeName, arguments: p);
 }
 
+bool get $$hasRootNavigator => rootNavigatorKey.currentState != null;
+
 NavigatorState $$state() {
   return rootNavigatorKey.currentState!;
 }
