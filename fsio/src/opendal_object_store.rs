@@ -4,7 +4,7 @@ use std::{collections::BTreeSet, fmt, time::Duration};
 use opendal::{services, ErrorKind, HttpTransporter, OperationContext, Operator as AsyncOperator};
 use opendal_http_transport_reqwest::ReqwestTransport;
 use rustls::{ClientConfig, RootCertStore};
-use sync::share::{ConditionalGet, ObjectStore, ObjectTag, ObjectValue, StoreError};
+use sync::share::{ConditionalGet, ObjectStore, ObjectTag, ObjectValue, ProbeObject, StoreError};
 
 use crate::OpenDalConfig;
 
@@ -88,9 +88,12 @@ impl OpenDalObjectStore {
     }
 
     /// Run the required roundtrip and independent conditional-feature probes below this device's prefix.
+    /// The scratch objects are named by [`ProbeObject`], so share listings pass over them.
     pub async fn probe(&self, own_prefix: &str) -> Result<ObjectStoreCapabilities, StoreError> {
         let prefix = validate_device_prefix(own_prefix)?;
-        let name = format!("{prefix}.probe-{}", uuid::Uuid::new_v4());
+        let scratch_key =
+            |object: ProbeObject| format!("{prefix}{}", object.name(uuid::Uuid::new_v4()));
+        let name = scratch_key(ProbeObject::Roundtrip);
         let bytes = b"rune object-store probe";
         let mut caps = ObjectStoreCapabilities::default();
         let probe_result = async {
@@ -122,7 +125,7 @@ impl OpenDalObjectStore {
         }
         caps.write_probe = true;
 
-        let create_key = format!("{prefix}.conditional-create-{}", uuid::Uuid::new_v4());
+        let create_key = scratch_key(ProbeObject::ConditionalCreate);
         if self.create(&create_key, bytes).await.is_ok() {
             caps.conditional_create = matches!(
                 self.create(&create_key, bytes).await,
@@ -131,7 +134,7 @@ impl OpenDalObjectStore {
             let _ = self.delete(&create_key).await;
         }
 
-        let match_key = format!("{prefix}.conditional-put-{}", uuid::Uuid::new_v4());
+        let match_key = scratch_key(ProbeObject::ConditionalPut);
         if self.put(&match_key, bytes).await.is_ok() {
             if let Ok(original) = self.get(&match_key).await {
                 if self
@@ -149,7 +152,7 @@ impl OpenDalObjectStore {
             let _ = self.delete(&match_key).await;
         }
 
-        let get_key = format!("{prefix}.conditional-get-{}", uuid::Uuid::new_v4());
+        let get_key = scratch_key(ProbeObject::ConditionalGet);
         if self.put(&get_key, bytes).await.is_ok() {
             if let Ok(original) = self.get(&get_key).await {
                 match self.get_if_none_match(&get_key, &original.tag).await {

@@ -1792,6 +1792,41 @@ fn keys_round_trip_and_foreign_names_are_rejected() {
     }
 }
 
+#[test]
+fn store_probe_objects_parse_in_any_probed_folder_and_near_misses_are_rejected() {
+    let id = Uuid::from_u128(4);
+    let device = format!("{}.{}", Uuid::from_u128(2), Uuid::from_u128(3));
+    // The Add Library guide probes a folder that is not a device prefix.
+    let guide = format!("{}.1", Uuid::from_u128(5));
+    for object in [
+        ProbeObject::Roundtrip,
+        ProbeObject::ConditionalCreate,
+        ProbeObject::ConditionalPut,
+        ProbeObject::ConditionalGet,
+    ] {
+        let name = object.name(id);
+        for folder in [&device, &guide] {
+            let key = format!("devices/{folder}/{name}");
+            assert_eq!(parse_key(&key).unwrap(), ObjectKey::Probe, "{key}");
+        }
+        for foreign in [
+            name.clone(),
+            format!("devices/{name}"),
+            format!("devices/{device}/{name}.json"),
+        ] {
+            assert!(parse_key(&foreign).is_err(), "{foreign}");
+        }
+    }
+    for foreign in [
+        format!("devices/{device}/.probe-{}", id.simple()),
+        format!("devices/{device}/.probe-not-a-uuid"),
+        format!("devices/{device}/.probe-"),
+        format!("devices/{device}/probe-{id}"),
+    ] {
+        assert!(parse_key(&foreign).is_err(), "{foreign}");
+    }
+}
+
 #[tokio::test]
 async fn memory_store_injects_errors_partial_writes_and_conditional_tags() {
     let store = MemoryObjectStore::default();

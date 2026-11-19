@@ -104,7 +104,7 @@ impl MemoryObjectStore {
                 Ok(ObjectKey::Segment { .. }) => Some(StoreObjectKind::Segment),
                 Ok(ObjectKey::Base { .. }) => Some(StoreObjectKind::Base),
                 Ok(ObjectKey::Chunk { .. }) => Some(StoreObjectKind::Chunk),
-                Ok(ObjectKey::Library | ObjectKey::Other(_)) | Err(_) => None,
+                Ok(ObjectKey::Library | ObjectKey::Probe) | Err(_) => None,
             };
             if let Some(error) = kind.and_then(|kind| {
                 recover_lock(&self.kind_failures)
