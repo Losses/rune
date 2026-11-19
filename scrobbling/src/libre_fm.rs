@@ -3,15 +3,18 @@ use std::{collections::HashMap, time::SystemTime};
 
 use anyhow::{Result, bail};
 use async_trait::async_trait;
-use reqwest::{Client, Response};
+use reqwest::Client;
 
-use crate::{AuthResponse, ScrobblingAuthFailure, ScrobblingClient, ScrobblingTrack};
+use crate::{
+    AuthResponse, ScrobblingAuthFailure, ScrobblingClient, ScrobblingTrack,
+    send_audioscrobbler_request,
+};
 
 #[derive(Clone)]
 pub struct LibreFmClient {
     pub session_key: Option<String>,
     client: Client,
-    base_url: String,
+    pub(crate) base_url: String,
 }
 
 impl LibreFmClient {
@@ -89,7 +92,7 @@ impl ScrobblingClient for LibreFmClient {
         }
     }
 
-    async fn update_now_playing(&self, track: &ScrobblingTrack) -> Result<Response> {
+    async fn update_now_playing(&self, track: &ScrobblingTrack) -> Result<()> {
         if self.session_key.is_none() {
             bail!("Not authenticated");
         }
@@ -111,18 +114,17 @@ impl ScrobblingClient for LibreFmClient {
             params.insert("duration".to_string(), duration.to_string());
         }
 
-        let response = self
-            .client
-            .post(&self.base_url)
-            .form(&params)
-            .query(&[("format", "json")])
-            .send()
-            .await?;
-
-        Ok(response)
+        send_audioscrobbler_request(
+            &self.client,
+            &self.base_url,
+            &params,
+            "Libre.fm",
+            "now playing",
+        )
+        .await
     }
 
-    async fn scrobble(&self, track: &ScrobblingTrack) -> Result<Response> {
+    async fn scrobble(&self, track: &ScrobblingTrack) -> Result<()> {
         if self.session_key.is_none() {
             bail!("Not authenticated");
         }
@@ -149,18 +151,95 @@ impl ScrobblingClient for LibreFmClient {
             params.insert("albumArtist".to_string(), album_artist.clone());
         }
 
-        let response = self
-            .client
-            .post(&self.base_url)
-            .form(&params)
-            .query(&[("format", "json")])
-            .send()
-            .await?;
-
-        Ok(response)
+        send_audioscrobbler_request(
+            &self.client,
+            &self.base_url,
+            &params,
+            "Libre.fm",
+            "scrobble",
+        )
+        .await
     }
 
     fn session_key(&self) -> Option<&str> {
         self.session_key.as_deref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::Ordering;
+
+    use super::LibreFmClient;
+    use crate::{
+        ScrobblingClient,
+        test_support::{sample_track, spawn_sequence_server},
+    };
+
+    #[tokio::test]
+    async fn update_now_playing_and_scrobble_reject_http_500_without_leaking_body() {
+        let body = "upstream unavailable leaked-session-token".to_string();
+        let (base_url, _, server) = spawn_sequence_server(vec![
+            ("500 Internal Server Error", body.clone()),
+            ("500 Internal Server Error", body),
+        ])
+        .await;
+
+        let mut client = LibreFmClient::new().unwrap();
+        client.base_url = base_url;
+        client.session_key = Some("synthetic-session".into());
+        let track = sample_track();
+
+        let now_err = client.update_now_playing(&track).await.unwrap_err();
+        let scrobble_err = client.scrobble(&track).await.unwrap_err();
+        server.await.unwrap();
+
+        assert!(!format!("{now_err:#}").contains("leaked-session-token"));
+        assert!(!format!("{scrobble_err:#}").contains("leaked-session-token"));
+        assert!(format!("{now_err:#}").contains("500"));
+        assert!(format!("{scrobble_err:#}").contains("500"));
+    }
+
+    #[tokio::test]
+    async fn update_now_playing_and_scrobble_reject_http_200_api_error_without_leaking_message() {
+        let body = r#"{"error":9,"message":"Invalid session key secret-echo"}"#.to_string();
+        let (base_url, _, server) =
+            spawn_sequence_server(vec![("200 OK", body.clone()), ("200 OK", body)]).await;
+
+        let mut client = LibreFmClient::new().unwrap();
+        client.base_url = base_url;
+        client.session_key = Some("synthetic-session".into());
+        let track = sample_track();
+
+        let now_err = client.update_now_playing(&track).await.unwrap_err();
+        let scrobble_err = client.scrobble(&track).await.unwrap_err();
+        server.await.unwrap();
+
+        assert!(!format!("{now_err:#}").contains("secret-echo"));
+        assert!(!format!("{scrobble_err:#}").contains("secret-echo"));
+        assert!(format!("{now_err:#}").contains('9'));
+        assert!(format!("{scrobble_err:#}").contains('9'));
+    }
+
+    #[tokio::test]
+    async fn update_now_playing_and_scrobble_accept_valid_json_responses() {
+        let now_body = r##"{"nowplaying":{"track":{"corrected":"0","#text":"Synthetic track"}}}"##;
+        let scrobble_body = r#"{"scrobbles":{"@attr":{"accepted":1,"ignored":0}}}"#;
+        let (base_url, request_count, server) = spawn_sequence_server(vec![
+            ("200 OK", now_body.to_string()),
+            ("200 OK", scrobble_body.to_string()),
+        ])
+        .await;
+
+        let mut client = LibreFmClient::new().unwrap();
+        client.base_url = base_url;
+        client.session_key = Some("synthetic-session".into());
+        let track = sample_track();
+
+        client.update_now_playing(&track).await.unwrap();
+        client.scrobble(&track).await.unwrap();
+        server.await.unwrap();
+
+        assert_eq!(request_count.load(Ordering::SeqCst), 2);
     }
 }

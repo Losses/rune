@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 use async_trait::async_trait;
-use reqwest::{Client, Response, header::HeaderValue};
+use reqwest::{Client, header::HeaderValue};
 use serde_json::{Map, Value};
 use std::{
     collections::HashMap,
@@ -62,7 +62,7 @@ impl ListenBrainzClient {
         &self,
         endpoint: &str,
         body: &HashMap<&str, serde_json::Value>,
-    ) -> Result<Response> {
+    ) -> Result<()> {
         if let Some(token) = &self.session_key {
             let response = self
                 .client
@@ -76,7 +76,7 @@ impl ListenBrainzClient {
                 .await?;
 
             if response.status().is_success() {
-                Ok(response)
+                Ok(())
             } else {
                 bail!(
                     "ListenBrainz request failed with HTTP {}",
@@ -132,7 +132,7 @@ impl ScrobblingClient for ListenBrainzClient {
         Ok(())
     }
 
-    async fn update_now_playing(&self, track: &ScrobblingTrack) -> Result<Response> {
+    async fn update_now_playing(&self, track: &ScrobblingTrack) -> Result<()> {
         let track_metadata: Value = track.into();
 
         let mut payload = Map::new();
@@ -148,7 +148,7 @@ impl ScrobblingClient for ListenBrainzClient {
         self.post_request("1/submit-listens", &body).await
     }
 
-    async fn scrobble(&self, track: &ScrobblingTrack) -> Result<Response> {
+    async fn scrobble(&self, track: &ScrobblingTrack) -> Result<()> {
         let track_metadata: Value = track.into();
 
         let mut payload = Map::new();
@@ -170,5 +170,42 @@ impl ScrobblingClient for ListenBrainzClient {
 
     fn session_key(&self) -> Option<&str> {
         self.session_key.as_deref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::Ordering;
+
+    use super::ListenBrainzClient;
+    use crate::{
+        ScrobblingClient,
+        test_support::{sample_track, spawn_sequence_server},
+    };
+
+    #[tokio::test]
+    async fn update_now_playing_and_scrobble_report_http_outcome() {
+        let (base_url, request_count, server) = spawn_sequence_server(vec![
+            ("200 OK", r#"{"status":"ok"}"#.to_string()),
+            ("200 OK", r#"{"status":"ok"}"#.to_string()),
+            ("500 Internal Server Error", "upstream error".to_string()),
+            ("500 Internal Server Error", "upstream error".to_string()),
+        ])
+        .await;
+
+        let mut client = ListenBrainzClient::new().unwrap();
+        client.base_url = base_url.trim_end_matches('/').to_string();
+        client.session_key = Some("synthetic-token".into());
+        let track = sample_track();
+
+        client.update_now_playing(&track).await.unwrap();
+        client.scrobble(&track).await.unwrap();
+        let now_err = client.update_now_playing(&track).await.unwrap_err();
+        let scrobble_err = client.scrobble(&track).await.unwrap_err();
+        server.await.unwrap();
+
+        assert_eq!(request_count.load(Ordering::SeqCst), 4);
+        assert!(format!("{now_err:#}").contains("500"));
+        assert!(format!("{scrobble_err:#}").contains("500"));
     }
 }

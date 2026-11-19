@@ -65,41 +65,41 @@ async fn main() -> Result<()> {
         timestamp: None,
     };
 
-    let response = match service.as_str() {
+    match service.as_str() {
         "lastfm" => {
             let mut client = LastFmClient::new(api_key.to_string(), api_secret.to_string())?;
             client.authenticate(username, password).await?;
             if action == "nowplaying" {
-                client.update_now_playing(&track).await?
+                client.update_now_playing(&track).await?;
             } else {
-                client.scrobble(&track).await?
+                client.scrobble(&track).await?;
             }
         }
         "librefm" => {
             let mut client = LibreFmClient::new()?;
             client.authenticate(username, password).await?;
             if action == "nowplaying" {
-                client.update_now_playing(&track).await?
+                client.update_now_playing(&track).await?;
             } else {
-                client.scrobble(&track).await?
+                client.scrobble(&track).await?;
             }
         }
         "listenbrainz" => {
             let mut client = ListenBrainzClient::new()?;
             client.authenticate(username, password).await?;
             if action == "nowplaying" {
-                client.update_now_playing(&track).await?
+                client.update_now_playing(&track).await?;
             } else {
-                client.scrobble(&track).await?
+                client.scrobble(&track).await?;
             }
         }
         _ => {
             eprintln!("Unsupported service: {}", { service });
             return Ok(());
         }
-    };
+    }
 
-    println!("Response: {:?}", response.text().await?);
+    println!("Completed {action} request for {service}");
 
     Ok(())
 }
