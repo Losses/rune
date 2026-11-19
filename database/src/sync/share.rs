@@ -53,7 +53,6 @@ pub struct ShareState {
     pub local_cursor: u64,
     #[serde(with = "observed_object_map")]
     pub observed_objects: BTreeMap<ObjectKey, ObservedObject>,
-    pub unavailable_bases: BTreeSet<(DevicePrefix, String)>,
     pub chunk_cache_path: PathBuf,
 }
 
@@ -114,7 +113,6 @@ impl ShareState {
             head_counter: 0,
             local_cursor: 0,
             observed_objects: BTreeMap::new(),
-            unavailable_bases: BTreeSet::new(),
             chunk_cache_path: cache_path,
         })
     }
@@ -179,7 +177,6 @@ impl ShareState {
         self.head_counter = 0;
         self.local_cursor = 0;
         self.observed_objects.clear();
-        self.unavailable_bases.clear();
     }
 }
 
@@ -1301,10 +1298,6 @@ pub async fn pull<M: SyncModel>(
             source_generation: head.generation,
             scope_id,
         };
-        let applied = local
-            .checkpoint(&checkpoint)
-            .await
-            .map_err(|error| SharePullError::Store(error.to_string()))?;
         if head.stream == local_state.stream {
             if head.generation == local_state.generation {
                 if head.writer_session != local_state.writer_session {
@@ -1315,77 +1308,80 @@ pub async fn pull<M: SyncModel>(
             }
             continue;
         }
-        let needs_base = applied.is_none_or(|received| received.sequence < head.floor.seq);
-        let selected_base = if needs_base {
-            Some(
-                choose_live_base::<M>(
-                    &*store,
-                    &candidates,
-                    &prefix,
-                    &head,
-                    &local_state.unavailable_bases,
+        // A base that cannot be read is skipped for this stream in this pull only: an object can
+        // be missing just while the share recovers, so the next pull tries the base again. Each
+        // attempt rereads the checkpoint, which a failed attempt may have advanced.
+        let mut unavailable_bases = BTreeSet::new();
+        let (done, selected_base) = 'selection: loop {
+            let applied = local
+                .checkpoint(&checkpoint)
+                .await
+                .map_err(|error| SharePullError::Store(error.to_string()))?;
+            let needs_base = applied.is_none_or(|received| received.sequence < head.floor.seq);
+            let selected_base = if needs_base {
+                Some(
+                    choose_live_base::<M>(&*store, &candidates, &prefix, &head, &unavailable_bases)
+                        .await?,
                 )
-                .await?,
-            )
-        } else {
-            None
-        };
-        let peer = match selected_base.clone() {
-            Some(base) => SharePeer::<M>::new_with_base(
-                store.clone(),
-                library_id,
-                prefix.to_string(),
-                cache_path.clone(),
-                base,
-            ),
-            None => SharePeer::<M>::new(
-                store.clone(),
-                library_id,
-                prefix.to_string(),
-                cache_path.clone(),
-            ),
-        }
-        .map_err(|error| SharePullError::Invalid(error.to_string()))?;
-        if let Some(genesis) = peer.genesis_checkpoint().await.map_err(sync_error)? {
-            let tx = db.begin().await.map_err(internal_error)?;
-            adopt_checkpoint_on(&tx, &checkpoint, &genesis)
-                .await
-                .map_err(internal_error)?;
-            tx.commit().await.map_err(internal_error)?;
-        }
-        let mut coordinator = Coordinator::<M>::new(scope.clone(), limits)
+            } else {
+                None
+            };
+            let peer = match selected_base.clone() {
+                Some(base) => SharePeer::<M>::new_with_base(
+                    store.clone(),
+                    library_id,
+                    prefix.to_string(),
+                    cache_path.clone(),
+                    base,
+                ),
+                None => SharePeer::<M>::new(
+                    store.clone(),
+                    library_id,
+                    prefix.to_string(),
+                    cache_path.clone(),
+                ),
+            }
             .map_err(|error| SharePullError::Invalid(error.to_string()))?;
-        let mut result = None;
-        for _ in 0..100_000 {
-            match coordinator
-                .advance(local, sink, local_source, &peer, &peer)
-                .await
-            {
-                Ok(SessionAdvance::Complete(done)) => {
-                    result = Some(done);
-                    break;
-                }
-                Ok(SessionAdvance::BudgetExhausted) => coordinator.start_pass(),
-                Ok(SessionAdvance::Incomplete) => (),
-                Ok(SessionAdvance::Cancelled) => {
-                    return Err(SharePullError::Cancelled);
-                }
-                Err(error) => {
-                    if matches!(&error, SyncError::SnapshotSourceUnavailable)
-                        && let Some(base) = &selected_base
-                    {
-                        local_state
-                            .unavailable_bases
-                            .insert((base.owner_prefix.clone(), base.base_id.clone()));
-                        save_state(db, &local_state).await.map_err(internal_error)?;
+            if let Some(genesis) = peer.genesis_checkpoint().await.map_err(sync_error)? {
+                let tx = db.begin().await.map_err(internal_error)?;
+                adopt_checkpoint_on(&tx, &checkpoint, &genesis)
+                    .await
+                    .map_err(internal_error)?;
+                tx.commit().await.map_err(internal_error)?;
+            }
+            let mut coordinator = Coordinator::<M>::new(scope.clone(), limits)
+                .map_err(|error| SharePullError::Invalid(error.to_string()))?;
+            for _ in 0..100_000 {
+                match coordinator
+                    .advance(local, sink, local_source, &peer, &peer)
+                    .await
+                {
+                    Ok(SessionAdvance::Complete(done)) => break 'selection (done, selected_base),
+                    Ok(SessionAdvance::BudgetExhausted) => coordinator.start_pass(),
+                    Ok(SessionAdvance::Incomplete) => (),
+                    Ok(SessionAdvance::Cancelled) => {
+                        return Err(SharePullError::Cancelled);
                     }
-                    return Err(sync_error(error));
+                    Err(error) => {
+                        if matches!(&error, SyncError::SnapshotSourceUnavailable)
+                            && let Some(base) = &selected_base
+                        {
+                            // An attempt that began reconciling holds a receiver session, and
+                            // the next base needs room for its own.
+                            abort_coordinator(&mut coordinator, local, sink, local_source, &peer)
+                                .await?;
+                            unavailable_bases
+                                .insert((base.owner_prefix.clone(), base.base_id.clone()));
+                            continue 'selection;
+                        }
+                        return Err(sync_error(error));
+                    }
                 }
             }
-        }
-        let done = result.ok_or_else(|| {
-            SharePullError::Store("share coordinator exceeded its work bound".into())
-        })?;
+            return Err(SharePullError::Store(
+                "share coordinator exceeded its work bound".into(),
+            ));
+        };
         progress.push(done);
         if let Some(base) = selected_base {
             adopt_manifest_covers(db, &local_identity, &base.manifest, &scope).await?;
@@ -1393,6 +1389,32 @@ pub async fn pull<M: SyncModel>(
     }
     save_state(db, &local_state).await.map_err(internal_error)?;
     Ok(progress)
+}
+
+/// Drives a coordinator that the pull gives up on through its abort path. That cancels its
+/// receiver session and releases both snapshot requests; what it already committed stays.
+async fn abort_coordinator<M: SyncModel>(
+    coordinator: &mut Coordinator<M>,
+    local: &dyn sync::ReceiveStore<M>,
+    sink: &dyn sync::SnapshotSink<M>,
+    local_source: &dyn sync::SnapshotSource<M>,
+    peer: &SharePeer<M>,
+) -> SharePullResult<()> {
+    coordinator.start_abort();
+    for _ in 0..100_000 {
+        match coordinator
+            .advance(local, sink, local_source, peer, peer)
+            .await
+            .map_err(sync_error)?
+        {
+            SessionAdvance::Cancelled => return Ok(()),
+            SessionAdvance::BudgetExhausted => coordinator.start_pass(),
+            SessionAdvance::Incomplete | SessionAdvance::Complete(_) => (),
+        }
+    }
+    Err(SharePullError::Store(
+        "share coordinator exceeded its work bound".into(),
+    ))
 }
 
 /// Publish a prepared local journal range after the caller has completed pull.
@@ -1950,6 +1972,9 @@ fn base_candidates(peers: &[(DevicePrefix, Head)]) -> SharePullResult<Vec<BaseCa
     Ok(candidates.into_values().collect())
 }
 
+/// Selects the live base covering `target` with the largest total coverage. A base whose
+/// manifest is missing, does not decode or fails its digest is skipped for this selection, as
+/// are the `unavailable_bases` this pull could not read.
 async fn choose_live_base<M: SyncModel>(
     store: &dyn ObjectStore,
     candidates: &[BaseCandidate],
@@ -1980,8 +2005,9 @@ async fn choose_live_base<M: SyncModel>(
             Err(StoreError::NotFound) => continue,
             Err(error) => return Err(store_error(error)),
         };
-        let manifest = decode_manifest::<M>(&object.bytes, &candidate.base_id)
-            .map_err(|error| SharePullError::Invalid(error.to_string()))?;
+        let Ok(manifest) = decode_manifest::<M>(&object.bytes, &candidate.base_id) else {
+            continue;
+        };
         validate_manifest_covers(&manifest)?;
         for (prefix, cover) in &candidate.covers {
             if manifest.covers.get(prefix) != Some(cover) {
@@ -2009,9 +2035,13 @@ async fn choose_live_base<M: SyncModel>(
             manifest,
         });
     }
-    Err(SharePullError::Invalid(
-        "no live base covers the required checkpoint".into(),
-    ))
+    if unavailable_bases.is_empty() {
+        Err(SharePullError::Invalid(
+            "no live base covers the required checkpoint".into(),
+        ))
+    } else {
+        Err(sync_error(SyncError::SnapshotSourceUnavailable))
+    }
 }
 
 fn validate_manifest_covers<M: SyncModel>(manifest: &BaseManifest<M>) -> SharePullResult<()> {
