@@ -12,7 +12,7 @@ use database::{
         model::{Collection, Fingerprint, ObjectKey, Payload, ScoreValue, Similarity},
     },
 };
-use fsio::FsIo;
+use fsio::{FsIo, failing_read::OneFailingRead};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
     PaginatorTrait, QueryFilter, QueryOrder, Set, TransactionTrait, sea_query::Expr,
@@ -23,6 +23,7 @@ use std::sync::{
 };
 use support::fixtures;
 use sync_orm::row_policy::BinaryValue;
+use tag_editor::music_brainz::fingerprint::calc_fingerprint;
 use uuid::Uuid;
 
 #[tokio::test]
@@ -177,6 +178,102 @@ async fn fingerprint_write_failure_fails_the_batch_and_stops_queued_files() -> R
     );
     assert_eq!(progress_count.load(Ordering::SeqCst), 0);
     assert_eq!(media_file_fingerprint::Entity::find().count(&db).await?, 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_read_error_while_decoding_stores_no_fingerprint() -> Result<()> {
+    let node = Uuid::new_v4();
+    let db = fixtures::memory_database(node).await?;
+    let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
+    let root = tempfile::tempdir()?;
+    fixtures::scan_audio_fixtures(
+        &FsIo::new(),
+        &db,
+        &node.to_string(),
+        root.path(),
+        &store,
+        &["a.ogg"],
+    )
+    .await?;
+    let track = root.path().join("a.ogg");
+    let (full, _) = calc_fingerprint(&FsIo::new(), &track, &Configuration::default())?;
+    let authored = sync_orm::causal_progress::head_on(&db, store.namespace())
+        .await?
+        .sequence;
+
+    // While probing, the Ogg reader reads the headers and then, from byte 45658,
+    // the rest of the file to find its length, so byte 45000 is first reached by
+    // the decode loop, a few seconds into the track. Check that it still is: a
+    // failure while probing or before the first buffer is reported otherwise.
+    let direct = OneFailingRead::new(45_000);
+    let decoded = calc_fingerprint(&direct.fs(), &track, &Configuration::default());
+    assert!(direct.failed(), "the decoder never reached byte 45000");
+    if let Err(error) = decoded {
+        assert!(
+            format!("{error:#}").contains("read audio: connection reset"),
+            "the failure did not land in the decode loop: {error:#}"
+        );
+    }
+
+    // The hash reads before the failure succeed, and so would the ones after it:
+    // on master they run, and the partial fingerprint is stored.
+    let fault = OneFailingRead::new(45_000);
+    let processed = compute_file_fingerprints(
+        Arc::new(fault.fs()),
+        &db,
+        root.path(),
+        1,
+        |_, _| {},
+        None,
+        &store,
+    )
+    .await?;
+
+    assert!(fault.failed(), "the decoder never reached the failing read");
+    assert_eq!(processed, 1);
+    if let Some(row) = media_file_fingerprint::Entity::find().one(&db).await? {
+        panic!(
+            "a read error while decoding stored a fingerprint of {} bytes for a track of {} bytes",
+            row.fingerprint.len(),
+            full.len() * 4
+        );
+    }
+    assert_eq!(
+        sync_orm::causal_progress::head_on(&db, store.namespace())
+            .await?
+            .sequence,
+        authored,
+        "a read error while decoding authored a fingerprint record"
+    );
+
+    // The track has no fingerprint, so the next run computes the whole one.
+    compute_file_fingerprints(
+        Arc::new(FsIo::new()),
+        &db,
+        root.path(),
+        1,
+        |_, _| {},
+        None,
+        &store,
+    )
+    .await?;
+    let row = media_file_fingerprint::Entity::find()
+        .one(&db)
+        .await?
+        .expect("a clean run fingerprints the track");
+    assert_eq!(
+        row.fingerprint,
+        full.into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        sync_orm::causal_progress::head_on(&db, store.namespace())
+            .await?
+            .sequence
+            > authored
+    );
     Ok(())
 }
 
