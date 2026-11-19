@@ -130,20 +130,6 @@ impl SyncAuth {
     }
 
     #[cfg(test)]
-    pub(super) async fn issue_token_for_test(&self, fingerprint: &str) -> String {
-        let token = random();
-        self.entries().tokens.insert(
-            token.clone(),
-            (fingerprint.to_owned(), Instant::now() + TOKEN_TTL),
-        );
-        token
-    }
-
-    #[cfg(test)]
-    pub(super) async fn has_token_for_test(&self, token: &str) -> bool {
-        self.entries().tokens.contains_key(token)
-    }
-    #[cfg(test)]
     pub(super) async fn reject_next_authorization_for_test(&self, fingerprint: &str) {
         self.entries().reject_next_authorization_for = Some(fingerprint.to_owned());
     }
@@ -412,23 +398,16 @@ mod tests {
             .unwrap();
         serde_json::from_slice(&to_bytes(response.into_body(), 8192).await.unwrap()).unwrap()
     }
-    #[tokio::test]
-    async fn a_revoked_device_has_no_tokens_when_the_revocation_reports_success() {
-        let dir = std::env::temp_dir().join(format!("rune-auth-{}", random()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let permissions = Arc::new(RwLock::new(PermissionManager::new(&dir).unwrap()));
+    async fn authorize_device(
+        permissions: &RwLock<PermissionManager>,
+        app: &Router,
+    ) -> (String, String) {
         let cert = discovery::ssl::generate_self_signed_cert("test", "rune", "CA", 1).unwrap();
-        let fingerprint = cert.public_key_fingerprint.clone();
-        let auth = SyncAuth::new(permissions.clone(), "server".into());
+        let fingerprint = cert.public_key_fingerprint;
+        let permissions = permissions.write().await;
         permissions
-            .write()
-            .await
-            .add_trust_change_hook(Arc::new(auth.trust_change_hook()));
-        permissions
-            .write()
-            .await
             .add_user(
-                cert.public_key.clone(),
+                cert.public_key,
                 fingerprint.clone(),
                 "device".into(),
                 "test".into(),
@@ -438,14 +417,12 @@ mod tests {
             .await
             .unwrap();
         permissions
-            .write()
-            .await
             .change_user_status(&fingerprint, UserStatus::Approved)
             .await
             .unwrap();
-        // A real authorization: the device proves its key and is given a token.
-        let app = auth.router();
-        let challenge = get_challenge(&app).await;
+        drop(permissions);
+
+        let challenge = get_challenge(app).await;
         let private = RsaPrivateKey::from_pkcs8_pem(&cert.private_key).unwrap();
         let request = Authorization {
             nonce: challenge.nonce.clone(),
@@ -460,74 +437,50 @@ mod tests {
                     .unwrap(),
             ),
         };
-        let (status, bytes) = post(&app, "/sync/authorize", &request).await;
+        let (status, bytes) = post(app, "/sync/authorize", &request).await;
         assert_eq!(status, StatusCode::OK);
         let token: Token = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(
-            auth.resolve_token(&token.token).await.as_deref(),
-            Some(fingerprint.as_str())
-        );
-
-        // Blocked and approved again, one call after the other with no waiting: the token
-        // must not come back to life, so the revocation had taken it away when it reported
-        // success.
-        for status in [UserStatus::Blocked, UserStatus::Approved] {
-            permissions
-                .write()
-                .await
-                .change_user_status(&fingerprint, status)
-                .await
-                .unwrap();
-        }
-        assert_eq!(auth.resolve_token(&token.token).await, None);
-        let _ = std::fs::remove_dir_all(dir);
+        (fingerprint, token.token)
     }
 
     #[tokio::test]
-    async fn a_revoked_devices_tokens_are_gone_when_the_revocation_returns() {
-        let dir = std::env::temp_dir().join(format!("rune-auth-{}", random()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let permissions = Arc::new(RwLock::new(PermissionManager::new(&dir).unwrap()));
+    async fn a_revoked_device_has_no_tokens_when_the_revocation_reports_success() {
+        let dir = tempfile::tempdir().unwrap();
+        let permissions = Arc::new(RwLock::new(PermissionManager::new(dir.path()).unwrap()));
         let auth = SyncAuth::new(permissions.clone(), "server".into());
         permissions
             .write()
             .await
             .add_trust_change_hook(Arc::new(auth.trust_change_hook()));
-        permissions
-            .write()
-            .await
-            .add_user(
-                "key".into(),
-                "device".into(),
-                "device".into(),
-                "test".into(),
-                DeviceType::Desktop,
-                "127.0.0.1".into(),
-            )
-            .await
-            .unwrap();
-        permissions
-            .write()
-            .await
-            .change_user_status("device", UserStatus::Approved)
-            .await
-            .unwrap();
-        let token = auth.issue_token_for_test("device").await;
-        let other = auth.issue_token_for_test("other-device").await;
+        let app = auth.router();
+        let (fingerprint, token) = authorize_device(&permissions, &app).await;
+        let (other_fingerprint, other_token) = authorize_device(&permissions, &app).await;
+        assert_eq!(
+            auth.resolve_token(&token).await.as_deref(),
+            Some(fingerprint.as_str())
+        );
 
         permissions
             .write()
             .await
-            .change_user_status("device", UserStatus::Blocked)
+            .change_user_status(&fingerprint, UserStatus::Blocked)
             .await
             .unwrap();
 
-        // Nothing public shows a token that is still held for a device that no longer
-        // authenticates (`resolve_token` checks the status again), so the held tokens are read
-        // directly: they must be gone without any waiting.
-        assert!(!auth.has_token_for_test(&token).await);
-        assert!(auth.has_token_for_test(&other).await);
-        let _ = std::fs::remove_dir_all(dir);
+        // Check storage as soon as the change returns, before any lookup can remove the token.
+        assert!(!auth.entries().tokens.contains_key(&token));
+        assert_eq!(
+            auth.resolve_token(&other_token).await.as_deref(),
+            Some(other_fingerprint.as_str())
+        );
+
+        permissions
+            .write()
+            .await
+            .change_user_status(&fingerprint, UserStatus::Approved)
+            .await
+            .unwrap();
+        assert_eq!(auth.resolve_token(&token).await, None);
     }
 
     #[tokio::test]
