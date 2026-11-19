@@ -130,16 +130,6 @@ impl SyncAuth {
     }
 
     #[cfg(test)]
-    pub(super) async fn issue_token_for_test(&self, fingerprint: &str) -> String {
-        let token = random();
-        self.entries().tokens.insert(
-            token.clone(),
-            (fingerprint.to_owned(), Instant::now() + TOKEN_TTL),
-        );
-        token
-    }
-
-    #[cfg(test)]
     pub(super) async fn reject_next_authorization_for_test(&self, fingerprint: &str) {
         self.entries().reject_next_authorization_for = Some(fingerprint.to_owned());
     }
