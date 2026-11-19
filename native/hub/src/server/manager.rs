@@ -2484,6 +2484,7 @@ mod lifecycle_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn remote_connection_classification_and_revocation() -> Result<()> {
         use crate::backends::remote::{RemoteConnectError, connect_remote};
+        use crate::server::sync_worker::{obtain_token, peer_base};
         use futures::StreamExt;
         use tokio_tungstenite::tungstenite::Message;
 
@@ -2507,20 +2508,20 @@ mod lifecycle_tests {
         let addr = paired_full(&a, &b).await?;
         let validator = b.global_params.cert_validator.read().await.clone();
         let fingerprint = info(&b).await?.fingerprint;
+        let base = peer_base("127.0.0.1", addr.port())?;
+        let client = pinned_anonymous_client(&b.global_params, None).await?;
+        // Keep this token out of the shared client cache so no request uses it while blocked.
+        let token = obtain_token(
+            &client,
+            &base,
+            &fingerprint,
+            &b.private_key,
+            &info(&a).await?.fingerprint,
+        )
+        .await?;
+        let access = || client.get(format!("{base}/access")).bearer_auth(&token);
+        assert_eq!(access().send().await?.status(), reqwest::StatusCode::OK);
         for remove in [false, true] {
-            let auth_token = if remove {
-                None
-            } else {
-                let manager = a.global_params.node.manager()?;
-                let auth = manager
-                    .sync_auth
-                    .lock()
-                    .await
-                    .clone()
-                    .context("sync auth was not initialized")?;
-                let token = auth.issue_token_for_test(&fingerprint).await;
-                Some((auth, token))
-            };
             let mut socket = connect_remote(
                 "127.0.0.1",
                 addr.port(),
@@ -2537,9 +2538,14 @@ mod lifecycle_tests {
                     .remove_user(&fingerprint)
                     .await?;
             } else {
+                let mut changes = a.global_params.permission_manager.read().await.changes();
                 PermissionManager::new(a.global_params.config_path.as_str())?
                     .change_user_status(&fingerprint, UserStatus::Blocked)
                     .await?;
+                // The file watcher publishes this change after running the trust hooks.
+                tokio::time::timeout(TEST_DEADLINE, changes.changed())
+                    .await
+                    .context("file-driven client block was not applied")??;
             }
             tokio::time::timeout(TEST_DEADLINE, async {
                 loop {
@@ -2563,12 +2569,6 @@ mod lifecycle_tests {
             })
             .await
             .context("revocation close frame was not received")??;
-            if let Some((auth, token)) = auth_token {
-                wait_until("file-driven client block to purge sync tokens", || async {
-                    Ok((!auth.has_token_for_test(&token).await).then_some(()))
-                })
-                .await?;
-            }
             wait_until("revoked controller to detach", || async {
                 Ok(a.global_params
                     .node
@@ -2597,6 +2597,11 @@ mod lifecycle_tests {
                     .await
                     .change_user_status(&fingerprint, UserStatus::Approved)
                     .await?;
+                // Once approved again, the old token can only fail if revocation purged it.
+                assert_eq!(
+                    access().send().await?.status(),
+                    reqwest::StatusCode::UNAUTHORIZED
+                );
             }
         }
         pair(&a, &b).await?;
