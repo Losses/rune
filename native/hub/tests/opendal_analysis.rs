@@ -14,7 +14,8 @@ use analysis::{analysis::analyze_audio, utils::computing_device::ComputingDevice
 use anyhow::{Context, Result};
 use database::{
     actions::{
-        analysis::analysis_audio_library, cover_art::scan_cover_arts, mixes::query_mix_media_files,
+        analysis::analysis_audio_library, cover_art::scan_cover_arts, file::get_media_files,
+        metadata::get_metadata_summary_by_files, mixes::query_mix_media_files,
     },
     connection::RecommendationDbConnection,
     entities::{media_analysis, media_files},
@@ -23,8 +24,13 @@ use fsio::{
     FileIoError, FsIo, OpenDalConfig,
     test_fixtures::{S3Fixture, WebDavFixture},
 };
+use hub::utils::parse_media_files;
 use playback::{
-    player::{Playable, PlaybackSource, PlaybackState, Player, PlayingItem},
+    PlaybackMode, PlayerCommand,
+    player::{
+        Playable, PlaybackSource, PlaybackState, Player, PlayingItem, PlaylistEdit, PlaylistLoad,
+        PlaylistPlacement, QueueEntry,
+    },
     strategies::AddMode,
 };
 use sea_orm::sea_query::Expr;
@@ -715,5 +721,130 @@ async fn object_store_reporting_no_change_signal_stores_no_token_and_rescans() -
         server.read_ranges().len() > initial_reads,
         "file the server gives no change signal for was skipped on its next scan"
     );
+    Ok(())
+}
+
+// One track, served read-only as by the WebDAV and S3 services of the reported runs.
+async fn read_only_services() -> Result<(WebDavFixture, S3Fixture)> {
+    let files = vec![(
+        "startup_0.ogg".to_owned(),
+        std::fs::read(fixtures::audio_fixture())?,
+    )];
+    Ok((
+        WebDavFixture::start_read_only(files.clone()).await?,
+        S3Fixture::start_read_only(files).await?,
+    ))
+}
+
+#[tokio::test]
+async fn scanned_remote_library_lists_its_track_on_both_backends() -> Result<()> {
+    timeout(DEADLINE, async {
+        let (webdav, s3) = read_only_services().await?;
+        for (backend, config, actor) in [
+            ("WebDAV", webdav_config(&webdav), Uuid::from_u128(0x218)),
+            ("S3", s3_config(&s3), Uuid::from_u128(0x219)),
+        ] {
+            let fs = FsIo::new_opendal(config, Handle::current())?;
+            let db = scanned_database(&fs, Path::new(""), actor).await?;
+            // The tracks page fetches the catalog from a request handler, on the runtime that
+            // serves requests.
+            let summaries =
+                get_metadata_summary_by_files(&db, get_media_files(&db, 0, 10).await?).await?;
+            let tracks = parse_media_files(
+                &fs,
+                &db,
+                &actor.to_string(),
+                &actor.to_string(),
+                summaries,
+                Arc::new(String::new()),
+            )
+            .await
+            .with_context(|| format!("{backend} catalog fetch failed"))?;
+            assert_eq!(tracks.len(), 1, "{backend} catalog: {tracks:#?}");
+            assert!(
+                tracks[0].path.contains("startup_0.ogg"),
+                "{backend} track path was not kept: {:?}",
+                tracks[0].path
+            );
+        }
+        assert!(webdav.write_requests().is_empty());
+        assert!(s3.write_requests().is_empty());
+        Ok::<(), anyhow::Error>(())
+    })
+    .await
+    .context("remote catalog fetch timed out")??;
+    Ok(())
+}
+
+// Pauses the playing track and seeks it to its middle, as the playback bar does.
+async fn pause_and_seek_to_the_middle(player: &mut Player, backend: &str) -> Result<()> {
+    player
+        .command_with_completion(PlayerCommand::Pause)
+        .await
+        .with_context(|| format!("{backend} track did not pause"))?;
+    player
+        .command_with_completion(PlayerCommand::Seek(4.5))
+        .await
+        .with_context(|| format!("{backend} track did not seek"))?;
+    let status = player.command_completion().await?;
+    assert_eq!(status.state, PlaybackState::Paused, "{backend}");
+    assert!(
+        status.position >= Duration::from_secs(4),
+        "{backend} seek stopped at {:?}",
+        status.position
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn remote_track_plays_and_seeks_again_after_a_restart_on_both_backends() -> Result<()> {
+    timeout(Duration::from_secs(60), async {
+        let (webdav, s3) = read_only_services().await?;
+        let track = PlayingItem::IndependentFile("startup_0.ogg".into());
+        for (backend, config) in [("WebDAV", webdav_config(&webdav)), ("S3", s3_config(&s3))] {
+            let fs = FsIo::new_opendal(config.clone(), Handle::current())?;
+            let mut player = Player::new(Arc::new(fs), None);
+            player
+                .command_with_completion(PlayerCommand::EditPlaylist(PlaylistEdit {
+                    tracks: vec![(track.clone(), PlaybackSource::from(&track))],
+                    placement: PlaylistPlacement::Replace,
+                    playback_mode: Some(PlaybackMode::Sequential),
+                    load: Some(PlaylistLoad {
+                        start_index: 0,
+                        position: Duration::ZERO,
+                        play: true,
+                    }),
+                    block: None,
+                }))
+                .await
+                .with_context(|| format!("{backend} track did not play"))?;
+            pause_and_seek_to_the_middle(&mut player, backend).await?;
+            player.terminate();
+
+            // After a restart the session restores its queue paused where it stood.
+            let fs = FsIo::new_opendal(config, Handle::current())?;
+            let mut player = Player::new(Arc::new(fs), None);
+            player
+                .command_with_completion(PlayerCommand::RestoreTagged {
+                    entries: vec![QueueEntry::untagged(track.clone())],
+                    index: Some(0),
+                    position: Duration::from_secs(2),
+                    mode: PlaybackMode::Sequential,
+                })
+                .await
+                .with_context(|| format!("{backend} track was not restored"))?;
+            player
+                .command_with_completion(PlayerCommand::Play)
+                .await
+                .with_context(|| format!("{backend} restored track did not play"))?;
+            pause_and_seek_to_the_middle(&mut player, backend).await?;
+            player.terminate();
+        }
+        assert!(webdav.write_requests().is_empty());
+        assert!(s3.write_requests().is_empty());
+        Ok::<(), anyhow::Error>(())
+    })
+    .await
+    .context("remote playback after a restart timed out")??;
     Ok(())
 }

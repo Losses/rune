@@ -245,6 +245,34 @@ async fn sync_read_from_spawn_blocking_completes() {
 }
 
 #[tokio::test]
+async fn remote_stream_can_be_dropped_on_a_runtime_thread() {
+    tokio::time::timeout(DEADLINE, async {
+        let files = vec![("audio.mp3".to_owned(), AUDIO.to_vec())];
+        let webdav = WebDavFixture::start(files.clone()).await.unwrap();
+        let s3 = S3Fixture::start(files).await.unwrap();
+        for config in [webdav_config(&webdav, "pass"), s3_config(&s3)] {
+            let fs = FsIo::new_opendal(config, Handle::current()).unwrap();
+            let mut stream = fs
+                .open_async(Path::new("audio.mp3"), OpenMode::Read)
+                .await
+                .unwrap();
+            let (stream, head) = spawn_blocking(move || {
+                let mut head = [0; 4];
+                stream.read_exact(&mut head).map(|()| (stream, head))
+            })
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(head, AUDIO[..4]);
+            // A consumer such as the player's loop lets go of a stream on a runtime thread.
+            drop(stream);
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
 async fn large_remote_reads_and_end_seek_use_ranges() {
     tokio::time::timeout(DEADLINE, async {
         let bytes = vec![0x5a; 64 * 1024 * 1024];
