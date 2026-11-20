@@ -11080,6 +11080,132 @@ async fn rr_library_pauses_and_restores_local_session_position() -> Result<()> {
     Ok(())
 }
 
+/// Plays the Subsonic track `track` on this device through the UI's load request.
+async fn play_subsonic_track_here(
+    fixture: &Fixture,
+    library_id: Uuid,
+    track: &str,
+) -> Result<PlayingItemRef> {
+    let item = PlayingItemRef::LibraryTrack {
+        library_id: library_id.to_string(),
+        track: track.into(),
+    };
+    let load = LoadResolvedItemsRequest {
+        call_id: None,
+        items: vec![item.clone()],
+        start_index: Some(0),
+        mode: PlaylistOperateMode::Replace,
+        expected_revision: None,
+        playback_mode: Some(WirePlaybackMode::Sequential),
+        position_seconds: Some(0.0),
+        play: LoadPlay::Play,
+    };
+    dispatch_gui_request(&fixture.global_params, &load).await?;
+    Ok(item)
+}
+
+/// The playback statuses this device's session reported for `item`, in order.
+fn statuses_for(
+    signals: &RecordedSignals,
+    session_id: &str,
+    item: &PlayingItemRef,
+) -> Vec<PlaybackStatus> {
+    signals
+        .decoded::<PlaybackStatus>("PlaybackStatus")
+        .into_iter()
+        .filter(|status| status.session_id == session_id && status.item_request.as_ref() == Some(item))
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn subsonic_tracks_played_here_report_their_title_and_cover() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let fixture = fixture_with_broadcaster(
+        dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, calls, _, _, _, server) = subsonic_hub_mock_with_covers(false, true).await;
+    let registration = register_subsonic_library_on_node(
+        &subsonic_registration_request(
+            endpoint,
+            "test-secret",
+            Some(SubsonicOpenModeMessage::PlayOnThisDevice),
+        ),
+        &node,
+    )
+    .await?;
+    let record = registration.record.context("registered Subsonic library")?;
+    open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: None,
+            record_id: record.record_id.clone(),
+        },
+        node.clone(),
+        Arc::new(Mutex::new(ScrobblingManager::new(
+            10,
+            Duration::from_secs(5),
+        ))),
+    )
+    .await?;
+    let library_id = match node.current_library()? {
+        OpenLibrary::Subsonic(binding) => binding.library_id,
+        _ => anyhow::bail!("registered Subsonic library was not opened"),
+    };
+    let session_id = node.session()?.session_id().await.to_string();
+
+    let first = play_subsonic_track_here(&fixture, library_id, "song-opaque").await?;
+    let playing = wait_until("the first track playing", || async {
+        Ok(statuses_for(&signals, &session_id, &first)
+            .into_iter()
+            .find(|status| status.state == PlaybackState::Playing))
+    })
+    .await?;
+    assert_eq!(playing.title.as_deref(), Some("Song title"));
+    assert_eq!(playing.artist.as_deref(), Some("Artist"));
+    // The cover is not cached when the first track starts, so it is shown once it arrives.
+    let cold = wait_until("the first track's status with its cover", || async {
+        Ok(statuses_for(&signals, &session_id, &first)
+            .into_iter()
+            .find(|status| status.cover_art_path.is_some()))
+    })
+    .await?;
+    assert_eq!(cold.title.as_deref(), Some("Song title"));
+    let cover = cold
+        .cover_art_path
+        .clone()
+        .context("first track's cover path")?;
+    assert_eq!(std::fs::read(&cover)?, b"mock-cover-bytes");
+    wait_until("the now-playing report of the first track", || async {
+        Ok(calls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|action| action == "scrobble")
+            .then_some(()))
+    })
+    .await?;
+
+    // The next track has the same cover, now cached, so it shows from its first status.
+    let second = play_subsonic_track_here(&fixture, library_id, "song-later").await?;
+    let warm = wait_until("the second track's first status", || async {
+        Ok(statuses_for(&signals, &session_id, &second)
+            .into_iter()
+            .next())
+    })
+    .await?;
+    assert_eq!(warm.title.as_deref(), Some("Song title"));
+    assert_eq!(warm.cover_art_path.as_deref(), Some(cover.as_str()));
+
+    server.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn subsonic_visualizer_covers_use_the_bounded_server_cover_cache() -> Result<()> {
     let dir = tempfile::tempdir()?;

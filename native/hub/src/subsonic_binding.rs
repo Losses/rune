@@ -870,6 +870,21 @@ impl SubsonicBinding {
         track_id: &str,
         with_cover: bool,
     ) -> Result<(PlayingItemMetadataSummary, Option<String>)> {
+        let (summary, cover_id) = self.item_summary(library_id, track_id).await?;
+        let cover = if with_cover {
+            self.cover_path(cover_id.as_deref()).await
+        } else {
+            None
+        };
+        Ok((summary, cover))
+    }
+
+    /// A track's summary and the ID of its cover.
+    pub(crate) async fn item_summary(
+        &self,
+        library_id: Uuid,
+        track_id: &str,
+    ) -> Result<(PlayingItemMetadataSummary, Option<String>)> {
         let song = self.song(track_id).await?;
         let summary = PlayingItemMetadataSummary {
             item: PlayingItem::LibraryTrack {
@@ -889,12 +904,7 @@ impl SubsonicBinding {
                 .unwrap_or_default(),
             duration: f64::from(song.duration.unwrap_or_default()),
         };
-        let cover = if with_cover {
-            self.cover_path(song.cover_art.as_deref()).await
-        } else {
-            None
-        };
-        Ok((summary, cover))
+        Ok((summary, song.cover_art))
     }
 
     pub(crate) async fn visualizer_covers(
@@ -1039,6 +1049,13 @@ impl SubsonicBinding {
         self.covers
             .schedule(Arc::clone(&self.client), cover_id.to_owned());
         self.covers.cached_path(cover_id).await.ok().flatten()
+    }
+
+    /// The path of a cover once it is cached, fetching it first if it is not.
+    pub(crate) async fn cached_cover(&self, cover_id: &str) -> Result<Option<String>> {
+        self.covers
+            .ensure_cached(Arc::clone(&self.client), cover_id)
+            .await
     }
 }
 

@@ -58,8 +58,9 @@ use crate::{
     request_error::ExpectedRequestError,
     request_owner::Implementation,
     server::PairedAudioResolver,
+    subsonic_binding::SubsonicBinding,
     utils::{
-        Broadcaster, library_item_metadata, playback_implementation_for_library,
+        Broadcaster, library_item_metadata, playback_implementation_for_item,
         player::{
             metadata_summary_to_scrobbling_track, update_media_controls_metadata,
             update_media_controls_progress,
@@ -576,8 +577,12 @@ impl PlayerSession {
                 })
                 .await;
         });
+        let (late_cover_tx, mut late_cover_rx) = mpsc::unbounded_channel();
         let event_task = tokio::spawn(async move {
-            let mut item_state = ItemEventState::default();
+            let mut item_state = ItemEventState {
+                late_covers: Some(late_cover_tx),
+                ..ItemEventState::default()
+            };
             loop {
                 tokio::select! {
                     biased;
@@ -594,6 +599,13 @@ impl PlayerSession {
                         let Some(node) = weak.upgrade() else { return };
                         if persist_status_tx.send(value.clone()).await.is_err() { return; }
                         handle_status_event(&node, value, &mut item_state, &controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
+                    }
+                    Some(late) = late_cover_rx.recv() => {
+                        let Some(node) = weak.upgrade() else { return };
+                        if show_late_cover(&node, late, &mut item_state, &controls).await {
+                            let status = player.lock().await.get_status();
+                            handle_status_event(&node, status, &mut item_state, &controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
+                        }
                     }
                     Ok(value) = playlist.recv() => {
                         if persist_playlist_tx.send(value.clone()).await.is_err() { return; }
@@ -732,13 +744,111 @@ struct ItemEventState {
     request_ui_library: Option<Uuid>,
     feed_item: Option<PlayingItemRef>,
     feed_controller_count: usize,
+    /// Where a cover that finishes downloading after its track started is sent, when the
+    /// caller follows the player and can show it.
+    late_covers: Option<mpsc::UnboundedSender<LateCover>>,
 }
 
 struct ResolvedLibrary {
     library_id: Uuid,
-    fsio: Arc<FsIo>,
+    /// The library's files, which a Subsonic library does not have on this node.
+    fsio: Option<Arc<FsIo>>,
     media_root: String,
     implementation: Implementation,
+}
+
+/// A playing track's cover that was not cached when the track started.
+struct LateCover {
+    item: PlayingItem,
+    cover: String,
+}
+
+/// The library of a playing library track, and the track's metadata and cover. A Subsonic
+/// library has no catalog library on this node, so its binding describes its tracks.
+async fn playing_track_library(
+    node: &Arc<NodeContext>,
+    item: &PlayingItem,
+    library_id: Uuid,
+    track: &str,
+    late_covers: Option<&mpsc::UnboundedSender<LateCover>>,
+) -> Result<(
+    ResolvedLibrary,
+    Result<(PlayingItemMetadataSummary, Option<String>)>,
+)> {
+    let implementation = playback_implementation_for_item(node, library_id).await?;
+    if let Implementation::Subsonic(binding) = &implementation {
+        let metadata = subsonic_track_metadata(binding, item, library_id, track, late_covers).await;
+        let library = ResolvedLibrary {
+            library_id,
+            fsio: None,
+            media_root: String::new(),
+            implementation,
+        };
+        return Ok((library, metadata));
+    }
+    let library = node.library_pool.acquire(library_id).await?;
+    let metadata = implementation.item_metadata(item, true, &library).await;
+    let library = ResolvedLibrary {
+        library_id: library.library_id,
+        fsio: Some(library.fsio.clone()),
+        media_root: library.media_root.clone(),
+        implementation,
+    };
+    Ok((library, metadata))
+}
+
+/// A Subsonic track's metadata, with its cover if the cover is already cached. Otherwise the
+/// cover is fetched and sent to `late_covers` once it is cached.
+async fn subsonic_track_metadata(
+    binding: &Arc<SubsonicBinding>,
+    item: &PlayingItem,
+    library_id: Uuid,
+    track: &str,
+    late_covers: Option<&mpsc::UnboundedSender<LateCover>>,
+) -> Result<(PlayingItemMetadataSummary, Option<String>)> {
+    let (metadata, cover_id) = binding.item_summary(library_id, track).await?;
+    let cover = binding.cover_path(cover_id.as_deref()).await;
+    if cover.is_none()
+        && let (Some(cover_id), Some(late_covers)) = (cover_id, late_covers)
+    {
+        let binding = Arc::clone(binding);
+        let item = item.clone();
+        let late_covers = late_covers.clone();
+        tokio::spawn(async move {
+            match binding.cached_cover(&cover_id).await {
+                Ok(Some(cover)) => {
+                    let _ = late_covers.send(LateCover { item, cover });
+                }
+                Ok(None) => {}
+                Err(error) => log::warn!("Could not fetch the playing Subsonic cover: {error:#}"),
+            }
+        });
+    }
+    Ok((metadata, cover))
+}
+
+/// Shows a cover that arrived after its track started, if that track is still the one playing
+/// and has no cover yet. Returns whether it was shown, so that the status is reported again.
+async fn show_late_cover(
+    node: &Arc<NodeContext>,
+    late: LateCover,
+    item_state: &mut ItemEventState,
+    controls: &Option<Arc<Mutex<MediaControlManager>>>,
+) -> bool {
+    if item_state.last_item.as_ref() != Some(&late.item) || item_state.cover.is_some() {
+        return false;
+    }
+    item_state.cover = Some(late.cover);
+    if let Some(manager) = controls {
+        let _ = update_media_controls_metadata(
+            manager.clone(),
+            &item_state.metadata,
+            item_state.cover.as_ref(),
+        )
+        .await;
+    }
+    playing_cover_changed(node, Some(&late.item), item_state.cover.as_deref());
+    true
 }
 
 /// Turns a player status into the GUI report. `now_playing` is `None` when only
@@ -761,23 +871,12 @@ async fn handle_status_event(
         item_state.track_started = false;
         if let Some(item) = &value.item {
             let result = match item {
-                PlayingItem::LibraryTrack { library_id, .. } => {
-                    match node.library_pool.acquire(*library_id).await {
-                        Ok(library) => {
-                            match playback_implementation_for_library(node, &library).await {
-                                Ok(implementation) => {
-                                    let result =
-                                        implementation.item_metadata(item, true, &library).await;
-                                    item_state.library = Some(ResolvedLibrary {
-                                        library_id: library.library_id,
-                                        fsio: library.fsio.clone(),
-                                        media_root: library.media_root.clone(),
-                                        implementation,
-                                    });
-                                    result
-                                }
-                                Err(error) => Err(error),
-                            }
+                PlayingItem::LibraryTrack { library_id, track } => {
+                    let late_covers = item_state.late_covers.as_ref();
+                    match playing_track_library(node, item, *library_id, track, late_covers).await {
+                        Ok((library, result)) => {
+                            item_state.library = Some(library);
+                            result
                         }
                         Err(error) => Err(error),
                     }
@@ -836,7 +935,7 @@ async fn handle_status_event(
         item_state
             .library
             .as_ref()
-            .map(|library| library.fsio.clone()),
+            .and_then(|library| library.fsio.clone()),
     );
     let ui_library_id = current_ui_library_id(node).await;
     if item_changed || ui_library_id != item_state.request_ui_library {
@@ -879,13 +978,14 @@ async fn handle_status_event(
         && let Some(item) = feed_item
         && let Some(path) = value.path.as_deref()
         && let Some(library) = &item_state.library
+        && let Some(library_fsio) = &library.fsio
     {
         item_state.feed_item = Some(item.clone());
         let chart = node.visualizer().cached_chart(path).ok().flatten();
         if let Some(chart) = chart {
             broadcaster.broadcast(&VisualizerFeedChart { item, chart });
         } else {
-            let fsio = Arc::clone(&library.fsio);
+            let fsio = Arc::clone(library_fsio);
             let path = path.to_path_buf();
             let item = item.clone();
             let broadcaster = Arc::clone(broadcaster);
@@ -909,7 +1009,7 @@ async fn handle_status_event(
         }
 
         let current_path = item_state.cover.as_deref().map(PathBuf::from);
-        let fsio = Arc::clone(&library.fsio);
+        let fsio = Arc::clone(library_fsio);
         let library_id = library.library_id;
         let node = Arc::clone(node);
         let item = value.item.as_ref().and_then(playing_item_ref);
