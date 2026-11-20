@@ -160,9 +160,15 @@ impl LocalPlayerTenure {
         self.ended.cancelled().await;
     }
 
+    /// Ends the tenure: a request arriving from now on is refused, and those running in it are
+    /// cancelled.
+    fn close(&self) {
+        self.ended.cancel();
+    }
+
     /// Ends the tenure and waits until no request is still running in it.
     async fn end(&self) {
-        self.ended.cancel();
+        self.close();
         drop(self.running.write().await);
     }
 }
@@ -175,15 +181,15 @@ fn lock_tenures(
         .map_err(|_| anyhow::anyhow!("Local player tenure lock poisoned"))
 }
 
-/// Ends the local player's tenure, pauses the local player after every command the tenure's
-/// requests sent, and only then admits requests to a new tenure. A request arriving while this
-/// runs, if the local player is current again by then, is refused, so nothing it sends can land
-/// before this pause.
+/// Waits until `ending`, the tenure the local player is leaving, has no request running, pauses
+/// the local player after every command its requests sent, and only then admits requests to a
+/// new tenure. A request arriving while this runs, if the local player is current again by then,
+/// is refused, so nothing it sends can land before this pause.
 async fn depart_local_player(
     tenures: Arc<StdMutex<Arc<LocalPlayerTenure>>>,
+    ending: Arc<LocalPlayerTenure>,
     session: Arc<PlayerSession>,
 ) -> Result<()> {
-    let ending = Arc::clone(&*lock_tenures(&tenures)?);
     ending.end().await;
     let completion = {
         let mut player = session.player.lock().await;
@@ -1050,10 +1056,16 @@ impl NodeContext {
         );
         self.refresh_current_player(current)?;
         if leaving_local {
+            // The tenure being left ends at the switch, so a request arriving from now on is
+            // refused even if the departure's task starts late, and the departure ends this
+            // tenure, not one a later return to the local player admits.
+            let ending = self.local_player_tenure()?;
+            ending.close();
             // The departure runs on its own task, so its pause still follows when the request
             // that changed the player is cancelled, as a UI replacement cancels the UI's requests.
             tokio::spawn(depart_local_player(
                 Arc::clone(&self.local_player_tenure),
+                ending,
                 self.session()?,
             ))
             .await
