@@ -304,7 +304,12 @@ async fn subsonic_hub_response(
             json!({ "subsonic-response": { "status": "ok", "albumList2": { "album": albums } } })
         }
         "getSong" => {
-            json!({ "subsonic-response": { "status": "ok", "song": { "id": "song-opaque", "title": "Song title", "artist": "Artist", "album": "Album", "artistId": "artist-opaque", "albumId": "album-opaque", "coverArt": state.visualizer_covers.then(|| "cover-playing".to_owned()), "duration": 90, "track": 4 } } })
+            // The album's later disc shares its cover; every other id is the searched song.
+            let (id, title) = match query.get("id").map(String::as_str) {
+                Some("song-later") => ("song-later", "Later disc"),
+                _ => ("song-opaque", "Song title"),
+            };
+            json!({ "subsonic-response": { "status": "ok", "song": { "id": id, "title": title, "artist": "Artist", "album": "Album", "artistId": "artist-opaque", "albumId": "album-opaque", "coverArt": state.visualizer_covers.then(|| "cover-playing".to_owned()), "duration": 90, "track": 4 } } })
         }
         "scrobble" => json!({ "subsonic-response": { "status": "ok" } }),
         "getArtist" => {
@@ -11208,7 +11213,7 @@ async fn subsonic_tracks_played_here_report_their_title_and_cover() -> Result<()
             .next())
     })
     .await?;
-    assert_eq!(warm.title.as_deref(), Some("Song title"));
+    assert_eq!(warm.title.as_deref(), Some("Later disc"));
     assert_eq!(warm.cover_art_path.as_deref(), Some(cover.as_str()));
 
     server.abort();
