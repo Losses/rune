@@ -76,8 +76,9 @@ use crate::{
     messages::{
         CastLibraryState, CastPreflightRequest, CastResolvedItemsRequest, CastTarget,
         GetMediaFilesCountRequest, ListControllersRequest, ListRenderersRequest,
-        LoadResolvedItemsRequest, PlayingItemRef, PlaylistUpdate, RendererAvailability,
-        RendererCandidate, RequestErrorKind, RequestFailureCause, ResolveMixQueryRequest,
+        LoadResolvedItemsRequest, MediaFile, PlayingItemRef, PlaylistRevisionRequest,
+        PlaylistUpdate, RendererAvailability, RendererCandidate, RequestErrorKind,
+        RequestFailureCause, ResolveMixQueryRequest, ResolveMixQueryResponse,
         SessionSnapshotRequest, SwitchRequest, VolumeRequest,
     },
     request_error::{ExpectedRequestError, classify},
@@ -1008,6 +1009,173 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     unreachable_server.abort();
     server.abort();
     bad_server.abort();
+    node.close_ui(&fixture.global_params.main_token).await;
+    node.shutdown().await?;
+    Ok(())
+}
+
+/// What a track list does when one of its tracks is clicked: resolve the list around the
+/// track, leaving out the current queue, read the current player's queue revision and
+/// replace the queue with the result.
+async fn play_clicked_track(
+    params: &GlobalParams,
+    queries: Vec<MixQuery>,
+    hint_position: i32,
+    track: PlayingItemRef,
+    queue: Vec<PlayingItemRef>,
+) -> Result<ResolveMixQueryResponse> {
+    let resolved = dispatch_gui_request(
+        params,
+        &ResolveMixQueryRequest {
+            call_id: None,
+            queries,
+            hint_position,
+            initial_playback_item: Some(track),
+            instantly_play: true,
+            fallback_playing_items: Vec::new(),
+            excluded: ExcludedItems { items: queue },
+        },
+    )
+    .await?
+    .context("resolved track list")?;
+    let revision = dispatch_gui_request(params, &PlaylistRevisionRequest { call_id: None })
+        .await?
+        .context("current player queue revision")?
+        .revision;
+    dispatch_gui_request(
+        params,
+        &LoadResolvedItemsRequest {
+            items: resolved.playing_items.clone(),
+            start_index: resolved.start_index,
+            mode: PlaylistOperateMode::Replace,
+            expected_revision: Some(revision),
+            playback_mode: None,
+            position_seconds: None,
+            play: LoadPlay::Auto,
+            call_id: None,
+        },
+    )
+    .await?;
+    Ok(resolved)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn clicked_subsonic_tracks_play_on_this_device() -> Result<()> {
+    use crate::messages::{FetchMediaFilesRequest, MixQueryRequest, SearchForRequest};
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, _, _, _, _, server) = subsonic_hub_mock(false).await;
+    let registered = register_subsonic_library_on_node(
+        &subsonic_registration_request(
+            endpoint,
+            "test-secret",
+            Some(SubsonicOpenModeMessage::PlayOnThisDevice),
+        ),
+        &node,
+    )
+    .await?;
+    let record = registered.record.context("Subsonic record")?;
+    open_registered_library_record(node.clone(), record.record_id).await?;
+    assert!(matches!(node.current_player()?, CurrentPlayer::Local));
+    let track_ref = |file: &MediaFile| PlayingItemRef::LibraryTrack {
+        library_id: file.library_id.clone(),
+        track: file.track.clone(),
+    };
+
+    let tracks_page = dispatch_gui_request(
+        &fixture.global_params,
+        &FetchMediaFilesRequest {
+            cursor: 0,
+            page_size: 100,
+            bake_cover_arts: false,
+            call_id: None,
+        },
+    )
+    .await?
+    .context("Subsonic tracks page")?
+    .media_files;
+    let first_click = track_ref(&tracks_page[0]);
+    let resolved = play_clicked_track(
+        &fixture.global_params,
+        vec![MixQuery {
+            operator: "lib::all".into(),
+            parameter: "true".into(),
+        }],
+        0,
+        first_click.clone(),
+        Vec::new(),
+    )
+    .await?;
+    assert_eq!(resolved.playing_items, vec![first_click.clone()]);
+    assert_eq!(resolved.start_index, Some(0));
+    let first_track = playing_item_from_request(first_click.clone(), None).await?;
+    wait_player(&fixture, |status| {
+        status.state == PlayerPlaybackState::Playing && status.item.as_ref() == Some(&first_track)
+    })
+    .await?;
+
+    let album = dispatch_gui_request(
+        &fixture.global_params,
+        &SearchForRequest {
+            call_id: None,
+            query_str: "Album".into(),
+            fields: Vec::new(),
+            n: 10,
+        },
+    )
+    .await?
+    .context("Subsonic album search")?
+    .albums[0];
+    let album_query = vec![MixQuery {
+        operator: "lib::album".into(),
+        parameter: album.to_string(),
+    }];
+    let album_page = dispatch_gui_request(
+        &fixture.global_params,
+        &MixQueryRequest {
+            call_id: None,
+            queries: album_query.clone(),
+            cursor: 0,
+            page_size: 30,
+            bake_cover_arts: false,
+            queue: CallerQueue::default(),
+        },
+    )
+    .await?
+    .context("Subsonic album page")?
+    .files;
+    let album_tracks = album_page.iter().map(track_ref).collect::<Vec<_>>();
+    let resolved = play_clicked_track(
+        &fixture.global_params,
+        album_query,
+        1,
+        album_tracks[1].clone(),
+        vec![first_click],
+    )
+    .await?;
+    assert_eq!(resolved.playing_items, album_tracks);
+    assert_eq!(resolved.start_index, Some(1));
+    let mut album_items = Vec::with_capacity(album_tracks.len());
+    for track in album_tracks {
+        album_items.push(playing_item_from_request(track, None).await?);
+    }
+    let playing = wait_player(&fixture, |status| {
+        status.state == PlayerPlaybackState::Playing && status.item.as_ref() == Some(&album_items[1])
+    })
+    .await?;
+    assert_eq!(
+        playing
+            .playlist
+            .iter()
+            .map(|entry| entry.item.clone())
+            .collect::<Vec<_>>(),
+        album_items
+    );
+
+    fixture.global_params.player.lock().await.stop();
+    server.abort();
     node.close_ui(&fixture.global_params.main_token).await;
     node.shutdown().await?;
     Ok(())

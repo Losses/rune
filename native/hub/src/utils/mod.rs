@@ -2590,6 +2590,28 @@ where
     None
 }
 
+/// The most tracks a mix resolves to for playback.
+pub const RESOLVED_TRACK_LIMIT: usize = 4096;
+
+/// The items a resolved mix plays and the index playback starts at. A negative
+/// `hint_position` starts at the first item. Otherwise playback starts at the
+/// occurrence of `initial` nearest to `hint_position`; when `items` does not hold it,
+/// the `fallback` items play from `hint_position` instead.
+pub fn resolved_start<T: PartialEq>(
+    hint_position: i32,
+    items: Vec<T>,
+    initial: Option<&T>,
+    fallback: Vec<T>,
+) -> (Vec<T>, usize) {
+    let Ok(hint_position) = usize::try_from(hint_position) else {
+        return (items, 0);
+    };
+    match find_nearest_index(&items, hint_position, |item| initial == Some(item)) {
+        Some(start) => (items, start),
+        None => (fallback, hint_position),
+    }
+}
+
 #[cfg(not(target_os = "android"))]
 pub fn init_logging() {
     let stdout_filter = EnvFilter::new(
@@ -2755,6 +2777,43 @@ mod cover_art_url_tests {
         assert_eq!(
             process_cover_art_path(path, library_id, Some(&remote_session)),
             format!("https://peer.example/files/cache/cover-digest?library_id={library_id}")
+        );
+    }
+}
+
+#[cfg(test)]
+mod resolved_start_tests {
+    use super::resolved_start;
+
+    #[test]
+    fn playback_starts_at_the_clicked_item_nearest_the_hint() {
+        assert_eq!(
+            resolved_start(3, vec!["a", "b", "a", "c"], Some(&"a"), vec!["fallback"]),
+            (vec!["a", "b", "a", "c"], 2)
+        );
+        assert_eq!(
+            resolved_start(0, vec!["a", "b", "a", "c"], Some(&"a"), vec!["fallback"]),
+            (vec!["a", "b", "a", "c"], 0)
+        );
+    }
+
+    #[test]
+    fn a_missing_clicked_item_plays_the_fallback_from_the_hint() {
+        assert_eq!(
+            resolved_start(1, vec!["a", "b"], Some(&"c"), vec!["x", "c"]),
+            (vec!["x", "c"], 1)
+        );
+        assert_eq!(
+            resolved_start(1, vec!["a", "b"], None, vec!["x", "y"]),
+            (vec!["x", "y"], 1)
+        );
+    }
+
+    #[test]
+    fn a_negative_hint_starts_the_resolved_items_at_the_first() {
+        assert_eq!(
+            resolved_start(-1, vec!["a", "b"], Some(&"c"), vec!["x"]),
+            (vec!["a", "b"], 0)
         );
     }
 }

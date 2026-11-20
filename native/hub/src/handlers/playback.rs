@@ -39,8 +39,8 @@ use crate::{
     node::NodeContext,
     session::{HandoffLoadParams, PlayerSession},
     utils::{
-        GlobalParams, ParamsExtractor, files_to_playback_request, find_nearest_index,
-        require_library,
+        GlobalParams, ParamsExtractor, RESOLVED_TRACK_LIMIT, files_to_playback_request,
+        require_library, resolved_start,
     },
 };
 
@@ -242,7 +242,7 @@ async fn resolve_mix_query(
                 .map(|query| (query.operator.clone(), query.parameter.clone()))
                 .collect(),
             0,
-            4096,
+            RESOLVED_TRACK_LIMIT,
             &queue,
         )
         .await
@@ -261,9 +261,9 @@ async fn resolve_mix_query(
         &tracks,
     )
     .await?;
-    let mut items: Vec<PlayingItem> = prepared.iter().map(|(item, _)| item.clone()).collect();
-    let start_index = if !request.instantly_play {
-        None
+    let items: Vec<PlayingItem> = prepared.iter().map(|(item, _)| item.clone()).collect();
+    let (items, start_index) = if !request.instantly_play {
+        (items, None)
     } else {
         let initial_item = match &request.initial_playback_item {
             Some(initial_item) => {
@@ -271,29 +271,13 @@ async fn resolve_mix_query(
             }
             None => None,
         };
-        let nearest_index = if request.hint_position < 0 {
-            Some(0)
-        } else {
-            let hint_position = usize::try_from(request.hint_position).map_err(|error| {
-                ExpectedRequestError::invalid_input(format!("Invalid hint position: {error}"))
-            })?;
-            find_nearest_index(&items, hint_position, |item| {
-                initial_item
-                    .as_ref()
-                    .is_some_and(|initial_item| item == initial_item)
-            })
-        };
-
-        if nearest_index.is_none() {
-            items = fallback_items;
-            Some(if request.hint_position < 0 {
-                0
-            } else {
-                usize::try_from(request.hint_position).unwrap_or_default()
-            })
-        } else {
-            nearest_index
-        }
+        let (items, start_index) = resolved_start(
+            request.hint_position,
+            items,
+            initial_item.as_ref(),
+            fallback_items,
+        );
+        (items, Some(start_index))
     };
     let playing_items = playing_item_requests(&items, pool, None).await;
 
