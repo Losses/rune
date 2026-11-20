@@ -42,6 +42,7 @@ thiserror = "2"
 raw-window-handle = "0.5.2"
 windows = { version = "0.44.0", features = [
     "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
     "Win32_UI",
     "Win32_UI_WindowsAndMessaging",
     "Win32_Foundation",
