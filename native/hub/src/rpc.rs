@@ -126,13 +126,17 @@ where
     if R::SCOPE != RequestScope::Session || !implementation.is_local() {
         return implementation.run(params, request).await;
     }
-    // Once another player is current, a local request still resolving must not edit or start
-    // the local player.
-    tokio::select! {
+    // Once another player is current, a local request still resolving stops without editing or
+    // starting the local player. One that already sent a command did so before the change's
+    // pause, because the change waits for the request to stop before it pauses.
+    let running = local_tenure.enter().await?;
+    let response = tokio::select! {
         biased;
-        () = local_tenure.cancelled() => Err(ExpectedRequestError::PlayerChanged.into()),
+        () = local_tenure.ended() => Err(ExpectedRequestError::PlayerChanged.into()),
         response = implementation.run(params, request) => response,
-    }
+    };
+    drop(running);
+    response
 }
 
 /// A request introduced in a protocol minor newer than the peer's cannot run there;
