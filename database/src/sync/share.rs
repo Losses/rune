@@ -383,17 +383,7 @@ pub async fn cut_base<M: SyncModel>(request: BaseCutRequest<'_, M>) -> SharePush
         let value = store.get(&key).await.map_err(push_store_error)?;
         let manifest = decode_manifest::<M>(&value.bytes, &base.base_id)
             .map_err(|error| SharePushError::Failed(error.to_string()))?;
-        retained_chunk_names.extend(
-            manifest.collections.values().flat_map(|collection| {
-                collection.buckets.iter().map(|bucket| bucket.chunk.clone())
-            }),
-        );
-        retained_chunk_names.extend(
-            manifest
-                .collections
-                .values()
-                .flat_map(|collection| collection.context_fragments.iter().cloned()),
-        );
+        retained_chunk_names.extend(manifest_chunk_names(&manifest));
     }
     let export = export_base(
         source,
@@ -596,17 +586,7 @@ pub(crate) async fn collect_own_prefix(
             observed.gc_state = ObjectGcState::Current;
             SupersededSince::Current
         };
-        let referenced_chunks = manifest
-            .collections
-            .values()
-            .flat_map(|collection| {
-                collection
-                    .buckets
-                    .iter()
-                    .map(|bucket| bucket.chunk.clone())
-                    .chain(collection.context_fragments.iter().cloned())
-            })
-            .collect();
+        let referenced_chunks = manifest_chunk_names(&manifest).collect();
         manifests.push(RetainedManifest {
             base: base.clone(),
             status: if superseded {
@@ -860,12 +840,9 @@ pub(crate) async fn collect_own_prefix(
             .list_prefix(&format!("devices/{retired}/"))
             .await
             .map_err(push_store_error)?;
-        // A device uploads a publication's segments before its head, so a listed segment past
-        // the covered head can belong to a head that is still to come. The slots are read after
-        // the listing, so a head published before this read keeps everything that was listed.
-        if lists_uncovered_segment(&listed, &precondition)?
-            || !retired_head_is_current(store, &precondition).await?
-        {
+        // The slots and manifests are read after the listing, so a head published before these
+        // reads keeps everything that was listed.
+        if !retired_listing_is_covered(store, &listed, &precondition).await? {
             continue;
         }
         for key in listed {
@@ -894,34 +871,77 @@ pub(crate) async fn collect_own_prefix(
     Ok(final_head)
 }
 
-/// Whether a listing of a retired prefix holds a segment that ends past the head the retirement
-/// covers. The keeper base does not cover such a segment.
-fn lists_uncovered_segment(
+/// Whether everything in a listing of a retired prefix is covered by the retirement, so that
+/// deleting it loses nothing the keeper base does not hold.
+///
+/// The head that the retirement covers must still be the newest head of the prefix, as
+/// `retired_heads` checks. A device uploads a publication's segments, and a base cut's chunks and
+/// manifest, before the head that names them, so any other object can belong to a head that is
+/// still to come: a segment must end at or before the covered head, a base must be named by a
+/// head in the slots, and a chunk must be referenced by the manifest of such a base. A manifest
+/// that the covered head names must be there and verify. One that only an older head names can be
+/// gone, because a device deletes a base it has dropped once the head without it is written.
+async fn retired_listing_is_covered(
+    store: &dyn ObjectStore,
     listed: &[String],
     retirement: &RetirementPrecondition,
 ) -> SharePushResult<bool> {
-    for key in listed {
-        if let ObjectKey::Segment { last, .. } =
-            parse_key(key).map_err(|error| SharePushError::Failed(error.to_string()))?
-            && last > retirement.expected_head.seq
-        {
-            return Ok(true);
+    let Some(heads) = retired_heads(store, retirement).await? else {
+        return Ok(false);
+    };
+    let prefix = retirement.prefix.to_string();
+    // Each base that a head in the slots names, and whether the covered head is among them.
+    let mut bases = BTreeMap::<String, bool>::new();
+    for head in &heads {
+        let covered = head.counter == retirement.expected_counter;
+        for base in &head.bases {
+            *bases.entry(base.base_id.clone()).or_default() |= covered;
         }
     }
-    Ok(false)
+    let mut chunks = BTreeSet::new();
+    for (base_id, named_by_covered_head) in &bases {
+        let key = base_key(&prefix, base_id)
+            .map_err(|error| SharePushError::Failed(error.to_string()))?;
+        let manifest = match store.get(&key).await {
+            Ok(value) => decode_manifest::<RuneModel>(&value.bytes, base_id).ok(),
+            Err(StoreError::NotFound) => None,
+            Err(error) => return Err(push_store_error(error)),
+        };
+        match manifest {
+            Some(manifest) => chunks.extend(manifest_chunk_names(&manifest)),
+            None if *named_by_covered_head => return Ok(false),
+            None => (),
+        }
+    }
+    for key in listed {
+        let covered =
+            match parse_key(key).map_err(|error| SharePushError::Failed(error.to_string()))? {
+                ObjectKey::Segment { last, .. } => last <= retirement.expected_head.seq,
+                ObjectKey::Base { base_id, .. } => bases.contains_key(&base_id),
+                ObjectKey::Chunk { digest, .. } => chunks.contains(&digest),
+                // The slots were checked above, and nothing else in the listing is deleted.
+                _ => true,
+            };
+        if !covered {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
-/// Whether the head that a retirement covers is still the newest head of the retired prefix.
+/// The heads in the slots of a retired prefix, if the head that the retirement covers is still
+/// the newest head there.
 ///
 /// Like `refresh_own_head`, this reads both slots and goes by the newest head: each slot must be
 /// empty, hold the covered head or hold an older head of the same stream, and one of them must
 /// hold the covered head. Unlike there, a slot that fails its checksum is not skipped, because it
 /// can be a newer head that the retired device is still writing.
-async fn retired_head_is_current(
+async fn retired_heads(
     store: &dyn ObjectStore,
     retirement: &RetirementPrecondition,
-) -> SharePushResult<bool> {
+) -> SharePushResult<Option<Vec<Head>>> {
     let prefix = retirement.prefix.to_string();
+    let mut heads = Vec::new();
     let mut covered = false;
     for slot in 0..=1 {
         let key =
@@ -929,22 +949,36 @@ async fn retired_head_is_current(
         let remote = match store.get(&key).await {
             Ok(value) => match decode_head(&value.bytes) {
                 Ok(head) => head,
-                Err(FormatError::Checksum) => return Ok(false),
+                Err(FormatError::Checksum) => return Ok(None),
                 Err(error) => return Err(SharePushError::Failed(error.to_string())),
             },
             Err(StoreError::NotFound) => continue,
             Err(error) => return Err(push_store_error(error)),
         };
         if remote.stream != retirement.stream_id || remote.generation != retirement.generation {
-            return Ok(false);
+            return Ok(None);
         }
         match remote.counter.cmp(&retirement.expected_counter) {
             Ordering::Less => (),
             Ordering::Equal if remote.head == retirement.expected_head => covered = true,
-            Ordering::Equal | Ordering::Greater => return Ok(false),
+            Ordering::Equal | Ordering::Greater => return Ok(None),
         }
+        heads.push(remote);
     }
-    Ok(covered)
+    Ok(covered.then_some(heads))
+}
+
+/// The chunks that a base manifest references: its buckets' chunks and its context fragments.
+fn manifest_chunk_names<M: SyncModel>(
+    manifest: &BaseManifest<M>,
+) -> impl Iterator<Item = String> + '_ {
+    manifest.collections.values().flat_map(|collection| {
+        collection
+            .buckets
+            .iter()
+            .map(|bucket| bucket.chunk.clone())
+            .chain(collection.context_fragments.iter().cloned())
+    })
 }
 
 fn observed_head_last_change(state: &ShareState, prefix: &DevicePrefix) -> Option<u64> {

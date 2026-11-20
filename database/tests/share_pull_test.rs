@@ -4,8 +4,9 @@ use anyhow::{Context, Result, ensure};
 use database::sync::model::{Collection, ObjectKey, RuneModel};
 use database::sync::replica::PendingShareChange;
 use database::sync::share::{
-    PublishJournalRequest, ShareCapabilities, SharePullError, SharePushError, SharePushResult,
-    ShareState, ShareWriter, load_or_create_state, publish_journal, save_state,
+    BaseCutRequest, PublishJournalRequest, ShareCapabilities, SharePullError, SharePushError,
+    SharePushResult, ShareState, ShareWriter, cut_base, load_or_create_state, publish_journal,
+    save_state,
 };
 use rand::{Rng, SeedableRng, distributions::Alphanumeric, rngs::StdRng};
 use sea_orm::{
@@ -1258,10 +1259,34 @@ struct DueRetirement {
     covered_key: ObjectKey,
 }
 
+/// Whether the retired device received the keeper base before the keeper advertised its
+/// retirement.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum KeeperBase {
+    NotReceived,
+    Received,
+}
+
 async fn due_retirement() -> Result<DueRetirement> {
+    due_retirement_with(KeeperBase::NotReceived).await
+}
+
+async fn due_retirement_with(keeper_base: KeeperBase) -> Result<DueRetirement> {
     let namespace = Uuid::new_v4();
-    let keeper = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
-    let retired_device = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let first = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let second = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    // The retired device's prefix sorts first. A new device's pull takes, among the bases that
+    // cover a stream, the one with the largest total coverage, and on a tie the one whose owner
+    // prefix sorts first, even the keeper base when it covers the retired stream below a newer
+    // base of the retired device; that pull then cannot finish. This is a separate problem from
+    // retirement cleanup, which the tests here are about.
+    let (retired_device, keeper) = if first.sync_store.share_prefix(cache_path()).await?
+        < second.sync_store.share_prefix(cache_path()).await?
+    {
+        (first, second)
+    } else {
+        (second, first)
+    };
     let covered_key = ObjectKey {
         collection: Collection::Playlists,
         id: Uuid::from_u128(2201),
@@ -1286,40 +1311,29 @@ async fn due_retirement() -> Result<DueRetirement> {
         )
         .await
         .map_err(|error| anyhow::anyhow!("put the covered head: {error:?}"))?;
-    let identity = keeper.sync_store.identity().await?;
-    let now_ms = chrono::Utc::now().timestamp_millis();
-    let mut state = load_or_create_state(
-        &keeper.db,
-        identity.replica,
-        namespace,
-        cache_path(),
-        now_ms,
-    )
-    .await?;
-    // The keeper first saw both heads a whole retirement period ago, and they have not changed
-    // since.
-    for slot in [0, 1] {
-        let head = store
-            .get(&share::head_key(&retired.prefix, slot)?)
-            .await
-            .map_err(|error| anyhow::anyhow!("read retired head: {error:?}"))?;
-        state.observe_tag(
-            ShareObjectKey::Head {
-                prefix: DevicePrefix::from_str(&retired.prefix)?,
-                slot,
-            },
-            head.tag,
-            now_ms - share::RETIREMENT_MS as i64 - 60_000,
-        );
+    if keeper_base == KeeperBase::Received {
+        // The keeper cuts its base over the device's heads while they are recent, and the device
+        // receives it before they age.
+        keeper
+            .sync_store
+            .push_share(store.clone(), namespace, cache_path(), Default::default())
+            .await?
+            .context("keeper published no head")?;
+        retired_device
+            .sync_store
+            .pull_share(store.clone(), namespace, cache_path(), Default::default())
+            .await?;
     }
-    save_state(&keeper.db, &state).await?;
-    // The first pass cuts the keeper base over the retired head and advertises the retirement.
-    // Deletion waits for a later pass.
-    let keeper_head = keeper
+    age_retired_heads(&keeper, &store, &retired.prefix).await?;
+    // This pass advertises the retirement, after it has cut the keeper base over the retired head
+    // if the keeper had none yet. Deletion waits for a later pass. The pass returns the head it
+    // published before its collection, so the advertising head is read from the slots.
+    keeper
         .sync_store
         .push_share(store.clone(), namespace, cache_path(), Default::default())
-        .await?
-        .context("keeper published no head")?;
+        .await?;
+    let keeper_head =
+        newest_head(&store, &keeper.sync_store.share_prefix(cache_path()).await?).await?;
     ensure!(
         keeper_head.retired == [retired.prefix.clone()],
         "keeper did not advertise the retirement: {:?}",
@@ -1337,6 +1351,60 @@ async fn due_retirement() -> Result<DueRetirement> {
         retired,
         covered_key,
     })
+}
+
+/// Makes the keeper see both heads of the retired prefix as first seen a whole retirement period
+/// ago and unchanged since.
+async fn age_retired_heads(
+    keeper: &SqlLibrary,
+    store: &MemoryObjectStore,
+    retired_prefix: &str,
+) -> Result<()> {
+    let identity = keeper.sync_store.identity().await?;
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let mut state = load_or_create_state(
+        &keeper.db,
+        identity.replica,
+        identity.namespace,
+        cache_path(),
+        now_ms,
+    )
+    .await?;
+    for slot in [0, 1] {
+        let head = store
+            .get(&share::head_key(retired_prefix, slot)?)
+            .await
+            .map_err(|error| anyhow::anyhow!("read retired head: {error:?}"))?;
+        let key = ShareObjectKey::Head {
+            prefix: DevicePrefix::from_str(retired_prefix)?,
+            slot,
+        };
+        state.observed_objects.remove(&key);
+        state.observe_tag(key, head.tag, now_ms - share::RETIREMENT_MS as i64 - 60_000);
+    }
+    save_state(&keeper.db, &state).await?;
+    Ok(())
+}
+
+/// The newest head in the slots of `prefix`.
+async fn newest_head(store: &MemoryObjectStore, prefix: &str) -> Result<Head> {
+    let mut newest: Option<Head> = None;
+    for slot in [0, 1] {
+        match store.get(&share::head_key(prefix, slot)?).await {
+            Ok(value) => {
+                let head = share::decode_head(&value.bytes)?;
+                if newest
+                    .as_ref()
+                    .is_none_or(|known| head.counter > known.counter)
+                {
+                    newest = Some(head);
+                }
+            }
+            Err(StoreError::NotFound) => (),
+            Err(error) => anyhow::bail!("read a head of {prefix}: {error:?}"),
+        }
+    }
+    newest.context("the prefix has no head")
 }
 
 /// Where the keeper's cleanup waits when it lists the prefix it retires.
@@ -1484,6 +1552,63 @@ async fn retirement_deletes_an_unchanged_prefix_covered_by_the_keeper_base() -> 
         Vec::<String>::new()
     );
     // A device that joins later still gets the retired device's data from the keeper base.
+    let joining = SqlLibrary::new(due.namespace, Uuid::new_v4()).await?;
+    pull(&due.retired, &joining).await?;
+    assert_eq!(
+        joining.sync_store.get(&due.covered_key).await?,
+        due.retired_device.sync_store.get(&due.covered_key).await?
+    );
+    Ok(())
+}
+
+/// The retired device's previous head, in the other slot, still names a base that the covered
+/// head dropped and whose manifest the device has deleted, as its own collection does once the
+/// head without the base is written. Nothing else is in the prefix, so it is still deleted.
+#[tokio::test]
+async fn retirement_deletes_a_prefix_whose_older_head_names_a_deleted_base() -> Result<()> {
+    let due = due_retirement().await?;
+    let key = share::head_key(&due.retired.prefix, 0)?;
+    let mut previous = share::decode_head(
+        &due.store
+            .get(&key)
+            .await
+            .map_err(|error| anyhow::anyhow!("read the previous head: {error:?}"))?
+            .bytes,
+    )?;
+    ensure!(
+        previous.counter < due.retired.head.counter,
+        "slot 0 does not hold the previous head"
+    );
+    let dropped = BaseRef {
+        base_id: "0".repeat(64),
+        covers: previous
+            .bases
+            .first()
+            .context("the previous head names no base")?
+            .covers
+            .clone(),
+    };
+    previous.bases.insert(0, dropped);
+    due.store
+        .put(&key, &share::encode_head(&previous)?)
+        .await
+        .map_err(|error| anyhow::anyhow!("put the previous head: {error:?}"))?;
+    // The rewritten slot counts as unchanged for the whole retirement period, like the other.
+    age_retired_heads(&due.keeper, &due.store, &due.retired.prefix).await?;
+    due.keeper
+        .sync_store
+        .push_share(
+            due.store.clone(),
+            due.namespace,
+            cache_path(),
+            Default::default(),
+        )
+        .await?;
+    assert_eq!(
+        share_prefix_keys(&due.store, &due.retired.prefix).await?,
+        Vec::<String>::new(),
+        "retirement cleanup kept a prefix whose older head names a deleted base"
+    );
     let joining = SqlLibrary::new(due.namespace, Uuid::new_v4()).await?;
     pull(&due.retired, &joining).await?;
     assert_eq!(
@@ -1702,6 +1827,321 @@ async fn retirement_keeps_a_segment_whose_head_is_not_written_yet() -> Result<()
     assert_eq!(
         joining.sync_store.get(&key).await?,
         due.retired_device.sync_store.get(&key).await?
+    );
+    Ok(())
+}
+
+/// Where a base cut of the retired device is held while the keeper cleans up.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CutStop {
+    /// At its manifest upload, after its chunk uploads.
+    BeforeManifest,
+    /// At its head write, after its chunk and manifest uploads.
+    BeforeHead,
+}
+
+/// Holds the retired device's first upload of a base manifest or a head, as `stop` says, until
+/// the test lets it go on, as a slow upload would.
+struct UploadGate {
+    inner: Arc<MemoryObjectStore>,
+    prefix: String,
+    stop: CutStop,
+    held: AtomicBool,
+    reached: Notify,
+    resume: Notify,
+}
+
+impl UploadGate {
+    async fn hold_at(&self, key: &str) {
+        let held = match parse_key(key) {
+            Ok(ShareObjectKey::Base { prefix, .. }) => {
+                self.stop == CutStop::BeforeManifest && prefix.to_string() == self.prefix
+            }
+            Ok(ShareObjectKey::Head { prefix, .. }) => {
+                self.stop == CutStop::BeforeHead && prefix.to_string() == self.prefix
+            }
+            _ => false,
+        };
+        if held && !self.held.swap(true, Ordering::SeqCst) {
+            self.reached.notify_one();
+            self.resume.notified().await;
+        }
+    }
+}
+
+impl ObjectStore for UploadGate {
+    fn get<'a>(&'a self, key: &'a str) -> p::BoxFuture<'a, ObjectValue, StoreError> {
+        self.inner.get(key)
+    }
+
+    fn get_if_none_match<'a>(
+        &'a self,
+        key: &'a str,
+        tag: &'a ObjectTag,
+    ) -> p::BoxFuture<'a, ConditionalGet, StoreError> {
+        self.inner.get_if_none_match(key, tag)
+    }
+
+    fn put<'a>(&'a self, key: &'a str, bytes: &'a [u8]) -> p::BoxFuture<'a, ObjectTag, StoreError> {
+        Box::pin(async move {
+            self.hold_at(key).await;
+            self.inner.put(key, bytes).await
+        })
+    }
+
+    fn create<'a>(
+        &'a self,
+        key: &'a str,
+        bytes: &'a [u8],
+    ) -> p::BoxFuture<'a, ObjectTag, StoreError> {
+        Box::pin(async move {
+            self.hold_at(key).await;
+            self.inner.create(key, bytes).await
+        })
+    }
+
+    fn put_if_match<'a>(
+        &'a self,
+        key: &'a str,
+        tag: &'a ObjectTag,
+        bytes: &'a [u8],
+    ) -> p::BoxFuture<'a, ObjectTag, StoreError> {
+        Box::pin(async move {
+            self.hold_at(key).await;
+            self.inner.put_if_match(key, tag, bytes).await
+        })
+    }
+
+    fn delete<'a>(&'a self, key: &'a str) -> p::BoxFuture<'a, (), StoreError> {
+        self.inner.delete(key)
+    }
+
+    fn list_prefix<'a>(&'a self, prefix: &'a str) -> p::BoxFuture<'a, Vec<String>, StoreError> {
+        self.inner.list_prefix(prefix)
+    }
+}
+
+/// Runs a base cut of the retired device over its covered head through `cut_base`, as its push
+/// pass does, with `covers` for the other prefixes it has received, and holds the cut at `stop`.
+/// While the cut is held, the keeper's cleanup pass runs and has to keep every object of the
+/// prefix; then the cut goes on. Returns the objects that the cut had added when it was held and
+/// the head that it wrote afterwards.
+async fn cut_base_during_retirement(
+    due: &DueRetirement,
+    covers: BTreeMap<String, Checkpoint>,
+    stop: CutStop,
+) -> Result<(Vec<String>, Head)> {
+    let before = share_prefix_keys(&due.store, &due.retired.prefix).await?;
+    let gate = Arc::new(UploadGate {
+        inner: due.store.clone(),
+        prefix: due.retired.prefix.clone(),
+        stop,
+        held: AtomicBool::new(false),
+        reached: Notify::new(),
+        resume: Notify::new(),
+    });
+    let identity = SyncPeer::identity(&due.retired.endpoint).await?;
+    let mut state = state_for(&due.retired, &identity)?;
+    let writer = ShareWriter::default();
+    let (cut, cleanup) = tokio::join!(
+        async {
+            let cut = cut_base(BaseCutRequest {
+                db: &due.retired_device.db,
+                state: &mut state,
+                writer: &writer,
+                store: &*gate,
+                identity: &identity,
+                source: &due.retired.endpoint,
+                current_head: Some(&due.retired.head),
+                covers,
+                capabilities: Default::default(),
+            })
+            .await;
+            // Ends the wait below when the cut never reached the held upload.
+            gate.reached.notify_one();
+            cut
+        },
+        async {
+            gate.reached.notified().await;
+            let cleanup = async {
+                ensure!(
+                    gate.held.load(Ordering::SeqCst),
+                    "the base cut did not reach the held upload"
+                );
+                let uploaded = share_prefix_keys(&due.store, &due.retired.prefix).await?;
+                due.keeper
+                    .sync_store
+                    .push_share(
+                        due.store.clone(),
+                        due.namespace,
+                        cache_path(),
+                        Default::default(),
+                    )
+                    .await
+                    .map_err(|error| anyhow::anyhow!("keeper cleanup pass: {error}"))?;
+                let kept = share_prefix_keys(&due.store, &due.retired.prefix).await?;
+                Ok((uploaded, kept))
+            }
+            .await;
+            gate.resume.notify_one();
+            cleanup
+        }
+    );
+    let (uploaded, kept) = cleanup?;
+    assert_eq!(
+        kept, uploaded,
+        "retirement cleanup deleted an uncovered base upload whose head had not been written"
+    );
+    let head =
+        cut.map_err(|error| anyhow::anyhow!("finish the base cut after the cleanup: {error}"))?;
+    let added = uploaded
+        .into_iter()
+        .filter(|key| !before.contains(key))
+        .collect();
+    Ok((added, head))
+}
+
+/// The base manifests and the chunks among `keys`.
+fn bases_and_chunks(keys: &[String]) -> (Vec<String>, Vec<String>) {
+    let mut bases = Vec::new();
+    let mut chunks = Vec::new();
+    for key in keys {
+        match parse_key(key) {
+            Ok(ShareObjectKey::Base { .. }) => bases.push(key.clone()),
+            Ok(ShareObjectKey::Chunk { .. }) => chunks.push(key.clone()),
+            _ => (),
+        }
+    }
+    (bases, chunks)
+}
+
+/// Checks that the head a held cut wrote names the base manifest that the cut had uploaded.
+fn ensure_names_base(head: &Head, prefix: &str, manifests: &[String]) -> Result<()> {
+    let newest = head.bases.last().context("the base cut named no base")?;
+    ensure!(
+        manifests == [share::base_key(prefix, &newest.base_id)?],
+        "the base cut named another base than the one it had uploaded: {newest:?}"
+    );
+    Ok(())
+}
+
+/// The retired device has uploaded the chunks and the manifest of a base cut but not yet written
+/// the head that names the base, as `cut_base` uploads them first, when the keeper lists its
+/// prefix for deletion. Both slots still hold the heads the retirement covers, and the new base
+/// holds a playlist that the keeper base does not. The keeper keeps the whole prefix, and once
+/// the cut has written its head, a new device gets the playlist.
+#[tokio::test]
+async fn retirement_keeps_a_base_whose_head_is_not_written_yet() -> Result<()> {
+    let due = due_retirement().await?;
+    let key = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(2204),
+    };
+    due.retired_device
+        .sync_store
+        .write_local(key.clone(), support::playlist("in a base before its head"))
+        .await?;
+    let (added, head) =
+        cut_base_during_retirement(&due, BTreeMap::new(), CutStop::BeforeHead).await?;
+    let (manifests, chunks) = bases_and_chunks(&added);
+    ensure!(
+        manifests.len() == 1 && !chunks.is_empty(),
+        "the held cut had not uploaded one manifest and new chunks: {added:?}"
+    );
+    ensure_names_base(&head, &due.retired.prefix, &manifests)?;
+    let joining = SqlLibrary::new(due.namespace, Uuid::new_v4()).await?;
+    pull(&due.retired, &joining).await?;
+    assert_eq!(
+        joining.sync_store.get(&key).await?,
+        due.retired_device.sync_store.get(&key).await?
+    );
+    Ok(())
+}
+
+/// Like `retirement_keeps_a_base_whose_head_is_not_written_yet`, but the cut is held at its
+/// manifest upload, so only new chunks that no listed manifest references show the cut.
+#[tokio::test]
+async fn retirement_keeps_chunks_whose_manifest_is_not_written_yet() -> Result<()> {
+    let due = due_retirement().await?;
+    let key = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(2205),
+    };
+    due.retired_device
+        .sync_store
+        .write_local(
+            key.clone(),
+            support::playlist("in chunks before their manifest"),
+        )
+        .await?;
+    let before = share_prefix_keys(&due.store, &due.retired.prefix).await?;
+    let (added, head) =
+        cut_base_during_retirement(&due, BTreeMap::new(), CutStop::BeforeManifest).await?;
+    let (manifests, chunks) = bases_and_chunks(&added);
+    ensure!(
+        manifests.is_empty() && !chunks.is_empty(),
+        "the held cut had not uploaded new chunks alone: {added:?}"
+    );
+    // After the hold the cut uploaded its manifest and no more chunks, so its base uses the
+    // chunks that the cleanup kept.
+    let finished = share_prefix_keys(&due.store, &due.retired.prefix)
+        .await?
+        .into_iter()
+        .filter(|key| !before.contains(key))
+        .collect::<Vec<_>>();
+    let (manifests, finished_chunks) = bases_and_chunks(&finished);
+    ensure!(
+        finished_chunks == chunks,
+        "the cut uploaded chunks after the hold: {finished:?}"
+    );
+    ensure_names_base(&head, &due.retired.prefix, &manifests)?;
+    let joining = SqlLibrary::new(due.namespace, Uuid::new_v4()).await?;
+    pull(&due.retired, &joining).await?;
+    assert_eq!(
+        joining.sync_store.get(&key).await?,
+        due.retired_device.sync_store.get(&key).await?
+    );
+    Ok(())
+}
+
+/// Like `retirement_keeps_a_base_whose_head_is_not_written_yet`, but the device's data has not
+/// changed: it cuts a base over the keeper base it received before the retirement was advertised,
+/// so the new manifest only references chunks that the listed manifest already references.
+#[tokio::test]
+async fn retirement_keeps_a_base_whose_chunks_are_all_listed() -> Result<()> {
+    let due = due_retirement_with(KeeperBase::Received).await?;
+    let keeper_prefix =
+        DevicePrefix::from_str(&due.keeper.sync_store.share_prefix(cache_path()).await?)?;
+    let received = p::ReceiveStore::checkpoint(
+        &due.retired.endpoint,
+        &p::CheckpointKey {
+            namespace: due.namespace,
+            source_replica: keeper_prefix.stream,
+            source_generation: keeper_prefix.generation,
+            scope_id: p::scope_id(&full_scope())?,
+        },
+    )
+    .await?
+    .context("the retired device did not receive the keeper base")?;
+    let covers = BTreeMap::from([(
+        keeper_prefix.to_string(),
+        Checkpoint {
+            seq: received.sequence,
+            anchor: received.anchor,
+        },
+    )]);
+    let (added, head) = cut_base_during_retirement(&due, covers, CutStop::BeforeHead).await?;
+    let (manifests, chunks) = bases_and_chunks(&added);
+    ensure!(
+        manifests.len() == 1 && chunks.is_empty(),
+        "the held cut had not uploaded a manifest alone: {added:?}"
+    );
+    ensure_names_base(&head, &due.retired.prefix, &manifests)?;
+    let joining = SqlLibrary::new(due.namespace, Uuid::new_v4()).await?;
+    pull(&due.retired, &joining).await?;
+    assert_eq!(
+        joining.sync_store.get(&due.covered_key).await?,
+        due.retired_device.sync_store.get(&due.covered_key).await?
     );
     Ok(())
 }
