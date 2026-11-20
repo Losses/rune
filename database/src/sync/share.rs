@@ -1987,7 +1987,10 @@ async fn choose_live_base<M: SyncModel>(
     let target_prefix = target.to_string();
     let mut ordered = Vec::new();
     for candidate in candidates.iter().filter(|candidate| {
-        candidate.covers.contains_key(&target_prefix)
+        candidate
+            .covers
+            .get(&target_prefix)
+            .is_some_and(|cover| cover.seq > head.floor.seq || cover == &head.floor)
             && !unavailable_bases
                 .contains(&(candidate.owner_prefix.clone(), candidate.base_id.clone()))
     }) {

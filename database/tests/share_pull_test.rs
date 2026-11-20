@@ -4,8 +4,9 @@ use anyhow::{Context, Result, ensure};
 use database::sync::model::{Collection, ObjectKey, RuneModel};
 use database::sync::replica::PendingShareChange;
 use database::sync::share::{
-    PublishJournalRequest, ShareCapabilities, SharePullError, SharePushError, SharePushResult,
-    ShareState, ShareWriter, load_or_create_state, publish_journal, save_state,
+    BaseCutRequest, PublishJournalRequest, ShareCapabilities, SharePullError, SharePushError,
+    SharePushResult, ShareState, ShareWriter, cut_base, load_or_create_state, publish_journal,
+    save_state,
 };
 use rand::{Rng, SeedableRng, distributions::Alphanumeric, rngs::StdRng};
 use sea_orm::{
@@ -2016,6 +2017,84 @@ async fn deleted_floor_base_reconciles_from_another_live_base() -> Result<()> {
         })
     );
     Ok(())
+}
+
+async fn a_new_device_joins_after_a_newer_base(source_sorts_first: bool) -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let other = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let source_prefix = source.sync_store.share_prefix(cache_path()).await?;
+    let other_prefix = other.sync_store.share_prefix(cache_path()).await?;
+    let (source, other) = if (source_prefix < other_prefix) == source_sorts_first {
+        (source, other)
+    } else {
+        (other, source)
+    };
+
+    let first = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(2291),
+    };
+    source
+        .sync_store
+        .write_local(first, support::playlist("first"))
+        .await?;
+    let store = Arc::new(MemoryObjectStore::default());
+    let published = publish_base(&source, store.clone(), BTreeMap::new()).await?;
+    let other_head = other
+        .sync_store
+        .push_share(store.clone(), namespace, cache_path(), Default::default())
+        .await?
+        .context("other device did not publish a base")?;
+    assert!(
+        other_head
+            .bases
+            .iter()
+            .any(|base| { base.covers.get(&published.prefix) == Some(&published.head.head) })
+    );
+
+    let second = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(2292),
+    };
+    source
+        .sync_store
+        .write_local(second.clone(), support::playlist("second"))
+        .await?;
+    let identity = SyncPeer::identity(&published.endpoint).await?;
+    let mut state = state_for(&published, &identity)?;
+    cut_base(BaseCutRequest {
+        db: &source.db,
+        state: &mut state,
+        writer: &ShareWriter::default(),
+        store: &*store,
+        identity: &identity,
+        source: &published.endpoint,
+        current_head: Some(&published.head),
+        covers: BTreeMap::new(),
+        capabilities: Default::default(),
+    })
+    .await?;
+
+    let joining = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    pull(&published, &joining).await?;
+    let received = joining
+        .sync_store
+        .get(&second)
+        .await?
+        .context("joining device missed the second playlist")?;
+    assert_eq!(received.value, support::playlist("second"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_new_device_joins_after_a_newer_base_whose_device_sorts_after_the_other() -> Result<()> {
+    a_new_device_joins_after_a_newer_base(false).await
+}
+
+#[tokio::test]
+async fn a_new_device_joins_after_a_newer_base_whose_device_sorts_before_the_other() -> Result<()> {
+    a_new_device_joins_after_a_newer_base(true).await
 }
 
 async fn base_manifest(
