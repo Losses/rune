@@ -456,19 +456,34 @@ pub(crate) async fn reorder_playlist_item_position_request(
     Ok(Some(ReorderPlaylistItemPositionResponse { call_id: None }))
 }
 
+/// Maps each object to its cover's file in the local cover cache, and returns the covers that
+/// are not cached.
+async fn cached_cover_map(
+    binding: &SubsonicBinding,
+    covers: Vec<(i32, String)>,
+) -> Result<(HashMap<i32, String>, Vec<String>)> {
+    let mut map = HashMap::new();
+    let mut missing = Vec::new();
+    for (object_id, cover_id) in covers {
+        match binding.covers.cached_path(&cover_id).await? {
+            Some(path) => {
+                map.insert(object_id, path);
+            }
+            None => missing.push(cover_id),
+        }
+    }
+    Ok((map, missing))
+}
+
 async fn subsonic_cover_map(
     binding: &SubsonicBinding,
     covers: Vec<(i32, String)>,
-) -> Result<std::collections::HashMap<i32, String>> {
-    let mut map = HashMap::new();
-    for (object_id, cover_id) in covers {
-        if let Some(path) = binding.covers.cached_path(&cover_id).await? {
-            map.insert(object_id, path);
-        } else {
-            binding
-                .covers
-                .schedule(Arc::clone(&binding.client), cover_id);
-        }
+) -> Result<HashMap<i32, String>> {
+    let (map, missing) = cached_cover_map(binding, covers).await?;
+    for cover_id in missing {
+        binding
+            .covers
+            .schedule(Arc::clone(&binding.client), cover_id);
     }
     Ok(map)
 }
@@ -1873,7 +1888,8 @@ pub(crate) async fn mix_query_request(
         .collect::<Vec<_>>();
     // The cover wall shows only covers and reads them once, so its covers must be on disk
     // before it gets the tracks. Track lists show a cover whenever its background fetch lands.
-    if let DetailQuery::RandomCovers(_) = query {
+    let cover_wall = matches!(query, DetailQuery::RandomCovers(_));
+    if cover_wall {
         let cached = cache_covers(binding, &songs).await;
         songs.retain(|song| {
             song.cover_art
@@ -1905,11 +1921,24 @@ pub(crate) async fn mix_query_request(
         .iter()
         .filter_map(|(file, cover)| cover.clone().map(|cover| (file.id, cover)))
         .collect();
-    let files = translated.into_iter().map(|(file, _)| file).collect();
+    let mut files = translated
+        .into_iter()
+        .map(|(file, _)| file)
+        .collect::<Vec<_>>();
+    let cover_art_map = if cover_wall {
+        // A batch larger than the cache can evict a cover cached above before the map is built.
+        // The wall reads its covers once, so a track whose cover is gone is left out, and the
+        // cover is not fetched again.
+        let (map, _) = cached_cover_map(binding, covers).await?;
+        files.retain(|file| map.contains_key(&file.id));
+        map
+    } else {
+        subsonic_cover_map(binding, covers).await?
+    };
     Ok(Some(MixQueryResponse {
         call_id: None,
         files,
-        cover_art_map: subsonic_cover_map(binding, covers).await?,
+        cover_art_map,
     }))
 }
 
@@ -2298,6 +2327,8 @@ mod tests {
         song_page_cap: Arc<AtomicUsize>,
         random_song_sizes: Arc<Mutex<Vec<String>>>,
         no_random_songs: Arc<AtomicUsize>,
+        // `error-cover` is answered only while this is not write-locked.
+        error_cover_gate: Arc<tokio::sync::RwLock<()>>,
     }
 
     type MockPlaylistCalls = Arc<Mutex<Vec<(String, Vec<(String, String)>)>>>;
@@ -2371,6 +2402,7 @@ mod tests {
             song_page_cap: Arc::new(AtomicUsize::new(usize::MAX)),
             random_song_sizes: Arc::new(Mutex::new(Vec::new())),
             no_random_songs: Arc::new(AtomicUsize::new(0)),
+            error_cover_gate: Arc::default(),
         };
         let app = Router::new()
             .route("/rest/{*endpoint}", get(mock_endpoint))
@@ -2542,6 +2574,7 @@ mod tests {
         if endpoint == "getCoverArt" {
             state.cover_calls.fetch_add(1, Ordering::SeqCst);
             if cover_id == "error-cover" {
+                let _open = state.error_cover_gate.read().await;
                 return Response::builder()
                     .status(StatusCode::INTERNAL_SERVER_ERROR)
                     .body(Body::from("cover-secret-password"))
@@ -3903,6 +3936,32 @@ mod tests {
             server.state.random_song_sizes.lock().unwrap().as_slice(),
             ["40", "40"]
         );
+    }
+
+    #[tokio::test]
+    async fn the_cover_wall_query_leaves_out_tracks_whose_cover_was_evicted() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        let held = server.state.error_cover_gate.write().await;
+        let binding = Arc::new(binding);
+        let query = {
+            let binding = Arc::clone(&binding);
+            tokio::spawn(async move {
+                mix_query_request(
+                    &binding,
+                    &mix_request(&[("lib::random", "40"), ("filter::with_cover_art", "true")]),
+                )
+                .await
+            })
+        };
+        // `cover-a` is cached while `error-cover` is held, then removed as eviction would.
+        wait_for_covers(&binding, &["cover-a"]).await;
+        std::fs::remove_file(binding.covers.path_for("cover-a")).unwrap();
+        drop(held);
+
+        let response = query.await.unwrap().unwrap().unwrap();
+        assert!(response.files.is_empty(), "{:?}", response.files);
+        assert!(response.cover_art_map.is_empty());
     }
 
     #[tokio::test]
