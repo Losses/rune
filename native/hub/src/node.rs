@@ -853,6 +853,12 @@ impl NodeContext {
         peer: &PeerIdentity,
         library_id: Option<Uuid>,
     ) -> RequestCapabilities {
+        if !library_id
+            .is_some_and(|library_id| self.access_policy.library_visible(peer, library_id))
+        {
+            capabilities.library_id = None;
+            capabilities.record_id = None;
+        }
         capabilities.for_each_capability_mut(|access, capability| {
             let allowed = match access {
                 // Calls that only this device makes cannot be granted.
