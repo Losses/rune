@@ -1,4 +1,5 @@
 use anyhow::Result;
+use discovery::access_policy::PeerIdentity;
 use std::sync::Arc;
 #[cfg(not(target_os = "ios"))]
 use sysinfo::System;
@@ -27,15 +28,23 @@ impl Signal for GetOpenLibraryRequest {
     async fn handle(
         &self,
         node: Self::Params,
-        _session: Option<Session>,
+        session: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
+        let peer = session.map(|session| PeerIdentity {
+            fingerprint: session.fingerprint,
+            public_key: session.public_key,
+        });
         Ok(Some(GetOpenLibraryResponse {
             library_id: node
                 .current_ui()
                 .await
                 .ok()
                 .and_then(|params| params.library_id)
+                .filter(|library_id| {
+                    peer.as_ref()
+                        .is_none_or(|peer| node.access_policy.library_visible(peer, *library_id))
+                })
                 .map(|library_id| library_id.to_string()),
             call_id: request.call_id,
         }))

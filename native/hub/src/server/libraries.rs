@@ -67,10 +67,18 @@ pub(super) async fn peer_access(
     let node = manager
         .node()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let grants = node
+    let mut grants = node
         .access_policy
         .grants(&peer.fingerprint)
         .map_err(|_| StatusCode::FORBIDDEN)?;
+    grants
+        .connection
+        .libraries
+        .retain(|library_id, _| node.access_policy.library_visible(&peer, *library_id));
+    grants
+        .sync
+        .libraries
+        .retain(|library_id, _| node.access_policy.library_visible(&peer, *library_id));
     Ok(Json(PeerAccess {
         control: grants.control,
         connection: grants.connection,
@@ -442,13 +450,7 @@ fn library_visible_to_peer(
     let Some(library_id) = library.catalog_library_id() else {
         return false;
     };
-    node.access_policy
-        .check(peer, &Action::ConnectionView { library_id })
-        .is_ok()
-        || node
-            .access_policy
-            .check(peer, &Action::SyncPull { library_id })
-            .is_ok()
+    node.access_policy.library_visible(peer, library_id)
 }
 
 pub(super) async fn list_libraries(

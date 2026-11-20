@@ -211,8 +211,8 @@ void main() {
               deviceAccessSummary(
                 const DeviceGrantsInfo(
                   control: true,
-                  allConnection: DeviceConnectionLevel.view,
-                  allSync: DeviceSyncLevel.none,
+                  allConnection: null,
+                  allSync: null,
                   libraries: [],
                   administer: false,
                 ),
@@ -240,4 +240,57 @@ void main() {
     );
     await tester.pumpAndSettle();
   });
+
+  testWidgets(
+    'Guest preset shows Not Shared for unshared libraries without granting sync',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final saved = <SetDeviceGrantsRequest>[];
+      await tester.pumpWidget(
+        _app(
+          SettingsDeviceAccessPage(
+            client: _client,
+            loadGrants: (_) async => const GetDeviceGrantsResponse(
+              grants: DeviceGrantsInfo(
+                control: true,
+                allConnection: null,
+                allSync: null,
+                libraries: [
+                  DeviceLibraryGrant(
+                    libraryId: 'shared-id',
+                    connection: DeviceConnectionLevel.view,
+                    sync: DeviceSyncLevel.none,
+                  ),
+                ],
+                administer: false,
+              ),
+              libraries: [
+                DeviceLibraryAccess(
+                  libraryId: 'unshared-id',
+                  alias: 'Private Library',
+                  connection: DeviceConnectionLevel.none,
+                  sync: DeviceSyncLevel.none,
+                ),
+                DeviceLibraryAccess(
+                  libraryId: 'shared-id',
+                  alias: 'Shared Library',
+                  connection: DeviceConnectionLevel.view,
+                  sync: DeviceSyncLevel.none,
+                ),
+              ],
+            ),
+            saveGrants: (request) async => saved.add(request),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(find.text('Not Shared'), findsOneWidget);
+      expect(find.text('Custom'), findsOneWidget);
+      expect(saved, isEmpty);
+    },
+  );
 }

@@ -8,8 +8,8 @@ void main() {
   final s = AppLocalizationsEn();
   DeviceGrantsInfo grants({
     bool control = true,
-    DeviceConnectionLevel? allConnection = DeviceConnectionLevel.view,
-    DeviceSyncLevel? allSync = DeviceSyncLevel.none,
+    DeviceConnectionLevel? allConnection,
+    DeviceSyncLevel? allSync,
     List<DeviceLibraryGrant> libraries = const [],
     bool administer = false,
   }) => DeviceGrantsInfo(
@@ -35,13 +35,8 @@ void main() {
     expect(
       deviceAccessSummary(
         grants(
-          libraries: [
-            const DeviceLibraryGrant(
-              libraryId: 'a',
-              connection: DeviceConnectionLevel.view,
-              sync: DeviceSyncLevel.none,
-            ),
-          ],
+          allConnection: DeviceConnectionLevel.none,
+          allSync: DeviceSyncLevel.none,
         ),
         s,
       ),
@@ -57,6 +52,31 @@ void main() {
               sync: DeviceSyncLevel.none,
             ),
           ],
+        ),
+        s,
+      ),
+      'Guest',
+    );
+    expect(
+      deviceAccessSummary(
+        grants(
+          libraries: [
+            const DeviceLibraryGrant(
+              libraryId: 'a',
+              connection: DeviceConnectionLevel.view,
+              sync: DeviceSyncLevel.none,
+            ),
+          ],
+        ),
+        s,
+      ),
+      'Custom',
+    );
+    expect(
+      deviceAccessSummary(
+        grants(
+          allConnection: DeviceConnectionLevel.view,
+          allSync: DeviceSyncLevel.none,
         ),
         s,
       ),
