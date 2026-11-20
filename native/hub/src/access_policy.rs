@@ -98,10 +98,20 @@ impl DeviceGrants {
             administer: false,
         }
     }
+    fn is_legacy_v2_guest(&self) -> bool {
+        let Self {
+            control,
+            connection,
+            sync,
+            administer,
+        } = self;
+        *control
+            && !*administer
+            && connection.all_libraries == Some(ConnectionLevel::View)
+            && sync.all_libraries.unwrap_or_default() == SyncLevel::None
+    }
     fn migrate_from_v2(&mut self) {
-        if self.connection.all_libraries == Some(ConnectionLevel::View)
-            && self.sync.all_libraries.unwrap_or_default() == SyncLevel::None
-        {
+        if self.is_legacy_v2_guest() {
             self.connection.all_libraries = None;
             self.sync.all_libraries = None;
         }
@@ -253,6 +263,7 @@ impl RuneAccessPolicy {
             devices.insert(fingerprint.to_owned(), grants);
         })
     }
+    /// Returns whether `peer` can see `library_id` via connection view or sync pull access.
     pub fn library_visible(&self, peer: &PeerIdentity, library_id: Uuid) -> bool {
         self.check(peer, &Action::ConnectionView { library_id })
             .is_ok()
@@ -411,6 +422,84 @@ mod load_tests {
         );
         assert_eq!(with_shared.sync_level(unshared), SyncLevel::None);
         assert_eq!(policy.grants("owner")?, DeviceGrants::my_device());
+        Ok(())
+    }
+
+    #[test]
+    fn stored_v2_custom_wildcard_browse_grants_keep_access() -> anyhow::Result<()> {
+        use super::{ConnectionLevel, SyncLevel};
+        use uuid::Uuid;
+
+        let dir = tempfile::tempdir()?;
+        let unshared = Uuid::new_v4();
+        std::fs::write(
+            dir.path().join("grants.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "version": 2,
+                "devices": {
+                    "custom_controlless": {
+                        "control": false,
+                        "connection": { "all_libraries": "View", "libraries": {} },
+                        "sync": { "all_libraries": "None", "libraries": {} },
+                        "administer": false
+                    },
+                    "custom_admin": {
+                        "control": true,
+                        "connection": { "all_libraries": "View", "libraries": {} },
+                        "sync": { "all_libraries": "None", "libraries": {} },
+                        "administer": true
+                    },
+                    "custom_controlless_admin": {
+                        "control": false,
+                        "connection": { "all_libraries": "View", "libraries": {} },
+                        "sync": { "all_libraries": null, "libraries": {} },
+                        "administer": true
+                    }
+                }
+            }))?,
+        )?;
+        let users = [
+            approved("custom_controlless"),
+            approved("custom_admin"),
+            approved("custom_controlless_admin"),
+        ];
+        for policy in [
+            RuneAccessPolicy::load(dir.path(), &users)?,
+            RuneAccessPolicy::load(dir.path(), &users)?,
+        ] {
+            let controlless = policy.grants("custom_controlless")?;
+            assert!(!controlless.control);
+            assert!(!controlless.administer);
+            assert_eq!(
+                controlless.connection.all_libraries,
+                Some(ConnectionLevel::View)
+            );
+            assert_eq!(
+                controlless.connection_level(unshared),
+                ConnectionLevel::View
+            );
+            assert_eq!(controlless.sync_level(unshared), SyncLevel::None);
+
+            let admin = policy.grants("custom_admin")?;
+            assert!(admin.control);
+            assert!(admin.administer);
+            assert_eq!(admin.connection.all_libraries, Some(ConnectionLevel::View));
+            assert_eq!(admin.connection_level(unshared), ConnectionLevel::View);
+            assert_eq!(admin.sync_level(unshared), SyncLevel::None);
+
+            let controlless_admin = policy.grants("custom_controlless_admin")?;
+            assert!(!controlless_admin.control);
+            assert!(controlless_admin.administer);
+            assert_eq!(
+                controlless_admin.connection.all_libraries,
+                Some(ConnectionLevel::View)
+            );
+            assert_eq!(
+                controlless_admin.connection_level(unshared),
+                ConnectionLevel::View
+            );
+            assert_eq!(controlless_admin.sync_level(unshared), SyncLevel::None);
+        }
         Ok(())
     }
 }
