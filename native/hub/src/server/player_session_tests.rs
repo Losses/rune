@@ -202,7 +202,16 @@ async fn subsonic_hub_response(
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
     let action = action.strip_suffix(".view").unwrap_or(&action).to_owned();
-    state.calls.lock().unwrap().push(action.clone());
+    let call = match action.as_str() {
+        // A now-playing report and a completed play differ only in their parameters.
+        "scrobble" => format!(
+            "scrobble id={} submission={}",
+            query.get("id").map(String::as_str).unwrap_or_default(),
+            query.get("submission").map(String::as_str).unwrap_or_default(),
+        ),
+        _ => action.clone(),
+    };
+    state.calls.lock().unwrap().push(call);
     if action == "stream" {
         let range = headers
             .get(RANGE)
@@ -297,6 +306,7 @@ async fn subsonic_hub_response(
         "getSong" => {
             json!({ "subsonic-response": { "status": "ok", "song": { "id": "song-opaque", "title": "Song title", "artist": "Artist", "album": "Album", "artistId": "artist-opaque", "albumId": "album-opaque", "coverArt": state.visualizer_covers.then(|| "cover-playing".to_owned()), "duration": 90, "track": 4 } } })
         }
+        "scrobble" => json!({ "subsonic-response": { "status": "ok" } }),
         "getArtist" => {
             json!({ "subsonic-response": { "status": "ok", "artist": { "id": "artist-opaque", "name": "Artist", "albumCount": 1, "album": { "id": "album-opaque", "name": "Album", "artist": "Artist", "artistId": "artist-opaque" } } } })
         }
@@ -11185,7 +11195,7 @@ async fn subsonic_tracks_played_here_report_their_title_and_cover() -> Result<()
             .lock()
             .unwrap()
             .iter()
-            .any(|action| action == "scrobble")
+            .any(|call| call == "scrobble id=song-opaque submission=false")
             .then_some(()))
     })
     .await?;

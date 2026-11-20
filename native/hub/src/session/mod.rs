@@ -604,7 +604,11 @@ impl PlayerSession {
                         let Some(node) = weak.upgrade() else { return };
                         if show_late_cover(&node, late, &mut item_state, &controls).await {
                             let status = player.lock().await.get_status();
-                            handle_status_event(&node, status, &mut item_state, &controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
+                            // Statuses still queued come before this snapshot. If the player has
+                            // moved to another item, they report that change in order.
+                            if status.item == item_state.last_item {
+                                handle_status_event(&node, status, &mut item_state, &controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
+                            }
                         }
                     }
                     Ok(value) = playlist.recv() => {
