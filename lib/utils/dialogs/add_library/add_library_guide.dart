@@ -866,6 +866,9 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
       );
       return false;
     }
+    // Return true so callers like _registerOpenDal still run the initial scan
+    // for an already-opened record even if the user dismissed the guide.
+    if (!mounted) return true;
     widget.$close(null);
     _navigateToLibrary(deferRootToScan: deferRootToScan);
     return true;
