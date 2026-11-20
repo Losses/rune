@@ -420,6 +420,9 @@ fn playlist_entries_changed(binding: &SubsonicBinding) {
         });
 }
 
+/// The length of a playlist fingerprint, in lowercase hexadecimal digits.
+const PLAYLIST_FINGERPRINT_LEN: usize = 16;
+
 /// Identifies one order of a playlist's entries.
 fn playlist_fingerprint<'a>(songs: impl IntoIterator<Item = &'a str>) -> String {
     let mut hasher = blake3::Hasher::new();
@@ -427,7 +430,14 @@ fn playlist_fingerprint<'a>(songs: impl IntoIterator<Item = &'a str>) -> String 
         hasher.update(&(song.len() as u64).to_le_bytes());
         hasher.update(song.as_bytes());
     }
-    hasher.finalize().to_hex()[..16].to_owned()
+    hasher.finalize().to_hex()[..PLAYLIST_FINGERPRINT_LEN].to_owned()
+}
+
+fn is_playlist_fingerprint(value: &str) -> bool {
+    value.len() == PLAYLIST_FINGERPRINT_LEN
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 /// Names a playlist entry. Subsonic names entries only by their order, so an occurrence is
@@ -440,6 +450,7 @@ fn occurrence_id(position: impl std::fmt::Display, fingerprint: &str) -> String 
 fn parse_occurrence_id(value: &str) -> Result<(usize, &str)> {
     value
         .split_once('@')
+        .filter(|(_, fingerprint)| is_playlist_fingerprint(fingerprint))
         .and_then(|(position, fingerprint)| Some((position.parse().ok()?, fingerprint)))
         .ok_or_else(|| {
             ExpectedRequestError::invalid_input("Invalid Subsonic playlist occurrence").into()
@@ -449,8 +460,7 @@ fn parse_occurrence_id(value: &str) -> Result<(usize, &str)> {
 /// The position of a listed occurrence in `songs`. A position names the entry it was listed
 /// for only while the playlist keeps the order it was listed in, so an occurrence listed
 /// before any change to the playlist is rejected.
-fn occurrence_position(value: &str, songs: &[String]) -> Result<usize> {
-    let (position, fingerprint) = parse_occurrence_id(value)?;
+fn occurrence_position((position, fingerprint): (usize, &str), songs: &[String]) -> Result<usize> {
     if fingerprint != playlist_fingerprint(songs.iter().map(String::as_str)) {
         return Err(ExpectedRequestError::PlaylistChanged.into());
     }
@@ -466,8 +476,9 @@ pub(crate) async fn remove_item_from_playlist_request(
     binding: &SubsonicBinding,
     request: &RemoveItemFromPlaylistRequest,
 ) -> Result<Option<RemoveItemFromPlaylistResponse>> {
+    let occurrence = parse_occurrence_id(&request.occurrence_id)?;
     let (remote_id, songs) = fetch_remote_playlist(binding, request.playlist_id).await?;
-    let position = occurrence_position(&request.occurrence_id, &songs)?;
+    let position = occurrence_position(occurrence, &songs)?;
     let position = u32::try_from(position)
         .map_err(|_| ExpectedRequestError::invalid_input("Subsonic playlist is too large"))?;
     binding
@@ -483,8 +494,9 @@ pub(crate) async fn reorder_playlist_item_position_request(
     binding: &SubsonicBinding,
     request: &ReorderPlaylistItemPositionRequest,
 ) -> Result<Option<ReorderPlaylistItemPositionResponse>> {
+    let occurrence = parse_occurrence_id(&request.occurrence_id)?;
     let (remote_id, songs) = fetch_remote_playlist(binding, request.playlist_id).await?;
-    let from = occurrence_position(&request.occurrence_id, &songs)?;
+    let from = occurrence_position(occurrence, &songs)?;
     let target = usize::try_from(request.new_position)
         .map_err(|_| ExpectedRequestError::invalid_input("Invalid playlist position"))?;
     if target >= songs.len() {
@@ -3258,6 +3270,10 @@ mod tests {
             (Some(cursor(-1, "-1")), 2),
             (Some(cursor(0, "first")), 2),
             (Some(cursor(0, "0")), 2),
+            (Some(cursor(0, "0@")), 2),
+            (Some(cursor(0, "0@not-a-hash")), 2),
+            (Some(cursor(0, "0@0123456789ABCDEF")), 2),
+            (Some(cursor(0, "0@0123456789abcdef0")), 2),
         ] {
             let error = occurrence_page(&binding, road, after, page_size)
                 .await
@@ -3267,6 +3283,68 @@ mod tests {
                 error.downcast_ref::<ExpectedRequestError>(),
                 Some(ExpectedRequestError::InvalidInput { .. })
             ));
+        }
+        assert_eq!(server.state.requests.lock().unwrap().len(), before);
+    }
+
+    #[tokio::test]
+    async fn malformed_occurrences_edit_nothing_and_reach_no_server() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        let playlist_id =
+            fetch_all_playlists_request(&binding, &FetchAllPlaylistsRequest { call_id: None })
+                .await
+                .unwrap()
+                .unwrap()
+                .playlists[0]
+                .id;
+        let listed_fingerprint = occurrence_page(&binding, playlist_id, None, 128)
+            .await
+            .unwrap()
+            .entries[0]
+            .occurrence_id
+            .split_once('@')
+            .unwrap()
+            .1
+            .to_owned();
+        let before = server.state.requests.lock().unwrap().len();
+        for occurrence_id in [
+            "0".to_owned(),
+            "0@".to_owned(),
+            "0@not-a-hash".to_owned(),
+            format!("0@{}", listed_fingerprint.to_uppercase()),
+            format!("0@{listed_fingerprint}0"),
+            format!("first@{listed_fingerprint}"),
+        ] {
+            let remove = remove_item_from_playlist_request(
+                &binding,
+                &RemoveItemFromPlaylistRequest {
+                    playlist_id,
+                    occurrence_id: occurrence_id.clone(),
+                    call_id: None,
+                },
+            )
+            .await
+            .err()
+            .expect("a malformed occurrence is not removed");
+            let reorder = reorder_playlist_item_position_request(
+                &binding,
+                &ReorderPlaylistItemPositionRequest {
+                    playlist_id,
+                    occurrence_id,
+                    new_position: 1,
+                    call_id: None,
+                },
+            )
+            .await
+            .err()
+            .expect("a malformed occurrence is not moved");
+            for error in [remove, reorder] {
+                assert!(matches!(
+                    error.downcast_ref::<ExpectedRequestError>(),
+                    Some(ExpectedRequestError::InvalidInput { .. })
+                ));
+            }
         }
         assert_eq!(server.state.requests.lock().unwrap().len(), before);
     }
