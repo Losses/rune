@@ -468,7 +468,7 @@ impl SubsonicCoverCache {
         });
     }
 
-    async fn ensure_cached(
+    pub(crate) async fn ensure_cached(
         self: &Arc<Self>,
         client: Arc<SubsonicClient>,
         cover_id: &str,
