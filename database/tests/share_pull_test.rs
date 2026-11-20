@@ -1630,18 +1630,15 @@ async fn retirement_keeps_a_segment_whose_head_is_not_written_yet() -> Result<()
     let events = journal_events_since(&due.retired.endpoint, &due.retired.head).await?;
     let writer = ShareWriter::default();
     // The device's head write does not get through, so its publication stops after the segment
-    // upload and leaves both slots as the retirement saw them.
-    let head_writes = [
-        StoreOperation::Put,
-        StoreOperation::Create,
-        StoreOperation::ConditionalPut,
-    ];
-    for operation in head_writes {
-        due.store.inject_error_for_kind(
-            operation,
-            StoreObjectKind::Head,
-            StoreError::Transient("head write held back".into()),
-        );
+    // upload and leaves both slots as the retirement saw them. Only heads are written with
+    // `put_if_match`, which the memory store fails for every object kind at once; the segment
+    // goes through `create`.
+    let held_back = StoreError::Transient("head write held back".into());
+    due.store
+        .inject_error(StoreOperation::ConditionalPut, held_back.clone());
+    for operation in [StoreOperation::Put, StoreOperation::Create] {
+        due.store
+            .inject_error_for_kind(operation, StoreObjectKind::Head, held_back.clone());
     }
     let mut state = state_for(&due.retired, &identity)?;
     let interrupted = push_entries(
@@ -1654,7 +1651,8 @@ async fn retirement_keeps_a_segment_whose_head_is_not_written_yet() -> Result<()
         &events,
     )
     .await;
-    for operation in head_writes {
+    due.store.clear_error(StoreOperation::ConditionalPut);
+    for operation in [StoreOperation::Put, StoreOperation::Create] {
         due.store
             .clear_error_for_kind(operation, StoreObjectKind::Head);
     }
