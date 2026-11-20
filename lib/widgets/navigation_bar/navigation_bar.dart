@@ -7,6 +7,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../utils/kept_clear.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/router/history.dart';
+import '../../utils/navigation/header_parent.dart';
 import '../../utils/navigation/navigation_item.dart';
 import '../../utils/navigation/utils/escape_from_search.dart';
 import '../../config/navigation_query.dart';
@@ -114,7 +115,7 @@ class NavigationBarState extends State<NavigationBar> {
         final path = Provider.of<RouterPathProvider>(context).path;
 
         final item = navigationQuery.getItem(path, isZune);
-        final parent = navigationQuery.getParent(path, isZune);
+        final parent = headerParent(path, $history, isZune);
         final slibings = navigationQuery
             .getSiblings(path, isZune)
             ?.where((x) => !x.hidden)
