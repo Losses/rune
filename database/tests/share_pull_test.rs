@@ -1618,6 +1618,163 @@ async fn retirement_deletes_a_prefix_whose_older_head_names_a_deleted_base() -> 
     Ok(())
 }
 
+/// Runs a keeper cleanup pass with deletes of `kind` failing, so the pass stops after it has
+/// deleted the objects listed before the first one of that kind, the covered head's manifest
+/// first. Returns what the pass left in the retired prefix.
+async fn fail_cleanup_at(due: &DueRetirement, kind: StoreObjectKind) -> Result<Vec<String>> {
+    let before = share_prefix_keys(&due.store, &due.retired.prefix).await?;
+    due.store.inject_error_for_kind(
+        StoreOperation::Delete,
+        kind,
+        StoreError::Transient("delete failed".into()),
+    );
+    let failed = due
+        .keeper
+        .sync_store
+        .push_share(
+            due.store.clone(),
+            due.namespace,
+            cache_path(),
+            Default::default(),
+        )
+        .await;
+    due.store.clear_error_for_kind(StoreOperation::Delete, kind);
+    ensure!(failed.is_err(), "the cleanup pass did not fail: {failed:?}");
+    let left = share_prefix_keys(&due.store, &due.retired.prefix).await?;
+    ensure!(
+        !left.is_empty()
+            && left.len() < before.len()
+            && !left
+                .iter()
+                .any(|key| matches!(parse_key(key), Ok(ShareObjectKey::Base { .. }))),
+        "the failed pass did not stop after deleting the covered manifest: {left:?}"
+    );
+    Ok(left)
+}
+
+/// A cleanup pass fails half way at a delete of `kind`. The next pass, with deletes working
+/// again, has to delete everything that is left, and a new device still gets the retired
+/// device's data from the keeper base. Returns what the failed pass left.
+async fn retirement_finishes_after_a_failed_delete(kind: StoreObjectKind) -> Result<Vec<String>> {
+    let due = due_retirement().await?;
+    let left = fail_cleanup_at(&due, kind).await?;
+    due.keeper
+        .sync_store
+        .push_share(
+            due.store.clone(),
+            due.namespace,
+            cache_path(),
+            Default::default(),
+        )
+        .await?;
+    assert_eq!(
+        share_prefix_keys(&due.store, &due.retired.prefix).await?,
+        Vec::<String>::new(),
+        "the retried cleanup left objects of the retired prefix"
+    );
+    let joining = SqlLibrary::new(due.namespace, Uuid::new_v4()).await?;
+    pull(&due.retired, &joining).await?;
+    assert_eq!(
+        joining.sync_store.get(&due.covered_key).await?,
+        due.retired_device.sync_store.get(&due.covered_key).await?
+    );
+    Ok(left)
+}
+
+/// The cleanup deleted the covered head's manifest and then failed to delete a head, so both
+/// heads are still there when the next pass checks the prefix again.
+#[tokio::test]
+async fn retirement_finishes_a_deletion_that_failed_at_a_head() -> Result<()> {
+    let left = retirement_finishes_after_a_failed_delete(StoreObjectKind::Head).await?;
+    ensure!(
+        left.iter()
+            .any(|key| matches!(parse_key(key), Ok(ShareObjectKey::Head { .. }))),
+        "the failed pass deleted the heads: {left:?}"
+    );
+    Ok(())
+}
+
+/// The cleanup deleted the manifest and both heads and then failed to delete a chunk, so the
+/// prefix no longer has the heads that made it due for retirement.
+#[tokio::test]
+async fn retirement_finishes_a_deletion_that_failed_at_a_chunk() -> Result<()> {
+    let left = retirement_finishes_after_a_failed_delete(StoreObjectKind::Chunk).await?;
+    ensure!(
+        !left
+            .iter()
+            .any(|key| matches!(parse_key(key), Ok(ShareObjectKey::Head { .. }))),
+        "the failed pass left a head: {left:?}"
+    );
+    Ok(())
+}
+
+/// After a cleanup pass failed half way, the retired device writes a newer head into its prefix,
+/// as an acknowledgement update does, with no new objects. The next pass keeps the prefix.
+#[tokio::test]
+async fn retirement_retry_keeps_a_prefix_with_a_newer_head() -> Result<()> {
+    let due = due_retirement().await?;
+    fail_cleanup_at(&due, StoreObjectKind::Head).await?;
+    let mut newer = due.retired.head.clone();
+    newer.counter += 1;
+    newer.updated_ms += 1;
+    due.store
+        .put(
+            &share::head_key(&due.retired.prefix, 0)?,
+            &share::encode_head(&newer)?,
+        )
+        .await
+        .map_err(|error| anyhow::anyhow!("put the newer head: {error:?}"))?;
+    let left = share_prefix_keys(&due.store, &due.retired.prefix).await?;
+    due.keeper
+        .sync_store
+        .push_share(
+            due.store.clone(),
+            due.namespace,
+            cache_path(),
+            Default::default(),
+        )
+        .await?;
+    assert_eq!(
+        share_prefix_keys(&due.store, &due.retired.prefix).await?,
+        left,
+        "the retried cleanup deleted a prefix with a newer head"
+    );
+    Ok(())
+}
+
+/// The manifest that the covered head names was already missing before any cleanup began, so
+/// nothing shows what the listed chunks belong to, and the keeper keeps the whole prefix.
+#[tokio::test]
+async fn retirement_keeps_a_prefix_whose_covered_manifest_is_missing() -> Result<()> {
+    let due = due_retirement().await?;
+    let base = due
+        .retired
+        .head
+        .bases
+        .first()
+        .context("the covered head names no base")?;
+    due.store
+        .delete(&share::base_key(&due.retired.prefix, &base.base_id)?)
+        .await
+        .map_err(|error| anyhow::anyhow!("delete the covered manifest: {error:?}"))?;
+    let before = share_prefix_keys(&due.store, &due.retired.prefix).await?;
+    due.keeper
+        .sync_store
+        .push_share(
+            due.store.clone(),
+            due.namespace,
+            cache_path(),
+            Default::default(),
+        )
+        .await?;
+    assert_eq!(
+        share_prefix_keys(&due.store, &due.retired.prefix).await?,
+        before,
+        "retirement cleanup deleted a prefix whose covered manifest was missing"
+    );
+    Ok(())
+}
+
 /// The retired device publishes to its prefix while the keeper deletes it, and the keeper
 /// must leave the newer publication available.
 async fn publication_during_retirement_stays_available(pause: RetiredListing) -> Result<()> {
@@ -1742,7 +1899,22 @@ async fn retirement_keeps_a_prefix_whose_covered_head_is_missing() -> Result<()>
 /// a new device gets the publication.
 #[tokio::test]
 async fn retirement_keeps_a_segment_whose_head_is_not_written_yet() -> Result<()> {
+    segment_whose_head_is_not_written_yet(false).await
+}
+
+/// Like `retirement_keeps_a_segment_whose_head_is_not_written_yet`, but a cleanup pass failed
+/// half way before the retired device uploaded the segment, so the pass that finds the segment
+/// would otherwise finish that deletion.
+#[tokio::test]
+async fn retirement_retry_keeps_a_segment_that_came_after_the_failed_pass() -> Result<()> {
+    segment_whose_head_is_not_written_yet(true).await
+}
+
+async fn segment_whose_head_is_not_written_yet(after_failed_pass: bool) -> Result<()> {
     let due = due_retirement().await?;
+    if after_failed_pass {
+        fail_cleanup_at(&due, StoreObjectKind::Head).await?;
+    }
     let key = ObjectKey {
         collection: Collection::Playlists,
         id: Uuid::from_u128(2203),

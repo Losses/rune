@@ -54,7 +54,33 @@ pub struct ShareState {
     pub local_cursor: u64,
     #[serde(with = "observed_object_map")]
     pub observed_objects: BTreeMap<ObjectKey, ObservedObject>,
+    /// Deletions of retired prefixes that this device has begun and not finished.
+    #[serde(default)]
+    pub retirement_cleanups: Vec<RetirementCleanup>,
     pub chunk_cache_path: PathBuf,
+}
+
+/// What a keeper found in a retired prefix before its first delete there: the head that the
+/// retirement covers and every object listed, all of them covered by the retirement. A later pass
+/// finishes the deletion from it when an earlier one stopped half way.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetirementCleanup {
+    pub prefix: DevicePrefix,
+    pub head_counter: u64,
+    pub head: Checkpoint,
+    pub objects: BTreeSet<String>,
+}
+
+impl RetirementCleanup {
+    fn precondition(&self) -> RetirementPrecondition {
+        RetirementPrecondition {
+            prefix: self.prefix.clone(),
+            stream_id: self.prefix.stream,
+            generation: self.prefix.generation,
+            expected_counter: self.head_counter,
+            expected_head: self.head.clone(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -114,6 +140,7 @@ impl ShareState {
             head_counter: 0,
             local_cursor: 0,
             observed_objects: BTreeMap::new(),
+            retirement_cleanups: Vec::new(),
             chunk_cache_path: cache_path,
         })
     }
@@ -831,44 +858,87 @@ pub(crate) async fn collect_own_prefix(
             Err(error) => return Err(push_store_error(error)),
         }
     }
+    // A deletion that an earlier pass began goes on from what that pass found, even when the heads
+    // it deleted no longer make the prefix due for retirement.
+    let mut retirements = state
+        .retirement_cleanups
+        .iter()
+        .map(|cleanup| (cleanup.precondition(), Some(cleanup.objects.clone())))
+        .collect::<Vec<_>>();
     for precondition in decision.retirement_preconditions {
-        let retired = precondition.prefix.to_string();
-        if !latest.retired.contains(&retired) {
-            continue;
+        if latest.retired.contains(&precondition.prefix.to_string())
+            && !retirements
+                .iter()
+                .any(|(begun, _)| begun.prefix == precondition.prefix)
+        {
+            retirements.push((precondition, None));
         }
-        let listed = store
-            .list_prefix(&format!("devices/{retired}/"))
+    }
+    for (retirement, begun) in retirements {
+        delete_retired_prefix(db, state, store, &retirement, begun.as_ref()).await?;
+    }
+    save_state(db, state)
+        .await
+        .map_err(|error| SharePushError::Failed(error.to_string()))?;
+    Ok(final_head)
+}
+
+/// Deletes a retired prefix when everything listed in it is covered by the retirement. `begun`
+/// holds the objects that an earlier pass found covered when it began this deletion.
+///
+/// The covered objects are saved in the state before the first delete, so a pass that stops half
+/// way leaves what a later pass needs to finish: the manifests and heads that the first check
+/// relies on can be gone by then. The record goes once the deletion is done or no longer applies.
+async fn delete_retired_prefix(
+    db: &DatabaseConnection,
+    state: &mut ShareState,
+    store: &dyn ObjectStore,
+    retirement: &RetirementPrecondition,
+    begun: Option<&BTreeSet<String>>,
+) -> SharePushResult<()> {
+    let listed = store
+        .list_prefix(&format!("devices/{}/", retirement.prefix))
+        .await
+        .map_err(push_store_error)?;
+    // The slots and manifests are read after the listing, so a head published before these
+    // reads keeps everything that was listed.
+    let covered = retired_listing_is_covered(store, &listed, retirement, begun).await?;
+    if covered && begun.is_none() {
+        state.retirement_cleanups.push(RetirementCleanup {
+            prefix: retirement.prefix.clone(),
+            head_counter: retirement.expected_counter,
+            head: retirement.expected_head.clone(),
+            objects: listed.iter().cloned().collect(),
+        });
+        save_state(db, state)
             .await
-            .map_err(push_store_error)?;
-        // The slots and manifests are read after the listing, so a head published before these
-        // reads keeps everything that was listed.
-        if !retired_listing_is_covered(store, &listed, &precondition).await? {
-            continue;
-        }
-        for key in listed {
+            .map_err(|error| SharePushError::Failed(error.to_string()))?;
+    }
+    if covered {
+        for key in &listed {
             let object_prefix =
-                match parse_key(&key).map_err(|error| SharePushError::Failed(error.to_string()))? {
+                match parse_key(key).map_err(|error| SharePushError::Failed(error.to_string()))? {
                     ObjectKey::Head { prefix, .. }
                     | ObjectKey::Segment { prefix, .. }
                     | ObjectKey::Base { prefix, .. }
                     | ObjectKey::Chunk { prefix, .. } => prefix,
                     _ => continue,
                 };
-            if object_prefix != precondition.prefix {
+            if object_prefix != retirement.prefix {
                 return Err(SharePushError::Failed(
                     "retirement listing returned an object outside its prefix".into(),
                 ));
             }
-            match store.delete(&key).await {
+            match store.delete(key).await {
                 Ok(()) | Err(StoreError::NotFound) => (),
                 Err(error) => return Err(push_store_error(error)),
             }
         }
     }
-    save_state(db, state)
-        .await
-        .map_err(|error| SharePushError::Failed(error.to_string()))?;
-    Ok(final_head)
+    state
+        .retirement_cleanups
+        .retain(|cleanup| cleanup.prefix != retirement.prefix);
+    Ok(())
 }
 
 /// Whether everything in a listing of a retired prefix is covered by the retirement, so that
@@ -881,14 +951,23 @@ pub(crate) async fn collect_own_prefix(
 /// head in the slots, and a chunk must be referenced by the manifest of such a base. A manifest
 /// that the covered head names must be there and verify. One that only an older head names can be
 /// gone, because a device deletes a base it has dropped once the head without it is written.
+///
+/// When this device has begun the deletion already, `begun` holds what it found covered then,
+/// and some of those objects, the covered head and its manifests among them, can be gone. Every
+/// head left must still be the covered head or older, and every listed object must be one that
+/// was found covered then; anything that came since keeps the prefix.
 async fn retired_listing_is_covered(
     store: &dyn ObjectStore,
     listed: &[String],
     retirement: &RetirementPrecondition,
+    begun: Option<&BTreeSet<String>>,
 ) -> SharePushResult<bool> {
-    let Some(heads) = retired_heads(store, retirement).await? else {
+    let Some(heads) = retired_heads(store, retirement, begun.is_none()).await? else {
         return Ok(false);
     };
+    if let Some(begun) = begun {
+        return Ok(listed.iter().all(|key| begun.contains(key)));
+    }
     let prefix = retirement.prefix.to_string();
     // Each base that a head in the slots names, and whether the covered head is among them.
     let mut bases = BTreeMap::<String, bool>::new();
@@ -933,12 +1012,13 @@ async fn retired_listing_is_covered(
 /// the newest head there.
 ///
 /// Like `refresh_own_head`, this reads both slots and goes by the newest head: each slot must be
-/// empty, hold the covered head or hold an older head of the same stream, and one of them must
-/// hold the covered head. Unlike there, a slot that fails its checksum is not skipped, because it
-/// can be a newer head that the retired device is still writing.
+/// empty, hold the covered head or hold an older head of the same stream, and with `covered_head`
+/// one of them must hold the covered head. Unlike there, a slot that fails its checksum is not
+/// skipped, because it can be a newer head that the retired device is still writing.
 async fn retired_heads(
     store: &dyn ObjectStore,
     retirement: &RetirementPrecondition,
+    covered_head: bool,
 ) -> SharePushResult<Option<Vec<Head>>> {
     let prefix = retirement.prefix.to_string();
     let mut heads = Vec::new();
@@ -965,7 +1045,7 @@ async fn retired_heads(
         }
         heads.push(remote);
     }
-    Ok(covered.then_some(heads))
+    Ok((covered || !covered_head).then_some(heads))
 }
 
 /// The chunks that a base manifest references: its buckets' chunks and its context fragments.
