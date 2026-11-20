@@ -2,6 +2,7 @@ use anyhow::{Result, anyhow};
 use database::actions::collection::CollectionQueryType;
 use database::actions::utils::generate_group_name;
 use database::error::ExpectedError;
+use futures::{StreamExt, stream};
 use lyric::lrc::parse_lrc;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -1685,19 +1686,41 @@ pub(crate) async fn fetch_collection_groups_request(
     }))
 }
 
+/// The Subsonic API's cap on the number of songs one `getRandomSongs` request returns.
+const SUBSONIC_RANDOM_SONGS_MAX: u32 = 500;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DetailQuery {
     Artist(i32),
     Album(i32),
+    /// The cover wall's query: random tracks that have a cover.
+    RandomCovers(u32),
 }
 
 fn parse_detail_query(request: &MixQueryRequest) -> Result<DetailQuery> {
-    let [query] = request.queries.as_slice() else {
+    let Ok(operators) = request
+        .queries
+        .iter()
+        .map(|query| QueryOperator::parse(&query.operator, &query.parameter))
+        .collect::<std::result::Result<Vec<_>, _>>()
+    else {
         return Err(unsupported_detail_query().into());
     };
-    match QueryOperator::parse(&query.operator, &query.parameter) {
-        Ok(QueryOperator::LibArtist(id)) => Ok(DetailQuery::Artist(id)),
-        Ok(QueryOperator::LibAlbum(id)) => Ok(DetailQuery::Album(id)),
+    match operators.as_slice() {
+        [QueryOperator::LibArtist(id)] => Ok(DetailQuery::Artist(*id)),
+        [QueryOperator::LibAlbum(id)] => Ok(DetailQuery::Album(*id)),
+        [
+            QueryOperator::LibRandom(count),
+            QueryOperator::FilterWithCoverArt(true),
+        ]
+        | [
+            QueryOperator::FilterWithCoverArt(true),
+            QueryOperator::LibRandom(count),
+        ] => Ok(DetailQuery::RandomCovers(
+            u32::try_from(*count)
+                .unwrap_or(1)
+                .clamp(1, SUBSONIC_RANDOM_SONGS_MAX),
+        )),
         _ => Err(unsupported_detail_query().into()),
     }
 }
@@ -1709,8 +1732,30 @@ fn unsupported_detail_query() -> ExpectedRequestError {
     }
 }
 
+fn intern_songs(binding: &SubsonicBinding, songs: &[SubsonicSong]) -> Result<()> {
+    let mut catalog = binding
+        .catalog
+        .lock()
+        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+    for song in songs {
+        let id = catalog.ids.intern(SubsonicIdKind::Track, &song.id)?;
+        catalog.songs.insert(id, song.clone());
+    }
+    Ok(())
+}
+
 async fn detail_songs(binding: &SubsonicBinding, query: DetailQuery) -> Result<Vec<SubsonicSong>> {
     let albums = match query {
+        DetailQuery::RandomCovers(count) => {
+            let mut songs = binding
+                .client
+                .random_songs(count)
+                .await
+                .map_err(subsonic_request_error)?;
+            songs.retain(|song| song.cover_art.is_some());
+            intern_songs(binding, &songs)?;
+            return Ok(songs);
+        }
         DetailQuery::Album(id) => vec![id],
         DetailQuery::Artist(id) => {
             let remote_id = {
@@ -1761,17 +1806,43 @@ async fn detail_songs(binding: &SubsonicBinding, query: DetailQuery) -> Result<V
                 song.track.unwrap_or_default(),
             )
         });
-        let mut catalog = binding
-            .catalog
-            .lock()
-            .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
-        for song in album.songs {
-            let id = catalog.ids.intern(SubsonicIdKind::Track, &song.id)?;
-            catalog.songs.insert(id, song.clone());
-            songs.push(song);
-        }
+        intern_songs(binding, &album.songs)?;
+        songs.extend(album.songs);
     }
     Ok(songs)
+}
+
+/// Waits until every cover of `songs` is in the local cover cache, fetching at most four at a
+/// time, and returns the IDs of the covers that are now cached. A cover that cannot be fetched
+/// is left out rather than failing the others.
+async fn cache_covers(binding: &SubsonicBinding, songs: &[SubsonicSong]) -> HashSet<String> {
+    let cover_ids = songs
+        .iter()
+        .filter_map(|song| song.cover_art.clone())
+        .collect::<HashSet<_>>();
+    stream::iter(cover_ids)
+        .map(|cover_id| async move {
+            match binding
+                .covers
+                .ensure_cached(Arc::clone(&binding.client), &cover_id)
+                .await
+            {
+                Ok(Some(_)) => Some(cover_id),
+                Ok(None) => {
+                    log::debug!("Subsonic cover {cover_id} is not available");
+                    None
+                }
+                Err(error) => {
+                    log::debug!("Subsonic cover {cover_id} could not be cached: {error:#}");
+                    None
+                }
+            }
+        })
+        // The cover cache downloads four covers at a time, so waiting on more only queues them.
+        .buffer_unordered(4)
+        .filter_map(std::future::ready)
+        .collect()
+        .await
 }
 
 pub(crate) async fn mix_query_request(
@@ -1779,7 +1850,22 @@ pub(crate) async fn mix_query_request(
     request: &MixQueryRequest,
 ) -> Result<Option<MixQueryResponse>> {
     let query = parse_detail_query(request)?;
-    let songs = detail_songs(binding, query).await?;
+    let mut songs = detail_songs(binding, query)
+        .await?
+        .into_iter()
+        .skip(usize::try_from(request.cursor.max(0)).unwrap_or(usize::MAX))
+        .take(usize::try_from(request.page_size.max(0)).unwrap_or(usize::MAX))
+        .collect::<Vec<_>>();
+    // The cover wall shows only covers and reads them once, so its covers must be on disk
+    // before it gets the tracks. Track lists show a cover whenever its background fetch lands.
+    if let DetailQuery::RandomCovers(_) = query {
+        let cached = cache_covers(binding, &songs).await;
+        songs.retain(|song| {
+            song.cover_art
+                .as_ref()
+                .is_some_and(|cover| cached.contains(cover))
+        });
+    }
     let translated = {
         let mut catalog = binding
             .catalog
@@ -1787,8 +1873,6 @@ pub(crate) async fn mix_query_request(
             .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
         songs
             .into_iter()
-            .skip(usize::try_from(request.cursor.max(0)).unwrap_or(usize::MAX))
-            .take(usize::try_from(request.page_size.max(0)).unwrap_or(usize::MAX))
             .map(|song| {
                 let id = catalog.ids.intern(SubsonicIdKind::Track, &song.id)?;
                 catalog.songs.insert(id, song.clone());
@@ -2068,6 +2152,8 @@ mod tests {
         playlist_calls: MockPlaylistCalls,
         starred: Arc<Mutex<HashSet<String>>>,
         empty_search_rejected: Arc<AtomicUsize>,
+        random_song_sizes: Arc<Mutex<Vec<String>>>,
+        no_random_songs: Arc<AtomicUsize>,
     }
 
     type MockPlaylistCalls = Arc<Mutex<Vec<(String, Vec<(String, String)>)>>>;
@@ -2138,6 +2224,8 @@ mod tests {
             reject_scrobble: Arc::new(AtomicUsize::new(0)),
             starred: Arc::new(Mutex::new(HashSet::new())),
             empty_search_rejected: Arc::new(AtomicUsize::new(0)),
+            random_song_sizes: Arc::new(Mutex::new(Vec::new())),
+            no_random_songs: Arc::new(AtomicUsize::new(0)),
         };
         let app = Router::new()
             .route("/rest/{*endpoint}", get(mock_endpoint))
@@ -2380,6 +2468,30 @@ mod tests {
             }
             "getStarred2" => {
                 serde_json::json!({"starred2":{"song":state.starred.lock().unwrap().iter().map(|id| mock_song(id)).collect::<Vec<_>>()}})
+            }
+            "getRandomSongs" => {
+                let size = query.get("size").cloned().unwrap_or_default();
+                state.random_song_sizes.lock().unwrap().push(size.clone());
+                if state.no_random_songs.load(Ordering::SeqCst) != 0 {
+                    return mock_response(serde_json::json!({"randomSongs":{}}));
+                }
+                let songs = [
+                    ("song-1", Some("cover-a")),
+                    ("song-2", Some("cover-a")),
+                    ("song-3", None),
+                    ("song-4", Some("error-cover")),
+                ]
+                .into_iter()
+                .take(size.parse().unwrap_or_default())
+                .map(|(id, cover)| {
+                    let mut song = mock_song(id);
+                    if let Some(cover) = cover {
+                        song["coverArt"] = serde_json::json!(cover);
+                    }
+                    song
+                })
+                .collect::<Vec<_>>();
+                serde_json::json!({"randomSongs":{"song":songs}})
             }
             "getSong" => {
                 let id = query.get("id").map(String::as_str).unwrap_or_default();
@@ -3304,6 +3416,102 @@ mod tests {
             server.state.requests.lock().unwrap().as_slice(),
             ["search3"]
         );
+    }
+
+    fn mix_request(queries: &[(&str, &str)]) -> MixQueryRequest {
+        MixQueryRequest {
+            queries: queries
+                .iter()
+                .map(|&(operator, parameter)| MixQuery {
+                    operator: operator.into(),
+                    parameter: parameter.into(),
+                })
+                .collect(),
+            cursor: 0,
+            page_size: 40,
+            bake_cover_arts: true,
+            queue: CallerQueue::default(),
+            call_id: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn the_cover_wall_query_returns_random_tracks_with_their_cached_covers() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        for queries in [
+            [("lib::random", "40"), ("filter::with_cover_art", "true")],
+            [("filter::with_cover_art", "true"), ("lib::random", "40")],
+        ] {
+            let response = mix_query_request(&binding, &mix_request(&queries))
+                .await
+                .unwrap()
+                .unwrap();
+            let tracks = response
+                .files
+                .iter()
+                .map(|file| file.track.as_str())
+                .collect::<Vec<_>>();
+            assert_eq!(tracks, ["song-1", "song-2"], "{queries:?}");
+            assert_eq!(response.cover_art_map.len(), 2, "{queries:?}");
+            for file in &response.files {
+                let cover = &response.cover_art_map[&file.id];
+                assert_eq!(std::fs::read(cover).unwrap(), b"image-cover-a", "{cover}");
+            }
+        }
+        assert_eq!(
+            server.state.random_song_sizes.lock().unwrap().as_slice(),
+            ["40", "40"]
+        );
+    }
+
+    #[tokio::test]
+    async fn the_cover_wall_query_on_an_empty_library_returns_nothing() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        server.state.no_random_songs.store(1, Ordering::SeqCst);
+        let response = mix_query_request(
+            &binding,
+            &mix_request(&[("lib::random", "40"), ("filter::with_cover_art", "true")]),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(response.files.is_empty());
+        assert!(response.cover_art_map.is_empty());
+    }
+
+    #[tokio::test]
+    async fn other_mix_queries_stay_unsupported() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        let cases: [&[(&str, &str)]; 4] = [
+            &[("lib::random", "40")],
+            &[("filter::with_cover_art", "true")],
+            &[("lib::random", "40"), ("filter::with_cover_art", "false")],
+            &[
+                ("lib::random", "40"),
+                ("filter::with_cover_art", "true"),
+                ("lib::album", "1"),
+            ],
+        ];
+        for queries in cases {
+            let error = mix_query_request(&binding, &mix_request(queries))
+                .await
+                .err()
+                .unwrap_or_else(|| panic!("{queries:?} should be unsupported"));
+            assert!(
+                matches!(
+                    error.downcast_ref::<ExpectedRequestError>(),
+                    Some(ExpectedRequestError::Unsupported {
+                        reason: UnsupportedReason::NotImplemented,
+                        ..
+                    })
+                ),
+                "{queries:?}: {error:#}"
+            );
+        }
+        assert!(server.state.requests.lock().unwrap().is_empty());
     }
 
     fn assert_secret_free(value: &str) {

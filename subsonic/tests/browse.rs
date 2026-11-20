@@ -74,6 +74,9 @@ async fn handle(
             r#"{"playlists":{"playlist":{"id":"playlist-001","name":"Mix","songCount":1,"owner":"alice","public":false,"unknown":1}}}"#
         }
         "getStarred2" => r#"{"starred2":{"song":{"id":"song-001","title":"Track"}}}"#,
+        "getRandomSongs" => {
+            r#"{"randomSongs":{"song":{"id":"song-001","title":"Track","coverArt":"cover-a"}}}"#
+        }
         "getPlaylist" => {
             r#"{"playlist":{"id":"playlist-001","name":"Mix","songCount":1,"entry":{"id":"song-001","title":"Track"}}}"#
         }
@@ -230,6 +233,19 @@ async fn song_browse() {
         .unwrap();
     assert_eq!(result.album_id.as_deref(), Some("opaque-album-008"));
     assert_eq!(result.size, Some(987654));
+}
+
+#[tokio::test]
+async fn random_songs_browse() {
+    let server = fixture().await;
+    let result = bounded(client(server.url.clone()).random_songs(40))
+        .await
+        .unwrap();
+    assert_eq!(result[0].id, "song-001");
+    assert_eq!(result[0].cover_art.as_deref(), Some("cover-a"));
+    let requests = server.requests.lock().unwrap();
+    assert_eq!(requests[0].0, "getRandomSongs");
+    assert_eq!(requests[0].1["size"], "40");
 }
 
 #[tokio::test]
