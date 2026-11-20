@@ -1054,13 +1054,18 @@ impl NodeContext {
                 }
             )
         );
-        self.refresh_current_player(current)?;
-        if leaving_local {
-            // The tenure being left ends at the switch, so a request arriving from now on is
-            // refused even if the departure's task starts late, and the departure ends this
-            // tenure, not one a later return to the local player admits.
-            let ending = self.local_player_tenure()?;
-            ending.close();
+        let leaving = {
+            // A departure admits a new tenure under this lock, so none can be admitted between
+            // the switch and taking the tenure it leaves. That tenure ends at the switch, so a
+            // request arriving from now on is refused even if the departure's task starts late.
+            let tenure = lock_tenures(&self.local_player_tenure)?;
+            self.refresh_current_player(current)?;
+            leaving_local.then(|| {
+                tenure.close();
+                Arc::clone(&tenure)
+            })
+        };
+        if let Some(ending) = leaving {
             // The departure runs on its own task, so its pause still follows when the request
             // that changed the player is cancelled, as a UI replacement cancels the UI's requests.
             tokio::spawn(depart_local_player(
