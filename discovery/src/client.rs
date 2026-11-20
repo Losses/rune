@@ -1,5 +1,5 @@
 use hyper::{Uri, body::Bytes, client::conn::http1, http::Error as HttpError};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use std::{
     collections::HashMap,
     io::Error as IoError,
@@ -25,7 +25,7 @@ use rustls::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::{net::TcpStream, sync::broadcast};
+use tokio::{net::TcpStream, sync::broadcast, time::timeout};
 use tokio_rustls::TlsConnector;
 use webpki_roots::TLS_SERVER_ROOTS;
 use x509_parser::parse_x509_certificate;
@@ -804,6 +804,11 @@ pub async fn try_connect(host: &str, config: ClientConfig) -> Result<String> {
     Ok(host.to_string()) // Return host string on successful connection
 }
 
+/// How long one address may take to connect and finish its TLS handshake. Selection waits for
+/// every address until one connects, so an address that accepts but never answers would
+/// otherwise hold it up for good.
+const CONNECT_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Selects the best host from a list of candidates by connecting to all of them in parallel
 /// and returning the first one that successfully establishes a TLS connection and validates
 /// the certificate.
@@ -831,8 +836,11 @@ pub async fn select_best_host(hosts: Vec<String>, config: Arc<ClientConfig>) -> 
         .map(|host| {
             let config = (*config).clone();
             async move {
-                try_connect(&host, config)
+                timeout(CONNECT_ATTEMPT_TIMEOUT, try_connect(&host, config))
                     .await
+                    .unwrap_or_else(|_| {
+                        Err(anyhow!("no answer within {CONNECT_ATTEMPT_TIMEOUT:?}"))
+                    })
                     .map_err(|e| anyhow!("Failed to connect to {}: {}", host, e))
             }
         })
@@ -928,7 +936,10 @@ mod tests {
         server::{ClientHello, ResolvesServerCert},
         sign::CertifiedKey,
     };
-    use std::sync::{Arc, Mutex};
+    use std::{
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
     use tokio::{net::TcpListener, task::JoinHandle};
     use tokio_rustls::TlsAcceptor;
 
@@ -1022,6 +1033,26 @@ mod tests {
 
         assert_eq!(selected.unwrap(), reachable);
         server.await.unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn host_selection_gives_up_on_a_host_that_never_finishes_its_handshake() {
+        // Connections complete in the listen backlog, but nothing answers the TLS handshake.
+        let silent = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let stalled = format!("https://127.0.0.1:{}/", silent.local_addr().unwrap().port());
+
+        let selected = tokio::time::timeout(
+            Duration::from_secs(60),
+            select_best_host(
+                vec![FAILING_HOST.to_owned(), stalled],
+                accept_any_certificate(),
+            ),
+        )
+        .await
+        .expect("host selection must finish although one host never answers");
+
+        assert!(selected.is_err());
+        drop(silent);
     }
 
     #[tokio::test]
