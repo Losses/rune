@@ -10,7 +10,7 @@ use ::database::actions::{
     metadata::get_metadata_summary_by_files,
     mixes::{
         get_all_mixes, get_mix_by_id, get_mix_queries_by_mix_id, mix_playback_mode,
-        query_mix_media_files,
+        query_mix_media_files_with_seed,
     },
 };
 
@@ -316,13 +316,14 @@ impl Signal for MixQueryRequest {
             .collect();
 
         let queue = queue_file_ids(&request.queue.items, &library).await?;
-        let media_entries = query_mix_media_files(
+        let media_entries = query_mix_media_files_with_seed(
             &library.main_db,
             &library.recommend_db,
             queries,
             request.cursor as usize,
             request.page_size as usize,
             &queue,
+            request.random_seed,
         )
         .await
         .with_context(|| "Unable to query mix media files")?;

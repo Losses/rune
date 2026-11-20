@@ -1,10 +1,11 @@
+import 'dart:math';
+
 import '../../../bindings/bindings.dart';
 import '../../../widgets/track_list/utils/internal_media_file.dart';
 
 import '../../api/fetch_playlist_occurrences.dart';
 import '../../api/query_mix_tracks.dart';
 import '../../build_query.dart';
-import '../../get_playlist_id_from_query_list.dart';
 import '../../query_list.dart';
 
 /// Page size used when reading tracks for M3U8 export.
@@ -15,34 +16,11 @@ const int m3u8ExportPageSize = 100;
 /// collection, paging until the collection ends.
 Future<String> buildM3u8(
   CollectionType type,
-  int id, {
-  int pageSize = m3u8ExportPageSize,
-  Future<List<(String, String)>> Function(CollectionType type, int id)
-      loadQuery = buildQuery,
-  Future<PlaylistOccurrencePage> Function(
-    int playlistId,
-    PlaylistOccurrenceCursor? after,
-    int pageSize,
-  )
-      loadPlaylistPage = fetchPlaylistOccurrences,
-  Future<List<InternalMediaFile>> Function(
-    QueryList queries, [
-    int? cursor,
-    int? pageSize,
-  ])
-      loadMixPage = queryMixTracks,
-}) async {
-  if (pageSize <= 0) {
-    throw ArgumentError.value(pageSize, 'pageSize', 'must be positive');
-  }
-
-  final queries = QueryList(await loadQuery(type, id));
-  final items = await _loadAllTracks(
-    queries,
-    pageSize: pageSize,
-    loadPlaylistPage: loadPlaylistPage,
-    loadMixPage: loadMixPage,
-  );
+  int id,
+) async {
+  final items = type == CollectionType.playlist
+      ? await _loadAllPlaylistTracks(id)
+      : await _loadAllMixTracks(QueryList(await buildQuery(type, id)));
 
   return items
       .map((x) => x.path)
@@ -50,42 +28,36 @@ Future<String> buildM3u8(
       .join('\r\n');
 }
 
-Future<List<InternalMediaFile>> _loadAllTracks(
-  QueryList queries, {
-  required int pageSize,
-  required Future<PlaylistOccurrencePage> Function(
-    int playlistId,
-    PlaylistOccurrenceCursor? after,
-    int pageSize,
-  )
-      loadPlaylistPage,
-  required Future<List<InternalMediaFile>> Function(
-    QueryList queries, [
-    int? cursor,
-    int? pageSize,
-  ])
-      loadMixPage,
-}) async {
-  final playlistId = getPlaylistIdFromQueryList(queries);
-  if (playlistId != null) {
-    final items = <InternalMediaFile>[];
-    PlaylistOccurrenceCursor? cursor;
-    while (true) {
-      final page = await loadPlaylistPage(playlistId, cursor, pageSize);
-      items.addAll(page.items);
-      if (page.next == null) {
-        return items;
-      }
-      cursor = page.next;
+Future<List<InternalMediaFile>> _loadAllPlaylistTracks(int playlistId) async {
+  final items = <InternalMediaFile>[];
+  PlaylistOccurrenceCursor? cursor;
+  while (true) {
+    final page = await fetchPlaylistOccurrences(
+      playlistId,
+      cursor,
+      m3u8ExportPageSize,
+    );
+    items.addAll(page.items);
+    if (page.next == null) {
+      return items;
     }
+    cursor = page.next;
   }
+}
 
+Future<List<InternalMediaFile>> _loadAllMixTracks(QueryList queries) async {
+  final randomSeed = Random().nextInt(0x7fffffff);
   final items = <InternalMediaFile>[];
   var cursor = 0;
   while (true) {
-    final page = await loadMixPage(queries, cursor, pageSize);
+    final page = await queryMixTracks(
+      queries,
+      cursor,
+      m3u8ExportPageSize,
+      randomSeed,
+    );
     items.addAll(page);
-    if (page.length < pageSize) {
+    if (page.length < m3u8ExportPageSize) {
       return items;
     }
     cursor += page.length;

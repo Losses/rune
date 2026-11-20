@@ -192,6 +192,7 @@ pub async fn send_mix_query_request(
         queue: CallerQueue {
             items: snapshot.items,
         },
+        random_seed: None,
     };
 
     connection.request(&request).await

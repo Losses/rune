@@ -3339,6 +3339,7 @@ mod tests {
                 page_size: 10,
                 bake_cover_arts: false,
                 queue: CallerQueue::default(),
+                random_seed: None,
                 call_id: None,
             },
         )

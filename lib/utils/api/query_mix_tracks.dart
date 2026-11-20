@@ -10,14 +10,18 @@ MixQueryRequest mixQueryRequest(
   QueryList queries,
   int? cursor,
   int? pageSize,
-  List<PlaylistItem>? queue,
-) {
+  List<PlaylistItem>? queue, {
+  int? randomSeed,
+}) {
   return MixQueryRequest(
     queries: queries.toQueryList(),
     pageSize: pageSize ?? 30,
     cursor: cursor ?? 0,
     bakeCoverArts: true,
     queue: CallerQueue(items: queueItemsToExclude(castTo: null, queue: queue)),
+    randomSeed: randomSeed != null
+        ? Uint64.fromBigInt(BigInt.from(randomSeed))
+        : null,
   );
 }
 
@@ -25,12 +29,14 @@ Future<List<InternalMediaFile>> queryMixTracks(
   QueryList queries, [
   int? cursor,
   int? pageSize,
+  int? randomSeed,
 ]) async {
   final request = mixQueryRequest(
     queries,
     cursor,
     pageSize,
     PlaylistUpdate.latestRustSignal?.message.items,
+    randomSeed: randomSeed,
   );
 
   final response = (await awaitResponse(

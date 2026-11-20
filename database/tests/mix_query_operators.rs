@@ -1,9 +1,14 @@
+use std::collections::HashSet;
+
 use anyhow::Result;
-use database::test_fixtures::{causal_library, fixtures};
+use database::test_fixtures::{
+    causal_library::{self, local_file},
+    fixtures,
+};
 use database::{
     actions::mixes::{
         QueryOperator, QueryParseError, add_item_to_mix, create_mix, executable_mix_queries,
-        query_mix_media_files, replace_mix_queries,
+        query_mix_media_files, query_mix_media_files_with_seed, replace_mix_queries,
     },
     connection::RecommendationDbConnection,
     entities::{media_files, mixes},
@@ -227,5 +232,88 @@ async fn directory_names_are_matched_literally() -> Result<()> {
         directory_selection(&db, "lib::directory.shallow", "/A%_ space").await?,
         names(&["A%_ space"])
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn explicit_track_order_is_global_across_pages() -> Result<()> {
+    let db = Database::connect("sqlite::memory:").await?;
+    let actor = Uuid::new_v4();
+    fixtures::migrate(&db, actor).await?;
+    let recommend_db = RecommendationDbConnection::new();
+
+    for id in 1..=101 {
+        local_file(&db, id, Uuid::new_v4(), &format!("track-{id:04}")).await?;
+    }
+
+    let expected: Vec<i32> = (1..=101).rev().collect();
+    let queries: Vec<(String, String)> = expected
+        .iter()
+        .map(|id| ("lib::track".to_owned(), id.to_string()))
+        .collect();
+
+    let mut actual = Vec::new();
+    let mut cursor = 0;
+    loop {
+        let page =
+            query_mix_media_files(&db, &recommend_db, queries.clone(), cursor, 100, &[]).await?;
+        let len = page.len();
+        actual.extend(page.into_iter().map(|file| file.id));
+        if len < 100 {
+            break;
+        }
+        cursor += len;
+    }
+
+    assert_eq!(actual, expected);
+    Ok(())
+}
+
+#[tokio::test]
+async fn seeded_random_mix_pages_without_duplicates_or_drops() -> Result<()> {
+    let db = Database::connect("sqlite::memory:").await?;
+    let actor = Uuid::new_v4();
+    fixtures::migrate(&db, actor).await?;
+    let recommend_db = RecommendationDbConnection::new();
+
+    for id in 1..=250 {
+        local_file(&db, id, Uuid::new_v4(), &format!("random-{id:04}")).await?;
+    }
+
+    let queries = vec![("lib::random".to_owned(), "150".to_owned())];
+    let seed = Some(0x5eed_1234_u64);
+
+    let single_shot: Vec<i32> =
+        query_mix_media_files_with_seed(&db, &recommend_db, queries.clone(), 0, 500, &[], seed)
+            .await?
+            .into_iter()
+            .map(|file| file.id)
+            .collect();
+    assert_eq!(single_shot.len(), 150);
+
+    let mut paged = Vec::new();
+    let mut cursor = 0;
+    loop {
+        let page = query_mix_media_files_with_seed(
+            &db,
+            &recommend_db,
+            queries.clone(),
+            cursor,
+            100,
+            &[],
+            seed,
+        )
+        .await?;
+        let len = page.len();
+        paged.extend(page.into_iter().map(|file| file.id));
+        if len < 100 {
+            break;
+        }
+        cursor += len;
+    }
+
+    assert_eq!(paged.len(), 150);
+    assert_eq!(paged.iter().copied().collect::<HashSet<_>>().len(), 150);
+    assert_eq!(paged, single_shot);
     Ok(())
 }
