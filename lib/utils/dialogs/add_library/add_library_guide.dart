@@ -622,7 +622,10 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
   Widget _deviceContent(AppLocalizations s) {
     final users =
         widget.dependencies.pairedDevices ??
-        Provider.of<BroadcastProvider>(context).users;
+        Provider.of<BroadcastProvider>(context).pairedServers;
+    final loading =
+        widget.dependencies.pairedDevices == null &&
+        Provider.of<BroadcastProvider>(context).isLoadingPairedServers;
     final devices = users
         .where((client) => client.status == ClientStatus.approved)
         .toList();
@@ -631,6 +634,11 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
       child: ListView(
         shrinkWrap: true,
         children: [
+          if (loading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Center(child: ProgressRing()),
+            ),
           for (final device in devices)
             _choiceRow(
               'device:${device.fingerprint}',
@@ -651,7 +659,7 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
                 Provider.of<BroadcastProvider>(
                   context,
                   listen: false,
-                ).fetchUsers();
+                ).fetchPairedServers();
               }
             },
           ),
@@ -669,7 +677,7 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
                 Provider.of<BroadcastProvider>(
                   context,
                   listen: false,
-                ).fetchUsers();
+                ).fetchPairedServers();
               }
             },
           ),
@@ -901,6 +909,12 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
             if (selected)
               Button(
                 onPressed: () {
+                  if (source == AddLibrarySource.runeDevice) {
+                    Provider.of<BroadcastProvider>(
+                      context,
+                      listen: false,
+                    ).fetchPairedServers();
+                  }
                   if (source == AddLibrarySource.runeDevice ||
                       source == AddLibrarySource.subsonic ||
                       source == AddLibrarySource.webDav ||

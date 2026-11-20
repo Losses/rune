@@ -2094,6 +2094,7 @@ mod access_policy_tests {
             "StartServerRequest" => RequestAccess::NodeLocal,
             "StopServerRequest" => RequestAccess::NodeLocal,
             "ListClientsRequest" => RequestAccess::NodeLocal,
+            "ListPairedServersRequest" => RequestAccess::NodeLocal,
             "GetSslCertificateFingerprintRequest" => RequestAccess::NodeLocal,
             "AddTrustedServerRequest" => RequestAccess::NodeLocal,
             "RemoveTrustedClientRequest" => RequestAccess::NodeLocal,

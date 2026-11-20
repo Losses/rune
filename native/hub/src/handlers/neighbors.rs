@@ -4,8 +4,11 @@ use crate::request_error::ExpectedRequestError;
 use crate::server::api::remove_trusted_device;
 use crate::server::{
     ServerManager,
-    api::{add_trusted_server, check_fingerprint, edit_trusted_hosts, register_device},
+    api::{
+        add_trusted_server, check_fingerprint, edit_trusted_hosts, register_device, reported_status,
+    },
     generate_or_load_certificates, get_or_generate_alias,
+    libraries::list_paired_servers,
     sync_worker::{
         SyncTokenStore, obtain_or_reuse_token, peer_base, tls_config, trusted_fingerprint,
     },
@@ -457,6 +460,31 @@ impl Signal for ListClientsRequest {
     }
 }
 
+impl ParamsExtractor for ListPairedServersRequest {
+    type Params = Arc<NodeContext>;
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        all_params.node.clone()
+    }
+}
+
+impl Signal for ListPairedServersRequest {
+    type Params = Arc<NodeContext>;
+    type Response = ListPairedServersResponse;
+
+    async fn handle(
+        &self,
+        node: Self::Params,
+        _session: Option<Session>,
+        _: &Self,
+    ) -> Result<Option<Self::Response>> {
+        Ok(Some(ListPairedServersResponse {
+            call_id: None,
+            servers: list_paired_servers(&node).await?,
+        }))
+    }
+}
+
 impl ParamsExtractor for GetSslCertificateFingerprintRequest {
     type Params = Arc<String>;
 
@@ -855,19 +883,10 @@ impl Signal for CheckDeviceOnServerRequest {
         let client_config = Arc::new(tls_config(validator, &req.fingerprint));
 
         match check_fingerprint(&host, client_config, &fingerprint).await {
-            Ok(response) => {
-                let status = match response.status.as_str() {
-                    "APPROVED" => ClientStatus::Approved,
-                    "PENDING" => ClientStatus::Pending,
-                    "BLOCKED" => ClientStatus::Blocked,
-                    _ => ClientStatus::Pending,
-                };
-
-                Ok(Some(CheckDeviceOnServerResponse {
-                    call_id: None,
-                    status,
-                }))
-            }
+            Ok(response) => Ok(Some(CheckDeviceOnServerResponse {
+                call_id: None,
+                status: reported_status(&response),
+            })),
             Err(_) => Err(ExpectedRequestError::CertificateMismatch.into()),
         }
     }

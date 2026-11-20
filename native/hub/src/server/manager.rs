@@ -1512,6 +1512,175 @@ mod lifecycle_tests {
         Ok(())
     }
 
+    async fn paired_servers(
+        client: &Fixture,
+    ) -> Result<Vec<(String, String, String, &'static str)>> {
+        let request = ListPairedServersRequest { call_id: None };
+        let servers = request
+            .handle(
+                request.extract_params(&client.global_params),
+                None,
+                &request,
+            )
+            .await?
+            .context("paired servers response")?
+            .servers;
+        Ok(servers
+            .into_iter()
+            .map(|server| {
+                let status = match server.status {
+                    ClientStatus::Approved => "Approved",
+                    ClientStatus::Pending => "Pending",
+                    ClientStatus::Blocked => "Blocked",
+                };
+                (
+                    server.alias,
+                    server.fingerprint,
+                    server.device_model,
+                    status,
+                )
+            })
+            .collect())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn paired_servers_list_each_server_with_the_status_it_reports() -> Result<()> {
+        let server_dir = tempfile::tempdir()?;
+        let client_dir = tempfile::tempdir()?;
+        let server = step("server fixture", fixture(server_dir.path())).await?;
+        let client = step("client fixture", fixture(client_dir.path())).await?;
+        let (address, server_fp) = step("start server", start_test_tls_server(&server)).await?;
+        let server_info = info(&server).await?;
+        let client_info = info(&client).await?;
+        let host = format!("127.0.0.1:{}", address.port());
+
+        let trust = AddTrustedServerRequest {
+            certificate: Some(TrustedServerCertificate {
+                fingerprint: server_fp.clone(),
+                hosts: vec![host.clone()],
+            }),
+            call_id: None,
+        };
+        step(
+            "trust the server",
+            trust.handle(trust.extract_params(&client.global_params), None, &trust),
+        )
+        .await?;
+        let register = RegisterDeviceOnServerRequest {
+            alias: client_info.alias.clone(),
+            hosts: vec![host.clone()],
+            fingerprint: server_fp.clone(),
+            call_id: None,
+        };
+        step(
+            "register on the server",
+            register.handle(
+                register.extract_params(&client.global_params),
+                None,
+                &register,
+            ),
+        )
+        .await?;
+        assert_eq!(
+            client
+                .global_params
+                .cert_validator
+                .read()
+                .await
+                .get_hosts_for_fingerprint(&server_fp)
+                .await,
+            [host]
+        );
+        let registered = server
+            .global_params
+            .permission_manager
+            .read()
+            .await
+            .verify_by_fingerprint(&client_info.fingerprint)
+            .await
+            .context("the server holds the client")?;
+        assert_eq!(registered.alias, client_info.alias);
+        assert_eq!(registered.status, UserStatus::Pending);
+
+        let device_model = server_info
+            .device_model
+            .clone()
+            .context("the server reports its device model")?;
+        let listed = |status| {
+            vec![(
+                server_info.alias.clone(),
+                server_fp.clone(),
+                device_model.clone(),
+                status,
+            )]
+        };
+        assert_eq!(
+            step("list while pending", paired_servers(&client)).await?,
+            listed("Pending")
+        );
+
+        server
+            .global_params
+            .permission_manager
+            .write()
+            .await
+            .change_user_status(&client_info.fingerprint, UserStatus::Approved)
+            .await?;
+        assert_eq!(
+            step("list once approved", paired_servers(&client)).await?,
+            listed("Approved")
+        );
+
+        server
+            .global_params
+            .permission_manager
+            .write()
+            .await
+            .change_user_status(&client_info.fingerprint, UserStatus::Blocked)
+            .await?;
+        assert_eq!(
+            step("list once blocked", paired_servers(&client)).await?,
+            listed("Blocked")
+        );
+
+        let client_permissions = client.global_params.permission_manager.write().await;
+        client_permissions
+            .add_user(
+                server.certificate.clone(),
+                server_fp.clone(),
+                server_info.alias.clone(),
+                "test".into(),
+                DeviceType::Desktop,
+                "127.0.0.1".into(),
+            )
+            .await?;
+        client_permissions
+            .change_user_status(&server_fp, UserStatus::Blocked)
+            .await?;
+        drop(client_permissions);
+        let refused = step("list while refused here", paired_servers(&client)).await?;
+        assert!(refused.is_empty(), "{refused:?}");
+
+        client
+            .global_params
+            .permission_manager
+            .write()
+            .await
+            .remove_user(&server_fp)
+            .await?;
+        assert_eq!(
+            step("list once no longer refused", paired_servers(&client)).await?,
+            listed("Blocked")
+        );
+        server.manager.stop().await?;
+        let unreachable = step("list while unreachable", paired_servers(&client)).await?;
+        assert!(unreachable.is_empty(), "{unreachable:?}");
+
+        server.global_params.node.shutdown().await?;
+        client.global_params.node.shutdown().await?;
+        Ok(())
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn pinned_pair_host_reports_a_certificate_mismatch() -> Result<()> {
         let server_dir = tempfile::tempdir()?;
