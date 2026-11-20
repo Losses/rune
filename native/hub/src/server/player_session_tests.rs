@@ -2485,6 +2485,14 @@ async fn attach_pair_with_signals(
     b: &Fixture,
     signals: &Arc<RecordedSignals>,
 ) -> Result<String> {
+    let fingerprint = pair_renderer(a, b).await?;
+    signals.0.lock().unwrap().clear();
+    a.global_params.node.attach_renderer(&fingerprint).await?;
+    Ok(fingerprint)
+}
+
+/// Pairs `b` so that `a` can attach it as its renderer, and returns `b`'s fingerprint.
+async fn pair_renderer(a: &Fixture, b: &Fixture) -> Result<String> {
     let b_address = super::paired_full(b, a).await?;
     let b_info = super::info(b).await?;
     a.global_params
@@ -2495,11 +2503,6 @@ async fn attach_pair_with_signals(
             &b_info.fingerprint,
             vec![format!("127.0.0.1:{}", b_address.port())],
         )
-        .await?;
-    signals.0.lock().unwrap().clear();
-    a.global_params
-        .node
-        .attach_renderer(&b_info.fingerprint)
         .await?;
     Ok(b_info.fingerprint)
 }
@@ -10994,6 +10997,139 @@ async fn subsonic_remote_control_pauses_and_restores_local_session_position() ->
         restored_position.abs_diff(paused_position) <= Duration::from_millis(100),
         "restored position {restored_position:?} differs from paused position {paused_position:?}"
     );
+
+    node.close_ui(&fixture.global_params.main_token).await;
+    server.task.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+/// Opens a Subsonic library that plays on its server's jukebox, which makes the jukebox the
+/// current player.
+async fn open_subsonic_jukebox(node: Arc<NodeContext>, endpoint: String) -> Result<()> {
+    let registration = register_subsonic_library_on_node(
+        &subsonic_registration_request(
+            endpoint,
+            "player-change-test-password",
+            Some(SubsonicOpenModeMessage::RemoteControl),
+        ),
+        &node,
+    )
+    .await?;
+    let record = registration.record.context("registered Subsonic record")?;
+    open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: None,
+            record_id: record.record_id,
+        },
+        node,
+        Arc::new(Mutex::new(ScrobblingManager::new(10, Duration::from_secs(5)))),
+    )
+    .await?;
+    Ok(())
+}
+
+async fn wait_for_jukebox_player(node: &NodeContext) -> Result<()> {
+    wait_until("the jukebox to become the current player", || async {
+        Ok(
+            matches!(node.current_player_snapshot()?, CurrentPlayer::SubsonicJukebox(_))
+                .then_some(()),
+        )
+    })
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_local_load_still_pending_when_a_renderer_becomes_current_never_plays() -> Result<()> {
+    let a_dir = tempfile::tempdir()?;
+    let b_dir = tempfile::tempdir()?;
+    let a = fixture(a_dir.path()).await?;
+    let b = fixture(b_dir.path()).await?;
+    let node = a.global_params.node.clone();
+    let track = library_track_for_id(&a, session_audio(&a, "pending-load-before-renderer.ogg").await?)
+        .await?;
+    let renderer = pair_renderer(&a, &b).await?;
+
+    // Holding the local player keeps the load from reaching it until the renderer is current.
+    // Attaching a renderer keeps the open library, so nothing but the player change can stop
+    // the load.
+    let held_player = a.global_params.player.lock().await;
+    let params = a.global_params.clone();
+    let mut load = Box::pin(async move {
+        dispatch_gui_request(
+            &params,
+            &LoadResolvedItemsRequest {
+                items: vec![PlayingItemRef::LibraryTrack {
+                    library_id: track.library_id.to_string(),
+                    track: track.file_uuid.to_string(),
+                }],
+                start_index: Some(0),
+                mode: PlaylistOperateMode::Replace,
+                expected_revision: None,
+                playback_mode: None,
+                position_seconds: None,
+                play: LoadPlay::Play,
+                call_id: None,
+            },
+        )
+        .await
+    });
+    assert!(
+        futures::poll!(&mut load).is_pending(),
+        "the load waits for the local player"
+    );
+    let load = tokio::spawn(load);
+    let attach_node = node.clone();
+    let attach = tokio::spawn(async move { attach_node.attach_renderer(&renderer).await });
+    wait_until("the renderer to become the current player", || async {
+        Ok(matches!(node.current_player_snapshot()?, CurrentPlayer::RunePeer { .. }).then_some(()))
+    })
+    .await?;
+    drop(held_player);
+    attach.await??;
+
+    let error = load
+        .await?
+        .err()
+        .context("a load sent to the local player before the switch must not complete")?;
+    assert!(matches!(
+        error.downcast_ref::<ExpectedRequestError>(),
+        Some(ExpectedRequestError::PlayerChanged)
+    ));
+    assert_eq!(classify(&error), RequestErrorKind::Conflict);
+    let paused = a.global_params.player.lock().await.pause_reporting();
+    assert_eq!(paused.await?, playback::player::PausedPlayback::NotPlaying);
+
+    node.shutdown().await?;
+    b.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_play_queued_just_before_the_jukebox_becomes_current_is_paused() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let fixture = fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let track = session_audio(&fixture, "queued-play-before-switch.ogg").await?;
+    queue_session(&fixture, &[track]).await?;
+    let server = fake_subsonic_server(FakeSubsonicRoles {
+        stream: true,
+        jukebox: true,
+        wrong_password: false,
+    })
+    .await?;
+
+    let held_player = fixture.global_params.player.lock().await;
+    let switch = tokio::spawn(open_subsonic_jukebox(node.clone(), server.endpoint.clone()));
+    wait_for_jukebox_player(&node).await?;
+    // The Play reaches the local player just before the switch does, so the player's status
+    // does not show it yet when the switch looks.
+    held_player.play();
+    drop(held_player);
+    switch.await??;
+
+    let paused = fixture.global_params.player.lock().await.pause_reporting();
+    assert_eq!(paused.await?, playback::player::PausedPlayback::NotPlaying);
 
     node.close_ui(&fixture.global_params.main_token).await;
     server.task.abort();

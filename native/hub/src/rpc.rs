@@ -118,11 +118,21 @@ where
         + Serialize,
     <R as TypedRequest>::Response: DeserializeOwned,
 {
-    params
-        .node
-        .implementation_for_scope::<R>()?
-        .run(params, request)
-        .await
+    // A player change chooses the new player before it ends the local player's tenure, so
+    // taking the tenure first means a request routed to the local player holds the tenure
+    // that the next change ends.
+    let local_tenure = params.node.local_player_tenure()?;
+    let implementation = params.node.implementation_for_scope::<R>()?;
+    if R::SCOPE != RequestScope::Session || !implementation.is_local() {
+        return implementation.run(params, request).await;
+    }
+    // Once another player is current, a local request still resolving must not edit or start
+    // the local player.
+    tokio::select! {
+        biased;
+        () = local_tenure.cancelled() => Err(ExpectedRequestError::PlayerChanged.into()),
+        response = implementation.run(params, request) => response,
+    }
 }
 
 /// A request introduced in a protocol minor newer than the peer's cannot run there;

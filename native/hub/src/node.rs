@@ -27,9 +27,7 @@ use discovery::{
     server::{PermissionManager, UserStatus},
 };
 use playback::{
-    PlayerCommand,
-    player::{HandoffBlockId as PlayerHandoffBlockId, PlaybackState},
-    sfx_player::SfxPlayer,
+    PlayerCommand, player::HandoffBlockId as PlayerHandoffBlockId, sfx_player::SfxPlayer,
 };
 use rinf::DartSignal;
 use tokio::{
@@ -151,6 +149,9 @@ pub struct NodeContext {
     pub renderer_link: Arc<StdMutex<Option<Arc<RendererLink>>>>,
     ui_library: Arc<StdMutex<UiLibrary>>,
     current_player: Arc<StdMutex<CurrentPlayer>>,
+    /// Ends when another player takes over from the local player, which cancels the UI
+    /// requests to the local player that are still running.
+    local_player_tenure: StdMutex<CancellationToken>,
     open_generation: AtomicU64,
     reconnect_config: ReconnectConfig,
     visualizer: NodeVisualizer,
@@ -354,6 +355,7 @@ impl NodeContext {
             renderer_link,
             ui_library,
             current_player,
+            local_player_tenure: StdMutex::new(CancellationToken::new()),
             open_generation: AtomicU64::new(0),
             reconnect_config,
             visualizer: NodeVisualizer::new(visualizer),
@@ -926,6 +928,23 @@ impl NodeContext {
         Ok(())
     }
 
+    /// The current tenure of the local player as the UI's player.
+    pub(crate) fn local_player_tenure(&self) -> Result<CancellationToken> {
+        self.local_player_tenure
+            .lock()
+            .map(|tenure| tenure.clone())
+            .map_err(|_| anyhow::anyhow!("Local player tenure lock poisoned"))
+    }
+
+    fn end_local_player_tenure(&self) -> Result<()> {
+        let mut tenure = self
+            .local_player_tenure
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Local player tenure lock poisoned"))?;
+        std::mem::take(&mut *tenure).cancel();
+        Ok(())
+    }
+
     /// Publishes the current player's visualizer inputs again, for when what that player
     /// can feed changed while it stayed the current player.
     fn republish_current_player_inputs(&self) -> Result<()> {
@@ -965,18 +984,19 @@ impl NodeContext {
         );
         self.refresh_current_player(current)?;
         if leaving_local {
+            self.end_local_player_tenure()?;
             let session = self.session()?;
-            let completion = {
-                let mut player = session.player.lock().await;
-                (player.get_status().state == PlaybackState::Playing)
-                    .then(|| player.command_with_completion(PlayerCommand::Pause))
-            };
-            if let Some(completion) = completion {
-                completion
-                    .await
-                    .map_err(|error| anyhow::Error::new(player_command_error(error)))
-                    .context("Pause local player when another player becomes current")?;
-            }
+            // The pause follows the commands already sent, so it also stops a Play or a track
+            // loading to play that the cached status does not show as playing yet.
+            let completion = session
+                .player
+                .lock()
+                .await
+                .command_with_completion(PlayerCommand::Pause);
+            completion
+                .await
+                .map_err(|error| anyhow::Error::new(player_command_error(error)))
+                .context("Pause local player when another player becomes current")?;
         } else if returning_local || renderer_lost {
             self.session()?.reemit_current().await?;
         }
