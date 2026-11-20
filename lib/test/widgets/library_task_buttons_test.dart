@@ -18,6 +18,9 @@ class _LibraryManager extends ChangeNotifier implements LibraryManagerProvider {
   final scanForces = <bool>[];
   final taskStarts = <String>[];
   bool analysisRunning = false;
+  // The progress and total each running task reports.
+  (int, int) analysisCounts = (25, 100);
+  (int, int)? deduplicationCounts;
 
   @override
   Stream<RequestFailure> get failureFeedback => _failures.stream;
@@ -28,11 +31,23 @@ class _LibraryManager extends ChangeNotifier implements LibraryManagerProvider {
   @override
   AnalyzeTaskProgress? getAnalyzeTaskProgress(String recordId) =>
       analysisRunning
-      ? AnalyzeTaskProgress(recordId: recordId, progress: 25, total: 100)
+      ? AnalyzeTaskProgress(
+          recordId: recordId,
+          progress: analysisCounts.$1,
+          total: analysisCounts.$2,
+        )
       : null;
 
   @override
-  DeduplicateTaskProgress? getDeduplicateTaskProgress(String recordId) => null;
+  DeduplicateTaskProgress? getDeduplicateTaskProgress(String recordId) =>
+      switch (deduplicationCounts) {
+        (final progress, final total) => DeduplicateTaskProgress(
+          recordId: recordId,
+          progress: progress,
+          total: total,
+        ),
+        null => null,
+      };
 
   @override
   Future<void> scanLibrary(
@@ -111,9 +126,14 @@ Future<_LibraryManager> _pumpTaskButtons(
   WidgetTester tester, {
   LibraryRecordSummary record = _replica,
   bool analysisRunning = false,
+  (int, int) analysisCounts = (25, 100),
+  (int, int)? deduplicationCounts,
 }) async {
   final (openState, registry) = await _openState(record);
-  final manager = _LibraryManager()..analysisRunning = analysisRunning;
+  final manager = _LibraryManager()
+    ..analysisRunning = analysisRunning
+    ..analysisCounts = analysisCounts
+    ..deduplicationCounts = deduplicationCounts;
   addTearDown(openState.dispose);
   addTearDown(registry.dispose);
   addTearDown(manager.dispose);
@@ -144,6 +164,32 @@ Future<_LibraryManager> _pumpTaskButtons(
 }
 
 void main() {
+  // A task's first update reports 0 of 0, before it has counted its work.
+  for (final task in ['Analyze', 'Deduplicate']) {
+    testWidgets('$task shows an indeterminate ring before its total is known', (
+      tester,
+    ) async {
+      await _pumpTaskButtons(
+        tester,
+        analysisRunning: task == 'Analyze',
+        analysisCounts: (0, 0),
+        deduplicationCounts: task == 'Deduplicate' ? (0, 0) : null,
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(
+        tester.widget<ProgressRing>(find.byType(ProgressRing)).value,
+        isNull,
+      );
+    });
+  }
+
+  testWidgets('a running analysis shows the share it has done', (tester) async {
+    await _pumpTaskButtons(tester, analysisRunning: true);
+
+    expect(tester.widget<ProgressRing>(find.byType(ProgressRing)).value, 25);
+  });
+
   for (final task in ['Analyze', 'Deduplicate']) {
     testWidgets('touch long press on $task does not start a task', (
       tester,
