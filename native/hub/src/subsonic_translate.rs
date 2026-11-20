@@ -1,5 +1,6 @@
 use anyhow::{Result, anyhow};
 use database::actions::collection::CollectionQueryType;
+use database::actions::playlists::OCCURRENCE_PAGE_SIZES;
 use database::actions::utils::generate_group_name;
 use database::error::ExpectedError;
 use lyric::lrc::parse_lrc;
@@ -21,14 +22,16 @@ use crate::messages::{
     FetchCollectionByIdsResponse, FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
     FetchCollectionGroupsResponse, FetchMediaFileByIdsRequest, FetchMediaFileByIdsResponse,
     FetchMediaFilesRequest, FetchMediaFilesResponse, FetchParsedMediaFileRequest,
-    FetchParsedMediaFileResponse, GetLikedRequest, GetLikedResponse, GetLyricByTrackIdRequest,
+    FetchParsedMediaFileResponse, FetchPlaylistOccurrencesRequest,
+    FetchPlaylistOccurrencesResponse, GetLikedRequest, GetLikedResponse, GetLyricByTrackIdRequest,
     GetLyricByTrackIdResponse, GetMediaFilesCountRequest, GetMediaFilesCountResponse,
     GetPlaylistByIdRequest, GetPlaylistByIdResponse, HandoffLoadRequest, LoadPlay, LoadRequest,
     LoadResolvedItemsRequest, LoadResolvedItemsResponse, LyricContentLine, LyricContentLineSection,
     MediaFile, MediaFileSummary, MixQueryRequest, MixQueryResponse, MovePlaylistItemRequest,
     NextRequest, PauseRequest, PlayRequest, PlaybackMode, PlayingItemRef, Playlist,
-    PlaylistOperateMode, PreviousRequest, RefreshSessionRequest, RemoveItemFromPlaylistRequest,
-    RemoveItemFromPlaylistResponse, RemovePlaylistRequest, RemovePlaylistResponse, RemoveRequest,
+    PlaylistOccurrence, PlaylistOccurrenceCursor, PlaylistOperateMode, PreviousRequest,
+    RefreshSessionRequest, RemoveItemFromPlaylistRequest, RemoveItemFromPlaylistResponse,
+    RemovePlaylistRequest, RemovePlaylistResponse, RemoveRequest,
     ReorderPlaylistItemPositionRequest, ReorderPlaylistItemPositionResponse,
     SearchCollectionSummaryRequest, SearchCollectionSummaryResponse, SearchForRequest,
     SearchForResponse, SearchMediaFileSummaryRequest, SearchMediaFileSummaryResponse, SeekRequest,
@@ -450,6 +453,108 @@ pub(crate) async fn reorder_playlist_item_position_request(
         .await
         .map_err(subsonic_request_error)?;
     Ok(Some(ReorderPlaylistItemPositionResponse { call_id: None }))
+}
+
+/// The position a listing page starts at. A cursor names the last entry of the previous
+/// page, and a Subsonic occurrence is named by its position, so a cursor whose id names
+/// another position did not come from this listing.
+fn occurrence_page_start(after: Option<&PlaylistOccurrenceCursor>) -> Result<usize> {
+    let Some(cursor) = after else {
+        return Ok(0);
+    };
+    match cursor.occurrence_id.parse::<usize>() {
+        Ok(position) if i32::try_from(position).is_ok_and(|id| id == cursor.position) => {
+            Ok(position + 1)
+        }
+        _ => Err(ExpectedRequestError::invalid_input(
+            "Invalid Subsonic playlist occurrence cursor",
+        )
+        .into()),
+    }
+}
+
+/// Lists a playlist's entries in order, repeats included. A Subsonic playlist names its
+/// entries only by their order, so each occurrence is named by its position, as the
+/// playlist edits above name it.
+pub(crate) async fn fetch_playlist_occurrences_request(
+    binding: &SubsonicBinding,
+    request: &FetchPlaylistOccurrencesRequest,
+) -> Result<Option<FetchPlaylistOccurrencesResponse>> {
+    if !OCCURRENCE_PAGE_SIZES.contains(&request.page_size) {
+        return Err(ExpectedRequestError::invalid_input(format!(
+            "Playlist page size must be {}..={}",
+            OCCURRENCE_PAGE_SIZES.start(),
+            OCCURRENCE_PAGE_SIZES.end()
+        ))
+        .into());
+    }
+    let start = occurrence_page_start(request.after.as_ref())?;
+    let remote_id = resolve_playlist_id(binding, request.playlist_id)?;
+    let songs = binding
+        .client
+        .playlist(&remote_id)
+        .await
+        .map_err(subsonic_request_error)?
+        .songs;
+    let end = songs
+        .len()
+        .min(start.saturating_add(usize::try_from(request.page_size)?));
+    let more = end < songs.len();
+    let mut covers = Vec::new();
+    let entries = {
+        let mut catalog = binding
+            .catalog
+            .lock()
+            .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+        songs
+            .into_iter()
+            .enumerate()
+            .take(end)
+            .skip(start)
+            .map(|(position, song)| {
+                let position = i32::try_from(position).map_err(|_| {
+                    ExpectedRequestError::invalid_input("Subsonic playlist is too large")
+                })?;
+                let id = catalog.ids.intern(SubsonicIdKind::Track, &song.id)?;
+                let cover_art_id = song
+                    .cover_art
+                    .as_deref()
+                    .map(|cover| catalog.ids.intern(SubsonicIdKind::CoverArt, cover))
+                    .transpose()?;
+                if let Some(cover) = &song.cover_art {
+                    covers.push((id, cover.clone()));
+                }
+                let file = subsonic_media_file(binding, id, cover_art_id, &song);
+                let track_uuid = song.id.clone();
+                catalog.songs.insert(id, song);
+                Ok(PlaylistOccurrence {
+                    occurrence_id: position.to_string(),
+                    position,
+                    track_uuid,
+                    file: Some(file),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?
+    };
+    let next = more
+        .then(|| entries.last())
+        .flatten()
+        .map(|entry| PlaylistOccurrenceCursor {
+            position: entry.position,
+            occurrence_id: entry.occurrence_id.clone(),
+        });
+    let cover_art_map = if request.bake_cover_arts {
+        subsonic_cover_map(binding, covers).await?
+    } else {
+        HashMap::new()
+    };
+    Ok(Some(FetchPlaylistOccurrencesResponse {
+        request_id: request.request_id.clone(),
+        entries,
+        next,
+        cover_art_map,
+        call_id: request.call_id,
+    }))
 }
 
 async fn subsonic_cover_map(
@@ -1932,6 +2037,7 @@ subsonic_requests! {
         AddItemToPlaylistRequest => add_item_to_playlist_request as translate_add_item_to_playlist_request,
         RemoveItemFromPlaylistRequest => remove_item_from_playlist_request as translate_remove_item_from_playlist_request,
         ReorderPlaylistItemPositionRequest => reorder_playlist_item_position_request as translate_reorder_playlist_item_position_request,
+        FetchPlaylistOccurrencesRequest => fetch_playlist_occurrences_request as translate_fetch_playlist_occurrences_request,
         FetchMediaFileByIdsRequest => fetch_media_file_by_ids_request as translate_fetch_media_file_by_ids_request,
         FetchMediaFilesRequest => fetch_media_files_request as translate_fetch_media_files_request,
         GetMediaFilesCountRequest => get_media_files_count_request as translate_get_media_files_count_request,
@@ -2019,12 +2125,13 @@ mod tests {
         add_item_to_playlist_request, create_playlist_request, fetch_all_playlists_request,
         fetch_collection_group_summary_request, fetch_collection_groups_request,
         fetch_media_file_by_ids_request, fetch_media_files_request,
-        fetch_parsed_media_file_request, fetch_remote_playlist, get_liked_request,
-        get_lyric_request, get_media_files_count_request, get_playlist_by_id_request,
-        jukebox_error, mix_query_request, remove_item_from_playlist_request,
-        remove_playlist_request, reorder_playlist_item_position_request,
-        search_collection_summary_request, search_for_request, search_media_file_summary_request,
-        set_liked_request, subsonic_request_error, update_playlist_request,
+        fetch_parsed_media_file_request, fetch_playlist_occurrences_request, fetch_remote_playlist,
+        get_liked_request, get_lyric_request, get_media_files_count_request,
+        get_playlist_by_id_request, jukebox_error, mix_query_request,
+        remove_item_from_playlist_request, remove_playlist_request,
+        reorder_playlist_item_position_request, search_collection_summary_request,
+        search_for_request, search_media_file_summary_request, set_liked_request,
+        subsonic_request_error, update_playlist_request,
     };
     use crate::{
         TypedRequest,
@@ -2039,7 +2146,7 @@ mod tests {
             GetPlaylistByIdRequest, HandoffLoadRequest, LoadPlay, LoadRequest,
             LoadResolvedItemsRequest, MixQuery, MixQueryRequest, MovePlaylistItemRequest,
             NextRequest, PauseRequest, PlayRequest, PlaybackMode, PlayingItemRef,
-            PlaylistOperateMode, PreviousRequest, RefreshSessionRequest,
+            PlaylistOccurrenceCursor, PlaylistOperateMode, PreviousRequest, RefreshSessionRequest,
             RemoveItemFromPlaylistRequest, RemovePlaylistRequest, RemoveRequest,
             ReorderPlaylistItemPositionRequest, SearchCollectionSummaryRequest, SearchForRequest,
             SearchMediaFileSummaryRequest, SeekRequest, SessionSnapshotRequest,
@@ -2807,6 +2914,176 @@ mod tests {
         );
     }
 
+    async fn occurrence_page(
+        binding: &SubsonicBinding,
+        playlist_id: i32,
+        after: Option<PlaylistOccurrenceCursor>,
+        page_size: u32,
+    ) -> anyhow::Result<crate::messages::FetchPlaylistOccurrencesResponse> {
+        let page = fetch_playlist_occurrences_request(
+            binding,
+            &FetchPlaylistOccurrencesRequest {
+                request_id: "detail".into(),
+                playlist_id,
+                after,
+                page_size,
+                bake_cover_arts: false,
+                call_id: None,
+            },
+        )
+        .await?;
+        Ok(page.expect("an occurrence listing always answers"))
+    }
+
+    fn listed(page: &crate::messages::FetchPlaylistOccurrencesResponse) -> Vec<(i32, &str, &str)> {
+        page.entries
+            .iter()
+            .map(|entry| {
+                (
+                    entry.position,
+                    entry.occurrence_id.as_str(),
+                    entry.file.as_ref().map_or("", |file| file.track.as_str()),
+                )
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn playlist_detail_pages_through_repeats_and_edits_the_listed_occurrence() {
+        let root = TempDir::new().unwrap();
+        let (binding, _server) = mock_subsonic(&root, false).await;
+        let playlist_id =
+            fetch_all_playlists_request(&binding, &FetchAllPlaylistsRequest { call_id: None })
+                .await
+                .unwrap()
+                .unwrap()
+                .playlists[0]
+                .id;
+
+        let first = occurrence_page(&binding, playlist_id, None, 2)
+            .await
+            .unwrap();
+        assert_eq!(first.request_id, "detail");
+        assert_eq!(listed(&first), [(0, "0", "song-1"), (1, "1", "song-2")]);
+        let first_file = first.entries[0].file.as_ref().unwrap();
+        assert_eq!(first_file.title, "song-1");
+        assert_eq!(first_file.library_id, binding.library_id.to_string());
+        assert_eq!(first_file.audio_availability, AudioAvailability::RemoteOnly);
+        let second = occurrence_page(&binding, playlist_id, first.next.clone(), 2)
+            .await
+            .unwrap();
+        assert_eq!(listed(&second), [(2, "2", "song-1")]);
+        assert!(second.next.is_none());
+        assert_eq!(second.entries[0].file.as_ref().unwrap().id, first_file.id);
+
+        remove_item_from_playlist_request(
+            &binding,
+            &RemoveItemFromPlaylistRequest {
+                playlist_id,
+                occurrence_id: second.entries[0].occurrence_id.clone(),
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let after_remove = occurrence_page(&binding, playlist_id, None, 128)
+            .await
+            .unwrap();
+        assert_eq!(
+            listed(&after_remove),
+            [(0, "0", "song-1"), (1, "1", "song-2")]
+        );
+
+        add_item_to_playlist_request(
+            &binding,
+            &AddItemToPlaylistRequest {
+                playlist_id,
+                media_file_id: first_file.id,
+                position: None,
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let repeated = occurrence_page(&binding, playlist_id, None, 128)
+            .await
+            .unwrap();
+        assert_eq!(
+            listed(&repeated),
+            [(0, "0", "song-1"), (1, "1", "song-2"), (2, "2", "song-1")]
+        );
+        reorder_playlist_item_position_request(
+            &binding,
+            &ReorderPlaylistItemPositionRequest {
+                playlist_id,
+                occurrence_id: repeated.entries[2].occurrence_id.clone(),
+                new_position: 1,
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            fetch_remote_playlist(&binding, playlist_id)
+                .await
+                .unwrap()
+                .1,
+            ["song-1", "song-1", "song-2"]
+        );
+    }
+
+    #[tokio::test]
+    async fn playlist_detail_lists_an_empty_playlist_and_rejects_pages_it_cannot_name() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        let road =
+            fetch_all_playlists_request(&binding, &FetchAllPlaylistsRequest { call_id: None })
+                .await
+                .unwrap()
+                .unwrap()
+                .playlists[0]
+                .id;
+        let fresh = create_playlist_request(
+            &binding,
+            &CreatePlaylistRequest {
+                name: "Fresh".into(),
+                group: String::new(),
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .playlist
+        .id;
+        let empty = occurrence_page(&binding, fresh, None, 128).await.unwrap();
+        assert!(empty.entries.is_empty());
+        assert!(empty.next.is_none());
+
+        let cursor = |position, occurrence_id: &str| PlaylistOccurrenceCursor {
+            position,
+            occurrence_id: occurrence_id.into(),
+        };
+        let before = server.state.requests.lock().unwrap().len();
+        for (after, page_size) in [
+            (None, 0),
+            (None, 129),
+            (Some(cursor(0, "1")), 2),
+            (Some(cursor(-1, "-1")), 2),
+            (Some(cursor(0, "first")), 2),
+        ] {
+            let error = occurrence_page(&binding, road, after, page_size)
+                .await
+                .err()
+                .expect("a page the listing cannot name is rejected");
+            assert!(matches!(
+                error.downcast_ref::<ExpectedRequestError>(),
+                Some(ExpectedRequestError::InvalidInput { .. })
+            ));
+        }
+        assert_eq!(server.state.requests.lock().unwrap().len(), before);
+    }
+
     #[test]
     fn subsonic_playlist_capabilities_support_only_expressible_playlist_requests() {
         let slots = RequestSlots::subsonic(&SubsonicProbe {
@@ -2821,6 +3098,7 @@ mod tests {
         for slot in [
             FetchAllPlaylistsRequest::slot(&slots),
             GetPlaylistByIdRequest::slot(&slots),
+            FetchPlaylistOccurrencesRequest::slot(&slots),
             CreatePlaylistRequest::slot(&slots),
             UpdatePlaylistRequest::slot(&slots),
             RemovePlaylistRequest::slot(&slots),
@@ -2830,17 +3108,12 @@ mod tests {
         ] {
             assert_eq!(slot, Slot::Translate);
         }
-        for slot in [
-            FetchPlaylistOccurrencesRequest::slot(&slots),
+        assert_eq!(
             CreateM3u8PlaylistRequest::slot(&slots),
-        ] {
-            assert_eq!(
-                slot,
-                Slot::Unsupported {
-                    reason: UnsupportedReason::NotImplemented
-                }
-            );
-        }
+            Slot::Unsupported {
+                reason: UnsupportedReason::NotImplemented
+            }
+        );
     }
 
     #[tokio::test]
