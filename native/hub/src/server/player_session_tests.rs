@@ -11138,6 +11138,95 @@ async fn a_play_queued_just_before_the_jukebox_becomes_current_is_paused() -> Re
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_departure_whose_request_is_cancelled_still_pauses_the_local_player() -> Result<()> {
+    let a_dir = tempfile::tempdir()?;
+    let b_dir = tempfile::tempdir()?;
+    let a = fixture(a_dir.path()).await?;
+    let b = fixture(b_dir.path()).await?;
+    let node = a.global_params.node.clone();
+    let track = session_audio(&a, "play-before-cancelled-departure.ogg").await?;
+    queue_session(&a, &[track]).await?;
+    let renderer = pair_renderer(&a, &b).await?;
+
+    // The Play is queued before the player changes, and the player stays held until the
+    // attachment has been cancelled, so only a pause sent after the cancellation can stop it.
+    let held_player = a.global_params.player.lock().await;
+    held_player.play();
+    // A local request still running keeps the departure waiting while the attachment that
+    // started it is cancelled.
+    let tenure = node.local_player_tenure()?;
+    let running = tenure.enter().await?;
+    let attach_node = node.clone();
+    let attach = tokio::spawn(async move { attach_node.attach_renderer(&renderer).await });
+    timeout(TEST_DEADLINE, tenure.ended())
+        .await
+        .context("attaching the renderer did not end the local player's tenure")?;
+    attach.abort();
+    let cancelled = attach
+        .await
+        .expect_err("the attachment was cancelled while the departure waited");
+    assert!(cancelled.is_cancelled());
+
+    drop(running);
+    drop(held_player);
+    // The departure installs a new tenure only once its pause is queued, so the pause below
+    // follows the departure's.
+    wait_until("the departure to install a new tenure", || async {
+        Ok((!Arc::ptr_eq(&node.local_player_tenure()?, &tenure)).then_some(()))
+    })
+    .await?;
+    let paused = a.global_params.player.lock().await.pause_reporting();
+    assert_eq!(paused.await?, playback::player::PausedPlayback::NotPlaying);
+
+    node.shutdown().await?;
+    b.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_request_during_a_departure_is_refused_until_the_departure_has_paused() -> Result<()> {
+    let a_dir = tempfile::tempdir()?;
+    let b_dir = tempfile::tempdir()?;
+    let a = fixture(a_dir.path()).await?;
+    let b = fixture(b_dir.path()).await?;
+    let node = a.global_params.node.clone();
+    let renderer = pair_renderer(&a, &b).await?;
+
+    // A local request still running keeps the departure from pausing.
+    let tenure = node.local_player_tenure()?;
+    let running = tenure.enter().await?;
+    let attach_node = node.clone();
+    let attach = tokio::spawn(async move { attach_node.attach_renderer(&renderer).await });
+    timeout(TEST_DEADLINE, tenure.ended())
+        .await
+        .context("attaching the renderer did not end the local player's tenure")?;
+
+    // A request arriving now, for instance after a quick return to the local player, finds the
+    // ended tenure. The tenure lets no request in while its end waits for the running one, so
+    // the entry is answered only after that request has left, and is then refused.
+    let arriving = node.local_player_tenure()?;
+    let entry = arriving.enter();
+    drop(running);
+    let error = timeout(TEST_DEADLINE, entry)
+        .await
+        .context("a request arriving during the departure was neither admitted nor refused")?
+        .expect_err("a request arriving during the departure must be refused");
+    assert!(matches!(
+        error.downcast_ref::<ExpectedRequestError>(),
+        Some(ExpectedRequestError::PlayerChanged)
+    ));
+    attach.await??;
+
+    // The departure has queued its pause, so a new tenure admits requests.
+    let fresh = node.local_player_tenure()?;
+    drop(fresh.enter().await?);
+
+    node.shutdown().await?;
+    b.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn rr_library_pauses_and_restores_local_session_position() -> Result<()> {
     use crate::messages::PlayRequest;
 

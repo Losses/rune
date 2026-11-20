@@ -10,7 +10,7 @@ use std::{
     fs,
     path::Path,
     sync::{
-        Arc, Mutex as StdMutex, OnceLock, Weak,
+        Arc, Mutex as StdMutex, MutexGuard as StdMutexGuard, OnceLock, Weak,
         atomic::{AtomicU64, Ordering},
     },
 };
@@ -131,7 +131,9 @@ enum LibraryBinding {
 
 /// The local player's time as the UI's player. Requests routed to the local player run inside
 /// it, and ending it waits until they have stopped, so no command one of them sends can follow
-/// the pause that comes after the end.
+/// the pause that comes after the end. The ended tenure stays installed, refusing requests,
+/// until that pause is queued, and only then does a new tenure admit them, so the pause never
+/// stops a command sent by a request the new tenure admits.
 ///
 /// A request runs in the tenure only when it is session-scoped and runs on the local player,
 /// and no such request changes the current player. Player changes come from node-scoped
@@ -165,6 +167,44 @@ impl LocalPlayerTenure {
     }
 }
 
+fn lock_tenures(
+    tenures: &StdMutex<Arc<LocalPlayerTenure>>,
+) -> Result<StdMutexGuard<'_, Arc<LocalPlayerTenure>>> {
+    tenures
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Local player tenure lock poisoned"))
+}
+
+/// Ends the local player's tenure, pauses the local player after every command the tenure's
+/// requests sent, and only then admits requests to a new tenure. A request arriving while this
+/// runs, if the local player is current again by then, is refused, so nothing it sends can land
+/// before this pause.
+async fn depart_local_player(
+    tenures: Arc<StdMutex<Arc<LocalPlayerTenure>>>,
+    session: Arc<PlayerSession>,
+) -> Result<()> {
+    let ending = Arc::clone(&*lock_tenures(&tenures)?);
+    ending.end().await;
+    // The pause follows the commands already sent, so it also stops a Play or a track loading to
+    // play that the cached status does not show as playing yet.
+    let completion = session
+        .player
+        .lock()
+        .await
+        .command_with_completion(PlayerCommand::Pause);
+    {
+        let mut tenure = lock_tenures(&tenures)?;
+        // Another departure may have replaced it already; its successor must stay.
+        if Arc::ptr_eq(&tenure, &ending) {
+            *tenure = Arc::default();
+        }
+    }
+    completion
+        .await
+        .map_err(|error| anyhow::Error::new(player_command_error(error)))
+        .context("Pause local player when another player becomes current")
+}
+
 /// Process services shared by every local library and remote controller.
 pub struct NodeContext {
     protocol_version: StdMutex<ProtocolVersion>,
@@ -186,8 +226,9 @@ pub struct NodeContext {
     ui_library: Arc<StdMutex<UiLibrary>>,
     current_player: Arc<StdMutex<CurrentPlayer>>,
     /// Ends when another player takes over from the local player, which cancels the UI
-    /// requests to the local player that are still running.
-    local_player_tenure: StdMutex<Arc<LocalPlayerTenure>>,
+    /// requests to the local player that are still running. The ended tenure stays here until
+    /// the local player's departure has queued its pause.
+    local_player_tenure: Arc<StdMutex<Arc<LocalPlayerTenure>>>,
     open_generation: AtomicU64,
     reconnect_config: ReconnectConfig,
     visualizer: NodeVisualizer,
@@ -391,7 +432,7 @@ impl NodeContext {
             renderer_link,
             ui_library,
             current_player,
-            local_player_tenure: StdMutex::default(),
+            local_player_tenure: Arc::default(),
             open_generation: AtomicU64::new(0),
             reconnect_config,
             visualizer: NodeVisualizer::new(visualizer),
@@ -966,22 +1007,7 @@ impl NodeContext {
 
     /// The current tenure of the local player as the UI's player.
     pub(crate) fn local_player_tenure(&self) -> Result<Arc<LocalPlayerTenure>> {
-        self.local_player_tenure
-            .lock()
-            .map(|tenure| Arc::clone(&tenure))
-            .map_err(|_| anyhow::anyhow!("Local player tenure lock poisoned"))
-    }
-
-    async fn end_local_player_tenure(&self) -> Result<()> {
-        let previous = {
-            let mut tenure = self
-                .local_player_tenure
-                .lock()
-                .map_err(|_| anyhow::anyhow!("Local player tenure lock poisoned"))?;
-            std::mem::take(&mut *tenure)
-        };
-        previous.end().await;
-        Ok(())
+        lock_tenures(&self.local_player_tenure).map(|tenure| Arc::clone(&tenure))
     }
 
     /// Publishes the current player's visualizer inputs again, for when what that player
@@ -1023,19 +1049,14 @@ impl NodeContext {
         );
         self.refresh_current_player(current)?;
         if leaving_local {
-            self.end_local_player_tenure().await?;
-            let session = self.session()?;
-            // The pause follows the commands already sent, so it also stops a Play or a track
-            // loading to play that the cached status does not show as playing yet.
-            let completion = session
-                .player
-                .lock()
-                .await
-                .command_with_completion(PlayerCommand::Pause);
-            completion
-                .await
-                .map_err(|error| anyhow::Error::new(player_command_error(error)))
-                .context("Pause local player when another player becomes current")?;
+            // The departure runs on its own task, so its pause still follows when the request
+            // that changed the player is cancelled, as a UI replacement cancels the UI's requests.
+            tokio::spawn(depart_local_player(
+                Arc::clone(&self.local_player_tenure),
+                self.session()?,
+            ))
+            .await
+            .context("Local player departure stopped")??;
         } else if returning_local || renderer_lost {
             self.session()?.reemit_current().await?;
         }
