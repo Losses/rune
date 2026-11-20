@@ -86,6 +86,9 @@ pub struct OccurrencePage {
     pub next: Option<OccurrenceCursor>,
 }
 
+/// The page sizes a playlist occurrence listing accepts.
+pub const OCCURRENCE_PAGE_SIZES: std::ops::RangeInclusive<u32> = 1..=128;
+
 /// Read materialized membership without filtering on local audio availability.
 pub async fn list_occurrences(
     db: &DatabaseConnection,
@@ -94,9 +97,13 @@ pub async fn list_occurrences(
     limit: u32,
 ) -> Result<OccurrencePage> {
     ensure!(
-        (1..=128).contains(&limit),
+        OCCURRENCE_PAGE_SIZES.contains(&limit),
         ExpectedError::InvalidInput {
-            detail: "playlist page size must be 1..=128".into(),
+            detail: format!(
+                "playlist page size must be {}..={}",
+                OCCURRENCE_PAGE_SIZES.start(),
+                OCCURRENCE_PAGE_SIZES.end()
+            ),
         }
     );
     let parent = playlists::Entity::find_by_id(playlist_id)
