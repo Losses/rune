@@ -1,5 +1,6 @@
 import 'package:flip_card/flip_card.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../widgets/tile/cover_art.dart';
@@ -21,6 +22,28 @@ Widget _grid(List<String> paths) => FluentTheme(
 );
 
 void main() {
+  testWidgets('a grid built with a cached cover shows it', (tester) async {
+    await tester.pumpWidget(_grid(const ['/covers/a.png']));
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(FlipCard), findsOneWidget);
+    expect(
+      tester.widgetList<CoverArt>(find.byType(CoverArt)).map((art) => art.path),
+      ['/covers/a.png', '/covers/a.png'],
+    );
+  });
+
+  testWidgets('a grid that stays without covers keeps its placeholder', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_grid(const []));
+    await tester.pumpWidget(_grid(const []));
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(BoringAvatar), findsOneWidget);
+    expect(find.byType(FlipCard), findsNothing);
+  });
+
   testWidgets('a grid built without covers shows the covers that arrive', (
     tester,
   ) async {
