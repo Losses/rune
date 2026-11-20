@@ -860,9 +860,12 @@ pub(crate) async fn collect_own_prefix(
             .list_prefix(&format!("devices/{retired}/"))
             .await
             .map_err(push_store_error)?;
-        // The slots are read after the listing, so a head published before this read keeps
-        // everything that was listed.
-        if !retired_head_is_current(store, &precondition).await? {
+        // A device uploads a publication's segments before its head, so a listed segment past
+        // the covered head can belong to a head that is still to come. The slots are read after
+        // the listing, so a head published before this read keeps everything that was listed.
+        if lists_uncovered_segment(&listed, &precondition)?
+            || !retired_head_is_current(store, &precondition).await?
+        {
             continue;
         }
         for key in listed {
@@ -889,6 +892,23 @@ pub(crate) async fn collect_own_prefix(
         .await
         .map_err(|error| SharePushError::Failed(error.to_string()))?;
     Ok(final_head)
+}
+
+/// Whether a listing of a retired prefix holds a segment that ends past the head the retirement
+/// covers. The keeper base does not cover such a segment.
+fn lists_uncovered_segment(
+    listed: &[String],
+    retirement: &RetirementPrecondition,
+) -> SharePushResult<bool> {
+    for key in listed {
+        if let ObjectKey::Segment { last, .. } =
+            parse_key(key).map_err(|error| SharePushError::Failed(error.to_string()))?
+            && last > retirement.expected_head.seq
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Whether the head that a retirement covers is still the newest head of the retired prefix.

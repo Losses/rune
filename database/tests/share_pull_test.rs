@@ -1610,6 +1610,104 @@ async fn retirement_keeps_a_prefix_whose_covered_head_is_missing() -> Result<()>
     Ok(())
 }
 
+/// The retired device has uploaded the segment of a new publication but not yet written the head
+/// that lists it, as `publish_journal` uploads segments first, when the keeper lists its prefix
+/// for deletion. Both slots still hold the heads the retirement covers, so only the segment shows
+/// the publication. The keeper keeps the whole prefix, and once the device has written its head,
+/// a new device gets the publication.
+#[tokio::test]
+async fn retirement_keeps_a_segment_whose_head_is_not_written_yet() -> Result<()> {
+    let due = due_retirement().await?;
+    let key = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(2203),
+    };
+    due.retired_device
+        .sync_store
+        .write_local(key.clone(), support::playlist("uploaded before its head"))
+        .await?;
+    let identity = SyncPeer::identity(&due.retired.endpoint).await?;
+    let events = journal_events_since(&due.retired.endpoint, &due.retired.head).await?;
+    let writer = ShareWriter::default();
+    // The device's head write does not get through, so its publication stops after the segment
+    // upload and leaves both slots as the retirement saw them.
+    let head_writes = [
+        StoreOperation::Put,
+        StoreOperation::Create,
+        StoreOperation::ConditionalPut,
+    ];
+    for operation in head_writes {
+        due.store.inject_error_for_kind(
+            operation,
+            StoreObjectKind::Head,
+            StoreError::Transient("head write held back".into()),
+        );
+    }
+    let mut state = state_for(&due.retired, &identity)?;
+    let interrupted = push_entries(
+        &due.retired_device,
+        &mut state,
+        &writer,
+        &*due.store,
+        &identity,
+        &due.retired.head,
+        &events,
+    )
+    .await;
+    for operation in head_writes {
+        due.store
+            .clear_error_for_kind(operation, StoreObjectKind::Head);
+    }
+    ensure!(
+        interrupted.is_err(),
+        "the publication wrote its head: {interrupted:?}"
+    );
+    let uploaded = share_prefix_keys(&due.store, &due.retired.prefix).await?;
+    ensure!(
+        uploaded.iter().any(|key| matches!(
+            parse_key(key),
+            Ok(ShareObjectKey::Segment { last, .. }) if last > due.retired.head.head.seq
+        )),
+        "the publication uploaded no segment past the covered head: {uploaded:?}"
+    );
+
+    due.keeper
+        .sync_store
+        .push_share(
+            due.store.clone(),
+            due.namespace,
+            cache_path(),
+            Default::default(),
+        )
+        .await?;
+    assert_eq!(
+        share_prefix_keys(&due.store, &due.retired.prefix).await?,
+        uploaded,
+        "retirement cleanup deleted an uncovered segment whose head had not been written"
+    );
+
+    let mut state = state_for(&due.retired, &identity)?;
+    push_entries(
+        &due.retired_device,
+        &mut state,
+        &writer,
+        &*due.store,
+        &identity,
+        &due.retired.head,
+        &events,
+    )
+    .await
+    .map_err(|error| anyhow::anyhow!("write the head after the cleanup: {error}"))?
+    .context("the retired device published no head")?;
+    let joining = SqlLibrary::new(due.namespace, Uuid::new_v4()).await?;
+    pull(&due.retired, &joining).await?;
+    assert_eq!(
+        joining.sync_store.get(&key).await?,
+        due.retired_device.sync_store.get(&key).await?
+    );
+    Ok(())
+}
+
 async fn push_entries(
     source: &SqlLibrary,
     state: &mut ShareState,
