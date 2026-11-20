@@ -87,6 +87,8 @@ pub struct WebDavFixture {
     reject_reads: Arc<AtomicBool>,
     #[allow(dead_code)]
     reject_writes: Arc<AtomicBool>,
+    #[allow(dead_code)]
+    not_modified_for_every_tag: Arc<AtomicBool>,
     task: Arc<JoinHandle<()>>,
 }
 
@@ -100,6 +102,7 @@ impl WebDavFixture {
         let ranges = Arc::new(Mutex::new(Vec::new()));
         let reject_reads = Arc::new(AtomicBool::new(false));
         let reject_writes = Arc::new(AtomicBool::new(false));
+        let not_modified_for_every_tag = Arc::new(AtomicBool::new(false));
         let server_state = WebDavServerState {
             files: files.clone(),
             directories: directories.clone(),
@@ -107,6 +110,7 @@ impl WebDavFixture {
             ranges: ranges.clone(),
             reject_reads: reject_reads.clone(),
             reject_writes: reject_writes.clone(),
+            not_modified_for_every_tag: not_modified_for_every_tag.clone(),
         };
         let task = tokio::spawn(async move {
             let mut connections = JoinSet::new();
@@ -132,6 +136,7 @@ impl WebDavFixture {
             files,
             reject_reads,
             reject_writes,
+            not_modified_for_every_tag,
             task: Arc::new(task),
         })
     }
@@ -174,6 +179,14 @@ impl WebDavFixture {
     #[allow(dead_code)]
     pub fn reject_writes(&self) {
         self.reject_writes.store(true, Ordering::SeqCst);
+    }
+
+    /// From now on answers every GET that carries If-None-Match with 304, whatever the tag, as a
+    /// broken server or cache in front of it can.
+    #[allow(dead_code)]
+    pub fn answer_not_modified_for_every_tag(&self) {
+        self.not_modified_for_every_tag
+            .store(true, Ordering::SeqCst);
     }
 }
 
@@ -639,6 +652,7 @@ struct WebDavServerState {
     ranges: ReadRanges,
     reject_reads: Arc<AtomicBool>,
     reject_writes: Arc<AtomicBool>,
+    not_modified_for_every_tag: Arc<AtomicBool>,
 }
 
 async fn serve_webdav(stream: TcpStream, state: WebDavServerState) {
@@ -649,6 +663,7 @@ async fn serve_webdav(stream: TcpStream, state: WebDavServerState) {
         ranges,
         reject_reads,
         reject_writes,
+        not_modified_for_every_tag,
     } = state;
     let mut reader = BufReader::new(stream);
     loop {
@@ -808,9 +823,10 @@ async fn serve_webdav(stream: TcpStream, state: WebDavServerState) {
                 ),
                 Some(bytes)
                     if method == "GET"
-                        && headers
-                            .get("if-none-match")
-                            .is_some_and(|tag| tag == &fixture_etag(bytes)) =>
+                        && headers.get("if-none-match").is_some_and(|tag| {
+                            tag == &fixture_etag(bytes)
+                                || not_modified_for_every_tag.load(Ordering::SeqCst)
+                        }) =>
                 {
                     (
                         304,

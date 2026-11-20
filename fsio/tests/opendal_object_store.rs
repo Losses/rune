@@ -1,5 +1,5 @@
 use fsio::{OpenDalConfig, OpenDalObjectStore};
-use sync::share::{ConditionalGet, ObjectStore, StoreError};
+use sync::share::{ConditionalGet, ObjectStore, ObjectTag, StoreError};
 
 #[path = "../src/test_fixtures.rs"]
 mod test_fixtures;
@@ -33,6 +33,22 @@ async fn assert_probed_conditional_effects(
         ));
         store.delete(put_key).await.unwrap();
     }
+
+    // Share sync confirms the tags its writes returned with a conditional GET: "not modified" for
+    // the object's own tag, and the object for any other tag.
+    let get_key = "devices/probe-outcomes/get";
+    if caps.conditional_get {
+        let tag = store.put(get_key, b"current").await.unwrap();
+        assert!(matches!(
+            store.get_if_none_match(get_key, &tag).await,
+            Ok(ConditionalGet::NotModified)
+        ));
+        assert!(matches!(
+            store.get_if_none_match(get_key, &ObjectTag::new("\"another\"")).await,
+            Ok(ConditionalGet::Modified(value)) if value.bytes == b"current"
+        ));
+        store.delete(get_key).await.unwrap();
+    }
 }
 
 fn webdav_config(server: &WebDavFixture) -> OpenDalConfig {
@@ -65,6 +81,7 @@ async fn webdav_probe_and_tag_roundtrip() {
     assert!(caps.write_probe);
     assert!(!caps.conditional_create);
     assert!(!caps.conditional_put);
+    assert!(caps.conditional_get);
     assert_probed_conditional_effects(&store, caps).await;
     let tag = store
         .put("devices/test.generation/value", b"value")
@@ -83,6 +100,20 @@ async fn webdav_probe_and_tag_roundtrip() {
     }
     store.delete("devices/test.generation/value").await.unwrap();
     store.delete("devices/test.generation/value").await.unwrap();
+}
+
+/// A server, or a cache in front of it, that answers every conditional GET with 304 would keep
+/// share sync from seeing that an object changed, so the probe finds no conditional GET there.
+#[tokio::test]
+async fn webdav_probe_finds_no_conditional_get_where_every_tag_is_answered_not_modified() {
+    let server = WebDavFixture::start(Vec::new()).await.unwrap();
+    server.answer_not_modified_for_every_tag();
+    let store = OpenDalObjectStore::new(webdav_config(&server)).unwrap();
+    let caps = fsio::self_test::probe_share_object_store(&store, "devices/test.generation")
+        .await
+        .unwrap();
+    assert!(caps.write_probe);
+    assert!(!caps.conditional_get);
 }
 
 #[tokio::test]
@@ -107,6 +138,7 @@ async fn s3_probe_and_tag_roundtrip() {
         .await
         .unwrap();
     assert!(caps.write_probe);
+    assert!(caps.conditional_get);
     assert_probed_conditional_effects(&store, caps).await;
     let tag = store
         .put("devices/test.generation/value", b"value")

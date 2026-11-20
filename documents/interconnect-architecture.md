@@ -244,7 +244,7 @@ Push publishes this device's stream.
 
 ### Garbage collection and retirement
 
-Own-prefix garbage collection runs through the same writer as push and deletes only this device's objects: segments every active stream has acknowledged or older than 30 days, superseded bases, and objects two runs at least 24 h apart both saw unreferenced. A stream whose head has not changed for 180 days is retired by the keeper, which deletes that prefix once one of its live bases covers the retired head.
+Own-prefix garbage collection runs through the same writer as push and deletes only this device's objects: segments every active stream has acknowledged or older than 30 days, superseded bases, and objects two runs at least 24 h apart both saw unreferenced. Each run observes the tag of every object in the prefix, and an object whose tag changed starts its waiting periods again. The device keeps the tags that its uploads of segments, chunks and manifests returned, taking each for the tag of the bytes it sent without reading them back, and, with the tag of the bytes they come from, what push and the collection read of its manifests (size and chunk names) and segments (anchors and size). Where the store has conditional GET, a run confirms these tags and downloads an object only if its tag is unknown or changed, or if the run needs what a manifest or segment holds and keeps nothing for its current tag, as in the first run after an upgrade; without conditional GET, it downloads each object once to see its tag. A base cut confirms the manifests of the bases it keeps in the same way before it writes anything. A stream whose head has not changed for 180 days is retired by the keeper, which deletes that prefix once one of its live bases covers the retired head.
 
 ### Ordering, time and integrity
 
@@ -263,7 +263,7 @@ Own-prefix garbage collection runs through the same writer as push and deletes o
 ### Storage primitives
 
 - Required: whole-object GET, PUT and DELETE, and a one-level LIST.
-- Used when a probe confirms them, with a fallback otherwise: conditional GET for polls, create-if-absent for `library.json`, If-Match on the device's own head. OpenDAL capabilities are static, so each conditional feature is probed by its effect on the device's own prefix. WebDAV through OpenDAL has no conditional writes and always takes the fallback.
+- Used when a probe confirms them, with a fallback otherwise: conditional GET for polls and for the tags of the device's own objects in garbage collection and base cuts, create-if-absent for `library.json`, If-Match on the device's own head. OpenDAL capabilities are static, so each conditional feature is probed by its effect on the device's own prefix; conditional GET counts only if it answers "not modified" for the object's own tag and sends the object for another tag. WebDAV through OpenDAL has no conditional writes and always takes the fallback.
 - A write probe runs at setup and at each start; if it fails, share sync is off for that library and the state reaches Dart as a typed state.
 - The probe writes scratch objects (`.probe-<uuid>`, `.conditional-create-<uuid>`, `.conditional-put-<uuid>`, `.conditional-get-<uuid>`) into the folder it probes, which is the device's own folder or, at setup, a new `devices/<uuid>.1/`, and deletes them again. Share sync passes over them, also over ones a probe left behind, and never deletes them, because a probe can be running in that folder.
 - Not required: rename, append, multipart, locks, versioning, server time, recursive or consistent listing.

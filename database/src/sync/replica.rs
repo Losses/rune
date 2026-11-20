@@ -4,10 +4,10 @@ use super::model::Collection;
 use super::model::{ObjectKey, Payload, Record, RuneModel};
 use super::references::collect;
 use super::share::{
-    BaseCutRequest, LostCreation, PublishJournalRequest, ShareCapabilities, SharePullError,
-    SharePullRequest, SharePullResult, SharePushError, SharePushResult, ShareWriter,
-    collect_own_prefix, cut_base, discard_lost_creation, load_or_create_state, publish_journal,
-    pull, push_store_error,
+    BaseCutRequest, LostCreation, OwnContents, PublishJournalRequest, ShareCapabilities,
+    SharePullError, SharePullRequest, SharePullResult, SharePushError, SharePushResult,
+    ShareWriter, collect_own_prefix, cut_base, discard_lost_creation, load_or_create_state,
+    publish_journal, pull, push_store_error,
 };
 use crate::sync::{import, legacy};
 use anyhow::{Result, ensure};
@@ -826,22 +826,31 @@ impl LibrarySyncStore {
             }
         };
         let newest_base = if let Some(base) = current_head.bases.last() {
-            let key = base_key(&own_prefix.to_string(), &base.base_id)
-                .map_err(|error| SharePushError::Failed(error.to_string()))?;
-            match store.get(&key).await {
-                Ok(object) => {
-                    state.observe_tag(
-                        ShareObjectKey::Base {
-                            prefix: own_prefix.clone(),
-                            base_id: base.base_id.clone(),
-                        },
-                        object.tag,
-                        chrono::Utc::now().timestamp_millis(),
-                    );
-                    BaseSize::GzipBytes(object.bytes.len() as u64)
+            let object = ShareObjectKey::Base {
+                prefix: own_prefix.clone(),
+                base_id: base.base_id.clone(),
+            };
+            // The recorded size is taken without asking the store: it only steers the decision
+            // to cut, and the cut and the collection of this pass confirm every manifest they
+            // depend on before they write or delete anything.
+            match state.recorded(&object) {
+                Some(OwnContents::Manifest { bytes, .. }) => BaseSize::GzipBytes(*bytes),
+                _ => {
+                    let key = base_key(&own_prefix.to_string(), &base.base_id)
+                        .map_err(|error| SharePushError::Failed(error.to_string()))?;
+                    match store.get(&key).await {
+                        Ok(value) => {
+                            state.observe_tag(
+                                object,
+                                value.tag,
+                                chrono::Utc::now().timestamp_millis(),
+                            );
+                            BaseSize::GzipBytes(value.bytes.len() as u64)
+                        }
+                        Err(StoreError::NotFound) => BaseSize::Absent,
+                        Err(error) => return Err(push_store_error(error)),
+                    }
                 }
-                Err(StoreError::NotFound) => BaseSize::Absent,
-                Err(error) => return Err(push_store_error(error)),
             }
         } else {
             BaseSize::Absent
