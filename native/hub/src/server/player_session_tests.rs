@@ -262,7 +262,16 @@ async fn subsonic_hub_response(
             json!({ "subsonic-response": { "status": "ok", "user": { "streamRole": true, "downloadRole": true } } })
         }
         "search3" => {
-            json!({ "subsonic-response": { "status": "ok", "searchResult3": { "song": { "id": "song-opaque", "title": "Song title", "artist": "Artist", "album": "Album", "artistId": "artist-opaque", "albumId": "album-opaque", "duration": 90, "track": 4 }, "artist": { "id": "artist-opaque", "name": "Artist" }, "album": { "id": "album-opaque", "name": "Album", "artist": "Artist", "artistId": "artist-opaque" } } } })
+            let song_offset = query
+                .get("songOffset")
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or_default();
+            let songs = if song_offset == 0 {
+                json!({ "id": "song-opaque", "title": "Song title", "artist": "Artist", "album": "Album", "artistId": "artist-opaque", "albumId": "album-opaque", "duration": 90, "track": 4 })
+            } else {
+                json!([])
+            };
+            json!({ "subsonic-response": { "status": "ok", "searchResult3": { "song": songs, "artist": { "id": "artist-opaque", "name": "Artist" }, "album": { "id": "album-opaque", "name": "Album", "artist": "Artist", "artistId": "artist-opaque" } } } })
         }
         "getArtists" => {
             json!({ "subsonic-response": { "status": "ok", "artists": { "index": [ { "name": "A", "artist": { "id": "artist-opaque", "name": "Artist", "albumCount": 1 } }, { "name": "B", "artist": { "id": "artist-beta", "name": "Beta" } } ] } } })

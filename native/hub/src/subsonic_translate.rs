@@ -1847,10 +1847,11 @@ fn parse_track_list_query(queries: &[MixQuery]) -> Result<TrackListQuery> {
     parse_detail_query(queries, ResolveMixQueryRequest::wire_name()).map(TrackListQuery::Detail)
 }
 
-/// Songs read per search page while resolving the tracks page.
+/// Songs asked for per search page while resolving the tracks page.
 const RESOLVE_PAGE_SIZE: u32 = 500;
 
 /// The server's songs in the order the tracks page lists them, as many as a resolve plays.
+/// Only an empty page ends the list: a server may return fewer songs than a page asks for.
 async fn tracks_page_songs(binding: &SubsonicBinding) -> Result<Vec<SubsonicSong>> {
     let mut songs = Vec::new();
     while songs.len() < RESOLVED_TRACK_LIMIT {
@@ -1867,11 +1868,10 @@ async fn tracks_page_songs(binding: &SubsonicBinding) -> Result<Vec<SubsonicSong
             .await
             .map_err(|error| empty_search_error(error, ResolveMixQueryRequest::wire_name()))?
             .songs;
-        let last_page = page.len() < RESOLVE_PAGE_SIZE as usize;
-        songs.extend(page);
-        if last_page {
+        if page.is_empty() {
             break;
         }
+        songs.extend(page);
     }
     songs.truncate(RESOLVED_TRACK_LIMIT);
     Ok(songs)
@@ -2206,6 +2206,7 @@ mod tests {
         playlist_calls: MockPlaylistCalls,
         starred: Arc<Mutex<HashSet<String>>>,
         empty_search_rejected: Arc<AtomicUsize>,
+        song_page_cap: Arc<AtomicUsize>,
     }
 
     type MockPlaylistCalls = Arc<Mutex<Vec<(String, Vec<(String, String)>)>>>;
@@ -2276,6 +2277,7 @@ mod tests {
             reject_scrobble: Arc::new(AtomicUsize::new(0)),
             starred: Arc::new(Mutex::new(HashSet::new())),
             empty_search_rejected: Arc::new(AtomicUsize::new(0)),
+            song_page_cap: Arc::new(AtomicUsize::new(usize::MAX)),
         };
         let app = Router::new()
             .route("/rest/{*endpoint}", get(mock_endpoint))
@@ -2574,7 +2576,8 @@ mod tests {
                 let count = query
                     .get("songCount")
                     .and_then(|value| value.parse::<usize>().ok())
-                    .unwrap_or_default();
+                    .unwrap_or_default()
+                    .min(state.song_page_cap.load(Ordering::SeqCst));
                 let mut search = serde_json::Map::new();
                 if query
                     .get("songCount")
@@ -3400,6 +3403,26 @@ mod tests {
             excluded: ExcludedItems::default(),
             call_id: Some(31),
         }
+    }
+
+    #[tokio::test]
+    async fn the_tracks_page_resolves_past_a_server_page_cap() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) =
+            mock_subsonic_mode(&root, false, SubsonicOpenMode::PlayOnThisDevice).await;
+        server.state.song_page_cap.store(3, Ordering::SeqCst);
+        let library = binding.library_id;
+
+        let resolved = click_resolve(&[("lib::all", "true")], 3, library_track(library, "song-4"))
+            .translate(&binding)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            resolved.playing_items,
+            library_tracks(library, &["song-1", "song-2", "song-3", "song-4"])
+        );
+        assert_eq!(resolved.start_index, Some(3));
     }
 
     #[tokio::test]
