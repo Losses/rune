@@ -2019,17 +2019,26 @@ async fn deleted_floor_base_reconciles_from_another_live_base() -> Result<()> {
     Ok(())
 }
 
-async fn a_new_device_joins_after_a_newer_base(source_sorts_first: bool) -> Result<()> {
+enum OtherBase {
+    TiedBeforeSource,
+    TiedAfterSource,
+    GreaterCoverage,
+}
+
+async fn share_with_newer_floor_base(
+    other_base: OtherBase,
+) -> Result<(Published, SqlLibrary, ObjectKey)> {
     let namespace = Uuid::new_v4();
     let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     let other = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     let source_prefix = source.sync_store.share_prefix(cache_path()).await?;
     let other_prefix = other.sync_store.share_prefix(cache_path()).await?;
-    let (source, other) = if (source_prefix < other_prefix) == source_sorts_first {
-        (source, other)
-    } else {
-        (other, source)
-    };
+    let (source, other) =
+        if (other_prefix < source_prefix) == matches!(other_base, OtherBase::TiedBeforeSource) {
+            (source, other)
+        } else {
+            (other, source)
+        };
 
     let first = ObjectKey {
         collection: Collection::Playlists,
@@ -2040,18 +2049,29 @@ async fn a_new_device_joins_after_a_newer_base(source_sorts_first: bool) -> Resu
         .write_local(first, support::playlist("first"))
         .await?;
     let store = Arc::new(MemoryObjectStore::default());
-    let published = publish_base(&source, store.clone(), BTreeMap::new()).await?;
+    let mut published = publish_base(&source, store.clone(), BTreeMap::new()).await?;
+    if matches!(other_base, OtherBase::GreaterCoverage) {
+        other
+            .sync_store
+            .write_local(
+                ObjectKey {
+                    collection: Collection::Playlists,
+                    id: Uuid::from_u128(2293),
+                },
+                support::playlist("other device's playlist"),
+            )
+            .await?;
+    }
     let other_head = other
         .sync_store
         .push_share(store.clone(), namespace, cache_path(), Default::default())
         .await?
         .context("other device did not publish a base")?;
-    assert!(
-        other_head
-            .bases
-            .iter()
-            .any(|base| { base.covers.get(&published.prefix) == Some(&published.head.head) })
-    );
+    let competing = other_head
+        .bases
+        .iter()
+        .find(|base| base.covers.get(&published.prefix) == Some(&published.head.head))
+        .context("other base did not cover the source's first checkpoint")?;
 
     let second = ObjectKey {
         collection: Collection::Playlists,
@@ -2063,7 +2083,7 @@ async fn a_new_device_joins_after_a_newer_base(source_sorts_first: bool) -> Resu
         .await?;
     let identity = SyncPeer::identity(&published.endpoint).await?;
     let mut state = state_for(&published, &identity)?;
-    cut_base(BaseCutRequest {
+    published.head = cut_base(BaseCutRequest {
         db: &source.db,
         state: &mut state,
         writer: &ShareWriter::default(),
@@ -2075,12 +2095,26 @@ async fn a_new_device_joins_after_a_newer_base(source_sorts_first: bool) -> Resu
         capabilities: Default::default(),
     })
     .await?;
+    let floor_base = published
+        .head
+        .bases
+        .iter()
+        .find(|base| base.base_id == published.head.floor_base.base_id)
+        .context("missing floor base reference")?;
+    let total = |base: &BaseRef| base.covers.values().map(|cover| cover.seq).sum::<u64>();
+    match other_base {
+        OtherBase::GreaterCoverage => assert!(total(competing) > total(floor_base)),
+        _ => assert_eq!(total(competing), total(floor_base)),
+    }
+    Ok((published, other, second))
+}
 
-    let joining = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
-    pull(&published, &joining).await?;
+async fn assert_join_receives_second(published: &Published, second: &ObjectKey) -> Result<()> {
+    let joining = SqlLibrary::new(published.head.library_id, Uuid::new_v4()).await?;
+    pull(published, &joining).await?;
     let received = joining
         .sync_store
-        .get(&second)
+        .get(second)
         .await?
         .context("joining device missed the second playlist")?;
     assert_eq!(received.value, support::playlist("second"));
@@ -2089,12 +2123,59 @@ async fn a_new_device_joins_after_a_newer_base(source_sorts_first: bool) -> Resu
 
 #[tokio::test]
 async fn a_new_device_joins_after_a_newer_base_whose_device_sorts_after_the_other() -> Result<()> {
-    a_new_device_joins_after_a_newer_base(false).await
+    let (published, _, second) = share_with_newer_floor_base(OtherBase::TiedBeforeSource).await?;
+    assert_join_receives_second(&published, &second).await
 }
 
 #[tokio::test]
 async fn a_new_device_joins_after_a_newer_base_whose_device_sorts_before_the_other() -> Result<()> {
-    a_new_device_joins_after_a_newer_base(true).await
+    let (published, _, second) = share_with_newer_floor_base(OtherBase::TiedAfterSource).await?;
+    assert_join_receives_second(&published, &second).await
+}
+
+#[tokio::test]
+async fn stale_base_with_greater_total_coverage_does_not_displace_the_floor_base() -> Result<()> {
+    let (published, _, second) = share_with_newer_floor_base(OtherBase::GreaterCoverage).await?;
+    assert_join_receives_second(&published, &second).await
+}
+
+#[tokio::test]
+async fn base_at_floor_sequence_with_a_different_anchor_is_skipped() -> Result<()> {
+    let (mut published, other, second) =
+        share_with_newer_floor_base(OtherBase::GreaterCoverage).await?;
+    append_segment(&mut published, 2294, "after the floor").await?;
+    let mut divergent = published.head.floor.clone();
+    divergent.anchor[0] ^= 1;
+    publish_base(
+        &other,
+        published.store.clone(),
+        BTreeMap::from([(published.prefix.clone(), divergent)]),
+    )
+    .await?;
+    assert_join_receives_second(&published, &second).await
+}
+
+#[tokio::test]
+async fn missing_floor_base_with_only_stale_alternatives_reports_no_live_base() -> Result<()> {
+    let (published, _, _) = share_with_newer_floor_base(OtherBase::GreaterCoverage).await?;
+    let floor_key = share::base_key(&published.prefix, &published.head.floor_base.base_id)?;
+    published
+        .store
+        .delete(&floor_key)
+        .await
+        .map_err(|error| anyhow::anyhow!("remove floor base: {error:?}"))?;
+    let namespace = published.head.library_id;
+    let joining = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let error = joining
+        .sync_store
+        .pull_share(published.store, namespace, cache_path(), Default::default())
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error,
+        SharePullError::Invalid("no live base covers the required checkpoint".into())
+    );
+    Ok(())
 }
 
 async fn base_manifest(
