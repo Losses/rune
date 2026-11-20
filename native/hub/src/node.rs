@@ -185,20 +185,21 @@ async fn depart_local_player(
 ) -> Result<()> {
     let ending = Arc::clone(&*lock_tenures(&tenures)?);
     ending.end().await;
-    // The pause follows the commands already sent, so it also stops a Play or a track loading to
-    // play that the cached status does not show as playing yet.
-    let completion = session
-        .player
-        .lock()
-        .await
-        .command_with_completion(PlayerCommand::Pause);
-    {
+    let completion = {
+        let mut player = session.player.lock().await;
         let mut tenure = lock_tenures(&tenures)?;
-        // Another departure may have replaced it already; its successor must stay.
-        if Arc::ptr_eq(&tenure, &ending) {
-            *tenure = Arc::default();
+        // Every departure that ends this tenure waits for it, and the first one through pauses
+        // after its requests and admits new ones. Another pause could follow a command a request
+        // in the new tenure has sent since, so it is not sent.
+        if !Arc::ptr_eq(&tenure, &ending) {
+            return Ok(());
         }
-    }
+        // The pause follows the commands already sent, so it also stops a Play or a track loading
+        // to play that the cached status does not show as playing yet.
+        let completion = player.command_with_completion(PlayerCommand::Pause);
+        *tenure = Arc::default();
+        completion
+    };
     completion
         .await
         .map_err(|error| anyhow::Error::new(player_command_error(error)))
