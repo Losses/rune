@@ -32,6 +32,20 @@ void main() {
     expect(find.byType(CoverArt), findsNWidgets(2));
   });
 
+  testWidgets('a grid whose cover is replaced shows the new cover', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_grid(const ['/covers/a.png']));
+    await tester.pumpWidget(_grid(const ['/covers/b.png']));
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(FlipCard), findsOneWidget);
+    expect(
+      tester.widgetList<CoverArt>(find.byType(CoverArt)).map((art) => art.path),
+      ['/covers/b.png', '/covers/b.png'],
+    );
+  });
+
   testWidgets('a grid that gains covers lays out and flips the new tiles', (
     tester,
   ) async {
