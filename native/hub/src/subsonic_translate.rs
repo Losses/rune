@@ -25,11 +25,11 @@ use crate::messages::{
     FetchParsedMediaFileResponse, FetchPlaylistOccurrencesRequest,
     FetchPlaylistOccurrencesResponse, GetLikedRequest, GetLikedResponse, GetLyricByTrackIdRequest,
     GetLyricByTrackIdResponse, GetMediaFilesCountRequest, GetMediaFilesCountResponse,
-    GetPlaylistByIdRequest, GetPlaylistByIdResponse, HandoffLoadRequest, LoadPlay, LoadRequest,
-    LoadResolvedItemsRequest, LoadResolvedItemsResponse, LyricContentLine, LyricContentLineSection,
-    MediaFile, MediaFileSummary, MixQueryRequest, MixQueryResponse, MovePlaylistItemRequest,
-    NextRequest, PauseRequest, PlayRequest, PlaybackMode, PlayingItemRef, Playlist,
-    PlaylistOccurrence, PlaylistOccurrenceCursor, PlaylistOperateMode, PreviousRequest,
+    GetPlaylistByIdRequest, GetPlaylistByIdResponse, HandoffLoadRequest, LibraryContentChanged,
+    LoadPlay, LoadRequest, LoadResolvedItemsRequest, LoadResolvedItemsResponse, LyricContentLine,
+    LyricContentLineSection, MediaFile, MediaFileSummary, MixQueryRequest, MixQueryResponse,
+    MovePlaylistItemRequest, NextRequest, PauseRequest, PlayRequest, PlaybackMode, PlayingItemRef,
+    Playlist, PlaylistOccurrence, PlaylistOccurrenceCursor, PlaylistOperateMode, PreviousRequest,
     RefreshSessionRequest, RemoveItemFromPlaylistRequest, RemoveItemFromPlaylistResponse,
     RemovePlaylistRequest, RemovePlaylistResponse, RemoveRequest,
     ReorderPlaylistItemPositionRequest, ReorderPlaylistItemPositionResponse,
@@ -376,7 +376,7 @@ pub(crate) async fn add_item_to_playlist_request(
         .playlist(&playlist_remote)
         .await
         .map_err(subsonic_request_error)?;
-    let songs = playlist
+    let mut songs = playlist
         .songs
         .iter()
         .map(|song| song.id.clone())
@@ -398,17 +398,63 @@ pub(crate) async fn add_item_to_playlist_request(
         .update_playlist(&playlist_remote, None, &[&track_remote], &[])
         .await
         .map_err(subsonic_request_error)?;
+    playlist_entries_changed(binding);
+    songs.push(track_remote);
     Ok(Some(AddItemToPlaylistResponse {
-        occurrence_id: append_position.to_string(),
+        occurrence_id: occurrence_id(
+            append_position,
+            &playlist_fingerprint(songs.iter().map(String::as_str)),
+        ),
         call_id: None,
     }))
 }
 
-fn occurrence_position(value: &str, len: usize) -> Result<usize> {
-    let position = value
-        .parse::<usize>()
-        .map_err(|_| ExpectedRequestError::invalid_input("Invalid Subsonic playlist occurrence"))?;
-    if position >= len {
+/// Tells open listings that a playlist's entries moved, so they list it again rather than
+/// page or edit with occurrences of the old order.
+fn playlist_entries_changed(binding: &SubsonicBinding) {
+    binding
+        .covers
+        .broadcaster
+        .broadcast(&LibraryContentChanged {
+            path: String::new(),
+        });
+}
+
+/// Identifies one order of a playlist's entries.
+fn playlist_fingerprint<'a>(songs: impl IntoIterator<Item = &'a str>) -> String {
+    let mut hasher = blake3::Hasher::new();
+    for song in songs {
+        hasher.update(&(song.len() as u64).to_le_bytes());
+        hasher.update(song.as_bytes());
+    }
+    hasher.finalize().to_hex()[..16].to_owned()
+}
+
+/// Names a playlist entry. Subsonic names entries only by their order, so an occurrence is
+/// a position together with the fingerprint of the order it was listed in.
+fn occurrence_id(position: impl std::fmt::Display, fingerprint: &str) -> String {
+    format!("{position}@{fingerprint}")
+}
+
+/// The position and listing fingerprint an occurrence ID names.
+fn parse_occurrence_id(value: &str) -> Result<(usize, &str)> {
+    value
+        .split_once('@')
+        .and_then(|(position, fingerprint)| Some((position.parse().ok()?, fingerprint)))
+        .ok_or_else(|| {
+            ExpectedRequestError::invalid_input("Invalid Subsonic playlist occurrence").into()
+        })
+}
+
+/// The position of a listed occurrence in `songs`. A position names the entry it was listed
+/// for only while the playlist keeps the order it was listed in, so an occurrence listed
+/// before any change to the playlist is rejected.
+fn occurrence_position(value: &str, songs: &[String]) -> Result<usize> {
+    let (position, fingerprint) = parse_occurrence_id(value)?;
+    if fingerprint != playlist_fingerprint(songs.iter().map(String::as_str)) {
+        return Err(ExpectedRequestError::PlaylistChanged.into());
+    }
+    if position >= songs.len() {
         return Err(
             ExpectedRequestError::invalid_input("Unknown Subsonic playlist occurrence").into(),
         );
@@ -421,7 +467,7 @@ pub(crate) async fn remove_item_from_playlist_request(
     request: &RemoveItemFromPlaylistRequest,
 ) -> Result<Option<RemoveItemFromPlaylistResponse>> {
     let (remote_id, songs) = fetch_remote_playlist(binding, request.playlist_id).await?;
-    let position = occurrence_position(&request.occurrence_id, songs.len())?;
+    let position = occurrence_position(&request.occurrence_id, &songs)?;
     let position = u32::try_from(position)
         .map_err(|_| ExpectedRequestError::invalid_input("Subsonic playlist is too large"))?;
     binding
@@ -429,6 +475,7 @@ pub(crate) async fn remove_item_from_playlist_request(
         .update_playlist(&remote_id, None, &[], &[position])
         .await
         .map_err(subsonic_request_error)?;
+    playlist_entries_changed(binding);
     Ok(Some(RemoveItemFromPlaylistResponse { call_id: None }))
 }
 
@@ -437,7 +484,7 @@ pub(crate) async fn reorder_playlist_item_position_request(
     request: &ReorderPlaylistItemPositionRequest,
 ) -> Result<Option<ReorderPlaylistItemPositionResponse>> {
     let (remote_id, songs) = fetch_remote_playlist(binding, request.playlist_id).await?;
-    let from = occurrence_position(&request.occurrence_id, songs.len())?;
+    let from = occurrence_position(&request.occurrence_id, &songs)?;
     let target = usize::try_from(request.new_position)
         .map_err(|_| ExpectedRequestError::invalid_input("Invalid playlist position"))?;
     if target >= songs.len() {
@@ -452,19 +499,24 @@ pub(crate) async fn reorder_playlist_item_position_request(
         .replace_playlist_songs(&remote_id, &refs)
         .await
         .map_err(subsonic_request_error)?;
+    playlist_entries_changed(binding);
     Ok(Some(ReorderPlaylistItemPositionResponse { call_id: None }))
 }
 
-/// The position a listing page starts at. A cursor names the last entry of the previous
-/// page, and a Subsonic occurrence is named by its position, so a cursor whose id names
-/// another position did not come from this listing.
-fn occurrence_page_start(after: Option<&PlaylistOccurrenceCursor>) -> Result<usize> {
+/// The occurrence a listing page continues after. A cursor names the last entry of the
+/// previous page, so a cursor whose occurrence names another position did not come from a
+/// listing.
+fn occurrence_page_cursor(
+    after: Option<&PlaylistOccurrenceCursor>,
+) -> Result<Option<(usize, &str)>> {
     let Some(cursor) = after else {
-        return Ok(0);
+        return Ok(None);
     };
-    match cursor.occurrence_id.parse::<usize>() {
-        Ok(position) if i32::try_from(position).is_ok_and(|id| id == cursor.position) => {
-            Ok(position + 1)
+    match parse_occurrence_id(&cursor.occurrence_id) {
+        Ok((position, fingerprint))
+            if i32::try_from(position).is_ok_and(|id| id == cursor.position) =>
+        {
+            Ok(Some((position, fingerprint)))
         }
         _ => Err(ExpectedRequestError::invalid_input(
             "Invalid Subsonic playlist occurrence cursor",
@@ -473,9 +525,8 @@ fn occurrence_page_start(after: Option<&PlaylistOccurrenceCursor>) -> Result<usi
     }
 }
 
-/// Lists a playlist's entries in order, repeats included. A Subsonic playlist names its
-/// entries only by their order, so each occurrence is named by its position, as the
-/// playlist edits above name it.
+/// Lists a playlist's entries in order, repeats included, named as the playlist edits above
+/// name them. A page continues only the order the previous page was listed in.
 pub(crate) async fn fetch_playlist_occurrences_request(
     binding: &SubsonicBinding,
     request: &FetchPlaylistOccurrencesRequest,
@@ -488,7 +539,7 @@ pub(crate) async fn fetch_playlist_occurrences_request(
         ))
         .into());
     }
-    let start = occurrence_page_start(request.after.as_ref())?;
+    let after = occurrence_page_cursor(request.after.as_ref())?;
     let remote_id = resolve_playlist_id(binding, request.playlist_id)?;
     let songs = binding
         .client
@@ -496,6 +547,12 @@ pub(crate) async fn fetch_playlist_occurrences_request(
         .await
         .map_err(subsonic_request_error)?
         .songs;
+    let fingerprint = playlist_fingerprint(songs.iter().map(|song| song.id.as_str()));
+    let start = match after {
+        None => 0,
+        Some((position, listed)) if listed == fingerprint => position + 1,
+        Some(_) => return Err(ExpectedRequestError::PlaylistChanged.into()),
+    };
     let end = songs
         .len()
         .min(start.saturating_add(usize::try_from(request.page_size)?));
@@ -528,7 +585,7 @@ pub(crate) async fn fetch_playlist_occurrences_request(
                 let track_uuid = song.id.clone();
                 catalog.songs.insert(id, song);
                 Ok(PlaylistOccurrence {
-                    occurrence_id: position.to_string(),
+                    occurrence_id: occurrence_id(position, &fingerprint),
                     position,
                     track_uuid,
                     file: Some(file),
@@ -2129,9 +2186,9 @@ mod tests {
         get_liked_request, get_lyric_request, get_media_files_count_request,
         get_playlist_by_id_request, jukebox_error, mix_query_request,
         remove_item_from_playlist_request, remove_playlist_request,
-        reorder_playlist_item_position_request, search_collection_summary_request,
-        search_for_request, search_media_file_summary_request, set_liked_request,
-        subsonic_request_error, update_playlist_request,
+        reorder_playlist_item_position_request, resolve_playlist_id,
+        search_collection_summary_request, search_for_request, search_media_file_summary_request,
+        set_liked_request, subsonic_request_error, update_playlist_request,
     };
     use crate::{
         TypedRequest,
@@ -2816,15 +2873,11 @@ mod tests {
         .await
         .unwrap()
         .unwrap();
-        assert_eq!(added.occurrence_id, "3");
-        assert_eq!(
-            fetch_remote_playlist(&binding, playlist_id)
-                .await
-                .unwrap()
-                .1
-                .len(),
-            4
-        );
+        let after_add = occurrence_page(&binding, playlist_id, None, 128)
+            .await
+            .unwrap();
+        assert_eq!(after_add.entries.len(), 4);
+        assert_eq!(after_add.entries[3].occurrence_id, added.occurrence_id);
 
         remove_item_from_playlist_request(
             &binding,
@@ -2845,11 +2898,14 @@ mod tests {
             ["song-1", "song-2", "song-1"]
         );
 
+        let before_reorder = occurrence_page(&binding, playlist_id, None, 128)
+            .await
+            .unwrap();
         reorder_playlist_item_position_request(
             &binding,
             &ReorderPlaylistItemPositionRequest {
                 playlist_id,
-                occurrence_id: "0".into(),
+                occurrence_id: before_reorder.entries[0].occurrence_id.clone(),
                 new_position: 2,
                 call_id: None,
             },
@@ -2935,23 +2991,44 @@ mod tests {
         Ok(page.expect("an occurrence listing always answers"))
     }
 
-    fn listed(page: &crate::messages::FetchPlaylistOccurrencesResponse) -> Vec<(i32, &str, &str)> {
+    fn listed(page: &crate::messages::FetchPlaylistOccurrencesResponse) -> Vec<(i32, &str)> {
         page.entries
             .iter()
             .map(|entry| {
                 (
                     entry.position,
-                    entry.occurrence_id.as_str(),
                     entry.file.as_ref().map_or("", |file| file.track.as_str()),
                 )
             })
             .collect()
     }
 
+    fn playlist_edits(server: &MockServer) -> usize {
+        server
+            .state
+            .playlist_calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(endpoint, _)| endpoint != "getPlaylists" && endpoint != "getPlaylist")
+            .count()
+    }
+
+    fn assert_playlist_changed(error: &anyhow::Error) {
+        assert!(matches!(
+            error.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::PlaylistChanged)
+        ));
+        assert_eq!(
+            crate::request_error::classify(error),
+            crate::messages::RequestErrorKind::Conflict
+        );
+    }
+
     #[tokio::test]
     async fn playlist_detail_pages_through_repeats_and_edits_the_listed_occurrence() {
         let root = TempDir::new().unwrap();
-        let (binding, _server) = mock_subsonic(&root, false).await;
+        let (binding, server) = mock_subsonic(&root, false).await;
         let playlist_id =
             fetch_all_playlists_request(&binding, &FetchAllPlaylistsRequest { call_id: None })
                 .await
@@ -2964,7 +3041,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(first.request_id, "detail");
-        assert_eq!(listed(&first), [(0, "0", "song-1"), (1, "1", "song-2")]);
+        assert_eq!(listed(&first), [(0, "song-1"), (1, "song-2")]);
         let first_file = first.entries[0].file.as_ref().unwrap();
         assert_eq!(first_file.title, "song-1");
         assert_eq!(first_file.library_id, binding.library_id.to_string());
@@ -2972,9 +3049,10 @@ mod tests {
         let second = occurrence_page(&binding, playlist_id, first.next.clone(), 2)
             .await
             .unwrap();
-        assert_eq!(listed(&second), [(2, "2", "song-1")]);
+        assert_eq!(listed(&second), [(2, "song-1")]);
         assert!(second.next.is_none());
         assert_eq!(second.entries[0].file.as_ref().unwrap().id, first_file.id);
+        let broadcasts = server.broadcasts.load(Ordering::SeqCst);
 
         remove_item_from_playlist_request(
             &binding,
@@ -2986,13 +3064,11 @@ mod tests {
         )
         .await
         .unwrap();
+        assert_eq!(server.broadcasts.load(Ordering::SeqCst), broadcasts + 1);
         let after_remove = occurrence_page(&binding, playlist_id, None, 128)
             .await
             .unwrap();
-        assert_eq!(
-            listed(&after_remove),
-            [(0, "0", "song-1"), (1, "1", "song-2")]
-        );
+        assert_eq!(listed(&after_remove), [(0, "song-1"), (1, "song-2")]);
 
         add_item_to_playlist_request(
             &binding,
@@ -3005,12 +3081,13 @@ mod tests {
         )
         .await
         .unwrap();
+        assert_eq!(server.broadcasts.load(Ordering::SeqCst), broadcasts + 2);
         let repeated = occurrence_page(&binding, playlist_id, None, 128)
             .await
             .unwrap();
         assert_eq!(
             listed(&repeated),
-            [(0, "0", "song-1"), (1, "1", "song-2"), (2, "2", "song-1")]
+            [(0, "song-1"), (1, "song-2"), (2, "song-1")]
         );
         reorder_playlist_item_position_request(
             &binding,
@@ -3023,12 +3100,119 @@ mod tests {
         )
         .await
         .unwrap();
+        assert_eq!(server.broadcasts.load(Ordering::SeqCst), broadcasts + 3);
         assert_eq!(
             fetch_remote_playlist(&binding, playlist_id)
                 .await
                 .unwrap()
                 .1,
             ["song-1", "song-1", "song-2"]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_occurrence_listed_before_a_playlist_change_edits_nothing() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        let playlist_id =
+            fetch_all_playlists_request(&binding, &FetchAllPlaylistsRequest { call_id: None })
+                .await
+                .unwrap()
+                .unwrap()
+                .playlists[0]
+                .id;
+        let first_page = occurrence_page(&binding, playlist_id, None, 1)
+            .await
+            .unwrap();
+        let listing = occurrence_page(&binding, playlist_id, None, 128)
+            .await
+            .unwrap();
+        assert_eq!(
+            listed(&listing),
+            [(0, "song-1"), (1, "song-2"), (2, "song-1")]
+        );
+        remove_item_from_playlist_request(
+            &binding,
+            &RemoveItemFromPlaylistRequest {
+                playlist_id,
+                occurrence_id: listing.entries[0].occurrence_id.clone(),
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let edits = playlist_edits(&server);
+        let broadcasts = server.broadcasts.load(Ordering::SeqCst);
+
+        let stale_remove = remove_item_from_playlist_request(
+            &binding,
+            &RemoveItemFromPlaylistRequest {
+                playlist_id,
+                occurrence_id: listing.entries[1].occurrence_id.clone(),
+                call_id: None,
+            },
+        )
+        .await
+        .err()
+        .expect("the listed song-2 is no longer at its listed position");
+        assert_playlist_changed(&stale_remove);
+        let stale_reorder = reorder_playlist_item_position_request(
+            &binding,
+            &ReorderPlaylistItemPositionRequest {
+                playlist_id,
+                occurrence_id: listing.entries[2].occurrence_id.clone(),
+                new_position: 0,
+                call_id: None,
+            },
+        )
+        .await
+        .err()
+        .expect("the listed second song-1 is no longer at its listed position");
+        assert_playlist_changed(&stale_reorder);
+        let stale_page = occurrence_page(&binding, playlist_id, first_page.next.clone(), 2)
+            .await
+            .err()
+            .expect("a page cannot continue a listing of the old order");
+        assert_playlist_changed(&stale_page);
+        assert_eq!(playlist_edits(&server), edits);
+        assert_eq!(server.broadcasts.load(Ordering::SeqCst), broadcasts);
+        assert_eq!(
+            fetch_remote_playlist(&binding, playlist_id)
+                .await
+                .unwrap()
+                .1,
+            ["song-2", "song-1"]
+        );
+
+        let relisted = occurrence_page(&binding, playlist_id, None, 128)
+            .await
+            .unwrap();
+        let remote_id = resolve_playlist_id(&binding, playlist_id).unwrap();
+        binding
+            .client
+            .update_playlist(&remote_id, None, &[], &[0])
+            .await
+            .unwrap();
+        let edits = playlist_edits(&server);
+        let changed_elsewhere = remove_item_from_playlist_request(
+            &binding,
+            &RemoveItemFromPlaylistRequest {
+                playlist_id,
+                occurrence_id: relisted.entries[1].occurrence_id.clone(),
+                call_id: None,
+            },
+        )
+        .await
+        .err()
+        .expect("another client changed the playlist after it was listed");
+        assert_playlist_changed(&changed_elsewhere);
+        assert_eq!(playlist_edits(&server), edits);
+        assert_eq!(
+            fetch_remote_playlist(&binding, playlist_id)
+                .await
+                .unwrap()
+                .1,
+            ["song-1"]
         );
     }
 
@@ -3059,6 +3243,8 @@ mod tests {
         let empty = occurrence_page(&binding, fresh, None, 128).await.unwrap();
         assert!(empty.entries.is_empty());
         assert!(empty.next.is_none());
+        let road_listing = occurrence_page(&binding, road, None, 128).await.unwrap();
+        let second_entry = road_listing.entries[1].occurrence_id.as_str();
 
         let cursor = |position, occurrence_id: &str| PlaylistOccurrenceCursor {
             position,
@@ -3068,9 +3254,10 @@ mod tests {
         for (after, page_size) in [
             (None, 0),
             (None, 129),
-            (Some(cursor(0, "1")), 2),
+            (Some(cursor(0, second_entry)), 2),
             (Some(cursor(-1, "-1")), 2),
             (Some(cursor(0, "first")), 2),
+            (Some(cursor(0, "0")), 2),
         ] {
             let error = occurrence_page(&binding, road, after, page_size)
                 .await
