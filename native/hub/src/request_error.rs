@@ -55,6 +55,8 @@ pub enum ExpectedRequestError {
     UnexpectedResponse { expected: String, actual: String },
     #[error("Queue changed: expected revision {expected}, current revision {current}")]
     StaleQueueRevision { expected: u64, current: u64 },
+    #[error("The playlist changed since it was listed")]
+    PlaylistChanged,
     #[error("Cannot start a library task while {task} is running")]
     LibraryTaskAlreadyRunning { task: LibraryTaskKind },
     #[error("Handoff was superseded by a newer request")]
@@ -199,7 +201,8 @@ pub fn classify(error: &Error) -> RequestErrorKind {
                 ExpectedRequestError::PeerNeedsUpdate { .. } => RequestErrorKind::PeerNeedsUpdate,
                 ExpectedRequestError::Remote { kind, .. } => *kind,
                 ExpectedRequestError::UnexpectedResponse { .. } => RequestErrorKind::Internal,
-                ExpectedRequestError::StaleQueueRevision { .. } => RequestErrorKind::Conflict,
+                ExpectedRequestError::StaleQueueRevision { .. }
+                | ExpectedRequestError::PlaylistChanged => RequestErrorKind::Conflict,
                 ExpectedRequestError::LibraryTaskAlreadyRunning { .. } => {
                     RequestErrorKind::Conflict
                 }
