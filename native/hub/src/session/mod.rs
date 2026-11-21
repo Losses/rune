@@ -39,7 +39,7 @@ use scrobbling::{
 };
 use sea_orm::TransactionTrait;
 use tokio::{
-    sync::{Mutex, mpsc},
+    sync::{Mutex, mpsc, oneshot},
     task::JoinHandle,
     time::{Instant, sleep_until, timeout},
 };
@@ -97,6 +97,8 @@ pub struct PlayerSession {
     node: Weak<NodeContext>,
     persistence_writes: Arc<AtomicUsize>,
     attached_controllers: StdMutex<Vec<ControllerEntry>>,
+    /// Asks the event loop to show this session in the UI again, and is answered once it has.
+    show_requests: mpsc::UnboundedSender<oneshot::Sender<()>>,
 }
 
 struct ControllerEntry {
@@ -116,6 +118,9 @@ struct AttachedController {
 
 /// How long detaching a controller waits for its connection to finish closing.
 const DETACH_CONTROLLER_DEADLINE: Duration = Duration::from_secs(5);
+
+/// How long a transition of the current player waits for this device's session to be shown again.
+const SHOW_AGAIN_WAIT: Duration = Duration::from_secs(5);
 
 /// Owns one attached controller entry for the lifetime of its WebSocket.
 pub(crate) struct AttachedControllerGuard {
@@ -368,6 +373,23 @@ impl PlayerSession {
         self.reemit_to(&node.gui_broadcaster).await
     }
 
+    /// Shows this session in the UI again after this device's player became current again. The
+    /// event loop does so once it has handled what the player reported before, also when the
+    /// caller stops waiting; this waits for it no longer than `SHOW_AGAIN_WAIT`.
+    pub(crate) async fn show_again(&self) {
+        let (shown, answer) = oneshot::channel();
+        if self.show_requests.send(shown).is_err() {
+            // The event loop has stopped and has nothing left to send.
+            if let Some(node) = self.node.upgrade() {
+                node.local_session_hidden.fetch_sub(1, Ordering::AcqRel);
+            }
+            return;
+        }
+        if timeout(SHOW_AGAIN_WAIT, answer).await.is_err() {
+            log::warn!("The session was not shown again within {SHOW_AGAIN_WAIT:?}");
+        }
+    }
+
     pub(crate) async fn reemit_to(&self, broadcaster: &Arc<dyn Broadcaster>) -> Result<()> {
         let Some(node) = self.node.upgrade() else {
             return Ok(());
@@ -490,6 +512,7 @@ impl PlayerSession {
         } else {
             None
         };
+        let (show_requests, show_receiver) = mpsc::unbounded_channel();
         let session = Arc::new(Self {
             player,
             scrobbler: Arc::new(Mutex::new(ScrobblingManager::new(
@@ -504,8 +527,9 @@ impl PlayerSession {
             node: Arc::downgrade(node),
             persistence_writes: Arc::new(AtomicUsize::new(0)),
             attached_controllers: StdMutex::new(Vec::new()),
+            show_requests,
         });
-        session.start_events(node).await;
+        session.start_events(node, show_receiver).await;
         session.player.lock().await.restore_tagged(
             state.queue_entries(),
             state.index,
@@ -537,7 +561,11 @@ impl PlayerSession {
         result
     }
 
-    async fn start_events(&self, node: &Arc<NodeContext>) {
+    async fn start_events(
+        &self,
+        node: &Arc<NodeContext>,
+        mut show_requests: mpsc::UnboundedReceiver<oneshot::Sender<()>>,
+    ) {
         let player = self.player.lock().await;
         let status = player.subscribe_status();
         let playlist = player.subscribe_playlist();
@@ -630,6 +658,19 @@ impl PlayerSession {
                     }
                     Ok(value) = login.recv() => handle_login_event(value, broadcaster.as_ref()),
                     Some(value) = async { match &controller { Some(receiver) => receiver.recv().await.ok(), None => pending().await } } => { let _ = handle_media_control_event(&player, value).await; }
+                    // Last, so that it is taken only once the loop has handled what the player
+                    // reported before.
+                    Some(shown) = show_requests.recv() => {
+                        if let Some(node) = weak.upgrade() {
+                            node.local_session_hidden.fetch_sub(1, Ordering::AcqRel);
+                            if let Ok(session) = node.session()
+                                && let Err(error) = session.reemit_to(&broadcaster).await
+                            {
+                                log::warn!("Could not show the session again: {error:#}");
+                            }
+                        }
+                        let _ = shown.send(());
+                    }
                 }
             }
         });

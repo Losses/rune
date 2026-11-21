@@ -2,8 +2,6 @@ mod reconnect;
 use anyhow::Error as AnyhowError;
 pub(crate) use reconnect::ReconnectConfig;
 use reconnect::ReconnectTask;
-#[cfg(test)]
-use std::sync::atomic::AtomicUsize;
 
 use std::{
     collections::HashMap,
@@ -12,7 +10,7 @@ use std::{
     path::Path,
     sync::{
         Arc, Mutex as StdMutex, MutexGuard as StdMutexGuard, OnceLock, Weak,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
 };
 #[cfg(unix)]
@@ -239,6 +237,10 @@ pub struct NodeContext {
     /// requests to the local player that are still running. The ended tenure stays here until
     /// the local player's departure has queued its pause.
     local_player_tenure: Arc<StdMutex<Arc<LocalPlayerTenure>>>,
+    /// How many times this device's session is yet to be shown again in the UI since its player
+    /// became current again. Its event loop shows it once it has handled what the player reported
+    /// before, and the session's events stay out of the UI until then.
+    pub(crate) local_session_hidden: Arc<AtomicUsize>,
     open_generation: AtomicU64,
     reconnect_config: ReconnectConfig,
     visualizer: NodeVisualizer,
@@ -268,6 +270,7 @@ impl Debug for NodeContext {
 
 struct NodeBroadcaster {
     current_player: Arc<StdMutex<CurrentPlayer>>,
+    local_session_hidden: Arc<AtomicUsize>,
     local: Arc<dyn Broadcaster>,
     remote: Arc<WebSocketService>,
 }
@@ -290,10 +293,11 @@ pub(crate) enum HandoffPlaybackReport {
 impl Broadcaster for NodeBroadcaster {
     fn broadcast(&self, message: &dyn RinfRustSignal) {
         let remote_event = message.remote_event();
-        let suppress_local_status = self
+        let suppress_local_status = (self
             .current_player
             .lock()
             .is_ok_and(|player| player.suppresses_local_session_events())
+            || self.local_session_hidden.load(Ordering::Acquire) > 0)
             && remote_event == Some(RemoteEventScope::Session);
         if !suppress_local_status {
             self.local.broadcast(message);
@@ -406,6 +410,7 @@ impl NodeContext {
         let renderer_link = Arc::new(StdMutex::new(None));
         let ui_library = Arc::new(StdMutex::new(UiLibrary::Closed));
         let current_player = Arc::new(StdMutex::new(CurrentPlayer::Local));
+        let local_session_hidden = Arc::new(AtomicUsize::new(0));
         let sync_tokens = SyncTokenStore::default();
         let credentials = Arc::new(CredentialStore::open(Path::new(config_path)));
         let permission_manager = PermissionManager::new(config_path)?;
@@ -434,6 +439,7 @@ impl NodeContext {
             sync_settings: Arc::new(RwLock::new(SyncSettings::load(Path::new(config_path)))),
             broadcaster: Arc::new(NodeBroadcaster {
                 current_player: current_player.clone(),
+                local_session_hidden: local_session_hidden.clone(),
                 local: broadcaster.clone(),
                 remote: websocket_service.clone(),
             }),
@@ -444,6 +450,7 @@ impl NodeContext {
             ui_library,
             current_player,
             local_player_tenure: Arc::default(),
+            local_session_hidden,
             open_generation: AtomicU64::new(0),
             reconnect_config,
             visualizer: NodeVisualizer::new(visualizer),
@@ -1058,6 +1065,15 @@ impl NodeContext {
                 }
             )
         );
+        // This device's session stays out of the UI until its event loop has handled what the
+        // player reported before, so that no status from before the pause reaches the UI.
+        let hidden_session = if returning_local {
+            let session = self.session()?;
+            self.local_session_hidden.fetch_add(1, Ordering::AcqRel);
+            Some(session)
+        } else {
+            None
+        };
         let leaving = {
             // A departure admits a new tenure under this lock, so none can be admitted between
             // the switch and taking the tenure it leaves. That tenure ends at the switch, so a
@@ -1079,7 +1095,9 @@ impl NodeContext {
             ))
             .await
             .context("Local player departure stopped")??;
-        } else if returning_local || renderer_lost {
+        } else if let Some(session) = hidden_session {
+            session.show_again().await;
+        } else if renderer_lost {
             self.session()?.reemit_current().await?;
         }
         Ok(())
@@ -1779,6 +1797,7 @@ mod tests {
         let mut received = remote.broadcast_tx.subscribe();
         let broadcaster = NodeBroadcaster {
             current_player: Arc::new(StdMutex::new(CurrentPlayer::Local)),
+            local_session_hidden: Arc::default(),
             local: Arc::new(Quiet(None)),
             remote,
         };
