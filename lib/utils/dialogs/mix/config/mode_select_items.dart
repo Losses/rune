@@ -23,23 +23,27 @@ String modeSelectValue(PlaybackMode? mode) =>
 /// The playback mode an option of the mode selector stands for, `null` for keeping the
 /// player's mode.
 PlaybackMode? playbackModeFromSelectValue(String? value) {
-  for (final mode in _selectableModes) {
+  for (final mode in PlaybackMode.values) {
     if (modeSelectValue(mode) == value) return mode;
   }
   return null;
 }
 
-List<SelectItem> modeSelectItems(BuildContext context) => [
+List<SelectItem> modeSelectItems(
+  BuildContext context, {
+  String? selectedValue,
+}) => [
   SelectItem(
     value: keepModeSelectValue,
     title: S.of(context).defaultMode,
     icon: Symbols.change_history,
   ),
-  ..._selectableModes.map(
-    (x) => SelectItem(
-      value: modeSelectValue(x),
-      title: modeToLabel(context, x),
-      icon: modeToIcon(x),
-    ),
-  ),
+  for (final mode in PlaybackMode.values)
+    if (_selectableModes.contains(mode) ||
+        modeSelectValue(mode) == selectedValue)
+      SelectItem(
+        value: modeSelectValue(mode),
+        title: modeToLabel(context, mode),
+        icon: modeToIcon(mode),
+      ),
 ];
