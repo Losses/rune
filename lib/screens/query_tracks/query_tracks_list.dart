@@ -1,5 +1,6 @@
 import '../../utils/api/request_failure.dart';
 import '../../utils/l10n.dart';
+import '../../utils/logger.dart';
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -207,7 +208,13 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
         if (!mounted || generation != _generation) return;
         setState(() {
           _loadingIndices.remove(cursor);
-          if (_shownFailure(error)) _failure = error;
+          if (!_shownFailure(error)) return;
+          // Tracks already loaded stay on the page.
+          if (_loadedItems.isEmpty) {
+            _failure = error;
+          } else {
+            logger.w('Failed to load tracks from $cursor: $error');
+          }
         });
       });
     }
