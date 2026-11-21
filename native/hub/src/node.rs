@@ -10,7 +10,7 @@ use std::{
     fs,
     path::Path,
     sync::{
-        Arc, Mutex as StdMutex, OnceLock, Weak,
+        Arc, Mutex as StdMutex, MutexGuard as StdMutexGuard, OnceLock, Weak,
         atomic::{AtomicU64, Ordering},
     },
 };
@@ -27,13 +27,11 @@ use discovery::{
     server::{PermissionManager, UserStatus},
 };
 use playback::{
-    PlayerCommand,
-    player::{HandoffBlockId as PlayerHandoffBlockId, PlaybackState},
-    sfx_player::SfxPlayer,
+    PlayerCommand, player::HandoffBlockId as PlayerHandoffBlockId, sfx_player::SfxPlayer,
 };
 use rinf::DartSignal;
 use tokio::{
-    sync::{Mutex, RwLock, broadcast},
+    sync::{Mutex, RwLock, RwLockReadGuard, broadcast},
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
@@ -131,6 +129,89 @@ enum LibraryBinding {
     },
 }
 
+/// The local player's time as the UI's player. Requests routed to the local player run inside
+/// it, and ending it waits until they have stopped, so no command one of them sends can follow
+/// the pause that comes after the end. The ended tenure stays installed, refusing requests,
+/// until that pause is queued, and only then does a new tenure admit them, so the pause never
+/// stops a command sent by a request the new tenure admits.
+///
+/// A request runs in the tenure only when it is session-scoped and runs on the local player,
+/// and no such request changes the current player. Player changes come from node-scoped
+/// requests, requests sent to another player and background tasks, and none of these holds the
+/// tenure, so ending the tenure never waits for the request that ends it.
+#[derive(Default)]
+pub(crate) struct LocalPlayerTenure {
+    ended: CancellationToken,
+    running: RwLock<()>,
+}
+
+impl LocalPlayerTenure {
+    /// Enters the tenure for one request, or fails if it has ended.
+    pub(crate) async fn enter(&self) -> Result<RwLockReadGuard<'_, ()>> {
+        let running = self.running.read().await;
+        if self.ended.is_cancelled() {
+            return Err(ExpectedRequestError::PlayerChanged.into());
+        }
+        Ok(running)
+    }
+
+    /// Resolves once the tenure has ended.
+    pub(crate) async fn ended(&self) {
+        self.ended.cancelled().await;
+    }
+
+    /// Ends the tenure: a request arriving from now on is refused, and those running in it are
+    /// cancelled.
+    fn close(&self) {
+        self.ended.cancel();
+    }
+
+    /// Ends the tenure and waits until no request is still running in it.
+    async fn end(&self) {
+        self.close();
+        drop(self.running.write().await);
+    }
+}
+
+fn lock_tenures(
+    tenures: &StdMutex<Arc<LocalPlayerTenure>>,
+) -> Result<StdMutexGuard<'_, Arc<LocalPlayerTenure>>> {
+    tenures
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Local player tenure lock poisoned"))
+}
+
+/// Waits until `ending`, the tenure the local player is leaving, has no request running, pauses
+/// the local player after every command its requests sent, and only then admits requests to a
+/// new tenure. A request arriving while this runs, if the local player is current again by then,
+/// is refused, so nothing it sends can land before this pause.
+async fn depart_local_player(
+    tenures: Arc<StdMutex<Arc<LocalPlayerTenure>>>,
+    ending: Arc<LocalPlayerTenure>,
+    session: Arc<PlayerSession>,
+) -> Result<()> {
+    ending.end().await;
+    let completion = {
+        let mut player = session.player.lock().await;
+        let mut tenure = lock_tenures(&tenures)?;
+        // Every departure that ends this tenure waits for it, and the first one through pauses
+        // after its requests and admits new ones. Another pause could follow a command a request
+        // in the new tenure has sent since, so it is not sent.
+        if !Arc::ptr_eq(&tenure, &ending) {
+            return Ok(());
+        }
+        // The pause follows the commands already sent, so it also stops a Play or a track loading
+        // to play that the cached status does not show as playing yet.
+        let completion = player.command_with_completion(PlayerCommand::Pause);
+        *tenure = Arc::default();
+        completion
+    };
+    completion
+        .await
+        .map_err(|error| anyhow::Error::new(player_command_error(error)))
+        .context("Pause local player when another player becomes current")
+}
+
 /// Process services shared by every local library and remote controller.
 pub struct NodeContext {
     protocol_version: StdMutex<ProtocolVersion>,
@@ -151,6 +232,10 @@ pub struct NodeContext {
     pub renderer_link: Arc<StdMutex<Option<Arc<RendererLink>>>>,
     ui_library: Arc<StdMutex<UiLibrary>>,
     current_player: Arc<StdMutex<CurrentPlayer>>,
+    /// Ends when another player takes over from the local player, which cancels the UI
+    /// requests to the local player that are still running. The ended tenure stays here until
+    /// the local player's departure has queued its pause.
+    local_player_tenure: Arc<StdMutex<Arc<LocalPlayerTenure>>>,
     open_generation: AtomicU64,
     reconnect_config: ReconnectConfig,
     visualizer: NodeVisualizer,
@@ -354,6 +439,7 @@ impl NodeContext {
             renderer_link,
             ui_library,
             current_player,
+            local_player_tenure: Arc::default(),
             open_generation: AtomicU64::new(0),
             reconnect_config,
             visualizer: NodeVisualizer::new(visualizer),
@@ -926,6 +1012,11 @@ impl NodeContext {
         Ok(())
     }
 
+    /// The current tenure of the local player as the UI's player.
+    pub(crate) fn local_player_tenure(&self) -> Result<Arc<LocalPlayerTenure>> {
+        lock_tenures(&self.local_player_tenure).map(|tenure| Arc::clone(&tenure))
+    }
+
     /// Publishes the current player's visualizer inputs again, for when what that player
     /// can feed changed while it stayed the current player.
     fn republish_current_player_inputs(&self) -> Result<()> {
@@ -963,20 +1054,27 @@ impl NodeContext {
                 }
             )
         );
-        self.refresh_current_player(current)?;
-        if leaving_local {
-            let session = self.session()?;
-            let completion = {
-                let mut player = session.player.lock().await;
-                (player.get_status().state == PlaybackState::Playing)
-                    .then(|| player.command_with_completion(PlayerCommand::Pause))
-            };
-            if let Some(completion) = completion {
-                completion
-                    .await
-                    .map_err(|error| anyhow::Error::new(player_command_error(error)))
-                    .context("Pause local player when another player becomes current")?;
-            }
+        let leaving = {
+            // A departure admits a new tenure under this lock, so none can be admitted between
+            // the switch and taking the tenure it leaves. That tenure ends at the switch, so a
+            // request arriving from now on is refused even if the departure's task starts late.
+            let tenure = lock_tenures(&self.local_player_tenure)?;
+            self.refresh_current_player(current)?;
+            leaving_local.then(|| {
+                tenure.close();
+                Arc::clone(&tenure)
+            })
+        };
+        if let Some(ending) = leaving {
+            // The departure runs on its own task, so its pause still follows when the request
+            // that changed the player is cancelled, as a UI replacement cancels the UI's requests.
+            tokio::spawn(depart_local_player(
+                Arc::clone(&self.local_player_tenure),
+                ending,
+                self.session()?,
+            ))
+            .await
+            .context("Local player departure stopped")??;
         } else if returning_local || renderer_lost {
             self.session()?.reemit_current().await?;
         }
@@ -1723,6 +1821,35 @@ mod tests {
             ]
         );
         slot.current().await?.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn ending_the_local_player_tenure_waits_for_the_requests_running_in_it()
+    -> anyhow::Result<()> {
+        use super::LocalPlayerTenure;
+        use crate::request_error::ExpectedRequestError;
+
+        let tenure = Arc::new(LocalPlayerTenure::default());
+        let running = tenure.enter().await?;
+        let mut end = Box::pin({
+            let tenure = Arc::clone(&tenure);
+            async move { tenure.end().await }
+        });
+
+        assert!(futures::poll!(end.as_mut()).is_pending());
+        assert!(futures::poll!(Box::pin(tenure.ended())).is_ready());
+        drop(running);
+        end.await;
+
+        let error = tenure
+            .enter()
+            .await
+            .expect_err("an ended tenure must not admit a request");
+        assert!(matches!(
+            error.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::PlayerChanged)
+        ));
         Ok(())
     }
 }
