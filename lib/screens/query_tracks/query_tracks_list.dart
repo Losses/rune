@@ -20,16 +20,28 @@ import '../../widgets/track_list/utils/internal_media_file.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../providers/responsive_providers.dart';
 
+/// Loads one page of a mix query. The production loader is [queryMixTracks].
+typedef QueryTrackPageLoader = Future<List<InternalMediaFile>> Function(
+  QueryList queries,
+  int cursor,
+  int pageSize,
+);
+
 class QueryTrackListView extends StatefulWidget {
   final QueryList queries;
   final StartScreenLayoutManager layoutManager;
   final PlaybackMode? mode;
+
+  /// Replaces how pages of a non-playlist query are loaded. Tests use it to
+  /// drive the list without the native hub.
+  final QueryTrackPageLoader loadMixPage;
 
   const QueryTrackListView({
     super.key,
     required this.layoutManager,
     required this.queries,
     required this.mode,
+    this.loadMixPage = queryMixTracks,
   });
 
   @override
@@ -42,6 +54,10 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
   int _totalCount = 0;
   final Map<int, InternalMediaFile> _loadedItems = {};
   final Set<int> _loadingIndices = {};
+  // Later pages that failed. Rebuilds do not request them again, or a failure
+  // that comes back at once would loop. A content change or new queries clear
+  // them.
+  final Set<int> _failedPages = {};
   final Map<int, PlaylistOccurrenceCursor?> _playlistCursors = {0: null};
   bool _isInitialized = false;
   // A failure the hub reported, or a request that got no answer in time.
@@ -60,6 +76,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
         ..clear()
         ..[0] = null;
       _loadingIndices.clear();
+      _failedPages.clear();
       _reachedEnd = false;
       _totalCount = 0;
       setState(() {
@@ -78,6 +95,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
     _generation++;
     _loadedItems.clear();
     _loadingIndices.clear();
+    _failedPages.clear();
     _playlistCursors
       ..clear()
       ..[0] = null;
@@ -91,7 +109,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
   Future<List<InternalMediaFile>> _fetchPage(int cursor) async {
     final playlistId = getPlaylistIdFromQueryList(widget.queries);
     if (playlistId == null) {
-      return queryMixTracks(widget.queries, cursor, _pageSize);
+      return widget.loadMixPage(widget.queries, cursor, _pageSize);
     }
     if (!_playlistCursors.containsKey(cursor)) {
       throw StateError('The preceding playlist page has not loaded');
@@ -208,6 +226,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
         if (!mounted || generation != _generation) return;
         setState(() {
           _loadingIndices.remove(cursor);
+          _failedPages.add(cursor);
           if (!_shownFailure(error)) return;
           // Tracks already loaded stay on the page.
           if (_loadedItems.isEmpty) {
@@ -230,11 +249,12 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
         (index >= _totalCount && _reachedEnd)) {
       return;
     }
-    if (_loadingIndices.contains((index ~/ _pageSize) * _pageSize)) {
+    final pageStart = (index ~/ _pageSize) * _pageSize;
+    if (_loadingIndices.contains(pageStart) ||
+        _failedPages.contains(pageStart)) {
       return;
     }
 
-    final pageStart = (index ~/ _pageSize) * _pageSize;
     _loadPage(pageStart);
   }
 
