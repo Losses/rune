@@ -103,10 +103,25 @@ class CollectionDataProvider with ChangeNotifier {
   )
   _pageLoader;
 
-  // The in-flight reload, if any, and the generation that owns it.
+  // The in-flight reload, if any.
   Future<void>? _reloading;
-  int _reloadGeneration = -1;
+  // A page asked for while a reload ran or was due. The reload fetches it
+  // after the pages on screen.
+  bool _pageRequested = false;
+  // Set when a reload failed. Its old items stay on screen, but the next
+  // request reloads from page zero: appending at their cursor would mix old
+  // and new pages.
+  bool _needsFullReload = false;
 
+  /// Creates the provider of [collectionType]'s pages.
+  ///
+  /// The other parameters let tests stand in for the hub and default to it:
+  /// - [contentChanged] fires when the library's content changes, in place of
+  ///   [LibraryContentChanged.rustSignalStream];
+  /// - [loadSummary] loads a type's summary, in place of
+  ///   [fetchCollectionPageSummary];
+  /// - [loadPage] loads the page of a type at a page size and cursor, and
+  ///   whether it is the last, in place of [fetchCollectionPagePage].
   CollectionDataProvider({
     required this.collectionType,
     Stream<void>? contentChanged,
@@ -211,12 +226,17 @@ class CollectionDataProvider with ChangeNotifier {
   }
 
   Future<void> fetchData() {
-    // Appending while a reload runs would duplicate pages, so wait for it.
-    final reloading = _reloading;
-    if (reloading != null) return reloading;
+    if (_disposed) return Future.value();
+    // Appending while a reload runs, or to the items a failed reload left,
+    // would mix old and new pages, so the reload fetches the page instead.
+    if (_reloading != null || _needsFullReload) {
+      _pageRequested = true;
+      pageError = null;
+      return _reloading ??= _reload(_generation);
+    }
     final active = _pageRequest;
     if (active != null) return active;
-    if (_disposed || isLastPage) return Future.value();
+    if (isLastPage) return Future.value();
     initialized = true;
     pageError = null;
     final request = _loadPage(_generation, cursor);
@@ -245,25 +265,26 @@ class CollectionDataProvider with ChangeNotifier {
   Future<void> reloadData() {
     if (_disposed) return Future.value();
     _generation++;
+    // The new generation drops the append in flight; the reload fetches its
+    // page instead.
+    if (_pageRequest != null) _pageRequested = true;
     _pageRequest = null;
     _cache.clearType(collectionType);
     summary = _fetchSummaryWithCache();
     pageError = null;
     notifyListeners();
-    final generation = _generation;
-    _reloadGeneration = generation;
-    return _reloading = _reload(generation);
+    return _reloading = _reload(_generation);
   }
 
   // Keeps the old items on screen until the fresh pages have all arrived,
-  // so a scrolled list does not jump back to the start.
+  // so a scrolled list does not jump back to the start. If a page fails,
+  // the old items stay and the next request reloads from page zero.
   Future<void> _reload(int generation) async {
+    final fresh = <Group<InternalCollection>>[];
+    var fetched = 0;
+    var last = false;
     try {
-      final pages = max(cursor, 1);
-      final fresh = <Group<InternalCollection>>[];
-      var fetched = 0;
-      var last = false;
-      while (fetched < pages && !last) {
+      while (!last && fetched < max(cursor + (_pageRequested ? 1 : 0), 1)) {
         final (newItems, newIsLastPage) = await _fetchPage(fetched);
         if (_disposed || generation != _generation) return;
         fresh.addAll(newItems);
@@ -274,9 +295,19 @@ class CollectionDataProvider with ChangeNotifier {
       cursor = fetched;
       isLastPage = last;
       initialized = true;
+      _reloading = null;
+      _needsFullReload = false;
+      _pageRequested = false;
       notifyListeners();
-    } finally {
-      if (_reloadGeneration == generation) _reloading = null;
+    } catch (error) {
+      // A newer reload owns the list now, or the provider is gone.
+      if (_disposed || generation != _generation) return;
+      _reloading = null;
+      _needsFullReload = true;
+      _pageRequested = false;
+      pageError = error;
+      notifyListeners();
+      rethrow;
     }
   }
 
