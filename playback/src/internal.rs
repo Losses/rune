@@ -2164,12 +2164,27 @@ impl PlayerInternal {
     fn remove_from_playlist(&mut self, index: usize) -> Result<()> {
         if index < self.playlist.len() {
             debug!("Removing from playlist at index: {}", { index });
+            // Shuffle redraws its map after an edit. Keep the queue position of
+            // the surviving occurrence before the old map is replaced.
+            let current_position = self
+                .current_track_index
+                .and_then(|cursor| self.resolve_index(cursor, self.current_track_mapped));
             let removed = self.playlist.remove(index);
             self.clear_unavailable(Some(removed.item))?;
             self.playback_strategy.on_playlist_updated(
                 self.playlist.len(),
                 UpdateReason::RemoveFromPlaylist { index },
             );
+            if let Some(position) = current_position.filter(|&position| position != index) {
+                let position = position - usize::from(index < position);
+                self.current_track_index =
+                    if self.current_track_mapped && self.playback_mode == PlaybackMode::Shuffle {
+                        (0..self.playlist.len())
+                            .find(|&cursor| self.get_mapped_track_index(cursor) == position)
+                    } else {
+                        Some(position)
+                    };
+            }
             self.schedule_playlist_update();
         } else {
             bail!(
@@ -5629,6 +5644,77 @@ mod playback_state_tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn removing_before_the_playing_occurrence_preserves_its_successor() -> Result<()> {
+        let library = Uuid::new_v4();
+        let [a, b, c] = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+        for (mode, next_index, next_track) in [
+            (PlaybackMode::Sequential, 2, c),
+            (PlaybackMode::RepeatAll, 2, c),
+            (PlaybackMode::RepeatOne, 1, a),
+        ] {
+            let (mut player, commands, mut events, wav_path) = long_track_engine(&[a, b, c]);
+            commands.send(add_library_tracks(library, &[a, b, a, c]))?;
+            commands.send(PlayerCommand::SetPlaybackMode(mode))?;
+            commands.send(PlayerCommand::Switch(2))?;
+            let started = run_until_track_state(&mut player, &mut events).await?;
+            assert!(
+                matches!(started, PlayerEvent::Playing { index: 2, ref item, .. }
+                if *item == library_item(library, a))
+            );
+
+            player.remove_from_playlist(0)?;
+            let cursor = player.current_playlist_index();
+            assert_eq!(player.current_item, Some(library_item(library, a)));
+            assert_eq!(player.state, InternalPlaybackState::Playing);
+            player.next()?;
+            let successor = if player.state == InternalPlaybackState::Loading {
+                match run_until_track_state(&mut player, &mut events).await? {
+                    PlayerEvent::Playing { index, item, .. } => Some((index, item)),
+                    event => bail!("unexpected successor event: {event:?}"),
+                }
+            } else {
+                None
+            };
+            let _ = std::fs::remove_file(wav_path);
+            assert_eq!(
+                (cursor, successor),
+                (
+                    Some(1),
+                    Some((next_index, library_item(library, next_track)))
+                ),
+                "{mode:?}"
+            );
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn removing_a_later_track_preserves_the_mapped_shuffle_cursor() -> Result<()> {
+        let library = Uuid::new_v4();
+        let ids = [
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+        ];
+        let (mut player, _, mut events, wav_path) = long_track_engine(&ids);
+        player.add_to_playlist(library_tracks(library, &ids), AddMode::AppendToEnd);
+        player.playback_mode = PlaybackMode::Shuffle;
+        player.playback_strategy = Box::new(ShiftedOrder);
+        player.load(Some(3), true, true)?;
+        let started = run_until_track_state(&mut player, &mut events).await?;
+        assert!(
+            matches!(started, PlayerEvent::Playing { index: 0, ref item, .. }
+            if *item == library_item(library, ids[0]))
+        );
+
+        player.remove_from_playlist(2)?;
+        let _ = std::fs::remove_file(wav_path);
+        assert_eq!(player.current_playlist_index(), Some(0));
+        assert_eq!(player.current_track_index, Some(2));
+        Ok(())
+    }
     #[tokio::test]
     async fn play_after_an_earlier_track_was_removed_plays_the_same_track() -> Result<()> {
         let file_uuids = [
