@@ -47,6 +47,7 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
 
   Playlist? playlist;
   String? _playlistRecordId;
+  bool _needsPlaylistRead = true;
 
   @override
   void initState() {
@@ -60,8 +61,16 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
 
     fetchGroupList();
     if (widget.playlistId != null) {
-      loadPlaylist(widget.playlistId!);
+      _playlistRecordId = context
+          .read<LibraryRegistryProvider?>()
+          ?.openRecordId;
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _loadPlaylistIfReady();
   }
 
   @override
@@ -85,35 +94,53 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
     }
   }
 
-  Future<void> loadPlaylist(int playlistId) async {
+  void _loadPlaylistIfReady() {
+    final id = widget.playlistId;
+    if (!_needsPlaylistRead || id == null) return;
     final registry = context.read<LibraryRegistryProvider?>();
-    if (registry?.isOpening == true) return;
-    final generation = registry?.openGeneration;
-    _playlistRecordId = registry?.openRecordId;
-    setState(() => isLoading = true);
-    try {
-      final result = await getPlaylistById(playlistId);
-      if (registry?.isOpening != true &&
-          registry?.openRecordId == _playlistRecordId &&
-          registry?.openGeneration == generation) {
-        playlist = result;
-      }
-    } on RequestFailure catch (error) {
-      if (mounted) {
-        setState(() {
-          failure = error;
-          isLoading = false;
-        });
-      }
+    if (registry?.isOpening == true ||
+        registry?.openRecordId != _playlistRecordId)
       return;
+    _needsPlaylistRead = false;
+    _loadPlaylist(id, registry);
+  }
+
+  Future<void> _loadPlaylist(
+    int playlistId,
+    LibraryRegistryProvider? registry,
+  ) async {
+    final generation = registry?.openGeneration;
+    setState(() => isLoading = true);
+    Playlist? result;
+    RequestFailure? readFailure;
+    try {
+      result = await getPlaylistById(playlistId);
+    } on RequestFailure catch (error) {
+      readFailure = error;
     }
     if (!mounted) return;
-    isLoading = false;
-    if (playlist != null) {
-      titleController.text = playlist!.name;
-      groupController.text = playlist!.group;
+    if (registry?.isOpening == true ||
+        registry?.openRecordId != _playlistRecordId ||
+        registry?.openGeneration != generation) {
+      setState(() {
+        isLoading = false;
+        _needsPlaylistRead = true;
+      });
+      _loadPlaylistIfReady();
+      return;
     }
-    setState(() {});
+    setState(() {
+      isLoading = false;
+      if (readFailure != null) {
+        failure = readFailure;
+      } else if (result != null) {
+        playlist = result;
+        if (titleController.text == (widget.defaultTitle ?? '')) {
+          titleController.text = result.name;
+        }
+        if (groupController.text.isEmpty) groupController.text = result.group;
+      }
+    });
   }
 
   @override

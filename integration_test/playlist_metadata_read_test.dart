@@ -212,6 +212,87 @@ void main() {
     expect(find.text(stored.name), findsOneWidget);
   });
 
+  for (final openBeforeMount in [false, true]) {
+    testWidgets(
+      'a pending open defers the initial read (open before mount: $openBeforeMount)',
+      (tester) async {
+        await registry.open(original);
+        final stored = await createPlaylist('Evening walk', 'Outdoors');
+        final control = await createPlaylist('Control', 'Control');
+        final acknowledgement = Completer<OpenLibraryResponse>();
+        final formRegistry = LibraryRegistryProvider(
+          openRecord: (_, _) => acknowledgement.future,
+        );
+        addTearDown(formRegistry.dispose);
+        await formRegistry.ready;
+        var reads = 0;
+        final started = Completer<void>();
+        late Future<void> failedOpen;
+        void startOpen() {
+          failedOpen = expectLater(formRegistry.open(empty), throwsStateError);
+          started.complete();
+        }
+
+        final responses = GetPlaylistByIdResponse.rustSignalStream.listen((
+          signal,
+        ) {
+          if (signal.message.playlist.id != stored.id) return;
+          reads++;
+          if (!started.isCompleted) startOpen();
+        });
+        addTearDown(responses.cancel);
+        if (openBeforeMount) startOpen();
+        final (labels, _) = await openEditor(
+          tester,
+          stored.id,
+          formRegistry: formRegistry,
+        );
+        await started.future.timeout(const Duration(seconds: 10));
+        await tester.pumpAndSettle();
+        final save = find.widgetWithText(FilledButton, labels.save);
+        final form = tester.state<CreateEditPlaylistDialogState>(
+          find.byType(CreateEditPlaylistDialog),
+        );
+        final title = find.byWidgetPredicate(
+          (widget) =>
+              widget is EditableText &&
+              widget.controller == form.titleController,
+        );
+        final whilePending = tester.widget<FilledButton>(save).onPressed;
+        if (openBeforeMount) {
+          await tester.enterText(title, 'Typed while waiting');
+        }
+        acknowledgement.completeError(StateError('Open failed'));
+        await failedOpen;
+        await tester.pumpAndSettle();
+        // The control response follows reads issued by the rebuilt editor.
+        await getPlaylistById(control.id);
+        await tester.pumpAndSettle();
+        expect(whilePending, isNull);
+        expect(reads, openBeforeMount ? 1 : 2);
+        expect(
+          find.text(openBeforeMount ? 'Typed while waiting' : stored.name),
+          findsOneWidget,
+        );
+        expect(find.text(stored.group), findsOneWidget);
+        expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
+        final draftTitle = openBeforeMount
+            ? 'Typed while waiting'
+            : 'Edited draft';
+        if (!openBeforeMount) {
+          await tester.enterText(title, draftTitle);
+          await tester.pump();
+        }
+        expect(form.titleController.text, draftTitle);
+        await formRegistry.refresh();
+        await tester.pumpAndSettle();
+        await getPlaylistById(control.id);
+        expect(reads, openBeforeMount ? 1 : 2);
+        expect(form.titleController.text, draftTitle);
+      },
+    );
+  }
+
   testWidgets('a late group failure keeps the playlist read error visible', (
     tester,
   ) async {
