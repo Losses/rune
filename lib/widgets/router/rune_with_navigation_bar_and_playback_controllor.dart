@@ -55,6 +55,7 @@ class RuneWithNavigationBarAndPlaybackControllorState
             key: runeWithNavigationBarAndPlaybackControllorNavigatorKey,
             initialRoute: widget.routeName,
             onGenerateRoute: _onGenerateRoute,
+            observers: [routerAnimationObserver],
           ),
         ),
       ),
@@ -65,14 +66,16 @@ class RuneWithNavigationBarAndPlaybackControllorState
     final routeName = settings.name;
     final builder = routes[routeName];
 
-    return NoEffectPageRoute(
+    late final NoEffectPageRoute<Widget> route;
+    route = NoEffectPageRoute(
       builder: (context) {
         if (builder == null) {
           return Container();
         }
-        return RouterAnimation(builder(context));
+        return RouterAnimation(builder(context), route: route);
       },
       settings: settings,
     );
+    return route;
   }
 }

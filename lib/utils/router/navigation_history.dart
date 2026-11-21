@@ -56,6 +56,24 @@ class NavigationHistory {
     history.add(RouteEntry.fromSettings(settings));
   }
 
+  /// Whether the route under the current one is [name], with nothing open over
+  /// the current route.
+  bool previousIs(String name) {
+    if (history.length < 2 || history.last is! RouteEntry) return false;
+    final previous = history[history.length - 2];
+    return previous is RouteEntry && previous.name == name;
+  }
+
+  /// Like [previousIs], but ignoring dialogs and context menus open over the
+  /// current route, for what the header shows rather than what a tap does.
+  bool previousPageIs(String name) {
+    final pages = history.whereType<RouteEntry>().toList();
+    if (pages.length < 2) return false;
+    final index = history.indexOf(pages.last);
+    if (index < 1 || history[index - 1] is! RouteEntry) return false;
+    return pages[pages.length - 2].name == name;
+  }
+
   BaseRouteEntry? get current => history.isNotEmpty ? history.last : null;
   bool get isCurrentModal => current is ModalRouteEntry;
   bool get isCurrentContextMenu => current is ContextMenuRouteEntry;
