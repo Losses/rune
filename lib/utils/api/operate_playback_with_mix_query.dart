@@ -48,7 +48,7 @@ bool mixExcludesQueue({
   required QueryList queries,
 }) =>
     operateMode != PlaylistOperateMode.replace ||
-    queriesHasRecommendation(queries);
+    queries.toQueryList().any((x) => x.operator == 'pipe::recommend');
 
 /// The items a playback action has converted for its resolve request: the
 /// track to start with, when it names one, then its fallback tracks. An action

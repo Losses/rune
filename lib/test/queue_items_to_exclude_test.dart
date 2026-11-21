@@ -74,5 +74,15 @@ void main() {
         isTrue,
       );
     });
+
+    test('a recommendation mix leaves out the queue at any position', () {
+      expect(
+        mixExcludesQueue(
+          operateMode: PlaylistOperateMode.replace,
+          queries: const QueryList([('pipe::recommend', '30')]),
+        ),
+        isTrue,
+      );
+    });
   });
 }
