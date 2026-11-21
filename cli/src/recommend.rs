@@ -2,11 +2,12 @@ use anyhow::{Context, Result, bail};
 use database::entities::media_files;
 use prettytable::{Table, format, row};
 use serde_json::json;
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use database::actions::file::{get_file_id_from_path, get_ordered_files_by_ids};
+use database::actions::file::{get_file_id_from_path, get_files_by_ids};
 use database::actions::recommendation::get_recommendation_by_file_id;
 use database::connection::{MainDbConnection, RecommendationDbConnection};
 
@@ -57,9 +58,8 @@ pub async fn recommend_music(
         get_recommendation_by_file_id(recommend_db, file_id, num)
             .context("Failed to get recommendations")?;
 
-    // M3U8 entries are written in the order of these file rows.
     let ids: Vec<i32> = recommendations.iter().map(|(id, _)| *id as i32).collect();
-    let files = get_ordered_files_by_ids(main_db, &ids)
+    let files = get_files_by_ids(main_db, &ids)
         .await
         .context("Failed to get files by IDs")?;
 
@@ -69,7 +69,9 @@ pub async fn recommend_music(
         }
         Some("m3u8") => {
             let output = output.context(OUTPUT_REQUIRED)?;
-            let saved = save_as_m3u8(canonicalized_path, &canonicalized_path.join(output), &files)?;
+            let files_by_id: HashMap<_, _> = files.iter().map(|file| (file.id, file)).collect();
+            let ranked = ids.iter().filter_map(|id| files_by_id.get(id).copied());
+            let saved = save_as_m3u8(canonicalized_path, &canonicalized_path.join(output), ranked)?;
             println!("Recommendations saved to M3U8 file: {}", saved.display());
         }
         Some(_) => bail!(UNSUPPORTED_FORMAT),
