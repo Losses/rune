@@ -16,8 +16,12 @@ class SmoothScrollController extends ScrollController {
   }) {
     _lerpController = LerpController(
       initialValue: initialScrollOffset,
-      getter: () => offset,
-      setter: (value) => jumpTo(value),
+      // The list can be rebuilt while a scroll animates; with no list
+      // attached, the animation just ends.
+      getter: () => hasClients ? offset : _lerpController.value,
+      setter: (value) {
+        if (hasClients) jumpTo(value);
+      },
       vsync: vsync,
     );
     addListener(_handleExternalScroll);

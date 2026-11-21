@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
@@ -93,8 +94,36 @@ class CollectionDataProvider with ChangeNotifier {
   int _generation = 0;
   bool _disposed = false;
 
-  CollectionDataProvider({required this.collectionType}) {
-    _contentSubscription = LibraryContentChanged.rustSignalStream.listen((_) {
+  final Future<List<Group<InternalCollection>>> Function(CollectionType)
+  _loadSummary;
+  final Future<(List<Group<InternalCollection>>, bool)> Function(
+    CollectionType,
+    int,
+    int,
+  )
+  _loadPage;
+
+  // The in-flight reload, if any, and the generation that owns it.
+  Future<void>? _reloading;
+  int _reloadGeneration = -1;
+
+  CollectionDataProvider({
+    required this.collectionType,
+    Stream<void>? contentChanged,
+    Future<List<Group<InternalCollection>>> Function(CollectionType)?
+    loadSummary,
+    Future<(List<Group<InternalCollection>>, bool)> Function(
+      CollectionType,
+      int,
+      int,
+    )?
+    loadPage,
+  }) : _loadSummary = loadSummary ?? fetchCollectionPageSummary,
+       _loadPage = loadPage ?? fetchCollectionPagePage {
+    final changes =
+        contentChanged ??
+        LibraryContentChanged.rustSignalStream.map<void>((_) {});
+    _contentSubscription = changes.listen((_) {
       unawaited(reloadData());
     });
   }
@@ -125,7 +154,7 @@ class CollectionDataProvider with ChangeNotifier {
 
     final generation = _generation;
     final cacheGeneration = _cache.generation;
-    final data = await fetchCollectionPageSummary(collectionType);
+    final data = await _loadSummary(collectionType);
     if (generation == _generation &&
         cacheGeneration == _cache.generation &&
         !_disposed) {
@@ -142,7 +171,7 @@ class CollectionDataProvider with ChangeNotifier {
 
     final generation = _generation;
     final cacheGeneration = _cache.generation;
-    final (newItems, isLastPage) = await fetchCollectionPagePage(
+    final (newItems, isLastPage) = await _loadPage(
       collectionType,
       _pageSize,
       cursor,
@@ -177,6 +206,10 @@ class CollectionDataProvider with ChangeNotifier {
   }
 
   Future<void> fetchData() async {
+    // Appending while a reload runs would duplicate pages, so wait for it.
+    final reloading = _reloading;
+    if (reloading != null) return reloading;
+
     initialized = true;
     isLoading = true;
 
@@ -195,14 +228,40 @@ class CollectionDataProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> reloadData() async {
+  Future<void> reloadData() {
     _generation++;
     _cache.clearType(collectionType);
     summary = _fetchSummaryWithCache();
-    cursor = 0;
-    items = [];
     notifyListeners();
-    await fetchData();
+    final generation = _generation;
+    _reloadGeneration = generation;
+    return _reloading = _reload(generation);
+  }
+
+  // Keeps the old items on screen until the fresh pages have all arrived,
+  // so a scrolled list does not jump back to the start.
+  Future<void> _reload(int generation) async {
+    try {
+      final pages = max(cursor, 1);
+      final fresh = <Group<InternalCollection>>[];
+      var fetched = 0;
+      var last = false;
+      while (fetched < pages && !last) {
+        final (newItems, newIsLastPage) = await _fetchPage(fetched);
+        if (_disposed || generation != _generation) return;
+        fresh.addAll(newItems);
+        fetched += 1;
+        last = newIsLastPage;
+      }
+      items = fresh;
+      cursor = fetched;
+      isLastPage = last;
+      isLoading = false;
+      initialized = true;
+      notifyListeners();
+    } finally {
+      if (_reloadGeneration == generation) _reloading = null;
+    }
   }
 
   static void clearAllCache() {

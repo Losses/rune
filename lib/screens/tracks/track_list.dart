@@ -30,6 +30,8 @@ class TrackListViewState extends State<TrackListView> {
 
   int _totalCount = 0;
   final Map<int, InternalMediaFile> _loadedItems = {};
+  // Shown only until the fresh page arrives, so a reload keeps the list on screen.
+  final Map<int, InternalMediaFile> _staleItems = {};
   final Set<int> _loadingIndices = {};
   bool _isInitialized = false;
   int _generation = 0;
@@ -40,11 +42,9 @@ class TrackListViewState extends State<TrackListView> {
     super.initState();
     _contentSubscription = LibraryContentChanged.rustSignalStream.listen((_) {
       _generation++;
+      _staleItems.addAll(_loadedItems);
       _loadedItems.clear();
       _loadingIndices.clear();
-      setState(() {
-        _isInitialized = false;
-      });
       _initializeData();
     });
     _initializeData();
@@ -59,6 +59,7 @@ class TrackListViewState extends State<TrackListView> {
       setState(() {
         _totalCount = count;
         _isInitialized = true;
+        _staleItems.removeWhere((index, _) => index >= count);
       });
       // Pre-load first page
       _loadPage(0);
@@ -94,6 +95,9 @@ class TrackListViewState extends State<TrackListView> {
       SchedulerBinding.instance.addPostFrameCallback((_) {
         if (!mounted || generation != _generation) return;
         setState(() {
+          for (var i = 0; i < _pageSize; i++) {
+            _staleItems.remove(cursor + i);
+          }
           for (var i = 0; i < newItems.length; i++) {
             _loadedItems[cursor + i] = newItems[i];
           }
@@ -127,7 +131,7 @@ class TrackListViewState extends State<TrackListView> {
 
   InternalMediaFile? _getItem(int index) {
     _checkAndLoadItem(index);
-    return _loadedItems[index];
+    return _loadedItems[index] ?? _staleItems[index];
   }
 
   @override

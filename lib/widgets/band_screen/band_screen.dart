@@ -56,7 +56,8 @@ class BandScreenState extends State<BandScreen> {
       child: FutureBuilder<List<Group<InternalCollection>>>(
         future: data.summary,
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData) {
             return const Center(
               child: ProgressRing(),
             );
