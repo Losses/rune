@@ -6,7 +6,7 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use database::actions::file::{get_file_id_from_path, get_files_by_ids};
+use database::actions::file::{get_file_id_from_path, get_ordered_files_by_ids};
 use database::actions::recommendation::get_recommendation_by_file_id;
 use database::connection::{MainDbConnection, RecommendationDbConnection};
 
@@ -57,9 +57,9 @@ pub async fn recommend_music(
         get_recommendation_by_file_id(recommend_db, file_id, num)
             .context("Failed to get recommendations")?;
 
-    // Get file details of recommendations
+    // M3U8 entries are written in the order of these file rows.
     let ids: Vec<i32> = recommendations.iter().map(|(id, _)| *id as i32).collect();
-    let files = get_files_by_ids(main_db, &ids)
+    let files = get_ordered_files_by_ids(main_db, &ids)
         .await
         .context("Failed to get files by IDs")?;
 
