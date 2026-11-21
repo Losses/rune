@@ -4763,8 +4763,6 @@ mod lifecycle_tests {
         let b_info = peer_step("read second peer identity", info(&b)).await?;
         peer_step("pair library peers", pair(&a, &b)).await?;
         peer_step("pair library peers in reverse", pair(&b, &a)).await?;
-        let b_reserve = TcpListener::bind("127.0.0.1:0")?;
-        let b_addr = b_reserve.local_addr()?;
         std::fs::copy(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg"),
             second.path().join("source.ogg"),
@@ -4849,32 +4847,44 @@ mod lifecycle_tests {
             .get_address()
             .await
             .context("first sync listener address")?;
-        assert_ne!(a_addr.port(), b_addr.port());
-        drop(b_reserve);
-        // Expose the peer before its listener starts so the first metadata pass
-        // deterministically encounters a refused connection.
+        // A bound socket that has not called listen refuses connections and
+        // keeps another fixture from claiming the offline peer's port.
+        let offline_socket = tokio::net::TcpSocket::new_v4()?;
+        offline_socket.bind(([127, 0, 0, 1], 0).into())?;
+        let offline_addr = offline_socket.local_addr()?;
         peer_step(
             "announce peer before second listener starts",
-            announce_peer(&a, &b_info, b_addr),
+            announce_peer(&a, &b_info, offline_addr),
         )
         .await?;
-        anyhow::ensure!(
-            TcpStream::connect(("127.0.0.1", b_addr.port()))
+        assert_eq!(
+            TcpStream::connect(offline_addr)
                 .await
-                .is_err(),
-            "second sync listener unexpectedly accepted a connection before startup"
+                .expect_err("offline peer unexpectedly accepted a connection")
+                .kind(),
+            std::io::ErrorKind::ConnectionRefused
         );
         peer_step(
             "start second sync listener",
             b.clone().start_sync(
-                b_addr,
+                ([127, 0, 0, 1], 0).into(),
                 DiscoveryParams {
                     device_info: b_info.clone(),
                 },
             ),
         )
         .await?;
-        assert_eq!(b.get_address().await, Some(b_addr));
+        let b_addr = b
+            .get_address()
+            .await
+            .context("second sync listener address")?;
+        assert_ne!(a_addr, b_addr);
+        peer_step(
+            "announce the second listener's bound address",
+            announce_peer(&a, &b_info, b_addr),
+        )
+        .await?;
+        drop(offline_socket);
         peer_step(
             "announce first listener to second peer",
             announce_peer(&b, &a_info, a_addr),
