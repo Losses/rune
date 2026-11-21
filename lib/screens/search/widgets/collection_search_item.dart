@@ -30,7 +30,7 @@ class CollectionSearchItem extends SearchCard {
 class CollectionSearchItemState extends SearchCardState<CollectionSearchItem> {
   @override
   void onPressed(BuildContext context) {
-    $replace(
+    $push(
       '/${collectionTypeToRouterName(widget.collectionType)}/detail',
       arguments: QueryTracksParameter(getItemId(), getItemTitle()),
     );
