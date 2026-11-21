@@ -3,14 +3,15 @@ use std::{
     ops::Deref,
     panic::{self, catch_unwind},
     string::String,
-    sync::Once,
+    sync::{Once, OnceLock},
 };
 
 use jni::{
-    JavaVM,
-    sys::{JNI_VERSION_1_6, jint},
+    JNIEnv, JavaVM,
+    objects::{GlobalRef, JObject},
+    sys::{JNI_FALSE, JNI_TRUE, JNI_VERSION_1_6, jboolean, jint},
 };
-use ndk_context::{initialize_android_context, release_android_context};
+use ndk_context::initialize_android_context;
 use tracing::{error, info};
 use tracing_logcat::{LogcatMakeWriter, LogcatTag};
 use tracing_subscriber::fmt::format::Format;
@@ -20,6 +21,7 @@ const INVALID_JNI_VERSION: jint = 0;
 
 // Ensure 1-time initialization of JVM
 static INIT: Once = Once::new();
+static APPLICATION_CONTEXT: OnceLock<GlobalRef> = OnceLock::new();
 static mut JVM: Option<*mut c_void> = None;
 
 #[allow(non_snake_case)]
@@ -84,31 +86,32 @@ pub extern "system" fn JNI_OnLoad(vm: *mut JavaVM, _: *mut c_void) -> jint {
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_ci_not_rune_MainActivity_initializeContext(
-    _env: *mut jni::JNIEnv,
-    _class: jni::objects::JClass,
-    context: jni::objects::JObject,
-) {
-    unsafe {
-        // Convert JObject Context to c_void pointer and initialize Context
-        if let Some(jvm) = JVM {
-            // Converting context to raw pointer
-            let context_ptr = context.into_raw() as *mut c_void;
-
-            initialize_android_context(jvm, context_ptr);
+    env: JNIEnv,
+    _activity: JObject,
+    context: JObject,
+) -> jboolean {
+    if APPLICATION_CONTEXT.get().is_some() {
+        return JNI_TRUE;
+    }
+    let Ok(vm) = env.get_java_vm() else {
+        return JNI_FALSE;
+    };
+    let Ok(context) = env.new_global_ref(context) else {
+        return JNI_FALSE;
+    };
+    if context.as_obj().is_null() {
+        return JNI_FALSE;
+    }
+    APPLICATION_CONTEXT.get_or_init(|| {
+        unsafe {
+            initialize_android_context(
+                vm.get_java_vm_pointer().cast(),
+                context.as_obj().as_raw().cast(),
+            );
         }
-    }
-    info!("JNI Context initialized");
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_ci_not_rune_MainActivity_releaseContext(
-    _env: *mut jni::JNIEnv,
-    _class: jni::objects::JClass,
-) {
-    unsafe {
-        release_android_context();
-    }
-    info!("JNI Context released");
+        context
+    });
+    JNI_TRUE
 }
 
 pub fn get_jvm() -> Option<*mut c_void> {
