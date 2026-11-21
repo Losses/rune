@@ -12557,7 +12557,7 @@ async fn request_scopes_resolve_to_the_current_implementations() -> Result<()> {
     fn kind(implementation: &Implementation) -> &'static str {
         match implementation {
             Implementation::Local => "Local",
-            Implementation::LocalWithoutLibrary => "LocalWithoutLibrary",
+            Implementation::LocalBeside(_) => "LocalBeside",
             Implementation::RunePeer {
                 reconnecting: Some(_),
                 ..
@@ -12574,9 +12574,9 @@ async fn request_scopes_resolve_to_the_current_implementations() -> Result<()> {
             let library = $node.implementation_for_scope::<FetchAllPlaylistsRequest>()?;
             let player = $node.implementation_for_scope::<PauseRequest>()?;
             let local = $node.implementation_for_scope::<HandoffRequest>()?;
-            // This device answers node requests, short of what needs a library database here.
+            // This device answers node requests, beside what a Subsonic library declares.
             let node = if $library == "Subsonic" {
-                "LocalWithoutLibrary"
+                "LocalBeside"
             } else {
                 "Local"
             };
