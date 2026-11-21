@@ -1,8 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
@@ -55,25 +55,14 @@ void main() {
 
     const title = 'Searchable Track';
     const album = 'Searchable Album';
-    final audio = await rootBundle.load('assets/startup_1.ogg');
-    final seed = await File('${root.path}/seed.ogg').writeAsBytes(
-      audio.buffer.asUint8List(audio.offsetInBytes, audio.lengthInBytes),
+    // One second of silent FLAC, tagged with the title and album above.
+    await File('${music.path}/track.flac').writeAsBytes(
+      base64Decode(
+        'ZkxhQwAAACIfQB9AAAANAAANAfQA8AAAH0Ae4Bk2cWCcfWPP6JuSCtMThAAAWgYAAABm'
+        'Zm1wZWcDAAAAFgAAAHRpdGxlPVNlYXJjaGFibGUgVHJhY2sWAAAAYWxidW09U2VhcmNo'
+        'YWJsZSBBbGJ1bRQAAABhcnRpc3Q9U2VhcmNoIEFydGlzdP/4dAgAHz+8AAAAefg=',
+      ),
     );
-    final tags = await Process.run('ffmpeg', [
-      '-nostdin',
-      '-v',
-      'error',
-      '-i',
-      seed.path,
-      '-c:a',
-      'copy',
-      '-metadata',
-      'title=$title',
-      '-metadata',
-      'album=$album',
-      '${music.path}/track.ogg',
-    ]);
-    expect(tags.exitCode, 0, reason: tags.stderr.toString());
 
     try {
       app.main(const []);
