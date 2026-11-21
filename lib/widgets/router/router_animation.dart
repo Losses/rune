@@ -105,9 +105,7 @@ class _RouterAnimationState extends State<RouterAnimation>
     const curve = Curves.easeOutQuint;
 
     Animation<T> animate<T>(Tween<T> tween) {
-      return tween.animate(
-        CurvedAnimation(parent: _animationController, curve: curve),
-      );
+      return _animationController.drive(tween.chain(CurveTween(curve: curve)));
     }
 
     Offset slideFrom = Offset.zero;

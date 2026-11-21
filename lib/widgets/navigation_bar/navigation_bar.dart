@@ -89,18 +89,18 @@ class NavigationBarState extends State<NavigationBar> {
       return;
     }
 
+    if (item == null) return;
+
     // Up to the page this one was opened from is back to that page as it was
     // left, scrolled where it was. Another parent opens afresh.
-    if (item != null && $history.previousIs(item.path)) {
-      $pop();
-      return;
+    switch (headerTapAction(item.path, $router.path, $history)) {
+      case HeaderTapAction.none:
+        return;
+      case HeaderTapAction.pop:
+        $pop();
+      case HeaderTapAction.replace:
+        setState(() => $replace(item.path));
     }
-
-    setState(() {
-      if (item != null) {
-        $replace(item.path);
-      }
-    });
   }
 
   playFlipAnimation(BuildContext context, String from, String to) async {
