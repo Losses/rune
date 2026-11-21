@@ -4,10 +4,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
-import 'package:rune/bindings/bindings.dart';
-import 'package:rune/providers/responsive_providers.dart';
-import 'package:rune/screens/lyrics/widgets/lyric_display.dart';
-import 'package:rune/screens/lyrics/widgets/lyric_line.dart';
+import '../bindings/bindings.dart';
+import '../providers/responsive_providers.dart';
+import '../screens/lyrics/band_screen_lyrics.dart';
+import '../screens/lyrics/widgets/lyric_display.dart';
+import '../screens/lyrics/widgets/lyric_line.dart';
+import '../utils/playing_item.dart';
 
 class _Desktop extends ChangeNotifier implements ResponsiveProvider {
   @override
@@ -38,6 +40,7 @@ Widget _display(
   int timeMs,
   ValueNotifier<double> interpolated, [
   List<LyricContentLine>? lyrics,
+  PlayingItem item = const PlayingItem.inLibrary(1),
 ]) {
   lyrics ??= _lyrics;
   final active = [
@@ -49,7 +52,8 @@ Widget _display(
   return FluentApp(
     home: ChangeNotifierProvider<ResponsiveProvider>.value(
       value: _Desktop(),
-      child: LyricsDisplay(
+      child: BandScreenLyricsView(
+        item: item,
         lyrics: lyrics,
         currentTimeMilliseconds: timeMs,
         activeLines: active,
@@ -199,6 +203,25 @@ void main() {
           findsOneWidget,
           reason: 'restarting playback keeps the passage being read',
         );
+        if (keyboard) {
+          // A duration update can normalize the same song's lyrics again.
+          final normalizedAgain = List.of(lyrics);
+          time.value = 500;
+          await tester.pumpWidget(_display(500, time, normalizedAgain));
+          await tester.pumpAndSettle();
+          expect(find.text(texts.last).hitTestable(), findsOneWidget);
+
+          await tester.pumpWidget(
+            _display(500, time, normalizedAgain, const PlayingItem.inLibrary(2)),
+          );
+          await tester.pumpAndSettle();
+          expect(
+            find.text(texts.first).hitTestable(),
+            findsOneWidget,
+            reason: 'a different track starts at its first lyric',
+          );
+          expect(find.text(texts.last).hitTestable(), findsNothing);
+        }
       },
     );
   }
