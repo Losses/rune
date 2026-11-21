@@ -87,12 +87,14 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
 
   Future<void> loadPlaylist(int playlistId) async {
     final registry = context.read<LibraryRegistryProvider?>();
+    if (registry?.isOpening == true) return;
     final generation = registry?.openGeneration;
     _playlistRecordId = registry?.openRecordId;
     setState(() => isLoading = true);
     try {
       final result = await getPlaylistById(playlistId);
-      if (registry?.openRecordId == _playlistRecordId &&
+      if (registry?.isOpening != true &&
+          registry?.openRecordId == _playlistRecordId &&
           registry?.openGeneration == generation) {
         playlist = result;
       }
@@ -120,9 +122,12 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
         ? null
         : context.watch<LibraryRegistryProvider?>();
     // Playlist IDs are local to the library that served the read.
-    bool canSave() => !isLoading &&
+    bool canSave() =>
+        !isLoading &&
         (widget.playlistId == null ||
-            (playlist != null && registry?.openRecordId == _playlistRecordId));
+            (playlist != null &&
+                registry?.isOpening != true &&
+                registry?.openRecordId == _playlistRecordId));
     return UnavailableDialogOnBand(
       $close: widget.$close,
       child: NoShortcuts(

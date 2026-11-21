@@ -89,8 +89,9 @@ void main() {
 
   Future<(AppLocalizations, Completer<Playlist?>)> openEditor(
     WidgetTester tester,
-    int? id,
-  ) async {
+    int? id, {
+    LibraryRegistryProvider? formRegistry,
+  }) async {
     final screen = ScreenSizeProvider.withWriter(null, (_) async {});
     final responsive = ResponsiveProvider(screen, () async => null);
     addTearDown(screen.dispose);
@@ -103,7 +104,7 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-          ChangeNotifierProvider.value(value: registry),
+          ChangeNotifierProvider.value(value: formRegistry ?? registry),
           ChangeNotifierProvider.value(value: responsive),
           ChangeNotifierProvider.value(value: screen),
         ],
@@ -162,6 +163,54 @@ void main() {
       );
     },
   );
+
+  testWidgets('Save waits for every pending library open', (tester) async {
+    await registry.open(original);
+    final stored = await createPlaylist('Walks', 'Outdoors');
+    final requests = <Completer<OpenLibraryResponse>>[];
+    final formRegistry = LibraryRegistryProvider(
+      openRecord: (_, _) {
+        final response = Completer<OpenLibraryResponse>();
+        requests.add(response);
+        return response.future;
+      },
+    );
+    addTearDown(formRegistry.dispose);
+    await formRegistry.ready;
+    final loaded = GetPlaylistByIdResponse.rustSignalStream.first;
+    final (labels, _) = await openEditor(
+      tester,
+      stored.id,
+      formRegistry: formRegistry,
+    );
+    await loaded;
+    await tester.pumpAndSettle();
+    final save = find.widgetWithText(FilledButton, labels.save);
+    expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
+
+    final failedOpen = expectLater(formRegistry.open(empty), throwsStateError);
+    final reopen = formRegistry.open(original);
+    await tester.pumpAndSettle();
+    final duringBoth = tester.widget<FilledButton>(save).onPressed;
+    requests.first.completeError(StateError('Open failed'));
+    await failedOpen;
+    await tester.pumpAndSettle();
+    final duringReopen = tester.widget<FilledButton>(save).onPressed;
+    requests.last.complete(
+      OpenLibraryResponse(
+        recordId: original,
+        generation: Uint64.fromBigInt(
+          BigInt.from(formRegistry.openGeneration! + 1),
+        ),
+      ),
+    );
+    await reopen;
+    await tester.pumpAndSettle();
+    expect(duringBoth, isNull);
+    expect(duringReopen, isNull);
+    expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
+    expect(find.text(stored.name), findsOneWidget);
+  });
 
   testWidgets('a late group failure keeps the playlist read error visible', (
     tester,

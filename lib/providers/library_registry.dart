@@ -98,6 +98,7 @@ class LibraryRegistryProvider extends ChangeNotifier {
   List<InvalidLibraryRecordSummary> _invalidRecords = const [];
   String? _openRecordId;
   int? _openGeneration;
+  int _pendingOpens = 0;
   String? _lastOpenRecordId;
   bool _disposed = false;
   StreamSubscription<dynamic>? _recordsSubscription;
@@ -126,6 +127,7 @@ class LibraryRegistryProvider extends ChangeNotifier {
       List.unmodifiable(_invalidRecords);
   String? get openRecordId => _openRecordId;
   int? get openGeneration => _openGeneration;
+  bool get isOpening => _pendingOpens > 0;
   String? get lastOpenRecordId => _lastOpenRecordId;
   LibraryRecordSummary? get openRecord {
     final id = _openRecordId;
@@ -170,22 +172,28 @@ class LibraryRegistryProvider extends ChangeNotifier {
   }
 
   Future<OpenLibraryResponse> open(String recordId) async {
-    final response = _openRecord == null
-        ? (await awaitResponse(
-            'OpenLibraryRequest',
-            OpenLibraryResponse.rustSignalStream,
-            responseCallId: (response) => response.message.callId?.toInt(),
-            send: (callId) => OpenLibraryRequest(
-              callId: callId,
-              recordId: recordId,
-            ).sendSignalToRust(),
-          )).message
-        : await _openRecord(recordId, nextCallId().toInt());
-    _openRecordId = response.recordId;
-    _openGeneration = response.generation.toInt();
-    _lastOpenRecordId = response.recordId;
-    if (!_disposed) notifyListeners();
-    return response;
+    _pendingOpens++;
+    if (!_disposed && _pendingOpens == 1) notifyListeners();
+    try {
+      final response = _openRecord == null
+          ? (await awaitResponse(
+              'OpenLibraryRequest',
+              OpenLibraryResponse.rustSignalStream,
+              responseCallId: (response) => response.message.callId?.toInt(),
+              send: (callId) => OpenLibraryRequest(
+                callId: callId,
+                recordId: recordId,
+              ).sendSignalToRust(),
+            )).message
+          : await _openRecord(recordId, nextCallId().toInt());
+      _openRecordId = response.recordId;
+      _openGeneration = response.generation.toInt();
+      _lastOpenRecordId = response.recordId;
+      return response;
+    } finally {
+      _pendingOpens--;
+      if (!_disposed) notifyListeners();
+    }
   }
 
   Future<ReplaceSubsonicCredentialResponse> replaceSubsonicCredential(
