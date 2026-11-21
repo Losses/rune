@@ -4,7 +4,6 @@ import 'package:flutter/gestures.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import 'history.dart';
-import 'navigation.dart';
 import 'context_menu_route_entry.dart';
 
 /// A wrapper around [FlyoutController] that integrates with the application's
@@ -14,6 +13,7 @@ class RouterAwareFlyoutController {
   final FlyoutController _controller = FlyoutController();
 
   bool _disposed = false;
+  final _openFlyouts = <VoidCallback>{};
 
   /// Whether the owner has let go of this controller.
   bool get isDisposed => _disposed;
@@ -49,28 +49,40 @@ class RouterAwareFlyoutController {
   }) async {
     if (_disposed) return null;
 
-    // We need to register the modal entry before showing the flyout
+    ModalRoute<dynamic>? route;
+    void removeFlyout() {
+      final current = route;
+      if (current != null && current.isActive) {
+        current.navigator?.removeRoute(current);
+      }
+    }
+
     final modalEntry = ContextMenuRouteEntry(
       name: 'flyout',
       arguments: null,
       canPop: null,
       pop: () {
-        if (_controller.isOpen) {
-          // Since we can't directly access the context from the controller
-          // we'll use the navigator that was passed or the current navigator
-          final navigator = navigatorKey ?? Navigator.of($context());
-          navigator.pop();
+        final current = route;
+        if (current != null && current.isCurrent) {
+          current.navigator?.pop();
         }
       },
     );
 
-    // Register this flyout with the navigation history system
+    _openFlyouts.add(removeFlyout);
     $history.pushContextMenu(modalEntry);
 
     try {
-      // Show the actual flyout
-      final result = await _controller.showFlyout<T>(
-        builder: builder,
+      return await _controller.showFlyout<T>(
+        builder: (context) {
+          route = ModalRoute.of(context);
+          if (_disposed) {
+            // The owner can disappear before the flyout's first build.
+            scheduleMicrotask(removeFlyout);
+            return const SizedBox.shrink();
+          }
+          return builder(context);
+        },
         barrierDismissible: barrierDismissible,
         dismissWithEsc: dismissWithEsc,
         dismissOnPointerMoveAway: dismissOnPointerMoveAway,
@@ -88,17 +100,11 @@ class RouterAwareFlyoutController {
         settings: settings,
         barrierRecognizer: barrierRecognizer,
       );
-
-      // Clean up the navigation history entry when the flyout is closed. A
-      // menu item may already have pushed a page on top of it.
+    } finally {
       $history.remove(modalEntry);
-
-      // Return the result from the flyout
-      return result;
-    } catch (e) {
-      // If there's an error, make sure we clean up the navigation history
-      $history.remove(modalEntry);
-      rethrow;
+      _openFlyouts.remove(removeFlyout);
+      // Fluent notifies listeners after the Navigator completes its push.
+      if (_disposed && _openFlyouts.isEmpty) _controller.dispose();
     }
   }
 
@@ -107,25 +113,16 @@ class RouterAwareFlyoutController {
 
   /// Disposes of resources used by this controller
   void dispose() {
+    if (_disposed) return;
     _disposed = true;
-
-    // Close any open flyout
-    if (_controller.isOpen) {
-      try {
-        // Use the app's navigator to close the flyout
-        Navigator.of($context()).pop();
-      } catch (_) {
-        // Ignore errors that might occur if the context is no longer valid
-      }
-
-      // Clean up any remaining modal entries for this flyout
-      if ($history.isCurrentContextMenu) {
-        $history.pop();
-      }
+    if (_openFlyouts.isEmpty) {
+      _controller.dispose();
+      return;
     }
-
-    // Dispose of the underlying controller
-    // FlyoutController extends ChangeNotifier, so it needs to be disposed
-    _controller.dispose();
+    // Unmount runs while the widget tree is locked. Remove each owned route
+    // after this frame's synchronous work, even if another route covers it.
+    for (final remove in _openFlyouts) {
+      scheduleMicrotask(remove);
+    }
   }
 }
