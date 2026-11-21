@@ -2005,9 +2005,18 @@ async fn stage_sql_contexts(
 }
 #[tokio::test]
 async fn post_snapshot_arrival_is_removed_by_sql_promotion() -> Result<()> {
+    check_post_snapshot_arrival(false).await
+}
+
+#[tokio::test]
+async fn stale_arrival_between_promotion_steps_stays_removed_after_reopen() -> Result<()> {
+    check_post_snapshot_arrival(true).await
+}
+
+async fn check_post_snapshot_arrival(after_first_step: bool) -> Result<()> {
     let ns = Uuid::new_v4();
     let (_, a, _) = setup(ns).await?;
-    let (_, b, _) = setup(ns).await?;
+    let (db, b, projection) = setup(ns).await?;
     let (_, stale, _) = setup(ns).await?;
     let key = p::ObjectKey {
         collection: 1,
@@ -2025,11 +2034,38 @@ async fn post_snapshot_arrival_is_removed_by_sql_promotion() -> Result<()> {
     stage_sql_contexts(&a, &b, session, &remote).await?;
     b.accept_equal_range(session, remote.roots[0].clone())
         .await?;
+    if after_first_step {
+        assert!(!b.promote_step(session, limits()).await?.done);
+    }
     synchronize(&stale, &b).await?;
-    assert!(b.get(&key).await?.is_some());
+    if !after_first_step {
+        assert!(b.get(&key).await?.is_some());
+    }
+    let concurrent = p::ObjectKey {
+        collection: 1,
+        id: Uuid::new_v4(),
+    };
+    b.write_local(concurrent.clone(), Some(Note("concurrent".into())))
+        .await?;
     while !b.promote_step(session, limits()).await?.done {}
-    assert!(b.get(&key).await?.is_none());
+    assert!(
+        b.get(&key).await?.is_none(),
+        "stale candidate survived completed promotion"
+    );
     assert_eq!(b.complete_reconciliation(session).await?, remote.head);
+    let author = b.store().author();
+    drop(b);
+    let reopened = CausalEndpoint::with_projection(
+        CausalReplica::open(db.clone(), ns, author).await?,
+        projection,
+    );
+    synchronize(&a, &reopened).await?;
+    assert!(reopened.get(&key).await?.is_none());
+    assert_eq!(
+        reopened.get(&concurrent).await?.and_then(|r| r.value),
+        Some(Note("concurrent".into()))
+    );
+    assert_eq!(text(&db).await?.as_deref(), Some("concurrent"));
     Ok(())
 }
 #[tokio::test]
@@ -2286,9 +2322,12 @@ async fn sql_promotion_failure_rolls_back_and_reopens() -> Result<()> {
         .await?;
     let mut apply = limits();
     apply.max_mutations = 400;
+    synchronize(&stale, &b).await?;
     let first = b.promote_step(session, apply).await?;
     assert!(!first.done);
-    synchronize(&stale, &b).await?;
+    for key in &keys {
+        assert!(b.get(key).await?.is_some());
+    }
     let head = b.head().await?;
     let observed = causal_rows(&db, "sync_observed").await?;
     let candidates = causal_rows(&db, "sync_candidates").await?;

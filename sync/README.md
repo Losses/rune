@@ -151,7 +151,7 @@ Peers compare exactly the same intervals. A peer with more records/bytes in a di
 
 The default leaf target is at most 128 records and 1 MiB canonical bytes on each side. Above it, choose a pivot near the median canonical-byte position of the larger snapshot interval, with a record-count median as fallback. The pivot must strictly advance. If no interior key exists, read the bounded leaf directly; a single large valid record is not recursively split into an invalid record fragment. Leaf reads may require multiple byte-bounded pages.
 
-Equal summaries skip transfer. For a differing leaf, the receiver uses the staged source collection context and complete leaf candidates to compute a `MergeDelta` of additions and observed removals. After coverage, promotion removes qualifying post-snapshot arrivals and applies bounded chunks of `C0_S \ C0_T`. Each accepted change is journaled as a Merge event.
+Equal summaries skip transfer. For a differing leaf, the receiver uses the staged source collection context and complete leaf candidates to compute a `MergeDelta` of additions and observed removals. After coverage, promotion records the missing source context in bounded chunks before removing qualifying post-snapshot arrivals. This ordering suppresses stale deliveries after the final removal. Each accepted change is journaled as a Merge event.
 
 Each round permits at most 1,024 summary/split requests, 64 MiB of transferred data, and subdivision depth 64 by default. Reaching a budget returns `Incomplete` with a resumable cursor. Limits are explicit configurable work bounds. Requests are processed through a bounded work queue rather than an unbounded recursive call stack.
 
