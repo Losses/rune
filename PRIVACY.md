@@ -26,7 +26,7 @@ Each connected service receives the artist and track title in both now-playing u
 
 **Data Security**
 
-Your device's security settings help protect locally stored information. Rune sends scrobbling credentials and playback reports to the selected service over HTTPS. The service handles the information it receives under its own privacy policy.
+Your device's security settings help protect locally stored information. Rune sends scrobbling credentials and playback reports to the selected service's HTTPS endpoint. The service handles the information it receives under its own privacy policy.
 
 **Children's Privacy**
 

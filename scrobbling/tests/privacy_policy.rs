@@ -40,7 +40,7 @@ fn policy_discloses_optional_scrobbling() {
         "api key",
         "artist",
         "track title",
-        "album artist",
+        "omits the album artist",
         "duration",
         "timestamp",
         "library id",
