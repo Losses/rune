@@ -3,6 +3,8 @@ import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../../config/animation.dart';
+
 class StartGroupItemData {
   final String key;
   final int groupId;
@@ -122,6 +124,17 @@ class StartScreenLayoutManager with ChangeNotifier {
         timer.cancel();
       }
     });
+  }
+
+  /// Replays the entrance animation once [reload] is done, for the items it
+  /// brings in. The list stays on screen while it reloads, so until then its
+  /// items, and those built meanwhile by scrolling, stay visible. A failed
+  /// reload replays nothing.
+  Future<T> replayAfter<T>(Future<T> reload) async {
+    final result = await reload;
+    resetAnimations();
+    Timer(Duration(milliseconds: gridAnimationDelay), playAnimations);
+    return result;
   }
 
   void resetAnimations() {

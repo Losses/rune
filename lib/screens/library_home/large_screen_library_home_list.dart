@@ -9,7 +9,6 @@ import '../../utils/l10n.dart';
 import '../../utils/api/complex_query.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/router/router_aware_flyout_controller.dart';
-import '../../config/animation.dart';
 import '../../widgets/collection_item.dart';
 import '../../widgets/context_menu_wrapper.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
@@ -128,8 +127,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
   Future<List<Group<InternalCollection>>> fetchSummary(
     LibraryHomeProvider libraryHome,
   ) async {
-    widget.layoutManager.resetAnimations();
-    final librarySummary = await complexQuery(
+    final query = complexQuery(
       libraryHome.entries
           .where((x) => x.setting is LibraryHomeSettingQuery)
           .map((x) {
@@ -141,6 +139,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
           })
           .toList(),
     );
+    final librarySummary = await widget.layoutManager.replayAfter(query);
 
     if (!mounted) return [];
     if (librarySummary == null) return [];
@@ -156,11 +155,6 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
           ),
         )
         .toList();
-
-    Timer(
-      Duration(milliseconds: gridAnimationDelay),
-      () => widget.layoutManager.playAnimations(),
-    );
 
     return groups;
   }

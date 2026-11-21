@@ -121,7 +121,9 @@ void main() {
     await _settle(tester);
   }
 
-  testWidgets('a failed refresh keeps the tracks shown', (tester) async {
+  testWidgets('a failed refresh keeps the tracks shown and shows the error', (
+    tester,
+  ) async {
     Future<List<InternalMediaFile>> Function(int cursor) load =
         (cursor) async => _tracks('old', cursor, 5);
     await pumpList(
@@ -141,8 +143,19 @@ void main() {
       await _settle(tester);
       expect(find.text('old-0'), findsOneWidget, reason: '$failure');
       expect(find.text('old-4'), findsOneWidget, reason: '$failure');
-      expect(find.text(s.requestUnavailable), findsNothing);
       expect(find.byType(ProgressRing), findsNothing);
+      expect(find.byType(ContentDialog), findsOneWidget, reason: '$failure');
+      expect(find.text(s.unknownError), findsOneWidget);
+      expect(find.text(requestErrorText(s, failure)), findsOneWidget);
+
+      // Another refresh failing while the error is open adds no second one.
+      contentChanged.add(null);
+      await _settle(tester);
+      expect(find.byType(ContentDialog), findsOneWidget, reason: '$failure');
+
+      await tester.tap(find.text(s.close));
+      await _settle(tester);
+      expect(find.byType(ContentDialog), findsNothing);
     }
 
     // A later change tries again.
@@ -192,6 +205,7 @@ void main() {
       expect(afters, [null, 'old-20', null, 'old-20']);
       expect(find.text('old-0'), findsOneWidget);
       expect(find.text('old-24'), findsOneWidget);
+      expect(find.byType(ContentDialog), findsOneWidget);
     },
   );
 
@@ -213,5 +227,6 @@ void main() {
     await _settle(tester);
     expect(find.text(s.requestUnavailable), findsOneWidget);
     expect(find.byType(ProgressRing), findsNothing);
+    expect(find.byType(ContentDialog), findsNothing);
   });
 }
