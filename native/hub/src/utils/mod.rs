@@ -1715,14 +1715,11 @@ pub(crate) async fn replace_subsonic_credential_on_node(
         Ok(http) => http,
         Err(_) => return Err(credential_failure(Kind::Storage)),
     };
-    let client = SubsonicClient::new(
-        endpoint,
-        SubsonicCredentials::Password {
-            user: request.username.clone(),
-            password: request.password.clone(),
-        },
-        http,
-    );
+    let replacement = SubsonicCredentials::Password {
+        user: request.username.clone(),
+        password: request.password.clone(),
+    };
+    let client = SubsonicClient::new(endpoint, replacement.clone(), http);
     match timeout(Duration::from_secs(5), client.probe()).await {
         Err(_) => return Err(credential_failure(Kind::SubsonicUnreachable)),
         Ok(Err(SubsonicError::Transport(_) | SubsonicError::HttpStatus(_))) => {
@@ -1750,6 +1747,9 @@ pub(crate) async fn replace_subsonic_credential_on_node(
         .await
     {
         Ok(()) => {
+            if let Some(binding) = node.subsonic_binding(record_id.0)? {
+                binding.client.replace_credentials(replacement);
+            }
             if let Err(error) = publish_library_records_changed(node).await {
                 log::warn!("Could not publish library record change: {error:#}");
             }

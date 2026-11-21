@@ -353,29 +353,41 @@ async fn subsonic_hub_response(
     axum::Json(body).into_response()
 }
 
-#[derive(Clone)]
-struct SubsonicReloginMock(Arc<AtomicBool>);
-
 async fn subsonic_relogin_mock() -> (String, Arc<AtomicBool>, JoinHandle<()>) {
-    let reject = Arc::new(AtomicBool::new(true));
+    let rotated = Arc::new(AtomicBool::new(false));
     let app = Router::new()
         .route("/rest/{*action}", get(subsonic_relogin_response))
-        .with_state(SubsonicReloginMock(Arc::clone(&reject)));
+        .with_state(Arc::clone(&rotated));
     let listener = TokioTcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    (format!("http://{address}"), reject, task)
+    (format!("http://{address}"), rotated, task)
 }
 
 async fn subsonic_relogin_response(
     AxumPath(action): AxumPath<String>,
-    State(state): State<SubsonicReloginMock>,
+    State(rotated): State<Arc<AtomicBool>>,
+    Query(query): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let action = action.strip_suffix(".view").unwrap_or(&action);
-    let body = if action == "getUser" && state.0.load(Ordering::SeqCst) {
+    let password = if rotated.load(Ordering::SeqCst) {
+        "new-password"
+    } else {
+        "old-password"
+    };
+    let authorized = query.get("u").is_some_and(|user| user == "alice")
+        && query
+            .get("s")
+            .zip(query.get("t"))
+            .is_some_and(|(salt, token)| {
+                *token == format!("{:x}", md5::compute(format!("{password}{salt}")))
+            });
+    let body = if !authorized {
         json!({"subsonic-response":{"status":"failed","error":{"code":40,"message":"Rejected"}}})
     } else if action == "getUser" {
         json!({"subsonic-response":{"status":"ok","user":{"streamRole":true,"downloadRole":false}}})
+    } else if action == "getPlaylists" {
+        json!({"subsonic-response":{"status":"ok","playlists":{"playlist":[{"id":"p","name":"Road"}]}}})
     } else {
         json!({"subsonic-response":{"status":"ok","version":"1.16.1","openSubsonic":false}})
     };
@@ -1268,7 +1280,7 @@ async fn subsonic_relogin_replaces_only_a_verified_secret() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let fixture = super::fixture(dir.path()).await?;
     let node = fixture.global_params.node.clone();
-    let (endpoint, rejected, server) = subsonic_relogin_mock().await;
+    let (endpoint, rotated, server) = subsonic_relogin_mock().await;
     let credential = node
         .credentials
         .put(Credential {
@@ -1301,6 +1313,21 @@ async fn subsonic_relogin_replaces_only_a_verified_secret() -> Result<()> {
         password: password.into(),
         call_id: Some(1),
     };
+    let ui = open_registered_library_record(node.clone(), record.record_id.0.to_string()).await?;
+    let list = FetchAllPlaylistsRequest { call_id: None };
+    let fetch = || dispatch_gui_request(&ui, &list);
+    let before = fetch().await?.context("initial playlist list")?.playlists;
+    assert_eq!(before.len(), 1);
+    assert_eq!(before[0].name, "Road");
+    rotated.store(true, Ordering::SeqCst);
+    let denied = fetch()
+        .await
+        .err()
+        .context("the old password should be rejected")?;
+    assert_eq!(
+        request_failure_cause(&denied),
+        Some(RequestFailureCause::SubsonicNotAuthorized)
+    );
     let rejected_error =
         replace_subsonic_credential_on_node(&replacement("wrong-password"), &node)
             .await
@@ -1314,8 +1341,15 @@ async fn subsonic_relogin_replaces_only_a_verified_secret() -> Result<()> {
     let old = node.credentials.get(credential).await?;
     assert_eq!(old.secret.as_bytes(), b"old-password");
 
-    rejected.store(false, Ordering::SeqCst);
     replace_subsonic_credential_on_node(&replacement("new-password"), &node).await?;
+    let after = fetch()
+        .await
+        .context("the open library still sends the old credential")?
+        .context("retried playlist list")?
+        .playlists;
+    assert_eq!(after.len(), 1);
+    assert_eq!(after[0].id, before[0].id);
+    assert_eq!(after[0].name, before[0].name);
     let updated = node.credentials.get(credential).await?;
     assert_eq!(updated.secret.as_bytes(), b"new-password");
     let stored = LibraryRegistry::load(Path::new(&*node.config_path))?;
