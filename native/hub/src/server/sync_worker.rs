@@ -188,6 +188,7 @@ impl ShareStoreFactory for OpenDalShareStoreFactory {
                 capabilities: ShareCapabilities {
                     conditional_create: probed.conditional_create,
                     conditional_head_write: probed.conditional_put,
+                    conditional_get: probed.conditional_get,
                 },
             })
         })

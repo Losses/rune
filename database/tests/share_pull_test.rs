@@ -16,7 +16,7 @@ use sea_orm::{
 use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use support::SqlLibrary;
@@ -707,6 +707,7 @@ async fn push_pass_pulls_before_reading_and_publishing_the_local_tail() -> Resul
             ShareCapabilities {
                 conditional_create: true,
                 conditional_head_write: true,
+                conditional_get: true,
             },
         )
         .await
@@ -2366,6 +2367,7 @@ async fn push_entries(
         capabilities: ShareCapabilities {
             conditional_create: true,
             conditional_head_write: true,
+            conditional_get: true,
         },
         max_events_per_segment: 100,
     })
@@ -4047,5 +4049,823 @@ async fn device_that_lost_the_share_creation_passes_over_store_probe_objects() -
         share_prefix_keys(&store, &creator_prefix).await?,
         probe_keys
     );
+    Ok(())
+}
+
+/// The memory store, counting per key the object bodies it sends and their bytes: GETs that find
+/// the object, and conditional GETs that find it changed. A conditional GET of an unchanged object
+/// sends none.
+#[derive(Default)]
+struct DownloadCounter {
+    inner: MemoryObjectStore,
+    sent: Mutex<BTreeMap<String, (u64, u64)>>,
+}
+
+impl DownloadCounter {
+    fn send(&self, key: &str, value: &ObjectValue) {
+        let mut sent = self.sent.lock().unwrap();
+        let (bodies, bytes) = sent.entry(key.to_owned()).or_default();
+        *bodies += 1;
+        *bytes += value.bytes.len() as u64;
+    }
+
+    fn sent(&self) -> BTreeMap<String, (u64, u64)> {
+        self.sent.lock().unwrap().clone()
+    }
+}
+
+impl ObjectStore for DownloadCounter {
+    fn get<'a>(&'a self, key: &'a str) -> p::BoxFuture<'a, ObjectValue, StoreError> {
+        Box::pin(async move {
+            let value = self.inner.get(key).await?;
+            self.send(key, &value);
+            Ok(value)
+        })
+    }
+
+    fn get_if_none_match<'a>(
+        &'a self,
+        key: &'a str,
+        tag: &'a ObjectTag,
+    ) -> p::BoxFuture<'a, ConditionalGet, StoreError> {
+        Box::pin(async move {
+            let result = self.inner.get_if_none_match(key, tag).await?;
+            if let ConditionalGet::Modified(value) = &result {
+                self.send(key, value);
+            }
+            Ok(result)
+        })
+    }
+
+    fn put<'a>(&'a self, key: &'a str, bytes: &'a [u8]) -> p::BoxFuture<'a, ObjectTag, StoreError> {
+        self.inner.put(key, bytes)
+    }
+
+    fn create<'a>(
+        &'a self,
+        key: &'a str,
+        bytes: &'a [u8],
+    ) -> p::BoxFuture<'a, ObjectTag, StoreError> {
+        self.inner.create(key, bytes)
+    }
+
+    fn put_if_match<'a>(
+        &'a self,
+        key: &'a str,
+        tag: &'a ObjectTag,
+        bytes: &'a [u8],
+    ) -> p::BoxFuture<'a, ObjectTag, StoreError> {
+        self.inner.put_if_match(key, tag, bytes)
+    }
+
+    fn delete<'a>(&'a self, key: &'a str) -> p::BoxFuture<'a, (), StoreError> {
+        self.inner.delete(key)
+    }
+
+    fn list_prefix<'a>(&'a self, prefix: &'a str) -> p::BoxFuture<'a, Vec<String>, StoreError> {
+        self.inner.list_prefix(prefix)
+    }
+}
+
+/// What a probe finds on the memory store, or, with `conditional_get` false, on a store that
+/// answers a conditional GET with the whole object.
+fn memory_store_capabilities(conditional_get: bool) -> ShareCapabilities {
+    ShareCapabilities {
+        conditional_create: true,
+        conditional_head_write: true,
+        conditional_get,
+    }
+}
+
+/// The bodies, and their bytes, that `store` sent of each segment, chunk and manifest in the
+/// device's folder since `before`, objects deleted since included.
+async fn bodies_since(
+    store: &DownloadCounter,
+    device: &SqlLibrary,
+    before: &BTreeMap<String, (u64, u64)>,
+) -> Result<BTreeMap<String, (u64, u64)>> {
+    let folder = format!(
+        "devices/{}/",
+        device.sync_store.share_prefix(cache_path()).await?
+    );
+    let mut sent = BTreeMap::new();
+    for (key, (bodies, bytes)) in store.sent() {
+        if !key.starts_with(&folder)
+            || !matches!(
+                parse_key(&key)?,
+                ShareObjectKey::Base { .. }
+                    | ShareObjectKey::Chunk { .. }
+                    | ShareObjectKey::Segment { .. }
+            )
+        {
+            continue;
+        }
+        let (bodies_before, bytes_before) = before.get(&key).copied().unwrap_or_default();
+        if bodies > bodies_before {
+            sent.insert(key, (bodies - bodies_before, bytes - bytes_before));
+        }
+    }
+    Ok(sent)
+}
+
+/// By kind of object: the objects in the device's folder now, and the bodies and bytes in `sent`.
+async fn by_kind(
+    store: &DownloadCounter,
+    device: &SqlLibrary,
+    sent: &BTreeMap<String, (u64, u64)>,
+) -> Result<BTreeMap<&'static str, (u64, u64, u64)>> {
+    fn kind(key: &str) -> Result<Option<&'static str>> {
+        Ok(match parse_key(key)? {
+            ShareObjectKey::Base { .. } => Some("base"),
+            ShareObjectKey::Chunk { .. } => Some("chunk"),
+            ShareObjectKey::Segment { .. } => Some("segment"),
+            _ => None,
+        })
+    }
+    let mut summary = BTreeMap::<&str, (u64, u64, u64)>::new();
+    let prefix = device.sync_store.share_prefix(cache_path()).await?;
+    for key in share_prefix_keys(&store.inner, &prefix).await? {
+        if let Some(kind) = kind(&key)? {
+            summary.entry(kind).or_default().0 += 1;
+        }
+    }
+    for (key, (bodies, bytes)) in sent {
+        if let Some(kind) = kind(key)? {
+            let entry = summary.entry(kind).or_default();
+            entry.1 += bodies;
+            entry.2 += bytes;
+        }
+    }
+    Ok(summary)
+}
+
+/// Backdates the device's first observation of its newest base past the age at which any device
+/// cuts a new base.
+async fn age_newest_own_base(device: &SqlLibrary, head: &Head) -> Result<()> {
+    let identity = device.sync_store.identity().await?;
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let mut state = load_or_create_state(
+        &device.db,
+        identity.replica,
+        identity.namespace,
+        cache_path(),
+        now_ms,
+    )
+    .await?;
+    let newest = ShareObjectKey::Base {
+        prefix: DevicePrefix {
+            stream: state.stream,
+            generation: state.generation,
+        },
+        base_id: head
+            .bases
+            .last()
+            .context("the head has no base")?
+            .base_id
+            .clone(),
+    };
+    state
+        .observed_objects
+        .get_mut(&newest)
+        .context("the newest base was never observed")?
+        .first_seen_ms = now_ms - share::BASE_MAX_AGE_MS as i64 - 1;
+    save_state(&device.db, &state).await?;
+    Ok(())
+}
+
+/// Writes a playlist on `device`.
+async fn add_playlist(device: &SqlLibrary, id: u128, name: &str) -> Result<()> {
+    device
+        .sync_store
+        .write_local(
+            ObjectKey {
+                collection: Collection::Playlists,
+                id: Uuid::from_u128(id),
+            },
+            support::playlist(name),
+        )
+        .await?;
+    Ok(())
+}
+
+/// A push pass downloads what it needs to publish its change, and none of the base, chunks and
+/// segments that the device published and that have not changed since, also when a base cut
+/// takes segments out of the head and deletes them. The device records what its writes returned,
+/// and confirms the tags with a conditional GET. A store without conditional GET sends each object
+/// once per pass, as the garbage collection has to read every tag, and in a pass that cuts a base
+/// the manifest it keeps once more, as the cut checks it before it writes anything.
+#[tokio::test]
+async fn push_pass_does_not_download_the_devices_unchanged_objects() -> Result<()> {
+    for conditional_get in [true, false] {
+        let capabilities = memory_store_capabilities(conditional_get);
+        let namespace = Uuid::new_v4();
+        let store = Arc::new(DownloadCounter::default());
+        let device = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+        for id in 1..=40u128 {
+            add_playlist(&device, id, &format!("playlist {id}")).await?;
+        }
+        // Pass 0 publishes the 40 playlists in the first base. Passes 1 to 3 each publish one
+        // more playlist in a segment, and pass 4 publishes one more in a new base, as the first
+        // one is too old; its collection deletes the three segments that the new base covers.
+        let mut passes = Vec::new();
+        let mut head: Option<Head> = None;
+        for pass in 0..=4u128 {
+            if pass > 0 {
+                add_playlist(&device, 1000 + pass, "one more").await?;
+            }
+            if pass == 4 {
+                age_newest_own_base(&device, head.as_ref().context("no head before pass 4")?)
+                    .await?;
+            }
+            let before = store.sent();
+            let published = device
+                .sync_store
+                .push_share(store.clone(), namespace, cache_path(), capabilities)
+                .await
+                .map_err(|error| anyhow::anyhow!("push pass {pass}: {error:?}"))?
+                .with_context(|| format!("push pass {pass} published no head"))?;
+            let sent = bodies_since(&store, &device, &before).await?;
+            let summary = by_kind(&store, &device, &sent).await?;
+            println!(
+                "conditional GET {conditional_get}, push pass {pass}: (objects in the folder, \
+                 bodies sent during the pass, bytes) {summary:?}"
+            );
+            let most = sent.values().map(|(bodies, _)| *bodies).max().unwrap_or(0);
+            passes.push((summary, most));
+            head = Some(published);
+        }
+        let head = head.context("no head after the passes")?;
+        ensure!(
+            head.bases.len() == 2 && head.segments.is_empty(),
+            "pass 4 did not cut a new base that covers the segments"
+        );
+        let prefix = device.sync_store.share_prefix(cache_path()).await?;
+        ensure!(
+            share_prefix_keys(&store.inner, &prefix)
+                .await?
+                .iter()
+                .all(|key| !matches!(parse_key(key), Ok(ShareObjectKey::Segment { .. }))),
+            "pass 4 did not delete the segments that its base covers"
+        );
+        // Without conditional GET, the cut in pass 4 reads the manifest it keeps to check it before
+        // it writes anything, and the collection reads it again for its tag.
+        let allowed = |pass: usize| match (conditional_get, pass) {
+            (true, _) => 0,
+            (false, 4) => 2,
+            (false, _) => 1,
+        };
+        assert!(
+            passes
+                .iter()
+                .enumerate()
+                .all(|(pass, (_, most))| *most <= allowed(pass)),
+            "with conditional GET {conditional_get}, push passes downloaded objects that the \
+             device published and did not change more often than allowed: {passes:?}"
+        );
+        let target = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+        target
+            .sync_store
+            .pull_share(store.clone(), namespace, cache_path(), Default::default())
+            .await?;
+        for id in [1, 40, 1001, 1004] {
+            let key = ObjectKey {
+                collection: Collection::Playlists,
+                id: Uuid::from_u128(id),
+            };
+            assert_eq!(
+                target.sync_store.get(&key).await?,
+                device.sync_store.get(&key).await?,
+                "a new device did not receive playlist {id}"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// A device that is not the keeper rolls its segments up: sixteen L0 segments become one L1. The
+/// pass that rolls them up reads the ones it published before, once, since it needs their events.
+/// The rolled-up segments stay in the folder until a base of the device covers them, and the
+/// passes after the roll-up download none of them.
+#[tokio::test]
+async fn push_passes_after_a_roll_up_do_not_download_the_rolled_up_segments() -> Result<()> {
+    let capabilities = memory_store_capabilities(true);
+    let namespace = Uuid::new_v4();
+    let store = Arc::new(DownloadCounter::default());
+    // The keeper is the active stream with the smallest id. With the other device as the keeper,
+    // this device rolls its segments up instead of cutting them into a base.
+    let first = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let second = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let (keeper, device) = if first.sync_store.share_prefix(cache_path()).await?
+        < second.sync_store.share_prefix(cache_path()).await?
+    {
+        (first, second)
+    } else {
+        (second, first)
+    };
+    add_playlist(&keeper, 1791, "the keeper's").await?;
+    keeper
+        .sync_store
+        .push_share(store.clone(), namespace, cache_path(), capabilities)
+        .await
+        .map_err(|error| anyhow::anyhow!("the keeper's push: {error:?}"))?;
+    add_playlist(&device, 1792, "in the device's first base").await?;
+    let prefix = device.sync_store.share_prefix(cache_path()).await?;
+    let mut head: Option<Head> = None;
+    let mut rolled_up = None;
+    // Per pass: (bodies of the segments that the pass rolled up, any other bodies).
+    let mut passes = Vec::new();
+    for pass in 0..=18u128 {
+        if pass > 0 {
+            add_playlist(&device, 1800 + pass, "one more").await?;
+        }
+        let before = store.sent();
+        let published = device
+            .sync_store
+            .push_share(store.clone(), namespace, cache_path(), capabilities)
+            .await
+            .map_err(|error| anyhow::anyhow!("push pass {pass}: {error:?}"))?
+            .with_context(|| format!("push pass {pass} published no head"))?;
+        let sent = bodies_since(&store, &device, &before).await?;
+        // A roll-up reads the L0 segments of the previous head that it rolls up.
+        let rolls_up = published.segments.iter().any(|segment| segment.level == 1)
+            && head
+                .as_ref()
+                .is_some_and(|head| head.segments.iter().all(|segment| segment.level == 0));
+        let inputs = match (&head, rolls_up) {
+            (Some(previous), true) => previous
+                .segments
+                .iter()
+                .map(|segment| {
+                    share::segment_key(&prefix, segment.first, segment.last, &segment.name)
+                })
+                .collect::<std::result::Result<BTreeSet<_>, _>>()?,
+            _ => BTreeSet::new(),
+        };
+        let read_once = |key: &String| inputs.contains(key) && sent[key].0 == 1;
+        let rolled = sent.keys().filter(|key| read_once(key)).count();
+        let other = sent
+            .iter()
+            .filter(|(key, _)| !read_once(key))
+            .map(|(_, (bodies, _))| bodies)
+            .sum::<u64>();
+        println!(
+            "push pass {pass}: segments it rolled up read once {rolled} of {}, other bodies \
+             {other}",
+            inputs.len()
+        );
+        if rolls_up {
+            rolled_up = Some((pass, inputs.clone()));
+        }
+        passes.push((rolled == inputs.len(), other));
+        head = Some(published);
+    }
+    let (pass, inputs) = rolled_up.context("no pass rolled the segments up")?;
+    let listed = share_prefix_keys(&store.inner, &prefix).await?;
+    ensure!(
+        pass < 18 && !inputs.is_empty() && inputs.iter().all(|key| listed.contains(key)),
+        "the rolled-up segments did not stay in the folder for the passes after the roll-up"
+    );
+    assert!(
+        passes
+            .iter()
+            .all(|(all_inputs_once, other)| *all_inputs_once && *other == 0),
+        "push passes downloaded more than the segments a roll-up rolls up, once each: \
+         {passes:?}"
+    );
+    Ok(())
+}
+
+/// The counting memory store, answering each write of a segment, chunk or manifest with another
+/// tag than its reads report for the same bytes, as some stores do.
+#[derive(Default)]
+struct OtherWriteTags {
+    inner: DownloadCounter,
+}
+
+impl OtherWriteTags {
+    fn written(key: &str, tag: ObjectTag) -> ObjectTag {
+        if matches!(
+            parse_key(key),
+            Ok(ShareObjectKey::Base { .. }
+                | ShareObjectKey::Chunk { .. }
+                | ShareObjectKey::Segment { .. })
+        ) {
+            ObjectTag::new(format!("\"written-{}\"", tag.as_str()))
+        } else {
+            tag
+        }
+    }
+}
+
+impl ObjectStore for OtherWriteTags {
+    fn get<'a>(&'a self, key: &'a str) -> p::BoxFuture<'a, ObjectValue, StoreError> {
+        self.inner.get(key)
+    }
+
+    fn get_if_none_match<'a>(
+        &'a self,
+        key: &'a str,
+        tag: &'a ObjectTag,
+    ) -> p::BoxFuture<'a, ConditionalGet, StoreError> {
+        self.inner.get_if_none_match(key, tag)
+    }
+
+    fn put<'a>(&'a self, key: &'a str, bytes: &'a [u8]) -> p::BoxFuture<'a, ObjectTag, StoreError> {
+        Box::pin(async move { Ok(Self::written(key, self.inner.put(key, bytes).await?)) })
+    }
+
+    fn create<'a>(
+        &'a self,
+        key: &'a str,
+        bytes: &'a [u8],
+    ) -> p::BoxFuture<'a, ObjectTag, StoreError> {
+        Box::pin(async move { Ok(Self::written(key, self.inner.create(key, bytes).await?)) })
+    }
+
+    fn put_if_match<'a>(
+        &'a self,
+        key: &'a str,
+        tag: &'a ObjectTag,
+        bytes: &'a [u8],
+    ) -> p::BoxFuture<'a, ObjectTag, StoreError> {
+        self.inner.put_if_match(key, tag, bytes)
+    }
+
+    fn delete<'a>(&'a self, key: &'a str) -> p::BoxFuture<'a, (), StoreError> {
+        self.inner.delete(key)
+    }
+
+    fn list_prefix<'a>(&'a self, prefix: &'a str) -> p::BoxFuture<'a, Vec<String>, StoreError> {
+        self.inner.list_prefix(prefix)
+    }
+}
+
+/// Where a store answers a write with another tag than its reads report, the first collection
+/// after the write sees another tag and downloads the object. It records what it read, so that no
+/// manifest, chunk or segment of the device is downloaded a second time: not while a segment is in
+/// the head, and not when a base cut takes the segments out of the head and deletes them.
+#[tokio::test]
+async fn push_passes_download_an_object_once_where_writes_return_other_tags() -> Result<()> {
+    let capabilities = memory_store_capabilities(true);
+    let namespace = Uuid::new_v4();
+    let store = Arc::new(OtherWriteTags::default());
+    let device = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    for id in 1..=40u128 {
+        add_playlist(&device, id, &format!("playlist {id}")).await?;
+    }
+    let prefix = device.sync_store.share_prefix(cache_path()).await?;
+    // Every manifest, chunk and segment that was in the device's folder after a pass.
+    let mut objects = BTreeSet::new();
+    let mut head: Option<Head> = None;
+    // As in push_pass_does_not_download_the_devices_unchanged_objects, with one more pass after
+    // the base cut of pass 4.
+    for pass in 0..=5u128 {
+        if pass > 0 {
+            add_playlist(&device, 1100 + pass, "one more").await?;
+        }
+        if pass == 4 {
+            age_newest_own_base(&device, head.as_ref().context("no head before pass 4")?).await?;
+        }
+        let published = device
+            .sync_store
+            .push_share(store.clone(), namespace, cache_path(), capabilities)
+            .await
+            .map_err(|error| anyhow::anyhow!("push pass {pass}: {error:?}"))?
+            .with_context(|| format!("push pass {pass} published no head"))?;
+        for key in share_prefix_keys(&store.inner.inner, &prefix).await? {
+            if matches!(
+                parse_key(&key)?,
+                ShareObjectKey::Base { .. }
+                    | ShareObjectKey::Chunk { .. }
+                    | ShareObjectKey::Segment { .. }
+            ) {
+                objects.insert(key);
+            }
+        }
+        head = Some(published);
+    }
+    let head = head.context("no head after the passes")?;
+    let is_segment = |key: &&String| matches!(parse_key(key), Ok(ShareObjectKey::Segment { .. }));
+    let listed = share_prefix_keys(&store.inner.inner, &prefix).await?;
+    ensure!(
+        head.bases.len() == 2
+            && head.segments.len() == 1
+            && objects.iter().filter(is_segment).count() == 4
+            && listed.iter().filter(is_segment).count() == 1,
+        "pass 4 did not cut a base that took the three segments out of the head and deleted them"
+    );
+    let downloaded = bodies_since(&store.inner, &device, &BTreeMap::new())
+        .await?
+        .into_iter()
+        .map(|(key, (bodies, _))| (key, bodies))
+        .collect::<BTreeMap<_, _>>();
+    assert_eq!(
+        downloaded,
+        objects.iter().map(|key| (key.clone(), 1)).collect(),
+        "push passes did not download each object of the device's folder exactly once"
+    );
+    Ok(())
+}
+
+/// Replaces the manifest of the head's newest base with a canonical manifest that its base id no
+/// longer names, or deletes it.
+async fn change_or_delete_manifest(
+    store: &MemoryObjectStore,
+    prefix: &str,
+    head: &Head,
+    delete: bool,
+) -> Result<()> {
+    let base_id = &head.bases.last().context("the head has no base")?.base_id;
+    let key = share::base_key(prefix, base_id)?;
+    if delete {
+        return store
+            .delete(&key)
+            .await
+            .map_err(|error| anyhow::anyhow!("delete the manifest: {error:?}"));
+    }
+    let mut tampered = base_manifest(store, prefix, base_id).await?;
+    tampered
+        .collections
+        .get_mut(RuneModel::collection_tag(&Collection::Playlists))
+        .context("the base has no playlist collection")?
+        .root
+        .candidate_count += 1;
+    let (_, bytes) = share::encode_manifest(&tampered)?;
+    store
+        .put(&key, &bytes)
+        .await
+        .map(|_| ())
+        .map_err(|error| anyhow::anyhow!("replace the manifest: {error:?}"))
+}
+
+/// A base cut takes the chunk names of the bases it keeps from what the device recorded only once
+/// the store has confirmed each manifest. When one is gone, or no longer matches its base id, the
+/// pass stops before it writes anything of the new base.
+#[tokio::test]
+async fn base_cut_stops_before_it_writes_when_a_kept_manifest_changed_or_disappeared() -> Result<()>
+{
+    for conditional_get in [true, false] {
+        for disappeared in [false, true] {
+            let capabilities = memory_store_capabilities(conditional_get);
+            let namespace = Uuid::new_v4();
+            let store = Arc::new(MemoryObjectStore::default());
+            let device = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+            add_playlist(&device, 1793, "in the first base").await?;
+            let head = device
+                .sync_store
+                .push_share(store.clone(), namespace, cache_path(), capabilities)
+                .await?
+                .context("the first push pass published no head")?;
+            let prefix = device.sync_store.share_prefix(cache_path()).await?;
+            change_or_delete_manifest(&store, &prefix, &head, disappeared).await?;
+            add_playlist(&device, 1794, "for the next base").await?;
+            age_newest_own_base(&device, &head).await?;
+            let before = share_prefix_keys(&store, &prefix).await?;
+            let result = device
+                .sync_store
+                .push_share(store.clone(), namespace, cache_path(), capabilities)
+                .await;
+            let stopped = if disappeared {
+                matches!(result, Err(SharePushError::MissingObject))
+            } else {
+                matches!(&result, Err(SharePushError::Failed(message)) if message.contains("digest"))
+            };
+            let what = if disappeared {
+                "disappeared"
+            } else {
+                "changed"
+            };
+            assert!(
+                stopped,
+                "with conditional GET {conditional_get}, a base cut after the manifest {what} \
+                 gave {result:?}"
+            );
+            assert_eq!(
+                share_prefix_keys(&store, &prefix).await?,
+                before,
+                "with conditional GET {conditional_get}, a base cut after the manifest {what} \
+                 wrote to the share"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// A share state saved by an earlier build has no records of the device's manifests and segments.
+/// The next pass reads the device's base manifest to learn it, and the passes after it do not read
+/// it again.
+#[tokio::test]
+async fn push_pass_learns_the_manifests_a_state_from_an_earlier_build_does_not_record() -> Result<()>
+{
+    let namespace = Uuid::new_v4();
+    let store = Arc::new(DownloadCounter::default());
+    let device = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let capabilities = memory_store_capabilities(true);
+    for pass in 0..=2u128 {
+        add_playlist(&device, 1781 + pass, &format!("playlist {pass}")).await?;
+        if pass == 1 {
+            let identity = device.sync_store.identity().await?;
+            let state = load_or_create_state(
+                &device.db,
+                identity.replica,
+                namespace,
+                cache_path(),
+                chrono::Utc::now().timestamp_millis(),
+            )
+            .await?;
+            let mut encoded = serde_json::to_value(&state)?;
+            encoded
+                .as_object_mut()
+                .context("the share state is not a JSON object")?
+                .remove("own_objects")
+                .context("the share state keeps no records")?;
+            let earlier: ShareState = serde_json::from_value(encoded)?;
+            ensure!(earlier.own_objects.is_empty());
+            save_state(&device.db, &earlier).await?;
+        }
+        let before = store.sent();
+        device
+            .sync_store
+            .push_share(store.clone(), namespace, cache_path(), capabilities)
+            .await
+            .map_err(|error| anyhow::anyhow!("push pass {pass}: {error:?}"))?;
+        let sent = by_kind(
+            &store,
+            &device,
+            &bodies_since(&store, &device, &before).await?,
+        )
+        .await?;
+        let manifest_bodies = sent.get("base").map_or(0, |(_, bodies, _)| *bodies);
+        if pass == 1 {
+            ensure!(
+                manifest_bodies > 0,
+                "the pass after the earlier build did not read the base manifest: {sent:?}"
+            );
+        } else {
+            ensure!(
+                sent.values().all(|(_, bodies, _)| *bodies == 0),
+                "push pass {pass} downloaded objects that did not change: {sent:?}"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// The garbage collection deletes an object that two of its runs at least 24 hours apart both saw
+/// unreferenced. An object whose tag changed since the first of them is not the object those runs
+/// saw, so its wait starts again, whether the pass confirms tags with a conditional GET or
+/// downloads the objects.
+#[tokio::test]
+async fn garbage_collection_starts_the_wait_again_for_an_object_that_changed() -> Result<()> {
+    for conditional_get in [true, false] {
+        let capabilities = memory_store_capabilities(conditional_get);
+        let namespace = Uuid::new_v4();
+        let store = Arc::new(MemoryObjectStore::default());
+        let device = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+        add_playlist(&device, 1761, "published").await?;
+        device
+            .sync_store
+            .push_share(store.clone(), namespace, cache_path(), capabilities)
+            .await?;
+        let prefix = device.sync_store.share_prefix(cache_path()).await?;
+        // Two chunks that no manifest references, as an interrupted base cut leaves them.
+        let unchanged = share::chunk_key(&prefix, blake3::hash(b"unchanged").to_hex().as_str())?;
+        let replaced = share::chunk_key(&prefix, blake3::hash(b"replaced").to_hex().as_str())?;
+        for key in [&unchanged, &replaced] {
+            store
+                .put(key, b"orphan chunk")
+                .await
+                .map_err(|error| anyhow::anyhow!("put {key}: {error:?}"))?;
+        }
+        device
+            .sync_store
+            .push_share(store.clone(), namespace, cache_path(), capabilities)
+            .await?;
+        // The run that first saw them is more than 24 hours ago, and a second run saw them too.
+        let identity = device.sync_store.identity().await?;
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let mut state = load_or_create_state(
+            &device.db,
+            identity.replica,
+            namespace,
+            cache_path(),
+            now_ms,
+        )
+        .await?;
+        for key in [&unchanged, &replaced] {
+            let observed = state
+                .observed_objects
+                .get_mut(&parse_key(key)?)
+                .with_context(|| format!("{key} was not observed"))?;
+            ensure!(
+                matches!(
+                    observed.gc_state,
+                    ObjectGcState::Unreferenced {
+                        second_observation: GcObservation::NotObserved,
+                        ..
+                    }
+                ),
+                "{key} was not seen unreferenced: {:?}",
+                observed.gc_state
+            );
+            observed.gc_state = ObjectGcState::Unreferenced {
+                first_seen_ms: now_ms - share::OBJECT_UNREFERENCED_MS as i64 - 10,
+                second_observation: GcObservation::ObservedAt(now_ms as u64),
+            };
+        }
+        save_state(&device.db, &state).await?;
+        // Someone writes other bytes under one of the names before the next run.
+        store
+            .put(&replaced, b"another orphan chunk")
+            .await
+            .map_err(|error| anyhow::anyhow!("replace {replaced}: {error:?}"))?;
+        let replaced_tag = store
+            .get(&replaced)
+            .await
+            .map_err(|error| anyhow::anyhow!("read {replaced}: {error:?}"))?
+            .tag;
+        let run_ms = chrono::Utc::now().timestamp_millis();
+        device
+            .sync_store
+            .push_share(store.clone(), namespace, cache_path(), capabilities)
+            .await?;
+        ensure!(
+            matches!(store.get(&unchanged).await, Err(StoreError::NotFound)),
+            "with conditional GET {conditional_get}, the run kept the orphan that both runs saw"
+        );
+        ensure!(
+            store.get(&replaced).await.is_ok(),
+            "with conditional GET {conditional_get}, the run deleted the orphan that changed"
+        );
+        let state = load_or_create_state(
+            &device.db,
+            identity.replica,
+            namespace,
+            cache_path(),
+            chrono::Utc::now().timestamp_millis(),
+        )
+        .await?;
+        let observed = state
+            .observed_objects
+            .get(&parse_key(&replaced)?)
+            .context("the replaced orphan is no longer observed")?;
+        assert_eq!(observed.tag, replaced_tag);
+        assert!(
+            matches!(
+                observed.gc_state,
+                ObjectGcState::Unreferenced {
+                    first_seen_ms,
+                    second_observation: GcObservation::NotObserved,
+                } if first_seen_ms >= run_ms
+            ),
+            "with conditional GET {conditional_get}, the wait for the replaced orphan did not \
+             start again: {:?}",
+            observed.gc_state
+        );
+    }
+    Ok(())
+}
+
+/// The garbage collection takes the chunks that a base references from the device's record of
+/// its manifest only while the store confirms the manifest's tag. A manifest that changed is read
+/// again, and the pass stops before it collects anything when the manifest no longer matches its
+/// base id or is gone.
+#[tokio::test]
+async fn garbage_collection_stops_on_a_base_manifest_that_changed_or_disappeared() -> Result<()> {
+    for conditional_get in [true, false] {
+        for disappeared in [false, true] {
+            let capabilities = memory_store_capabilities(conditional_get);
+            let namespace = Uuid::new_v4();
+            let store = Arc::new(MemoryObjectStore::default());
+            let device = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+            add_playlist(&device, 1771, "in the base").await?;
+            let head = device
+                .sync_store
+                .push_share(store.clone(), namespace, cache_path(), capabilities)
+                .await?
+                .context("the first push pass published no head")?;
+            let prefix = device.sync_store.share_prefix(cache_path()).await?;
+            change_or_delete_manifest(&store, &prefix, &head, disappeared).await?;
+            let result = device
+                .sync_store
+                .push_share(store.clone(), namespace, cache_path(), capabilities)
+                .await;
+            let stopped = if disappeared {
+                matches!(result, Err(SharePushError::MissingObject))
+            } else {
+                matches!(&result, Err(SharePushError::Failed(message)) if message.contains("digest"))
+            };
+            assert!(
+                stopped,
+                "with conditional GET {conditional_get}, a pass after the manifest {} gave \
+                 {result:?}",
+                if disappeared {
+                    "disappeared"
+                } else {
+                    "changed"
+                }
+            );
+        }
+    }
     Ok(())
 }

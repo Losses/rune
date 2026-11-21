@@ -263,6 +263,7 @@ async fn opendal_share_session(config: OpenDalConfig) -> ShareStoreSession {
         capabilities: ShareCapabilities {
             conditional_create: capabilities.conditional_create,
             conditional_head_write: capabilities.conditional_put,
+            conditional_get: capabilities.conditional_get,
         },
     }
 }

@@ -152,15 +152,22 @@ impl OpenDalObjectStore {
             let _ = self.delete(&match_key).await;
         }
 
+        // Share sync takes "not modified" for an object that still has its tag and fails a pass on
+        // an error, so conditional GET counts only if the store answers "not modified" for the
+        // object's own tag and sends the object for another tag.
         let get_key = scratch_key(ProbeObject::ConditionalGet);
         if self.put(&get_key, bytes).await.is_ok() {
             if let Ok(original) = self.get(&get_key).await {
-                match self.get_if_none_match(&get_key, &original.tag).await {
-                    Ok(ConditionalGet::NotModified) => caps.conditional_get = true,
-                    Ok(ConditionalGet::Modified(_)) => caps.conditional_get = false,
-                    Err(StoreError::PreconditionFailed) => caps.conditional_get = true,
-                    Err(_) => {}
-                }
+                let unchanged = matches!(
+                    self.get_if_none_match(&get_key, &original.tag).await,
+                    Ok(ConditionalGet::NotModified)
+                );
+                let other_tag = ObjectTag::new(format!("\"{}\"", uuid::Uuid::new_v4()));
+                let changed = matches!(
+                    self.get_if_none_match(&get_key, &other_tag).await,
+                    Ok(ConditionalGet::Modified(value)) if value.bytes == bytes
+                );
+                caps.conditional_get = unchanged && changed;
             }
             let _ = self.delete(&get_key).await;
         }

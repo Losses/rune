@@ -15,18 +15,19 @@ use std::{
     sync::Arc,
 };
 use sync::{
-    Coordinator, Event, ReceiveProgress, SessionAdvance, StoreIdentity, SyncError, SyncModel,
-    protocol::{CheckpointKey, Scope},
+    Coordinator, Digest, Event, ReceiveProgress, SessionAdvance, StoreIdentity, SyncError,
+    SyncModel,
+    protocol::{CheckpointKey, Scope, digest_serde},
     share::{
-        BaseManifest, BaseRef, BaseSize, Checkpoint, DevicePrefix, ExportCursorStatus,
-        FORMAT_VERSION, FloorBase, FloorBaseSelection, FormatError, GcInput, GcObservation, Head,
-        InProgressCut, JournalEvent, LibraryFile, ManifestStatus, ObjectGcState, ObjectKey,
-        ObjectStore, ObjectTag, OwnBase, OwnChunk, OwnSegment, PublishDecision, PublishInput,
-        RetainedManifest, RetirementCandidate, RetirementPrecondition, RetirementReadStatus,
-        RollupInput, SEGMENT_RETENTION_MS, Segment, SegmentLink, SegmentRef, SelectedBase,
-        SharePeer, StoreError, SupersededSince, base_key, chunk_key, decode_head, decode_library,
-        decode_manifest, decode_segment, encode_head, encode_segment, head_key, library_key,
-        parse_key, plan_gc, plan_publish, segment_key,
+        BaseManifest, BaseRef, BaseSize, Checkpoint, ConditionalGet, DevicePrefix,
+        ExportCursorStatus, FORMAT_VERSION, FloorBase, FloorBaseSelection, FormatError, GcInput,
+        GcObservation, Head, InProgressCut, JournalEvent, LibraryFile, ManifestStatus,
+        ObjectGcState, ObjectKey, ObjectStore, ObjectTag, ObjectValue, OwnBase, OwnChunk,
+        OwnSegment, PublishDecision, PublishInput, RetainedManifest, RetirementCandidate,
+        RetirementPrecondition, RetirementReadStatus, RollupInput, SEGMENT_RETENTION_MS, Segment,
+        SegmentLink, SegmentRef, SelectedBase, SharePeer, StoreError, SupersededSince, base_key,
+        chunk_key, decode_head, decode_library, decode_manifest, decode_segment, encode_head,
+        encode_segment, head_key, library_key, parse_key, plan_gc, plan_publish, segment_key,
     },
 };
 use sync_orm::causal_export_cursors::{advance_on, create_on, read_on};
@@ -52,11 +53,18 @@ pub struct ShareState {
     pub writer_session: Uuid,
     pub head_counter: u64,
     pub local_cursor: u64,
-    #[serde(with = "observed_object_map")]
+    #[serde(with = "object_key_map")]
     pub observed_objects: BTreeMap<ObjectKey, ObservedObject>,
     /// Deletions of retired prefixes that this device has begun and not finished.
     #[serde(default)]
     pub retirement_cleanups: Vec<RetirementCleanup>,
+    /// What push and garbage collection use of this device's base manifests and segments, so
+    /// that they are not downloaded again. A record belongs to the bytes whose tag it carries:
+    /// it is taken only while that tag is the one observed last (`recorded`), and the collection
+    /// and the base cut take it only once the store has confirmed that tag (`own_contents`).
+    /// Garbage collection drops the records of objects that are no longer in the folder.
+    #[serde(default, with = "object_key_map")]
+    pub own_objects: BTreeMap<ObjectKey, OwnRecord>,
     pub chunk_cache_path: PathBuf,
 }
 
@@ -91,28 +99,98 @@ pub struct ObservedObject {
     pub gc_state: ObjectGcState,
 }
 
-mod observed_object_map {
-    use super::{ObjectKey, ObservedObject};
+/// What push and garbage collection use of a base manifest or segment in this device's prefix,
+/// with the tag of the bytes it was read from, or that this device's write of them returned.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OwnRecord {
+    /// The tag of the bytes `contents` describes. For bytes this device wrote, it is the tag the
+    /// write returned, taken for the tag of the bytes sent: the device does not read them back.
+    pub tag: ObjectTag,
+    /// What was read from those bytes, or written as them.
+    pub contents: OwnContents,
+}
+
+/// What push and garbage collection use of one of this device's base manifests or segments.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OwnContents {
+    /// A base manifest.
+    Manifest {
+        /// The size of the stored manifest, which the base cut decision takes for the size of
+        /// the base.
+        bytes: u64,
+        /// The bucket chunks and context fragments the manifest references.
+        chunks: BTreeSet<String>,
+    },
+    /// A segment: what a reference to it holds besides its level, range and name.
+    Segment {
+        /// The anchor of the checkpoint before the segment's first event.
+        #[serde(with = "digest_serde")]
+        prev_anchor: Digest,
+        /// The anchor of the checkpoint at its last event.
+        #[serde(with = "digest_serde")]
+        last_anchor: Digest,
+        /// The size of the stored segment.
+        bytes: u64,
+    },
+}
+
+impl OwnContents {
+    fn manifest<M: SyncModel>(bytes: u64, manifest: &BaseManifest<M>) -> Self {
+        Self::Manifest {
+            bytes,
+            chunks: manifest_chunk_names(manifest).collect(),
+        }
+    }
+
+    /// Decodes a base manifest or segment read from this device's prefix. A manifest is checked
+    /// against its base id.
+    fn decode<M: SyncModel>(object: &ObjectKey, bytes: &[u8]) -> SharePushResult<Self> {
+        let failed = |error: FormatError| SharePushError::Failed(error.to_string());
+        match object {
+            ObjectKey::Base { base_id, .. } => Ok(Self::manifest(
+                bytes.len() as u64,
+                &decode_manifest::<M>(bytes, base_id).map_err(failed)?,
+            )),
+            ObjectKey::Segment { .. } => {
+                let segment = decode_segment::<M>(bytes).map_err(failed)?;
+                Ok(Self::Segment {
+                    prev_anchor: segment.prev_anchor,
+                    last_anchor: segment.last_anchor,
+                    bytes: bytes.len() as u64,
+                })
+            }
+            _ => Err(SharePushError::Failed(
+                "only base manifests and segments are recorded".into(),
+            )),
+        }
+    }
+}
+
+/// Serializes a map keyed by share object as a list of pairs, since JSON keys are strings.
+mod object_key_map {
+    use super::ObjectKey;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
     use std::collections::BTreeMap;
 
-    pub fn serialize<S>(
-        objects: &BTreeMap<ObjectKey, ObservedObject>,
+    pub fn serialize<S, V>(
+        objects: &BTreeMap<ObjectKey, V>,
         serializer: S,
     ) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
+        V: Serialize,
     {
         objects.iter().collect::<Vec<_>>().serialize(serializer)
     }
 
-    pub fn deserialize<'de, D>(
+    pub fn deserialize<'de, D, V>(
         deserializer: D,
-    ) -> std::result::Result<BTreeMap<ObjectKey, ObservedObject>, D::Error>
+    ) -> std::result::Result<BTreeMap<ObjectKey, V>, D::Error>
     where
         D: Deserializer<'de>,
+        V: Deserialize<'de>,
     {
-        let entries = Vec::<(ObjectKey, ObservedObject)>::deserialize(deserializer)?;
+        let entries = Vec::<(ObjectKey, V)>::deserialize(deserializer)?;
         Ok(entries.into_iter().collect())
     }
 }
@@ -141,6 +219,7 @@ impl ShareState {
             local_cursor: 0,
             observed_objects: BTreeMap::new(),
             retirement_cleanups: Vec::new(),
+            own_objects: BTreeMap::new(),
             chunk_cache_path: cache_path,
         })
     }
@@ -199,12 +278,29 @@ impl ShareState {
         }
     }
 
+    /// The record of one of this device's objects, if it belongs to the bytes whose tag this device
+    /// observed last. Whether the store still holds those bytes is for the caller to confirm.
+    pub(crate) fn recorded(&self, object: &ObjectKey) -> Option<&OwnContents> {
+        let observed = self.observed_objects.get(object)?;
+        self.own_objects
+            .get(object)
+            .filter(|record| record.tag == observed.tag)
+            .map(|record| &record.contents)
+    }
+
+    /// Records what was read from, or written as, the bytes of one of this device's objects whose
+    /// tag is `tag`.
+    fn record(&mut self, object: ObjectKey, tag: ObjectTag, contents: OwnContents) {
+        self.own_objects.insert(object, OwnRecord { tag, contents });
+    }
+
     fn rotate_generation(&mut self) {
         self.generation = Uuid::new_v4();
         self.writer_session = Uuid::new_v4();
         self.head_counter = 0;
         self.local_cursor = 0;
         self.observed_objects.clear();
+        self.own_objects.clear();
     }
 }
 
@@ -263,6 +359,8 @@ pub struct ShareCapabilities {
     pub conditional_create: bool,
     /// Set only after the store's conditional overwrite probe succeeds.
     pub conditional_head_write: bool,
+    /// Set only after the store's conditional GET probe succeeds.
+    pub conditional_get: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -403,14 +501,21 @@ pub async fn cut_base<M: SyncModel>(request: BaseCutRequest<'_, M>) -> SharePush
             None
         }
     };
+    // A retained manifest must still be there and decode before anything of the new base is
+    // written, as the chunks it names are not uploaded again.
+    let now_ms = Utc::now().timestamp_millis();
     let mut retained_chunk_names = BTreeSet::new();
     for base in latest.iter().flat_map(|head| head.bases.iter()) {
+        let object = ObjectKey::Base {
+            prefix: prefix.clone(),
+            base_id: base.base_id.clone(),
+        };
         let key = base_key(&prefix.to_string(), &base.base_id)
             .map_err(|error| SharePushError::Failed(error.to_string()))?;
-        let value = store.get(&key).await.map_err(push_store_error)?;
-        let manifest = decode_manifest::<M>(&value.bytes, &base.base_id)
-            .map_err(|error| SharePushError::Failed(error.to_string()))?;
-        retained_chunk_names.extend(manifest_chunk_names(&manifest));
+        match own_contents::<M>(store, state, &object, &key, None, capabilities, now_ms).await? {
+            Some(OwnContents::Manifest { chunks, .. }) => retained_chunk_names.extend(chunks),
+            _ => return Err(SharePushError::MissingObject),
+        }
     }
     let export = export_base(
         source,
@@ -424,7 +529,8 @@ pub async fn cut_base<M: SyncModel>(request: BaseCutRequest<'_, M>) -> SharePush
     .await
     .map_err(|error| SharePushError::Failed(error.to_string()))?;
     for (index, object) in export.objects.iter().enumerate() {
-        let key = if index + 1 == export.objects.len() {
+        let is_manifest = index + 1 == export.objects.len();
+        let key = if is_manifest {
             base_key(&prefix.to_string(), &object.name)
         } else {
             chunk_key(&prefix.to_string(), &object.name)
@@ -432,10 +538,12 @@ pub async fn cut_base<M: SyncModel>(request: BaseCutRequest<'_, M>) -> SharePush
         .map_err(|error| SharePushError::Failed(error.to_string()))?;
         write_immutable_object(
             store,
+            state,
             &key,
             &object.bytes,
             capabilities,
             "immutable base object name collision",
+            is_manifest.then(|| OwnContents::manifest(object.bytes.len() as u64, &export.manifest)),
         )
         .await?;
     }
@@ -552,6 +660,8 @@ pub(crate) async fn collect_own_prefix(
         .list_prefix(&format!("devices/{prefix}/"))
         .await
         .map_err(push_store_error)?;
+    // What observing each listed manifest and segment found, for reading them below.
+    let mut listed_reads = BTreeMap::new();
     for key in &listed {
         let parsed = parse_key(key).map_err(|error| SharePushError::Failed(error.to_string()))?;
         let object_prefix = match &parsed {
@@ -571,30 +681,44 @@ pub(crate) async fn collect_own_prefix(
                 "own-prefix listing returned a foreign object".into(),
             ));
         }
-        match store.get(key).await {
-            Ok(value) => {
-                state.observe_tag(parsed, value.tag.clone(), now_ms as i64);
-            }
-            Err(StoreError::NotFound) => (),
-            Err(error) => return Err(push_store_error(error)),
+        let read =
+            observe_own_object(store, state, &parsed, key, capabilities, now_ms as i64).await?;
+        if matches!(parsed, ObjectKey::Base { .. } | ObjectKey::Segment { .. }) {
+            listed_reads.insert(parsed, read);
         }
     }
+    // Records are kept only for the objects in the folder.
+    state
+        .own_objects
+        .retain(|object, _| listed_reads.contains_key(object));
 
     let mut manifests = Vec::new();
     let mut own_bases = Vec::new();
     for base in &latest.bases {
         let key = base_key(&prefix.to_string(), &base.base_id)
             .map_err(|error| SharePushError::Failed(error.to_string()))?;
-        let object = store.get(&key).await.map_err(push_store_error)?;
-        let manifest = decode_manifest::<RuneModel>(&object.bytes, &base.base_id)
-            .map_err(|error| SharePushError::Failed(error.to_string()))?;
-        let superseded = latest.bases.iter().any(|candidate| {
-            candidate.base_id != base.base_id && covers_at_least(&candidate.covers, &base.covers)
-        });
         let object_key = ObjectKey::Base {
             prefix: prefix.clone(),
             base_id: base.base_id.clone(),
         };
+        // A base of the head must be there and decode, or the collection plans nothing.
+        let referenced_chunks = match own_contents::<RuneModel>(
+            store,
+            state,
+            &object_key,
+            &key,
+            listed_reads.remove(&object_key),
+            capabilities,
+            now_ms as i64,
+        )
+        .await?
+        {
+            Some(OwnContents::Manifest { chunks, .. }) => chunks,
+            _ => return Err(SharePushError::MissingObject),
+        };
+        let superseded = latest.bases.iter().any(|candidate| {
+            candidate.base_id != base.base_id && covers_at_least(&candidate.covers, &base.covers)
+        });
         let observed = state.observed_objects.get_mut(&object_key).ok_or_else(|| {
             SharePushError::Failed("base observation disappeared during collection".into())
         })?;
@@ -613,7 +737,6 @@ pub(crate) async fn collect_own_prefix(
             observed.gc_state = ObjectGcState::Current;
             SupersededSince::Current
         };
-        let referenced_chunks = manifest_chunk_names(&manifest).collect();
         manifests.push(RetainedManifest {
             base: base.clone(),
             status: if superseded {
@@ -658,23 +781,44 @@ pub(crate) async fn collect_own_prefix(
         let reference = if let Some(reference) = latest.segments.iter().find(|reference| {
             reference.first == first && reference.last == last && reference.name == hash16
         }) {
+            // A segment of the head, whose reference the head holds. Bytes the listing downloaded
+            // are recorded all the same, so that the segment is not downloaded again once it
+            // leaves the head. Bytes that do not decode get no record: that later read reports
+            // them, as before.
+            if let Some(OwnObjectRead::Downloaded(value)) = listed_reads.remove(&parsed)
+                && let Ok(contents) = OwnContents::decode::<RuneModel>(&parsed, &value.bytes)
+            {
+                state.record(parsed.clone(), value.tag, contents);
+            }
             reference.clone()
         } else {
-            let object = match store.get(key).await {
-                Ok(object) => object,
-                Err(StoreError::NotFound) => continue,
-                Err(error) => return Err(push_store_error(error)),
-            };
-            let segment = decode_segment::<RuneModel>(&object.bytes)
-                .map_err(|error| SharePushError::Failed(error.to_string()))?;
-            SegmentRef {
-                level: 0,
-                first,
-                last,
-                prev_anchor: segment.prev_anchor,
-                last_anchor: segment.last_anchor,
-                name: hash16,
-                bytes: object.bytes.len() as u64,
+            // A segment that left the head, after a roll-up or a base cut.
+            match own_contents::<RuneModel>(
+                store,
+                state,
+                &parsed,
+                key,
+                listed_reads.remove(&parsed),
+                capabilities,
+                now_ms as i64,
+            )
+            .await?
+            {
+                Some(OwnContents::Segment {
+                    prev_anchor,
+                    last_anchor,
+                    bytes,
+                }) => SegmentRef {
+                    level: 0,
+                    first,
+                    last,
+                    prev_anchor,
+                    last_anchor,
+                    name: hash16,
+                    bytes,
+                },
+                // Gone since the listing.
+                _ => continue,
             }
         };
         segments.push(OwnSegment {
@@ -1735,10 +1879,16 @@ pub async fn publish_journal<M: SyncModel>(
             .map_err(|error| SharePushError::Failed(error.to_string()))?;
         write_immutable_object(
             store,
+            state,
             &key,
             &bytes,
             capabilities,
             "immutable segment name contains different bytes",
+            Some(OwnContents::Segment {
+                prev_anchor: group.previous_anchor,
+                last_anchor: group.last_anchor,
+                bytes: bytes.len() as u64,
+            }),
         )
         .await?;
         let reference = SegmentRef {
@@ -1801,10 +1951,16 @@ pub async fn publish_journal<M: SyncModel>(
             .map_err(|error| SharePushError::Failed(error.to_string()))?;
         write_immutable_object(
             store,
+            state,
             &key,
             &bytes,
             capabilities,
             "immutable roll-up name collision",
+            Some(OwnContents::Segment {
+                prev_anchor: rollup.previous_anchor,
+                last_anchor: rollup.last_anchor,
+                bytes: bytes.len() as u64,
+            }),
         )
         .await?;
         next_head.segments.retain(|reference| {
@@ -2023,37 +2179,136 @@ pub(super) fn push_store_error(error: StoreError) -> SharePushError {
     }
 }
 
+/// Writes an immutable object into this device's prefix. It records the tag the write returned,
+/// or the tag of the identical object that was already there, and with that tag the `contents` of
+/// a manifest or segment, so that garbage collection confirms the object instead of downloading
+/// it. The tag of a successful write is taken for the tag of the bytes sent; they are not read
+/// back.
 async fn write_immutable_object(
     store: &dyn ObjectStore,
+    state: &mut ShareState,
     key: &str,
     bytes: &[u8],
     capabilities: ShareCapabilities,
     collision_message: &'static str,
+    contents: Option<OwnContents>,
 ) -> SharePushResult<()> {
-    if capabilities.conditional_create {
+    let tag = if capabilities.conditional_create {
         match store.create(key, bytes).await {
-            Ok(_) => Ok(()),
+            Ok(tag) => tag,
             Err(StoreError::PreconditionFailed) => {
-                if store.get(key).await.map_err(push_store_error)?.bytes == bytes {
-                    Ok(())
-                } else {
-                    Err(SharePushError::Failed(collision_message.into()))
+                let existing = store.get(key).await.map_err(push_store_error)?;
+                if existing.bytes != bytes {
+                    return Err(SharePushError::Failed(collision_message.into()));
                 }
+                existing.tag
             }
-            Err(error) => Err(push_store_error(error)),
+            Err(error) => return Err(push_store_error(error)),
         }
     } else {
         match store.get(key).await {
-            Ok(existing) if existing.bytes == bytes => Ok(()),
-            Ok(_) => Err(SharePushError::Failed(collision_message.into())),
-            Err(StoreError::NotFound) => store
-                .put(key, bytes)
-                .await
-                .map(|_| ())
-                .map_err(push_store_error),
-            Err(error) => Err(push_store_error(error)),
+            Ok(existing) if existing.bytes == bytes => existing.tag,
+            Ok(_) => return Err(SharePushError::Failed(collision_message.into())),
+            Err(StoreError::NotFound) => store.put(key, bytes).await.map_err(push_store_error)?,
+            Err(error) => return Err(push_store_error(error)),
         }
+    };
+    let object = parse_key(key).map_err(|error| SharePushError::Failed(error.to_string()))?;
+    state.observe_tag(object.clone(), tag.clone(), Utc::now().timestamp_millis());
+    if let Some(contents) = contents {
+        state.record(object, tag, contents);
     }
+    Ok(())
+}
+
+/// What observing one of this device's objects found.
+enum OwnObjectRead {
+    /// The store confirmed the tag recorded for the object, so nothing was downloaded.
+    Unchanged,
+    /// The object was downloaded: no tag was recorded for it, its tag changed, or the store has
+    /// no conditional GET.
+    Downloaded(ObjectValue),
+    /// The object is no longer in the store.
+    Missing,
+}
+
+/// Observes the tag of an object in this device's prefix. A tag recorded earlier, from this
+/// device's own write or an earlier observation, is confirmed with a conditional GET where the
+/// store supports one, so an object that has not changed is not downloaded again. A different tag
+/// is recorded like any other observation, which restarts the object's retention timers.
+async fn observe_own_object(
+    store: &dyn ObjectStore,
+    state: &mut ShareState,
+    object: &ObjectKey,
+    key: &str,
+    capabilities: ShareCapabilities,
+    now_ms: i64,
+) -> SharePushResult<OwnObjectRead> {
+    let recorded = state
+        .observed_objects
+        .get(object)
+        .filter(|_| capabilities.conditional_get)
+        .map(|observed| observed.tag.clone());
+    let read = match &recorded {
+        Some(tag) => store
+            .get_if_none_match(key, tag)
+            .await
+            .map(|result| match result {
+                ConditionalGet::NotModified => None,
+                ConditionalGet::Modified(value) => Some(value),
+            }),
+        None => store.get(key).await.map(Some),
+    };
+    match read {
+        Ok(None) => Ok(OwnObjectRead::Unchanged),
+        Ok(Some(value)) => {
+            state.observe_tag(object.clone(), value.tag.clone(), now_ms);
+            Ok(OwnObjectRead::Downloaded(value))
+        }
+        Err(StoreError::NotFound) => Ok(OwnObjectRead::Missing),
+        Err(error) => Err(push_store_error(error)),
+    }
+}
+
+/// What this device knows of one of its base manifests or segments, for the bytes the store holds
+/// now, or `None` when the object is gone. A record is taken only when the store has confirmed the
+/// tag it belongs to; other bytes are downloaded, unless `observed` holds them already, decoded,
+/// and recorded in its place. `observed` is what observing the object found in this pass; without
+/// it the object is observed here.
+async fn own_contents<M: SyncModel>(
+    store: &dyn ObjectStore,
+    state: &mut ShareState,
+    object: &ObjectKey,
+    key: &str,
+    observed: Option<OwnObjectRead>,
+    capabilities: ShareCapabilities,
+    now_ms: i64,
+) -> SharePushResult<Option<OwnContents>> {
+    let observed = match observed {
+        Some(observed) => observed,
+        None => observe_own_object(store, state, object, key, capabilities, now_ms).await?,
+    };
+    let value = match observed {
+        OwnObjectRead::Missing => return Ok(None),
+        OwnObjectRead::Downloaded(value) => value,
+        OwnObjectRead::Unchanged => {
+            if let Some(contents) = state.recorded(object) {
+                return Ok(Some(contents.clone()));
+            }
+            // Confirmed, but nothing is recorded for these bytes, as after an earlier build.
+            match store.get(key).await {
+                Ok(value) => {
+                    state.observe_tag(object.clone(), value.tag.clone(), now_ms);
+                    value
+                }
+                Err(StoreError::NotFound) => return Ok(None),
+                Err(error) => return Err(push_store_error(error)),
+            }
+        }
+    };
+    let contents = OwnContents::decode::<M>(object, &value.bytes)?;
+    state.record(object.clone(), value.tag, contents.clone());
+    Ok(Some(contents))
 }
 
 struct BaseCandidate {
@@ -2324,6 +2579,7 @@ mod tests {
             ShareCapabilities {
                 conditional_create: true,
                 conditional_head_write: false,
+                conditional_get: false,
             },
         )
         .await
@@ -2373,6 +2629,7 @@ mod tests {
             ShareCapabilities {
                 conditional_create: true,
                 conditional_head_write: false,
+                conditional_get: false,
             },
         )
         .await;
@@ -2455,6 +2712,7 @@ mod tests {
             ShareCapabilities {
                 conditional_create: true,
                 conditional_head_write: false,
+                conditional_get: false,
             },
         )
         .await?;

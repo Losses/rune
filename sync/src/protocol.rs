@@ -197,14 +197,17 @@ mod bytes_serde {
             .collect()
     }
 }
-mod digest_serde {
+/// Serializes a digest as canonical lowercase hex, for `#[serde(with = "digest_serde")]`.
+pub mod digest_serde {
     use serde::de::Error;
+    /// Writes the digest as 64 lowercase hex digits.
     pub fn serialize<S: serde::Serializer>(
         value: &super::Digest,
         serializer: S,
     ) -> std::result::Result<S::Ok, S::Error> {
         super::bytes_serde::serialize(value, serializer)
     }
+    /// Reads a digest written by `serialize`; other hex, or another length, is an error.
     pub fn deserialize<'de, D: serde::Deserializer<'de>>(
         deserializer: D,
     ) -> std::result::Result<super::Digest, D::Error> {
