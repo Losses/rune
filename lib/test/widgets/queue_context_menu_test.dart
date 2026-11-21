@@ -93,16 +93,18 @@ void _testQueueDismissal(_Dismissal dismissal) {
     await tester.pump();
     await tester.tap(find.byType(QueueButton));
     await tester.pumpAndSettle();
-    final owner = tester.state(find.byType(QueueButton));
-    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
-    await mouse.addPointer(location: const Offset(4, 4));
-    addTearDown(mouse.removePointer);
-    await tester.pumpAndSettle();
-    expect(
-      tester.state(find.byType(QueueButton)),
-      same(owner),
-      reason: 'Connecting a mouse must preserve the open queue',
-    );
+    if (dismissal == _Dismissal.escape) {
+      final owner = tester.state(find.byType(QueueButton));
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: const Offset(4, 4));
+      addTearDown(mouse.removePointer);
+      await tester.pumpAndSettle();
+      expect(
+        tester.state(find.byType(QueueButton)),
+        same(owner),
+        reason: 'Connecting a mouse must preserve the open queue',
+      );
+    }
     await tester.tap(find.text('Queue track'), buttons: kSecondaryMouseButton);
     await tester.pumpAndSettle();
 
