@@ -4,6 +4,7 @@ use std::{
     fmt::Debug,
     future::Future,
     io::{BufReader, Cursor, Error, ErrorKind},
+    ops::Range,
     path::PathBuf,
     sync::{Arc, Mutex, RwLock},
     time::Duration,
@@ -557,15 +558,6 @@ enum InternalPlaybackState {
 struct LoadPosition {
     playlist_index: usize,
     mapped: bool,
-}
-
-impl LoadPosition {
-    fn adjust_for_removal(&mut self, removed: usize) {
-        if self.playlist_index != removed {
-            self.playlist_index -= usize::from(removed < self.playlist_index);
-            self.mapped = true;
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -2111,6 +2103,7 @@ impl PlayerInternal {
     ) {
         debug!("Adding tracks to playlist with mode: {:?}", { mode });
         let count = tracks.len();
+        let current_position = self.resolved_current_position();
         let insert_index = match mode {
             AddMode::PlayNext => {
                 if let Some(current_index) = self.current_queue_edit_index() {
@@ -2158,6 +2151,9 @@ impl PlayerInternal {
                 count,
             },
         );
+        if let Some(index) = insert_index {
+            self.adjust_positions_after_splice(current_position, index..index, count);
+        }
         self.schedule_playlist_update();
     }
 
@@ -2192,16 +2188,7 @@ impl PlayerInternal {
                 self.playlist.len(),
                 UpdateReason::RemoveFromPlaylist { index },
             );
-            let shifted = |position: usize| position - usize::from(index < position);
-            if let Some(position) = current_position.filter(|&position| position != index) {
-                self.set_current_position(shifted(position), true);
-            }
-            if let Some(loading) = &mut self.loading_position {
-                loading.adjust_for_removal(index);
-            }
-            if let Some(pending) = &mut self.pending_load {
-                pending.position.adjust_for_removal(index);
-            }
+            self.adjust_positions_after_splice(current_position, index..index + 1, 0);
             self.schedule_playlist_update();
         } else {
             bail!(
@@ -2211,6 +2198,38 @@ impl PlayerInternal {
         }
 
         Ok(())
+    }
+
+    // Apply the same playlist edit to every surviving occurrence. A deletion
+    // redraws the shuffle order, so even a directly selected track needs its rank.
+    fn adjust_positions_after_splice(
+        &mut self,
+        current_position: Option<usize>,
+        removed: Range<usize>,
+        inserted: usize,
+    ) {
+        let relocate = |position: usize| {
+            if position < removed.start {
+                Some(position)
+            } else if position >= removed.end {
+                Some(position - removed.len() + inserted)
+            } else {
+                None
+            }
+        };
+        if let Some(position) = current_position.and_then(relocate) {
+            self.set_current_position(position, self.current_track_mapped || !removed.is_empty());
+        }
+        for target in self
+            .loading_position
+            .iter_mut()
+            .chain(self.pending_load.iter_mut().map(|load| &mut load.position))
+        {
+            if let Some(position) = relocate(target.playlist_index) {
+                target.playlist_index = position;
+                target.mapped |= !removed.is_empty();
+            }
+        }
     }
 
     fn clear_playlist(&mut self) -> Result<()> {
@@ -5418,9 +5437,19 @@ mod playback_state_tests {
 
     // A shuffled order in which every track moves one place on, so that no index maps to
     // itself and an index mapped once too often leads to another track.
-    struct ShiftedOrder;
+    struct TestShuffleOrder(fn(usize, usize) -> usize);
+    const SHIFTED_ORDER: TestShuffleOrder = TestShuffleOrder(|index, len| (index + 1) % len);
 
-    impl PlaybackStrategy for ShiftedOrder {
+    // These are possible ShuffleStrategy orders after deletion. Each next
+    // length inserts one new track at both physical position 2 and shuffle rank 2.
+    const PLAY_NEXT_ORDER: TestShuffleOrder = TestShuffleOrder(|index, len| match len {
+        3 => [0, 2, 1][index],
+        4 => [0, 3, 2, 1][index],
+        5 => [0, 4, 2, 3, 1][index],
+        _ => unreachable!("unexpected queue length {len}"),
+    });
+
+    impl PlaybackStrategy for TestShuffleOrder {
         fn next(&self, current_index: usize, playlist_len: usize) -> Option<usize> {
             (current_index + 1 < playlist_len).then_some(current_index + 1)
         }
@@ -5434,7 +5463,7 @@ mod playback_state_tests {
         }
 
         fn get_mapped_track_index(&self, index: usize, playlist_len: usize) -> usize {
-            (index + 1) % playlist_len
+            (self.0)(index, playlist_len)
         }
 
         fn on_playlist_updated(&mut self, _playlist_len: usize, _reason: UpdateReason) {}
@@ -5642,7 +5671,7 @@ mod playback_state_tests {
         );
 
         // Restore asks for a playlist position, which must not be mapped by the shuffled order.
-        internal.playback_strategy = Box::new(ShiftedOrder);
+        internal.playback_strategy = Box::new(SHIFTED_ORDER);
         commands_sender.send(PlayerCommand::Play)?;
         let event = run_until_track_state(&mut internal, &mut events).await?;
         assert!(
@@ -5661,7 +5690,7 @@ mod playback_state_tests {
         let library_id = Uuid::new_v4();
         let expected = library_item(library_id, file_uuids[2]);
         internal.playback_mode = PlaybackMode::Shuffle;
-        internal.playback_strategy = Box::new(ShiftedOrder);
+        internal.playback_strategy = Box::new(SHIFTED_ORDER);
         let local = LocalSet::new();
         local
             .run_until(async move {
@@ -5784,7 +5813,7 @@ mod playback_state_tests {
         let (mut player, _, mut events, wav_path) = long_track_engine(&[a, b, c]);
         player.add_to_playlist(library_tracks(library, &[a, b, a, c]), AddMode::AppendToEnd);
         player.playback_mode = PlaybackMode::Shuffle;
-        player.playback_strategy = Box::new(ShiftedOrder);
+        player.playback_strategy = Box::new(SHIFTED_ORDER);
         if change_mode {
             player.load(Some(1), true, true)?;
         } else {
@@ -5813,6 +5842,63 @@ mod playback_state_tests {
     }
 
     #[tokio::test]
+    async fn play_next_after_removal_keeps_the_loading_occurrence() -> Result<()> {
+        let mut outcomes = Vec::new();
+        for queued in [false, true] {
+            let library = Uuid::new_v4();
+            let ids = [(); 6].map(|_| Uuid::new_v4());
+            let (mut player, _, mut events, wav_path) = long_track_engine(&ids);
+            player.add_to_playlist(library_tracks(library, &ids[..5]), AddMode::AppendToEnd);
+            player.playback_mode = PlaybackMode::Shuffle;
+            player.playback_strategy = Box::new(PLAY_NEXT_ORDER);
+            player.load(Some(2), true, false)?;
+            run_until_track_state(&mut player, &mut events).await?;
+            player.remove_from_playlist(0)?;
+
+            if queued {
+                player.load(Some(0), true, false)?;
+            }
+            // Rank 1 selects the last of four tracks. Play Next inserts before it.
+            player.load(Some(1), true, true)?;
+            player.add_to_playlist(library_tracks(library, &ids[5..]), AddMode::PlayNext);
+            let event = run_until_track_state(&mut player, &mut events).await?;
+            let _ = std::fs::remove_file(wav_path);
+            let PlayerEvent::Playing { index, item, .. } = event else {
+                bail!("unexpected event for queued={queued}: {event:?}");
+            };
+            outcomes.push((index, item == library_item(library, ids[4])));
+        }
+        assert_eq!(outcomes, [(4, true), (4, true)]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn play_next_after_removal_keeps_the_playing_shuffle_occurrence() -> Result<()> {
+        let library = Uuid::new_v4();
+        let ids = [(); 5].map(|_| Uuid::new_v4());
+        let (mut player, _, mut events, wav_path) = long_track_engine(&ids);
+        player.add_to_playlist(library_tracks(library, &ids[..4]), AddMode::AppendToEnd);
+        player.playback_mode = PlaybackMode::Shuffle;
+        player.playback_strategy = Box::new(PLAY_NEXT_ORDER);
+        player.load(Some(2), true, false)?;
+        run_until_track_state(&mut player, &mut events).await?;
+        player.remove_from_playlist(0)?;
+        player.add_to_playlist(library_tracks(library, &ids[4..]), AddMode::PlayNext);
+
+        let current_position = player.current_playlist_index();
+        player.next()?;
+        let event = run_until_track_state(&mut player, &mut events).await?;
+        let _ = std::fs::remove_file(wav_path);
+        assert_eq!(current_position, Some(1), "{event:?}");
+        assert!(
+            matches!(&event, PlayerEvent::Loaded { index: 0, item, .. }
+                if *item == library_item(library, ids[1])),
+            "{event:?}"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn removing_before_a_direct_shuffle_selection() -> Result<()> {
         check_removal_after_a_shuffle_selection(false).await
     }
@@ -5833,7 +5919,7 @@ mod playback_state_tests {
         let (mut player, _, mut events, wav_path) = long_track_engine(&ids);
         player.add_to_playlist(library_tracks(library, &ids), AddMode::AppendToEnd);
         player.playback_mode = PlaybackMode::Shuffle;
-        player.playback_strategy = Box::new(ShiftedOrder);
+        player.playback_strategy = Box::new(SHIFTED_ORDER);
         player.load(Some(3), true, true)?;
         let started = run_until_track_state(&mut player, &mut events).await?;
         assert!(
