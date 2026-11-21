@@ -5,7 +5,7 @@
 use std::{
     collections::HashMap,
     fmt,
-    fs::{self, File, OpenOptions},
+    fs::{self, File},
     io::{self, ErrorKind, Read, Write},
     path::{Path, PathBuf},
 };
@@ -15,6 +15,7 @@ use ring::{
     rand::{SecureRandom, SystemRandom},
 };
 use serde::{Deserialize, Serialize};
+use tempfile::NamedTempFile;
 use thiserror::Error;
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
@@ -121,16 +122,22 @@ impl Drop for Entry {
 }
 
 pub struct CredentialStore {
-    file: PathBuf,
-    key_file: PathBuf,
+    config_dir: PathBuf,
 }
 
 impl CredentialStore {
     pub fn open(config_dir: &Path) -> Self {
         Self {
-            file: config_dir.join("credentials.enc"),
-            key_file: config_dir.join("credentials.key"),
+            config_dir: config_dir.to_owned(),
         }
+    }
+
+    fn key_file(&self) -> PathBuf {
+        self.config_dir.join("credentials.key")
+    }
+
+    fn entries_file(&self) -> PathBuf {
+        self.config_dir.join("credentials.enc")
     }
 
     pub async fn put(
@@ -201,7 +208,7 @@ impl CredentialStore {
         match self.load_key() {
             Ok(key) => Ok(key),
             Err(CredentialStoreError::CredentialStoreIo(error))
-                if error.kind() == ErrorKind::NotFound && !self.file.exists() =>
+                if error.kind() == ErrorKind::NotFound && !self.entries_file().exists() =>
             {
                 self.create_key()
             }
@@ -216,7 +223,7 @@ impl CredentialStore {
 
     fn load_key(&self) -> Result<Vec<u8>, CredentialStoreError> {
         let mut key = Vec::new();
-        File::open(&self.key_file)
+        File::open(self.key_file())
             .and_then(|mut file| file.read_to_end(&mut key))
             .map_err(CredentialStoreError::CredentialStoreIo)?;
         if key.len() != KEY_LENGTH {
@@ -233,7 +240,7 @@ impl CredentialStore {
         match self.load_key() {
             Ok(key) => Ok(key),
             Err(CredentialStoreError::CredentialStoreIo(error))
-                if error.kind() == ErrorKind::NotFound && !self.file.exists() =>
+                if error.kind() == ErrorKind::NotFound && !self.entries_file().exists() =>
             {
                 Err(CredentialStoreError::CredentialMissing(reference))
             }
@@ -251,40 +258,27 @@ impl CredentialStore {
         SystemRandom::new()
             .fill(&mut key)
             .map_err(|_| CredentialStoreError::CredentialStoreUnreadable)?;
-        let temp = temporary_path(&self.key_file);
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let result = (|| {
-            let mut file = options.open(&temp)?;
-            file.write_all(&key)?;
-            file.sync_all()?;
-            match fs::hard_link(&temp, &self.key_file) {
-                Ok(()) => Ok(()),
-                Err(error) if error.kind() == ErrorKind::AlreadyExists => Ok(()),
-                Err(error) => Err(error),
-            }
-        })();
-        let _ = fs::remove_file(temp);
-        if let Err(error) = result {
-            return Err(CredentialStoreError::CredentialStoreIo(error));
-        }
-        if self.key_file.exists() {
-            self.load_key()
-        } else {
-            Err(CredentialStoreError::CredentialStoreIo(io::Error::new(
-                ErrorKind::NotFound,
-                "credential key creation failed",
-            )))
+        let temp = self.synced_temp_file(&key)?;
+        // Android app storage can deny hard links. persist_noclobber uses a
+        // no-replace rename there, so no creator can overwrite the winning key.
+        match temp.persist_noclobber(self.key_file()) {
+            Ok(_) => Ok(std::mem::take(&mut *key)),
+            Err(error) if error.error.kind() == ErrorKind::AlreadyExists => self.load_key(),
+            Err(error) => Err(CredentialStoreError::CredentialStoreIo(error.error)),
         }
     }
 
+    fn synced_temp_file(&self, bytes: &[u8]) -> Result<NamedTempFile, CredentialStoreError> {
+        let mut file = NamedTempFile::new_in(&self.config_dir)
+            .map_err(CredentialStoreError::CredentialStoreIo)?;
+        file.write_all(bytes)
+            .and_then(|()| file.as_file().sync_all())
+            .map_err(CredentialStoreError::CredentialStoreIo)?;
+        Ok(file)
+    }
+
     fn read_entries(&self, key: &[u8]) -> Result<Entries, CredentialStoreError> {
-        let data = match fs::read(&self.file) {
+        let data = match fs::read(self.entries_file()) {
             Ok(data) => data,
             Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Entries::default()),
             Err(error) => return Err(CredentialStoreError::CredentialStoreIo(error)),
@@ -325,20 +319,10 @@ impl CredentialStore {
         })();
         plaintext.zeroize();
         let output = encrypted?;
-        let temp = temporary_path(&self.file);
-        let result = (|| {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&temp)?;
-            file.write_all(&output)?;
-            file.sync_all()?;
-            fs::rename(&temp, &self.file)
-        })();
-        if result.is_err() {
-            let _ = fs::remove_file(temp);
-        }
-        result.map_err(CredentialStoreError::CredentialStoreIo)
+        self.synced_temp_file(&output)?
+            .persist(self.entries_file())
+            .map(|_| ())
+            .map_err(|error| CredentialStoreError::CredentialStoreIo(error.error))
     }
 }
 
@@ -348,11 +332,6 @@ fn cipher(key: &[u8]) -> Result<LessSafeKey, CredentialStoreError> {
     Ok(LessSafeKey::new(key))
 }
 
-fn temporary_path(path: &Path) -> PathBuf {
-    let name = path.file_name().unwrap_or_default().to_string_lossy();
-    path.with_file_name(format!(".{name}-{}.tmp", Uuid::new_v4()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::{Credential, CredentialRef, CredentialStore, CredentialStoreError, Secret};
@@ -360,7 +339,7 @@ mod tests {
         CatalogPlacement, LibraryRecord, LibraryRecordId, LibraryRegistry, ProtocolAdapter,
         SubsonicOpenMode,
     };
-    use std::{fs, io, sync::Arc};
+    use std::{fs, io, sync::Barrier, thread};
     use tempfile::TempDir;
     use uuid::Uuid;
 
@@ -463,7 +442,7 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn key_file_has_private_mode_when_created() {
+    async fn credential_files_have_private_permissions() {
         use std::os::unix::fs::PermissionsExt;
 
         let dir = TempDir::new().unwrap();
@@ -471,12 +450,14 @@ mod tests {
             .put(credential("alice", "secret"))
             .await
             .unwrap();
-        let mode = fs::metadata(dir.path().join("credentials.key"))
-            .unwrap()
-            .permissions()
-            .mode()
-            & 0o777;
-        assert_eq!(mode, 0o600);
+        for name in ["credentials.key", "credentials.enc"] {
+            let mode = fs::metadata(dir.path().join(name))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o600, "{name}");
+        }
     }
 
     #[test]
@@ -530,38 +511,50 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn concurrent_puts_both_survive() {
+    async fn concurrent_puts_both_survive_reopen() {
         let dir = TempDir::new().unwrap();
-        let store = Arc::new(CredentialStore::open(dir.path()));
-        let first_store = store.clone();
+        let first_store = CredentialStore::open(dir.path());
         let first = tokio::spawn(async move {
             first_store
                 .put(credential("first", "secret-a"))
                 .await
                 .unwrap()
         });
-        let second_store = Arc::new(CredentialStore::open(dir.path()));
-        let second_reader = second_store.clone();
+        let second_store = CredentialStore::open(dir.path());
         let second = tokio::spawn(async move {
-            second_reader
+            second_store
                 .put(credential("second", "secret-b"))
                 .await
                 .unwrap()
         });
         let first_ref = first.await.unwrap();
         let second_ref = second.await.unwrap();
+        let reopened = CredentialStore::open(dir.path());
         assert_eq!(
-            store.get(first_ref).await.unwrap().secret.as_bytes(),
+            reopened.get(first_ref).await.unwrap().secret.as_bytes(),
             b"secret-a"
         );
         assert_eq!(
-            second_store
-                .get(second_ref)
-                .await
-                .unwrap()
-                .secret
-                .as_bytes(),
+            reopened.get(second_ref).await.unwrap().secret.as_bytes(),
             b"secret-b"
         );
+    }
+
+    #[test]
+    fn competing_key_creators_reuse_the_published_key() {
+        let dir = TempDir::new().unwrap();
+        let store = CredentialStore::open(dir.path());
+        let start = Barrier::new(2);
+        thread::scope(|scope| {
+            let create = || {
+                start.wait();
+                store.create_key().unwrap()
+            };
+            let first = scope.spawn(create);
+            let second = create();
+            let published = store.load_key().unwrap();
+            assert!(first.join().unwrap() == published);
+            assert!(second == published);
+        });
     }
 }

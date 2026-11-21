@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 sync-crash-probe = []
-test-fixtures = ["dep:tempfile", "dep:reqwest"]
+test-fixtures = ["dep:reqwest"]
 
 [dependencies]
 sync-orm = { path = "../sync-orm" }
@@ -57,7 +57,7 @@ http-request = { version = "0.1.0", path = "../http-request" }
 ring = "0.17.13"
 zeroize = "1.8.1"
 discovery = { version = "0.1.0", path = "../discovery" }
-tempfile = { version = "3.17.1", optional = true }
+tempfile = "3.20.0"
 reqwest = { version = "0.12.18", features = ["json", "rustls-tls"], optional = true }
 
 [dev-dependencies]
@@ -65,7 +65,6 @@ hyper = "1.6.0"
 portpicker = "0.1.1"
 env_logger = "0.11.8"
 rand = "0.8.5"
-tempfile = "3.17.1"
 database = { path = ".", features = ["test-fixtures"] }
 fsio = { path = "../fsio", features = ["test-fixtures"] }
 
