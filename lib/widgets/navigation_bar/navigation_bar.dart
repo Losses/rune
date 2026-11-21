@@ -37,6 +37,9 @@ class NavigationBar extends StatefulWidget {
 }
 
 class NavigationBarState extends State<NavigationBar> {
+  // The parent the header showed in the last build.
+  String? _shownParentPath;
+
   @override
   void didUpdateWidget(covariant NavigationBar oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -52,16 +55,14 @@ class NavigationBarState extends State<NavigationBar> {
       final currentItem = navigationQuery.getItem(currentPath, false);
 
       if (previousItem != null && currentItem != null) {
-        if (navigationQuery.getParent(currentPath, false)?.path ==
-            previousPath) {
+        if (headerParent(currentPath, $history, false)?.path == previousPath) {
           // parent to child
           playFlipAnimation(
             context,
             'child:$previousPath',
             'title:$previousPath',
           );
-        } else if (navigationQuery.getParent(previousPath, false)?.path ==
-            currentPath) {
+        } else if (_shownParentPath == currentPath) {
           // child to parent
           playFlipAnimation(
             context,
@@ -116,6 +117,7 @@ class NavigationBarState extends State<NavigationBar> {
 
         final item = navigationQuery.getItem(path, isZune);
         final parent = headerParent(path, $history, isZune);
+        _shownParentPath = parent?.path;
         final slibings = navigationQuery
             .getSiblings(path, isZune)
             ?.where((x) => !x.hidden)

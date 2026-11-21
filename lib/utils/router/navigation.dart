@@ -51,13 +51,30 @@ bool $pop() {
     final next = $history.current;
 
     if (success) {
-      $router.update(next!.name, next.arguments);
+      $router.update(
+        next!.name,
+        popTransitionParameter(current.name, next.name, next.arguments),
+      );
       $state().pop();
       return true;
     }
   }
 
   return false;
+}
+
+/// The router's parameter for revealing [revealedName] again after popping
+/// [poppedName]: a transition from the popped page to the revealed one, around
+/// the revealed entry's own [arguments], which pages keep reading as before.
+RouterTransitionParameter popTransitionParameter(
+  String poppedName,
+  String revealedName,
+  Object? arguments,
+) {
+  final inner = arguments is RouterTransitionParameter
+      ? arguments.parameters
+      : arguments;
+  return RouterTransitionParameter(poppedName, revealedName, inner);
 }
 
 Future<T?> $showModal<T extends Object?>(
