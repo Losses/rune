@@ -196,6 +196,7 @@ class CollectionDataProvider with ChangeNotifier {
   }
 
   Future<void> reloadData() async {
+    if (_disposed) return;
     _generation++;
     _cache.clearType(collectionType);
     summary = _fetchSummaryWithCache();
