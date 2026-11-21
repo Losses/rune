@@ -103,6 +103,7 @@ class CollectionDataProvider with ChangeNotifier {
   void dispose() {
     _disposed = true;
     _generation++;
+    _pageRequest = null;
     _contentSubscription.cancel();
     super.dispose();
   }
@@ -112,7 +113,9 @@ class CollectionDataProvider with ChangeNotifier {
 
   List<Group<InternalCollection>> items = [];
 
-  bool isLoading = false;
+  Future<void>? _pageRequest;
+  bool get isLoading => _pageRequest != null;
+  Object? pageError;
   bool isLastPage = false;
   bool initialized = false;
   int cursor = 0;
@@ -176,33 +179,44 @@ class CollectionDataProvider with ChangeNotifier {
     return data;
   }
 
-  Future<void> fetchData() async {
+  Future<void> fetchData() {
+    final active = _pageRequest;
+    if (active != null) return active;
+    if (_disposed || isLastPage) return Future.value();
     initialized = true;
-    isLoading = true;
-
+    pageError = null;
+    final request = _loadPage(_generation, cursor);
+    _pageRequest = request;
     notifyListeners();
+    return request;
+  }
 
-    final generation = _generation;
-    final thisCursor = cursor;
-    cursor += 1;
-    final (newItems, newIsLastPage) = await _fetchPage(thisCursor);
-
-    if (_disposed || generation != _generation) return;
-    isLoading = false;
-    isLastPage = newIsLastPage;
-    items.addAll(newItems);
-
-    notifyListeners();
+  Future<void> _loadPage(int generation, int page) async {
+    try {
+      final (newItems, newIsLastPage) = await _fetchPage(page);
+      if (_disposed || generation != _generation) return;
+      items.addAll(newItems);
+      cursor = page + 1;
+      isLastPage = newIsLastPage;
+    } on Exception catch (error) {
+      if (!_disposed && generation == _generation) pageError = error;
+    } finally {
+      if (!_disposed && generation == _generation) {
+        _pageRequest = null;
+        notifyListeners();
+      }
+    }
   }
 
   Future<void> reloadData() async {
     if (_disposed) return;
     _generation++;
+    _pageRequest = null;
     _cache.clearType(collectionType);
     summary = _fetchSummaryWithCache();
     cursor = 0;
+    isLastPage = false;
     items = [];
-    notifyListeners();
     await fetchData();
   }
 

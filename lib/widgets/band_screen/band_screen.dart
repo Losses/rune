@@ -40,6 +40,7 @@ class BandScreenState extends State<BandScreen> {
   _fetchData() async {
     final data = Provider.of<CollectionDataProvider>(context, listen: false);
     await data.fetchData();
+    if (!mounted || data.pageError != null) return;
 
     Timer(
       Duration(milliseconds: gridAnimationDelay),
@@ -99,6 +100,7 @@ class BandScreenState extends State<BandScreen> {
     ScrollController? scrollController,
   ) {
     final data = Provider.of<CollectionDataProvider>(context);
+    final pageError = data.pageError;
 
     final isUserGenerated = userGenerated(data.collectionType);
 
@@ -113,6 +115,12 @@ class BandScreenState extends State<BandScreen> {
       centerLoading: true,
       centerEmpty: true,
       isLoading: data.isLoading,
+      hasError: pageError != null,
+      centerError: flattenItems.isEmpty,
+      errorBuilder: (_) => InfiniteListRetry(
+        error: pageError!,
+        onRetry: _fetchData,
+      ),
       padding: getScrollContainerPadding(context),
       emptyBuilder: (context) => Center(
         child: data.initialized

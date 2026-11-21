@@ -121,6 +121,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
 
       // Step 2: If not found, load the next page.
       await data.fetchData();
+      if (!mounted || data.pageError != null) return;
     }
 
     // Step 3: If reached here, it means we didn't find the group and reached the last page.
@@ -130,6 +131,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
   _fetchData() async {
     final data = Provider.of<CollectionDataProvider>(context, listen: false);
     await data.fetchData();
+    if (!mounted || data.pageError != null) return;
 
     Timer(
       Duration(milliseconds: gridAnimationDelay),
@@ -232,6 +234,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
 
     final data = Provider.of<CollectionDataProvider>(context);
     final isUserGenerated = userGenerated(data.collectionType);
+    final pageError = data.pageError;
 
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
       value: _layoutManager,
@@ -261,6 +264,12 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                     centerLoading: true,
                     centerEmpty: true,
                     isLoading: data.isLoading,
+                    hasError: pageError != null,
+                    centerError: data.items.isEmpty,
+                    errorBuilder: (_) => InfiniteListRetry(
+                      error: pageError!,
+                      onRetry: _fetchData,
+                    ),
                     padding: padding,
                     emptyBuilder: (context) => Center(
                       child: data.initialized

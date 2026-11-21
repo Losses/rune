@@ -113,12 +113,14 @@ class TurntileScreenImplementationState
       }
 
       await data.fetchData();
+      if (!mounted || data.pageError != null) return;
     }
   }
 
   _fetchData() async {
     final data = Provider.of<CollectionDataProvider>(context, listen: false);
     await data.fetchData();
+    if (!mounted || data.pageError != null) return;
 
     Timer(
       Duration(milliseconds: gridAnimationDelay),
@@ -130,6 +132,7 @@ class TurntileScreenImplementationState
   Widget build(BuildContext context) {
     final data = Provider.of<CollectionDataProvider>(context);
     final isUserGenerated = userGenerated(data.collectionType);
+    final pageError = data.pageError;
 
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
       value: layoutManager,
@@ -147,6 +150,12 @@ class TurntileScreenImplementationState
               centerLoading: true,
               centerEmpty: true,
               isLoading: data.isLoading,
+              hasError: pageError != null,
+              centerError: data.items.isEmpty,
+              errorBuilder: (_) => InfiniteListRetry(
+                error: pageError!,
+                onRetry: _fetchData,
+              ),
               padding: getScrollContainerPadding(context),
               scrollController: scrollController,
               emptyBuilder: (context) => Center(
