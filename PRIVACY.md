@@ -14,6 +14,8 @@ You can play a local music library without registering a Rune account. Rune does
 
 Rune stores your music library information, playback preferences, custom playlists and analysis results on your device. Rune uses the library ID to identify the source of a track locally. It never sends this ID to a scrobbling service.
 
+When you connect a scrobbling service, Rune saves an account record on your device with the service ID, your username and a credential reference. At startup, Rune uses that reference to retrieve the credential from its local store and sign in again. When you log out, Rune removes the account record and its credential reference from settings and asks the local store to delete the credential.
+
 **Third-Party Services**
 
 Rune does not include third-party advertising or analytics. Scrobbling is optional. In **Settings → Playback**, you can connect a service to share what you are listening to. You can log out of each service there. This stops reports of new listens. Reports already in progress may still be sent or retried.

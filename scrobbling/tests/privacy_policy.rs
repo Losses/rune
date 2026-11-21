@@ -51,3 +51,29 @@ fn policy_discloses_optional_scrobbling() {
         );
     }
 }
+
+#[test]
+fn local_storage_discloses_saved_scrobbling_accounts() {
+    let policy = policy_text();
+    let (_, storage) = policy
+        .split_once("**local data storage**")
+        .expect("local data storage section");
+    let (storage, _) = storage
+        .split_once("**third-party services**")
+        .expect("end of local data storage section");
+
+    for topic in [
+        "account record",
+        "service id",
+        "username",
+        "credential reference",
+        "at startup",
+        "when you log out",
+        "removes the account record",
+    ] {
+        assert!(
+            storage.contains(topic),
+            "Missing local scrobbling disclosure: {topic}"
+        );
+    }
+}
