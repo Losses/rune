@@ -84,6 +84,7 @@ void main() {
     tester,
   ) async {
     var allow = false;
+    var canPopCalls = 0;
     bool? result;
     await tester.pumpWidget(
       _app(
@@ -100,7 +101,10 @@ void main() {
                   ),
                 ],
               ),
-              canPop: () => (allow, true),
+              canPop: () {
+                canPopCalls++;
+                return (allow, true);
+              },
             );
           },
           child: const Text('Open'),
@@ -111,8 +115,9 @@ void main() {
     await tester.tap(find.text('Open'));
     await tester.pumpAndSettle();
     final modal = $history.current;
-    $pop();
+    expect($pop(), isTrue);
     await tester.pumpAndSettle();
+    expect(canPopCalls, 1);
     expect(find.text('Pending'), findsOneWidget);
     expect(
       $history.current,
@@ -122,6 +127,7 @@ void main() {
     allow = true;
     await tester.tap(find.text('Done'));
     await tester.pumpAndSettle();
+    expect(canPopCalls, 2);
     expect(result, isTrue);
     expect($history.history, [initial]);
   });
