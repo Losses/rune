@@ -285,7 +285,7 @@ void main() {
   });
 
   testWidgets(
-    'guide lists all sources, reveals Confirm, and Cancel has no effect',
+    'Back from local Library Setup returns to the source list and Cancel closes the guide',
     (tester) async {
       final registry = _emptyRegistry();
       final manager = _testManager();
@@ -300,7 +300,8 @@ void main() {
               onPressed: () => showAddLibraryGuide(
                 context,
                 dependencies: AddLibraryGuideDependencies(
-                  pickLocalFolder: () async => null,
+                  pickLocalFolder: () async => '/picked/music',
+                  testLocalLibrary: (_) async => false,
                 ),
               ),
               child: const Text('Open guide'),
@@ -332,6 +333,15 @@ void main() {
       await tester.tap(find.text('Local Folder'));
       await tester.pumpAndSettle();
       expect(find.text('Confirm'), findsOneWidget);
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+      expect(find.text('Library Setup'), findsOneWidget);
+
+      await tester.tap(find.text('Back'));
+      await tester.pumpAndSettle();
+      expect(find.text('Local Folder'), findsOneWidget);
+      expect(find.text('Rune Device'), findsOneWidget);
+      expect(find.text('Back'), findsNothing);
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
       expect(find.text('Local Folder'), findsNothing);
@@ -1239,11 +1249,17 @@ void main() {
     expect(find.text('Play on This Device'), findsOneWidget);
     expect(find.text('How do you want to use it?'), findsOneWidget);
     expect(find.text("Control the Server's Player"), findsOneWidget);
+    await tester.tap(find.text('Back'));
+    await tester.pumpAndSettle();
+    expect(find.text('https://music.example.test'), findsOneWidget);
+    await tester.tap(find.widgetWithText(Button, 'Confirm'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text("Control the Server's Player"));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(Button, 'Confirm'));
     await tester.pumpAndSettle();
     expect(requests.map((request) => request.mode), [
+      null,
       null,
       SubsonicOpenModeMessage.remoteControl,
     ]);

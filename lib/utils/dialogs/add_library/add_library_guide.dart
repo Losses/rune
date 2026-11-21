@@ -163,7 +163,12 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
           if (_step > 1)
             Button(
               onPressed: () => setState(() {
-                _step = _step == 6 ? 2 : _step - 1;
+                _step = switch (_step) {
+                  4 when _selected == AddLibrarySource.subsonic => 2,
+                  5 => 1,
+                  6 => 2,
+                  _ => _step - 1,
+                };
                 if (_step == 2) _selectedLibraryId = null;
               }),
               child: Text(s.back),
