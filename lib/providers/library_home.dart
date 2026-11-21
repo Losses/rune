@@ -134,12 +134,22 @@ class LibraryHomeProvider extends ChangeNotifier {
 
   final List<LibraryHomeEntryWithValue> _entries = [];
 
-  LibraryHomeProvider() {
+  /// Reads the stored entries; the settings unless a test gives its own.
+  final Future<String?> Function() _readStored;
+
+  bool _loaded = false;
+
+  LibraryHomeProvider({Future<String?> Function()? readStored})
+    : _readStored =
+          readStored ?? (() => settingsManager.getValue<String>(storageKey)) {
     _loadEntries();
   }
 
   /// Provides an immutable view of the list of entries
   List<LibraryHomeEntryWithValue> get entries => List.unmodifiable(_entries);
+
+  /// Whether the entries were read; until then the home has nothing to ask for.
+  bool get loaded => _loaded;
 
   /// Safely updates the list of entries
   void _safelyUpdateEntries(List<LibraryHomeEntryWithValue> newEntries) {
@@ -172,9 +182,7 @@ class LibraryHomeProvider extends ChangeNotifier {
   /// Loads entries from storage
   Future<void> _loadEntries() async {
     try {
-      final String? storedOrderJson = await settingsManager.getValue<String>(
-        storageKey,
-      );
+      final String? storedOrderJson = await _readStored();
 
       if (storedOrderJson != null) {
         // Parse stored data
@@ -198,6 +206,7 @@ class LibraryHomeProvider extends ChangeNotifier {
             .toList(),
       );
     } finally {
+      _loaded = true;
       notifyListeners();
     }
   }
