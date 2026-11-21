@@ -1,6 +1,8 @@
 import '../../api/request_failure.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:provider/provider.dart';
 
+import '../../../providers/library_registry.dart';
 import '../../../utils/l10n.dart';
 import '../../../utils/api/update_playlist.dart';
 import '../../../utils/api/create_playlist.dart';
@@ -44,6 +46,7 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
   List<String> groupList = ['Favorite'];
 
   Playlist? playlist;
+  String? _playlistRecordId;
 
   @override
   void initState() {
@@ -78,14 +81,21 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
         groupList = cleanGroupTitles(['Favorite', ...groups]);
       });
     } on RequestFailure catch (error) {
-      if (mounted) setState(() => failure = error);
+      if (mounted) setState(() => failure ??= error);
     }
   }
 
   Future<void> loadPlaylist(int playlistId) async {
+    final registry = context.read<LibraryRegistryProvider?>();
+    final generation = registry?.openGeneration;
+    _playlistRecordId = registry?.openRecordId;
     setState(() => isLoading = true);
     try {
-      playlist = await getPlaylistById(playlistId);
+      final result = await getPlaylistById(playlistId);
+      if (registry?.openRecordId == _playlistRecordId &&
+          registry?.openGeneration == generation) {
+        playlist = result;
+      }
     } on RequestFailure catch (error) {
       if (mounted) {
         setState(() {
@@ -106,6 +116,13 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final registry = widget.playlistId == null
+        ? null
+        : context.watch<LibraryRegistryProvider?>();
+    // Playlist IDs are local to the library that served the read.
+    bool canSave() => !isLoading &&
+        (widget.playlistId == null ||
+            (playlist != null && registry?.openRecordId == _playlistRecordId));
     return UnavailableDialogOnBand(
       $close: widget.$close,
       child: NoShortcuts(
@@ -124,7 +141,9 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (failure != null)
-                Text(requestFailureMessage(S.of(context), failure!)),
+                Text(requestFailureMessage(S.of(context), failure!))
+              else if (!isLoading && !canSave())
+                Text(S.of(context).requestUnavailable),
               const SizedBox(height: 16),
               InfoLabel(
                 label: S.of(context).title,
@@ -150,10 +169,10 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
           actions: [
             ResponsiveDialogActions(
               FilledButton(
-                onPressed: isLoading ||
-                        (widget.playlistId != null && playlist == null)
+                onPressed: !canSave()
                     ? null
                     : () async {
+                        if (!canSave()) return;
                         setState(() {
                           isLoading = true;
                         });

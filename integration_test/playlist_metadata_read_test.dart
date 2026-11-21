@@ -19,10 +19,13 @@ import 'package:rune/utils/dialogs/playlist/create_edit_playlist_dialog.dart';
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   late LibraryRegistryProvider registry;
+  late Directory root;
   late String original;
   late String empty;
+  late String editLibrary;
+  late String otherLibrary;
   setUpAll(() async {
-    final root = await Directory.systemTemp.createTemp('rune-playlist-read-');
+    root = await Directory.systemTemp.createTemp('rune-playlist-read-');
     addTearDown(() => root.delete(recursive: true));
     await initializeRust(assignRustSignal);
     addTearDown(finalizeRust);
@@ -52,7 +55,37 @@ void main() {
 
     original = await register('Original');
     empty = await register('Empty');
+    editLibrary = await register('Edit source');
+    otherLibrary = await register('Other');
   });
+
+  Future<void> withUnavailableTable(
+    String library,
+    Future<void> Function() run,
+  ) async {
+    final database = await Directory('${root.path}/$library')
+        .list(recursive: true)
+        .where((entry) => entry is File && entry.path.endsWith('.db'))
+        .single;
+    Future<void> sql(String statement) async {
+      final result = await Process.run('python3', [
+        '-c',
+        'import sqlite3, sys\n'
+            'with sqlite3.connect(sys.argv[1]) as db: db.execute(sys.argv[2])',
+        database.path,
+        statement,
+      ]);
+      expect(result.exitCode, 0, reason: result.stderr.toString());
+    }
+
+    // Keep every row intact while the dialog receives a real storage error.
+    await sql('ALTER TABLE playlists RENAME TO fixture_playlists');
+    try {
+      await run();
+    } finally {
+      await sql('ALTER TABLE fixture_playlists RENAME TO playlists');
+    }
+  }
 
   Future<(AppLocalizations, Completer<Playlist?>)> openEditor(
     WidgetTester tester,
@@ -90,6 +123,75 @@ void main() {
     )!;
     return (labels, closed);
   }
+
+  testWidgets(
+    'a loaded edit cannot write to another library with the same ID',
+    (tester) async {
+      await registry.open(otherLibrary);
+      final other = await createPlaylist('Garden', 'Other library');
+      await registry.open(editLibrary);
+      final stored = await createPlaylist('Morning walks', 'Outdoors');
+      expect(stored.id, other.id);
+      final loaded = GetPlaylistByIdResponse.rustSignalStream.first;
+      final (labels, closed) = await openEditor(tester, stored.id);
+      await loaded;
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextBox).first, 'Evening walks');
+      final save = find.widgetWithText(FilledButton, labels.save);
+      final pendingTap = tester.widget<FilledButton>(save).onPressed!;
+      await registry.open(otherLibrary);
+      // A callback captured before the rebuild still targets the loaded record.
+      pendingTap();
+      await tester.pumpAndSettle();
+      final control = await createPlaylist('Control', 'Control');
+      await updatePlaylist(control.id, control.name, control.group);
+      final untouched = await getPlaylistById(other.id);
+      expect(
+        [untouched.name, untouched.group],
+        [other.name, other.group],
+        reason: 'the same numeric ID belongs to a different library',
+      );
+      expect(tester.widget<FilledButton>(save).onPressed, isNull);
+
+      await registry.open(editLibrary);
+      await tester.pumpAndSettle();
+      await tester.tap(save);
+      expect(
+        (await closed.future.timeout(const Duration(seconds: 15)))?.name,
+        'Evening walks',
+      );
+    },
+  );
+
+  testWidgets('a late group failure keeps the playlist read error visible', (
+    tester,
+  ) async {
+    await registry.open(empty);
+    final missing = RequestFailedResponse.rustSignalStream.firstWhere(
+      (s) => s.message.request == 'GetPlaylistByIdRequest',
+    );
+    final (labels, _) = await openEditor(tester, 99);
+    expect((await missing).message.kind, RequestErrorKind.notFound);
+    await tester.pumpAndSettle();
+    expect(find.text(labels.requestItemMissing), findsOneWidget);
+    final groups = RequestFailedResponse.rustSignalStream.firstWhere(
+      (s) => s.message.request == 'FetchCollectionGroupSummaryRequest',
+    );
+    final state = tester.state<CreateEditPlaylistDialogState>(
+      find.byType(CreateEditPlaylistDialog),
+    );
+    await withUnavailableTable('Empty', state.fetchGroupList);
+    final groupFailure = (await groups.timeout(
+      const Duration(seconds: 10),
+    )).message;
+    expect(groupFailure.kind, isNot(RequestErrorKind.notFound));
+    await tester.pumpAndSettle();
+    expect(
+      find.text(labels.requestItemMissing),
+      findsOneWidget,
+      reason: 'playlist metadata is required, group suggestions are optional',
+    );
+  });
 
   for (final rename in [false, true]) {
     testWidgets('failed read protects the stored metadata (rename: $rename)', (
@@ -180,13 +282,13 @@ void main() {
           edit ? labels.save : labels.create,
         );
         if (edit) {
-          await registry.open(empty);
           final failure = RequestFailedResponse.rustSignalStream.firstWhere(
             (s) => s.message.request == 'UpdatePlaylistRequest',
           );
-          await tester.tap(save);
-          expect((await failure).message.kind, RequestErrorKind.notFound);
-          await registry.open(original);
+          await withUnavailableTable('Original', () async {
+            await tester.tap(save);
+            expect((await failure).message.request, 'UpdatePlaylistRequest');
+          });
           await tester.pumpAndSettle();
         }
         await tester.tap(save);
