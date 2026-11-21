@@ -827,6 +827,7 @@
   "@exportCoverWall": {
     "description": "Une entrée dans le menu contextuel qui permet aux utilisateurs d'exporter un mur d'art de couverture"
   },
+  "noCoverArtToExport": "Aucune pochette à exporter.",
   "ratio": "Ratio",
   "@ratio": {
     "description": "Titre du champ de saisie de la fenêtre modale du mur d'art de couverture"

@@ -847,6 +847,10 @@
   "@exportCoverWall": {
     "description": "An entry in the context menu that allows users to export a cover art wall"
   },
+  "noCoverArtToExport": "No cover art is available to export.",
+  "@noCoverArtToExport": {
+    "description": "Shown when the selected tracks have no cover art for a cover wall."
+  },
   "ratio": "Ratio",
   "@ratio": {
     "description": "Input field title of the cover art wall modal"

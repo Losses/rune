@@ -827,6 +827,7 @@
   "@exportCoverWall": {
     "description": "커버 아트 월을 내보낼 수 있는 컨텍스트 메뉴 항목입니다."
   },
+  "noCoverArtToExport": "내보낼 커버 아트가 없습니다.",
   "ratio": "비율",
   "@ratio": {
     "description": "커버 아트 월 모달의 입력 필드 제목입니다."

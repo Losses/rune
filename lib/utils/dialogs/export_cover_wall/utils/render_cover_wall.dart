@@ -30,7 +30,8 @@ Future<ui.Image> emptyImage = (() async {
   return frame.image;
 })();
 
-Future<ui.Image> renderCoverWall(
+/// Returns null when the selected tracks have no cover art to export.
+Future<ui.Image?> renderCoverWall(
   List<(String, String)> queries,
   Size size,
   Color background,
@@ -38,22 +39,22 @@ Future<ui.Image> renderCoverWall(
   Color watermarkColor,
   void Function(double) onProgress,
 ) async {
-  final sizeDefinition =
-      BoxConstraints(maxWidth: size.width, maxHeight: size.height);
-  final gridSize = calculateCoverWallGridSize(sizeDefinition).ceil();
-  const gap = 4;
-
-  ui.PictureRecorder recorder = ui.PictureRecorder();
-  ui.Canvas canvas = ui.Canvas(recorder);
-
   final newItems = await queryMixTracks(
     QueryList([...queries, ('filter::with_cover_art', 'true')]),
     0,
     999,
   );
 
-  final paths = newItems.map((x) => x.coverArtPath).toSet().toList();
+  final paths = {
+    for (final item in newItems)
+      if (item.coverArtPath.isNotEmpty) item.coverArtPath,
+  }.toList();
+  if (paths.isEmpty) return null;
 
+  final sizeDefinition =
+      BoxConstraints(maxWidth: size.width, maxHeight: size.height);
+  final gridSize = calculateCoverWallGridSize(sizeDefinition).ceil();
+  const gap = 4;
   final grid = generateTilesOfSize(
     sizeDefinition,
     paths.length,
@@ -79,6 +80,8 @@ Future<ui.Image> renderCoverWall(
         .toList(),
   );
 
+  final recorder = ui.PictureRecorder();
+  final canvas = ui.Canvas(recorder);
   final backgroundPaint = Paint()
     ..color = background
     ..style = PaintingStyle.fill;
