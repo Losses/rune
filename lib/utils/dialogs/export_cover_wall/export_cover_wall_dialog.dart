@@ -42,7 +42,7 @@ class ExportCoverWallDialog extends StatefulWidget {
 class ExportCoverWallDialogState extends State<ExportCoverWallDialog> {
   bool isLoading = false;
   double progress = 0;
-  RequestFailure? failure;
+  String? failure;
 
   Playlist? playlist;
 
@@ -73,8 +73,7 @@ class ExportCoverWallDialogState extends State<ExportCoverWallDialog> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (failure != null)
-                Text(requestFailureMessage(S.of(context), failure!)),
+              if (failure != null) Text(failure!),
               SelectButtonsSection(
                 controller: ratioController,
                 title: S.of(context).ratio,
@@ -127,24 +126,25 @@ class ExportCoverWallDialogState extends State<ExportCoverWallDialog> {
   }
 
   Future<void> onConfirmPressed() async {
-    final Directory appDocumentsDir = await getApplicationDocumentsDirectory();
-
-    final String? path = await FastFilePicker.pickSaveFile(
-      suggestedName: '${widget.title}.png',
-      initialDirectory: appDocumentsDir.path,
-      acceptedTypeGroups: const [
-        XTypeGroup(label: 'images', extensions: <String>['png']),
-      ],
-    );
-
-    if (path == null) return;
-
+    final strings = S.of(context);
     setState(() {
       isLoading = true;
       failure = null;
     });
 
+    String? errorMessage;
     try {
+      final documents = await getApplicationDocumentsDirectory();
+      if (!mounted) return;
+      final path = await FastFilePicker.pickSaveFile(
+        suggestedName: '${widget.title}.png',
+        initialDirectory: documents.path,
+        acceptedTypeGroups: const [
+          XTypeGroup(label: 'images', extensions: <String>['png']),
+        ],
+      );
+      if (path == null || !mounted) return;
+
       final image = await renderCoverWall(
         widget.queries,
         parseSize(ratioController.selectedValue ?? '16 9'),
@@ -158,19 +158,23 @@ class ExportCoverWallDialogState extends State<ExportCoverWallDialog> {
         onProgress,
       );
 
-      final pngBytes = await image.toByteData(format: ui.ImageByteFormat.png);
-
-      File(path).writeAsBytesSync(pngBytes!.buffer.asInt8List());
-
-      setState(() {
-        isLoading = false;
-      });
-
-      widget.$close(null);
-    } on RequestFailure catch (error) {
+      if (image == null) {
+        errorMessage = strings.noCoverArtToExport;
+        return;
+      }
+      try {
+        final png = await image.toByteData(format: ui.ImageByteFormat.png);
+        await File(path).writeAsBytes(png!.buffer.asUint8List());
+      } finally {
+        image.dispose();
+      }
+      if (mounted) widget.$close(null);
+    } catch (error) {
+      errorMessage = requestErrorText(strings, error);
+    } finally {
       if (mounted) {
         setState(() {
-          failure = error;
+          failure = errorMessage;
           isLoading = false;
         });
       }

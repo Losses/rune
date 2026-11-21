@@ -558,6 +558,7 @@
   "@exportCoverWall": {
     "description": "上下文選單中的一個項目，允許使用者匯出封面牆"
   },
+  "noCoverArtToExport": "沒有可匯出的封面。",
   "ratio": "比例",
   "@ratio": {
     "description": "封面牆視窗的輸入欄位標題"

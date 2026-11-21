@@ -825,6 +825,7 @@
   "@exportCoverWall": {
     "description": "ユーザーがカバーアートウォールをエクスポートできるコンテキストメニューのエントリ。"
   },
+  "noCoverArtToExport": "エクスポートできるカバーアートがありません。",
   "ratio": "レシオ",
   "@ratio": {
     "description": "カバーアートウォールモーダルの入力フィールドタイトル。"

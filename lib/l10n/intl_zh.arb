@@ -837,6 +837,7 @@
   "@exportCoverWall": {
     "description": "上下文菜單中的一個條目，允許用戶導出封面牆"
   },
+  "noCoverArtToExport": "沒有可導出的封面。",
   "ratio": "比例",
   "@ratio": {
     "description": "封面牆模態的輸入欄位標題"

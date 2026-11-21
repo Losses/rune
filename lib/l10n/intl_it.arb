@@ -827,6 +827,7 @@
   "@exportCoverWall": {
     "description": "Un'opzione nel menu contestuale che consente agli utenti di esportare una parete di copertine"
   },
+  "noCoverArtToExport": "Nessuna copertina da esportare.",
   "ratio": "Proporzione",
   "@ratio": {
     "description": "Titolo del campo di input del modal della parete di copertine"

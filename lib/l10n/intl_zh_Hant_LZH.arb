@@ -825,6 +825,7 @@
   "@exportCoverWall": {
     "description": "An entry in the context menu that allows users to export a cover art wall"
   },
+  "noCoverArtToExport": "無曲護影可付梓。",
   "ratio": "比",
   "@ratio": {
     "description": "Input field title of the cover art wall modal"
