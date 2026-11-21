@@ -11,8 +11,23 @@ NavigationItem? headerParent(
   bool isZune,
 ) {
   const search = '/search';
-  if (path != search && history.previousIs(search)) {
+  if (path != search && history.previousPageIs(search)) {
     return navigationQuery.getItem(search, isZune);
   }
   return navigationQuery.getParent(path, isZune);
+}
+
+enum HeaderTapAction { none, pop, replace }
+
+/// What a tap on the parent title [target] does above the page [currentPath].
+/// A tap on the page already shown does nothing, so that a second tap before
+/// the header rebuilds cannot replace the page it came from.
+HeaderTapAction headerTapAction(
+  String target,
+  String? currentPath,
+  NavigationHistory history,
+) {
+  if (target == currentPath) return HeaderTapAction.none;
+  if (history.previousIs(target)) return HeaderTapAction.pop;
+  return HeaderTapAction.replace;
 }
