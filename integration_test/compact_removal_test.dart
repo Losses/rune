@@ -28,14 +28,7 @@ void main() {
   late FileSystemEntity database;
   setUpAll(() async {
     final root = await Directory.systemTemp.createTemp('rune-removal-');
-    addTearDown(() async {
-      try {
-        await root.delete(recursive: true);
-      } on PathAccessException catch (error) {
-        // Windows can retain the native database handle until the runner exits.
-        if (!Platform.isWindows || error.osError?.errorCode != 32) rethrow;
-      }
-    });
+    addTearDown(() => root.delete(recursive: true));
     await initializeRust(assignRustSignal);
     addTearDown(finalizeRust);
     await awaitResponse(
@@ -57,6 +50,7 @@ void main() {
       LibraryInitializeMode.portable,
     );
     final recordId = registration.record!.recordId;
+    addTearDown(() => registry.remove(recordId));
     await registry.open(recordId);
     database = await music
         .list(recursive: true)
