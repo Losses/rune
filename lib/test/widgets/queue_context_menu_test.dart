@@ -12,6 +12,7 @@ import '../../providers/playlist.dart';
 import '../../providers/request_capabilities.dart';
 import '../../providers/status.dart';
 import '../../utils/router/history.dart';
+import '../../widgets/playback_controller/constants/controller_items.dart';
 import '../../widgets/playback_controller/queue.dart';
 import '../../widgets/playback_controller/queue_button.dart';
 import '../../widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
@@ -74,9 +75,14 @@ void _testQueueDismissal(_Dismissal dismissal) {
           home: ScaffoldPage(
             content: ValueListenableBuilder<bool>(
               valueListenable: showOwner,
-              builder: (_, visible, _) => Center(
+              builder: (context, visible, _) => Center(
                 child: visible
-                    ? const QueueButton(shadows: null)
+                    ? Tooltip(
+                        message: 'Queue',
+                        child: controllerItems
+                            .singleWhere((entry) => entry.id == 'playlist')
+                            .controllerButtonBuilder(context, null),
+                      )
                     : const SizedBox(),
               ),
             ),
@@ -87,6 +93,16 @@ void _testQueueDismissal(_Dismissal dismissal) {
     await tester.pump();
     await tester.tap(find.byType(QueueButton));
     await tester.pumpAndSettle();
+    final owner = tester.state(find.byType(QueueButton));
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: const Offset(4, 4));
+    addTearDown(mouse.removePointer);
+    await tester.pumpAndSettle();
+    expect(
+      tester.state(find.byType(QueueButton)),
+      same(owner),
+      reason: 'Connecting a mouse must preserve the open queue',
+    );
     await tester.tap(find.text('Queue track'), buttons: kSecondaryMouseButton);
     await tester.pumpAndSettle();
 
