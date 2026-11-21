@@ -16,6 +16,7 @@ class _LibraryManager extends ChangeNotifier implements LibraryManagerProvider {
   final StreamController<RequestFailure> _failures =
       StreamController<RequestFailure>.broadcast();
   final scanForces = <bool>[];
+  Completer<TaskStatus>? scanCompletion;
   final taskStarts = <String>[];
   bool analysisRunning = false;
   // The progress and total each running task reports.
@@ -60,8 +61,8 @@ class _LibraryManager extends ChangeNotifier implements LibraryManagerProvider {
   }
 
   @override
-  Future<TaskStatus> waitForScanToComplete(String recordId) async =>
-      TaskStatus.finished;
+  Future<TaskStatus> waitForScanToComplete(String recordId) =>
+      scanCompletion?.future ?? Future.value(TaskStatus.finished);
 
   @override
   Future<void> analyzeLibrary(
@@ -125,6 +126,7 @@ const _replica = LibraryRecordSummary(
 Future<_LibraryManager> _pumpTaskButtons(
   WidgetTester tester, {
   LibraryRecordSummary record = _replica,
+  VoidCallback? onScanFinished,
   bool analysisRunning = false,
   (int, int) analysisCounts = (25, 100),
   (int, int)? deduplicationCounts,
@@ -146,14 +148,14 @@ Future<_LibraryManager> _pumpTaskButtons(
         ),
         ChangeNotifierProvider<LibraryManagerProvider>.value(value: manager),
       ],
-      child: const FluentApp(
+      child: FluentApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Column(
           children: [
-            ScanLibraryButton(title: 'Scan'),
-            AnalyzeLibraryButton(title: 'Analyze'),
-            DeduplicateLibraryButton(title: 'Deduplicate'),
+            ScanLibraryButton(title: 'Scan', onFinished: onScanFinished),
+            const AnalyzeLibraryButton(title: 'Analyze'),
+            const DeduplicateLibraryButton(title: 'Deduplicate'),
           ],
         ),
       ),
@@ -164,6 +166,37 @@ Future<_LibraryManager> _pumpTaskButtons(
 }
 
 void main() {
+  for (final force in [false, true]) {
+    testWidgets(
+      '${force ? 'force' : 'normal'} scan refreshes only its mounted caller',
+      (tester) async {
+        var refreshes = 0;
+        final manager = await _pumpTaskButtons(
+          tester,
+          onScanFinished: () => refreshes++,
+        );
+        final buttons = force ? kSecondaryMouseButton : kPrimaryMouseButton;
+        final scan = find.text('Scan');
+        manager.scanCompletion = Completer<TaskStatus>();
+        await tester.tap(scan, buttons: buttons);
+        expect(manager.scanForces, [force]);
+        expect(refreshes, 0);
+        manager.scanCompletion!.complete(TaskStatus.finished);
+        await tester.pump();
+        expect(refreshes, 1);
+
+        manager.scanCompletion = Completer<TaskStatus>();
+        await tester.tap(scan, buttons: buttons);
+        expect(manager.scanForces, [force, force]);
+        await tester.pumpAndSettle();
+        await tester.pumpWidget(const SizedBox());
+        manager.scanCompletion!.complete(TaskStatus.finished);
+        await tester.pump();
+        expect(refreshes, 1, reason: 'the scan caller has unmounted');
+      },
+    );
+  }
+
   // A task's first update reports 0 of 0, before it has counted its work.
   for (final task in ['Analyze', 'Deduplicate']) {
     testWidgets('$task shows an indeterminate ring before its total is known', (

@@ -183,6 +183,29 @@ class ScanLibraryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    Future<void> scan(
+      LibraryManagerProvider libraryManager,
+      String recordId,
+      Uint64 callId, {
+      bool force = false,
+    }) async {
+      libraryManager.scanLibrary(recordId, force: force, callId: callId);
+      final status = await libraryManager.waitForScanToComplete(recordId);
+      if (!context.mounted) return;
+
+      if (status == TaskStatus.finished) {
+        onFinished?.call();
+      } else if (status == TaskStatus.failed) {
+        await showErrorDialog(
+          context: context,
+          title: S.of(context).scanLibrary,
+          errorMessage:
+              libraryManager.getScanTaskProgress(recordId)?.error ??
+              S.of(context).unknownError,
+        );
+      }
+    }
+
     return LibraryTaskButton(
       title: title ?? S.of(context).scan,
       progressTitle: S.of(context).scanning,
@@ -194,47 +217,9 @@ class ScanLibraryButton extends StatelessWidget {
           libraryManager.cancelTask(recordId, CancelTaskType.scanAudioLibrary);
         }
       },
-      onPressedStart: (libraryManager, recordId, callId) async {
-        libraryManager.scanLibrary(
-          recordId,
-          isInitializeTask: false,
-          callId: callId,
-        );
-        final status = await libraryManager.waitForScanToComplete(recordId);
-        if (status == TaskStatus.failed && context.mounted) {
-          await showErrorDialog(
-            context: context,
-            title: S.of(context).scanLibrary,
-            errorMessage:
-                libraryManager.getScanTaskProgress(recordId)?.error ??
-                S.of(context).unknownError,
-          );
-        }
-        if (status == TaskStatus.finished && onFinished != null) {
-          onFinished!();
-        }
-      },
-      onContextMenu: (libraryManager, recordId, callId) async {
-        libraryManager.scanLibrary(
-          recordId,
-          isInitializeTask: false,
-          force: true,
-          callId: callId,
-        );
-        final status = await libraryManager.waitForScanToComplete(recordId);
-        if (status == TaskStatus.failed && context.mounted) {
-          await showErrorDialog(
-            context: context,
-            title: S.of(context).scanLibrary,
-            errorMessage:
-                libraryManager.getScanTaskProgress(recordId)?.error ??
-                S.of(context).unknownError,
-          );
-        }
-        if (status == TaskStatus.finished && onFinished != null) {
-          onFinished!();
-        }
-      },
+      onPressedStart: scan,
+      onContextMenu: (libraryManager, recordId, callId) =>
+          scan(libraryManager, recordId, callId, force: true),
       isTaskWorking: (scanWorking, analyzeWorking, deduplicateWorking) =>
           scanWorking,
     );
