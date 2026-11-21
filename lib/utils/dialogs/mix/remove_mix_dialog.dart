@@ -37,6 +37,7 @@ class _RemoveMixDialogState extends State<RemoveMixDialog> {
   RequestFailure? failure;
 
   void _onConfirm() async {
+    if (isLoading) return;
     setState(() {
       isLoading = true;
     });
@@ -61,18 +62,19 @@ class _RemoveMixDialogState extends State<RemoveMixDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final error = failure == null
+        ? null
+        : requestFailureMessage(S.of(context), failure!);
     return RemoveDialogOnBand(
       $close: widget.$close,
       onConfirm: _onConfirm,
+      isLoading: isLoading,
+      error: error,
       child: ContentDialog(
         title: Column(
           children: [SizedBox(height: 8), Text(S.of(context).removeMixTitle)],
         ),
-        content: Text(
-          failure == null
-              ? S.of(context).removeMixSubtitle
-              : requestFailureMessage(S.of(context), failure!),
-        ),
+        content: Text(error ?? S.of(context).removeMixSubtitle),
         actions: [
           ResponsiveDialogActions(
             Button(

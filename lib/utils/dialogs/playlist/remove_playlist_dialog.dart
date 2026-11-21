@@ -45,6 +45,7 @@ class _RemovePlaylistDialogState extends State<RemovePlaylistDialog> {
   RequestFailure? failure;
 
   void _onConfirm() async {
+    if (isLoading) return;
     setState(() {
       isLoading = true;
     });
@@ -69,9 +70,14 @@ class _RemovePlaylistDialogState extends State<RemovePlaylistDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final error = failure == null
+        ? null
+        : requestFailureMessage(S.of(context), failure!);
     return RemoveDialogOnBand(
       $close: widget.$close,
       onConfirm: _onConfirm,
+      isLoading: isLoading,
+      error: error,
       child: ContentDialog(
         title: Column(
           children: [
@@ -79,11 +85,7 @@ class _RemovePlaylistDialogState extends State<RemovePlaylistDialog> {
             Text(S.of(context).removePlaylistTitle),
           ],
         ),
-        content: Text(
-          failure == null
-              ? S.of(context).removePlaylistSubtitle
-              : requestFailureMessage(S.of(context), failure!),
-        ),
+        content: Text(error ?? S.of(context).removePlaylistSubtitle),
         actions: [
           ResponsiveDialogActions(
             Button(

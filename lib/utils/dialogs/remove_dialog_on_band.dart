@@ -13,12 +13,16 @@ class RemoveDialogOnBand extends StatelessWidget {
     required this.onConfirm,
     required this.$close,
     this.icon,
+    this.isLoading = false,
+    this.error,
   });
 
   final IconData? icon;
   final Widget child;
   final VoidCallback onConfirm;
   final void Function(Null) $close;
+  final bool isLoading;
+  final String? error;
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +31,7 @@ class RemoveDialogOnBand extends StatelessWidget {
         DeviceType.band,
         DeviceType.dock,
         DeviceType.belt,
-        DeviceType.tv
+        DeviceType.tv,
       ],
       builder: (context, activeBreakpoint) {
         if (activeBreakpoint == DeviceType.band ||
@@ -38,13 +42,20 @@ class RemoveDialogOnBand extends StatelessWidget {
               final size = min(constraint.maxWidth, constraint.maxHeight);
 
               final children = [
+                if (error case final message?)
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(4),
+                      child: Text(message, textAlign: TextAlign.center),
+                    ),
+                  ),
                 BandScreenFallbackButton(
                   icon: Icon(
                     icon ?? Symbols.delete,
                     color: Colors.warningPrimaryColor,
                     size: (size * 0.8).clamp(0, 48),
                   ),
-                  onPressed: onConfirm,
+                  onPressed: isLoading ? null : onConfirm,
                 ),
                 SizedBox(height: size * 0.2, width: size * 0.2),
                 BandScreenFallbackButton(
@@ -52,7 +63,7 @@ class RemoveDialogOnBand extends StatelessWidget {
                     icon ?? Symbols.close,
                     size: (size * 0.2).clamp(0, 32),
                   ),
-                  onPressed: () => $close(null),
+                  onPressed: isLoading ? null : () => $close(null),
                 ),
               ];
 
