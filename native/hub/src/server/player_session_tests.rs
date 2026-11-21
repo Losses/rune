@@ -1378,8 +1378,9 @@ async fn assert_node_threads_stop(case: &str) -> Result<()> {
         drop(fixture);
         node
     } else {
+        crate::test_node::disable_sync_listener(dir.path())?;
         let path = dir.path().to_str().context("node path")?;
-        NodeContext::new(
+        let node = NodeContext::new(
             path,
             path,
             Arc::new(Quiet),
@@ -1387,7 +1388,20 @@ async fn assert_node_threads_stop(case: &str) -> Result<()> {
             RunMode::App,
             Arc::new(::visualizer::Visualizer::new()),
         )
-        .await?
+        .await?;
+        // The bare-node cases exercise listener teardown along with the player.
+        let manager = node.manager()?;
+        manager
+            .clone()
+            .start_sync(
+                ([127, 0, 0, 1], 0).into(),
+                DiscoveryParams {
+                    device_info: node.device_info().await?,
+                },
+            )
+            .await?;
+        assert!(manager.is_running());
+        node
     };
     let session = node.session()?;
     let weak = Arc::downgrade(&node);

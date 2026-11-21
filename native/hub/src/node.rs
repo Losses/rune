@@ -1698,6 +1698,7 @@ mod tests {
     #[tokio::test]
     async fn permission_status_change_emits_notification() -> anyhow::Result<()> {
         let dir = tempfile::tempdir()?;
+        crate::test_node::disable_sync_listener(dir.path())?;
         let path = dir.path().to_string_lossy();
         let (tx, mut rx) = mpsc::unbounded_channel();
         let node = NodeContext::new(

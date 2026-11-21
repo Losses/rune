@@ -454,6 +454,7 @@ async fn register_worker_library(
         .context("share test record has no library id")?;
     let path = directory.path().to_string_lossy().into_owned();
     write_quick_identity(directory.path())?;
+    crate::test_node::disable_sync_listener(directory.path())?;
     let broadcaster = Arc::new(QuietBroadcaster::default());
     let node = NodeContext::new(
         &path,
@@ -542,6 +543,30 @@ async fn worker_hub_on_share_prepared(
         factory,
         timers,
     })
+}
+
+#[tokio::test]
+async fn share_worker_fixtures_do_not_open_paired_sync_listeners() -> Result<()> {
+    let session = memory_session(&Arc::new(MemoryObjectStore::default())).await;
+    let hubs =
+        worker_hubs_on_share_sessions(Uuid::new_v4(), vec![session.clone(), session]).await?;
+    let mut listeners = Vec::new();
+    for hub in &hubs {
+        let manager = hub.node.manager()?;
+        listeners.push((
+            hub.node.sync_settings.read().await.listen,
+            manager.get_address().await,
+        ));
+    }
+    for hub in hubs {
+        hub.stop().await?;
+    }
+    assert_eq!(
+        listeners,
+        [(false, None), (false, None)],
+        "share workers must not request or bind a paired sync listener"
+    );
+    Ok(())
 }
 
 async fn wait_for_key_on_hubs(hubs: &[WorkerHub], key: &ObjectKey) -> Result<()> {
@@ -1003,6 +1028,7 @@ async fn share_worker_skips_redirected_catalog_before_opening_a_store() -> Resul
     let directory = tempfile::tempdir()?;
     let path = directory.path().to_string_lossy().into_owned();
     let broadcaster = Arc::new(QuietBroadcaster::default());
+    crate::test_node::disable_sync_listener(directory.path())?;
     let node = NodeContext::new(
         &path,
         &path,
@@ -2273,6 +2299,7 @@ async fn replaced_library_file_is_a_typed_share_change() -> Result<()> {
 /// A node on a device that has not added any library yet.
 async fn node_without_libraries(directory: &tempfile::TempDir) -> Result<Arc<NodeContext>> {
     write_quick_identity(directory.path())?;
+    crate::test_node::disable_sync_listener(directory.path())?;
     let path = directory.path().to_string_lossy().into_owned();
     NodeContext::new(
         &path,
@@ -2466,6 +2493,7 @@ mod revocation_tests {
         host: &str,
     ) -> Result<Arc<NodeContext>> {
         let path = directory.path().to_string_lossy().into_owned();
+        crate::test_node::disable_sync_listener(directory.path())?;
         let node = NodeContext::new(
             &path,
             &path,
