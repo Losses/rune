@@ -4,5 +4,5 @@ bool queriesHasRecommendation(QueryList queries) {
   final hasRecommendation =
       queries.toQueryList().indexWhere((x) => x.operator == 'pipe::recommend');
 
-  return hasRecommendation > 0;
+  return hasRecommendation >= 0;
 }

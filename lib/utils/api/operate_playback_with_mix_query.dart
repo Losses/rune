@@ -39,6 +39,17 @@ List<PlayingItemRef> queueItemsToExclude({
   return [for (final entry in queue ?? const <PlaylistItem>[]) entry.item];
 }
 
+/// Whether a mix played with [operateMode] leaves out the tracks already in the
+/// queue. A replaced queue goes as a whole, so playing an album or a track that
+/// it holds keeps them; adding to the queue, or a recommendation mix, leaves
+/// them out.
+bool mixExcludesQueue({
+  required PlaylistOperateMode operateMode,
+  required QueryList queries,
+}) =>
+    operateMode != PlaylistOperateMode.replace ||
+    queriesHasRecommendation(queries);
+
 /// The items a playback action has converted for its resolve request: the
 /// track to start with, when it names one, then its fallback tracks. An action
 /// that names no track to start with has a `null` [initialPlaybackId], and no
@@ -98,10 +109,12 @@ Future<List<PlayingItem>> operatePlaybackWithMixQuery({
       instantlyPlay: instantlyPlay,
       fallbackPlayingItems: start.fallback,
       excluded: ExcludedItems(
-        items: queueItemsToExclude(
-          castTo: castTo,
-          queue: PlaylistUpdate.latestRustSignal?.message.items,
-        ),
+        items: mixExcludesQueue(operateMode: operateMode, queries: queries)
+            ? queueItemsToExclude(
+                castTo: castTo,
+                queue: PlaylistUpdate.latestRustSignal?.message.items,
+              )
+            : const [],
       ),
       callId: callId,
     ).sendSignalToRust(),
