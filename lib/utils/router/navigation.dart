@@ -40,8 +40,8 @@ bool $pop() {
   if (current == null) return false;
 
   if (current is ModalRouteEntry) {
+    // The modal checks canPop before removing its own entry.
     current.pop();
-    $history.pop();
     return true;
   }
 

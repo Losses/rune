@@ -23,45 +23,42 @@ class ModalRouteWrapper extends StatefulWidget {
 }
 
 class _ModalRouteWrapperState extends State<ModalRouteWrapper> {
+  late final ModalRouteEntry _entry;
+
   @override
   void initState() {
     super.initState();
-    $history.pushModal(
-      ModalRouteEntry(
-        name: widget.name,
-        arguments: widget.arguments,
-        canPop: widget.canPop,
-        pop: () {
-          _handleClose(null);
-        },
-      ),
+    _entry = ModalRouteEntry(
+      name: widget.name,
+      arguments: widget.arguments,
+      canPop: widget.canPop,
+      pop: () => _handleClose(null),
     );
+    $history.pushModal(_entry);
   }
 
   @override
   void dispose() {
-    if ($history.isCurrentModal) {
-      $history.pop();
-    }
+    // Barrier, Escape and direct Navigator pops can also dismiss this route.
+    $history.remove(_entry);
     super.dispose();
   }
 
   void _handleClose(dynamic result) {
-    final current = $history.current;
-    if (current is! ModalRouteEntry) return;
+    if (!mounted || !identical($history.current, _entry)) return;
+    final route = ModalRoute.of(context);
+    if (route == null || !route.isCurrent) return;
 
-    bool canPop = true;
-    if (current.canPop != null) {
-      final (confirm, popResult) = current.canPop!();
-      canPop = confirm;
-      if (canPop) {
-        result = popResult;
-      }
+    final canPop = _entry.canPop;
+    if (canPop != null) {
+      final (allowed, popResult) = canPop();
+      if (!allowed) return;
+      result = popResult;
     }
 
-    if (canPop && mounted) {
-      Navigator.pop(context, result);
-    }
+    Navigator.pop(context, result);
+    // A route can consume a pop without leaving the Navigator.
+    if (!route.isCurrent) $history.remove(_entry);
   }
 
   @override
