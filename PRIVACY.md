@@ -16,13 +16,13 @@ Rune stores your music library information, playback preferences, custom playlis
 
 **Third-Party Services**
 
-Rune does not include third-party advertising or analytics. Scrobbling is optional. In **Settings → Playback**, you can connect a service to share what you are listening to. You can log out of each service there to stop reporting new listens to that account.
+Rune does not include third-party advertising or analytics. Scrobbling is optional. In **Settings → Playback**, you can connect a service to share what you are listening to. You can log out of each service there. This stops reports of new listens. Reports already in progress may still be sent or retried.
 
-Each connected service receives the artist and track title in both now-playing updates and recorded listens (scrobbles). Both kinds of report include the album name when available. A recorded listen also includes a timestamp.
+Each connected service receives the artist and track title in both now-playing updates and recorded listens (scrobbles). Both kinds of report include the album name when available. A recorded listen also includes a timestamp. Rune currently omits the album artist from playback reports, including reports to Last.fm and Libre.fm, which support this optional field.
 
-- **Last.fm** receives your username and password at login and returns a session key for playback reports. Rune includes your Last.fm API key in each request and uses your API secret locally to sign it. Both kinds of report can include the album artist. Only now-playing updates include the track duration when available.
-- **Libre.fm** receives your username and password at login, along with an authentication token derived from both. It returns a session key for playback reports. Rune includes a fixed API key in each request. Both kinds of report can include the album artist. Only now-playing updates include the track duration when available.
-- **ListenBrainz** receives your user token in the authorization header when Rune validates the token and when it submits playback reports. Both kinds of report identify the media player as `rune` and include the track duration when available. Rune omits the album artist from ListenBrainz reports.
+- **Last.fm** receives your username and password at login and returns a session key. Rune sends that key with each playback report. Rune includes your Last.fm API key in each request and uses your API secret locally to sign it. Only now-playing updates include the track duration when available.
+- **Libre.fm** receives your username and password at login, along with an authentication token derived from both. It returns a session key that Rune sends with each playback report. Rune includes a fixed API key in each request. Only now-playing updates include the track duration when available.
+- **ListenBrainz** receives your user token in the authorization header when Rune validates the token and when it submits playback reports. Both kinds of report identify the media player as `rune` and include the track duration when available.
 
 **Data Security**
 

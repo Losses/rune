@@ -1,10 +1,17 @@
-const POLICY: &str = include_str!("../../PRIVACY.md");
+fn policy_text() -> String {
+    include_str!("../../PRIVACY.md")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase()
+}
 
 #[test]
 fn policy_does_not_promise_that_all_data_stays_on_device() {
-    let policy = POLICY.to_ascii_lowercase();
+    let policy = policy_text();
     for claim in [
         "does not collect, store, or transmit any personal information",
+        "never sends personal information",
         "operates entirely on your device",
         "is not transmitted to external servers",
         "does not share information with external parties",
@@ -19,7 +26,7 @@ fn policy_does_not_promise_that_all_data_stays_on_device() {
 
 #[test]
 fn policy_discloses_optional_scrobbling() {
-    let policy = POLICY.to_ascii_lowercase();
+    let policy = policy_text();
     for topic in [
         "optional",
         "scrobbling",
@@ -33,7 +40,7 @@ fn policy_discloses_optional_scrobbling() {
         "api key",
         "artist",
         "track title",
-        "album",
+        "album artist",
         "duration",
         "timestamp",
         "library id",
