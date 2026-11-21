@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:fluent_ui/fluent_ui.dart';
 
 class StartGroupNormalLayout extends StatefulWidget {
@@ -12,6 +14,30 @@ class StartGroupNormalLayout extends StatefulWidget {
     this.onTitleTap,
   });
 
+  static const padding = EdgeInsets.only(left: 16, right: 16);
+  static const titlePadding = EdgeInsets.only(bottom: 4);
+
+  /// The width the layout takes around a child that is [childWidth] wide.
+  static double widthFor(
+    BuildContext context,
+    String title,
+    double childWidth,
+  ) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: title,
+        style: DefaultTextStyle.of(context).style.merge(
+              FluentTheme.of(context).typography.bodyLarge,
+            ),
+      ),
+      textScaler: MediaQuery.maybeTextScalerOf(context) ?? TextScaler.noScaling,
+      textDirection: Directionality.of(context),
+    )..layout();
+    final titleWidth = painter.width;
+    painter.dispose();
+    return max(titleWidth, childWidth) + padding.horizontal;
+  }
+
   @override
   StartGroupNormalLayoutState createState() => StartGroupNormalLayoutState();
 }
@@ -24,7 +50,7 @@ class StartGroupNormalLayoutState extends State<StartGroupNormalLayout> {
     final theme = FluentTheme.of(context);
 
     return Padding(
-      padding: const EdgeInsets.only(left: 16, right: 16),
+      padding: StartGroupNormalLayout.padding,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -42,7 +68,7 @@ class StartGroupNormalLayoutState extends State<StartGroupNormalLayout> {
                   opacity: _opacity,
                   duration: const Duration(milliseconds: 100),
                   child: Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
+                    padding: StartGroupNormalLayout.titlePadding,
                     child: Text(
                       widget.groupTitle,
                       style: theme.typography.bodyLarge,

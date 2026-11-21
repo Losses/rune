@@ -1,8 +1,9 @@
 import 'dart:math';
 
-import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../tile_group/tile_grid.dart';
+import '../tile_group/tile_layout.dart';
 import 'start_group_item.dart';
 
 class StartGroupImplementation<T> extends StatelessWidget {
@@ -13,6 +14,7 @@ class StartGroupImplementation<T> extends StatelessWidget {
   final BoxConstraints constraints;
   final Widget Function(BuildContext, T) itemBuilder;
   final Axis direction;
+  final TileSpan Function(T item)? tileSpanOf;
 
   final Dimensions Function(double, double, double, List<T>)
   dimensionCalculator;
@@ -26,6 +28,7 @@ class StartGroupImplementation<T> extends StatelessWidget {
     required this.constraints,
     required this.itemBuilder,
     required this.direction,
+    this.tileSpanOf,
     Dimensions Function(double, double, double, List<T>)? dimensionCalculator,
   }) : dimensionCalculator = dimensionCalculator ?? defaultDimensionCalculator;
 
@@ -38,6 +41,7 @@ class StartGroupImplementation<T> extends StatelessWidget {
     required this.constraints,
     required this.itemBuilder,
     required this.direction,
+    this.tileSpanOf,
   }) : dimensionCalculator = squareDimensionCalculator;
 
   static Dimensions defaultDimensionCalculator(
@@ -96,51 +100,56 @@ class StartGroupImplementation<T> extends StatelessWidget {
     );
   }
 
-  static (double, double) finalSizeCalculator(
-    Dimensions dimensions,
-    double cellSize,
-    double gapSize,
+  /// Places the first `d.count` tiles the way the dimension calculators
+  /// count them: `d.rows` rows are fixed and the group grows to the right.
+  /// For [Axis.horizontal] tiles fill row by row, in strips as wide as
+  /// `d.columns`. For [Axis.vertical] tiles fill column by column.
+  static TileLayout tileLayout(
+    Dimensions d,
+    Axis direction,
+    List<TileSpan> spans,
   ) {
-    final double finalHeight = clampDouble(
-      dimensions.rows * (cellSize + gapSize) - gapSize,
-      0,
-      double.infinity,
+    return layoutTiles(
+      spans,
+      rows: d.rows,
+      strip: direction == Axis.horizontal ? max(1, d.columns) : 1,
     );
-
-    final double finalWidth = clampDouble(
-      dimensions.columns * (cellSize + gapSize) - gapSize,
-      0,
-      double.infinity,
-    );
-
-    return (finalWidth, finalHeight);
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final Dimensions dimensions = dimensionCalculator(
+  /// The layout of the group, the spans of the tiles shown and the box of the
+  /// group: as wide as the columns in use, as high as the rows of the group.
+  ({TileLayout layout, List<TileSpan> spans, Size size}) measure() {
+    final Dimensions d = dimensionCalculator(
       constraints.maxHeight,
       cellSize,
       gapSize,
       items,
     );
-
-    final (finalWidth, finalHeight) = finalSizeCalculator(
-      dimensions,
-      cellSize,
-      gapSize,
+    final spans = [
+      for (var i = 0; i < d.count; i++)
+        tileSpanOf?.call(items[i]) ?? const TileSpan(1, 1),
+    ];
+    final layout = tileLayout(d, direction, spans);
+    final size = Size(
+      TileGrid.extent(layout.columns, cellSize, gapSize),
+      TileGrid.extent(d.rows, cellSize, gapSize),
     );
+    return (layout: layout, spans: spans, size: size);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final m = measure();
 
     return StartGroupItem<T>(
-      finalWidth: finalWidth,
-      finalHeight: finalHeight,
+      layout: m.layout,
+      spans: m.spans,
+      size: m.size,
       gapSize: gapSize,
-      dimensions: dimensions,
       items: items,
       groupIndex: groupIndex,
       cellSize: cellSize,
       itemBuilder: itemBuilder,
-      direction: direction,
     );
   }
 }

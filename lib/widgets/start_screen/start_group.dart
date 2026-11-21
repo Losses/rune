@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../tile_group/tile_layout.dart';
 import './normal_layout.dart';
 import './stacked_layout.dart';
 
@@ -25,6 +26,12 @@ class StartGroup<T> extends StatelessWidget {
       dimensionCalculator;
   final Axis direction;
 
+  /// Size in cells of the tile of an item. One cell when null.
+  final TileSpan Function(T item)? tileSpanOf;
+
+  /// Size of one cell.
+  final double cellSize;
+
   final double gapSize;
   final VoidCallback? onTitleTap;
 
@@ -42,7 +49,29 @@ class StartGroup<T> extends StatelessWidget {
     this.groupLayoutVariation = StartGroupGroupLayoutVariation.normal,
     this.dimensionCalculator,
     required this.direction,
+    this.tileSpanOf,
+    this.cellSize = defaultCellSize,
   });
+
+  /// The width the group takes in a horizontal list, padding included, as
+  /// [build] lays it out. It lets a list scroll to a group it has not built yet.
+  double widthIn(BuildContext context) {
+    final childWidth = _buildStartGroupItems().measure().size.width;
+    switch (groupLayoutVariation) {
+      case StartGroupGroupLayoutVariation.stacked:
+        return StartGroupStackedLayout.widthFor(
+          context,
+          groupTitle,
+          childWidth,
+        );
+      case StartGroupGroupLayoutVariation.normal:
+        return StartGroupNormalLayout.widthFor(
+          context,
+          groupTitle,
+          childWidth,
+        );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -71,21 +100,22 @@ class StartGroup<T> extends StatelessWidget {
     }
   }
 
-  Widget _buildStartGroupItems() {
+  StartGroupImplementation<T> _buildStartGroupItems() {
     switch (gridLayoutVariation) {
       case StartGroupGridLayoutVariation.square:
         return StartGroupImplementation<T>.square(
-          cellSize: defaultCellSize,
+          cellSize: cellSize,
           gapSize: gapSize,
           items: items,
           groupIndex: groupIndex,
           constraints: constraints,
           itemBuilder: itemBuilder,
           direction: direction,
+          tileSpanOf: tileSpanOf,
         );
       case StartGroupGridLayoutVariation.initial:
         return StartGroupImplementation<T>(
-          cellSize: defaultCellSize,
+          cellSize: cellSize,
           gapSize: gapSize,
           items: items,
           groupIndex: groupIndex,
@@ -93,6 +123,7 @@ class StartGroup<T> extends StatelessWidget {
           itemBuilder: itemBuilder,
           dimensionCalculator: dimensionCalculator,
           direction: direction,
+          tileSpanOf: tileSpanOf,
         );
     }
   }

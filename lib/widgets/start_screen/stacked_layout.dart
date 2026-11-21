@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:fluent_ui/fluent_ui.dart';
 
 class StartGroupStackedLayout extends StatefulWidget {
@@ -12,6 +14,31 @@ class StartGroupStackedLayout extends StatefulWidget {
     this.onTitleTap,
   });
 
+  static const padding = EdgeInsets.only(left: 36, right: 16);
+  static const childPadding = EdgeInsets.only(left: 16, top: 32);
+
+  /// The width the layout takes around a child that is [childWidth] wide. The
+  /// title and the padded child share a Stack.
+  static double widthFor(
+    BuildContext context,
+    String title,
+    double childWidth,
+  ) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: title,
+        style: DefaultTextStyle.of(context).style.merge(
+              FluentTheme.of(context).typography.titleLarge,
+            ),
+      ),
+      textScaler: MediaQuery.maybeTextScalerOf(context) ?? TextScaler.noScaling,
+      textDirection: Directionality.of(context),
+    )..layout();
+    final titleWidth = painter.width;
+    painter.dispose();
+    return max(titleWidth, childPadding.left + childWidth) + padding.horizontal;
+  }
+
   @override
   StartGroupStackedLayoutState createState() => StartGroupStackedLayoutState();
 }
@@ -24,7 +51,7 @@ class StartGroupStackedLayoutState extends State<StartGroupStackedLayout> {
     final theme = FluentTheme.of(context);
 
     return Padding(
-      padding: const EdgeInsets.only(left: 36, right: 16),
+      padding: StartGroupStackedLayout.padding,
       child: Stack(
         children: [
           // The title is not focusable, since its main purpose is for decoration
@@ -55,7 +82,7 @@ class StartGroupStackedLayoutState extends State<StartGroupStackedLayout> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.only(left: 16, top: 32),
+            padding: StartGroupStackedLayout.childPadding,
             child: widget.child,
           ),
         ],
