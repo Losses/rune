@@ -150,7 +150,8 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
           actions: [
             ResponsiveDialogActions(
               FilledButton(
-                onPressed: isLoading
+                onPressed: isLoading ||
+                        (widget.playlistId != null && playlist == null)
                     ? null
                     : () async {
                         setState(() {
