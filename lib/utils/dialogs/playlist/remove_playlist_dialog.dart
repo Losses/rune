@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../../api/request_failure.dart';
 import '../../../bindings/bindings.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -19,7 +21,6 @@ Future<bool?> showRemovePlaylistDialog(
     context,
     (context, $close) =>
         RemovePlaylistDialog(playlistId: playlistId, $close: $close),
-    dismissWithEsc: true,
     barrierDismissible: true,
   );
 
@@ -44,6 +45,14 @@ class _RemovePlaylistDialogState extends State<RemovePlaylistDialog> {
   bool isLoading = false;
   RequestFailure? failure;
 
+  void _showFailure(RequestFailure error) {
+    if (!mounted) return;
+    setState(() {
+      isLoading = false;
+      failure = error;
+    });
+  }
+
   void _onConfirm() async {
     if (isLoading) return;
     setState(() {
@@ -53,14 +62,18 @@ class _RemovePlaylistDialogState extends State<RemovePlaylistDialog> {
       await removePlaylist(widget.playlistId);
     } on RequestFailure catch (error) {
       if (error.kind != RequestErrorKind.notFound) {
-        if (mounted) {
-          setState(() {
-            isLoading = false;
-            failure = error;
-          });
-        }
+        _showFailure(error);
         return;
       }
+    } on TimeoutException catch (error) {
+      _showFailure(
+        RequestFailure(
+          'RemovePlaylistRequest',
+          RequestErrorKind.unavailable,
+          error.toString(),
+        ),
+      );
+      return;
     }
 
     if (!mounted) return;

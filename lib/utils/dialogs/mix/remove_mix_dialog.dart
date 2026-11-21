@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../../api/request_failure.dart';
 import '../../../bindings/bindings.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -15,7 +17,6 @@ Future<bool?> showRemoveMixDialog(BuildContext context, int mixId) async {
     staysUsableWhenShrunk: false,
     context,
     (context, $close) => RemoveMixDialog(mixId: mixId, $close: $close),
-    dismissWithEsc: true,
     barrierDismissible: true,
   );
 
@@ -36,6 +37,14 @@ class _RemoveMixDialogState extends State<RemoveMixDialog> {
   bool isLoading = false;
   RequestFailure? failure;
 
+  void _showFailure(RequestFailure error) {
+    if (!mounted) return;
+    setState(() {
+      isLoading = false;
+      failure = error;
+    });
+  }
+
   void _onConfirm() async {
     if (isLoading) return;
     setState(() {
@@ -45,14 +54,18 @@ class _RemoveMixDialogState extends State<RemoveMixDialog> {
       await removeMix(widget.mixId);
     } on RequestFailure catch (error) {
       if (error.kind != RequestErrorKind.notFound) {
-        if (mounted) {
-          setState(() {
-            isLoading = false;
-            failure = error;
-          });
-        }
+        _showFailure(error);
         return;
       }
+    } on TimeoutException catch (error) {
+      _showFailure(
+        RequestFailure(
+          'RemoveMixRequest',
+          RequestErrorKind.unavailable,
+          error.toString(),
+        ),
+      );
+      return;
     }
 
     if (!mounted) return;

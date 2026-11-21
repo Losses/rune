@@ -21,12 +21,17 @@ class RemoveDialogOnBand extends StatelessWidget {
   final Widget child;
   final VoidCallback onConfirm;
   final void Function(Null) $close;
+
+  /// Keeps the route open and disables both compact actions during removal.
+  /// Leave Fluent's `dismissWithEsc` override off so Escape consults this scope.
   final bool isLoading;
+
+  /// Localized failure to show beside the compact actions when removal fails.
   final String? error;
 
   @override
   Widget build(BuildContext context) {
-    return DeviceTypeBuilder(
+    final dialog = DeviceTypeBuilder(
       deviceType: const [
         DeviceType.band,
         DeviceType.dock,
@@ -83,5 +88,6 @@ class RemoveDialogOnBand extends StatelessWidget {
         return child;
       },
     );
+    return PopScope(canPop: !isLoading, child: dialog);
   }
 }

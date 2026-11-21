@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:provider/provider.dart';
@@ -19,17 +20,55 @@ import 'package:rune/utils/api/get_all_playlists.dart';
 import 'package:rune/utils/api/request_failure.dart';
 import 'package:rune/utils/dialogs/mix/remove_mix_dialog.dart';
 import 'package:rune/utils/dialogs/playlist/remove_playlist_dialog.dart';
+import 'package:rune/utils/router/navigation.dart';
 import 'package:rune/widgets/band_screen_fallback_button.dart';
+import 'package:rune/widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
+
+Future<List<String>> _findPython() async {
+  final candidates = [
+    if (Platform.isWindows) ['py', '-3'],
+    ['python3'],
+    ['python'],
+  ];
+  for (final command in candidates) {
+    try {
+      final result = await Process.run(command.first, [
+        ...command.skip(1),
+        '-c',
+        'import sqlite3, sys; sys.exit(sys.version_info.major != 3)',
+      ]);
+      if (result.exitCode == 0) return command;
+    } on ProcessException {
+      continue;
+    }
+  }
+  throw StateError('These integration tests require Python 3 with sqlite3.');
+}
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   late LibraryRegistryProvider registry;
   late FileSystemEntity database;
+  late List<String> python;
+  Completer<void>? droppedReply;
   setUpAll(() async {
+    python = await _findPython();
     final root = await Directory.systemTemp.createTemp('rune-removal-');
     addTearDown(() => root.delete(recursive: true));
-    await initializeRust(assignRustSignal);
+    final signals = {...assignRustSignal};
+    for (final name in ['RemovePlaylistResponse', 'RemoveMixResponse']) {
+      signals[name] = (bytes, binary) {
+        final drop = droppedReply;
+        if (drop == null) {
+          assignRustSignal[name]!(bytes, binary);
+        } else {
+          drop.complete();
+          droppedReply = null;
+        }
+      };
+    }
+    await initializeRust(signals);
     addTearDown(finalizeRust);
     await awaitResponse(
       'InitializeNodeRequest',
@@ -75,6 +114,8 @@ void main() {
             ChangeNotifierProvider.value(value: responsive),
           ],
           child: FluentApp(
+            navigatorKey:
+                runeWithNavigationBarAndPlaybackControllorNavigatorKey,
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: Builder(
@@ -133,7 +174,8 @@ void main() {
         });
         // Keep the temporary library busy until both the UI and control
         // requests have received SQLite's typed write-lock failure.
-        final writer = await Process.start('python3', [
+        final writer = await Process.start(python.first, [
+          ...python.skip(1),
           '-u',
           '-c',
           'import sqlite3, sys\n'
@@ -217,6 +259,71 @@ void main() {
             ? (await getAllMixes()).map((item) => item.id)
             : (await getAllPlaylists()).map((item) => item.id);
         expect(ids, isNot(contains(id)));
+      }
+
+      await resize(const Size(900, 120));
+      final id = mix
+          ? (await createMix('Lost reply', 'Test', null, [])).id
+          : (await createPlaylist('Lost reply', 'Test')).id;
+      Future<bool?> open() => mix
+          ? showRemoveMixDialog(home, id)
+          : showRemovePlaylistDialog(home, id);
+      final result = open();
+      await tester.pumpAndSettle();
+      final buttons = find.byType(BandScreenFallbackButton);
+      final reply = droppedReply = Completer<void>();
+      await tester.tap(buttons.first);
+      await reply.future.timeout(const Duration(seconds: 10));
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(
+        buttons,
+        findsNWidgets(2),
+        reason: 'Escape while removal is pending',
+      );
+      await tester.tapAt(const Offset(2, 2));
+      await tester.pumpAndSettle();
+      expect(
+        buttons,
+        findsNWidgets(2),
+        reason: 'outside tap while removal is pending',
+      );
+      expect($pop(), isTrue);
+      await tester.pumpAndSettle();
+      expect(
+        buttons,
+        findsNWidgets(2),
+        reason: 'Back while removal is pending',
+      );
+
+      final error = find.text(labels.requestUnavailable);
+      final deadline = DateTime.now().add(const Duration(seconds: 40));
+      while (error.evaluate().isEmpty && DateTime.now().isBefore(deadline)) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(error.hitTestable(), findsOneWidget);
+      expect(
+        tester
+            .widgetList<BandScreenFallbackButton>(buttons)
+            .every((b) => b.onPressed != null),
+        isTrue,
+      );
+      // The backend removed the item before its reply was lost. Retry completes
+      // through the same not-found success path as a second device's deletion.
+      await tester.tap(buttons.first);
+      expect(await result.timeout(const Duration(seconds: 10)), isTrue);
+      await tester.pumpAndSettle();
+
+      for (final dismiss in [
+        () => tester.sendKeyEvent(LogicalKeyboardKey.escape),
+        () => tester.tapAt(const Offset(2, 2)),
+      ]) {
+        final idle = open();
+        await tester.pumpAndSettle();
+        await dismiss();
+        await tester.pumpAndSettle();
+        expect(await idle.timeout(const Duration(seconds: 10)), isNull);
       }
     }, timeout: const Timeout(Duration(minutes: 4)));
   }
