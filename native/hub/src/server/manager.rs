@@ -1249,11 +1249,7 @@ mod lifecycle_tests {
         })
         .await?;
         let library = pool.acquire_ui(library_id).await?;
-        SyncSettings {
-            listen: false,
-            ..SyncSettings::default()
-        }
-        .save(dir)?;
+        crate::test_node::disable_sync_listener(dir)?;
         let node_context = NodeContext::with_reconnect_config(
             dir.to_str().context("config path")?,
             dir.to_str().context("db path")?,
@@ -4767,13 +4763,8 @@ mod lifecycle_tests {
         let b_info = peer_step("read second peer identity", info(&b)).await?;
         peer_step("pair library peers", pair(&a, &b)).await?;
         peer_step("pair library peers in reverse", pair(&b, &a)).await?;
-        let a_reserve = TcpListener::bind("127.0.0.1:9999")?;
         let b_reserve = TcpListener::bind("127.0.0.1:0")?;
-        let a_addr = a_reserve.local_addr()?;
-        let b_addr = SocketAddr::from(([127, 0, 0, 1], b_reserve.local_addr()?.port()));
-        assert_eq!(a_addr.port(), 9999);
-        assert_ne!(a_addr.port(), b_addr.port());
-        drop((a_reserve, b_reserve));
+        let b_addr = b_reserve.local_addr()?;
         std::fs::copy(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg"),
             second.path().join("source.ogg"),
@@ -4847,13 +4838,19 @@ mod lifecycle_tests {
         peer_step(
             "start first sync listener",
             a.clone().start_sync(
-                a_addr,
+                ([127, 0, 0, 1], 0).into(),
                 DiscoveryParams {
                     device_info: a_info.clone(),
                 },
             ),
         )
         .await?;
+        let a_addr = a
+            .get_address()
+            .await
+            .context("first sync listener address")?;
+        assert_ne!(a_addr.port(), b_addr.port());
+        drop(b_reserve);
         // Expose the peer before its listener starts so the first metadata pass
         // deterministically encounters a refused connection.
         peer_step(
@@ -4877,6 +4874,7 @@ mod lifecycle_tests {
             ),
         )
         .await?;
+        assert_eq!(b.get_address().await, Some(b_addr));
         peer_step(
             "announce first listener to second peer",
             announce_peer(&b, &a_info, a_addr),

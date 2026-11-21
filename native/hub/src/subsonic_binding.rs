@@ -2191,6 +2191,7 @@ mod visualizer_feed_tests {
         let (url, state, server) = server(true, true).await;
         let node_dir = TempDir::new().unwrap();
         let path = node_dir.path().to_string_lossy().into_owned();
+        crate::test_node::disable_sync_listener(node_dir.path()).unwrap();
         let node = NodeContext::new(
             &path,
             &path,

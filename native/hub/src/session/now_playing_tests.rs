@@ -9,6 +9,7 @@ impl Broadcaster for Quiet {
 #[tokio::test]
 async fn now_playing_waits_for_each_tracks_first_start() -> Result<()> {
     let dir = tempfile::tempdir()?;
+    crate::test_node::disable_sync_listener(dir.path())?;
     let path = dir.path().to_string_lossy();
     let broadcaster: Arc<dyn Broadcaster> = Arc::new(Quiet);
     let node = NodeContext::new(
