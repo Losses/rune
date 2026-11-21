@@ -149,6 +149,20 @@ pub struct ListClientsResponse {
     pub call_id: Option<u64>,
 }
 
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct ListPairedServersRequest {
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+/// The devices this device trusts as servers, with the status each reports for this device.
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct ListPairedServersResponse {
+    pub servers: Vec<ClientSummary>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct TrustedClientsChanged {}
 

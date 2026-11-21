@@ -265,6 +265,11 @@ impl Implementation {
         }
     }
 
+    /// Whether requests run on this device's own player and libraries.
+    pub(crate) fn is_local(&self) -> bool {
+        matches!(self.execution_implementation(), Self::Local)
+    }
+
     fn execution_implementation(&self) -> &Self {
         match self {
             #[cfg(test)]

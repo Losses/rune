@@ -25,13 +25,15 @@ use crate::messages::{
     GetLyricByTrackIdResponse, GetMediaFilesCountRequest, GetMediaFilesCountResponse,
     GetPlaylistByIdRequest, GetPlaylistByIdResponse, HandoffLoadRequest, LoadPlay, LoadRequest,
     LoadResolvedItemsRequest, LoadResolvedItemsResponse, LyricContentLine, LyricContentLineSection,
-    MediaFile, MediaFileSummary, MixQueryRequest, MixQueryResponse, MovePlaylistItemRequest,
-    NextRequest, PauseRequest, PlayRequest, PlaybackMode, PlayingItemRef, Playlist,
-    PlaylistOperateMode, PreviousRequest, RefreshSessionRequest, RemoveItemFromPlaylistRequest,
+    MediaFile, MediaFileSummary, MixQuery, MixQueryRequest, MixQueryResponse,
+    MovePlaylistItemRequest, NextRequest, PauseRequest, PlayRequest, PlaybackMode, PlayingItemRef,
+    Playlist, PlaylistOperateMode, PlaylistRevisionRequest, PlaylistRevisionResponse,
+    PreviousRequest, RefreshSessionRequest, RemoveItemFromPlaylistRequest,
     RemoveItemFromPlaylistResponse, RemovePlaylistRequest, RemovePlaylistResponse, RemoveRequest,
     ReorderPlaylistItemPositionRequest, ReorderPlaylistItemPositionResponse,
-    SearchCollectionSummaryRequest, SearchCollectionSummaryResponse, SearchForRequest,
-    SearchForResponse, SearchMediaFileSummaryRequest, SearchMediaFileSummaryResponse, SeekRequest,
+    ResolveMixQueryRequest, ResolveMixQueryResponse, SearchCollectionSummaryRequest,
+    SearchCollectionSummaryResponse, SearchForRequest, SearchForResponse,
+    SearchMediaFileSummaryRequest, SearchMediaFileSummaryResponse, SeekRequest,
     SessionSnapshotRequest, SessionSnapshotResponse, SetAdaptiveSwitchingEnabledRequest,
     SetLikedRequest, SetLikedResponse, SetPlaybackModeRequest, SetRealtimeFFTEnabledRequest,
     SwitchRequest, TakeBackHandoffBlockRequest, UpdatePlaylistRequest, UpdatePlaylistResponse,
@@ -40,10 +42,11 @@ use crate::messages::{
 use crate::request_error::ExpectedRequestError;
 use crate::rpc::{RequestTranslationFuture, Slot, UnsupportedReason};
 use crate::subsonic_binding::{SubsonicBinding, SubsonicIdKind};
+use crate::utils::{RESOLVED_TRACK_LIMIT, resolved_start};
 use database::actions::mixes::QueryOperator;
 use uuid::Uuid;
 
-fn subsonic_track_id(binding: &SubsonicBinding, item: &Option<PlayingItemRef>) -> Result<String> {
+fn subsonic_track_id(binding: &SubsonicBinding, item: Option<&PlayingItemRef>) -> Result<String> {
     match item {
         Some(PlayingItemRef::LibraryTrack { library_id, track })
             if library_id == &binding.library_id.to_string() =>
@@ -61,7 +64,7 @@ pub(crate) async fn set_liked_request(
     binding: &SubsonicBinding,
     request: &SetLikedRequest,
 ) -> Result<Option<SetLikedResponse>> {
-    let track = subsonic_track_id(binding, &request.item)?;
+    let track = subsonic_track_id(binding, request.item.as_ref())?;
     if request.liked {
         binding
             .client
@@ -86,7 +89,7 @@ pub(crate) async fn get_liked_request(
     binding: &SubsonicBinding,
     request: &GetLikedRequest,
 ) -> Result<Option<GetLikedResponse>> {
-    let track = subsonic_track_id(binding, &request.item)?;
+    let track = subsonic_track_id(binding, request.item.as_ref())?;
     let song = binding
         .client
         .song(&track)
@@ -103,7 +106,7 @@ pub(crate) async fn get_lyric_request(
     binding: &SubsonicBinding,
     request: &GetLyricByTrackIdRequest,
 ) -> Result<Option<GetLyricByTrackIdResponse>> {
-    let track = subsonic_track_id(binding, &request.item)?;
+    let track = subsonic_track_id(binding, request.item.as_ref())?;
     let song = binding
         .client
         .song(&track)
@@ -1451,6 +1454,19 @@ async fn jukebox_refresh_session_request(
     Ok(Some(()))
 }
 
+/// The jukebox keeps no queue revision; the one this device records with each snapshot
+/// is what a following load names.
+async fn jukebox_playlist_revision_request(
+    binding: &SubsonicBinding,
+    request: &PlaylistRevisionRequest,
+) -> Result<Option<PlaylistRevisionResponse>> {
+    let (_, revision) = binding.jukebox_snapshot().await?;
+    Ok(Some(PlaylistRevisionResponse {
+        revision,
+        call_id: request.call_id,
+    }))
+}
+
 async fn jukebox_session_snapshot_request(
     binding: &SubsonicBinding,
     request: &SessionSnapshotRequest,
@@ -1691,20 +1707,20 @@ enum DetailQuery {
     Album(i32),
 }
 
-fn parse_detail_query(request: &MixQueryRequest) -> Result<DetailQuery> {
-    let [query] = request.queries.as_slice() else {
-        return Err(unsupported_detail_query().into());
+fn parse_detail_query(queries: &[MixQuery], request: &'static str) -> Result<DetailQuery> {
+    let [query] = queries else {
+        return Err(unsupported_detail_query(request).into());
     };
     match QueryOperator::parse(&query.operator, &query.parameter) {
         Ok(QueryOperator::LibArtist(id)) => Ok(DetailQuery::Artist(id)),
         Ok(QueryOperator::LibAlbum(id)) => Ok(DetailQuery::Album(id)),
-        _ => Err(unsupported_detail_query().into()),
+        _ => Err(unsupported_detail_query(request).into()),
     }
 }
 
-fn unsupported_detail_query() -> ExpectedRequestError {
+fn unsupported_detail_query(request: &'static str) -> ExpectedRequestError {
     ExpectedRequestError::Unsupported {
-        request: MixQueryRequest::wire_name(),
+        request,
         reason: UnsupportedReason::NotImplemented,
     }
 }
@@ -1778,7 +1794,7 @@ pub(crate) async fn mix_query_request(
     binding: &SubsonicBinding,
     request: &MixQueryRequest,
 ) -> Result<Option<MixQueryResponse>> {
-    let query = parse_detail_query(request)?;
+    let query = parse_detail_query(&request.queries, MixQueryRequest::wire_name())?;
     let songs = detail_songs(binding, query).await?;
     let translated = {
         let mut catalog = binding
@@ -1811,6 +1827,125 @@ pub(crate) async fn mix_query_request(
         call_id: None,
         files,
         cover_art_map: subsonic_cover_map(binding, covers).await?,
+    }))
+}
+
+/// A track list a click plays from: the tracks page, or an artist's or album's tracks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TrackListQuery {
+    All,
+    Detail(DetailQuery),
+}
+
+fn parse_track_list_query(queries: &[MixQuery]) -> Result<TrackListQuery> {
+    if let [query] = queries
+        && let Ok(QueryOperator::LibAll(true)) =
+            QueryOperator::parse(&query.operator, &query.parameter)
+    {
+        return Ok(TrackListQuery::All);
+    }
+    parse_detail_query(queries, ResolveMixQueryRequest::wire_name()).map(TrackListQuery::Detail)
+}
+
+/// Songs asked for per search page while resolving the tracks page.
+const RESOLVE_PAGE_SIZE: u32 = 500;
+
+/// The server's songs in the order the tracks page lists them, as many as a resolve plays.
+/// Only an empty page ends the list: a server may return fewer songs than a page asks for.
+async fn tracks_page_songs(binding: &SubsonicBinding) -> Result<Vec<SubsonicSong>> {
+    let mut songs = Vec::new();
+    while songs.len() < RESOLVED_TRACK_LIMIT {
+        let page = binding
+            .client
+            .search_with_song_offset(
+                "",
+                SearchLimits {
+                    songs: RESOLVE_PAGE_SIZE,
+                    ..Default::default()
+                },
+                u32::try_from(songs.len())?,
+            )
+            .await
+            .map_err(|error| empty_search_error(error, ResolveMixQueryRequest::wire_name()))?
+            .songs;
+        if page.is_empty() {
+            break;
+        }
+        songs.extend(page);
+    }
+    songs.truncate(RESOLVED_TRACK_LIMIT);
+    Ok(songs)
+}
+
+/// Resolves the track list a track was clicked in. As in a local library, this library's
+/// tracks in the caller's queue are left out, and when the clicked track is not in the
+/// result the fallback tracks play instead.
+pub(crate) async fn resolve_mix_query_request(
+    binding: &SubsonicBinding,
+    request: &ResolveMixQueryRequest,
+) -> Result<Option<ResolveMixQueryResponse>> {
+    let fallback = request
+        .fallback_playing_items
+        .iter()
+        .map(|item| subsonic_track_id(binding, Some(item)))
+        .collect::<Result<Vec<_>>>()?;
+    let initial = if request.instantly_play {
+        request
+            .initial_playback_item
+            .as_ref()
+            .map(|item| subsonic_track_id(binding, Some(item)))
+            .transpose()?
+    } else {
+        None
+    };
+    let library_id = binding.library_id.to_string();
+    let tracks = if request.queries.is_empty() {
+        fallback.clone()
+    } else {
+        let query = parse_track_list_query(&request.queries)?;
+        let queued = request
+            .excluded
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                PlayingItemRef::LibraryTrack {
+                    library_id: item_library,
+                    track,
+                } if *item_library == library_id => Some(track.as_str()),
+                _ => None,
+            })
+            .collect::<HashSet<_>>();
+        let songs = match query {
+            TrackListQuery::All => tracks_page_songs(binding).await?,
+            TrackListQuery::Detail(query) => detail_songs(binding, query).await?,
+        };
+        songs
+            .into_iter()
+            .take(RESOLVED_TRACK_LIMIT)
+            .map(|song| song.id)
+            .filter(|track| !queued.contains(track.as_str()))
+            .collect()
+    };
+    let (tracks, start_index) = if request.instantly_play {
+        let (tracks, start_index) =
+            resolved_start(request.hint_position, tracks, initial.as_ref(), fallback);
+        let start_index = u32::try_from(start_index).map_err(|error| {
+            ExpectedRequestError::invalid_input(format!("Invalid start index: {error}"))
+        })?;
+        (tracks, Some(start_index))
+    } else {
+        (tracks, None)
+    };
+    Ok(Some(ResolveMixQueryResponse {
+        playing_items: tracks
+            .into_iter()
+            .map(|track| PlayingItemRef::LibraryTrack {
+                library_id: library_id.clone(),
+                track,
+            })
+            .collect(),
+        start_index,
+        call_id: request.call_id,
     }))
 }
 
@@ -1942,6 +2077,7 @@ subsonic_requests! {
         FetchCollectionGroupsRequest => fetch_collection_groups_request as translate_fetch_collection_groups_request,
         FetchCollectionByIdsRequest => fetch_collection_by_ids_request as translate_fetch_collection_by_ids_request,
         MixQueryRequest => mix_query_request as translate_mix_query_request,
+        ResolveMixQueryRequest => resolve_mix_query_request as translate_resolve_mix_query_request,
         SearchForRequest => search_for_request as translate_search_for_request,
     }
     routed_native {
@@ -1962,6 +2098,7 @@ subsonic_requests! {
         LoadResolvedItemsRequest => jukebox_load_resolved_items_request as translate_load_resolved_items_request,
         RefreshSessionRequest => jukebox_refresh_session_request as translate_refresh_session_request,
         SessionSnapshotRequest => jukebox_session_snapshot_request as translate_session_snapshot_request,
+        PlaylistRevisionRequest => jukebox_playlist_revision_request as translate_playlist_revision_request,
     }
     player {
         VolumeRequest,
@@ -1983,6 +2120,7 @@ subsonic_requests! {
         CastPreflightRequest,
         RefreshSessionRequest,
         SessionSnapshotRequest,
+        PlaylistRevisionRequest,
     }
 }
 
@@ -2031,7 +2169,7 @@ mod tests {
         macros::{RequestSlots, RequestTranslator},
         messages::{
             AddItemToPlaylistRequest, AudioAvailability, CallerQueue, CastPreflightRequest,
-            CollectionType, CreateM3u8PlaylistRequest, CreatePlaylistRequest,
+            CollectionType, CreateM3u8PlaylistRequest, CreatePlaylistRequest, ExcludedItems,
             FetchAllPlaylistsRequest, FetchCollectionGroupSummaryRequest,
             FetchCollectionGroupsRequest, FetchDirectoryTreeRequest, FetchMediaFileByIdsRequest,
             FetchMediaFilesRequest, FetchParsedMediaFileRequest, FetchPlaylistOccurrencesRequest,
@@ -2039,13 +2177,13 @@ mod tests {
             GetPlaylistByIdRequest, HandoffLoadRequest, LoadPlay, LoadRequest,
             LoadResolvedItemsRequest, MixQuery, MixQueryRequest, MovePlaylistItemRequest,
             NextRequest, PauseRequest, PlayRequest, PlaybackMode, PlayingItemRef,
-            PlaylistOperateMode, PreviousRequest, RefreshSessionRequest,
+            PlaylistOperateMode, PlaylistRevisionRequest, PreviousRequest, RefreshSessionRequest,
             RemoveItemFromPlaylistRequest, RemovePlaylistRequest, RemoveRequest,
-            ReorderPlaylistItemPositionRequest, SearchCollectionSummaryRequest, SearchForRequest,
-            SearchMediaFileSummaryRequest, SeekRequest, SessionSnapshotRequest,
-            SetAdaptiveSwitchingEnabledRequest, SetLikedRequest, SetPlaybackModeRequest,
-            SetRealtimeFFTEnabledRequest, SwitchRequest, TakeBackHandoffBlockRequest,
-            UpdatePlaylistRequest, VolumeRequest,
+            ReorderPlaylistItemPositionRequest, ResolveMixQueryRequest,
+            SearchCollectionSummaryRequest, SearchForRequest, SearchMediaFileSummaryRequest,
+            SeekRequest, SessionSnapshotRequest, SetAdaptiveSwitchingEnabledRequest,
+            SetLikedRequest, SetPlaybackModeRequest, SetRealtimeFFTEnabledRequest, SwitchRequest,
+            TakeBackHandoffBlockRequest, UpdatePlaylistRequest, VolumeRequest,
         },
         request_error::{ExpectedRequestError, classify},
         request_owner::Implementation,
@@ -2068,6 +2206,7 @@ mod tests {
         playlist_calls: MockPlaylistCalls,
         starred: Arc<Mutex<HashSet<String>>>,
         empty_search_rejected: Arc<AtomicUsize>,
+        song_page_cap: Arc<AtomicUsize>,
     }
 
     type MockPlaylistCalls = Arc<Mutex<Vec<(String, Vec<(String, String)>)>>>;
@@ -2138,6 +2277,7 @@ mod tests {
             reject_scrobble: Arc::new(AtomicUsize::new(0)),
             starred: Arc::new(Mutex::new(HashSet::new())),
             empty_search_rejected: Arc::new(AtomicUsize::new(0)),
+            song_page_cap: Arc::new(AtomicUsize::new(usize::MAX)),
         };
         let app = Router::new()
             .route("/rest/{*endpoint}", get(mock_endpoint))
@@ -2436,7 +2576,8 @@ mod tests {
                 let count = query
                     .get("songCount")
                     .and_then(|value| value.parse::<usize>().ok())
-                    .unwrap_or_default();
+                    .unwrap_or_default()
+                    .min(state.song_page_cap.load(Ordering::SeqCst));
                 let mut search = serde_json::Map::new();
                 if query
                     .get("songCount")
@@ -3227,6 +3368,282 @@ mod tests {
         }
     }
 
+    fn library_track(library_id: Uuid, track: &str) -> PlayingItemRef {
+        PlayingItemRef::LibraryTrack {
+            library_id: library_id.to_string(),
+            track: track.to_owned(),
+        }
+    }
+
+    fn library_tracks(library_id: Uuid, tracks: &[&str]) -> Vec<PlayingItemRef> {
+        tracks
+            .iter()
+            .map(|track| library_track(library_id, track))
+            .collect()
+    }
+
+    /// The resolve request a track list sends when `initial` is clicked at `hint_position`.
+    fn click_resolve(
+        queries: &[(&str, &str)],
+        hint_position: i32,
+        initial: PlayingItemRef,
+    ) -> ResolveMixQueryRequest {
+        ResolveMixQueryRequest {
+            queries: queries
+                .iter()
+                .map(|(operator, parameter)| MixQuery {
+                    operator: (*operator).into(),
+                    parameter: (*parameter).into(),
+                })
+                .collect(),
+            hint_position,
+            initial_playback_item: Some(initial),
+            instantly_play: true,
+            fallback_playing_items: Vec::new(),
+            excluded: ExcludedItems::default(),
+            call_id: Some(31),
+        }
+    }
+
+    #[tokio::test]
+    async fn the_tracks_page_resolves_past_a_server_page_cap() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) =
+            mock_subsonic_mode(&root, false, SubsonicOpenMode::PlayOnThisDevice).await;
+        server.state.song_page_cap.store(3, Ordering::SeqCst);
+        let library = binding.library_id;
+
+        let resolved = click_resolve(&[("lib::all", "true")], 3, library_track(library, "song-4"))
+            .translate(&binding)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            resolved.playing_items,
+            library_tracks(library, &["song-1", "song-2", "song-3", "song-4"])
+        );
+        assert_eq!(resolved.start_index, Some(3));
+    }
+
+    #[tokio::test]
+    async fn clicked_tracks_resolve_the_list_they_were_clicked_in() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) =
+            mock_subsonic_mode(&root, false, SubsonicOpenMode::PlayOnThisDevice).await;
+        let library = binding.library_id;
+        assert_eq!(
+            ResolveMixQueryRequest::slot(&RequestSlots::subsonic(&binding.probe)),
+            Slot::Translate
+        );
+
+        let all = click_resolve(&[("lib::all", "true")], 2, library_track(library, "song-3"))
+            .translate(&binding)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            all.playing_items,
+            library_tracks(library, &["song-1", "song-2", "song-3", "song-4"])
+        );
+        assert_eq!(all.start_index, Some(2));
+        assert!(
+            server
+                .state
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|endpoint| endpoint == "search3")
+        );
+
+        let album = search_collection_summary_request(
+            &binding,
+            &SearchCollectionSummaryRequest {
+                collection_type: Some(CollectionType::Album),
+                bake_cover_arts: Some(false),
+                n: 1,
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .result
+        .remove(0);
+        let album_tracks = click_resolve(
+            &[("lib::album", &album.id.to_string())],
+            1,
+            library_track(library, "song-2"),
+        )
+        .translate(&binding)
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            album_tracks.playing_items,
+            library_tracks(library, &["song-1", "song-2"])
+        );
+        assert_eq!(album_tracks.start_index, Some(1));
+
+        let mut search_result = click_resolve(&[], 1, library_track(library, "song-2"));
+        search_result.fallback_playing_items = library_tracks(library, &["song-4", "song-2"]);
+        let requests_before_search = server.state.requests.lock().unwrap().len();
+        let search_result = search_result.translate(&binding).await.unwrap().unwrap();
+        assert_eq!(
+            search_result.playing_items,
+            library_tracks(library, &["song-4", "song-2"])
+        );
+        assert_eq!(search_result.start_index, Some(1));
+        assert_eq!(
+            server.state.requests.lock().unwrap().len(),
+            requests_before_search
+        );
+    }
+
+    #[tokio::test]
+    async fn resolving_leaves_out_the_queue_and_falls_back_like_a_local_library() {
+        let root = TempDir::new().unwrap();
+        let (binding, _server) =
+            mock_subsonic_mode(&root, false, SubsonicOpenMode::PlayOnThisDevice).await;
+        let library = binding.library_id;
+        let other_library = Uuid::new_v4();
+
+        let mut leaves_out_queue =
+            click_resolve(&[("lib::all", "true")], 2, library_track(library, "song-3"));
+        leaves_out_queue.excluded.items = vec![
+            library_track(library, "song-1"),
+            library_track(other_library, "song-2"),
+        ];
+        let resolved = leaves_out_queue.translate(&binding).await.unwrap().unwrap();
+        assert_eq!(
+            resolved.playing_items,
+            library_tracks(library, &["song-2", "song-3", "song-4"])
+        );
+        assert_eq!(resolved.start_index, Some(1));
+
+        let mut queued_track =
+            click_resolve(&[("lib::all", "true")], 0, library_track(library, "song-1"));
+        queued_track.excluded.items = vec![library_track(library, "song-1")];
+        queued_track.fallback_playing_items = vec![library_track(library, "song-1")];
+        let resolved = queued_track.translate(&binding).await.unwrap().unwrap();
+        assert_eq!(
+            resolved.playing_items,
+            vec![library_track(library, "song-1")]
+        );
+        assert_eq!(resolved.start_index, Some(0));
+
+        let mut queued_only = click_resolve(
+            &[("lib::all", "true")],
+            -1,
+            library_track(library, "song-9"),
+        );
+        queued_only.instantly_play = false;
+        let resolved = queued_only.translate(&binding).await.unwrap().unwrap();
+        assert_eq!(
+            resolved.playing_items,
+            library_tracks(library, &["song-1", "song-2", "song-3", "song-4"])
+        );
+        assert_eq!(resolved.start_index, None);
+    }
+
+    #[tokio::test]
+    async fn resolving_rejects_lists_and_tracks_a_subsonic_library_cannot_name() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) =
+            mock_subsonic_mode(&root, false, SubsonicOpenMode::PlayOnThisDevice).await;
+
+        let liked = click_resolve(
+            &[("filter::liked", "true")],
+            0,
+            library_track(binding.library_id, "song-1"),
+        )
+        .translate(&binding)
+        .await
+        .err()
+        .unwrap();
+        assert!(matches!(
+            liked.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::Unsupported {
+                request: "ResolveMixQueryRequest",
+                reason: UnsupportedReason::NotImplemented,
+            })
+        ));
+
+        let foreign = click_resolve(
+            &[("lib::all", "true")],
+            0,
+            library_track(Uuid::new_v4(), "song-1"),
+        )
+        .translate(&binding)
+        .await
+        .err()
+        .unwrap();
+        assert!(matches!(
+            foreign.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::InvalidInput { .. })
+        ));
+        assert!(server.state.requests.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_clicked_track_is_queued_and_started_on_the_jukebox() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) =
+            mock_subsonic_mode(&root, true, SubsonicOpenMode::RemoteControl).await;
+        let library = binding.library_id;
+        set_mock_jukebox(&server, &["track-a"], Some(0), false, 0);
+        let slots = RequestSlots::subsonic(&binding.probe);
+        assert_eq!(ResolveMixQueryRequest::slot(&slots), Slot::Translate);
+        assert_eq!(PlaylistRevisionRequest::slot(&slots), Slot::Translate);
+        assert_eq!(LoadResolvedItemsRequest::slot(&slots), Slot::Translate);
+
+        let resolved = click_resolve(&[("lib::all", "true")], 2, library_track(library, "song-3"))
+            .translate(&binding)
+            .await
+            .unwrap()
+            .unwrap();
+        let revision = PlaylistRevisionRequest { call_id: Some(32) }
+            .translate(&binding)
+            .await
+            .unwrap()
+            .unwrap()
+            .revision;
+        let snapshot = SessionSnapshotRequest { call_id: None }
+            .translate(&binding)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(revision, snapshot.revision);
+        assert_eq!(snapshot.items, library_tracks(library, &["track-a"]));
+        LoadResolvedItemsRequest {
+            items: resolved.playing_items,
+            start_index: resolved.start_index,
+            mode: PlaylistOperateMode::Replace,
+            expected_revision: Some(revision),
+            playback_mode: None,
+            position_seconds: None,
+            play: LoadPlay::Auto,
+            call_id: None,
+        }
+        .translate(&binding)
+        .await
+        .unwrap()
+        .unwrap();
+
+        let jukebox = binding.client.jukebox_get().await.unwrap();
+        assert_eq!(
+            jukebox
+                .playlist
+                .songs
+                .iter()
+                .map(|song| song.id.as_str())
+                .collect::<Vec<_>>(),
+            ["song-1", "song-2", "song-3", "song-4"]
+        );
+        assert_eq!(jukebox.status.current_index, Some(2));
+        assert!(jukebox.status.playing);
+    }
+
     #[tokio::test]
     async fn subsonic_track_and_collection_summaries_return_requested_kinds() {
         let root = TempDir::new().unwrap();
@@ -3349,6 +3766,7 @@ mod tests {
             }
         );
         assert_eq!(RefreshSessionRequest::slot(&slots), Slot::Translate);
+        assert_eq!(PlaylistRevisionRequest::slot(&slots), Slot::Translate);
         assert_eq!(RemoveRequest::slot(&slots), Slot::Translate);
         // Existing capability defaults remain in place for unsupported jukebox operations.
         assert_eq!(
@@ -3943,6 +4361,7 @@ mod tests {
             CastPreflightRequest::slot(&slots),
             RefreshSessionRequest::slot(&slots),
             SessionSnapshotRequest::slot(&slots),
+            PlaylistRevisionRequest::slot(&slots),
         ] {
             assert_eq!(
                 slot,

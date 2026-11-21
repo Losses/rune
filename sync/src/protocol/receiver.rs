@@ -59,7 +59,7 @@ pub struct PreparedLeaf<M: SyncModel> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Promotion {
     index: usize,
-    arrivals_done: bool,
+    context_done: bool,
     after: Option<(Uuid, u64)>,
     done: bool,
 }
@@ -451,7 +451,7 @@ impl<M: SyncModel> ReceiverLedger<M> {
                 .collect(),
             promotion: Promotion {
                 index: 0,
-                arrivals_done: false,
+                context_done: false,
                 after: None,
                 done: remote.contexts.is_empty(),
             },
@@ -1018,8 +1018,7 @@ impl<M: SyncModel> ReceiverLedger<M> {
             .clone();
         let source_context = self.source_context(session, &collection)?;
         let mut next = active.promotion.clone();
-        let step = if !next.arrivals_done {
-            next.arrivals_done = true;
+        let step = if next.context_done {
             let source_live = active
                 .source_live
                 .iter()
@@ -1027,6 +1026,12 @@ impl<M: SyncModel> ReceiverLedger<M> {
                 .ok_or(SyncError::StaleWork)?
                 .1
                 .clone();
+            next = Promotion {
+                index: next.index + 1,
+                context_done: false,
+                after: None,
+                done: next.index + 1 == active.remote.contexts.len(),
+            };
             PromotionStep::Arrivals {
                 collection,
                 source_context,
@@ -1034,16 +1039,8 @@ impl<M: SyncModel> ReceiverLedger<M> {
             }
         } else {
             let (chunk, after) = source_context.chunk(next.after, max_intervals);
-            if let Some(after) = after {
-                next.after = Some(after);
-            } else {
-                next = Promotion {
-                    index: next.index + 1,
-                    arrivals_done: false,
-                    after: None,
-                    done: next.index + 1 == active.remote.contexts.len(),
-                };
-            }
+            next.after = after;
+            next.context_done = after.is_none();
             PromotionStep::Chunk { collection, chunk }
         };
         Ok(Some(PromotionAdmission {

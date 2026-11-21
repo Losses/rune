@@ -1,6 +1,5 @@
-use futures::future::Either;
 use hyper::{Uri, body::Bytes, client::conn::http1, http::Error as HttpError};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use std::{
     collections::HashMap,
     io::Error as IoError,
@@ -9,7 +8,7 @@ use std::{
 };
 
 use anyhow::{Result, anyhow, bail};
-use futures::{FutureExt, future::select_all};
+use futures::{StreamExt, stream::FuturesUnordered};
 use http_body_util::Empty;
 use hyper_util::rt::TokioIo;
 use log::warn;
@@ -26,10 +25,7 @@ use rustls::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::{
-    net::TcpStream,
-    sync::{broadcast, oneshot},
-};
+use tokio::{net::TcpStream, sync::broadcast, time::timeout};
 use tokio_rustls::TlsConnector;
 use webpki_roots::TLS_SERVER_ROOTS;
 use x509_parser::parse_x509_certificate;
@@ -808,6 +804,11 @@ pub async fn try_connect(host: &str, config: ClientConfig) -> Result<String> {
     Ok(host.to_string()) // Return host string on successful connection
 }
 
+/// How long one address may take to connect and finish its TLS handshake. Selection waits for
+/// every address until one connects, so an address that accepts but never answers would
+/// otherwise hold it up for good.
+const CONNECT_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Selects the best host from a list of candidates by connecting to all of them in parallel
 /// and returning the first one that successfully establishes a TLS connection and validates
 /// the certificate.
@@ -830,66 +831,35 @@ pub async fn try_connect(host: &str, config: ClientConfig) -> Result<String> {
 /// - All connection attempts fail.
 /// - No hosts are provided in the input vector.
 pub async fn select_best_host(hosts: Vec<String>, config: Arc<ClientConfig>) -> Result<String> {
-    if hosts.is_empty() {
-        return Err(anyhow!("No hosts provided"));
-    }
-
-    // Create a channel for cancellation
-    let (tx, rx) = oneshot::channel();
-    let cancel_signal = rx.shared();
-
-    // Create a future for each host that can be cancelled
-    let mut connection_tasks = Vec::with_capacity(hosts.len());
-
-    for host in hosts {
-        let config_clone = config.clone();
-        let cancel_clone = cancel_signal.clone();
-
-        // Create a future that will try to connect to the host and can be cancelled
-        let task = async move {
-            let host_clone = host.clone();
-
-            // Create a cancellable connection future
-            let connection_future = async move {
-                match try_connect(&host_clone, (*config_clone).clone()).await {
-                    Ok(_) => Ok(host_clone),
-                    Err(e) => Err(anyhow!("Failed to connect to {}: {}", host_clone, e)),
-                }
-            };
-
-            // Race the connection future against the cancellation signal
-            match futures::future::select(connection_future.boxed(), cancel_clone).await {
-                Either::Left((result, _)) => result,
-                Either::Right((_, _)) => {
-                    // Connection was cancelled, return a dummy error
-                    Err(anyhow!("Connection to {} was cancelled", host))
-                }
+    let mut attempts = hosts
+        .into_iter()
+        .map(|host| {
+            let config = (*config).clone();
+            async move {
+                timeout(CONNECT_ATTEMPT_TIMEOUT, try_connect(&host, config))
+                    .await
+                    .unwrap_or_else(|_| {
+                        Err(anyhow!("no answer within {CONNECT_ATTEMPT_TIMEOUT:?}"))
+                    })
+                    .map_err(|e| anyhow!("Failed to connect to {}: {}", host, e))
             }
-        };
+        })
+        .collect::<FuturesUnordered<_>>();
 
-        connection_tasks.push(task.boxed());
-    }
-
-    // Use select_all to race all connection futures
-    let (result, _, remaining_tasks) = select_all(connection_tasks).await;
-
-    // Cancel all remaining tasks
-    let _ = tx.send(());
-
-    // Drop remaining futures to free resources
-    drop(remaining_tasks);
-
-    // Return the result of the first completed future
-    match result {
-        Ok(host) => Ok(host),
-        Err(e) => {
-            // If all tasks failed, aggregate the errors
-            Err(anyhow!(
-                "All connection attempts failed. First error: {}",
-                e
-            ))
+    let mut first_error = None;
+    while let Some(attempt) = attempts.next().await {
+        match attempt {
+            // Returning drops the attempts still running, which cancels them.
+            Ok(host) => return Ok(host),
+            Err(error) => {
+                first_error.get_or_insert(error);
+            }
         }
     }
+    Err(match first_error {
+        Some(error) => anyhow!("All connection attempts failed. First error: {}", error),
+        None => anyhow!("No hosts provided"),
+    })
 }
 
 /// Utility function to test multiple hosts and measure their response times.
@@ -955,17 +925,22 @@ pub async fn measure_host_response_times(
 
 #[cfg(test)]
 mod tests {
-    use super::{fetch_server_certificate, trusted_host_matches};
+    use super::{
+        TempCertVerifier, fetch_server_certificate, select_best_host, trusted_host_matches,
+    };
     use crate::ssl::generate_self_signed_cert;
     use rustls::crypto::ring::default_provider;
     use rustls::{
-        ServerConfig,
+        ClientConfig, ServerConfig,
         pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
         server::{ClientHello, ResolvesServerCert},
         sign::CertifiedKey,
     };
-    use std::sync::Arc;
-    use tokio::net::TcpListener;
+    use std::{
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
+    use tokio::{net::TcpListener, task::JoinHandle};
     use tokio_rustls::TlsAcceptor;
 
     #[derive(Debug)]
@@ -986,36 +961,109 @@ mod tests {
         assert!(!trusted_host_matches("127.0.0.10", "127.0.0.1"));
     }
 
-    #[tokio::test]
-    async fn certificate_fetch_rejects_a_server_that_does_not_hold_its_key() {
-        let cert = generate_self_signed_cert("localhost", "rune", "CA", 1).unwrap();
-        let other_key = generate_self_signed_cert("other", "rune", "CA", 1).unwrap();
-        let certificate = pem::parse(&cert.certificate).unwrap();
-        let private_key = pem::parse(&other_key.private_key).unwrap();
+    fn certified_key(certificate_pem: &str, private_key_pem: &str) -> CertifiedKey {
+        let certificate = pem::parse(certificate_pem).unwrap();
+        let private_key = pem::parse(private_key_pem).unwrap();
         let key = default_provider()
             .key_provider
             .load_private_key(PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
                 private_key.contents().to_vec(),
             )))
             .unwrap();
-        let forged = CertifiedKey::new(
+        CertifiedKey::new(
             vec![CertificateDer::from(certificate.contents().to_vec())],
             key,
-        );
+        )
+    }
+
+    /// Serves one TLS handshake with `key` on a loopback port, and returns that port.
+    async fn serve_one_handshake(key: CertifiedKey) -> (u16, JoinHandle<()>) {
         let server_config = ServerConfig::builder()
             .with_no_client_auth()
-            .with_cert_resolver(Arc::new(TestCertificateResolver(Arc::new(forged))));
+            .with_cert_resolver(Arc::new(TestCertificateResolver(Arc::new(key))));
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
+        let port = listener.local_addr().unwrap().port();
         let acceptor = TlsAcceptor::from(Arc::new(server_config));
         let server = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
             let _ = acceptor.accept(stream).await;
         });
+        (port, server)
+    }
 
-        let result =
-            fetch_server_certificate(&format!("https://127.0.0.1:{}/ping", address.port())).await;
+    #[tokio::test]
+    async fn certificate_fetch_rejects_a_server_that_does_not_hold_its_key() {
+        let cert = generate_self_signed_cert("localhost", "rune", "CA", 1).unwrap();
+        let other_key = generate_self_signed_cert("other", "rune", "CA", 1).unwrap();
+        let (port, server) =
+            serve_one_handshake(certified_key(&cert.certificate, &other_key.private_key)).await;
+
+        let result = fetch_server_certificate(&format!("https://127.0.0.1:{port}/ping")).await;
         assert!(result.is_err());
         server.await.unwrap();
+    }
+
+    fn accept_any_certificate() -> Arc<ClientConfig> {
+        Arc::new(
+            ClientConfig::builder()
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(TempCertVerifier {
+                    cert_info: Arc::new(Mutex::new(None)),
+                }))
+                .with_no_client_auth(),
+        )
+    }
+
+    // A host whose address cannot be parsed fails before any connection is made, so it is
+    // always the first attempt to finish.
+    const FAILING_HOST: &str = "https://not a host/";
+
+    #[tokio::test]
+    async fn host_selection_passes_over_a_host_that_fails_first() {
+        let cert = generate_self_signed_cert("localhost", "rune", "CA", 1).unwrap();
+        let (port, server) =
+            serve_one_handshake(certified_key(&cert.certificate, &cert.private_key)).await;
+        let reachable = format!("https://127.0.0.1:{port}/");
+
+        let selected = select_best_host(
+            vec![FAILING_HOST.to_owned(), reachable.clone()],
+            accept_any_certificate(),
+        )
+        .await;
+
+        assert_eq!(selected.unwrap(), reachable);
+        server.await.unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn host_selection_gives_up_on_a_host_that_never_finishes_its_handshake() {
+        // Connections complete in the listen backlog, but nothing answers the TLS handshake.
+        let silent = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let stalled = format!("https://127.0.0.1:{}/", silent.local_addr().unwrap().port());
+
+        let selected = tokio::time::timeout(
+            Duration::from_secs(60),
+            select_best_host(
+                vec![FAILING_HOST.to_owned(), stalled],
+                accept_any_certificate(),
+            ),
+        )
+        .await
+        .expect("host selection must finish although one host never answers");
+
+        assert!(selected.is_err());
+        drop(silent);
+    }
+
+    #[tokio::test]
+    async fn host_selection_fails_once_every_host_has_failed() {
+        let selected =
+            select_best_host(vec![FAILING_HOST.to_owned()], accept_any_certificate()).await;
+        assert!(selected.is_err());
+        assert!(
+            select_best_host(Vec::new(), accept_any_certificate())
+                .await
+                .is_err()
+        );
     }
 }

@@ -45,20 +45,21 @@ Widget _app({
   required LibraryRegistryProvider registry,
   required LibraryManagerProvider manager,
   required Widget home,
+  _Broadcast? broadcast,
 }) {
   final sizes = ScreenSizeProvider.withWriter(null, (_) async {});
   final responsive = ResponsiveProvider(sizes, () async => null);
   addTearDown(sizes.dispose);
   addTearDown(responsive.dispose);
-  final broadcast = _Broadcast();
-  addTearDown(broadcast.dispose);
+  final devices = broadcast ?? _Broadcast();
+  addTearDown(devices.dispose);
   return MultiProvider(
     providers: [
       ChangeNotifierProvider.value(value: sizes),
       ChangeNotifierProvider.value(value: responsive),
       ChangeNotifierProvider<LibraryRegistryProvider>.value(value: registry),
       ChangeNotifierProvider<LibraryManagerProvider>.value(value: manager),
-      ChangeNotifierProvider<BroadcastProvider>.value(value: broadcast),
+      ChangeNotifierProvider<BroadcastProvider>.value(value: devices),
     ],
     child: FluentApp(
       localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -69,6 +70,15 @@ Widget _app({
 }
 
 class _Broadcast extends ChangeNotifier implements BroadcastProvider {
+  _Broadcast({List<ClientSummary> pairedServers = const []})
+    : _pairedServers = pairedServers;
+
+  List<ClientSummary> _pairedServers;
+
+  /// The list the next [fetchPairedServers] applies, as the hub would report it.
+  List<ClientSummary>? nextPairedServers;
+  int pairedServerFetches = 0;
+
   @override
   List<ClientSummary> get users => const [];
 
@@ -76,7 +86,67 @@ class _Broadcast extends ChangeNotifier implements BroadcastProvider {
   void fetchUsers() {}
 
   @override
+  List<ClientSummary> get pairedServers => _pairedServers;
+
+  @override
+  bool get isLoadingPairedServers => false;
+
+  @override
+  void fetchPairedServers() {
+    pairedServerFetches++;
+    final next = nextPairedServers;
+    if (next == null) return;
+    nextPairedServers = null;
+    _pairedServers = next;
+    notifyListeners();
+  }
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+ClientSummary _server(String alias, ClientStatus status) => ClientSummary(
+  alias: alias,
+  fingerprint: alias.toLowerCase(),
+  deviceModel: 'Desktop',
+  status: status,
+);
+
+/// Opens the real guide and confirms Rune Device, with no injected devices.
+Future<void> _openDeviceStep(
+  WidgetTester tester,
+  _Broadcast broadcast, {
+  Future<void> Function(BuildContext)? searchNeighbors,
+}) async {
+  final registry = _emptyRegistry();
+  final manager = _testManager();
+  addTearDown(registry.dispose);
+  addTearDown(manager.dispose);
+  await tester.pumpWidget(
+    _app(
+      registry: registry,
+      manager: manager,
+      broadcast: broadcast,
+      home: Builder(
+        builder: (context) => Button(
+          onPressed: () => showAddLibraryGuide(
+            context,
+            dependencies: AddLibraryGuideDependencies(
+              searchNeighbors: searchNeighbors ?? (_) async {},
+              addNeighborManually: (_) async => null,
+            ),
+          ),
+          child: const Text('Open guide'),
+        ),
+      ),
+    ),
+  );
+  await tester.tap(find.text('Open guide'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Rune Device'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Confirm'));
+  await tester.pumpAndSettle();
 }
 
 class _RecordingNavigatorObserver extends NavigatorObserver {
@@ -95,6 +165,72 @@ class _RecordingNavigatorObserver extends NavigatorObserver {
 }
 
 void main() {
+  testWidgets(
+    'the device step offers the paired servers that approved this device',
+    (tester) async {
+      final broadcast = _Broadcast(
+        pairedServers: [
+          _server('Bedroom', ClientStatus.approved),
+          _server('Kitchen', ClientStatus.pending),
+          _server('Garage', ClientStatus.blocked),
+        ],
+      );
+      await _openDeviceStep(tester, broadcast);
+
+      expect(broadcast.users, isEmpty);
+      expect(broadcast.pairedServerFetches, 1);
+      expect(find.text('Bedroom'), findsOneWidget);
+      expect(find.text('Kitchen'), findsNothing);
+      expect(find.text('Garage'), findsNothing);
+      expect(find.text('Search Neighbors'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 1));
+    },
+  );
+
+  testWidgets(
+    'pairing from the device step lists the device once it is approved',
+    (tester) async {
+      final broadcast = _Broadcast();
+      await _openDeviceStep(
+        tester,
+        broadcast,
+        searchNeighbors: (_) async => broadcast.nextPairedServers = [
+          _server('Bedroom', ClientStatus.approved),
+        ],
+      );
+      expect(find.text('Bedroom'), findsNothing);
+
+      await tester.tap(find.text('Search Neighbors'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+
+      expect(broadcast.pairedServerFetches, 2);
+      expect(find.text('Bedroom'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 1));
+    },
+  );
+
+  testWidgets(
+    'going back and confirming Rune Device again refreshes the paired servers',
+    (tester) async {
+      final broadcast = _Broadcast();
+      await _openDeviceStep(tester, broadcast);
+      expect(broadcast.pairedServerFetches, 1);
+      expect(find.text('Bedroom'), findsNothing);
+
+      broadcast.nextPairedServers = [_server('Bedroom', ClientStatus.approved)];
+      await tester.tap(find.text('Back'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+
+      expect(broadcast.pairedServerFetches, 2);
+      expect(find.text('Bedroom'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 1));
+    },
+  );
+
   testWidgets('Rune Device opens the paired-device step in the guide', (
     tester,
   ) async {

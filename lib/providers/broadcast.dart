@@ -32,6 +32,15 @@ class BroadcastProvider extends ChangeNotifier {
   List<ClientSummary> _users = [];
   List<ClientSummary> get users => _users;
 
+  List<ClientSummary> _pairedServers = const [];
+  int _pairedServersGeneration = 0;
+  bool _isLoadingPairedServers = false;
+
+  /// The devices this device trusts as servers, with the status each reports
+  /// for this device.
+  List<ClientSummary> get pairedServers => _pairedServers;
+  bool get isLoadingPairedServers => _isLoadingPairedServers;
+
   int get remainingSeconds => _remainingSeconds;
   bool get isBroadcasting => _isBroadcasting;
 
@@ -238,10 +247,44 @@ class BroadcastProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Reload the paired servers. A failure keeps the previous list.
+  void fetchPairedServers() {
+    unawaited(_fetchPairedServers());
+  }
+
+  Future<void> _fetchPairedServers() async {
+    // The hub probes each server over the network, so an older, slower reply
+    // must not replace a newer one.
+    final generation = ++_pairedServersGeneration;
+    _isLoadingPairedServers = true;
+    notifyListeners();
+    try {
+      final response = await awaitResponse(
+        'ListPairedServersRequest',
+        ListPairedServersResponse.rustSignalStream,
+        responseCallId: (response) => response.message.callId?.toInt(),
+        send: (callId) =>
+            ListPairedServersRequest(callId: callId).sendSignalToRust(),
+      );
+      if (generation == _pairedServersGeneration) {
+        _pairedServers = response.message.servers;
+      }
+    } catch (error) {
+      warn$('Could not list the paired servers: $error');
+    } finally {
+      if (generation == _pairedServersGeneration) {
+        _isLoadingPairedServers = false;
+        notifyListeners();
+      }
+    }
+  }
+
   @override
   void dispose() {
     _countdownTimer?.cancel();
     _clientsChangedSubscription?.cancel();
+    // A fetch still in flight must not notify a disposed provider.
+    _pairedServersGeneration++;
     super.dispose();
   }
 }

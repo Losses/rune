@@ -241,6 +241,11 @@ class ScanLibraryButton extends StatelessWidget {
   }
 }
 
+/// The share of a library task that is done, for its progress ring. A task reports a total of
+/// zero until it has counted its work, so the ring stays indeterminate until then.
+double? _shareDone(int progress, int total) =>
+    total > 0 ? progress / total : null;
+
 class AnalyzeLibraryButton extends StatelessWidget {
   final String? title;
   final void Function()? onFinished;
@@ -259,7 +264,7 @@ class AnalyzeLibraryButton extends StatelessWidget {
 
     final progress = analyzeProgress == null
         ? null
-        : analyzeProgress.progress / analyzeProgress.total;
+        : _shareDone(analyzeProgress.progress, analyzeProgress.total);
 
     return LibraryTaskButton(
       title: title ?? S.of(context).analyze,
@@ -307,7 +312,7 @@ class DeduplicateLibraryButton extends StatelessWidget {
 
     final progress = deduplicateProgress == null
         ? null
-        : deduplicateProgress.progress / deduplicateProgress.total;
+        : _shareDone(deduplicateProgress.progress, deduplicateProgress.total);
 
     return LibraryTaskButton(
       title: title ?? S.of(context).deduplicate,

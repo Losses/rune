@@ -2341,6 +2341,33 @@ fn store_probe_objects_parse_in_any_probed_folder_and_near_misses_are_rejected()
 }
 
 #[tokio::test]
+async fn memory_store_fails_deletes_of_an_injected_object_kind() {
+    let store = MemoryObjectStore::default();
+    let prefix = DevicePrefix {
+        stream: Uuid::new_v4(),
+        generation: Uuid::new_v4(),
+    }
+    .to_string();
+    let head = head_key(&prefix, 0).unwrap();
+    let chunk = chunk_key(&prefix, &"0".repeat(64)).unwrap();
+    store.put(&head, b"head").await.unwrap();
+    store.put(&chunk, b"chunk").await.unwrap();
+    store.inject_error_for_kind(
+        StoreOperation::Delete,
+        StoreObjectKind::Head,
+        StoreError::Transient("held".into()),
+    );
+    assert!(matches!(
+        store.delete(&head).await,
+        Err(StoreError::Transient(_))
+    ));
+    assert_eq!(store.delete(&chunk).await, Ok(()));
+    store.clear_error_for_kind(StoreOperation::Delete, StoreObjectKind::Head);
+    assert_eq!(store.delete(&head).await, Ok(()));
+    assert_eq!(store.list_prefix("devices/").await, Ok(Vec::new()));
+}
+
+#[tokio::test]
 async fn memory_store_injects_errors_partial_writes_and_conditional_tags() {
     let store = MemoryObjectStore::default();
     store.inject_error(StoreOperation::Get, StoreError::NotFound);

@@ -117,6 +117,9 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
   }
 
   void updateLibrary(LibraryHomeProvider libraryHome) {
+    // Until the home's entries are read there is nothing to ask for, and an empty answer
+    // would read as no data.
+    if (!libraryHome.loaded) return;
     setState(() {
       summary = fetchSummary(libraryHome);
     });
@@ -167,8 +170,9 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
     return FutureBuilder<List<Group<dynamic>>>(
       future: summary,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return Container();
+        if (summary == null ||
+            snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: ProgressRing());
         } else if (snapshot.hasError) {
           final error = snapshot.error;
           return Center(

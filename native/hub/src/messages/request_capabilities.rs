@@ -155,6 +155,7 @@ pub struct RequestCapabilities {
     pub start_server_request: RequestCapability,
     pub stop_server_request: RequestCapability,
     pub list_clients_request: RequestCapability,
+    pub list_paired_servers_request: RequestCapability,
     pub get_ssl_certificate_fingerprint_request: RequestCapability,
     pub get_open_library_request: RequestCapability,
     pub add_trusted_server_request: RequestCapability,

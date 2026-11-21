@@ -10,7 +10,10 @@ use ::http_request::{
 };
 
 use super::utils::device::SanitizedDeviceInfo;
-use crate::{messages::TrustedServerCertificate, request_error::ExpectedRequestError};
+use crate::{
+    messages::{ClientStatus, TrustedServerCertificate},
+    request_error::ExpectedRequestError,
+};
 use ::discovery::server::PermissionManager;
 use ::discovery::{
     client::{CertValidator, fetch_server_certificate},
@@ -304,4 +307,15 @@ pub async fn check_fingerprint(
         serde_json::from_slice(&body).context("Failed to parse fingerprint check response")?;
 
     Ok(response)
+}
+
+/// The approval a server reports for the checked device. A device the server does not know
+/// counts as pending, so it is never offered as approved.
+pub fn reported_status(response: &CheckFingerprintResponse) -> ClientStatus {
+    match response.status.as_str() {
+        "APPROVED" => ClientStatus::Approved,
+        "PENDING" => ClientStatus::Pending,
+        "BLOCKED" => ClientStatus::Blocked,
+        _ => ClientStatus::Pending,
+    }
 }

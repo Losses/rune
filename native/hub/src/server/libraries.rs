@@ -1,5 +1,6 @@
 use crate::access_policy::{Action, ConnectionLevel, LibraryGrants, SyncLevel};
 use discovery::access_policy::{AccessPolicy, PeerIdentity};
+use discovery::client::CertValidator;
 use discovery::endpoint::{DEFAULT_DEVICE_PORT, DeviceAddress, DeviceScheme, device_url};
 use std::path::Path;
 use std::{
@@ -18,17 +19,23 @@ use discovery::server::UserStatus;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::sync_worker::{PeerEndpoint, peer_endpoints, send_authenticated_request};
+use super::sync_worker::{PeerEndpoint, peer_endpoints, send_authenticated_request, tls_config};
 use super::{ServerManager, generate_or_load_certificates};
 use crate::backends::remote::select_renderer_host;
 use crate::backends::remote::{RemoteConnectError, token_error};
+use crate::handlers::neighbors::select_pinned_pair_host;
 use crate::library_pool::LibraryHandle;
 use crate::messages::{
-    CastLibraryState, DeviceSyncLevel, PeerLibrary, RendererAvailability, RendererCandidate,
+    CastLibraryState, ClientSummary, DeviceSyncLevel, PeerLibrary, RendererAvailability,
+    RendererCandidate,
 };
 use crate::node::NodeContext;
 use crate::request_error::ExpectedRequestError;
-use crate::server::api::fetch_device_info_at_port;
+use crate::server::api::{
+    check_fingerprint, fetch_device_info, fetch_device_info_at_port, reported_status,
+};
+
+const PAIRED_SERVER_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Serialize, Deserialize)]
 pub(super) struct ListedLibrary {
@@ -206,6 +213,74 @@ pub(crate) async fn list_renderer_candidates(
     }
     renderers.sort_by(|left, right| left.alias.cmp(&right.alias));
     Ok(renderers)
+}
+
+/// The devices this device trusts as servers, each with the status it reports for this device.
+///
+/// A peer this device refuses is left out. So is a peer whose probe fails or times out: its
+/// approval cannot be confirmed, and an unreachable peer cannot be browsed anyway.
+pub(crate) async fn list_paired_servers(node: &NodeContext) -> Result<Vec<ClientSummary>> {
+    let own = node.device_info().await?.fingerprint;
+    let validator = node.cert_validator.read().await.clone();
+    let trusted = validator.clone_trusted_entries().await;
+    let mut probes = tokio::task::JoinSet::<Option<ClientSummary>>::new();
+    for (fingerprint, hosts) in trusted {
+        if fingerprint == own || hosts.is_empty() || refused_here(node, &fingerprint).await {
+            continue;
+        }
+        let validator = validator.clone();
+        let own_fingerprint = own.clone();
+        probes.spawn(async move {
+            match tokio::time::timeout(
+                PAIRED_SERVER_PROBE_TIMEOUT,
+                probe_paired_server(validator, &own_fingerprint, fingerprint.clone(), hosts),
+            )
+            .await
+            {
+                Ok(Ok(server)) => Some(server),
+                Ok(Err(error)) => {
+                    log::debug!("Paired server probe failed for {fingerprint}: {error:#}");
+                    None
+                }
+                Err(_) => {
+                    log::debug!("Paired server probe timed out for {fingerprint}");
+                    None
+                }
+            }
+        });
+    }
+    let mut servers = Vec::new();
+    while let Some(result) = probes.join_next().await {
+        match result {
+            Ok(Some(server)) => servers.push(server),
+            Ok(None) => {}
+            Err(error) => log::debug!("Paired server probe task failed: {error}"),
+        }
+    }
+    servers.sort_by(|left, right| {
+        left.alias
+            .cmp(&right.alias)
+            .then_with(|| left.fingerprint.cmp(&right.fingerprint))
+    });
+    Ok(servers)
+}
+
+async fn probe_paired_server(
+    validator: CertValidator,
+    own_fingerprint: &str,
+    fingerprint: String,
+    hosts: Vec<String>,
+) -> Result<ClientSummary> {
+    let host = select_pinned_pair_host(hosts, &validator, &fingerprint).await?;
+    let config = Arc::new(tls_config(validator, &fingerprint));
+    let info = fetch_device_info(&host, Arc::clone(&config)).await?;
+    let checked = check_fingerprint(&host, config, own_fingerprint).await?;
+    Ok(ClientSummary {
+        alias: info.alias,
+        fingerprint,
+        device_model: info.device_model.unwrap_or_default(),
+        status: reported_status(&checked),
+    })
 }
 
 async fn probe_renderer(
@@ -485,6 +560,17 @@ pub(super) async fn list_libraries(
     ))
 }
 
+/// Whether this device holds `fingerprint` as a client it has not approved. A peer that never
+/// registered here is not refused.
+async fn refused_here(node: &NodeContext, fingerprint: &str) -> bool {
+    node.permission_manager
+        .read()
+        .await
+        .verify_by_fingerprint(fingerprint)
+        .await
+        .is_some_and(|peer| peer.status != UserStatus::Approved)
+}
+
 pub(super) async fn list_peer_libraries(
     params: &NodeContext,
     private_key: &str,
@@ -499,14 +585,7 @@ pub(super) async fn list_peer_libraries(
     if hosts.is_empty() {
         return Err(RemoteConnectError::UntrustedEndpoint);
     }
-    if params
-        .permission_manager
-        .read()
-        .await
-        .verify_by_fingerprint(fingerprint)
-        .await
-        .is_some_and(|peer| peer.status != UserStatus::Approved)
-    {
+    if refused_here(params, fingerprint).await {
         return Err(RemoteConnectError::NotAuthorized);
     }
     let own = params.device_info().await.map_err(token_error)?;

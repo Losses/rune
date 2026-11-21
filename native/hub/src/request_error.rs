@@ -61,6 +61,8 @@ pub enum ExpectedRequestError {
     HandoffSuperseded,
     #[error("Player command was superseded by a newer request")]
     PlayerCommandSuperseded,
+    #[error("Another player became current before the request finished")]
+    PlayerChanged,
     #[error("Player audio output is unavailable")]
     PlayerOutputUnavailable,
     #[error("Player audio source is unavailable")]
@@ -204,7 +206,8 @@ pub fn classify(error: &Error) -> RequestErrorKind {
                     RequestErrorKind::Conflict
                 }
                 ExpectedRequestError::HandoffSuperseded => RequestErrorKind::Conflict,
-                ExpectedRequestError::PlayerCommandSuperseded => RequestErrorKind::Conflict,
+                ExpectedRequestError::PlayerCommandSuperseded
+                | ExpectedRequestError::PlayerChanged => RequestErrorKind::Conflict,
                 ExpectedRequestError::PlayerOutputUnavailable
                 | ExpectedRequestError::PlayerSourceUnavailable
                 | ExpectedRequestError::PlayerCommandTimedOut => RequestErrorKind::Unavailable,

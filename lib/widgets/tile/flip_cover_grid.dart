@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flip_card/flip_card.dart';
 import 'package:flip_card/flip_card_controller.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
@@ -27,9 +28,9 @@ class FlipCoverGrid extends StatefulWidget {
 }
 
 class FlipCoverGridState extends State<FlipCoverGrid> {
-  late Timer _timer;
+  Timer? _timer;
   final Random _random = Random();
-  late List<FlipCardController> _controllers;
+  List<FlipCardController> _controllers = const [];
   late List<String> _frontPaths;
   late List<String> _backPaths;
   late int _gridSize;
@@ -43,23 +44,28 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
   @override
   void initState() {
     super.initState();
-    _initializeNumbers();
-    _gridSize = _determineGridSize(widget.paths.length);
-
-    if (widget.paths.isNotEmpty) {
-      _controllers =
-          List.generate(_gridSize * _gridSize, (_) => FlipCardController());
-    }
-
-    if (_needFlip()) {
-      _startTimer();
-    }
+    _showPaths();
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
+  void didUpdateWidget(covariant FlipCoverGrid oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A search result keeps its grid while its covers arrive, so the tiles, their flip
+    // controllers and the flip timer follow the current paths.
+    if (!listEquals(oldWidget.paths, widget.paths)) {
+      _showPaths();
+    }
+  }
+
+  void _showPaths() {
+    _initializeNumbers();
+    _gridSize = _determineGridSize(widget.paths.length);
     hash = widget.paths.join(':').hashCode;
+    _controllers = widget.paths.isEmpty
+        ? const []
+        : List.generate(_gridSize * _gridSize, (_) => FlipCardController());
+    _timer?.cancel();
+    _timer = _needFlip() ? _startTimer() : null;
   }
 
   void _initializeNumbers() {
@@ -70,8 +76,8 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
     _backPaths.shuffle();
   }
 
-  void _startTimer() {
-    _timer = Timer.periodic(const Duration(seconds: 8), (timer) {
+  Timer _startTimer() {
+    return Timer.periodic(const Duration(seconds: 8), (timer) {
       if (widget.paths.length > 1) {
         for (int i = 0; i < _controllers.length; i++) {
           if (_random.nextDouble() > 0.64) {
@@ -109,9 +115,7 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
 
   @override
   void dispose() {
-    if (_needFlip()) {
-      _timer.cancel();
-    }
+    _timer?.cancel();
     super.dispose();
   }
 

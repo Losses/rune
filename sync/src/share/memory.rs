@@ -243,7 +243,7 @@ impl ObjectStore for MemoryObjectStore {
 
     fn delete<'a>(&'a self, key: &'a str) -> BoxFuture<'a, (), StoreError> {
         Box::pin(async move {
-            self.before(StoreOperation::Delete).await?;
+            self.before_key(StoreOperation::Delete, key).await?;
             recover_lock(&self.objects)
                 .remove(key)
                 .map(|_| ())
