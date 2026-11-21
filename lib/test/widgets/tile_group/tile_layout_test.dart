@@ -1,8 +1,10 @@
-// winjs_fixtures.json holds 300 layouts recorded from WinJS. Source: ax-design/tile-group
+// winjs_fixtures.json holds 300 layouts recorded from WinJS (MIT, Copyright (c) Microsoft
+// Corporation). Source: ax-design/tile-group
 // 0.2.4, test/oracle/winjs-fixtures.json (MIT, copyright ax-design, license text in
 // tile_layout.dart).
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -32,8 +34,24 @@ void main() {
         for (final p in f['winjs'] as List<dynamic>)
           TilePlacement((p as List<dynamic>)[0] as int, p[1] as int),
       ];
-      final actual = layoutTiles(spans, rows: f['rows'] as int).placements;
-      expect(actual, expected, reason: 'fixture $i');
+      final rows = f['rows'] as int;
+      final actual = layoutTiles(spans, rows: rows);
+      expect(actual.placements, expected, reason: 'fixture $i');
+
+      // Columns and rows are derived from the recorded placements: the
+      // columns reached by the tiles, and the rows they cover within the
+      // group. Spans count as at least 1, as in layoutTiles.
+      var columns = 0;
+      var usedRows = 0;
+      for (var k = 0; k < spans.length; k++) {
+        columns = max(columns, expected[k].column + max(1, spans[k].columns));
+        usedRows = max(
+          usedRows,
+          min(rows, expected[k].row + max(1, spans[k].rows)),
+        );
+      }
+      expect(actual.columns, columns, reason: 'columns of fixture $i');
+      expect(actual.rows, usedRows, reason: 'rows of fixture $i');
     }
   });
 }

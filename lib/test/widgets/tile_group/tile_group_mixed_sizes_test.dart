@@ -22,6 +22,24 @@ const _spans = [
 
 const _gap = 4.0;
 
+const _largeRects = [
+  Rect.fromLTWH(0, 0, 244, 244),
+  Rect.fromLTWH(0, 248, 120, 120),
+  Rect.fromLTWH(124, 248, 244, 120),
+  Rect.fromLTWH(248, 0, 120, 244),
+  Rect.fromLTWH(372, 0, 120, 120),
+  Rect.fromLTWH(372, 124, 120, 120),
+];
+
+const _smallRects = [
+  Rect.fromLTWH(0, 0, 180, 180),
+  Rect.fromLTWH(184, 0, 88, 88),
+  Rect.fromLTWH(184, 92, 180, 88),
+  Rect.fromLTWH(0, 184, 88, 180),
+  Rect.fromLTWH(92, 184, 88, 88),
+  Rect.fromLTWH(184, 184, 88, 88),
+];
+
 Widget _host(Widget child) {
   return FluentTheme(
     data: FluentThemeData(),
@@ -65,26 +83,25 @@ void main() {
     expect(managed, findsNWidgets(_spans.length));
 
     for (var i = 0; i < _spans.length; i++) {
-      final expected = TileGrid.rectOf(
-        layout.placements[i],
-        _spans[i],
-        defaultCellSize,
-        _gap,
+      expect(
+        _relativeRect(tester, managed.at(i), grid),
+        _largeRects[i],
+        reason: 'tile $i',
       );
-      expect(_relativeRect(tester, managed.at(i), grid), expected);
+      final item = tester.widget<ManagedStartScreenItem>(managed.at(i));
+      expect(item.row, layout.placements[i].row, reason: 'row of tile $i');
+      expect(
+        item.column,
+        layout.placements[i].column,
+        reason: 'column of tile $i',
+      );
     }
 
     expect(
-      tester.getSize(grid),
-      Size(
-        TileGrid.extent(layout.columns, defaultCellSize, _gap),
-        TileGrid.extent(3, defaultCellSize, _gap),
-      ),
+      TileGrid.packedSize(layout, defaultCellSize, _gap),
+      const Size(492, 368),
     );
-    expect(
-      _relativeRect(tester, managed.first, grid),
-      const Rect.fromLTWH(0, 0, 244, 244),
-    );
+    expect(tester.getSize(grid), const Size(492, 368));
   });
 
   testWidgets('Small group places tiles of mixed sizes by the layout', (
@@ -125,20 +142,22 @@ void main() {
     expect(managed, findsNWidgets(_spans.length));
 
     for (var i = 0; i < _spans.length; i++) {
-      final expected = TileGrid.rectOf(
-        layout.placements[i],
-        _spans[i],
-        measured.cellSize,
-        _gap,
+      expect(
+        _relativeRect(tester, managed.at(i), grid),
+        _smallRects[i],
+        reason: 'tile $i',
       );
-      expect(_relativeRect(tester, managed.at(i), grid), expected);
+      final item = tester.widget<ManagedTurntileScreenItem>(managed.at(i));
+      expect(item.row, layout.placements[i].row, reason: 'row of tile $i');
+      expect(
+        item.column,
+        layout.placements[i].column,
+        reason: 'column of tile $i',
+      );
     }
 
-    expect(tester.getSize(grid), measured.size);
+    expect(tester.getSize(grid), const Size(368, 364));
+    expect(measured.size, const Size(368, 364));
     expect(measured.cellSize, 88);
-    expect(
-      _relativeRect(tester, managed.first, grid),
-      const Rect.fromLTWH(0, 0, 180, 180),
-    );
   });
 }
