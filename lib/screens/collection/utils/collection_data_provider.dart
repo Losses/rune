@@ -103,10 +103,28 @@ class CollectionDataProvider with ChangeNotifier {
   )
   _loadPage;
 
-  // The in-flight reload, if any, and the generation that owns it.
+  // The in-flight reload, if any.
   Future<void>? _reloading;
-  int _reloadGeneration = -1;
+  // A page asked for while a reload ran or was due. The reload fetches it
+  // after the pages on screen.
+  bool _pageRequested = false;
+  // Set when a reload failed. Its old items stay on screen, but the next
+  // request reloads from page zero: appending at their cursor would mix old
+  // and new pages.
+  bool _needsFullReload = false;
+  // The page the append in flight fetches. A reload that starts meanwhile
+  // drops that append and fetches the page itself.
+  int? _appendingPage;
 
+  /// Creates the provider of [collectionType]'s pages.
+  ///
+  /// The other parameters let tests stand in for the hub and default to it:
+  /// - [contentChanged] fires when the library's content changes, in place of
+  ///   [LibraryContentChanged.rustSignalStream];
+  /// - [loadSummary] loads a type's summary, in place of
+  ///   [fetchCollectionPageSummary];
+  /// - [loadPage] loads the page of a type at a page size and cursor, and
+  ///   whether it is the last, in place of [fetchCollectionPagePage].
   CollectionDataProvider({
     required this.collectionType,
     Stream<void>? contentChanged,
@@ -206,9 +224,12 @@ class CollectionDataProvider with ChangeNotifier {
   }
 
   Future<void> fetchData() async {
-    // Appending while a reload runs would duplicate pages, so wait for it.
-    final reloading = _reloading;
-    if (reloading != null) return reloading;
+    // Appending while a reload runs, or to the items a failed reload left,
+    // would mix old and new pages, so the reload fetches the page instead.
+    if (_reloading != null || _needsFullReload) {
+      _pageRequested = true;
+      return _reloading ??= _reload(_generation);
+    }
 
     initialized = true;
     isLoading = true;
@@ -218,12 +239,17 @@ class CollectionDataProvider with ChangeNotifier {
     final generation = _generation;
     final thisCursor = cursor;
     cursor += 1;
-    final (newItems, newIsLastPage) = await _fetchPage(thisCursor);
+    _appendingPage = thisCursor;
+    try {
+      final (newItems, newIsLastPage) = await _fetchPage(thisCursor);
 
-    if (_disposed || generation != _generation) return;
-    isLoading = false;
-    isLastPage = newIsLastPage;
-    items.addAll(newItems);
+      if (_disposed || generation != _generation) return;
+      isLoading = false;
+      isLastPage = newIsLastPage;
+      items.addAll(newItems);
+    } finally {
+      if (generation == _generation) _appendingPage = null;
+    }
 
     notifyListeners();
   }
@@ -232,36 +258,53 @@ class CollectionDataProvider with ChangeNotifier {
     _generation++;
     _cache.clearType(collectionType);
     summary = _fetchSummaryWithCache();
+    final appendingPage = _appendingPage;
+    if (appendingPage != null) {
+      // The new generation drops the append in flight; the reload fetches
+      // its page instead.
+      cursor = appendingPage;
+      _appendingPage = null;
+      isLoading = false;
+      _pageRequested = true;
+    }
     notifyListeners();
-    final generation = _generation;
-    _reloadGeneration = generation;
-    return _reloading = _reload(generation);
+    return _reloading = _reload(_generation);
   }
 
   // Keeps the old items on screen until the fresh pages have all arrived,
-  // so a scrolled list does not jump back to the start.
+  // so a scrolled list does not jump back to the start. If a page fails,
+  // the old items stay and the next request reloads from page zero.
   Future<void> _reload(int generation) async {
+    final fresh = <Group<InternalCollection>>[];
+    var fetched = 0;
+    var last = false;
     try {
-      final pages = max(cursor, 1);
-      final fresh = <Group<InternalCollection>>[];
-      var fetched = 0;
-      var last = false;
-      while (fetched < pages && !last) {
+      while (!last && fetched < max(cursor + (_pageRequested ? 1 : 0), 1)) {
         final (newItems, newIsLastPage) = await _fetchPage(fetched);
         if (_disposed || generation != _generation) return;
         fresh.addAll(newItems);
         fetched += 1;
         last = newIsLastPage;
       }
-      items = fresh;
-      cursor = fetched;
-      isLastPage = last;
+    } catch (_) {
+      // A newer reload owns the list now, or the provider is gone.
+      if (_disposed || generation != _generation) return;
+      _reloading = null;
+      _needsFullReload = true;
+      _pageRequested = false;
       isLoading = false;
-      initialized = true;
       notifyListeners();
-    } finally {
-      if (_reloadGeneration == generation) _reloading = null;
+      rethrow;
     }
+    _reloading = null;
+    _needsFullReload = false;
+    _pageRequested = false;
+    items = fresh;
+    cursor = fetched;
+    isLastPage = last;
+    isLoading = false;
+    initialized = true;
+    notifyListeners();
   }
 
   static void clearAllCache() {

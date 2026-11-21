@@ -1,5 +1,6 @@
 import '../../utils/api/request_failure.dart';
 import '../../utils/l10n.dart';
+import '../../utils/logger.dart';
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -24,11 +25,33 @@ class QueryTrackListView extends StatefulWidget {
   final StartScreenLayoutManager layoutManager;
   final PlaybackMode? mode;
 
+  /// Fires when the library's content changes. Tests pass their own stream;
+  /// it defaults to [LibraryContentChanged.rustSignalStream].
+  final Stream<void>? contentChanged;
+
+  /// Loads a page of the tracks of [queries] that are not a playlist, from a
+  /// cursor and with a page size. Tests pass a fake; it defaults to
+  /// [queryMixTracks].
+  final Future<List<InternalMediaFile>> Function(QueryList, int, int)?
+  loadMixPage;
+
+  /// Loads a page of a playlist's tracks after a cursor. Tests pass a fake;
+  /// it defaults to [fetchPlaylistOccurrences].
+  final Future<PlaylistOccurrencePage> Function(
+    int,
+    PlaylistOccurrenceCursor?,
+    int,
+  )?
+  loadPlaylistPage;
+
   const QueryTrackListView({
     super.key,
     required this.layoutManager,
     required this.queries,
     required this.mode,
+    this.contentChanged,
+    this.loadMixPage,
+    this.loadPlaylistPage,
   });
 
   @override
@@ -52,7 +75,10 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
   @override
   void initState() {
     super.initState();
-    _contentSubscription = LibraryContentChanged.rustSignalStream.listen((_) {
+    final changes =
+        widget.contentChanged ??
+        LibraryContentChanged.rustSignalStream.map<void>((_) {});
+    _contentSubscription = changes.listen((_) {
       unawaited(_reloadInPlace());
     });
     _initializeData();
@@ -76,44 +102,49 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
     _initializeData();
   }
 
-  Future<List<InternalMediaFile>> _fetchPage(int cursor) async {
+  // Playlist pages follow the cursors in [cursors], the list's own unless a
+  // reload builds a new chain.
+  Future<List<InternalMediaFile>> _fetchPage(
+    int cursor, [
+    Map<int, PlaylistOccurrenceCursor?>? cursors,
+  ]) async {
     final playlistId = getPlaylistIdFromQueryList(widget.queries);
     if (playlistId == null) {
-      return queryMixTracks(widget.queries, cursor, _pageSize);
+      final loadMixPage = widget.loadMixPage ?? queryMixTracks;
+      return loadMixPage(widget.queries, cursor, _pageSize);
     }
-    if (!_playlistCursors.containsKey(cursor)) {
+    final chain = cursors ?? _playlistCursors;
+    if (!chain.containsKey(cursor)) {
       throw StateError('The preceding playlist page has not loaded');
     }
     final generation = _generation;
-    final page = await fetchPlaylistOccurrences(
-      playlistId,
-      _playlistCursors[cursor],
-      _pageSize,
-    );
+    final loadPlaylistPage =
+        widget.loadPlaylistPage ?? fetchPlaylistOccurrences;
+    final page = await loadPlaylistPage(playlistId, chain[cursor], _pageSize);
     if (mounted && generation == _generation && page.next != null) {
-      _playlistCursors[cursor + page.items.length] = page.next;
+      chain[cursor + page.items.length] = page.next;
     }
     return page.items;
   }
 
   // Keeps the old list on screen until the fresh pages have all arrived, so a
-  // scrolled list does not jump back to the start.
+  // scrolled list does not jump back to the start. If a page fails, the old
+  // list and its cursors stay as they were.
   Future<void> _reloadInPlace() async {
     _generation++;
     final generation = _generation;
     _reloading = true;
     final furthest = _loadedItems.keys.fold<int>(-1, (a, b) => a > b ? a : b);
-    // Playlist pages are chained by cursors, so they must be fetched in order.
-    _playlistCursors
-      ..clear()
-      ..[0] = null;
+    // Playlist pages are chained by cursors, so they must be fetched in order,
+    // into a new chain that replaces the old one once all have arrived.
+    final cursors = <int, PlaylistOccurrenceCursor?>{0: null};
     final fresh = <int, InternalMediaFile>{};
     var reachedEnd = false;
     var totalCount = 0;
     try {
       var cursor = 0;
       while (true) {
-        final newItems = await _fetchPage(cursor);
+        final newItems = await _fetchPage(cursor, cursors);
         if (!mounted || generation != _generation) return;
         for (var i = 0; i < newItems.length; i++) {
           fresh[cursor + i] = newItems[i];
@@ -121,7 +152,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
         final loadedCount = cursor + newItems.length;
         if (newItems.length < _pageSize ||
             (getPlaylistIdFromQueryList(widget.queries) != null &&
-                !_playlistCursors.containsKey(loadedCount))) {
+                !cursors.containsKey(loadedCount))) {
           reachedEnd = true;
           totalCount = loadedCount;
           break;
@@ -132,16 +163,12 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
       }
     } catch (error) {
       if (!mounted || generation != _generation) return;
-      // The playlist cursors are half rebuilt, so drop the old list as a
-      // failed first load does.
       setState(() {
-        _loadedItems.clear();
+        // The new generation dropped the pages that were loading.
         _loadingIndices.clear();
-        _reachedEnd = false;
-        _totalCount = 0;
         _isInitialized = true;
         _reloading = false;
-        if (error is RequestFailure) _failure = error;
+        _loadFailed(error);
       });
       return;
     }
@@ -149,6 +176,9 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
       _loadedItems
         ..clear()
         ..addAll(fresh);
+      _playlistCursors
+        ..clear()
+        ..addAll(cursors);
       _loadingIndices.clear();
       _reachedEnd = reachedEnd;
       _totalCount = totalCount;
@@ -160,6 +190,16 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
       Duration(milliseconds: gridAnimationDelay),
       () => widget.layoutManager.playAnimations(),
     );
+  }
+
+  // Decides what a failed load shows. Tracks already on the page stay and the
+  // failure is only logged; with none, the page shows the failure.
+  void _loadFailed(Object error) {
+    if (_loadedItems.isNotEmpty) {
+      logger.w('Failed to load tracks, keeping those shown: $error');
+    } else if (error is RequestFailure) {
+      _failure = error;
+    }
   }
 
   Future<void> _initializeData() async {
@@ -206,7 +246,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
     } catch (error) {
       if (!mounted || generation != _generation) return;
       _loadingIndices.remove(cursor);
-      if (error is RequestFailure) _failure = error;
+      _loadFailed(error);
     }
   }
 

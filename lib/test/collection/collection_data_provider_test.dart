@@ -16,10 +16,17 @@ _Groups _groups(String prefix, int count) => [
 
 List<String> _titles(_Groups groups) => [for (final g in groups) g.groupTitle];
 
+// The titles of pages 0 to count - 1 as the fake loader names them.
+List<String> _pages(String prefix, int count) => [
+  for (var page = 0; page < count; page++)
+    ..._titles(_groups('$prefix$page-', 3)),
+];
+
 void main() {
   late StreamController<void> contentChanged;
   late Map<int, Completer<(_Groups, bool)>> pending;
   late String prefix;
+  late int lastPage;
 
   CollectionDataProvider makeProvider() => CollectionDataProvider(
     collectionType: CollectionType.album,
@@ -28,7 +35,7 @@ void main() {
     loadPage: (type, size, cursor) {
       final completer = pending[cursor];
       if (completer != null) return completer.future;
-      return Future.value((_groups('$prefix$cursor-', 3), cursor >= 1));
+      return Future.value((_groups('$prefix$cursor-', 3), cursor >= lastPage));
     },
   );
 
@@ -37,6 +44,7 @@ void main() {
     contentChanged = StreamController<void>.broadcast(sync: true);
     pending = {};
     prefix = 'old';
+    lastPage = 1;
   });
 
   tearDown(() => contentChanged.close());
@@ -104,4 +112,141 @@ void main() {
       provider.dispose();
     },
   );
+
+  test(
+    'after a failed reload the next fetch starts again from page zero',
+    () async {
+      final provider = makeProvider();
+      await provider.fetchData();
+      await provider.fetchData();
+      expect(_titles(provider.items), _pages('old', 2));
+
+      prefix = 'new';
+      pending = {0: Completer<(_Groups, bool)>()};
+      final reload = provider.reloadData();
+      pending[0]!.completeError(StateError('offline'));
+      await expectLater(reload, throwsStateError);
+      expect(_titles(provider.items), _pages('old', 2));
+
+      pending = {};
+      await provider.fetchData();
+      expect(_titles(provider.items), _pages('new', 2));
+      expect(provider.cursor, 2);
+      provider.dispose();
+    },
+  );
+
+  test('a page asked for during a reload is fetched after it', () async {
+    lastPage = 2;
+    final provider = makeProvider();
+    await provider.fetchData();
+    await provider.fetchData();
+    expect(provider.isLastPage, isFalse);
+
+    prefix = 'new';
+    pending = {
+      0: Completer<(_Groups, bool)>(),
+      1: Completer<(_Groups, bool)>(),
+    };
+    contentChanged.add(null);
+    final fetch = provider.fetchData();
+
+    pending[0]!.complete((_groups('new0-', 3), false));
+    pending[1]!.complete((_groups('new1-', 3), false));
+    await fetch;
+    expect(_titles(provider.items), _pages('new', 3));
+    expect(provider.cursor, 3);
+    expect(provider.isLastPage, isTrue);
+    expect(provider.isLoading, isFalse);
+    provider.dispose();
+  });
+
+  test(
+    'a page asked for during a reload that then fails is not appended',
+    () async {
+      lastPage = 2;
+      final provider = makeProvider();
+      await provider.fetchData();
+      await provider.fetchData();
+
+      prefix = 'new';
+      pending = {2: Completer<(_Groups, bool)>()};
+      final reload = provider.reloadData();
+      final fetch = provider.fetchData();
+      final failures = [
+        expectLater(reload, throwsStateError),
+        expectLater(fetch, throwsStateError),
+      ];
+      await Future<void>.delayed(Duration.zero);
+      pending[2]!.completeError(StateError('offline'));
+      await Future.wait(failures);
+      expect(_titles(provider.items), _pages('old', 2));
+      expect(provider.cursor, 2);
+      expect(provider.isLoading, isFalse);
+
+      pending = {};
+      await provider.fetchData();
+      expect(_titles(provider.items), _pages('new', 3));
+      expect(provider.cursor, 3);
+      provider.dispose();
+    },
+  );
+
+  test(
+    'an append that a failed reload cuts short leaves the list ready to load',
+    () async {
+      lastPage = 2;
+      final provider = makeProvider();
+      await provider.fetchData();
+
+      final appendPage = Completer<(_Groups, bool)>();
+      pending = {1: appendPage};
+      final append = provider.fetchData();
+      expect(provider.isLoading, isTrue);
+      expect(provider.cursor, 2);
+
+      prefix = 'new';
+      pending = {0: Completer<(_Groups, bool)>()};
+      final reload = provider.reloadData();
+      pending[0]!.completeError(StateError('offline'));
+      await expectLater(reload, throwsStateError);
+      expect(provider.isLoading, isFalse);
+      expect(provider.cursor, 1);
+      expect(_titles(provider.items), _pages('old', 1));
+
+      // The cut-short append's page arrives late and is dropped.
+      appendPage.complete((_groups('old1-', 3), false));
+      await append;
+      expect(_titles(provider.items), _pages('old', 1));
+
+      pending = {};
+      await provider.fetchData();
+      expect(_titles(provider.items), _pages('new', 2));
+      expect(provider.cursor, 2);
+      expect(provider.isLoading, isFalse);
+      provider.dispose();
+    },
+  );
+
+  test('a reload fetches the page of an append it cuts short', () async {
+    lastPage = 2;
+    final provider = makeProvider();
+    await provider.fetchData();
+
+    final appendPage = Completer<(_Groups, bool)>();
+    pending = {1: appendPage};
+    final append = provider.fetchData();
+
+    prefix = 'new';
+    pending = {};
+    await provider.reloadData();
+    expect(_titles(provider.items), _pages('new', 2));
+    expect(provider.cursor, 2);
+    expect(provider.isLoading, isFalse);
+
+    appendPage.complete((_groups('old1-', 3), false));
+    await append;
+    expect(_titles(provider.items), _pages('new', 2));
+    provider.dispose();
+  });
 }
