@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../widgets/hover_opacity.dart';
+import '../tile_group/measure_title.dart';
 
 class TurnTileGroupNormalLayout extends StatefulWidget {
   final String? groupTitle;
@@ -29,19 +30,14 @@ class TurnTileGroupNormalLayout extends StatefulWidget {
   ) {
     var height = padding.vertical + childHeight;
     if (title != null) {
-      final painter = TextPainter(
-        text: TextSpan(
-          text: title,
-          style: DefaultTextStyle.of(context).style.merge(
-                FluentTheme.of(context).typography.bodyLarge,
-              ),
-        ),
-        textScaler:
-            MediaQuery.maybeTextScalerOf(context) ?? TextScaler.noScaling,
-        textDirection: Directionality.of(context),
-      )..layout(maxWidth: max(0, width - padding.horizontal));
-      height += painter.height + titlePadding.bottom;
-      painter.dispose();
+      height +=
+          measureTitle(
+            context,
+            title,
+            FluentTheme.of(context).typography.bodyLarge,
+            maxWidth: max(0, width - padding.horizontal),
+          ).height +
+          titlePadding.bottom;
     }
     return height;
   }

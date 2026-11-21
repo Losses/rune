@@ -2,6 +2,8 @@ import 'dart:math';
 
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../tile_group/measure_title.dart';
+
 class StartGroupNormalLayout extends StatefulWidget {
   final String groupTitle;
   final Widget child;
@@ -23,18 +25,11 @@ class StartGroupNormalLayout extends StatefulWidget {
     String title,
     double childWidth,
   ) {
-    final painter = TextPainter(
-      text: TextSpan(
-        text: title,
-        style: DefaultTextStyle.of(context).style.merge(
-              FluentTheme.of(context).typography.bodyLarge,
-            ),
-      ),
-      textScaler: MediaQuery.maybeTextScalerOf(context) ?? TextScaler.noScaling,
-      textDirection: Directionality.of(context),
-    )..layout();
-    final titleWidth = painter.width;
-    painter.dispose();
+    final titleWidth = measureTitle(
+      context,
+      title,
+      FluentTheme.of(context).typography.bodyLarge,
+    ).width;
     return max(titleWidth, childWidth) + padding.horizontal;
   }
 

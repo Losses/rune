@@ -62,6 +62,14 @@ class TileGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    assert(
+      children.length == spans.length &&
+          spans.length == layout.placements.length,
+      'children, spans and layout.placements must have the same length',
+    );
+    // Read the direction once: a PositionedDirectional per tile would add a
+    // widget and a dependency on Directionality for every tile.
+    final textDirection = Directionality.of(context);
     return SizedBox.fromSize(
       size: size,
       child: Stack(
@@ -70,6 +78,7 @@ class TileGrid extends StatelessWidget {
           for (var i = 0; i < children.length; i++)
             _positioned(
               rectOf(layout.placements[i], spans[i], cellSize, gapSize),
+              textDirection,
               children[i],
             ),
         ],
@@ -77,8 +86,9 @@ class TileGrid extends StatelessWidget {
     );
   }
 
-  Widget _positioned(Rect r, Widget child) {
-    return PositionedDirectional(
+  Widget _positioned(Rect r, TextDirection textDirection, Widget child) {
+    return Positioned.directional(
+      textDirection: textDirection,
       start: r.left,
       top: r.top,
       width: r.width,

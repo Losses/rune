@@ -116,6 +116,10 @@ class StartGroupImplementation<T> extends StatelessWidget {
     );
   }
 
+  // A tile never sticks out of its group, where it couldn't be tapped.
+  static TileSpan _capRows(TileSpan span, int rows) =>
+      TileSpan(span.columns, min(span.rows, rows), newColumn: span.newColumn);
+
   /// The layout of the group, the spans of the tiles shown and the box of the
   /// group: as wide as the columns in use, as high as the rows of the group.
   ({TileLayout layout, List<TileSpan> spans, Size size}) measure() {
@@ -125,13 +129,14 @@ class StartGroupImplementation<T> extends StatelessWidget {
       gapSize,
       items,
     );
+    final groupRows = max(1, d.rows);
     final spans = [
       for (var i = 0; i < d.count; i++)
-        tileSpanOf?.call(items[i]) ?? const TileSpan(1, 1),
+        _capRows(tileSpanOf?.call(items[i]) ?? const TileSpan(1, 1), groupRows),
     ];
     final layout = tileLayout(d, direction, spans);
     final size = Size(
-      TileGrid.extent(layout.columns, cellSize, gapSize),
+      TileGrid.extent(max(layout.columns, d.columns), cellSize, gapSize),
       TileGrid.extent(d.rows, cellSize, gapSize),
     );
     return (layout: layout, spans: spans, size: size);

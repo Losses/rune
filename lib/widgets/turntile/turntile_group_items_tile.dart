@@ -44,6 +44,12 @@ class TurntileGroupItemsTile<T> extends StatelessWidget {
     return Dimensions(rows: rows, columns: columns, count: items.length);
   }
 
+  static TileSpan _capColumns(TileSpan span, int columns) => TileSpan(
+        min(span.columns, max(1, columns)),
+        span.rows,
+        newColumn: span.newColumn,
+      );
+
   /// The layout of the tiles in a box [width] wide, the size of one cell and
   /// the box of the group.
   ({TileLayout layout, List<TileSpan> spans, double cellSize, Size size})
@@ -54,8 +60,13 @@ class TurntileGroupItemsTile<T> extends StatelessWidget {
       gapSize,
       items,
     );
+    // A tile never sticks out of its group, where it couldn't be tapped.
     final spans = [
-      for (final item in items) tileSpanOf?.call(item) ?? const TileSpan(1, 1),
+      for (final item in items)
+        _capColumns(
+          tileSpanOf?.call(item) ?? const TileSpan(1, 1),
+          dimensions.columns,
+        ),
     ];
     final layout = layoutTiles(
       spans,
