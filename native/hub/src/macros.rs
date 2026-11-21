@@ -148,6 +148,11 @@ mod node_request_loop_tests {
             ListClientsResponse
         );
         error_handler!(
+            handle_list_paired_servers_request,
+            ListPairedServersRequest,
+            ListPairedServersResponse
+        );
+        error_handler!(
             handle_get_ssl_certificate_fingerprint_request,
             GetSslCertificateFingerprintRequest,
             GetSslCertificateFingerprintResponse
@@ -428,6 +433,7 @@ mod node_request_loop_tests {
         let (validate_license_tx, validate_license_rx) = signal_channel();
         let (discovered_tx, discovered_rx) = signal_channel();
         let (clients_tx, clients_rx) = signal_channel();
+        let (paired_servers_tx, paired_servers_rx) = signal_channel();
         let (start_server_tx, start_server_rx) = signal_channel();
         let (stop_server_tx, stop_server_rx) = signal_channel();
         let (library_test_tx, library_test_rx) = signal_channel();
@@ -491,6 +497,7 @@ mod node_request_loop_tests {
                 validate_license_request_receiver: validate_license_rx,
                 get_discovered_device_request_receiver: discovered_rx,
                 list_clients_request_receiver: clients_rx,
+                list_paired_servers_request_receiver: paired_servers_rx,
                 start_server_request_receiver: start_server_rx,
                 stop_server_request_receiver: stop_server_rx,
                 test_library_initialized_request_receiver: library_test_rx,
@@ -672,6 +679,16 @@ mod node_request_loop_tests {
         );
         clients_tx.send(DartSignalPack {
             message: ListClientsRequest { call_id: None },
+            binary: Vec::new(),
+        });
+        assert_eq!(
+            response_or_loop_exit(&mut loop_future, &mut output_rx)
+                .await
+                .0,
+            "RequestFailedResponse"
+        );
+        paired_servers_tx.send(DartSignalPack {
+            message: ListPairedServersRequest { call_id: None },
             binary: Vec::new(),
         });
         assert_eq!(

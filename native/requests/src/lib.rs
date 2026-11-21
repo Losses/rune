@@ -1291,6 +1291,15 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             receiver: RequestReceiver::NodeLoop,
         },
         RequestResponse {
+            request: "ListPairedServersRequest".to_string(),
+            response: Some("ListPairedServersResponse".to_string()),
+            scope: RequestScope::Node,
+            access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
+            introduced_minor: None,
+            receiver: RequestReceiver::NodeLoop,
+        },
+        RequestResponse {
             request: "GetOpenLibraryRequest".to_string(),
             response: Some("GetOpenLibraryResponse".to_string()),
             scope: RequestScope::Node,

@@ -435,6 +435,17 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
         }
     }
 
+    fn handle_list_paired_servers_request(
+        &self,
+        node: &NodeSlot,
+        request: &ListPairedServersRequest,
+    ) -> impl Future<Output = Result<Option<ListPairedServersResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request.handle(node, None, request).await
+        }
+    }
+
     fn handle_start_server_request(
         &self,
         node: &NodeSlot,
