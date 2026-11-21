@@ -99,8 +99,9 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
     if (!_needsPlaylistRead || id == null) return;
     final registry = context.read<LibraryRegistryProvider?>();
     if (registry?.isOpening == true ||
-        registry?.openRecordId != _playlistRecordId)
+        registry?.openRecordId != _playlistRecordId) {
       return;
+    }
     _needsPlaylistRead = false;
     _loadPlaylist(id, registry);
   }
