@@ -33,6 +33,16 @@ class SmoothScrollController extends ScrollController {
     }
   }
 
+  @override
+  void attach(ScrollPosition position) {
+    super.attach(position);
+    // A list rebuilt while a scroll animated starts where it is, not at the
+    // target that animation left behind.
+    if (!_lerpController.isAnimating && position.hasPixels) {
+      _lerpController.syncValue(position.pixels);
+    }
+  }
+
   void smoothScrollBy(double delta) {
     double targetOffset = (_lerpController.value + delta).clamp(
       0.0,

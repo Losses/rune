@@ -1,6 +1,7 @@
 import '../../utils/api/request_failure.dart';
 import '../../utils/l10n.dart';
 import '../../utils/logger.dart';
+import '../../utils/dialogs/information/error.dart';
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -80,6 +81,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
   final Map<int, PlaylistOccurrenceCursor?> _playlistCursors = {0: null};
   bool _isInitialized = false;
   bool _reloading = false;
+  bool _showingFailure = false;
   // A failure the hub reported, or a request that got no answer in time.
   Object? _failure;
   bool _reachedEnd = false;
@@ -204,8 +206,8 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
         _loadingIndices.clear();
         _isInitialized = true;
         _reloading = false;
-        _loadFailed(error);
       });
+      _loadFailed(error);
       return;
     }
     setState(() {
@@ -229,13 +231,21 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
   }
 
   // Decides what a failed load shows. Tracks already on the page stay and the
-  // failure is only logged; with none, the page shows the failure.
+  // failure shows in the error dialog, one at a time; with none, the page
+  // shows the failure.
   void _loadFailed(Object error) {
-    if (_loadedItems.isNotEmpty) {
-      logger.w('Failed to load tracks, keeping those shown: $error');
-    } else if (_shownFailure(error)) {
-      _failure = error;
+    if (_loadedItems.isEmpty) {
+      if (_shownFailure(error)) setState(() => _failure = error);
+      return;
     }
+    if (_showingFailure) return;
+    _showingFailure = true;
+    final s = S.of(context);
+    showErrorDialog(
+      context: context,
+      title: s.unknownError,
+      errorMessage: requestErrorText(s, error),
+    ).whenComplete(() => _showingFailure = false);
   }
 
   Future<void> _initializeData() async {

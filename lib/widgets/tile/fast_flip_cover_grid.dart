@@ -2,6 +2,7 @@ import 'dart:math';
 import 'dart:async';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/scheduler.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -62,6 +63,12 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
     super.initState();
     _imageProxy = widget.imageProxy ?? imageMemoryManager.requireProxy();
     _initializeGrid();
+    _startCheckTimer();
+  }
+
+  void _startCheckTimer() {
+    _checkTimer?.cancel();
+    _checkTimer = null;
     if (widget.paths.length > 1) {
       _checkTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
         if (!mounted) {
@@ -97,7 +104,18 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
   @override
   void didUpdateWidget(covariant FastFlipCoverGrid oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.size != widget.size) _updateTargetSize();
+    // A list kept on screen while it reloads can give this grid another
+    // collection's covers, so the tiles, their images and the flip timer
+    // follow the current paths.
+    if (!listEquals(oldWidget.paths, widget.paths)) {
+      _ticker?.stop();
+      _initializeGrid();
+      _targetSize = null;
+      _updateTargetSize();
+      _startCheckTimer();
+    } else if (oldWidget.size != widget.size) {
+      _updateTargetSize();
+    }
   }
 
   void _updateTargetSize() {

@@ -137,7 +137,7 @@ void main() {
   );
 
   test('a page asked for during a reload is fetched after it', () async {
-    lastPage = 2;
+    lastPage = 3;
     final provider = makeProvider();
     await provider.fetchData();
     await provider.fetchData();
@@ -149,15 +149,23 @@ void main() {
       1: Completer<(_Groups, bool)>(),
     };
     contentChanged.add(null);
+    // The list asks once at its end; asking twice still fetches one page.
     final fetch = provider.fetchData();
+    final again = provider.fetchData();
 
+    // The reload ends on pages that are not the last.
     pending[0]!.complete((_groups('new0-', 3), false));
     pending[1]!.complete((_groups('new1-', 3), false));
-    await fetch;
+    await Future.wait([fetch, again]);
     expect(_titles(provider.items), _pages('new', 3));
     expect(provider.cursor, 3);
-    expect(provider.isLastPage, isTrue);
+    expect(provider.isLastPage, isFalse);
     expect(provider.isLoading, isFalse);
+
+    // Paging goes on from there.
+    await provider.fetchData();
+    expect(_titles(provider.items), _pages('new', 4));
+    expect(provider.isLastPage, isTrue);
     provider.dispose();
   });
 

@@ -140,12 +140,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
               leading: const Icon(Symbols.refresh),
               text: Text(S.of(context).refresh),
               onPressed: () async {
-                _layoutManager.resetAnimations();
-                await data.reloadData();
-                Timer(
-                  Duration(milliseconds: gridAnimationDelay),
-                  () => _layoutManager.playAnimations(),
-                );
+                await _layoutManager.replayAfter(data.reloadData());
               },
             ),
             if (!context.read<LibraryOpenStateProvider>().isReadOnlyReplica &&
