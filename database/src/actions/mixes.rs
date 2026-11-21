@@ -1254,21 +1254,31 @@ pub async fn query_mix_media_files_with_seed(
         page_size as u64
     };
 
-    if random_seed.is_some() {
-        query = query.order_by_asc(media_files::Column::Id);
-    }
-    let media_files = query
-        .offset(Some(cursor as u64))
-        .limit(final_page_size)
-        .all(main_db)
-        .await?;
+    query = query.order_by_asc(media_files::Column::Id);
+
+    let sorted_files = if track_ids.is_empty() {
+        query
+            .offset(Some(cursor as u64))
+            .limit(final_page_size)
+            .all(main_db)
+            .await?
+    } else {
+        let media_files = query.all(main_db).await?;
+        let mut sorted = sort_media_files(media_files, &track_ids);
+        if let Some(limit) = pipe_limit {
+            sorted.truncate(limit as usize);
+        }
+        sorted
+            .into_iter()
+            .skip(cursor)
+            .take(final_page_size as usize)
+            .collect()
+    };
 
     log::debug!(
         "query_mix_media_files: returning {} media files",
-        media_files.len()
+        sorted_files.len()
     );
-
-    let sorted_files = sort_media_files(media_files, &track_ids);
 
     Ok(sorted_files)
 }

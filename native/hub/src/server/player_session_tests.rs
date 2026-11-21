@@ -681,6 +681,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
             page_size: 30,
             bake_cover_arts: true,
             queue: CallerQueue::default(),
+            random_seed: None,
         },
     )
     .await?
@@ -700,6 +701,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
             page_size: 30,
             bake_cover_arts: true,
             queue: CallerQueue::default(),
+            random_seed: None,
         },
     )
     .await?
@@ -734,6 +736,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
             page_size: 30,
             bake_cover_arts: false,
             queue: CallerQueue::default(),
+            random_seed: None,
         },
     )
     .await
@@ -1195,6 +1198,7 @@ async fn clicked_subsonic_tracks_play_on_this_device() -> Result<()> {
             page_size: 30,
             bake_cover_arts: false,
             queue: CallerQueue::default(),
+            random_seed: None,
         },
     )
     .await?
@@ -3419,6 +3423,7 @@ async fn mix_exclusion_ignores_the_nodes_queue_and_rejects_an_unreadable_exclude
         page_size: 30,
         bake_cover_arts: false,
         queue: CallerQueue { items },
+        random_seed: None,
     };
     // The node's own queue, readable or not, is not part of a library call.
     let files = dispatch_gui_request(&fixture.global_params, &request(Vec::new()))
@@ -9480,6 +9485,7 @@ async fn rr_mix_calls_use_the_queue_the_caller_sent() -> Result<()> {
         page_size: 30,
         bake_cover_arts: false,
         queue: CallerQueue { items },
+        random_seed: None,
     };
     let with_queue = dispatch_gui_request(&remote, &paged(vec![queued_ref.clone()]))
         .await?

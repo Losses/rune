@@ -71,6 +71,9 @@ pub struct MixQueryRequest {
     pub bake_cover_arts: bool,
     /// The caller's own player queue, which `lib::queue` selects.
     pub queue: CallerQueue,
+    /// Optional seed for `lib::random` so multi-page reads observe one stable random selection.
+    #[serde(default)]
+    pub random_seed: Option<u64>,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

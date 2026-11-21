@@ -32,4 +32,18 @@ void main() {
       isEmpty,
     );
   });
+
+  test('a mix page request forwards randomSeed when provided', () {
+    final seeded = mixQueryRequest(
+      const QueryList(),
+      0,
+      100,
+      null,
+      randomSeed: 42,
+    );
+    expect(seeded.randomSeed?.toInt(), 42);
+
+    final unseeded = mixQueryRequest(const QueryList(), 0, 100, null);
+    expect(unseeded.randomSeed, isNull);
+  });
 }
