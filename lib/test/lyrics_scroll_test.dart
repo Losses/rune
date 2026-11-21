@@ -1,10 +1,13 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 import 'package:rune/bindings/bindings.dart';
 import 'package:rune/providers/responsive_providers.dart';
 import 'package:rune/screens/lyrics/widgets/lyric_display.dart';
+import 'package:rune/screens/lyrics/widgets/lyric_line.dart';
 
 class _Desktop extends ChangeNotifier implements ResponsiveProvider {
   @override
@@ -39,7 +42,9 @@ Widget _display(
   lyrics ??= _lyrics;
   final active = [
     for (final (i, line) in lyrics.indexed)
-      if (line.startTime <= timeMs && timeMs < line.endTime) i,
+      if ((line.startTime <= timeMs && timeMs < line.endTime) ||
+          (line.startTime == timeMs && line.endTime == timeMs))
+        i,
   ];
   return FluentApp(
     home: ChangeNotifierProvider<ResponsiveProvider>.value(
@@ -116,6 +121,87 @@ void main() {
     view.resetPhysicalSize();
     view.resetDevicePixelRatio();
   });
+
+  for (final keyboard in [false, true]) {
+    testWidgets(
+      'all plain lyrics are reachable with ${keyboard ? 'PageDown' : 'the wheel'} during playback',
+      (tester) async {
+        final texts = List.generate(120, (i) => 'Plain line ${i + 1}');
+        final lyrics = [
+          for (final text in texts)
+            LyricContentLine(
+              startTime: 0,
+              endTime: 0,
+              sections: [
+                LyricContentLineSection(
+                  startTime: 0,
+                  endTime: 0,
+                  content: text,
+                ),
+              ],
+            ),
+        ];
+        final time = ValueNotifier<double>(30000);
+        addTearDown(time.dispose);
+        await tester.pumpWidget(_display(time.value.toInt(), time, lyrics));
+        await tester.pumpAndSettle();
+        if (keyboard) {
+          await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+          await tester.pump();
+        }
+        final viewport = tester.getRect(find.byType(LyricsDisplay));
+        final seen = <String>{};
+        for (var step = 0; step < texts.length; step++) {
+          for (final row in tester.widgetList<LyricLine>(
+            find.byType(LyricLine),
+          )) {
+            if (viewport.contains(tester.getCenter(find.byWidget(row)))) {
+              seen.add(row.sections.single.content);
+            }
+          }
+          if (seen.contains(texts.last)) break;
+          if (keyboard) {
+            await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
+          } else {
+            await tester.sendEventToBinding(
+              PointerScrollEvent(
+                kind: PointerDeviceKind.mouse,
+                position: viewport.center,
+                scrollDelta: Offset(0, viewport.height / 2),
+              ),
+            );
+          }
+          time.value += 100;
+          await tester.pumpWidget(_display(time.value.toInt(), time, lyrics));
+          await tester.pumpAndSettle();
+        }
+        expect(
+          seen.length,
+          texts.length,
+          reason: 'every lyric must be readable',
+        );
+        if (keyboard) {
+          await tester.sendKeyEvent(LogicalKeyboardKey.pageUp);
+          await tester.pumpAndSettle();
+          final last = find.text(texts.last).hitTestable();
+          expect(last, findsNothing);
+          await tester.sendKeyEvent(LogicalKeyboardKey.end);
+          await tester.pumpAndSettle();
+          expect(last, findsOneWidget, reason: 'End reaches the last lyric');
+        }
+        // At position zero LyricsPage reports every 0/0 line as active.
+        time.value = 0;
+        await tester.pumpWidget(_display(0, time, lyrics));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(
+          find.text(texts.last).hitTestable(),
+          findsOneWidget,
+          reason: 'restarting playback keeps the passage being read',
+        );
+      },
+    );
+  }
 
   testWidgets('each new line scrolls once into the middle', (tester) async {
     final interpolated = ValueNotifier<double>(0);

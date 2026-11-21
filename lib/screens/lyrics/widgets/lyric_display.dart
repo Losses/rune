@@ -1,4 +1,5 @@
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' as foundation;
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -35,6 +36,11 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
   final ItemPositionsListener _itemPositionsListener =
       ItemPositionsListener.create();
   BoxConstraints? _lastConstraints;
+  late bool _plain = _hasOnlyUntimedLines();
+
+  bool _hasOnlyUntimedLines() =>
+      widget.lyrics.isNotEmpty &&
+      widget.lyrics.every((line) => line.startTime == 0 && line.endTime == 0);
 
   // Lines (indices into `lyrics`) the view is currently centred on.
   List<int> _targetLines = [];
@@ -66,6 +72,7 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
     super.didUpdateWidget(oldWidget);
 
     final lyricsChanged = !identical(oldWidget.lyrics, widget.lyrics);
+    if (lyricsChanged) _plain = _hasOnlyUntimedLines();
     final targetLines = _computeTargetLines();
 
     // Nothing active and nothing upcoming (after the last line): stay put.
@@ -85,6 +92,7 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
   /// next upcoming line (the first line before the song starts, the next line
   /// in a gap). Empty after the last line.
   List<int> _computeTargetLines() {
+    if (_plain) return const [];
     if (widget.activeLines.isNotEmpty) return widget.activeLines;
 
     final cT = widget.currentTimeMilliseconds;
@@ -197,10 +205,10 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
     final double paddingSize =
         (isMini ? constraints.maxWidth : constraints.maxHeight) / 2;
 
-    return ScrollConfiguration(
+    final list = ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
       child: ScrollablePositionedList.builder(
-        physics: const NeverScrollableScrollPhysics(),
+        physics: _plain ? null : const NeverScrollableScrollPhysics(),
         itemScrollController: _itemScrollController,
         itemPositionsListener: _itemPositionsListener,
         scrollOffsetController: _scrollOffsetController,
@@ -230,6 +238,32 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
             ),
           );
         },
+      ),
+    );
+    if (!_plain) return list;
+
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.end): () =>
+            _itemScrollController.jumpTo(
+              index: widget.lyrics.length,
+              alignment: 0.5,
+            ),
+      },
+      child: Actions(
+        actions: {
+          ScrollIntent: CallbackAction<ScrollIntent>(
+            onInvoke: (intent) {
+              // The positioned list owns its controller, so direct Flutter's
+              // keyboard scrolling to its viewport.
+              final scrollContext = _itemScrollController
+                  .scrollController?.position.context.notificationContext;
+              if (scrollContext != null) ScrollAction().invoke(intent, scrollContext);
+              return null;
+            },
+          ),
+        },
+        child: Focus(child: list),
       ),
     );
   }
