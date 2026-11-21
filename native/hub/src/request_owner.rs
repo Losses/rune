@@ -19,6 +19,7 @@ use crate::{
     backends::remote::RendererLink,
     library_pool::LibraryHandle,
     macros::{RequestScope, RequestSlots},
+    messages::{RemoveDownloadRuleRequest, SetDownloadRuleRequest},
     node::NodeContext,
     request_error::ExpectedRequestError,
     rpc::{Slot, TargetRequest},
@@ -54,6 +55,10 @@ pub(crate) enum CurrentPlayer {
 #[derive(Clone)]
 pub(crate) enum Implementation {
     Local,
+    /// This device, for the requests it answers itself while a library that declares its own
+    /// requests is open in its UI. The requests that work on that library's own data follow what
+    /// it declares for them (see `RequestSlots::following_library`).
+    LocalBeside(Box<RequestSlots>),
     RunePeer {
         link: Option<Arc<RendererLink>>,
         reconnecting: Option<String>,
@@ -183,6 +188,7 @@ impl Implementation {
     pub(crate) fn slots(&self) -> RequestSlots {
         match self {
             Self::Local => RequestSlots::local(),
+            Self::LocalBeside(library) => RequestSlots::local().following_library(library),
             Self::RunePeer {
                 link: Some(link), ..
             } => {
@@ -299,6 +305,56 @@ impl OpenLibrary {
             },
             Self::Subsonic(binding) => Implementation::Subsonic(Arc::clone(binding)),
         }
+    }
+
+    /// This device, for the requests it answers itself, beside what the open library declares.
+    /// A Rune peer's library still leaves them all to this device.
+    pub(crate) fn node_implementation(&self) -> Implementation {
+        match self {
+            Self::Closed | Self::Local | Self::RunePeer { .. } => Implementation::Local,
+            Self::Subsonic(binding) => {
+                Implementation::LocalBeside(Box::new(RequestSlots::subsonic(&binding.probe)))
+            }
+        }
+    }
+}
+
+impl RequestSlots {
+    /// This device's own requests beside an open library that declares `library`. The offline
+    /// selection is kept in the open library's own data, so where that library does not support
+    /// it, neither does this device. Every other request stays this device's own.
+    fn following_library(mut self, library: &RequestSlots) -> Self {
+        self.withdraw_where_unsupported::<SetDownloadRuleRequest>(library);
+        self.withdraw_where_unsupported::<RemoveDownloadRuleRequest>(library);
+        self
+    }
+
+    fn withdraw_where_unsupported<R: TargetRequest>(&mut self, library: &RequestSlots) {
+        if let slot @ Slot::Unsupported { .. } = R::slot(library) {
+            self.set::<R>(slot);
+        }
+    }
+}
+
+#[cfg(test)]
+mod following_library_tests {
+    use super::*;
+    use crate::{messages::ListLocalLibrariesRequest, rpc::UnsupportedReason};
+
+    #[test]
+    fn this_device_withdraws_only_the_offline_selection_a_library_does_not_support() {
+        let unsupported = Slot::Unsupported {
+            reason: UnsupportedReason::NotImplemented,
+        };
+        let mut library = RequestSlots::local();
+        library.set::<SetDownloadRuleRequest>(unsupported);
+        library.set::<ListLocalLibrariesRequest>(unsupported);
+
+        let slots = RequestSlots::local().following_library(&library);
+
+        assert_eq!(SetDownloadRuleRequest::slot(&slots), unsupported);
+        assert_eq!(RemoveDownloadRuleRequest::slot(&slots), Slot::Native);
+        assert_eq!(ListLocalLibrariesRequest::slot(&slots), Slot::Native);
     }
 }
 

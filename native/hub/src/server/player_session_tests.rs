@@ -471,7 +471,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
         CollectionType, FetchAllPlaylistsRequest, FetchCollectionByIdsRequest,
         FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
         FetchMediaFileByIdsRequest, LoadResolvedItemsRequest, MixQueryRequest,
-        OpenLibraryFailureKind, OpenLibraryRequest, SearchForRequest,
+        OpenLibraryFailureKind, OpenLibraryRequest, SearchForRequest, SetDownloadRuleRequest,
     };
     use database::library_registry::{
         CatalogPlacement, LibraryRecord, LibraryRecordId, LibraryRegistry, ProtocolAdapter,
@@ -549,6 +549,15 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
         RequestCapability::Available
     );
     assert_eq!(capabilities.play_request, RequestCapability::Available);
+    // The offline selection is kept in a library on this device, which a Subsonic one is not.
+    assert_eq!(
+        capabilities.set_download_rule_request,
+        RequestCapability::Hidden
+    );
+    assert_eq!(
+        capabilities.remove_download_rule_request,
+        RequestCapability::Hidden
+    );
     let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
     assert_eq!(registry.last_open_record, Some(record.record_id));
 
@@ -748,6 +757,27 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     .context("expected unsupported collection type")?;
     assert!(matches!(
         unsupported_collection.downcast_ref::<ExpectedRequestError>(),
+        Some(ExpectedRequestError::Unsupported { .. })
+    ));
+    let unsupported_offline = dispatch_gui_request(
+        &fixture.global_params,
+        &SetDownloadRuleRequest {
+            request_id: "rule".into(),
+            queries: vec![MixQuery {
+                operator: "lib::album".into(),
+                parameter: search.albums[0].to_string(),
+            }],
+            mix_id: None,
+            enabled: true,
+            delete_unselected_files: false,
+            call_id: None,
+        },
+    )
+    .await
+    .err()
+    .context("expected unsupported offline selection")?;
+    assert!(matches!(
+        unsupported_offline.downcast_ref::<ExpectedRequestError>(),
         Some(ExpectedRequestError::Unsupported { .. })
     ));
     let playlists = dispatch_gui_request(
@@ -12059,6 +12089,10 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
         Some(record_id.as_str())
     );
     assert_eq!(first_snapshot.generation, first_generation);
+    assert_eq!(
+        first_snapshot.set_download_rule_request,
+        RequestCapability::Available
+    );
     let current = node.current_ui().await?;
     dispatch_gui_request(&current, &FetchAllPlaylistsRequest { call_id: None }).await?;
 
@@ -13066,6 +13100,7 @@ async fn request_scopes_resolve_to_the_current_implementations() -> Result<()> {
     fn kind(implementation: &Implementation) -> &'static str {
         match implementation {
             Implementation::Local => "Local",
+            Implementation::LocalBeside(_) => "LocalBeside",
             Implementation::RunePeer {
                 reconnecting: Some(_),
                 ..
@@ -13082,9 +13117,15 @@ async fn request_scopes_resolve_to_the_current_implementations() -> Result<()> {
             let library = $node.implementation_for_scope::<FetchAllPlaylistsRequest>()?;
             let player = $node.implementation_for_scope::<PauseRequest>()?;
             let local = $node.implementation_for_scope::<HandoffRequest>()?;
+            // This device answers node requests, beside what a Subsonic library declares.
+            let node = if $library == "Subsonic" {
+                "LocalBeside"
+            } else {
+                "Local"
+            };
             assert_eq!(kind(&library), $library, "{} library", $label);
             assert_eq!(kind(&player), $player, "{} player", $label);
-            assert_eq!(kind(&local), "Local", "{} node", $label);
+            assert_eq!(kind(&local), node, "{} node", $label);
         }};
     }
 

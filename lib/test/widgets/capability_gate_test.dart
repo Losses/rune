@@ -12,6 +12,7 @@ import '../../l10n/app_localizations.dart';
 import '../../providers/request_capabilities.dart';
 import '../../providers/library_open_state.dart';
 import '../../providers/status.dart';
+import '../../utils/context_menu/offline_selection.dart';
 import '../../utils/l10n.dart';
 import '../../utils/playing_item.dart';
 import '../../widgets/capability_gate.dart';
@@ -26,6 +27,7 @@ RequestCapabilities snapshot({
   RequestCapability next = const RequestCapabilityAvailable(),
   RequestCapability previous = const RequestCapabilityAvailable(),
   RequestCapability setLiked = const RequestCapabilityAvailable(),
+  RequestCapability setDownloadRule = const RequestCapabilityAvailable(),
 }) {
   const capability = RequestCapabilityAvailable();
   return RequestCapabilities(
@@ -186,16 +188,19 @@ RequestCapabilities snapshot({
     nextRequest: next,
     previousRequest: previous,
     setLikedRequest: setLiked,
+    setDownloadRuleRequest: setDownloadRule,
   );
 }
 
 class _LibraryOpenStateProvider extends ChangeNotifier
     implements LibraryOpenStateProvider {
+  _LibraryOpenStateProvider({this.openRecord});
+
   @override
   bool get isReadOnlyReplica => false;
 
   @override
-  LibraryRecordSummary? get openRecord => null;
+  final LibraryRecordSummary? openRecord;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -388,6 +393,49 @@ void main() {
     changes.add(snapshot(setLiked: const RequestCapabilityAvailable()));
     await tester.pump();
     expect(find.byIcon(Symbols.favorite), findsOneWidget);
+  });
+
+  testWidgets('offline selection follows the set-download-rule capability', (
+    tester,
+  ) async {
+    final changes = StreamController<RequestCapabilities>();
+    final provider = RequestCapabilitiesProvider(
+      changes: changes.stream,
+      initial: snapshot(setDownloadRule: const RequestCapabilityHidden()),
+    );
+    addTearDown(provider.dispose);
+    addTearDown(changes.close);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<RequestCapabilitiesProvider>.value(
+            value: provider,
+          ),
+          ChangeNotifierProvider<LibraryOpenStateProvider>(
+            create: (_) => _LibraryOpenStateProvider(
+              openRecord: const LibraryRecordSummary(
+                recordId: 'local-record',
+                alias: 'Music',
+                kind: LibraryRecordKindSummaryLocal(
+                  libraryId: 'library-id',
+                  path: '/music',
+                ),
+              ),
+            ),
+          ),
+        ],
+        child: const SizedBox(key: Key('menu-host')),
+      ),
+    );
+    bool offered() => supportsOfflineSelection(
+      tester.element(find.byKey(const Key('menu-host'))),
+    );
+    expect(offered(), isFalse);
+
+    changes.add(snapshot());
+    await tester.pump();
+    expect(offered(), isTrue);
   });
 
   testWidgets('PlaybackStatusProvider maps playback states to button icons', (
