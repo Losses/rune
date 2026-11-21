@@ -11,6 +11,8 @@ class ManagedTurntileScreenItem extends StatefulWidget {
   final int column;
   final Widget child;
   final String? prefix;
+  final int columns;
+  final int rows;
 
   const ManagedTurntileScreenItem({
     super.key,
@@ -19,6 +21,8 @@ class ManagedTurntileScreenItem extends StatefulWidget {
     required this.column,
     required this.child,
     this.prefix,
+    this.columns = 1,
+    this.rows = 1,
   });
 
   @override
@@ -50,6 +54,8 @@ class ManagedTurntileScreenItemState extends State<ManagedTurntileScreenItem>
       widget.column,
       startAnimation,
       widget.prefix,
+      widget.columns,
+      widget.rows,
     );
     bool newShow = registerResult?.skipAnimation ?? true;
     _data = registerResult?.data;

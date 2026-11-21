@@ -14,7 +14,8 @@ class StartGroupImplementation<T> extends StatelessWidget {
   final BoxConstraints constraints;
   final Widget Function(BuildContext, T) itemBuilder;
   final Axis direction;
-  final TileSpan Function(T item)? tileSpanOf;
+  final TileSpan Function(T item)? tileSpanBuilder;
+  final int? strip;
 
   final Dimensions Function(double, double, double, List<T>)
   dimensionCalculator;
@@ -28,7 +29,8 @@ class StartGroupImplementation<T> extends StatelessWidget {
     required this.constraints,
     required this.itemBuilder,
     required this.direction,
-    this.tileSpanOf,
+    this.tileSpanBuilder,
+    this.strip,
     Dimensions Function(double, double, double, List<T>)? dimensionCalculator,
   }) : dimensionCalculator = dimensionCalculator ?? defaultDimensionCalculator;
 
@@ -41,7 +43,8 @@ class StartGroupImplementation<T> extends StatelessWidget {
     required this.constraints,
     required this.itemBuilder,
     required this.direction,
-    this.tileSpanOf,
+    this.tileSpanBuilder,
+    this.strip,
   }) : dimensionCalculator = squareDimensionCalculator;
 
   static Dimensions defaultDimensionCalculator(
@@ -103,16 +106,18 @@ class StartGroupImplementation<T> extends StatelessWidget {
   /// Places the first `d.count` tiles the way the dimension calculators
   /// count them: `d.rows` rows are fixed and the group grows to the right.
   /// For [Axis.horizontal] tiles fill row by row, in strips as wide as
-  /// `d.columns`. For [Axis.vertical] tiles fill column by column.
+  /// `d.columns`. For [Axis.vertical] tiles fill column by column. A [strip]
+  /// given overrides the strip width that [direction] implies.
   static TileLayout tileLayout(
     Dimensions d,
     Axis direction,
-    List<TileSpan> spans,
-  ) {
+    List<TileSpan> spans, {
+    int? strip,
+  }) {
     return layoutTiles(
       spans,
       rows: d.rows,
-      strip: direction == Axis.horizontal ? max(1, d.columns) : 1,
+      strip: strip ?? (direction == Axis.horizontal ? max(1, d.columns) : 1),
     );
   }
 
@@ -123,18 +128,57 @@ class StartGroupImplementation<T> extends StatelessWidget {
   /// The layout of the group, the spans of the tiles shown and the box of the
   /// group: as wide as the columns in use, as high as the rows of the group.
   ({TileLayout layout, List<TileSpan> spans, Size size}) measure() {
-    final Dimensions d = dimensionCalculator(
+    Dimensions d = dimensionCalculator(
       constraints.maxHeight,
       cellSize,
       gapSize,
       items,
     );
     final groupRows = max(1, d.rows);
-    final spans = [
+    var spans = [
       for (var i = 0; i < d.count; i++)
-        _capRows(tileSpanOf?.call(items[i]) ?? const TileSpan(1, 1), groupRows),
+        _capRows(
+          tileSpanBuilder?.call(items[i]) ?? const TileSpan(1, 1),
+          groupRows,
+        ),
     ];
-    final layout = tileLayout(d, direction, spans);
+    if (spans.any((s) => s.columns != 1 || s.rows != 1)) {
+      // The calculators count items as cells. With larger tiles they get a
+      // list as long as the cells of all tiles, which gives the block in
+      // cells. If that capped the count, the tiles shown are the longest
+      // prefix whose layout stays within the block's columns.
+      final all = [
+        for (final item in items)
+          _capRows(
+            tileSpanBuilder?.call(item) ?? const TileSpan(1, 1),
+            groupRows,
+          ),
+      ];
+      final cells = all.fold<int>(0, (sum, s) => sum + s.columns * s.rows);
+      d = dimensionCalculator(
+        constraints.maxHeight,
+        cellSize,
+        gapSize,
+        List<T>.filled(cells, items.first),
+      );
+      final capped = max(1, d.rows);
+      spans = [for (final s in all) _capRows(s, capped)];
+      if (d.count < cells) {
+        var shown = spans.length;
+        while (shown > 1 &&
+            tileLayout(
+                  d,
+                  direction,
+                  spans.sublist(0, shown),
+                  strip: strip,
+                ).columns >
+                d.columns) {
+          shown--;
+        }
+        spans = spans.sublist(0, shown);
+      }
+    }
+    final layout = tileLayout(d, direction, spans, strip: strip);
     final size = Size(
       TileGrid.extent(max(layout.columns, d.columns), cellSize, gapSize),
       TileGrid.extent(d.rows, cellSize, gapSize),

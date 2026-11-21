@@ -13,7 +13,8 @@ class TurntileGroupItemsTile<T> extends StatelessWidget {
   final List<T> items;
   final int groupIndex;
   final Widget Function(BuildContext, T) itemBuilder;
-  final TileSpan Function(T item)? tileSpanOf;
+  final TileSpan Function(T item)? tileSpanBuilder;
+  final int strip;
 
   final Dimensions Function(double, double, double, List<T>)
       dimensionCalculator;
@@ -25,7 +26,8 @@ class TurntileGroupItemsTile<T> extends StatelessWidget {
     required this.items,
     required this.groupIndex,
     required this.itemBuilder,
-    this.tileSpanOf,
+    this.tileSpanBuilder,
+    this.strip = 1,
     Dimensions Function(double, double, double, List<T>)? dimensionCalculator,
   }) : dimensionCalculator = dimensionCalculator ?? defaultTurntileDimensionCalculator;
 
@@ -64,7 +66,7 @@ class TurntileGroupItemsTile<T> extends StatelessWidget {
     final spans = [
       for (final item in items)
         _capColumns(
-          tileSpanOf?.call(item) ?? const TileSpan(1, 1),
+          tileSpanBuilder?.call(item) ?? const TileSpan(1, 1),
           dimensions.columns,
         ),
     ];
@@ -72,6 +74,7 @@ class TurntileGroupItemsTile<T> extends StatelessWidget {
       spans,
       orientation: Axis.vertical,
       columns: dimensions.columns,
+      strip: strip,
     );
     final finalCellSize =
         (width - (dimensions.columns * gapSize)) / dimensions.columns;

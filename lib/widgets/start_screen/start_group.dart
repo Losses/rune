@@ -27,7 +27,12 @@ class StartGroup<T> extends StatelessWidget {
   final Axis direction;
 
   /// Size in cells of the tile of an item. One cell when null.
-  final TileSpan Function(T item)? tileSpanOf;
+  final TileSpan Function(T item)? tileSpanBuilder;
+
+  /// Width in columns of the strips the tiles fill, see [layoutTiles]. When
+  /// null, tiles fill the group row by row for [Axis.horizontal] and column
+  /// by column for [Axis.vertical].
+  final int? strip;
 
   /// Size of one cell.
   final double cellSize;
@@ -49,7 +54,8 @@ class StartGroup<T> extends StatelessWidget {
     this.groupLayoutVariation = StartGroupGroupLayoutVariation.normal,
     this.dimensionCalculator,
     required this.direction,
-    this.tileSpanOf,
+    this.tileSpanBuilder,
+    this.strip,
     this.cellSize = defaultCellSize,
   });
 
@@ -111,7 +117,8 @@ class StartGroup<T> extends StatelessWidget {
           constraints: constraints,
           itemBuilder: itemBuilder,
           direction: direction,
-          tileSpanOf: tileSpanOf,
+          tileSpanBuilder: tileSpanBuilder,
+          strip: strip,
         );
       case StartGroupGridLayoutVariation.initial:
         return StartGroupImplementation<T>(
@@ -123,7 +130,8 @@ class StartGroup<T> extends StatelessWidget {
           itemBuilder: itemBuilder,
           dimensionCalculator: dimensionCalculator,
           direction: direction,
-          tileSpanOf: tileSpanOf,
+          tileSpanBuilder: tileSpanBuilder,
+          strip: strip,
         );
     }
   }

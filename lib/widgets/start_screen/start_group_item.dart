@@ -75,6 +75,8 @@ class StartGroupItem<T> extends StatelessWidget {
       groupId: groupIndex,
       row: p.row,
       column: p.column,
+      columns: spans[i].columns,
+      rows: spans[i].rows,
       width: rect.width,
       height: rect.height,
       child: itemBuilder(context, items[i]),

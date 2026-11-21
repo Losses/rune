@@ -11,6 +11,8 @@ class ManagedStartScreenItem extends StatefulWidget {
   final double height;
   final Widget child;
   final String? prefix;
+  final int columns;
+  final int rows;
 
   const ManagedStartScreenItem({
     super.key,
@@ -21,6 +23,8 @@ class ManagedStartScreenItem extends StatefulWidget {
     required this.height,
     required this.child,
     this.prefix,
+    this.columns = 1,
+    this.rows = 1,
   });
 
   @override
@@ -51,6 +55,8 @@ class ManagedStartScreenItemState extends State<ManagedStartScreenItem> {
         widget.column,
         startAnimation,
         widget.prefix,
+        widget.columns,
+        widget.rows,
       );
       _show = registerResult?.skipAnimation ?? true;
       _data = registerResult?.data;

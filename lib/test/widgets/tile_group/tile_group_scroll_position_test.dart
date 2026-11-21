@@ -118,7 +118,7 @@ void main() {
           items: List<int>.generate(counts[i], (j) => j),
           itemBuilder: (context, item) => const SizedBox.expand(),
           gridLayoutVariation: TurntileGroupGridLayoutVariation.tile,
-          tileSpanOf: i == 2
+          tileSpanBuilder: i == 2
               ? (item) =>
                     item == 0 ? const TileSpan(2, 2) : const TileSpan(1, 1)
               : null,

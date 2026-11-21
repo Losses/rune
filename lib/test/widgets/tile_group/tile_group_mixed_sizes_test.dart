@@ -72,7 +72,7 @@ void main() {
           constraints: const BoxConstraints(maxWidth: 2000, maxHeight: 396),
           gapSize: _gap,
           direction: Axis.vertical,
-          tileSpanOf: (item) => _spans[item],
+          tileSpanBuilder: (item) => _spans[item],
         ),
       ),
     );
@@ -121,7 +121,7 @@ void main() {
             itemBuilder: (context, item) => const SizedBox.expand(),
             gapSize: _gap,
             gridLayoutVariation: TurntileGroupGridLayoutVariation.tile,
-            tileSpanOf: spanOf,
+            tileSpanBuilder: spanOf,
           ),
         ),
       ),
@@ -134,7 +134,7 @@ void main() {
       items: items,
       groupIndex: 0,
       itemBuilder: (context, item) => const SizedBox.expand(),
-      tileSpanOf: spanOf,
+      tileSpanBuilder: spanOf,
     ).measure(368);
     final layout = layoutTiles(_spans, orientation: Axis.vertical, columns: 4);
     final grid = find.byType(TileGrid);
@@ -159,5 +159,114 @@ void main() {
     expect(tester.getSize(grid), const Size(368, 364));
     expect(measured.size, const Size(368, 364));
     expect(measured.cellSize, 88);
+  });
+
+  test(
+    'A group ending in a 2x2 tile counts its full width for the next group',
+    () {
+      double distanceAfter(int columns, int rows) {
+        final manager = StartScreenLayoutManager();
+        void noop() {}
+        manager.registerItem(0, 0, 0, noop);
+        manager.registerItem(0, 0, 1, noop);
+        manager.registerItem(0, 0, 2, noop, null, columns, rows);
+        return manager.registerItem(1, 0, 0, noop).data!.distance;
+      }
+
+      // Group 0 is 3 columns and 2 rows wide: the offset is (3, 1).
+      expect(distanceAfter(2, 2), closeTo(3.1623, 0.0001));
+      // The same top-left cell with a 1x1 tile: 2 columns, 1 row.
+      expect(distanceAfter(1, 1), 2.0);
+    },
+  );
+
+  testWidgets('Square group with 2x2 tiles stays within the block columns', (
+    tester,
+  ) async {
+    Future<List<ManagedStartScreenItem>> shown(
+      TileSpan Function(int item) spanBuilder,
+    ) async {
+      await tester.pumpWidget(
+        _host(
+          StartGroup<int>(
+            groupIndex: 0,
+            groupTitle: 'Group',
+            items: List.generate(20, (i) => i),
+            itemBuilder: (context, item) => const SizedBox.expand(),
+            constraints: const BoxConstraints(maxWidth: 2000, maxHeight: 528),
+            gapSize: _gap,
+            direction: Axis.vertical,
+            gridLayoutVariation: StartGroupGridLayoutVariation.square,
+            tileSpanBuilder: spanBuilder,
+          ),
+        ),
+      );
+      return tester
+          .widgetList<ManagedStartScreenItem>(
+            find.byType(ManagedStartScreenItem),
+          )
+          .toList();
+    }
+
+    // 528 high gives a block of 4 x 4 cells.
+    final plain = await shown((item) => const TileSpan(1, 1));
+    expect(plain.length, 16);
+
+    final mixed = await shown(
+      (item) => item % 4 == 0 ? const TileSpan(2, 2) : const TileSpan(1, 1),
+    );
+    expect(mixed.length, 8);
+    for (final item in mixed) {
+      expect(item.column + item.columns, lessThanOrEqualTo(4));
+    }
+  });
+
+  testWidgets('Small group fills bands of two rows with strip 2', (
+    tester,
+  ) async {
+    // A medium tile and four small ones, 400 wide: 4 columns of 88.
+    TileSpan spanOf(int item) =>
+        item == 0 ? const TileSpan(2, 2) : const TileSpan(1, 1);
+
+    Future<List<Offset>> smallTiles(int strip) async {
+      await tester.pumpWidget(
+        _host(
+          SizedBox(
+            width: 400,
+            child: TurntileGroup<int>(
+              groupIndex: 0,
+              groupTitle: 'Group',
+              items: const [0, 1, 2, 3, 4],
+              itemBuilder: (context, item) => const SizedBox.expand(),
+              gapSize: _gap,
+              gridLayoutVariation: TurntileGroupGridLayoutVariation.tile,
+              tileSpanBuilder: spanOf,
+              strip: strip,
+            ),
+          ),
+        ),
+      );
+      final grid = find.byType(TileGrid);
+      final managed = find.byType(ManagedTurntileScreenItem);
+      return [
+        for (var i = 1; i < 5; i++)
+          _relativeRect(tester, managed.at(i), grid).topLeft,
+      ];
+    }
+
+    // Row by row: the small tiles go left to right, then down.
+    expect(await smallTiles(1), const [
+      Offset(184, 0),
+      Offset(276, 0),
+      Offset(184, 92),
+      Offset(276, 92),
+    ]);
+    // Bands of two rows: the small tiles go top to bottom, then right.
+    expect(await smallTiles(2), const [
+      Offset(184, 0),
+      Offset(184, 92),
+      Offset(276, 0),
+      Offset(276, 92),
+    ]);
   });
 }

@@ -41,6 +41,8 @@ class TurntileGroupItemTile<T> extends StatelessWidget {
             groupId: groupIndex,
             row: layout.placements[i].row,
             column: layout.placements[i].column,
+            columns: spans[i].columns,
+            rows: spans[i].rows,
             child: itemBuilder(context, items[i]),
           ),
       ],
