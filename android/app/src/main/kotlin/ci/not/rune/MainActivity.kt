@@ -1,5 +1,6 @@
 package ci.not.rune
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -28,17 +29,11 @@ class MainActivity: FlutterActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        check(initializeContext(applicationContext)) { "Could not retain the Android application context" }
         super.onCreate(savedInstanceState)
-        initializeContext(this)
     }
 
-    override fun onDestroy() {
-        releaseContext()
-        super.onDestroy()
-    }
-
-    private external fun initializeContext(context: Any)
-    private external fun releaseContext()
+    private external fun initializeContext(context: Context): Boolean
 
     /** Hands the engine's texture registry to the hub, which shows the visualizer in a texture. */
     private external fun attachFlutter(registry: Any): Boolean
