@@ -30,6 +30,7 @@ Future<ui.Image> emptyImage = (() async {
   return frame.image;
 })();
 
+/// Returns null when the selected tracks have no cover art to export.
 Future<ui.Image?> renderCoverWall(
   List<(String, String)> queries,
   Size size,

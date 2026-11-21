@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_selector_platform_interface/file_selector_platform_interface.dart';
@@ -14,15 +15,18 @@ import 'package:rune/utils/dialogs/export_cover_wall/show_export_cover_wall_dial
 
 import 'e2e_library_flow_test.dart' as flow;
 
-class _SaveTo extends FileSelectorPlatform {
-  _SaveTo(this.file);
-  final File file;
+class _SavePicker extends FileSelectorPlatform {
+  late Completer<FileSaveLocation?> selection;
+  int requests = 0;
 
   @override
   Future<FileSaveLocation?> getSaveLocation({
     List<XTypeGroup>? acceptedTypeGroups,
     SaveDialogOptions options = const SaveDialogOptions(),
-  }) async => FileSaveLocation(file.path);
+  }) {
+    requests++;
+    return selection.future;
+  }
 }
 
 void main() {
@@ -49,7 +53,8 @@ void main() {
     final output = File.fromUri(workspace.uri.resolve('wall.png'));
     final systemPicker = FileSelectorPlatform.instance;
     addTearDown(() => FileSelectorPlatform.instance = systemPicker);
-    FileSelectorPlatform.instance = _SaveTo(output);
+    final picker = _SavePicker();
+    FileSelectorPlatform.instance = picker;
 
     app.main(const []);
     await flow.expectVisible(tester, find.byType(WelcomePage));
@@ -70,7 +75,20 @@ void main() {
       final dialog = find.byType(ExportCoverWallDialog);
       await flow.expectVisible(tester, dialog);
       final labels = flow.localized(tester);
-      await tester.tap(find.text(labels.save));
+      final save = find.widgetWithText(FilledButton, labels.save);
+      final cancel = find.widgetWithText(Button, labels.cancel);
+      final onSave = tester.widget<FilledButton>(save).onPressed!;
+      final expectedRequests = picker.requests + 1;
+      picker.selection = Completer<FileSaveLocation?>();
+      await tester.tap(save);
+      await flow.waitFor(
+        tester,
+        () => picker.requests == expectedRequests,
+        description: 'the save chooser to open',
+      );
+      expect(tester.widget<Button>(cancel).onPressed, isNotNull);
+      onSave();
+      picker.selection.complete(FileSaveLocation(output.path));
       await flow.expectVisible(
         tester,
         find.text('No cover art is available to export.'),
@@ -83,8 +101,8 @@ void main() {
             .onPressed,
         isNotNull,
       );
+      expect(picker.requests, expectedRequests);
       expect(await output.exists(), isFalse);
-      final cancel = find.widgetWithText(Button, labels.cancel);
       expect(tester.widget<Button>(cancel).onPressed, isNotNull);
       await tester.tap(cancel);
       await flow.expectAbsent(tester, dialog);

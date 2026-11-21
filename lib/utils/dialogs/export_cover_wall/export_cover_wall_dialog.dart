@@ -40,6 +40,7 @@ class ExportCoverWallDialog extends StatefulWidget {
 }
 
 class ExportCoverWallDialogState extends State<ExportCoverWallDialog> {
+  bool _exportPending = false;
   bool isLoading = false;
   double progress = 0;
   String? failure;
@@ -126,11 +127,9 @@ class ExportCoverWallDialogState extends State<ExportCoverWallDialog> {
   }
 
   Future<void> onConfirmPressed() async {
+    if (_exportPending) return;
+    _exportPending = true;
     final strings = S.of(context);
-    setState(() {
-      isLoading = true;
-      failure = null;
-    });
 
     String? errorMessage;
     try {
@@ -145,6 +144,10 @@ class ExportCoverWallDialogState extends State<ExportCoverWallDialog> {
       );
       if (path == null || !mounted) return;
 
+      setState(() {
+        isLoading = true;
+        failure = null;
+      });
       final image = await renderCoverWall(
         widget.queries,
         parseSize(ratioController.selectedValue ?? '16 9'),
@@ -172,6 +175,7 @@ class ExportCoverWallDialogState extends State<ExportCoverWallDialog> {
     } catch (error) {
       errorMessage = requestErrorText(strings, error);
     } finally {
+      _exportPending = false;
       if (mounted) {
         setState(() {
           failure = errorMessage;
