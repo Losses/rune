@@ -84,8 +84,15 @@ abstract class SearchCardState<T extends SearchCard> extends State<T> {
             if (deviceType == DeviceType.zune) {
               final typography = FluentTheme.of(context).typography;
 
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
+              return Button(
+                style: const ButtonStyle(
+                  padding: WidgetStatePropertyAll(
+                    EdgeInsets.symmetric(vertical: 4),
+                  ),
+                  backgroundColor: WidgetStatePropertyAll(Colors.transparent),
+                  shape: WidgetStatePropertyAll(RoundedRectangleBorder()),
+                ),
+                onPressed: () => onPressed(context),
                 child: Row(
                   children: [
                     SizedBox(
