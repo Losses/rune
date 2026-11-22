@@ -5,7 +5,7 @@ use fsio::FsIo;
 use metadata::describe::describe_file;
 use migration::{Migrator, MigratorTrait};
 use playback::PlaybackMode;
-use sea_orm::{ConnectionTrait, Database, Statement};
+use sea_orm::{ConnectionTrait, Database, DatabaseConnection, Statement};
 use uuid::Uuid;
 
 #[tokio::test]
@@ -54,7 +54,9 @@ async fn alpha_database_with_bookkeeping_columns_still_works() -> Result<()> {
         "INSERT INTO playlists(id,name,\"group\",created_at,updated_at) VALUES(200,'list','g','2020','2020')",
         "INSERT INTO mixes(id,name,\"group\",locked,scriptlet_mode,created_at,updated_at) VALUES(201,'mix','g',0,0,'2020','2020')",
         "INSERT INTO mix_queries(id,mix_id,operator,parameter,\"group\",created_at,updated_at) VALUES(202,201,'lib::directory.deep','/music',0,'2020','2020')",
+        "INSERT INTO mix_queries(id,mix_id,operator,parameter,\"group\",created_at,updated_at) VALUES(206,201,'lib::track','204',0,'2020','2020')",
         "INSERT INTO media_files(id,file_name,directory,extension,file_hash,last_modified,cover_art_id,sample_rate,duration) VALUES(204,'a.ogg','/music','ogg','hash','2020',203,44100,12)",
+        "INSERT INTO media_file_playlists(id,playlist_id,media_file_id,position) VALUES(205,200,204,0)",
     ] {
         db.execute_unprepared(sql).await?;
     }
@@ -69,6 +71,42 @@ async fn alpha_database_with_bookkeeping_columns_still_works() -> Result<()> {
     assert_eq!(
         row.try_get::<String>("", "cover_art_checked_at")?,
         "2023-01-02 03:04:05"
+    );
+    let artwork = text(&db, "SELECT source_uuid FROM media_cover_art WHERE id=203").await?;
+    let playlist = text(&db, "SELECT source_uuid FROM playlists WHERE id=200").await?;
+    let mix = text(&db, "SELECT source_uuid FROM mixes WHERE id=201").await?;
+    let track = text(&db, "SELECT source_uuid FROM media_files WHERE id=204").await?;
+    assert_eq!(
+        text(&db, "SELECT cover_art_uuid FROM media_files WHERE id=204").await?,
+        artwork
+    );
+    assert_eq!(
+        text(&db, "SELECT mix_uuid FROM mix_queries WHERE id=202").await?,
+        mix
+    );
+    assert_eq!(
+        text(&db, "SELECT mix_uuid FROM mix_queries WHERE id=206").await?,
+        mix
+    );
+    assert_eq!(
+        text(&db, "SELECT target_uuid FROM mix_queries WHERE id=206").await?,
+        track
+    );
+    assert_eq!(
+        text(
+            &db,
+            "SELECT playlist_uuid FROM media_file_playlists WHERE id=205"
+        )
+        .await?,
+        playlist
+    );
+    assert_eq!(
+        text(
+            &db,
+            "SELECT track_uuid FROM media_file_playlists WHERE id=205"
+        )
+        .await?,
+        track
     );
     let library = fixtures::open_library(db.clone(), actor, None).await?;
     library.import_basic().await?;
@@ -98,5 +136,48 @@ async fn alpha_database_with_bookkeeping_columns_still_works() -> Result<()> {
         &store,
     )
     .await?;
+    for (table, id, expected) in [
+        ("playlists", 200, playlist.as_str()),
+        ("mixes", 201, mix.as_str()),
+        ("media_cover_art", 203, artwork.as_str()),
+        ("media_files", 204, track.as_str()),
+    ] {
+        assert_eq!(
+            text(
+                &db,
+                &format!("SELECT source_uuid FROM {table} WHERE id={id}")
+            )
+            .await?,
+            expected,
+            "{table} keeps the populated identity after current actions"
+        );
+    }
+    assert_eq!(
+        text(&db, "SELECT mix_uuid FROM mix_queries WHERE id=206").await?,
+        mix
+    );
+    assert_eq!(
+        text(&db, "SELECT target_uuid FROM mix_queries WHERE id=206").await?,
+        track
+    );
+    assert_eq!(
+        text(
+            &db,
+            "SELECT track_uuid FROM media_file_playlists WHERE id=205"
+        )
+        .await?,
+        track
+    );
     Ok(())
+}
+
+async fn text(db: &DatabaseConnection, sql: &str) -> Result<String> {
+    let row = db
+        .query_one_raw(Statement::from_string(
+            db.get_database_backend(),
+            sql.to_owned(),
+        ))
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("no row for {sql}"))?;
+    Ok(row.try_get_by_index(0)?)
 }
