@@ -58,73 +58,54 @@ fn probe_format(
     }
 }
 
-/// The maximum size of an Ogg page plus its header, used to find the last page from the end.
-const OGG_TAIL_LEN: u64 = 66_000;
-
-/// Reads the first BOS pages and the last EOS page to tell an ordinary single-stream Ogg from a
-/// chained one. Symphonia 0.5.4 does not expose the physical-stream count, and this is much cheaper
-/// than scanning the whole file. A file whose last page is not a matching EOS is treated as
-/// unresolved, never as single-stream.
+/// Scans the Ogg page headers to tell an ordinary single-stream Ogg from a chained one.
+/// Symphonia 0.5.4 does not expose the physical-stream count. A BOS page after the first non-BOS
+/// page starts another physical stream; all BOS pages of a multiplexed single stream come first.
 fn detect_ogg_layout(mss: &mut MediaSourceStream) -> Result<bool> {
-    let Some(len) = mss.byte_len() else {
-        return Ok(false);
-    };
     mss.seek(SeekFrom::Start(0))?;
-    let mut first_bos = Vec::new();
     let mut is_ogg = false;
+    let mut saw_bos = false;
+    let mut saw_non_bos = false;
+    let mut single_stream = true;
     loop {
         let mut header = [0u8; 27];
-        if mss.read_exact(&mut header).is_err() {
-            break;
+        match mss.read_exact(&mut header) {
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::UnexpectedEof => break,
+            Err(_) => {
+                single_stream = false;
+                break;
+            }
         }
         if &header[0..4] != b"OggS" {
+            single_stream = false;
             break;
         }
         is_ogg = true;
         let header_type = header[5];
-        let serial = u32::from_le_bytes(header[14..18].try_into().expect("four bytes"));
         let segments = header[26] as usize;
         let mut table = vec![0u8; segments];
         if mss.read_exact(&mut table).is_err() {
+            single_stream = false;
             break;
         }
         let data_len: usize = table.iter().map(|&size| size as usize).sum();
-        if header_type & 0x02 == 0 {
-            break;
+        if header_type & 0x02 != 0 {
+            if saw_non_bos {
+                single_stream = false;
+                break;
+            }
+            saw_bos = true;
+        } else {
+            saw_non_bos = true;
         }
-        first_bos.push(serial);
         if mss.seek(SeekFrom::Current(data_len as i64)).is_err() {
+            single_stream = false;
             break;
         }
     }
     mss.seek(SeekFrom::Start(0))?;
-    if !is_ogg || first_bos.is_empty() {
-        return Ok(false);
-    }
-
-    let tail_len = len.min(OGG_TAIL_LEN) as usize;
-    let tail_start = len - tail_len as u64;
-    mss.seek(SeekFrom::Start(tail_start))?;
-    let mut tail = vec![0u8; tail_len];
-    let tail_read = mss.read_exact(&mut tail).is_ok();
-    mss.seek(SeekFrom::Start(0))?;
-
-    Ok(tail_read && last_eos_matches(&tail, &first_bos))
-}
-
-fn last_eos_matches(tail: &[u8], first_bos: &[u32]) -> bool {
-    let Some(index) = tail.windows(4).rposition(|window| window == b"OggS") else {
-        return false;
-    };
-    if index + 27 > tail.len() || tail[index + 5] & 0x04 == 0 {
-        return false;
-    }
-    let serial = u32::from_le_bytes(tail[index + 14..index + 18].try_into().expect("four bytes"));
-    let segments = tail[index + 26] as usize;
-    if index + 27 + segments > tail.len() {
-        return false;
-    }
-    first_bos.contains(&serial)
+    Ok(is_ogg && saw_bos && single_stream)
 }
 
 struct SharedSourceMedia<R> {
@@ -1101,6 +1082,44 @@ mod tests {
         assert!(
             source.total_duration().is_none(),
             "an unsupported chain must not report the first stream's duration as complete"
+        );
+    }
+
+    #[test]
+    fn a_three_segment_ogg_with_a_repeated_serial_is_not_single_stream() {
+        let path = chained_ogg(
+            "chained_ogg_three_segments",
+            &[
+                "tone_440_44100.ogg",
+                "tone_660_44100.ogg",
+                "tone_440_44100.ogg",
+            ],
+        );
+        let file = File::open(&path).expect("open three-segment chained ogg");
+        let mut decoder =
+            RuneDecoder::new(BufReader::new(file), None).expect("create chained decoder");
+
+        let error = decoder
+            .try_seek(Duration::from_secs(3))
+            .expect_err("the middle stream is behind an unresolved physical-stream boundary");
+        assert!(
+            matches!(error, SeekError::NotSupported { .. }),
+            "unexpected seek error: {error:?}"
+        );
+
+        let samples: Vec<i16> = decoder.by_ref().collect();
+        remove(&path);
+        assert!(
+            samples.len() > 250_000,
+            "decoded {} samples, so the third stream was not reached",
+            samples.len()
+        );
+        let duration = decoder
+            .total_duration()
+            .expect("the three-stream chain has a duration");
+        assert!(
+            (duration.as_secs_f64() - 6.0).abs() < 0.1,
+            "the three-stream chain reports {duration:?}, not 6 s"
         );
     }
 
