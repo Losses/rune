@@ -615,7 +615,9 @@ impl SongClock {
 
 /// The chart of the file followed last, kept by a follower that goes for the next one: the
 /// visualizer stops (it is closed) and starts again on the same song, which is not analysed again.
-pub type KeptChart = Arc<Mutex<Option<(PathBuf, Arc<Chart>)>>>;
+/// The source is the local file it was made for, so the same path through another filesystem does
+/// not get it.
+pub type KeptChart = Arc<Mutex<Option<(ChartSource, Arc<Chart>)>>>;
 
 /// The chart of the file that plays, made off the render thread, and the song time.
 ///
@@ -663,11 +665,11 @@ impl ChartFollower {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .take()
-                .filter(|(path, _)| {
-                    matches!(&self.source, ChartSource::LocalFile { path: current, .. } if current == path)
-                });
-            if let Some((path, chart)) = kept {
-                info!("The chart of {} was kept", path.display());
+                .filter(|(source, _)| self.source.same_item(source));
+            if let Some((_, chart)) = kept {
+                if let ChartSource::LocalFile { path, .. } = &self.source {
+                    info!("The chart of {} was kept", path.display());
+                }
                 self.chart = Some(chart);
                 self.arrivals += 1;
             } else if let ChartSource::LocalFile {
@@ -788,9 +790,9 @@ impl Drop for ChartFollower {
     fn drop(&mut self) {
         info!("The visualizer stopped following the song");
         self.cancel_analysis();
-        if let (ChartSource::LocalFile { path, .. }, Some(chart)) = (&self.source, &self.chart) {
+        if let (ChartSource::LocalFile { .. }, Some(chart)) = (&self.source, &self.chart) {
             *self.kept.lock().unwrap_or_else(PoisonError::into_inner) =
-                Some((path.clone(), Arc::clone(chart)));
+                Some((self.source.clone(), Arc::clone(chart)));
         }
     }
 }
@@ -1064,10 +1066,14 @@ mod tests {
     }
 
     fn playing(path: &Path, position: f64) -> Playback {
+        playing_with(path, position, Arc::new(FsIo::new()))
+    }
+
+    fn playing_with(path: &Path, position: f64, fsio: Arc<FsIo>) -> Playback {
         Playback {
             source: ChartSource::LocalFile {
                 path: path.to_path_buf(),
-                fsio: Some(Arc::new(FsIo::new())),
+                fsio: Some(fsio),
             },
             position: Duration::from_secs_f64(position),
             playing: false,
@@ -1309,19 +1315,70 @@ mod tests {
     #[test]
     fn a_chart_is_kept_for_the_next_follower_of_the_same_file() {
         let kept = KeptChart::default();
+        let fsio = Arc::new(FsIo::new());
         let (a, b) = (Path::new("/music/a.flac"), Path::new("/music/b.flac"));
         let mut follower = ChartFollower::new(Arc::clone(&kept));
-        follower.tick(&playing(a, 1.0), Instant::now());
+        follower.tick(&playing_with(a, 1.0, Arc::clone(&fsio)), Instant::now());
         follower.chart = Some(Arc::new(chart()));
         drop(follower);
         // The visualizer starts again on the same song: the chart is there at once.
         let mut follower = ChartFollower::new(Arc::clone(&kept));
-        assert!(follower.tick(&playing(a, 2.0), Instant::now()).is_some());
+        assert!(
+            follower
+                .tick(&playing_with(a, 2.0, Arc::clone(&fsio)), Instant::now())
+                .is_some()
+        );
         assert_eq!(follower.chart().map(|(arrival, _, _)| arrival), Some(1));
         drop(follower);
         // On another song it is not, and it is gone.
         let mut follower = ChartFollower::new(Arc::clone(&kept));
-        assert!(follower.tick(&playing(b, 2.0), Instant::now()).is_none());
+        assert!(
+            follower
+                .tick(&playing_with(b, 2.0, Arc::clone(&fsio)), Instant::now())
+                .is_none()
+        );
         assert!(kept.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn a_chart_is_not_kept_for_the_same_path_in_another_filesystem() {
+        let kept = KeptChart::default();
+        let path = Path::new("/music/song.flac");
+        let fsio = Arc::new(FsIo::new());
+        let expected = Arc::new(chart());
+        let mut follower = ChartFollower::new(Arc::clone(&kept));
+        follower.tick(&playing_with(path, 1.0, Arc::clone(&fsio)), Instant::now());
+        follower.chart = Some(Arc::clone(&expected));
+        drop(follower);
+
+        // The same path through the same filesystem reuses the chart without analysing.
+        let mut follower = ChartFollower::new(Arc::clone(&kept));
+        assert!(
+            follower
+                .tick(&playing_with(path, 2.0, Arc::clone(&fsio)), Instant::now())
+                .is_some()
+        );
+        assert!(
+            follower
+                .chart
+                .as_ref()
+                .is_some_and(|chart| Arc::ptr_eq(chart, &expected))
+        );
+        assert!(follower.loading.is_none());
+        drop(follower);
+
+        // The same path through another filesystem is another file: its chart is not reused.
+        let mut follower = ChartFollower::new(Arc::clone(&kept));
+        let playback = playing_with(path, 2.0, Arc::new(FsIo::new()));
+        assert!(follower.tick(&playback, Instant::now()).is_none());
+        assert!(follower.chart.is_none());
+        assert!(
+            follower.cancel.is_some(),
+            "the other filesystem's file was not analysed"
+        );
+        assert!(
+            kept.lock().unwrap().is_none(),
+            "the kept chart was not consumed"
+        );
     }
 }

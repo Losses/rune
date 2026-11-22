@@ -986,7 +986,11 @@ async fn handle_status_event(
         && let Some(library_fsio) = &library.fsio
     {
         item_state.feed_item = Some(item.clone());
-        let chart = node.visualizer().cached_chart(path).ok().flatten();
+        let source = visualizer::ChartSource::LocalFile {
+            path: path.to_path_buf(),
+            fsio: Some(Arc::clone(library_fsio)),
+        };
+        let chart = node.visualizer().cached_chart(&source).ok().flatten();
         if let Some(chart) = chart {
             broadcaster.broadcast(&VisualizerFeedChart { item, chart });
         } else {
