@@ -38,14 +38,18 @@ class TrackListViewState extends State<TrackListView> {
   @override
   void initState() {
     super.initState();
-    _contentSubscription = LibraryContentChanged.rustSignalStream.listen((_) {
-      _generation++;
-      _loadedItems.clear();
-      _loadingIndices.clear();
-      setState(() {
-        _isInitialized = false;
-      });
-      _initializeData();
+    _contentSubscription = LibraryContentChanged.rustSignalStream.listen(
+      (_) => _restartListing(),
+    );
+    _initializeData();
+  }
+
+  void _restartListing() {
+    _generation++;
+    _loadedItems.clear();
+    _loadingIndices.clear();
+    setState(() {
+      _isInitialized = false;
     });
     _initializeData();
   }
@@ -153,6 +157,7 @@ class TrackListViewState extends State<TrackListView> {
               getItem: _getItem,
               queries: queries,
               mode: null,
+              reloadData: _restartListing,
             ),
           );
         }
@@ -164,6 +169,7 @@ class TrackListViewState extends State<TrackListView> {
             getItem: _getItem,
             queries: queries,
             mode: null,
+            reloadData: _restartListing,
           );
         }
 
@@ -173,6 +179,7 @@ class TrackListViewState extends State<TrackListView> {
             getItem: _getItem,
             queries: queries,
             mode: null,
+            reloadData: _restartListing,
           );
         }
 
@@ -181,6 +188,7 @@ class TrackListViewState extends State<TrackListView> {
           getItem: _getItem,
           queries: queries,
           mode: null,
+          reloadData: _restartListing,
         );
       },
     );

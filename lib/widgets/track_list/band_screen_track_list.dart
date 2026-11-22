@@ -27,6 +27,8 @@ class BandScreenTrackList extends StatelessWidget {
   final InternalMediaFile? Function(int) getItem;
   final QueryList queries;
   final PlaybackMode? mode;
+  /// Lists the tracks again, after a scan started from the empty list.
+  final VoidCallback reloadData;
 
   const BandScreenTrackList({
     super.key,
@@ -34,6 +36,7 @@ class BandScreenTrackList extends StatelessWidget {
     required this.getItem,
     required this.queries,
     required this.mode,
+    required this.reloadData,
   });
 
   @override
@@ -71,7 +74,7 @@ class BandScreenTrackList extends StatelessWidget {
         child: NoItems(
           title: S.of(context).noTracksFound,
           hasRecommendation: hasRecommendation,
-          reloadData: () {},
+          reloadData: reloadData,
         ),
       );
     }

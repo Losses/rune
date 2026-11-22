@@ -17,6 +17,8 @@ class SmallScreenTrackList extends StatefulWidget {
   final InternalMediaFile? Function(int) getItem;
   final QueryList queries;
   final PlaybackMode? mode;
+  /// Lists the tracks again, after a scan started from the empty list.
+  final VoidCallback reloadData;
 
   const SmallScreenTrackList({
     super.key,
@@ -24,6 +26,7 @@ class SmallScreenTrackList extends StatefulWidget {
     required this.getItem,
     required this.queries,
     required this.mode,
+    required this.reloadData,
   });
 
   @override
@@ -48,7 +51,7 @@ class _SmallScreenTrackListState extends State<SmallScreenTrackList> {
         child: NoItems(
           title: S.of(context).noTracksFound,
           hasRecommendation: hasRecommendation,
-          reloadData: () {},
+          reloadData: widget.reloadData,
         ),
       );
     }

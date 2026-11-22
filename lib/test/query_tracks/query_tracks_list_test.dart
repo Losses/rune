@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 
 import 'package:rune/bindings/bindings.dart';
 import 'package:rune/l10n/app_localizations.dart';
+import 'package:rune/providers/library_manager.dart';
+import 'package:rune/providers/library_open_state.dart';
 import 'package:rune/providers/responsive_providers.dart';
 import 'package:rune/screens/query_tracks/query_tracks_list.dart';
 import 'package:rune/utils/api/fetch_playlist_occurrences.dart';
@@ -74,12 +76,95 @@ Widget _playlistList(PlaylistPageLoader loader) => _list(
   playlistLoader: loader,
 );
 
+class _OpenLibrary extends ChangeNotifier implements LibraryOpenStateProvider {
+  @override
+  LibraryRecordSummary? get openRecord => const LibraryRecordSummary(
+    recordId: 'record',
+    alias: 'Music',
+    kind: LibraryRecordKindSummaryLocal(libraryId: 'library', path: '/music'),
+  );
+
+  @override
+  bool get hasCatalog => true;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 const _secondPageCursor = PlaylistOccurrenceCursor(
   position: 19,
   occurrenceId: '19@0123456789abcdef',
 );
 
 void main() {
+  // The large and zune lists. A band or dock window shows an empty list as an
+  // icon, and a belt window is too short to fit the Scan Library button.
+  for (final (layout, size) in const [
+    ('large', Size(2400, 600)),
+    ('zune', Size(300, 700)),
+  ]) {
+    testWidgets(
+      'a scan from the empty $layout list lists the tracks it found',
+      (tester) async {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final states = StreamController<LibraryTaskStateChanged>.broadcast(
+          sync: true,
+        );
+        final scans = <ScanAudioLibraryRequest>[];
+        final manager = LibraryManagerProvider(
+          sendScanRequest: scans.add,
+          libraryTaskStates: states.stream,
+        );
+        addTearDown(states.close);
+        addTearDown(manager.dispose);
+        var indexed = const <InternalMediaFile>[];
+        await tester.pumpWidget(
+          MultiProvider(
+            providers: [
+              ChangeNotifierProvider<LibraryOpenStateProvider>(
+                create: (_) => _OpenLibrary(),
+              ),
+              ChangeNotifierProvider<LibraryManagerProvider>.value(
+                value: manager,
+              ),
+            ],
+            child: _list(
+              (_, cursor, _) async =>
+                  cursor == 0 ? indexed : const <InternalMediaFile>[],
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+        expect(find.text('No tracks found'), findsOneWidget);
+
+        await tester.tap(find.text('Scan Library'));
+        await tester.pump();
+        expect(scans, hasLength(1));
+        indexed = [_track(0)];
+        states.add(
+          const LibraryTaskStateChanged(
+            state: LibraryTaskStateScanEnded(
+              recordId: 'record',
+              runId: 'run',
+              progress: 1,
+              total: 1,
+              phase: ScanTaskPhase.indexFiles,
+              outcome: ScanOutcomeFinished(),
+            ),
+          ),
+        );
+        for (var i = 0; i < 5; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        expect(find.text('Track 0'), findsOneWidget);
+        expect(find.text('No tracks found'), findsNothing);
+      },
+    );
+  }
+
   testWidgets('first page timeout shows the error text', (tester) async {
     await tester.pumpWidget(
       _list((_, _, _) async => throw TimeoutException('no answer')),
