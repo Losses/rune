@@ -126,6 +126,42 @@ struct PlaylistEditOptions {
     play: LoadPlay,
 }
 
+/// The prepared queue position of the occurrence `requested_start_index` names in
+/// `items`. Preparation leaves out items that are no longer playable, so the position is
+/// the number of prepared occurrences before the selected one. A selected occurrence that
+/// did not prepare fails instead of starting another surviving track.
+fn remap_local_start_index(
+    items: &[PlayingItem],
+    prepared_by_item: &HashMap<PlayingItem, (PlayingItem, PlaybackSource)>,
+    requested_start_index: Option<usize>,
+) -> Result<Option<usize>> {
+    let Some(index) = requested_start_index else {
+        return Ok(None);
+    };
+    if items.is_empty() {
+        // An empty list still applies its edit, such as replacing the queue with nothing.
+        return Ok(None);
+    }
+    if index >= items.len() {
+        return Err(
+            ExpectedRequestError::invalid_input("Invalid start index: out of range").into(),
+        );
+    }
+    let selected = &items[index];
+    if !prepared_by_item.contains_key(selected) {
+        return Err(ExpectedRequestError::Unavailable {
+            what: "selected track",
+        }
+        .into());
+    }
+    Ok(Some(
+        items[..index]
+            .iter()
+            .filter(|item| prepared_by_item.contains_key(*item))
+            .count(),
+    ))
+}
+
 fn edit_playlist(
     player: &dyn Playable,
     prepared: &[(PlayingItem, PlaybackSource)],
@@ -1007,6 +1043,15 @@ impl Signal for LoadResolvedItemsRequest {
                 .iter()
                 .filter_map(|item| prepared_by_item.get(item).cloned())
                 .collect::<Vec<_>>();
+            let requested_start_index = request
+                .start_index
+                .map(usize::try_from)
+                .transpose()
+                .map_err(|error| {
+                    ExpectedRequestError::invalid_input(format!("Invalid start index: {error}"))
+                })?;
+            let start_index =
+                remap_local_start_index(&items, &prepared_by_item, requested_start_index)?;
             let position = request
                 .position_seconds
                 .map(Duration::try_from_secs_f64)
@@ -1024,7 +1069,7 @@ impl Signal for LoadResolvedItemsRequest {
                         &prepared,
                         PlaylistEditOptions {
                             mode: request.mode,
-                            start_index: request.start_index.map(|index| index as usize),
+                            start_index,
                             playback_mode: request.playback_mode,
                             position,
                             play: request.play,
