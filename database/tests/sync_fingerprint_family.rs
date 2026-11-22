@@ -594,6 +594,62 @@ async fn raising_the_threshold_keeps_groups_that_still_qualify() -> Result<()> {
 }
 
 #[tokio::test]
+async fn failed_mark_replacement_keeps_previous_marks() -> Result<()> {
+    let node = Uuid::new_v4();
+    let db = fixtures::memory_database(node).await?;
+    let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
+    // Two unrelated pairs, each similar enough for the lower threshold only.
+    fingerprinted_file(&db, &store, 1, Uuid::from_u128(1), vec![0x1111_1111; 64]).await?;
+    fingerprinted_file(&db, &store, 2, Uuid::from_u128(2), vec![0x1111_111e; 64]).await?;
+    fingerprinted_file(&db, &store, 3, Uuid::from_u128(3), vec![0x7777_7777; 64]).await?;
+    fingerprinted_file(&db, &store, 4, Uuid::from_u128(4), vec![0x7777_7778; 64]).await?;
+    compare_all_pairs(&db, |_, _| {}, &Configuration::default(), None, &store).await?;
+    assert_eq!(mark_duplicate_files(&db, 0.85, |_, _| {}, &store).await?, 2);
+    let marks = duplicate_marks(&db, &store).await?;
+    assert_eq!(marks, vec![(1, 0, 0), (2, 1, 1), (3, 0, 0), (4, 1, 1)]);
+    let head = sync_orm::causal_progress::head_on(&db, store.namespace())
+        .await?
+        .sequence;
+    let files = media_files::Entity::find().count(&db).await?;
+
+    // The first cleared mark is journaled, the second one fails.
+    db.execute_unprepared(&format!(
+        "CREATE TRIGGER reject_second_mark BEFORE INSERT ON sync_journal WHEN NEW.sequence={} BEGIN SELECT RAISE(ABORT, 'injected failure'); END",
+        head + 2
+    ))
+    .await?;
+    assert!(
+        mark_duplicate_files(&db, 0.95, |_, _| {}, &store)
+            .await
+            .is_err()
+    );
+    assert_eq!(duplicate_marks(&db, &store).await?, marks);
+    assert_eq!(
+        sync_orm::causal_progress::head_on(&db, store.namespace())
+            .await?
+            .sequence,
+        head
+    );
+    assert_eq!(media_files::Entity::find().count(&db).await?, files);
+
+    db.execute_unprepared("DROP TRIGGER reject_second_mark")
+        .await?;
+    assert_eq!(mark_duplicate_files(&db, 0.95, |_, _| {}, &store).await?, 0);
+    assert_eq!(
+        duplicate_marks(&db, &store).await?,
+        vec![(1, 0, 0), (2, 0, 0), (3, 0, 0), (4, 0, 0)]
+    );
+    assert_eq!(
+        sync_orm::causal_progress::head_on(&db, store.namespace())
+            .await?
+            .sequence,
+        head + 2
+    );
+    assert_eq!(media_files::Entity::find().count(&db).await?, files);
+    Ok(())
+}
+
+#[tokio::test]
 async fn independent_configurations_coexist_in_primary_rows() -> Result<()> {
     use database::sync::{
         bindings,

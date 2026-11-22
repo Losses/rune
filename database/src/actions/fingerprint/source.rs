@@ -335,15 +335,27 @@ pub async fn assign_duplicate_mark(
     file_id: i32,
     mark: i32,
 ) -> Result<()> {
-    use crate::sync::model::ObjectKey;
     use sea_orm::TransactionTrait;
     let tx = db.begin().await?;
     store.lock(&tx).await?;
+    assign_duplicate_mark_on(&tx, store, file_id, mark).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Set the shared duplicate mark inside a transaction that already holds the store lock.
+pub(super) async fn assign_duplicate_mark_on(
+    tx: &DatabaseTransaction,
+    store: &crate::sync::SeaOrmSyncStore,
+    file_id: i32,
+    mark: i32,
+) -> Result<()> {
+    use crate::sync::model::ObjectKey;
     let file = media_files::Entity::find_by_id(file_id)
-        .one(&tx)
+        .one(tx)
         .await?
         .ok_or_else(|| anyhow::anyhow!("missing file"))?;
-    let row = current_fingerprint(&tx, &file)
+    let row = current_fingerprint(tx, &file)
         .await?
         .ok_or_else(|| anyhow::anyhow!("missing supported fingerprint"))?;
     ensure!(
@@ -364,9 +376,8 @@ pub async fn assign_duplicate_mark(
     if row.fingerprint.len() > MAX_PORTABLE_FINGERPRINT_BYTES {
         let mut update: media_file_fingerprint::ActiveModel = row.into();
         update.is_duplicated = Set(mark);
-        update.update(&tx).await?;
+        update.update(tx).await?;
         log::debug!("keeping oversized fingerprint local for {file_id}");
-        tx.commit().await?;
         return Ok(());
     }
     let value = Some(Payload::Fingerprint(Fingerprint {
@@ -383,12 +394,11 @@ pub async fn assign_duplicate_mark(
         collection: Collection::Fingerprints,
         id,
     };
-    let record = match store.get_on(&tx, &key).await? {
+    let record = match store.get_on(tx, &key).await? {
         Some(record) if record.value == value => record,
-        _ => store.author_on(&tx, key, value).await?,
+        _ => store.author_on(tx, key, value).await?,
     };
-    apply(&tx, &record.key, record.value.as_ref()).await?;
-    tx.commit().await?;
+    apply(tx, &record.key, record.value.as_ref()).await?;
     Ok(())
 }
 
