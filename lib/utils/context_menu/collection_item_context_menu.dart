@@ -29,6 +29,7 @@ import '../dialogs/play_on/play_on_dialog.dart';
 
 import '../router/router_aware_flyout_controller.dart';
 import 'utils/build_m3u8.dart';
+import 'offers_mixes.dart';
 import 'offline_selection.dart';
 
 Future<void> _handleCollectionRequest(
@@ -157,9 +158,10 @@ void openCollectionItemContextMenu(
     return;
   }
 
-  late final List<Mix> mixes;
+  final withMixes = offersMixes(context);
+  late final List<Mix>? mixes;
   try {
-    mixes = await loadMixes();
+    mixes = withMixes ? await loadMixes() : null;
   } on RequestFailure catch (error) {
     if (context.mounted) {
       await showErrorDialog(
@@ -186,12 +188,14 @@ void openCollectionItemContextMenu(
   );
 }
 
+/// The collection menu of a large screen. [mixes] is `null` when the open
+/// library keeps no mixes, which leaves out Add to Mix.
 MenuFlyout buildLargeScreenCollectionItemContextMenu(
   BuildContext context,
   CollectionType type,
   int id,
   String title,
-  List<Mix> mixes, [
+  List<Mix>? mixes, [
   void Function()? refreshList,
   bool? readonly,
   List<int> fallbackFileIds = const [],
@@ -202,7 +206,7 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
   final libraryState = context.read<LibraryOpenStateProvider>();
   final castLibraryId = libraryState.catalogLibraryId ?? libraryState.openRecord?.recordId;
 
-  final List<MenuFlyoutItem> mixItems = mixes.where((x) => !x.locked).map((
+  final List<MenuFlyoutItem>? mixItems = mixes?.where((x) => !x.locked).map((
     mix,
   ) {
     return MenuFlyoutItem(
@@ -303,7 +307,8 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
     );
   }
 
-  if (operator != null &&
+  if (mixItems != null &&
+      operator != null &&
       !context.read<LibraryOpenStateProvider>().isReadOnlyReplica) {
     items.add(const MenuFlyoutSeparator());
     items.add(
