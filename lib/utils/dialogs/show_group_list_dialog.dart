@@ -10,6 +10,46 @@ import '../../widgets/start_screen/utils/internal_collection.dart';
 import '../../screens/collection/utils/collection_data_provider.dart';
 import '../../utils/l10n.dart';
 
+/// Loads groups for a jump and lets the list's Retry button resume that jump.
+mixin CollectionGroupNavigation<T extends StatefulWidget> on State<T> {
+  ({String title, Future<Object?> summary})? _pendingJump;
+
+  /// Scrolls the layout to an index in the current collection.
+  void scrollToGroupIndex(CollectionDataProvider data, int index);
+
+  /// Finds the selected group, fetching additional pages as needed.
+  Future<void> scrollToGroup(String title) async {
+    if (!mounted) return;
+    final data = context.read<CollectionDataProvider>();
+    final jump = (title: title, summary: data.summary);
+    _pendingJump = jump;
+    while (mounted && _pendingJump == jump && data.summary == jump.summary) {
+      final index = data.items.indexWhere((group) => group.groupTitle == title);
+      if (index >= 0) {
+        _pendingJump = null;
+        scrollToGroupIndex(data, index);
+        return;
+      }
+      if (data.isLastPage) {
+        _pendingJump = null;
+        return;
+      }
+      await data.fetchData();
+      if (data.pageError != null) return;
+    }
+  }
+
+  /// Resumes a pending jump for this collection or retries ordinary pagination.
+  Future<void> retryGroupOrPage(Future<void> Function() fetchPage) {
+    final jump = _pendingJump;
+    if (jump != null &&
+        jump.summary == context.read<CollectionDataProvider>().summary) {
+      return scrollToGroup(jump.title);
+    }
+    return fetchPage();
+  }
+}
+
 void showGroupListDialog(
   BuildContext context,
   Future<void> Function(String) scrollToGroup,

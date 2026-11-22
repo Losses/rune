@@ -51,7 +51,8 @@ class TurntileScreenImplementation extends StatefulWidget {
 }
 
 class TurntileScreenImplementationState
-    extends State<TurntileScreenImplementation> {
+    extends State<TurntileScreenImplementation>
+    with CollectionGroupNavigation<TurntileScreenImplementation> {
   final layoutManager = StartScreenLayoutManager();
   final scrollController = ScrollController();
 
@@ -62,63 +63,51 @@ class TurntileScreenImplementationState
     scrollController.dispose();
   }
 
-  Future<void> scrollToGroup(String groupTitle) async {
-    final data = Provider.of<CollectionDataProvider>(context, listen: false);
-
-    bool lastPageReached = false;
+  @override
+  void scrollToGroupIndex(CollectionDataProvider data, int index) {
     final padding = getScrollContainerPadding(context, listen: false);
-    while (!lastPageReached) {
-      if (data.isLastPage) {
-        lastPageReached = true;
-      }
+    double scrollPosition = 0.0;
 
-      final index =
-          data.items.indexWhere((group) => group.groupTitle == groupTitle);
+    final containerWidth = widget.constraints.maxWidth -
+        padding.left -
+        padding.right -
+        16 -
+        16;
 
-      if (index != -1) {
-        double scrollPosition = 0.0;
+    for (int i = 0; i < index; i++) {
+      final group = data.items[i];
+      final dimensions =
+          TurntileGroupItemsTile.defaultTurntileDimensionCalculator(
+        containerWidth,
+        88,
+        4,
+        group.items,
+      );
 
-        final containerWidth = widget.constraints.maxWidth -
-            padding.left -
-            padding.right -
-            16 -
-            16;
+      final finalCellSize =
+          (containerWidth - (dimensions.columns * 4)) / dimensions.columns;
 
-        for (int i = 0; i < index; i++) {
-          final group = data.items[i];
-          final dimensions =
-              TurntileGroupItemsTile.defaultTurntileDimensionCalculator(
-            containerWidth,
-            88,
-            4,
-            group.items,
-          );
+      final double finalHeight =
+          finalCellSize * dimensions.rows + 4 * (dimensions.rows - 1);
 
-          final finalCellSize =
-              (containerWidth - (dimensions.columns * 4)) / dimensions.columns;
-
-          final double finalHeight =
-              finalCellSize * dimensions.rows + 4 * (dimensions.rows - 1);
-
-          scrollPosition += finalHeight + 4 + 37;
-        }
-
-        final deltaPosition = (scrollController.offset - scrollPosition).abs();
-        scrollController.animateTo(
-          scrollPosition,
-          duration: Duration(milliseconds: (deltaPosition / 30).ceil()),
-          curve: Curves.easeOutQuint,
-        );
-        return;
-      }
-
-      await data.fetchData();
+      scrollPosition += finalHeight + 4 + 37;
     }
+
+    final deltaPosition = (scrollController.offset - scrollPosition).abs();
+    if (deltaPosition == 0) return;
+    scrollController.animateTo(
+      scrollPosition,
+      duration: Duration(milliseconds: (deltaPosition / 30).ceil()),
+      curve: Curves.easeOutQuint,
+    );
   }
 
-  _fetchData() async {
+  Future<void> _fetchData({bool retry = false}) async {
+    if (!mounted) return;
     final data = Provider.of<CollectionDataProvider>(context, listen: false);
+    if (data.pageError != null && !retry) return;
     await data.fetchData();
+    if (!mounted || data.pageError != null) return;
 
     Timer(
       Duration(milliseconds: gridAnimationDelay),
@@ -130,6 +119,7 @@ class TurntileScreenImplementationState
   Widget build(BuildContext context) {
     final data = Provider.of<CollectionDataProvider>(context);
     final isUserGenerated = userGenerated(data.collectionType);
+    final pageError = data.pageError;
 
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
       value: layoutManager,
@@ -147,6 +137,12 @@ class TurntileScreenImplementationState
               centerLoading: true,
               centerEmpty: true,
               isLoading: data.isLoading,
+              hasError: pageError != null,
+              centerError: data.items.isEmpty,
+              errorBuilder: (_) => InfiniteListRetry(
+                error: pageError!,
+                onRetry: () => retryGroupOrPage(() => _fetchData(retry: true)),
+              ),
               padding: getScrollContainerPadding(context),
               scrollController: scrollController,
               emptyBuilder: (context) => Center(

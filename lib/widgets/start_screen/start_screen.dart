@@ -60,7 +60,9 @@ class StartScreenImplementation extends StatefulWidget {
 }
 
 class StartScreenImplementationState extends State<StartScreenImplementation>
-    with SingleTickerProviderStateMixin {
+    with
+        SingleTickerProviderStateMixin,
+        CollectionGroupNavigation<StartScreenImplementation> {
   final _layoutManager = StartScreenLayoutManager();
   late final _scrollController = SmoothScrollController(vsync: this);
 
@@ -75,61 +77,39 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
     super.dispose();
   }
 
-  Future<void> scrollToGroup(String groupTitle) async {
-    final data = Provider.of<CollectionDataProvider>(context, listen: false);
-
-    bool lastPageReached = false;
+  @override
+  void scrollToGroupIndex(CollectionDataProvider data, int index) {
     final padding = getScrollContainerPadding(context, listen: false);
-    // Step 1: Check if the group already exists in the loaded items.
-    while (!lastPageReached) {
-      if (data.isLastPage) {
-        lastPageReached = true;
-      }
+    double scrollPosition = 0.0;
 
-      final index = data.items.indexWhere(
-        (group) => group.groupTitle == groupTitle,
-      );
-
-      // If found, calculate the scroll position.
-      if (index != -1) {
-        double scrollPosition = 0.0;
-
-        // Step 5: Calculate the scroll position for the target group.
-        for (int i = 0; i < index; i++) {
-          final group = data.items[i];
-          final dimensions =
-              StartGroupImplementation.defaultDimensionCalculator(
-                widget.constraints.maxHeight - padding.top - padding.bottom,
-                defaultCellSize,
-                4,
-                group.items,
-              );
-
-          final (groupWidth, _) = StartGroupImplementation.finalSizeCalculator(
-            dimensions,
+    for (int i = 0; i < index; i++) {
+      final group = data.items[i];
+      final dimensions =
+          StartGroupImplementation.defaultDimensionCalculator(
+            widget.constraints.maxHeight - padding.top - padding.bottom,
             defaultCellSize,
             4,
+            group.items,
           );
 
-          scrollPosition += groupWidth + defaultGapSize + 16;
-        }
+      final (groupWidth, _) = StartGroupImplementation.finalSizeCalculator(
+        dimensions,
+        defaultCellSize,
+        4,
+      );
 
-        // Step 6: Scroll to the calculated position.
-        _scrollController.scrollTo(scrollPosition);
-        return;
-      }
-
-      // Step 2: If not found, load the next page.
-      await data.fetchData();
+      scrollPosition += groupWidth + defaultGapSize + 16;
     }
 
-    // Step 3: If reached here, it means we didn't find the group and reached the last page.
-    // Silent return as specified.
+    _scrollController.scrollTo(scrollPosition);
   }
 
-  _fetchData() async {
+  Future<void> _fetchData({bool retry = false}) async {
+    if (!mounted) return;
     final data = Provider.of<CollectionDataProvider>(context, listen: false);
+    if (data.pageError != null && !retry) return;
     await data.fetchData();
+    if (!mounted || data.pageError != null) return;
 
     Timer(
       Duration(milliseconds: gridAnimationDelay),
@@ -232,6 +212,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
 
     final data = Provider.of<CollectionDataProvider>(context);
     final isUserGenerated = userGenerated(data.collectionType);
+    final pageError = data.pageError;
 
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
       value: _layoutManager,
@@ -261,6 +242,12 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                     centerLoading: true,
                     centerEmpty: true,
                     isLoading: data.isLoading,
+                    hasError: pageError != null,
+                    centerError: data.items.isEmpty,
+                    errorBuilder: (_) => InfiniteListRetry(
+                      error: pageError!,
+                      onRetry: () => retryGroupOrPage(() => _fetchData(retry: true)),
+                    ),
                     padding: padding,
                     emptyBuilder: (context) => Center(
                       child: data.initialized
