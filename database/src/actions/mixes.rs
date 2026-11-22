@@ -953,7 +953,10 @@ pub async fn query_mix_media_files_with_seed(
     }
 
     // Filter by directories if provided
-    if !directories_deep.is_empty() {
+    if directories_deep.iter().any(|dir| dir == "/") {
+        // Every library-relative directory is within the root.
+        all = true;
+    } else if !directories_deep.is_empty() {
         let mut dir_conditions = Condition::any();
         for dir in directories_deep {
             let dir = dir.strip_prefix('/').unwrap_or(&dir);
