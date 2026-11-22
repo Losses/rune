@@ -21,9 +21,10 @@ use std::{
     collections::HashMap,
     net::SocketAddr,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
-    time::{Duration, Instant},
+    time::Duration,
 };
 use tokio::sync::RwLock;
+use tokio::time::Instant;
 use tower_governor::{
     GovernorLayer, governor::GovernorConfigBuilder, key_extractor::PeerIpKeyExtractor,
 };
@@ -36,12 +37,6 @@ const DOMAIN: &str = "rune-sync-auth-1";
 struct Entries {
     nonces: HashMap<String, (net::IpAddr, Instant)>,
     tokens: HashMap<String, (String, Instant)>,
-    #[cfg(test)]
-    reject_next_authorization_for: Option<String>,
-    #[cfg(test)]
-    challenge_count: usize,
-    #[cfg(test)]
-    authorization_count: usize,
 }
 #[derive(Clone)]
 pub struct SyncAuth {
@@ -108,38 +103,6 @@ impl SyncAuth {
             Ok(())
         }
     }
-    #[cfg(test)]
-    pub(super) async fn expire_tokens_for_fingerprint_for_test(&self, fingerprint: &str) -> bool {
-        let mut entries = self.entries();
-        let deadline = Instant::now();
-        let mut expired = false;
-        for (token_fingerprint, token_deadline) in entries.tokens.values_mut() {
-            if token_fingerprint == fingerprint {
-                *token_deadline = deadline;
-                expired = true;
-            }
-        }
-        expired
-    }
-
-    #[cfg(test)]
-    pub(super) async fn challenge_count_for_test(&self) -> usize {
-        self.entries().challenge_count
-    }
-
-    #[cfg(test)]
-    pub(super) async fn authorization_count_for_test(&self) -> usize {
-        self.entries().authorization_count
-    }
-
-    #[cfg(test)]
-    pub(super) async fn reject_next_authorization_for_test(&self, fingerprint: &str) {
-        self.entries().reject_next_authorization_for = Some(fingerprint.to_owned());
-    }
-    #[cfg(test)]
-    pub(super) async fn authorization_rejection_pending_for_test(&self, fingerprint: &str) -> bool {
-        self.entries().reject_next_authorization_for.as_deref() == Some(fingerprint)
-    }
     pub fn router(&self) -> Router {
         let Some(config) = GovernorConfigBuilder::default()
             .per_millisecond(500)
@@ -186,10 +149,6 @@ async fn challenge(
     ConnectInfo(address): ConnectInfo<SocketAddr>,
 ) -> Result<Json<Challenge>, StatusCode> {
     let mut e = auth.entries();
-    #[cfg(test)]
-    {
-        e.challenge_count += 1;
-    }
     e.nonces.retain(|_, (_, t)| *t > Instant::now());
     if e.nonces.len() >= CAP
         || e.nonces
@@ -221,20 +180,6 @@ async fn authorize(
         .is_some_and(|(_, t)| t > Instant::now());
     if !valid_nonce {
         return Err(StatusCode::UNAUTHORIZED);
-    }
-    #[cfg(test)]
-    {
-        let reject_once = {
-            let mut entries = auth.entries();
-            if entries.reject_next_authorization_for.as_deref() == Some(&request.fingerprint) {
-                entries.reject_next_authorization_for.take().is_some()
-            } else {
-                false
-            }
-        };
-        if reject_once {
-            return Err(StatusCode::UNAUTHORIZED);
-        }
     }
     let user = auth
         .permissions
@@ -294,10 +239,6 @@ async fn authorize(
         token.clone(),
         (request.fingerprint, Instant::now() + TOKEN_TTL),
     );
-    #[cfg(test)]
-    {
-        e.authorization_count += 1;
-    }
     Ok(Json(Token { token }))
 }
 #[derive(Clone)]
@@ -342,7 +283,7 @@ mod tests {
     use axum::middleware;
     use axum::{
         body::{Body, to_bytes},
-        http::Request,
+        http::{Method, Request},
     };
     use discovery::ssl;
     use discovery::utils::DeviceType;
@@ -661,56 +602,134 @@ mod tests {
         let _ = fs::remove_dir_all(dir);
     }
 
-    #[tokio::test]
-    async fn test_authorization_rejection_is_scoped_to_its_fingerprint() {
-        let dir = env::temp_dir().join(format!("rune-auth-{}", random()));
-        fs::create_dir_all(&dir).unwrap();
-        let permissions = Arc::new(RwLock::new(PermissionManager::new(&dir).unwrap()));
-        let auth = SyncAuth::new(permissions, "server".into());
-        let target_fingerprint = "stream-peer";
-        auth.reject_next_authorization_for_test(target_fingerprint)
-            .await;
+    type RecordedRequests = Arc<Mutex<Vec<(Method, String, StatusCode)>>>;
 
-        let unrelated_challenge = challenge(
-            State(auth.clone()),
-            ConnectInfo("127.0.0.1:1".parse().unwrap()),
-        )
-        .await
-        .unwrap()
-        .0;
-        let unrelated = authorize(
-            State(auth.clone()),
-            Json(Authorization {
-                nonce: unrelated_challenge.nonce,
-                fingerprint: "background-worker".into(),
-                signature: String::new(),
-            }),
-        )
-        .await;
-        assert!(matches!(unrelated, Err(StatusCode::UNAUTHORIZED)));
+    async fn record_auth_request(
+        State(recorded): State<RecordedRequests>,
+        request: axum::extract::Request,
+        next: Next,
+    ) -> Response {
+        let method = request.method().clone();
+        let path = request.uri().path().to_owned();
+        let response = next.run(request).await;
+        recorded
+            .lock()
+            .unwrap()
+            .push((method, path, response.status()));
+        response
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_token_is_reused_expires_and_is_renewed_through_real_authorization() {
+        let dir = tempfile::tempdir().unwrap();
+        let permissions = Arc::new(RwLock::new(PermissionManager::new(dir.path()).unwrap()));
+        let cert = ssl::generate_self_signed_cert("test", "rune", "CA", 1).unwrap();
+        let fingerprint = cert.public_key_fingerprint.clone();
+        let auth = SyncAuth::new(permissions.clone(), "server".into());
+        permissions
+            .write()
+            .await
+            .add_trust_change_hook(Arc::new(auth.trust_change_hook()));
+        let recorded = Arc::new(Mutex::new(Vec::new()));
+        let app = auth.router().layer(middleware::from_fn_with_state(
+            recorded.clone(),
+            record_auth_request,
+        ));
+        permissions
+            .write()
+            .await
+            .add_user(
+                cert.certificate.clone(),
+                fingerprint.clone(),
+                "device".into(),
+                "test".into(),
+                DeviceType::Desktop,
+                "127.0.0.1".into(),
+            )
+            .await
+            .unwrap();
+        permissions
+            .write()
+            .await
+            .change_user_status(&fingerprint, UserStatus::Approved)
+            .await
+            .unwrap();
+        let sign = |challenge: &Challenge| {
+            let private = RsaPrivateKey::from_pkcs8_pem(&cert.private_key).unwrap();
+            Authorization {
+                nonce: challenge.nonce.clone(),
+                fingerprint: fingerprint.clone(),
+                signature: URL_SAFE_NO_PAD.encode(
+                    private
+                        .sign_with_rng(
+                            &mut OsRng,
+                            Pss::new::<Sha256>(),
+                            &Sha256::digest(message("server", &challenge.nonce)),
+                        )
+                        .unwrap(),
+                ),
+            }
+        };
+        let authorize = || async {
+            let challenge = get_challenge(&app).await;
+            let (status, bytes) = post(&app, "/sync/authorize", &sign(&challenge)).await;
+            assert_eq!(status, StatusCode::OK);
+            let token: Token = serde_json::from_slice(&bytes).unwrap();
+            token.token
+        };
+        let protected = Router::new()
+            .route("/protected", get(|| async { StatusCode::OK }))
+            .layer(middleware::from_fn_with_state(auth.clone(), require_auth));
+        let protected_status = |token: &str| {
+            let protected = protected.clone();
+            let token = token.to_owned();
+            async move {
+                protected
+                    .oneshot(
+                        Request::get("/protected")
+                            .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap()
+                    .status()
+            }
+        };
+
+        let first = authorize().await;
+        assert_eq!(protected_status(&first).await, StatusCode::OK);
+        assert_eq!(protected_status(&first).await, StatusCode::OK);
+
+        tokio::time::advance(TOKEN_TTL + Duration::from_secs(1)).await;
+        assert_eq!(protected_status(&first).await, StatusCode::UNAUTHORIZED);
+
+        let second = authorize().await;
+        assert_ne!(first, second);
+        assert_eq!(protected_status(&second).await, StatusCode::OK);
+
+        let recorded = recorded.lock().unwrap();
         assert_eq!(
-            auth.entries().reject_next_authorization_for.as_deref(),
-            Some(target_fingerprint)
+            recorded
+                .iter()
+                .filter(|(_, path, _)| path == "/sync/challenge")
+                .count(),
+            2,
+            "unexpected challenge sequence: {recorded:?}"
         );
-
-        let target_challenge = challenge(
-            State(auth.clone()),
-            ConnectInfo("127.0.0.1:1".parse().unwrap()),
-        )
-        .await
-        .unwrap()
-        .0;
-        let target = authorize(
-            State(auth.clone()),
-            Json(Authorization {
-                nonce: target_challenge.nonce,
-                fingerprint: target_fingerprint.into(),
-                signature: String::new(),
-            }),
-        )
-        .await;
-        assert!(matches!(target, Err(StatusCode::UNAUTHORIZED)));
-        assert!(auth.entries().reject_next_authorization_for.is_none());
-        let _ = fs::remove_dir_all(dir);
+        assert_eq!(
+            recorded
+                .iter()
+                .filter(|(_, path, _)| path == "/sync/authorize")
+                .count(),
+            2,
+            "unexpected authorization sequence: {recorded:?}"
+        );
+        assert!(
+            recorded
+                .iter()
+                .all(|(_, _, status)| *status == StatusCode::OK),
+            "unexpected authentication response: {recorded:?}"
+        );
     }
 }

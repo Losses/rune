@@ -4082,22 +4082,119 @@ mod lifecycle_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn sync_tokens_are_reused_across_authenticated_clients_and_peer_passes() -> Result<()> {
+        use super::super::libraries::list_libraries;
+        use super::super::sync::pool_router;
+        use axum::extract::{Request as AxumRequest, State as AxumState};
+        use axum::middleware::Next;
+        use axum::response::Response;
+
+        type AuthRequests = Arc<StdMutex<Vec<(String, StatusCode)>>>;
+
+        #[derive(Clone, Default)]
+        struct AuthRecorder {
+            requests: AuthRequests,
+        }
+
+        async fn record_auth(
+            AxumState(recorder): AxumState<AuthRecorder>,
+            request: AxumRequest,
+            next: Next,
+        ) -> Response {
+            let path = request.uri().path().to_owned();
+            let response = next.run(request).await;
+            if path == "/sync/challenge" || path == "/sync/authorize" {
+                recorder
+                    .requests
+                    .lock()
+                    .unwrap()
+                    .push((path, response.status()));
+            }
+            response
+        }
+
         let first = tempfile::tempdir()?;
         let second = tempfile::tempdir()?;
         let host = fixture(first.path()).await?;
         let client = fixture(second.path()).await?;
-        let address = paired_full(&host, &client).await?;
+        let _host_address = paired_full(&host, &client).await?;
         host.stop_worker().await?;
         client.stop_worker().await?;
         let own = info(&client).await?.fingerprint;
         let peer = info(&host).await?.fingerprint;
-        let auth = host
-            .manager
-            .sync_auth
-            .lock()
+        let node = host.node()?;
+        let node_id = Uuid::parse_str(&node.node_id)?;
+        let auth = {
+            let sync_auth = host.manager.sync_auth.lock().await;
+            sync_auth
+                .clone()
+                .context("host sync auth not initialized")?
+        };
+        let recorder = AuthRecorder::default();
+        let app = Router::new()
+            .route("/libraries", get(list_libraries))
+            .nest("/libraries/{library_id}", pool_router(node, node_id))
+            .layer(middleware::from_fn_with_state(
+                auth.clone(),
+                super::super::sync_auth::require_auth,
+            ))
+            .merge(auth.router())
+            .layer(Extension(host.manager.clone()))
+            .layer(middleware::from_fn_with_state(
+                recorder.clone(),
+                record_auth,
+            ));
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        listener.set_nonblocking(true)?;
+        let peer_address = listener.local_addr()?;
+        let tls = RustlsConfig::from_pem(
+            host.certificate.as_bytes().to_vec(),
+            host.private_key.as_bytes().to_vec(),
+        )
+        .await?;
+        let handle = Handle::new();
+        let peer_server = tokio::spawn(async move {
+            axum_server::from_tcp_rustls(listener, tls)
+                .handle(handle)
+                .serve(app.into_make_service_with_connect_info::<SocketAddr>())
+                .await
+                .unwrap();
+        });
+        client
+            .global_params
+            .cert_validator
+            .read()
             .await
-            .clone()
-            .context("host sync auth")?;
+            .replace_hosts_for_fingerprint(
+                &peer,
+                vec![format!("127.0.0.1:{}", peer_address.port())],
+            )
+            .await?;
+
+        let base = sync_worker::peer_base("127.0.0.1", peer_address.port())?;
+        let token_client = pinned_anonymous_client(&client.global_params, None).await?;
+        let first_token = sync_worker::obtain_or_reuse_token(
+            &client.global_params.node.sync_tokens,
+            &token_client,
+            &base,
+            &own,
+            &client.private_key,
+            &peer,
+        )
+        .await?;
+        let handshake = || recorder.requests.lock().unwrap().clone();
+        let initial = handshake();
+        assert_eq!(
+            initial
+                .iter()
+                .map(|(path, _)| path.as_str())
+                .collect::<Vec<_>>(),
+            ["/sync/challenge", "/sync/authorize"],
+            "unexpected initial handshake: {initial:?}"
+        );
+        assert!(
+            initial.iter().all(|(_, status)| *status == StatusCode::OK),
+            "initial handshake failed: {initial:?}"
+        );
 
         for _ in 0..2 {
             authenticated_client(
@@ -4106,18 +4203,34 @@ mod lifecycle_tests {
                 &client.private_key,
                 &peer,
                 "127.0.0.1",
-                address.port(),
+                peer_address.port(),
             )
             .await?;
         }
-        assert_eq!(auth.challenge_count_for_test().await, 1);
-        assert_eq!(auth.authorization_count_for_test().await, 1);
+        assert_eq!(
+            sync_worker::obtain_or_reuse_token(
+                &client.global_params.node.sync_tokens,
+                &token_client,
+                &base,
+                &own,
+                &client.private_key,
+                &peer,
+            )
+            .await?,
+            first_token,
+            "authenticated clients did not reuse the cached token"
+        );
+        let after_clients = handshake();
+        assert_eq!(
+            after_clients, initial,
+            "authenticated clients performed another handshake: {after_clients:?}"
+        );
 
         let endpoint = PeerEndpoint {
-            fingerprint: peer,
-            trusted_host: format!("127.0.0.1:{}", address.port()),
+            fingerprint: peer.clone(),
+            trusted_host: format!("127.0.0.1:{}", peer_address.port()),
             host: "127.0.0.1".into(),
-            port: address.port(),
+            port: peer_address.port(),
         };
         for _ in 0..30 {
             let result = test_peer_pass(
@@ -4129,45 +4242,27 @@ mod lifecycle_tests {
             .await?;
             assert_eq!(result, PeerPass::LibraryNotServed);
         }
-        assert_eq!(auth.challenge_count_for_test().await, 1);
-        assert_eq!(auth.authorization_count_for_test().await, 1);
-
-        anyhow::ensure!(
-            auth.expire_tokens_for_fingerprint_for_test(&own).await,
-            "host had no token to expire"
-        );
-        let (_, stale_client) = authenticated_client(
-            &client.global_params.node,
-            &own,
-            &client.private_key,
-            &endpoint.fingerprint,
-            &endpoint.host,
-            endpoint.port,
-        )
-        .await?;
-        let url = format!("https://{address}/libraries");
         assert_eq!(
-            stale_client.get(&url).send().await?.status(),
-            StatusCode::UNAUTHORIZED
+            sync_worker::obtain_or_reuse_token(
+                &client.global_params.node.sync_tokens,
+                &token_client,
+                &base,
+                &own,
+                &client.private_key,
+                &peer,
+            )
+            .await?,
+            first_token,
+            "peer passes did not reuse the cached token"
         );
-        sync_worker::invalidate_sync_token(
-            &client.global_params.node,
-            &endpoint.fingerprint,
-            &endpoint.host,
-            endpoint.port,
-        )?;
-        let (_, fresh_client) = authenticated_client(
-            &client.global_params.node,
-            &own,
-            &client.private_key,
-            &endpoint.fingerprint,
-            &endpoint.host,
-            endpoint.port,
-        )
-        .await?;
-        assert!(fresh_client.get(&url).send().await?.status().is_success());
-        assert_eq!(auth.challenge_count_for_test().await, 2);
-        assert_eq!(auth.authorization_count_for_test().await, 2);
+        let after_passes = handshake();
+        assert_eq!(
+            after_passes, initial,
+            "peer passes performed another handshake: {after_passes:?}"
+        );
+
+        peer_server.abort();
+        let _ = peer_server.await;
         host.global_params.node.shutdown().await?;
         client.global_params.node.shutdown().await?;
         Ok(())
@@ -5325,39 +5420,8 @@ mod lifecycle_tests {
         })
         .await?;
         assert_eq!(full_bytes.as_ref(), expected.as_slice());
-        // Expire the server-side token, then exercise a real ranged GET with renewal.
-        let expired_token = peer_step("expire audio token", async {
-            Ok(b.sync_auth
-                .lock()
-                .await
-                .as_ref()
-                .unwrap()
-                .expire_tokens_for_fingerprint_for_test(&a_info.fingerprint)
-                .await)
-        })
-        .await?;
-        anyhow::ensure!(expired_token, "audio renewal test found no token to expire");
-        peer_step("inject transient renewal rejection", async {
-            b.sync_auth
-                .lock()
-                .await
-                .as_ref()
-                .unwrap()
-                .reject_next_authorization_for_test(&a_info.fingerprint)
-                .await;
-            Ok(())
-        })
-        .await?;
-        // A's background sync may have fetched a fresh token while B's were
-        // expired above; drop it so the stream itself has to renew.
-        sync_worker::invalidate_sync_token(
-            &a.global_params.node,
-            &b_info.fingerprint,
-            "127.0.0.2",
-            b_addr.port(),
-        )?;
-        let renewed_ranges = tokio::join!(
-            peer_step("first concurrent renewed ranged audio GET", async {
+        let ranged_reads = tokio::join!(
+            peer_step("first concurrent ranged audio GET", async {
                 let response = source.request.get(Some((0, Some(15)))).await?;
                 anyhow::ensure!(
                     response.status() == StatusCode::PARTIAL_CONTENT,
@@ -5365,7 +5429,7 @@ mod lifecycle_tests {
                 );
                 Ok(response.bytes().await?)
             }),
-            peer_step("second concurrent renewed ranged audio GET", async {
+            peer_step("second concurrent ranged audio GET", async {
                 let response = source.request.get(Some((16, Some(31)))).await?;
                 anyhow::ensure!(
                     response.status() == StatusCode::PARTIAL_CONTENT,
@@ -5374,22 +5438,12 @@ mod lifecycle_tests {
                 Ok(response.bytes().await?)
             }),
         );
-        let (first_range, second_range) = renewed_ranges;
+        let (first_range, second_range) = ranged_reads;
         assert_eq!(first_range?.as_ref(), &expected[..16]);
         assert_eq!(second_range?.as_ref(), &expected[16..32]);
         anyhow::ensure!(
-            !b.sync_auth
-                .lock()
-                .await
-                .as_ref()
-                .unwrap()
-                .authorization_rejection_pending_for_test(&a_info.fingerprint)
-                .await,
-            "stream renewal did not consume its targeted transient rejection"
-        );
-        anyhow::ensure!(
             !source.cancellation.is_cancelled(),
-            "concurrent token renewal revoked an authorized stream"
+            "concurrent ranged reads cancelled an authorized stream"
         );
         let stream_cancel = source.cancellation.clone();
         let stream = peer_step("create authorized audio stream", async {
@@ -5670,6 +5724,297 @@ mod lifecycle_tests {
         drop(rebound);
         Ok(())
     }
+
+    #[tokio::test]
+    async fn concurrent_ranged_audio_reads_recover_from_one_authorization_rejection() -> Result<()>
+    {
+        use crate::server::sync_auth::{TOKEN_TTL, require_auth};
+        use crate::server::sync_worker::{AudioCredentials, RenewableAudio};
+        use axum::extract::{Request as AxumRequest, State as AxumState};
+        use axum::http::{HeaderMap, Method};
+        use axum::middleware::Next;
+        use axum::response::{IntoResponse, Response};
+        use discovery::ssl;
+        use playback::player::AudioRequest;
+        use std::sync::atomic::AtomicUsize;
+        use tokio::sync::Barrier;
+
+        #[derive(Clone, Debug)]
+        struct RecordedRequest {
+            method: Method,
+            path: String,
+            range: Option<String>,
+            status: StatusCode,
+        }
+        type RecordedRequests = Arc<StdMutex<Vec<RecordedRequest>>>;
+
+        #[derive(Clone)]
+        struct Faults {
+            reject_next_authorize: Arc<AtomicBool>,
+            requests: RecordedRequests,
+            blob_gets: Arc<AtomicUsize>,
+            stale_blob_barrier: Arc<Barrier>,
+        }
+
+        impl Default for Faults {
+            fn default() -> Self {
+                Self {
+                    reject_next_authorize: Arc::new(AtomicBool::new(false)),
+                    requests: Arc::new(StdMutex::new(Vec::new())),
+                    blob_gets: Arc::new(AtomicUsize::new(0)),
+                    stale_blob_barrier: Arc::new(Barrier::new(2)),
+                }
+            }
+        }
+
+        async fn record(
+            AxumState(faults): AxumState<Faults>,
+            request: AxumRequest,
+            next: Next,
+        ) -> Response {
+            let method = request.method().clone();
+            let path = request.uri().path().to_owned();
+            let range = request
+                .headers()
+                .get(header::RANGE)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned);
+            if path == "/sync/authorize"
+                && faults.reject_next_authorize.swap(false, Ordering::SeqCst)
+            {
+                faults.requests.lock().unwrap().push(RecordedRequest {
+                    method: method.clone(),
+                    path: path.clone(),
+                    range: range.clone(),
+                    status: StatusCode::UNAUTHORIZED,
+                });
+                return StatusCode::UNAUTHORIZED.into_response();
+            }
+            if method == Method::GET
+                && path == "/sync/blobs/audio"
+                && faults.blob_gets.fetch_add(1, Ordering::SeqCst) < 2
+            {
+                faults.stale_blob_barrier.wait().await;
+            }
+            let response = next.run(request).await;
+            faults.requests.lock().unwrap().push(RecordedRequest {
+                method,
+                path,
+                range,
+                status: response.status(),
+            });
+            response
+        }
+
+        async fn blob(headers: HeaderMap) -> Response {
+            const BODY: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!?";
+            let Some(range) = headers
+                .get(header::RANGE)
+                .and_then(|value| value.to_str().ok())
+            else {
+                return (StatusCode::OK, BODY).into_response();
+            };
+            let spec = range.strip_prefix("bytes=").unwrap_or(range);
+            let (start, end) = spec.split_once('-').unwrap_or((spec, ""));
+            let start: usize = start.parse().unwrap();
+            let end = if end.is_empty() {
+                BODY.len() - 1
+            } else {
+                end.parse::<usize>().unwrap().min(BODY.len() - 1)
+            };
+            let mut response =
+                (StatusCode::PARTIAL_CONTENT, BODY[start..=end].to_vec()).into_response();
+            response.headers_mut().insert(
+                header::CONTENT_RANGE,
+                format!("bytes {start}-{end}/{}", BODY.len())
+                    .parse()
+                    .unwrap(),
+            );
+            response
+        }
+
+        let client_dir = tempfile::tempdir()?;
+        let client = fixture(client_dir.path()).await?;
+        client.stop_worker().await?;
+        let client_info = info(&client).await?;
+        let server_cert = ssl::generate_self_signed_cert("test", "rune", "CA", 1)?;
+        let server_fingerprint = server_cert.public_key_fingerprint.clone();
+        let server_dir = tempfile::tempdir()?;
+        let server_permissions = Arc::new(RwLock::new(PermissionManager::new(server_dir.path())?));
+        server_permissions
+            .write()
+            .await
+            .add_user(
+                client.certificate.clone(),
+                client_info.fingerprint.clone(),
+                "client".into(),
+                "test".into(),
+                DeviceType::Desktop,
+                "127.0.0.1".into(),
+            )
+            .await?;
+        server_permissions
+            .write()
+            .await
+            .change_user_status(&client_info.fingerprint, UserStatus::Approved)
+            .await?;
+        let auth = SyncAuth::new(server_permissions, server_fingerprint.clone());
+        let faults = Faults::default();
+        let blob_router = Router::new()
+            .route("/sync/blobs/{digest}", get(blob))
+            .layer(middleware::from_fn_with_state(auth.clone(), require_auth));
+        let app = auth
+            .router()
+            .merge(blob_router)
+            .layer(middleware::from_fn_with_state(faults.clone(), record));
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        listener.set_nonblocking(true)?;
+        let address = listener.local_addr()?;
+        client
+            .global_params
+            .permission_manager
+            .write()
+            .await
+            .add_user(
+                server_cert.certificate.clone(),
+                server_fingerprint.clone(),
+                "server".into(),
+                "test".into(),
+                DeviceType::Desktop,
+                "127.0.0.1".into(),
+            )
+            .await?;
+        client
+            .global_params
+            .permission_manager
+            .write()
+            .await
+            .change_user_status(&server_fingerprint, UserStatus::Approved)
+            .await?;
+        client
+            .global_params
+            .cert_validator
+            .read()
+            .await
+            .replace_hosts_for_fingerprint(
+                &server_fingerprint,
+                vec![format!("127.0.0.1:{}", address.port())],
+            )
+            .await?;
+        let tls = RustlsConfig::from_pem(
+            server_cert.certificate.as_bytes().to_vec(),
+            server_cert.private_key.as_bytes().to_vec(),
+        )
+        .await?;
+        let handle = Handle::new();
+        let server = tokio::spawn(async move {
+            axum_server::from_tcp_rustls(listener, tls)
+                .handle(handle)
+                .serve(app.into_make_service_with_connect_info::<SocketAddr>())
+                .await
+                .unwrap();
+        });
+
+        let (_, http_client) = authenticated_client(
+            &client.global_params.node,
+            &client_info.fingerprint,
+            &client.private_key,
+            &server_fingerprint,
+            "127.0.0.1",
+            address.port(),
+        )
+        .await?;
+        let url = format!("https://127.0.0.1:{}/sync/blobs/audio", address.port());
+        let audio = RenewableAudio {
+            global: Arc::downgrade(&client.global_params.node),
+            own: client_info.fingerprint.clone(),
+            private_key: client.private_key.clone(),
+            endpoint: PeerEndpoint {
+                fingerprint: server_fingerprint.clone(),
+                trusted_host: format!("127.0.0.1:{}", address.port()),
+                host: "127.0.0.1".into(),
+                port: address.port(),
+            },
+            url: url.clone(),
+            access_url: url,
+            size: 64,
+            client: Arc::new(Mutex::new(AudioCredentials {
+                client: http_client,
+                generation: 0,
+            })),
+            cancel: CancellationToken::new(),
+        };
+
+        tokio::time::pause();
+        tokio::time::advance(TOKEN_TTL + Duration::from_secs(1)).await;
+        tokio::time::resume();
+        faults.reject_next_authorize.store(true, Ordering::SeqCst);
+
+        let (first, second) = tokio_time::timeout(TEST_DEADLINE, async {
+            tokio::join!(
+                audio.get(Some((0, Some(15)))),
+                audio.get(Some((16, Some(31))))
+            )
+        })
+        .await
+        .context("ranged audio reads did not finish")?;
+        let first = first?;
+        let second = second?;
+        assert_eq!(first.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(second.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(first.bytes().await?.as_ref(), &b"0123456789abcdef"[..]);
+        assert_eq!(second.bytes().await?.as_ref(), &b"ghijklmnopqrstuv"[..]);
+        assert!(
+            !audio.cancel.is_cancelled(),
+            "a transient rejection cancelled the authorized stream"
+        );
+
+        let requests = faults.requests.lock().unwrap().clone();
+        let authorize_statuses: Vec<_> = requests
+            .iter()
+            .filter(|request| request.path == "/sync/authorize")
+            .map(|request| request.status)
+            .collect();
+        assert_eq!(
+            authorize_statuses,
+            [StatusCode::OK, StatusCode::UNAUTHORIZED, StatusCode::OK],
+            "unexpected authorization sequence: {requests:?}"
+        );
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|request| request.path == "/sync/challenge")
+                .count(),
+            3,
+            "unexpected challenge sequence: {requests:?}"
+        );
+        let blob_statuses = |range: &str| {
+            requests
+                .iter()
+                .filter(|request| {
+                    request.method == Method::GET
+                        && request.path == "/sync/blobs/audio"
+                        && request.range.as_deref() == Some(range)
+                })
+                .map(|request| request.status)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            blob_statuses("bytes=0-15"),
+            [StatusCode::UNAUTHORIZED, StatusCode::PARTIAL_CONTENT],
+            "first range bypassed the stale authorization: {requests:?}"
+        );
+        assert_eq!(
+            blob_statuses("bytes=16-31"),
+            [StatusCode::UNAUTHORIZED, StatusCode::PARTIAL_CONTENT],
+            "second range bypassed the stale authorization: {requests:?}"
+        );
+
+        server.abort();
+        client.global_params.node.shutdown().await?;
+        Ok(())
+    }
+
     #[tokio::test]
     async fn updated_track_never_selects_stale_local_audio() -> Result<()> {
         use database::actions::{
