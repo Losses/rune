@@ -193,6 +193,10 @@ impl FileIo for OneFailingReadIo {
         self.inner.exists(path)
     }
 
+    fn entry_exists(&self, path: &Path) -> Result<bool, FileIoError> {
+        self.inner.entry_exists(path)
+    }
+
     async fn is_file(&self, path: &Path) -> Result<bool, FileIoError> {
         self.inner.is_file(path).await
     }

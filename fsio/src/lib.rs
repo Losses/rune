@@ -157,6 +157,10 @@ pub trait FileIo: Send + Sync {
     /// returns what it last cached.
     fn walk_dir(&self, path: &Path, follow_links: bool) -> Result<DirWalk, FileIoError>;
     fn exists(&self, path: &Path) -> Result<bool, FileIoError>;
+    /// Checks the entry itself, including links with a missing target.
+    fn entry_exists(&self, _path: &Path) -> Result<bool, FileIoError> {
+        Err(FileIoError::NotSupported("directory entry lookup".into()))
+    }
     async fn is_file(&self, path: &Path) -> Result<bool, FileIoError>;
     async fn is_dir(&self, path: &Path) -> Result<bool, FileIoError>;
     fn canonicalize_path(&self, path: &Path) -> Result<PathBuf, FileIoError>;

@@ -516,6 +516,10 @@ impl FileIo for OpenDalFsIo {
             self.directory_exists(&key)
         }
     }
+    fn entry_exists(&self, path: &Path) -> Result<bool, FileIoError> {
+        self.exists(path)
+    }
+
     async fn is_file(&self, path: &Path) -> Result<bool, FileIoError> {
         let this = self.clone();
         let path = path.to_path_buf();
