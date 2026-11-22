@@ -24,27 +24,7 @@ void main() {
   testWidgets('adding first Subsonic library from welcome opens library home', (
     tester,
   ) async {
-    final ready =
-        jsonDecode(File('$fixtureDir/ready.json').readAsStringSync())
-            as Map<String, dynamic>;
-    final credentials =
-        jsonDecode(File('$fixtureDir/credentials.json').readAsStringSync())
-            as Map<String, dynamic>;
-    final endpoint = ready['base_url'] as String;
-    final username = credentials['username'] as String;
-    final password = credentials['password'] as String;
-    final uri = Uri.tryParse(endpoint);
-    expect(
-      uri != null &&
-          uri.scheme == 'http' &&
-          (uri.host == '127.0.0.1' ||
-              uri.host == 'localhost' ||
-              uri.host == '::1'),
-      isTrue,
-      reason: 'Expected a local loopback HTTP Subsonic fixture endpoint',
-    );
-    expect(username, isNotEmpty);
-    expect(password, isNotEmpty);
+    final fixture = readSubsonicFixture(fixtureDir);
 
     app.main(const []);
     await lifecycle.waitFor(
@@ -58,46 +38,7 @@ void main() {
       description: 'Welcome for a fresh profile',
     );
 
-    final s = lifecycle.localized(tester);
-    await tester.tap(find.text(s.addLibrary).last);
-    await lifecycle.waitFor(
-      tester,
-      () => find.text(s.subsonic).evaluate().isNotEmpty,
-      description: 'Subsonic source option',
-    );
-    await tester.tap(find.text(s.subsonic).last);
-    await lifecycle.waitFor(
-      tester,
-      () => find.widgetWithText(Button, s.confirm).evaluate().isNotEmpty,
-      description: 'Subsonic source confirmation',
-    );
-    await tester.tap(find.widgetWithText(Button, s.confirm).last);
-
-    await lifecycle.waitFor(
-      tester,
-      () => find.byType(TextBox).evaluate().length == 3,
-      description: 'Subsonic credential form',
-    );
-    expect(tester.widget<TextBox>(find.byType(TextBox).at(2)).obscureText, isTrue);
-
-    await tester.enterText(find.byType(TextBox).at(0), endpoint);
-    await tester.enterText(find.byType(TextBox).at(1), username);
-    await tester.enterText(find.byType(TextBox).at(2), password);
-    await tester.pump();
-    await tester.tap(find.widgetWithText(Button, s.confirm).last);
-
-    await lifecycle.waitFor(
-      tester,
-      () => find.text(s.playOnThisDevice).evaluate().isNotEmpty,
-      description: 'Subsonic playback mode choice after server probe',
-    );
-    await tester.tap(find.text(s.playOnThisDevice).last);
-    await lifecycle.waitFor(
-      tester,
-      () => find.widgetWithText(Button, s.confirm).evaluate().isNotEmpty,
-      description: 'selected playback mode confirmation',
-    );
-    await tester.tap(find.widgetWithText(Button, s.confirm).last);
+    await addSubsonicLibrary(tester, fixture);
 
     await lifecycle.waitFor(
       tester,
@@ -113,4 +54,85 @@ void main() {
     expect(openRecord, isNotNull);
     expect(openRecord!.kind, isA<LibraryRecordKindSummarySubsonic>());
   }, timeout: const Timeout(Duration(minutes: 5)));
+}
+
+/// The loopback Subsonic server that a fixture directory describes.
+typedef SubsonicFixture = ({String endpoint, String username, String password});
+
+/// Reads the server address from `ready.json` and the account from
+/// `credentials.json` in [fixtureDir], and checks that the server is local.
+SubsonicFixture readSubsonicFixture(String fixtureDir) {
+  final ready =
+      jsonDecode(File('$fixtureDir/ready.json').readAsStringSync())
+          as Map<String, dynamic>;
+  final credentials =
+      jsonDecode(File('$fixtureDir/credentials.json').readAsStringSync())
+          as Map<String, dynamic>;
+  final endpoint = ready['base_url'] as String;
+  final username = credentials['username'] as String;
+  final password = credentials['password'] as String;
+  final uri = Uri.tryParse(endpoint);
+  expect(
+    uri != null &&
+        uri.scheme == 'http' &&
+        (uri.host == '127.0.0.1' ||
+            uri.host == 'localhost' ||
+            uri.host == '::1'),
+    isTrue,
+    reason: 'Expected a local loopback HTTP Subsonic fixture endpoint',
+  );
+  expect(username, isNotEmpty);
+  expect(password, isNotEmpty);
+  return (endpoint: endpoint, username: username, password: password);
+}
+
+/// Adds the Subsonic library of [fixture] to play on this device, starting
+/// from the page that shows the Add Library button.
+Future<void> addSubsonicLibrary(
+  WidgetTester tester,
+  SubsonicFixture fixture,
+) async {
+  final s = lifecycle.localized(tester);
+  await tester.tap(find.text(s.addLibrary).last);
+  await lifecycle.waitFor(
+    tester,
+    () => find.text(s.subsonic).evaluate().isNotEmpty,
+    description: 'Subsonic source option',
+  );
+  await tester.tap(find.text(s.subsonic).last);
+  await lifecycle.waitFor(
+    tester,
+    () => find.widgetWithText(Button, s.confirm).evaluate().isNotEmpty,
+    description: 'Subsonic source confirmation',
+  );
+  await tester.tap(find.widgetWithText(Button, s.confirm).last);
+
+  await lifecycle.waitFor(
+    tester,
+    () => find.byType(TextBox).evaluate().length == 3,
+    description: 'Subsonic credential form',
+  );
+  expect(
+    tester.widget<TextBox>(find.byType(TextBox).at(2)).obscureText,
+    isTrue,
+  );
+
+  await tester.enterText(find.byType(TextBox).at(0), fixture.endpoint);
+  await tester.enterText(find.byType(TextBox).at(1), fixture.username);
+  await tester.enterText(find.byType(TextBox).at(2), fixture.password);
+  await tester.pump();
+  await tester.tap(find.widgetWithText(Button, s.confirm).last);
+
+  await lifecycle.waitFor(
+    tester,
+    () => find.text(s.playOnThisDevice).evaluate().isNotEmpty,
+    description: 'Subsonic playback mode choice after server probe',
+  );
+  await tester.tap(find.text(s.playOnThisDevice).last);
+  await lifecycle.waitFor(
+    tester,
+    () => find.widgetWithText(Button, s.confirm).evaluate().isNotEmpty,
+    description: 'selected playback mode confirmation',
+  );
+  await tester.tap(find.widgetWithText(Button, s.confirm).last);
 }
