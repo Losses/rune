@@ -9,7 +9,7 @@ use std::{
     },
 };
 
-use std::ffi;
+#[cfg(any(windows, all(unix, not(target_vendor = "apple"))))]
 use std::ffi::OsString;
 use std::io;
 use tokio::{
@@ -23,7 +23,7 @@ use tokio::{
 /// `suffix`. Apple file systems store only UTF-8 names.
 #[allow(dead_code)]
 #[cfg(any(windows, all(unix, not(target_vendor = "apple"))))]
-pub fn non_unicode_name(prefix: &str, suffix: &str) -> ffi::OsString {
+pub fn non_unicode_name(prefix: &str, suffix: &str) -> OsString {
     #[cfg(unix)]
     let name = {
         use std::os::unix::ffi::OsStringExt;
