@@ -103,7 +103,7 @@ late bool disableBrandingAnimation;
 late String? initialPath;
 late final LibraryRegistryProvider libraryRegistry;
 // Whether startup opens a library: the development LIBRARY_PATH or the record open last.
-late bool hasStartupLibrary;
+bool hasStartupLibrary = false;
 bool isWindows11 = false;
 late bool cafeMode;
 
@@ -764,23 +764,11 @@ class RuneLifecycleState extends State<RuneLifecycle> {
     final libraryPath = context.read<LibraryOpenStateProvider>();
     if (!_startupReloginChecked) {
       _startupReloginChecked = true;
-      libraryPath.initialOpen.then((_) {
-        if (!mounted || !needsLibraryRelogin(libraryPath.initialOpenFailure)) {
-          return;
-        }
-        final recordId = libraryPath.registry.lastOpenRecordId;
-        if (recordId == null) return;
-        WidgetsBinding.instance.addPostFrameCallback((_) async {
-          final dialogContext = rootNavigatorKey.currentState?.overlay?.context;
-          if (!mounted || dialogContext == null) return;
-          final updated = await showSubsonicReloginDialog(
-            dialogContext,
-            libraryPath.registry,
-            recordId,
-          );
-          if (updated && mounted) {
-            await libraryPath.registry.open(recordId);
-          }
+      libraryPath.initialOpen.then((opened) {
+        if (!mounted || opened) return;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          unawaited(_recoverStartupLibrary(libraryPath));
         });
       });
     }
@@ -801,6 +789,52 @@ class RuneLifecycleState extends State<RuneLifecycle> {
     _throttleUpdateTray();
 
     _updateLicense();
+  }
+
+  /// Reopens the last library after its saved sign-in was rejected, or leaves
+  /// the library route when the library cannot be restored at all.
+  Future<void> _recoverStartupLibrary(
+    LibraryOpenStateProvider libraryPath,
+  ) async {
+    if (!hasStartupLibrary) return;
+    if (needsLibraryRelogin(libraryPath.initialOpenFailure)) {
+      final recordId = libraryPath.registry.lastOpenRecordId;
+      final dialogContext = rootNavigatorKey.currentState?.overlay?.context;
+      if (recordId != null && dialogContext != null) {
+        final updated = await showSubsonicReloginDialog(
+          dialogContext,
+          libraryPath.registry,
+          recordId,
+        );
+        if (!mounted) return;
+        if (updated) {
+          try {
+            await libraryPath.registry.open(recordId);
+            return;
+          } on Object catch (error) {
+            error$('Could not reopen the library after signing in: $error');
+          }
+        }
+      }
+    }
+    _showStartupLibraryFailure(libraryPath);
+  }
+
+  /// Shows the failed restoration over the library selection page, so another
+  /// registered library can be chosen.
+  void _showStartupLibraryFailure(LibraryOpenStateProvider libraryPath) {
+    if (!mounted || rootNavigatorKey.currentState == null) return;
+    final failure = libraryPath.initialOpenFailure;
+    final message = failure == null
+        ? null
+        : libraryFailureMessage(S.of(context), failure);
+    $$replace('/');
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final noticeContext = _noticeContext();
+      if (noticeContext == null) return;
+      showFailedToInitializeLibrary(noticeContext, message);
+    });
   }
 
   @override
