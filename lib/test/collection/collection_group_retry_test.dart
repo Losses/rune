@@ -87,17 +87,20 @@ void main() {
         ),
       );
       await tester.pump();
+      // Select G before the list's initial debounced fetch can run.
       await tester.tap(find.text('A'));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 32));
       await tester.tap(find.widgetWithText(Button, 'G'));
       await tester.pump();
+      final failure = data.pageError;
+      expect(failure, isA<StateError>());
+      cache.cachePage(type, 1, groups.sublist(3, 6));
       await tester.pump(const Duration(milliseconds: 300));
-      expect(data.pageError, isA<StateError>());
-      await tester.pump();
+      expect(data.pageError, same(failure));
+      expect(data.items.map((group) => group.groupTitle), ['A', 'B', 'C']);
       final retry = find.widgetWithText(Button, 'Retry');
       await tester.scrollUntilVisible(retry, 300);
-      cache.cachePage(type, 1, groups.sublist(3, 6));
       await tester.tap(retry);
       for (var frame = 0; frame < 12; frame++) {
         await tester.pump(const Duration(milliseconds: 100));

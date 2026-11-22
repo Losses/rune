@@ -102,8 +102,10 @@ class TurntileScreenImplementationState
     );
   }
 
-  Future<void> _fetchData() async {
+  Future<void> _fetchData({bool retry = false}) async {
+    if (!mounted) return;
     final data = Provider.of<CollectionDataProvider>(context, listen: false);
+    if (data.pageError != null && !retry) return;
     await data.fetchData();
     if (!mounted || data.pageError != null) return;
 
@@ -139,7 +141,7 @@ class TurntileScreenImplementationState
               centerError: data.items.isEmpty,
               errorBuilder: (_) => InfiniteListRetry(
                 error: pageError!,
-                onRetry: () => retryGroupOrPage(_fetchData),
+                onRetry: () => retryGroupOrPage(() => _fetchData(retry: true)),
               ),
               padding: getScrollContainerPadding(context),
               scrollController: scrollController,
