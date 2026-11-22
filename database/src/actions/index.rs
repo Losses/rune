@@ -2,7 +2,7 @@ use crate::actions::metadata::author_indexed_track_row;
 use sea_orm::sea_query::Expr;
 use std::collections::HashMap;
 
-use anyhow::{Error, Result};
+use anyhow::{Context, Error, Result};
 use log::{error, info};
 use migration::OnConflict;
 use sea_orm::{DatabaseConnection, Set, TransactionTrait};
@@ -66,70 +66,61 @@ pub async fn index_media_files(
             && token.is_cancelled()
         {
             info!("Operation cancelled during processing.");
-            let _ = txn.rollback().await; // Rollback the current transaction if cancelled.
+            txn.rollback().await?;
             return Ok(());
         }
 
         // Derive relationships from the current source inside the writer transaction.
         store.lock(&txn).await?;
-        let Some(mut summary) = get_metadata_summary_by_file_ids(&txn, vec![file_id])
-            .await?
-            .into_iter()
-            .next()
-        else {
-            txn.rollback().await?;
-            continue;
-        };
-
-        if summary.file_uuid.is_empty() {
-            let id = Uuid::new_v4().to_string();
-            media_files::Entity::update_many()
-                .col_expr(media_files::Column::SourceUuid, Expr::value(id.clone()))
-                .filter(media_files::Column::Id.eq(summary.id))
-                .exec(&txn)
-                .await?;
-            summary.file_uuid = id;
-        }
-
-        // Process artists for the current media file.
-        let artist_result = process_artists(&txn, node_id, &summary, cancel_token, store).await;
-        // Process album for the current media file.
-        let album_result = process_album(&txn, node_id, &summary).await;
-        // Process genres for the current media file.
-        let genre_result = process_genres(&txn, node_id, &summary, cancel_token, store).await;
-
-        // Commit transaction if all processing is successful, otherwise rollback.
-        match (&artist_result, &album_result, &genre_result) {
-            (Ok(_), Ok(_), Ok(_)) => {
-                let file = media_files::Entity::find_by_id(summary.id)
-                    .one(&txn)
-                    .await?
-                    .ok_or_else(|| Error::msg("indexed file missing"))?;
-                if let Err(error) = author_indexed_track_row(&txn, store, file).await {
-                    txn.rollback().await?;
-                    return Err(error);
-                }
-                if let Err(error) = author_album_assignment(&txn, store, &summary).await {
-                    txn.rollback().await?;
-                    return Err(error);
-                }
-
-                txn.commit().await?;
-            }
-            _ => {
-                let _ = txn.rollback().await; // Rollback transaction if any processing failed.
-                return Err(Error::msg(format!(
-                    "Indexing file {} failed: artist={:?}, album={:?}, genre={:?}",
-                    summary.id,
-                    artist_result.err(),
-                    album_result.err(),
-                    genre_result.err()
-                )));
+        match index_media_file(&txn, node_id, file_id, cancel_token, store).await {
+            Ok(true) => txn.commit().await?,
+            Ok(false) => txn.rollback().await?,
+            Err(e) => {
+                txn.rollback().await.with_context(|| {
+                    format!("Failed to roll back indexing file {file_id} after {e:#}")
+                })?;
+                return Err(e);
             }
         }
     }
-
     Ok(())
+}
+
+pub(super) async fn index_media_file(
+    txn: &DatabaseTransaction,
+    node_id: &str,
+    file_id: i32,
+    cancel_token: Option<&CancellationToken>,
+    store: &crate::sync::SeaOrmSyncStore,
+) -> Result<bool> {
+    let Some(mut summary) = get_metadata_summary_by_file_ids(txn, vec![file_id])
+        .await?
+        .into_iter()
+        .next()
+    else {
+        return Ok(false);
+    };
+
+    if summary.file_uuid.is_empty() {
+        let id = Uuid::new_v4().to_string();
+        media_files::Entity::update_many()
+            .col_expr(media_files::Column::SourceUuid, Expr::value(id.clone()))
+            .filter(media_files::Column::Id.eq(summary.id))
+            .exec(txn)
+            .await?;
+        summary.file_uuid = id;
+    }
+
+    process_artists(txn, node_id, &summary, cancel_token, store).await?;
+    process_album(txn, node_id, &summary).await?;
+    process_genres(txn, node_id, &summary, cancel_token, store).await?;
+    let file = media_files::Entity::find_by_id(summary.id)
+        .one(txn)
+        .await?
+        .ok_or_else(|| Error::msg("indexed file missing"))?;
+    author_indexed_track_row(txn, store, file).await?;
+    author_album_assignment(txn, store, &summary).await?;
+    Ok(true)
 }
 
 async fn author_album_assignment(
