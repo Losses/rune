@@ -378,9 +378,9 @@ where
     /// it is published.
     ///
     /// `commit` runs while the data and file locks are still held, so it can apply side effects
-    /// that must only happen once the new data is durable. If `commit` fails, the previous file
-    /// contents are written back (best effort; a failed write-back is logged), the managed data
-    /// and subscribers are left untouched, and the commit error is returned.
+    /// that must only happen once the new data is durable. If `commit` fails, the previous data is
+    /// written back (best effort; a failed write-back is logged), the managed data and
+    /// subscribers are left untouched, and the commit error is returned.
     ///
     /// # Errors
     /// Returns the updater's error, a `PersistenceError` from reading or saving the file, or the
