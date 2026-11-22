@@ -35,10 +35,10 @@ pub fn check_and_correct_extension(path: &Path, expected_extension: &str) -> Pat
 ///
 /// The playlist takes the place of `output` only when it is complete, so an export that fails
 /// leaves a file that was already there as it was. Returns where the playlist was saved.
-pub fn save_as_m3u8(
+pub fn save_as_m3u8<'a>(
     library: &Path,
     output: &Path,
-    files: &[media_files::Model],
+    files: impl IntoIterator<Item = &'a media_files::Model>,
 ) -> Result<PathBuf> {
     let corrected = check_and_correct_extension(output, "m3u8");
     if corrected != output {

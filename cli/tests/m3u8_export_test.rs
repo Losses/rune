@@ -12,7 +12,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use anyhow::{Context, Result, ensure};
+use database::actions::file::{get_file_by_id, get_file_id_from_path};
+use database::connection::connect_main_db;
 use database::entities::media_files;
+use fsio::FsIo;
 use rune::export::save_as_m3u8;
 use rust_decimal::Decimal;
 use tempfile::TempDir;
@@ -196,35 +199,61 @@ fn mix_export_to_a_relative_path_names_the_tracks_from_any_folder() -> Result<()
     Ok(())
 }
 
-#[test]
-fn recommend_export_names_the_tracks_for_a_relative_library() -> Result<()> {
+#[tokio::test]
+async fn recommend_export_preserves_rank_for_a_relative_library() -> Result<()> {
     let library = Library::scanned()?;
     library.succeed(&library.root, &["Music", "analyze", "-c", "cpu"])?;
-    let playlist = library.root.join("out/similar.m3u8");
+    let music = library.root.join("Music");
+    let db = connect_main_db(
+        &FsIo::new(),
+        music.to_str().context("non-UTF-8 fixture path")?,
+        None,
+        &uuid::Uuid::new_v4().to_string(),
+    )
+    .await?;
+    // The second track ranks itself first, whichever filename the scanner assigned it.
+    let seed = get_file_by_id(&db, 2)
+        .await?
+        .context("missing second track")?;
+    let seed_path = Path::new(&seed.directory).join(seed.file_name);
+    for format in ["json", "m3u8"] {
+        let output = library.root.join(format!("out/similar.{format}"));
+        library.succeed(
+            &library.root,
+            &[
+                "Music",
+                "recommend",
+                "-p",
+                &seed_path.to_string_lossy(),
+                "-n",
+                "2",
+                "-f",
+                format,
+                "-o",
+                &output.to_string_lossy(),
+            ],
+        )?;
+    }
 
-    library.succeed(
-        &library.root,
-        &[
-            "Music",
-            "recommend",
-            "-p",
-            "b.ogg",
-            "-f",
-            "m3u8",
-            "-o",
-            &playlist.to_string_lossy(),
-        ],
-    )?;
-
-    // Which of the two comes first is the recommendation's order, which is not checked here.
-    let mut tracks = tracks_of(&playlist)?;
-    tracks.sort();
+    let json: Vec<(i32, f32)> =
+        serde_json::from_reader(fs::File::open(library.root.join("out/similar.json"))?)?;
+    let ranked_ids: Vec<_> = json.into_iter().map(|(id, _)| id).collect();
     assert_eq!(
-        tracks,
-        [
-            library.root.join("Music/Album/a.ogg"),
-            library.root.join("Music/b.ogg")
-        ]
+        ranked_ids,
+        [2, 1],
+        "the fixture must rank both tracks in non-ID order"
+    );
+    let mut playlist_ids = Vec::new();
+    for path in tracks_of(&library.root.join("out/similar.m3u8"))? {
+        playlist_ids.push(
+            get_file_id_from_path(&db, &music, &path)
+                .await
+                .map_err(anyhow::Error::msg)?,
+        );
+    }
+    assert_eq!(
+        playlist_ids, ranked_ids,
+        "M3U8 must preserve the JSON recommendation order"
     );
     Ok(())
 }
