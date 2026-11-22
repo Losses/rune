@@ -1520,7 +1520,7 @@
   "fileDialogPathNotFound": "{name} 所在的資料夾不存在。請檢查路徑，然後再試一次。",
   "fileDialogPermissionDenied": "您沒有存取 {location} 的權限。",
   "fileDialogUnavailable": "{location} 無法使用。請確認磁碟機已連線，然後再試一次。",
-  "fileDialogNotAFolder": "{location} 是檔案，不是資料夾。",
+  "fileDialogNotAFolder": "{location} 是檔案，無法當作資料夾開啟。",
   "fileDialogAlreadyExists": "此位置已經有名為 {name} 的項目。",
   "fileDialogInvalidName": "{name} 無法在此當作名稱。",
   "fileDialogConfirmSaveAs": "確認另存新檔",

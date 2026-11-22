@@ -10,7 +10,7 @@ use thiserror::Error;
 pub enum BrowseError {
     #[error("no such file or folder")]
     NotFound,
-    #[error("the location is a file, not a folder")]
+    #[error("the location is a file")]
     NotADirectory,
     #[error("permission denied")]
     PermissionDenied,

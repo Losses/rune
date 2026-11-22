@@ -230,7 +230,7 @@ void main() {
     await tester.tap(find.text('All Files (*.*)').last);
     await flow.expectVisible(tester, _item('notes.txt'));
 
-    // A name that is not there is explained, not picked.
+    // A name that is not there is explained and nothing is picked.
     final fileName = find
         .descendant(
           of: find.byType(FileDialogWindow),

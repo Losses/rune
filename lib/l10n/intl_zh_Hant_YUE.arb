@@ -1789,7 +1789,7 @@
   "fileDialogPathNotFound": "{name} 所在嘅資料夾唔存在。睇下路徑啱唔啱，再試多次。",
   "fileDialogPermissionDenied": "你冇權限入 {location}。",
   "fileDialogUnavailable": "{location} 用唔到。睇下磁碟機有冇接好，再試多次。",
-  "fileDialogNotAFolder": "{location} 係檔案，唔係資料夾。",
+  "fileDialogNotAFolder": "{location} 係檔案，唔可以當資料夾打開。",
   "fileDialogAlreadyExists": "呢個位置已經有個叫 {name} 嘅項目。",
   "fileDialogInvalidName": "{name} 喺度唔可以用嚟做名。",
   "fileDialogConfirmSaveAs": "確認另存為",

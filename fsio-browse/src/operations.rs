@@ -65,7 +65,7 @@ const WINDOWS_DEVICE_NAMES: [&str; 22] = [
 ];
 
 /// `name` without surrounding spaces, if it can name an item on this
-/// platform: not empty, not `.` or `..`, without a path separator, and on
+/// platform: non-empty, other than `.` and `..`, without a path separator, and on
 /// Windows without the characters and device names Windows refuses.
 pub fn valid_name(name: &str) -> Result<&str, BrowseError> {
     let name = name.trim();

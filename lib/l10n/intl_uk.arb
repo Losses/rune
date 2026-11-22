@@ -1789,7 +1789,7 @@
   "fileDialogPathNotFound": "Папки для {name} не існує. Перевірте шлях та спробуйте ще раз.",
   "fileDialogPermissionDenied": "Немає дозволу на доступ до {location}.",
   "fileDialogUnavailable": "{location} недоступне. Перевірте, чи підключено диск, і спробуйте ще раз.",
-  "fileDialogNotAFolder": "{location} є файлом, а не папкою.",
+  "fileDialogNotAFolder": "{location} є файлом, тому його не можна відкрити як папку.",
   "fileDialogAlreadyExists": "Елемент з ім'ям {name} уже існує в цьому розташуванні.",
   "fileDialogInvalidName": "{name} не можна використати як ім'я тут.",
   "fileDialogConfirmSaveAs": "Підтвердження збереження",

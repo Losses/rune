@@ -27,7 +27,7 @@ pub(super) fn thumbnail(uri: &str, size: ThumbnailSize) -> Result<Option<Thumbna
             &[JValue::Int(edge), JValue::Int(edge)],
         )?;
         // A provider without thumbnails for this document throws; that is
-        // an answer, not a failure.
+        // the provider's answer, and the item keeps its type icon.
         let bitmap = match env.call_static_method(
             "android/provider/DocumentsContract",
             "getDocumentThumbnail",

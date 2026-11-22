@@ -1789,7 +1789,7 @@
   "fileDialogPathNotFound": "Der Ordner von {name} existiert nicht. Pfad prüfen und erneut versuchen.",
   "fileDialogPermissionDenied": "Keine Berechtigung für den Zugriff auf {location}.",
   "fileDialogUnavailable": "{location} ist nicht verfügbar. Prüfen, ob das Laufwerk verbunden ist, und erneut versuchen.",
-  "fileDialogNotAFolder": "{location} ist eine Datei, kein Ordner.",
+  "fileDialogNotAFolder": "{location} ist eine Datei und kann nicht als Ordner geöffnet werden.",
   "fileDialogAlreadyExists": "An diesem Ort gibt es bereits ein Element namens {name}.",
   "fileDialogInvalidName": "{name} kann hier nicht als Name verwendet werden.",
   "fileDialogConfirmSaveAs": "Speichern unter bestätigen",

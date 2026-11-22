@@ -1791,7 +1791,7 @@
   "fileDialogPathNotFound": "La cartella di {name} non esiste. Controlla il percorso e riprova.",
   "fileDialogPermissionDenied": "Non hai l'autorizzazione per accedere a {location}.",
   "fileDialogUnavailable": "{location} non è disponibile. Controlla che l'unità sia collegata e riprova.",
-  "fileDialogNotAFolder": "{location} è un file, non una cartella.",
+  "fileDialogNotAFolder": "{location} è un file e non può essere aperto come cartella.",
   "fileDialogAlreadyExists": "In questo percorso esiste già un elemento chiamato {name}.",
   "fileDialogInvalidName": "{name} non può essere usato come nome qui.",
   "fileDialogConfirmSaveAs": "Conferma Salvataggio",

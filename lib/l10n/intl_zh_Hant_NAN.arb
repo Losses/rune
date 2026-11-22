@@ -1791,7 +1791,7 @@
   "fileDialogPathNotFound": "{name} 的資料夾無存在。請檢查路徑，才閣試一擺。",
   "fileDialogPermissionDenied": "你無權限入去 {location}。",
   "fileDialogUnavailable": "{location} 這馬袂用得。請檢查磁碟機有接著無，才閣試一擺。",
-  "fileDialogNotAFolder": "{location} 是檔案，毋是資料夾。",
+  "fileDialogNotAFolder": "{location} 是檔案，袂當做資料夾拍開。",
   "fileDialogAlreadyExists": "這个所在已經有一个號做 {name} 的項目。",
   "fileDialogInvalidName": "{name} 佇遮袂當做名。",
   "fileDialogConfirmSaveAs": "確定另外存檔",

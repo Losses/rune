@@ -1789,7 +1789,7 @@
   "fileDialogPathNotFound": "{name} 所在的文件夹不存在。请检查路径并重试。",
   "fileDialogPermissionDenied": "你没有访问 {location} 的权限。",
   "fileDialogUnavailable": "{location} 不可用。请检查驱动器是否已连接并重试。",
-  "fileDialogNotAFolder": "{location} 是文件，而不是文件夹。",
+  "fileDialogNotAFolder": "{location} 是文件，无法作为文件夹打开。",
   "fileDialogAlreadyExists": "此位置已有名为 {name} 的项目。",
   "fileDialogInvalidName": "{name} 不能在这里用作名称。",
   "fileDialogConfirmSaveAs": "确认另存为",

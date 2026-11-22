@@ -1791,7 +1791,7 @@
   "fileDialogPathNotFound": "{name} ノフォルダーハアリマセン。パスヲカクニンシテ、モウイチドオタメシクダサイ。",
   "fileDialogPermissionDenied": "{location} ヘノアクセスケンガアリマセン。",
   "fileDialogUnavailable": "{location} ハツカエマセン。ドライブガツナガッテイルカカクニンシテ、モウイチドオタメシクダサイ。",
-  "fileDialogNotAFolder": "{location} ハフォルダーデハナクファイルデス。",
+  "fileDialogNotAFolder": "{location} ハファイルナノデ、フォルダートシテオープンデキマセン。",
   "fileDialogAlreadyExists": "コノロケーションニハ {name} トイウネームノアイテムガスデニアリマス。",
   "fileDialogInvalidName": "{name} ハココデハネームニツカエマセン。",
   "fileDialogConfirmSaveAs": "セーブアズノコンファーム",

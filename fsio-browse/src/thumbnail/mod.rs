@@ -96,7 +96,7 @@ impl Thumbnailer {
         #[cfg(target_os = "linux")]
         return self.freedesktop.thumbnail(path, size);
         // Android apps reach shared files through document providers, which
-        // draw thumbnails for document URIs, not paths.
+        // draw thumbnails for document URIs. A path gives none.
         #[cfg(target_os = "android")]
         {
             let _ = (path, size);

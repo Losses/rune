@@ -40,7 +40,8 @@ class FileDialogSort {
 }
 
 /// The extension of [name] without the dot, lowercased, or empty when it has
-/// none. A leading dot alone (".profile") is a hidden name, not an extension.
+/// none. A leading dot alone (".profile") marks a hidden name and has no
+/// extension.
 String extensionOf(String name) {
   final dot = name.lastIndexOf('.');
   if (dot <= 0 || dot == name.length - 1) return '';

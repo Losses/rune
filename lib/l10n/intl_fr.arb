@@ -1791,7 +1791,7 @@
   "fileDialogPathNotFound": "Le dossier de {name} n'existe pas. Vérifiez le chemin et réessayez.",
   "fileDialogPermissionDenied": "Vous n'avez pas l'autorisation d'accéder à {location}.",
   "fileDialogUnavailable": "{location} n'est pas disponible. Vérifiez que le lecteur est connecté et réessayez.",
-  "fileDialogNotAFolder": "{location} est un fichier, pas un dossier.",
+  "fileDialogNotAFolder": "{location} est un fichier et ne peut pas être ouvert comme dossier.",
   "fileDialogAlreadyExists": "Un élément nommé {name} existe déjà à cet emplacement.",
   "fileDialogInvalidName": "{name} ne peut pas servir de nom ici.",
   "fileDialogConfirmSaveAs": "Confirmer l'enregistrement",

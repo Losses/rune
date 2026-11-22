@@ -1791,7 +1791,7 @@
   "fileDialogPathNotFound": "{name} 之格納場所不存在。確認経路、再試行。",
   "fileDialogPermissionDenied": "無 {location} 接続権限。",
   "fileDialogUnavailable": "{location} 不可用。確認駆動装置接続、再試行。",
-  "fileDialogNotAFolder": "{location} 是文書、非格納場所。",
+  "fileDialogNotAFolder": "{location} 是文書、不可作格納場所開。",
   "fileDialogAlreadyExists": "此場所既有名 {name} 之項目。",
   "fileDialogInvalidName": "{name} 此処不可用名。",
   "fileDialogConfirmSaveAs": "名付保存確認",

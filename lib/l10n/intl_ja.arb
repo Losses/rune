@@ -1789,7 +1789,7 @@
   "fileDialogPathNotFound": "{name} のフォルダーは存在しません。パスを確認して、もう一度お試しください。",
   "fileDialogPermissionDenied": "{location} にアクセスする権限がありません。",
   "fileDialogUnavailable": "{location} は利用できません。ドライブが接続されているか確認して、もう一度お試しください。",
-  "fileDialogNotAFolder": "{location} はフォルダーではなくファイルです。",
+  "fileDialogNotAFolder": "{location} はファイルのため、フォルダーとして開けません。",
   "fileDialogAlreadyExists": "この場所には {name} という名前の項目が既にあります。",
   "fileDialogInvalidName": "{name} はここでは名前に使用できません。",
   "fileDialogConfirmSaveAs": "名前を付けて保存の確認",

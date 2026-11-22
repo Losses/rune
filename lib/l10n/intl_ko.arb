@@ -1791,7 +1791,7 @@
   "fileDialogPathNotFound": "{name}의 폴더가 없습니다. 경로를 확인하고 다시 시도하세요.",
   "fileDialogPermissionDenied": "{location}에 액세스할 권한이 없습니다.",
   "fileDialogUnavailable": "{location}을(를) 사용할 수 없습니다. 드라이브가 연결되어 있는지 확인하고 다시 시도하세요.",
-  "fileDialogNotAFolder": "{location}은(는) 폴더가 아니라 파일입니다.",
+  "fileDialogNotAFolder": "{location}은(는) 파일이므로 폴더로 열 수 없습니다.",
   "fileDialogAlreadyExists": "이 위치에 이름이 {name}인 항목이 이미 있습니다.",
   "fileDialogInvalidName": "{name}은(는) 여기에서 이름으로 사용할 수 없습니다.",
   "fileDialogConfirmSaveAs": "다른 이름으로 저장 확인",

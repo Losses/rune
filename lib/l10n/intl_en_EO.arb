@@ -1791,7 +1791,7 @@
   "fileDialogPathNotFound": "La dosierujo de {name} ne ekzistas. Kontrolu la vojon kaj reprovu.",
   "fileDialogPermissionDenied": "Vi ne havas permeson aliri {location}.",
   "fileDialogUnavailable": "{location} ne disponeblas. Kontrolu, ke la disko estas konektita, kaj reprovu.",
-  "fileDialogNotAFolder": "{location} estas dosiero, ne dosierujo.",
+  "fileDialogNotAFolder": "{location} estas dosiero kaj ne malfermeblas kiel dosierujo.",
   "fileDialogAlreadyExists": "Ero nomata {name} jam ekzistas ĉi tie.",
   "fileDialogInvalidName": "{name} ne povas esti uzata kiel nomo ĉi tie.",
   "fileDialogConfirmSaveAs": "Konfirmi Konservon",

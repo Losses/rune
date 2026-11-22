@@ -1979,7 +1979,7 @@
       }
     }
   },
-  "fileDialogNotAFolder": "{location} is a file, not a folder.",
+  "fileDialogNotAFolder": "{location} is a file and cannot be opened as a folder.",
   "@fileDialogNotAFolder": {
     "placeholders": {
       "location": {
