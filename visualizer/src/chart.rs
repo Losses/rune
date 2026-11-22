@@ -205,8 +205,19 @@ impl Chart {
 
     /// Decode a chart supplied by the renderer feed.
     pub fn decode(bytes: &[u8]) -> anyhow::Result<Self> {
-        let (chart, consumed) = bincode_serde::decode_from_slice(bytes, config::standard())?;
+        let (chart, consumed) =
+            bincode_serde::decode_from_slice::<Self, _>(bytes, config::standard())?;
         anyhow::ensure!(consumed == bytes.len(), "chart has trailing bytes");
+        // A lead names none (0) or one of the streams, which `Chart::at` indexes with. A
+        // decoded chart may hold anything, so refuse what the lookup cannot use.
+        anyhow::ensure!(
+            chart.lead.iter().all(|lead| {
+                lead.stream.is_finite()
+                    && lead.stream.fract() == 0.0
+                    && (0.0..=STREAMS.len() as f64).contains(&lead.stream)
+            }),
+            "chart has an invalid lead stream"
+        );
         Ok(chart)
     }
 
@@ -1151,6 +1162,95 @@ mod tests {
             .set_feed_chart(item, &chart().encode().unwrap())
             .unwrap();
         assert_eq!(visualizer.status().inputs, VisualizerInputs::None);
+    }
+
+    /// A feed chart is decoded before its item is looked at, so an invalid lead stream is
+    /// refused for any item and leaves the chart in use alone.
+    #[test]
+    fn invalid_feed_lead_streams_are_rejected_before_use() {
+        let fixture = || {
+            let mut chart = chart_analyzer::Chart::empty(2.0);
+            chart.curves.loudness = vec![0.4, 0.6];
+            chart.curves.feel = vec![4.0, 4.0];
+            chart.tempo.feel = 4.0;
+            chart.streams.phrase.events = vec![[0.0, 0.8]];
+            chart.lead.push(chart_analyzer::chart::LeadSpan {
+                start: 0.0,
+                end: 2.0,
+                stream: Some("low".into()),
+            });
+            Chart::from_analysis(chart)
+        };
+        let lead_at = |visualizer: &Visualizer| {
+            let mut follower = ChartFollower::new(KeptChart::default());
+            follower
+                .tick(&crate::lock(&visualizer.shared.playback), Instant::now())
+                .map(|state| state.lead)
+        };
+
+        let visualizer = Visualizer::new();
+        let item = ChartItem::LibraryTrack {
+            library_id: "library".into(),
+            track: "track".into(),
+        };
+        // Paused at 0.25 s: the lookups below must not depend on how long the test takes.
+        visualizer.set_feed_playback(Some(item.clone()), Duration::from_secs_f64(0.25), false);
+        visualizer
+            .set_feed_chart(item.clone(), &fixture().encode().unwrap())
+            .unwrap();
+        assert_eq!(lead_at(&visualizer), Some(1.0));
+
+        // Every lead stream must be finite, whole and in 0..=STREAMS.len(); fractional and
+        // non-finite values are as invalid as one past the last stream.
+        for stream in [6.0, -1.0, 1.5, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let mut malformed = fixture();
+            malformed.lead[0].stream = stream;
+            let bytes = malformed.encode().unwrap();
+            assert!(
+                Chart::decode(&bytes).is_err(),
+                "lead stream {stream} was decoded"
+            );
+            // Decoding comes before the item check: a wrong item does not excuse the bytes.
+            let wrong = ChartItem::IndependentFile {
+                path: "other".into(),
+            };
+            assert!(
+                visualizer.set_feed_chart(wrong, &bytes).is_err(),
+                "lead stream {stream} was accepted for a wrong item"
+            );
+            assert!(
+                visualizer.set_feed_chart(item.clone(), &bytes).is_err(),
+                "lead stream {stream} was accepted"
+            );
+            // The chart that was already there still is, and still looks up without panicking.
+            assert_eq!(lead_at(&visualizer), Some(1.0));
+        }
+
+        // A valid chart for another item is ignored, though it decodes: its lead is the last
+        // stream, so using it would show.
+        let mut other = fixture();
+        other.lead[0].stream = STREAMS.len() as f64;
+        visualizer
+            .set_feed_chart(
+                ChartItem::IndependentFile {
+                    path: "other".into(),
+                },
+                &other.encode().unwrap(),
+            )
+            .unwrap();
+        assert_eq!(lead_at(&visualizer), Some(1.0));
+
+        // 0 (none) and 5 (the last stream, phrase) are valid leads.
+        let mut none = fixture();
+        none.lead[0].stream = 0.0;
+        let state = Chart::decode(&none.encode().unwrap()).unwrap().at(0.25);
+        assert_eq!((state.lead, state.lead_event), (0.0, 0.0));
+
+        let mut phrase = fixture();
+        phrase.lead[0].stream = STREAMS.len() as f64;
+        let state = Chart::decode(&phrase.encode().unwrap()).unwrap().at(0.25);
+        assert_eq!(state.lead, 5.0);
+        assert!(state.lead_event > 0.0 && state.lead_event == state.events[4]);
     }
 
     #[test]
