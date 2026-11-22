@@ -46,6 +46,55 @@ pub struct FsNode {
     pub size: u64,
 }
 
+/// What an entry listed by [`FileIo::read_dir_details`] is, after following links.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryKind {
+    Directory,
+    File,
+    /// Neither: a link whose target is missing, a socket, a device.
+    Other,
+}
+
+/// One entry of a directory with what a file browser shows about it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirEntryDetails {
+    pub name: String,
+    pub path: PathBuf,
+    pub kind: EntryKind,
+    /// Bytes in a file; zero for anything else.
+    pub size: u64,
+    /// Seconds since the UNIX epoch of the last modification, when the backend
+    /// reports it while listing.
+    pub modified: Option<u64>,
+    /// Whether file browsers on this platform leave the entry out unless asked
+    /// to show hidden items.
+    pub hidden: bool,
+}
+
+impl DirEntryDetails {
+    /// The details a plain [`FsNode`] carries: no modification time, and
+    /// hidden when the name starts with a dot.
+    pub fn from_node(node: FsNode) -> Self {
+        let kind = match (node.is_dir, node.is_file) {
+            (true, _) => EntryKind::Directory,
+            (false, true) => EntryKind::File,
+            (false, false) => EntryKind::Other,
+        };
+        Self {
+            hidden: node.filename.starts_with('.'),
+            size: if kind == EntryKind::File {
+                node.size
+            } else {
+                0
+            },
+            name: node.filename,
+            path: node.path,
+            kind,
+            modified: None,
+        }
+    }
+}
+
 /// What [`FileIo::walk_dir`] found under a directory.
 #[derive(Debug, Clone, Default)]
 pub struct DirWalk {
@@ -147,6 +196,19 @@ pub trait FileIo: Send + Sync {
     /// The entries directly inside `path`, leaving out any whose path is not
     /// valid Unicode.
     async fn read_dir(&self, path: &Path) -> Result<Vec<FsNode>, FileIoError>;
+    /// The entries directly inside `path` as a file browser shows them: their
+    /// kind after following links, their modification time where the backend
+    /// has it at hand, and whether the platform hides them. Like
+    /// [`FileIo::read_dir`], entries whose path is not valid Unicode are left
+    /// out.
+    async fn read_dir_details(&self, path: &Path) -> Result<Vec<DirEntryDetails>, FileIoError> {
+        Ok(self
+            .read_dir(path)
+            .await?
+            .into_iter()
+            .map(DirEntryDetails::from_node)
+            .collect())
+    }
     async fn remove_file(&self, path: &Path) -> Result<(), FileIoError>;
     /// Rename a file within its current directory. Backends must finish the
     /// rename before reporting success; callers can then register a verified file.

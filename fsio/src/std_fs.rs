@@ -6,7 +6,10 @@ use async_trait::async_trait;
 use tokio::fs;
 use walkdir::WalkDir;
 
-use super::{DirWalk, FileIo, FileIoError, FileStream, FsNode, OpenMode, StorageLocation};
+use super::{
+    DirEntryDetails, DirWalk, EntryKind, FileIo, FileIoError, FileStream, FsNode, OpenMode,
+    StorageLocation,
+};
 use std::fs as std_fs;
 use std::io::Error;
 use std::io::ErrorKind;
@@ -38,6 +41,80 @@ async fn canonical_node_async(path: &Path) -> Result<FsNode, FileIoError> {
     task::spawn_blocking(move || canonical_node(&path))
         .await
         .map_err(|error| FileIoError::Io(Error::other(error)))?
+}
+
+/// The entries of `dir` with their details. A link counts as what it points
+/// to; one whose target is gone is listed as [`EntryKind::Other`]. An entry
+/// removed while the directory is read is left out.
+fn list_details(dir: &Path) -> Result<Vec<DirEntryDetails>, FileIoError> {
+    let mut details = Vec::new();
+    for entry in std_fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            log::warn!("Skipped {path:?}: its path is not valid Unicode");
+            continue;
+        };
+        if path.to_str().is_none() {
+            log::warn!("Skipped {path:?}: its path is not valid Unicode");
+            continue;
+        }
+        let own = match entry.metadata() {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        };
+        let target = std_fs::metadata(&path).ok();
+        let shown = target.as_ref().unwrap_or(&own);
+        let kind = if shown.is_dir() {
+            EntryKind::Directory
+        } else if shown.is_file() {
+            EntryKind::File
+        } else {
+            EntryKind::Other
+        };
+        details.push(DirEntryDetails {
+            hidden: is_hidden(&name, &own),
+            size: if kind == EntryKind::File {
+                shown.len()
+            } else {
+                0
+            },
+            modified: shown
+                .modified()
+                .ok()
+                .and_then(|time| time.duration_since(std_time::UNIX_EPOCH).ok())
+                .map(|age| age.as_secs()),
+            name,
+            path,
+            kind,
+        });
+    }
+    Ok(details)
+}
+
+/// Whether the platform's file browser hides an entry: a leading dot on
+/// Unix-like systems, the hidden flag on macOS and iOS as well, and the hidden
+/// attribute on Windows.
+fn is_hidden(name: &str, metadata: &std_fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+        let _ = name;
+        metadata.file_attributes() & FILE_ATTRIBUTE_HIDDEN != 0
+    }
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        use std::os::darwin::fs::MetadataExt;
+        const UF_HIDDEN: u32 = 0x8000;
+        name.starts_with('.') || metadata.st_flags() & UF_HIDDEN != 0
+    }
+    #[cfg(not(any(windows, target_os = "macos", target_os = "ios")))]
+    {
+        let _ = metadata;
+        name.starts_with('.')
+    }
 }
 
 pub(crate) struct StdFsIo;
@@ -133,6 +210,13 @@ impl FileIo for StdFsIo {
             });
         }
         Ok(nodes)
+    }
+
+    async fn read_dir_details(&self, path: &Path) -> Result<Vec<DirEntryDetails>, FileIoError> {
+        let path = path.to_path_buf();
+        task::spawn_blocking(move || list_details(&path))
+            .await
+            .map_err(|error| FileIoError::Io(Error::other(error)))?
     }
 
     async fn remove_file(&self, path: &Path) -> Result<(), FileIoError> {

@@ -2,7 +2,7 @@ use std::io::{ErrorKind, Read, Write};
 use std::path::Path;
 
 use fsio::self_test;
-use fsio::{FileIoError, FsIo, OpenMode, StorageLocation};
+use fsio::{DirEntryDetails, EntryKind, FileIoError, FsIo, FsNode, OpenMode, StorageLocation};
 use std::fs;
 use std::path as std_path;
 
@@ -350,6 +350,103 @@ async fn std_modified_time_reports_real_mtime() {
 
     let noop = FsIo::new_noop();
     assert_eq!(noop.modified_time(Path::new("any")).unwrap(), 0);
+}
+
+#[tokio::test]
+async fn std_read_dir_details_reports_kind_size_time_and_hidden() {
+    let temp = tempfile::tempdir().unwrap();
+    let (fsio, root) = std_fsio_in(&temp);
+    fsio.write(&root.join("song.flac"), b"12345").await.unwrap();
+    fsio.write(&root.join(".secret"), b"x").await.unwrap();
+    fsio.create_dir(&root, "Albums").await.unwrap();
+
+    let mut entries = fsio.read_dir_details(&root).await.unwrap();
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    let summary: Vec<_> = entries
+        .iter()
+        .map(|entry| (entry.name.as_str(), entry.kind, entry.size, entry.hidden))
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            (".secret", EntryKind::File, 1, cfg!(not(windows))),
+            ("Albums", EntryKind::Directory, 0, false),
+            ("song.flac", EntryKind::File, 5, false),
+        ]
+    );
+    let song = &entries[2];
+    assert_eq!(song.path, root.join("song.flac"));
+    assert_eq!(song.modified, Some(fsio.modified_time(&song.path).unwrap()));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn std_read_dir_details_follows_links_and_keeps_broken_ones() {
+    use std::os::unix::fs::symlink;
+
+    let temp = tempfile::tempdir().unwrap();
+    let (fsio, root) = std_fsio_in(&temp);
+    fsio.create_dir(&root, "real").await.unwrap();
+    fsio.write(&root.join("real/track.mp3"), b"abc")
+        .await
+        .unwrap();
+    symlink(root.join("real"), root.join("linked")).unwrap();
+    symlink(root.join("real/track.mp3"), root.join("linked.mp3")).unwrap();
+    symlink(root.join("gone"), root.join("broken")).unwrap();
+
+    let mut entries = fsio.read_dir_details(&root).await.unwrap();
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    let kinds: Vec<_> = entries
+        .iter()
+        .map(|entry| (entry.name.as_str(), entry.kind, entry.size))
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            ("broken", EntryKind::Other, 0),
+            ("linked", EntryKind::Directory, 0),
+            ("linked.mp3", EntryKind::File, 3),
+            ("real", EntryKind::Directory, 0),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn std_read_dir_details_fails_on_a_missing_or_file_path() {
+    let temp = tempfile::tempdir().unwrap();
+    let (fsio, root) = std_fsio_in(&temp);
+    fsio.write(&root.join("file.txt"), b"x").await.unwrap();
+
+    let missing = fsio.read_dir_details(&root.join("missing")).await;
+    assert!(
+        matches!(&missing, Err(FileIoError::Io(error)) if error.kind() == ErrorKind::NotFound),
+        "{missing:?}"
+    );
+    assert!(fsio.read_dir_details(&root.join("file.txt")).await.is_err());
+}
+
+#[tokio::test]
+async fn default_read_dir_details_derives_from_nodes() {
+    let node = FsNode {
+        filename: ".hidden.txt".into(),
+        path: "dir/.hidden.txt".into(),
+        raw_path: "dir/.hidden.txt".into(),
+        is_dir: false,
+        is_file: true,
+        size: 9,
+    };
+    let details = DirEntryDetails::from_node(node);
+    assert_eq!(details.kind, EntryKind::File);
+    assert_eq!(details.size, 9);
+    assert!(details.hidden);
+    assert_eq!(details.modified, None);
+
+    let fsio = FsIo::new_noop();
+    assert!(fsio
+        .read_dir_details(Path::new("any"))
+        .await
+        .unwrap()
+        .is_empty());
 }
 
 // NoOpFsIo is the remote-mode stub: every operation succeeds and returns
