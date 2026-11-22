@@ -115,17 +115,20 @@ pub enum PermissionError {
 
 type TrustChangeHook = Arc<dyn Fn(&str, Option<&UserStatus>) -> Result<(), String> + Send + Sync>;
 
+/// Maximum number of pending pairing requests kept per source address.
+const MAX_PENDING_REQUESTS: usize = 5;
+
 /// Manages user permissions, including adding, removing, and verifying users.
 ///
 /// `PermissionManager` is responsible for handling user permissions. It provides functionalities
 /// to manage a list of users, their statuses, and associated device information. It uses
 /// `PersistentDataManager` for storing and retrieving permission data from disk. It also maintains
-/// an in-memory cache of IP addresses to application fingerprints for rate limiting or tracking purposes.
+/// an in-memory queue of pending pairing requests per source address.
 pub struct PermissionManager {
     /// Manages the persistent storage of the permission list.
     storage: PersistentDataManager<PermissionList>,
-    /// In-memory cache mapping IP addresses to a queue of application fingerprints.
-    /// Used for tracking recent applications from specific IPs, possibly for rate limiting or security.
+    /// In-memory cache mapping IP addresses to a queue of pending application fingerprints.
+    /// Used for bounding pending pairing requests from specific IPs.
     ip_applications: Arc<RwLock<HashMap<String, VecDeque<String>>>>,
     request_sender: broadcast::Sender<User>,
     change_sender: watch::Sender<u64>,
@@ -297,9 +300,10 @@ impl PermissionManager {
     /// Adds a new user to the permission system.
     ///
     /// This method adds a new user with the provided details to the permission list. It checks
-    /// for user existence based on fingerprint before adding. It also manages an IP-based application queue,
-    /// potentially for rate limiting or tracking purposes. If the queue for a given IP is full (max 5 entries),
-    /// the oldest entry (and its associated user if any) is removed to make space for the new entry.
+    /// for user existence based on fingerprint before adding. It also manages an IP-based queue of
+    /// pending requests. If the queue for a given IP is full, the oldest request that is still
+    /// pending is removed to make space for the new entry; approved and blocked identities are
+    /// never evicted.
     ///
     /// # Arguments
     /// * `public_key` - Public key of the user.
@@ -339,13 +343,24 @@ impl PermissionManager {
                 let mut ip_apps = self.ip_applications.write().await; // Acquire write lock on IP applications map
                 let queue = ip_apps.entry(ip).or_default(); // Get or create queue for the given IP
 
-                if queue.len() >= 5 {
-                    // Check if queue is full (max 5 entries)
-                    if let Some(old_key) = queue.pop_front() {
-                        // Remove oldest entry if queue is full
-                        self.notify_trust_change(&old_key, None)?;
-                        permissions.users.remove(&old_key); // Optionally remove user associated with the oldest key
+                // Only pending requests count against the limit. Entries that were
+                // decided while queued are dropped without touching their trust, so
+                // an approved or blocked identity cannot be evicted by later requests.
+                while queue.len() >= MAX_PENDING_REQUESTS {
+                    let Some(old_key) = queue.front().cloned() else {
+                        break;
+                    };
+                    let is_pending = permissions
+                        .users
+                        .get(&old_key)
+                        .is_some_and(|user| user.status == UserStatus::Pending);
+                    if !is_pending {
+                        queue.pop_front();
+                        continue;
                     }
+                    self.notify_trust_change(&old_key, None)?;
+                    queue.pop_front();
+                    permissions.users.remove(&old_key);
                 }
                 queue.push_back(fingerprint.clone()); // Add new fingerprint to the IP queue
 
@@ -437,6 +452,14 @@ impl PermissionManager {
                     .ok_or(PermissionError::UserNotFound)?; // Return error if user not found
                 self.notify_trust_change(fingerprint, Some(&new_status))?;
                 user.status = new_status.clone(); // Update user status
+                if new_status != UserStatus::Pending {
+                    // A decided request must not keep a pending slot or be
+                    // evicted by later requests from the same address.
+                    let mut ip_apps = self.ip_applications.write().await;
+                    for queue in ip_apps.values_mut() {
+                        queue.retain(|queued| queued != fingerprint);
+                    }
+                }
                 Ok::<_, PermissionError>((permissions, ())) // Return updated permissions and success result
             })
             .await?;
@@ -561,6 +584,38 @@ mod change_tests {
                 format!("{fingerprint}-ip"),
             )
             .await
+    }
+
+    async fn add_user_from(
+        manager: &PermissionManager,
+        fingerprint: &str,
+        ip: &str,
+    ) -> Result<(), PermissionError> {
+        manager
+            .add_user(
+                format!("{fingerprint}-key"),
+                fingerprint.into(),
+                fingerprint.into(),
+                "model".into(),
+                DeviceType::Desktop,
+                ip.into(),
+            )
+            .await
+    }
+
+    fn record_trust_changes(
+        manager: &mut PermissionManager,
+    ) -> Arc<Mutex<Vec<(String, Option<UserStatus>)>>> {
+        let changes = Arc::new(Mutex::new(Vec::new()));
+        let observed = changes.clone();
+        manager.set_trust_change_hook(Arc::new(move |fingerprint, status| {
+            observed
+                .lock()
+                .unwrap()
+                .push((fingerprint.to_owned(), status.cloned()));
+            Ok(())
+        }));
+        changes
     }
 
     #[tokio::test]
@@ -739,6 +794,219 @@ mod change_tests {
         assert_eq!(
             *hook_calls.lock().unwrap(),
             vec![("fingerprint".to_owned(), Some(UserStatus::Blocked))]
+        );
+        std::fs::remove_dir_all(dir)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn approved_and_blocked_requests_survive_later_registrations()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for (label, status) in [
+            ("approved", UserStatus::Approved),
+            ("blocked", UserStatus::Blocked),
+        ] {
+            let dir = std::env::temp_dir().join(format!(
+                "permission-decided-{label}-{}",
+                uuid::Uuid::new_v4()
+            ));
+            let mut manager = PermissionManager::new(&dir)?;
+            let changes = record_trust_changes(&mut manager);
+
+            add_user_from(&manager, "victim", "127.0.0.1").await?;
+            manager.change_user_status("victim", status.clone()).await?;
+            // A duplicate registration must not refill the pending queue.
+            add_user_from(&manager, "victim", "127.0.0.1").await?;
+            // Registrations from another address use their own queue.
+            for index in 0..5 {
+                add_user_from(&manager, &format!("other-{index}"), "127.0.0.2").await?;
+            }
+
+            for index in 0..4 {
+                add_user_from(&manager, &format!("new-{index}"), "127.0.0.1").await?;
+            }
+            assert_eq!(
+                manager
+                    .verify_by_fingerprint("victim")
+                    .await
+                    .map(|user| user.status),
+                Some(status.clone()),
+                "{label} request disappeared after four later registrations"
+            );
+
+            add_user_from(&manager, "new-4", "127.0.0.1").await?;
+            assert_eq!(
+                manager
+                    .verify_by_fingerprint("victim")
+                    .await
+                    .map(|user| user.status),
+                Some(status.clone()),
+                "{label} request was evicted by five later registrations"
+            );
+
+            let reopened = PermissionManager::new(&dir)?;
+            assert_eq!(
+                reopened
+                    .verify_by_fingerprint("victim")
+                    .await
+                    .map(|user| user.status),
+                Some(status.clone()),
+                "{label} request was lost after reopening storage"
+            );
+            add_user_from(&reopened, "victim", "127.0.0.1").await?;
+            assert_eq!(
+                reopened
+                    .verify_by_fingerprint("victim")
+                    .await
+                    .map(|user| user.status),
+                Some(status.clone()),
+                "re-registration reset a {label} request"
+            );
+
+            assert_eq!(
+                *changes.lock().unwrap(),
+                vec![("victim".to_owned(), Some(status.clone()))],
+                "{label} request produced an unexpected trust change"
+            );
+            std::fs::remove_dir_all(dir)?;
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn pending_requests_stay_bounded_and_release_decided_entries()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = std::env::temp_dir().join(format!(
+            "permission-pending-bounded-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let mut manager = PermissionManager::new(&dir)?;
+        let changes = record_trust_changes(&mut manager);
+
+        for name in ["one", "two", "three", "four", "five"] {
+            add_user_from(&manager, name, "127.0.0.1").await?;
+        }
+        manager
+            .change_user_status("one", UserStatus::Approved)
+            .await?;
+        manager
+            .change_user_status("two", UserStatus::Blocked)
+            .await?;
+
+        // Decided entries no longer occupy pending slots, so these two do not
+        // push anyone out yet.
+        add_user_from(&manager, "six", "127.0.0.1").await?;
+        add_user_from(&manager, "seven", "127.0.0.1").await?;
+        assert!(manager.verify_by_fingerprint("three").await.is_some());
+
+        // The queue is full again; the oldest remaining pending request goes.
+        add_user_from(&manager, "eight", "127.0.0.1").await?;
+
+        assert_eq!(
+            manager
+                .verify_by_fingerprint("one")
+                .await
+                .map(|user| user.status),
+            Some(UserStatus::Approved)
+        );
+        assert_eq!(
+            manager
+                .verify_by_fingerprint("two")
+                .await
+                .map(|user| user.status),
+            Some(UserStatus::Blocked)
+        );
+        assert!(
+            manager.verify_by_fingerprint("three").await.is_none(),
+            "the oldest pending request should have been evicted"
+        );
+        assert_eq!(manager.get_pending_count().await, 5);
+
+        let reopened = PermissionManager::new(&dir)?;
+        assert_eq!(
+            reopened
+                .verify_by_fingerprint("one")
+                .await
+                .map(|user| user.status),
+            Some(UserStatus::Approved)
+        );
+        assert_eq!(
+            reopened
+                .verify_by_fingerprint("two")
+                .await
+                .map(|user| user.status),
+            Some(UserStatus::Blocked)
+        );
+        assert!(reopened.verify_by_fingerprint("three").await.is_none());
+
+        // A re-registration after eviction becomes a fresh pending request.
+        add_user_from(&reopened, "three", "127.0.0.1").await?;
+        assert_eq!(
+            reopened
+                .verify_by_fingerprint("three")
+                .await
+                .map(|user| user.status),
+            Some(UserStatus::Pending)
+        );
+
+        assert_eq!(
+            *changes.lock().unwrap(),
+            vec![
+                ("one".to_owned(), Some(UserStatus::Approved)),
+                ("two".to_owned(), Some(UserStatus::Blocked)),
+                ("three".to_owned(), None),
+            ]
+        );
+        std::fs::remove_dir_all(dir)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn externally_approved_request_is_not_evicted_from_the_queue()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = std::env::temp_dir().join(format!(
+            "permission-external-decision-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let mut manager = PermissionManager::new(&dir)?;
+        let changes = record_trust_changes(&mut manager);
+        add_user_from(&manager, "victim", "127.0.0.1").await?;
+        let mut generation = manager.changes();
+        manager
+            .watch_external_changes(CancellationToken::new())
+            .await;
+
+        let other = PermissionManager::new(&dir)?;
+        other
+            .change_user_status("victim", UserStatus::Approved)
+            .await?;
+        timeout(TEST_DEADLINE, generation.changed()).await??;
+        assert_eq!(
+            manager
+                .verify_by_fingerprint("victim")
+                .await
+                .map(|user| user.status),
+            Some(UserStatus::Approved)
+        );
+
+        for index in 0..5 {
+            add_user_from(&manager, &format!("new-{index}"), "127.0.0.1").await?;
+        }
+        assert_eq!(
+            manager
+                .verify_by_fingerprint("victim")
+                .await
+                .map(|user| user.status),
+            Some(UserStatus::Approved),
+            "an externally approved request was evicted from the stale queue"
+        );
+        assert!(
+            changes
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|(fingerprint, status)| fingerprint != "victim" || status.is_some()),
+            "evicting a decided request reported a trust removal"
         );
         std::fs::remove_dir_all(dir)?;
         Ok(())
