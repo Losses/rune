@@ -28,8 +28,8 @@ use playback::{
     PlaybackMode,
     controller::{MediaControlManager, handle_media_control_event},
     player::{
-        HandoffBlockId, InterruptedItem, Playable, PlaybackSource, PlaybackState, Player,
-        PlayerStatus, PlayingItem, PlaylistStatus, QueueEntry, TakeBackBlockResult,
+        HandoffBlockId, InterruptedItem, Playable, PlaybackSource, PlaybackState, PlayedThrough,
+        Player, PlayerStatus, PlayingItem, PlaylistStatus, QueueEntry, TakeBackBlockResult,
         UnavailableReason,
     },
 };
@@ -590,9 +590,9 @@ impl PlayerSession {
                         if let Some(manager) = &controls { let _ = manager.lock().await.controls.detach(); }
                         return;
                     },
-                    Ok(item) = played.recv() => {
+                    Ok(played) = played.recv() => {
                         if let Some(node) = weak.upgrade() {
-                            handle_played_event(&node, item, &mut item_state, &scrobbler).await;
+                            handle_played_event(&node, played, &mut item_state, &scrobbler).await;
                         }
                     }
                     Ok(value) = status.recv() => {
@@ -735,74 +735,9 @@ async fn persist_session_state(
     Ok(())
 }
 
-/// Accumulates how much of the current item actually played. A pause contributes nothing, and
-/// a position that jumps further than the elapsed time is a seek, not listening.
-#[derive(Default)]
-struct ListenProgress {
-    item: Option<PlayingItem>,
-    heard: Duration,
-    last_position: Duration,
-    last_state: Option<PlaybackState>,
-    last_observed: Option<Instant>,
-}
-
-/// The most a position may advance beyond the elapsed time between two status reports before
-/// the jump is treated as a seek. Status reports arrive every 100 ms.
-const LISTEN_SEEK_TOLERANCE: Duration = Duration::from_millis(250);
-
-impl ListenProgress {
-    fn observe(
-        &mut self,
-        item: Option<&PlayingItem>,
-        state: PlaybackState,
-        position: Duration,
-        observed_at: Instant,
-    ) {
-        let Some(item) = item else {
-            *self = Self::default();
-            return;
-        };
-        if self.item.as_ref() != Some(item) {
-            self.item = Some(item.clone());
-            self.heard = Duration::ZERO;
-            self.last_position = position;
-            self.last_state = Some(state);
-            self.last_observed = Some(observed_at);
-            return;
-        }
-        let elapsed = self.last_observed.map_or(Duration::ZERO, |last| {
-            observed_at.saturating_duration_since(last)
-        });
-        if state == PlaybackState::Playing
-            && self.last_state == Some(PlaybackState::Playing)
-            && position >= self.last_position
-        {
-            let advanced = position - self.last_position;
-            if advanced <= elapsed + LISTEN_SEEK_TOLERANCE {
-                self.heard += advanced;
-            }
-        }
-        self.last_position = position;
-        self.last_state = Some(state);
-        self.last_observed = Some(observed_at);
-    }
-
-    /// Ends the listen for `item` and returns the time heard. A completion for another item
-    /// leaves the current listen untouched.
-    fn finish(&mut self, item: &PlayingItem) -> Duration {
-        if self.item.as_ref() != Some(item) {
-            return Duration::ZERO;
-        }
-        let heard = self.heard;
-        *self = Self::default();
-        heard
-    }
-}
-
 #[derive(Default)]
 struct ItemEventState {
     last_item: Option<PlayingItem>,
-    listen: ListenProgress,
     library: Option<ResolvedLibrary>,
     metadata: PlayingItemMetadataSummary,
     cover: Option<String>,
@@ -931,12 +866,6 @@ async fn handle_status_event(
     broadcaster: &Arc<dyn Broadcaster>,
     session_id: &str,
 ) {
-    item_state.listen.observe(
-        value.item.as_ref(),
-        value.state.clone(),
-        value.position,
-        Instant::now(),
-    );
     let item_changed = value.item != item_state.last_item;
     if item_changed {
         item_state.metadata = PlayingItemMetadataSummary::default();
@@ -1149,11 +1078,11 @@ async fn handle_playlist_event(
 
 async fn handle_played_event(
     node: &NodeContext,
-    item: PlayingItem,
+    played: PlayedThrough,
     item_state: &mut ItemEventState,
     scrobbler: &Arc<Mutex<dyn ScrobblingServiceManager>>,
 ) {
-    let listened = item_state.listen.finish(&item);
+    let PlayedThrough { item, listened } = played;
     if let Err(error) = record_played(node, &item).await {
         log::warn!("Could not record played item: {error:#}");
     }
@@ -1448,9 +1377,6 @@ mod test_access {
         }
     }
 }
-
-#[cfg(test)]
-mod listen_progress_tests;
 
 #[cfg(test)]
 mod now_playing_tests;

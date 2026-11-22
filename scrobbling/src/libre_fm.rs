@@ -111,7 +111,10 @@ impl ScrobblingClient for LibreFmClient {
             params.insert("albumArtist".to_string(), album_artist.clone());
         }
         if let Some(duration) = track.duration {
-            params.insert("duration".to_string(), duration.to_string());
+            params.insert(
+                "duration".to_string(),
+                (duration.max(0.0).ceil() as u32).to_string(),
+            );
         }
 
         send_audioscrobbler_request(

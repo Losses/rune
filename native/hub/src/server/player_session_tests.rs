@@ -105,8 +105,8 @@ use playback::{
     PlaybackMode,
     player::{
         AudioPlaybackNote, AudioSourceMode, LibraryItem, MockPlayer, Playable, PlaybackSource,
-        PlaybackState as PlayerPlaybackState, PlayerStatus, PlayingItem, QueueEntry, RemoteAudioError, SubsonicItem,
-        UnavailableReason,
+        PlaybackState as PlayerPlaybackState, PlayedThrough, PlayerStatus, PlayingItem, QueueEntry,
+        RemoteAudioError, SubsonicItem, UnavailableReason,
     },
     strategies::AddMode,
 };
@@ -7001,7 +7001,7 @@ mod faulty_player {
         fn subscribe_status(&self) -> SimpleReceiver<PlayerStatus> {
             self.0.subscribe_status()
         }
-        fn subscribe_played_through(&self) -> SimpleReceiver<PlayingItem> {
+        fn subscribe_played_through(&self) -> SimpleReceiver<PlayedThrough> {
             self.0.subscribe_played_through()
         }
         fn subscribe_playlist(&self) -> SimpleReceiver<PlaylistStatus> {

@@ -24,7 +24,10 @@ impl From<&ScrobblingTrack> for Value {
 
         let mut additional_info = Map::new();
         if let Some(duration) = track.duration {
-            additional_info.insert("duration".to_string(), Value::Number(duration.into()));
+            additional_info.insert(
+                "duration".to_string(),
+                Value::Number((duration.max(0.0).ceil() as u32).into()),
+            );
         }
 
         additional_info.insert(
@@ -44,8 +47,17 @@ impl From<&ScrobblingTrack> for Value {
 #[derive(Clone)]
 pub struct ListenBrainzClient {
     client: Client,
-    pub base_url: String,
+    base_url: String,
     pub session_key: Option<String>,
+}
+
+#[cfg(test)]
+impl ListenBrainzClient {
+    pub(crate) fn with_base_url(base_url: String) -> Self {
+        let mut client = Self::new().expect("ListenBrainz client");
+        client.base_url = base_url;
+        client
+    }
 }
 
 impl ListenBrainzClient {

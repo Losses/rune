@@ -3,6 +3,7 @@ mod internal;
 mod ios_now_playing;
 #[cfg(any(test, target_os = "ios"))]
 mod ios_session;
+mod listen;
 mod realtime_fft;
 mod sfx_internal;
 mod shared_source;

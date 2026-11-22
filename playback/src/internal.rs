@@ -22,6 +22,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::buffered::{RuneBuffered, rune_buffered};
 use crate::decoder::RuneDecoder;
+use crate::listen::ListenProgress;
 use crate::output_stream::{Outputs, RuneOutputStream, RuneOutputStreamHandle};
 use crate::pcm_tap::PcmTap;
 use crate::player::{
@@ -498,6 +499,7 @@ pub enum PlayerEvent {
         index: usize,
         path: PathBuf,
         playback_mode: PlaybackMode,
+        listened: Duration,
     },
     Error {
         item: PlayingItem,
@@ -696,6 +698,9 @@ pub(crate) struct PlayerInternal {
     // The last progress report sent. A paused track does not send the same one again: it would
     // tell no one anything, ten times a second, and each report wakes the app.
     last_progress: Option<ProgressReport>,
+    // How much of the current track actually played. Seeks move its baseline and a new track
+    // starts it again.
+    listen: ListenProgress,
     // An interruption paused playback, so playback goes on when the interruption ends. A play,
     // or a track that starts playing, settles it first.
     resume_after_interruption: bool,
@@ -754,6 +759,7 @@ impl PlayerInternal {
             pending_seek: None,
             output_stale: false,
             last_progress: None,
+            listen: ListenProgress::default(),
             resume_after_interruption: false,
             unavailable: HashMap::new(),
             outputs,
@@ -1534,6 +1540,7 @@ impl PlayerInternal {
             })
             .context("Failed to send Playing event")?;
         self.state = InternalPlaybackState::Playing;
+        self.listen.reset(position, true);
         self.complete_load_completions(Ok(()));
 
         Ok(())
@@ -1562,6 +1569,7 @@ impl PlayerInternal {
                 position,
             })
             .context("Failed to send Loaded event")?;
+        self.listen.reset(position, false);
         Ok(())
     }
 
@@ -1635,6 +1643,7 @@ impl PlayerInternal {
 
         if self.current_track_index.is_some() {
             let position = self.current_position().unwrap_or_default();
+            self.listen.rebase(position, !loading);
             self.send_track_state(true, position)?;
             if !loading {
                 self.state = InternalPlaybackState::Playing;
@@ -1657,6 +1666,7 @@ impl PlayerInternal {
 
             if self.current_track_index.is_some() {
                 let position = self.current_position().unwrap_or_default();
+                self.listen.update(position, false);
                 self.send_track_state(false, position)?;
                 if !loading {
                     self.state = InternalPlaybackState::Paused;
@@ -1933,6 +1943,7 @@ impl PlayerInternal {
         self.resume_after_interruption = false;
         self.restore_position = None;
         self.pending_seek = None;
+        self.listen.reset(Duration::ZERO, false);
         Ok(())
     }
 
@@ -2040,6 +2051,7 @@ impl PlayerInternal {
             self.pending_seek = None;
             if self.current_track_index.is_some() {
                 self.restore_position = Some(position);
+                self.listen.rebase(position, false);
                 self.send_track_state(false, position)?;
                 return Ok(SeekOutcome::Applied);
             }
@@ -2050,6 +2062,7 @@ impl PlayerInternal {
             // Seeking on a stopped output would wait forever. The track keeps the place, and the
             // next play seeks there once the output runs again.
             self.pending_seek = Some(position);
+            self.listen.rebase(position, false);
             self.send_track_state(false, position)?;
             return Ok(SeekOutcome::Applied);
         }
@@ -2064,7 +2077,9 @@ impl PlayerInternal {
         }
         info!("Seeking to position: {seconds} s");
         let position = sink.get_pos();
-        self.send_track_state(self.state == InternalPlaybackState::Playing, position)?;
+        let playing = self.state == InternalPlaybackState::Playing;
+        self.listen.rebase(position, playing);
+        self.send_track_state(playing, position)?;
         Ok(SeekOutcome::Applied)
     }
 
@@ -2273,6 +2288,7 @@ impl PlayerInternal {
             .with_context(|| "Failed to send Stopped event")?;
         self.schedule_playlist_update();
         self.state = InternalPlaybackState::Stopped;
+        self.listen.reset(Duration::ZERO, false);
 
         Ok(())
     }
@@ -2374,6 +2390,8 @@ impl PlayerInternal {
         // A track reports where a seek put it even while its output does not run, so the
         // reports do not take the slider back.
         let position = self.current_position().unwrap_or_default();
+        self.listen
+            .update(position, self.state == InternalPlaybackState::Playing);
 
         if let Some(sink) = &self.sink {
             // While a track loads, the previous one keeps the sink and may still run out. Its end
@@ -2409,6 +2427,7 @@ impl PlayerInternal {
                         index: index.unwrap(),
                         path: path.unwrap(),
                         playback_mode,
+                        listened: self.listen.heard(),
                     })
                     .with_context(|| "Failed to send EndOfTrack event")?;
 
@@ -4060,6 +4079,57 @@ mod playback_state_tests {
                     .await??;
                     assert_eq!(ends, 1);
                     assert_eq!(&*ids.lock().unwrap(), &[1, 2]);
+
+                    runner.abort();
+                    let _ = std::fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn end_of_track_reports_only_time_played_across_a_seek() -> Result<()> {
+        let file_uuids = [Uuid::new_v4(), Uuid::new_v4()];
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&file_uuids);
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    let first = library_item(library_id, file_uuids[0]);
+                    commands_sender.send(add_library_tracks(library_id, &file_uuids))?;
+                    commands_sender.send(PlayerCommand::Switch(0))?;
+                    expect_playing(&mut events, &first).await?;
+                    progress_at_or_after(&mut events, Duration::from_secs(1)).await?;
+
+                    commands_sender.send(PlayerCommand::Seek(4.0))?;
+                    let listened = tokio::time::timeout(TEST_DEADLINE, async {
+                        loop {
+                            match events.recv().await {
+                                Some(PlayerEvent::EndOfTrack { item, listened, .. })
+                                    if item == first =>
+                                {
+                                    return Ok(listened);
+                                }
+                                Some(_) => {}
+                                None => bail!("player events closed"),
+                            }
+                        }
+                    })
+                    .await??;
+
+                    assert!(
+                        listened >= Duration::from_secs(1),
+                        "the played second before the seek was lost: {listened:?}"
+                    );
+                    assert!(
+                        listened < Duration::from_secs(3),
+                        "the seek was counted as listening: {listened:?}"
+                    );
 
                     runner.abort();
                     let _ = std::fs::remove_file(wav_path);

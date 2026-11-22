@@ -28,7 +28,7 @@ pub fn metadata_summary_to_scrobbling_track(
         artist: metadata.artist.clone(),
         album: Some(metadata.album.clone()),
         track: metadata.title.clone(),
-        duration: Some(metadata.duration.clamp(0.0, u32::MAX as f64) as u32),
+        duration: Some(metadata.duration.clamp(0.0, u32::MAX as f64)),
         album_artist: None,
         timestamp: SystemTime::now()
             .duration_since(UNIX_EPOCH)
