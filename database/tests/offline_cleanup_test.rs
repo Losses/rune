@@ -13,6 +13,7 @@ use database::{
 use fsio::FsIo;
 use sea_orm::{ActiveModelTrait, Database, EntityTrait, Set};
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs as std_fs;
 use std::path::Path;
 use uuid::Uuid;
