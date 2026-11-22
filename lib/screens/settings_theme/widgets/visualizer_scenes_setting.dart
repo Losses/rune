@@ -126,30 +126,35 @@ class VisualizerScenesSetting extends StatelessWidget {
     VisualizerScenesProvider provider,
     VisualizerScene scene,
   ) async {
-    final s = S.of(context);
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => ScrollableDialogFrame(
-        child: ContentDialog(
-          title: Text(s.visualizerDeleteScene),
-          content: Text(s.visualizerDeleteSceneConfirm(scene.name)),
-          actions: [
-            FilledButton(
-              child: Text(s.delete),
-              onPressed: () => Navigator.pop(context, true),
-            ),
-            Button(
-              child: Text(s.cancel),
-              onPressed: () => Navigator.pop(context, false),
-            ),
-          ],
-        ),
-      ),
-    );
+    final confirmed = await showDeleteSceneDialog(context, scene.name);
     if (confirmed != true) return;
     final error = await provider.removeScene(scene);
     if (error != null) {
       error$('Failed to delete the scene ${scene.name}: $error');
     }
   }
+}
+
+/// Asks before deleting the imported scene called [name].
+Future<bool?> showDeleteSceneDialog(BuildContext context, String name) {
+  final s = S.of(context);
+  return showDialog<bool>(
+    context: context,
+    builder: (context) => ScrollableDialogFrame(
+      child: ContentDialog(
+        title: Text(s.visualizerDeleteScene),
+        content: Text(s.visualizerDeleteSceneConfirm(name)),
+        actions: [
+          FilledButton(
+            child: Text(s.delete),
+            onPressed: () => Navigator.pop(context, true),
+          ),
+          Button(
+            child: Text(s.cancel),
+            onPressed: () => Navigator.pop(context, false),
+          ),
+        ],
+      ),
+    ),
+  );
 }

@@ -6,6 +6,9 @@ import '../../../utils/api/fetch_server_certificate.dart';
 import '../../../widgets/fingerprint/fingerprint_quiz.dart';
 import '../../../widgets/no_shortcuts.dart';
 
+/// Reads the certificate fingerprint a device at [host] presents.
+typedef FingerprintLoader = Future<String> Function(String host);
+
 /// The user's answer and the certificate fingerprint they checked it against.
 class FingerprintAnswer {
   const FingerprintAnswer({required this.fingerprint, required this.correct});
@@ -19,10 +22,14 @@ class FingerprintQuizDialog extends StatefulWidget {
     super.key,
     required this.$close,
     required this.host,
+    this.loadFingerprint = fetchServerCertificate,
   });
 
   final String host;
   final void Function(FingerprintAnswer?) $close;
+
+  /// Reads the fingerprint to check against; defaults to the real lookup.
+  final FingerprintLoader loadFingerprint;
 
   @override
   FingerprintQuizDialogState createState() => FingerprintQuizDialogState();
@@ -34,7 +41,7 @@ class FingerprintQuizDialogState extends State<FingerprintQuizDialog> {
   @override
   void initState() {
     super.initState();
-    _fingerprintFuture = fetchServerCertificate(widget.host);
+    _fingerprintFuture = widget.loadFingerprint(widget.host);
   }
 
   void _handleAnswer(String fingerprint, bool correct) {

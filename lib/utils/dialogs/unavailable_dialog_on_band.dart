@@ -89,13 +89,20 @@ class ScrollableDialogFrame extends StatelessWidget {
       builder: (context, constraints) {
         final width = max(320.0, constraints.maxWidth);
         final height = max(minimumHeight, constraints.maxHeight);
+        // A dialog that fills the window keeps its exact size; one with a
+        // minimum height may grow past it, and the scroll view then reaches
+        // the rest.
+        final content = minimumHeight == 0
+            ? SizedBox(width: width, height: height, child: child)
+            : ConstrainedBox(
+                constraints: BoxConstraints(minWidth: width, minHeight: height),
+                child: child,
+              );
         return SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: SizedBox(
             width: width,
-            child: SingleChildScrollView(
-              child: SizedBox(width: width, height: height, child: child),
-            ),
+            child: SingleChildScrollView(child: content),
           ),
         );
       },
