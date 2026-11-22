@@ -113,13 +113,14 @@ void main() {
     tester,
   ) async {
     final modes = <LibraryInitializeMode?>[];
-    final opened = <String>[];
+    final steps = <String>[];
     final provider = LibraryRegistryProvider(
       loadRecords: () async => ListLibraryRecordsResponse(
         records: const [],
         invalidRecords: const [],
         lastOpenRecord: null,
       ),
+      saveBookmark: (path) async => steps.add('bookmark $path'),
       registerLocal: (path, alias, mode) async {
         expect(path, '/new/music');
         expect(alias, 'Music');
@@ -135,7 +136,7 @@ void main() {
         );
       },
       openRecord: (recordId, callId) async {
-        opened.add(recordId);
+        steps.add('open $recordId');
         return _opened(recordId, callId);
       },
     );
@@ -165,6 +166,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(modes, [null, LibraryInitializeMode.portable]);
-    expect(opened, ['record-1']);
+    expect(steps, ['bookmark /new/music', 'open record-1']);
   });
 }
