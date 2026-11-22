@@ -334,8 +334,6 @@ mod windows {
 mod tests {
     use super::*;
     use crate::MediaPosition;
-    #[cfg(windows)]
-    use std::mem;
 
     #[test]
     fn a_position_from_the_lock_screen_is_given_in_seconds() {
@@ -364,6 +362,7 @@ mod tests {
 
     #[cfg(target_os = "windows")]
     mod windows_tests {
+        use std::mem;
         use std::sync::mpsc;
         use std::time::Duration;
 
