@@ -2270,6 +2270,7 @@ mod access_policy_tests {
     #[derive(Clone, Copy)]
     enum TrustMutation {
         Block,
+        #[cfg(unix)]
         Remove,
     }
 
@@ -2286,11 +2287,13 @@ mod access_policy_tests {
                         .change_user_status(fingerprint, UserStatus::Blocked)
                         .await
                 }
+                #[cfg(unix)]
                 Self::Remove => permissions.remove_user(fingerprint).await,
             }
         }
 
         /// What the trust list shows for the device once the mutation has taken effect.
+        #[cfg(unix)]
         fn expected_status(self) -> Option<UserStatus> {
             match self {
                 Self::Block => Some(UserStatus::Blocked),
@@ -2356,6 +2359,7 @@ mod access_policy_tests {
     }
 
     /// Reopens the trust list and grants from disk, as a restart would.
+    #[cfg(unix)]
     async fn reload_policy(
         config: &Path,
     ) -> Result<(PermissionManager, crate::access_policy::RuneAccessPolicy)> {
@@ -2365,6 +2369,7 @@ mod access_policy_tests {
         Ok((permissions, policy))
     }
 
+    #[cfg(unix)]
     fn peer(fingerprint: &str) -> ::discovery::access_policy::PeerIdentity {
         ::discovery::access_policy::PeerIdentity {
             fingerprint: fingerprint.into(),
@@ -2372,6 +2377,7 @@ mod access_policy_tests {
         }
     }
 
+    #[cfg(unix)]
     async fn failed_trust_save_keeps_restricted_grants(mutation: TrustMutation) -> Result<()> {
         use ::discovery::access_policy::AccessPolicy;
 
@@ -2429,18 +2435,21 @@ mod access_policy_tests {
         a.global_params.node.shutdown().await
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn blocking_a_device_keeps_its_restricted_grants_when_the_trust_file_cannot_be_written()
     -> Result<()> {
         failed_trust_save_keeps_restricted_grants(TrustMutation::Block).await
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn removing_a_device_keeps_its_restricted_grants_when_the_trust_file_cannot_be_written()
     -> Result<()> {
         failed_trust_save_keeps_restricted_grants(TrustMutation::Remove).await
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn approving_a_device_grants_nothing_when_the_trust_file_cannot_be_written() -> Result<()>
     {
