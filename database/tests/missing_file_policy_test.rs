@@ -1,14 +1,17 @@
 use anyhow::Result;
 use database::{
-    actions::metadata::{MissingHostFilePolicy, scan_audio_file},
-    entities::media_files,
+    actions::{
+        logging::list_log,
+        metadata::{MissingHostFilePolicy, scan_audio_file},
+    },
+    entities::{media_files, media_metadata},
     sync::{
         SeaOrmSyncStore,
         model::{Collection, ObjectKey},
     },
 };
 use fsio::FsIo;
-use sea_orm::{Database, EntityTrait};
+use sea_orm::{ColumnTrait, ConnectionTrait, Database, EntityTrait, PaginatorTrait, QueryFilter};
 use support::fixtures;
 use uuid::Uuid;
 
@@ -264,5 +267,130 @@ async fn empty_library_root_scans_successfully() -> Result<()> {
     )
     .await?;
     assert_eq!(scanned, 0);
+    Ok(())
+}
+
+/// One rejected removal must leave that entry and its metadata intact, keep
+/// cleaning the other entries, and report the failed entry in the app log.
+#[tokio::test]
+async fn rejected_missing_file_removal_is_logged_and_rolled_back() -> Result<()> {
+    let node = Uuid::new_v4();
+    let temp = tempfile::tempdir()?;
+    let root = temp.path().join("library");
+    std::fs::create_dir(&root)?;
+    let db = fixtures::disk_database(&temp.path().join("library.sqlite"), node).await?;
+    let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
+    let fs = FsIo::new();
+    let blocked_path = root.join("blocked.ogg");
+    let removed_path = root.join("removed.ogg");
+    std::fs::copy(fixtures::audio_fixture(), &blocked_path)?;
+    std::fs::copy(fixtures::audio_fixture(), &removed_path)?;
+    let actor = node.to_string();
+    let blocked_id = scan_audio_file(&fs, &db, &actor, &root, &blocked_path, &store).await?;
+    let removed_id = scan_audio_file(&fs, &db, &actor, &root, &removed_path, &store).await?;
+    let metadata_before = media_metadata::Entity::find()
+        .filter(media_metadata::Column::FileId.eq(blocked_id))
+        .count(&db)
+        .await?;
+    assert!(metadata_before > 0);
+
+    db.execute_unprepared(&format!(
+        "CREATE TRIGGER reject_cleanup BEFORE DELETE ON media_files \
+         WHEN OLD.id = {blocked_id} \
+         BEGIN SELECT RAISE(ABORT, 'cleanup rejected by test trigger'); END"
+    ))
+    .await?;
+    std::fs::remove_file(&blocked_path)?;
+    std::fs::remove_file(&removed_path)?;
+
+    let scanned = fixtures::cleanup_scan(
+        &fs,
+        &db,
+        &actor,
+        &root,
+        &store,
+        MissingHostFilePolicy::RemoveEverywhere,
+    )
+    .await?;
+    assert_eq!(scanned, 0);
+
+    assert!(
+        media_files::Entity::find_by_id(blocked_id)
+            .one(&db)
+            .await?
+            .is_some(),
+        "the rejected entry must be rolled back, not left half removed"
+    );
+    assert_eq!(
+        media_metadata::Entity::find()
+            .filter(media_metadata::Column::FileId.eq(blocked_id))
+            .count(&db)
+            .await?,
+        metadata_before,
+        "metadata deleted before the rejected removal must be rolled back"
+    );
+    assert!(
+        media_files::Entity::find_by_id(removed_id)
+            .one(&db)
+            .await?
+            .is_none(),
+        "the other missing entry must still be removed"
+    );
+
+    let failures: Vec<_> = list_log(&db, 0, 100)
+        .await?
+        .into_iter()
+        .filter(|log| {
+            log.level == "WARNING" && log.domain == "actions::metadata::clean_up_database"
+        })
+        .collect();
+    assert_eq!(
+        failures.len(),
+        1,
+        "the app log must contain one cleanup failure"
+    );
+    assert!(
+        failures[0]
+            .detail
+            .contains(&format!("Failed to clean up missing file {blocked_id}:")),
+        "the app log must identify the failed entry: {}",
+        failures[0].detail
+    );
+    assert!(
+        failures[0]
+            .detail
+            .contains("cleanup rejected by test trigger"),
+        "the app log must include the failure reason: {}",
+        failures[0].detail
+    );
+
+    db.execute_unprepared("DROP TRIGGER reject_cleanup").await?;
+    fixtures::cleanup_scan(
+        &fs,
+        &db,
+        &actor,
+        &root,
+        &store,
+        MissingHostFilePolicy::RemoveEverywhere,
+    )
+    .await?;
+    assert!(
+        media_files::Entity::find_by_id(blocked_id)
+            .one(&db)
+            .await?
+            .is_none(),
+        "retry after removing the fault must remove the entry"
+    );
+    assert_eq!(
+        list_log(&db, 0, 100)
+            .await?
+            .into_iter()
+            .filter(|log| log.level == "WARNING"
+                && log.domain == "actions::metadata::clean_up_database")
+            .count(),
+        1,
+        "a successful retry must not add another failure"
+    );
+    db.close().await?;
     Ok(())
 }

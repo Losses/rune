@@ -716,16 +716,31 @@ async fn clean_up_database(
                 && !mass_missing
             {
                 let tx = main_db.begin().await?;
-                store.lock(&tx).await?;
-                let current = media_files::Entity::find_by_id(file.id).one(&tx).await?;
-                if current.as_ref().is_some_and(|row| {
-                    row.local_available
-                        && row.directory == file.directory
-                        && row.file_name == file.file_name
-                }) {
-                    remove_track(&tx, store, file.id).await?;
+                let removal: Result<()> = async {
+                    store.lock(&tx).await?;
+                    let current = media_files::Entity::find_by_id(file.id).one(&tx).await?;
+                    if current.as_ref().is_some_and(|row| {
+                        row.local_available
+                            && row.directory == file.directory
+                            && row.file_name == file.file_name
+                    }) {
+                        remove_track(&tx, store, file.id).await?;
+                    }
+                    Ok(())
                 }
-                tx.commit().await?;
+                .await;
+                match removal {
+                    Ok(()) => tx.commit().await?,
+                    Err(error) => {
+                        if let Err(rollback_error) = tx.rollback().await {
+                            return Err(error.context(format!(
+                                "Failed to roll back cleanup of missing file {}: {rollback_error:#}",
+                                file.id
+                            )));
+                        }
+                        return Err(error);
+                    }
+                }
             } else {
                 media_files::Entity::update_many()
                     .col_expr(media_files::Column::LocalAvailable, Expr::value(false))
@@ -740,7 +755,21 @@ async fn clean_up_database(
         }
         .await;
         if let Err(error) = result {
-            error!("Failed to clean up missing file {}: {error:#}", file.id);
+            let detail = format!("Failed to clean up missing file {}: {error:#}", file.id);
+            error!("{detail}");
+            if let Err(log_error) = insert_log(
+                main_db,
+                LogLevel::Warning,
+                "actions::metadata::clean_up_database".to_string(),
+                detail,
+            )
+            .await
+            {
+                error!(
+                    "Failed to log cleanup failure for missing file {}: {log_error:#}",
+                    file.id
+                );
+            }
         }
     }
     Ok(())
