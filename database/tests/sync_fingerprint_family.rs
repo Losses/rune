@@ -4,7 +4,8 @@ use database::{
     actions::fingerprint::{
         ComputedFingerprint, ComputedSimilarity, Configuration, assign_computed_fingerprint,
         assign_computed_similarity, compare_all_pairs, compute_file_fingerprints,
-        default_similarity_configuration, mark_duplicate_files, reset_duplicate_marks,
+        default_similarity_configuration, get_duplicate_files, mark_duplicate_files,
+        reset_duplicate_marks,
     },
     entities::{media_file_fingerprint, media_file_similarity, media_files},
     sync::{
@@ -493,6 +494,102 @@ async fn missing_zero_score_pairs_preserve_zero_threshold_duplicate_marks() -> R
         .map(|row| (row.track_uuid, row.is_duplicated))
         .collect();
     assert_eq!(before, after);
+    Ok(())
+}
+
+/// Each file's duplicate mark in the table and in its synced record, ordered by file id.
+async fn duplicate_marks(
+    db: &DatabaseConnection,
+    store: &SeaOrmSyncStore,
+) -> Result<Vec<(i32, i32, i32)>> {
+    let mut marks = Vec::new();
+    for file in media_files::Entity::find()
+        .order_by_asc(media_files::Column::Id)
+        .all(db)
+        .await?
+    {
+        let row = media_file_fingerprint::Entity::find()
+            .filter(media_file_fingerprint::Column::TrackUuid.eq(file.source_uuid.clone()))
+            .one(db)
+            .await?
+            .unwrap();
+        let record = store
+            .get_on(
+                db,
+                &ObjectKey {
+                    collection: Collection::Fingerprints,
+                    id: row.source_uuid.parse()?,
+                },
+            )
+            .await?
+            .unwrap();
+        let Some(Payload::Fingerprint(value)) = record.value else {
+            panic!("fingerprint record without a fingerprint payload");
+        };
+        marks.push((file.id, row.is_duplicated, value.is_duplicated));
+    }
+    Ok(marks)
+}
+
+#[tokio::test]
+async fn raising_the_threshold_unmarks_pairs_below_it() -> Result<()> {
+    let node = Uuid::new_v4();
+    let db = fixtures::memory_database(node).await?;
+    let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
+    fingerprinted_file(&db, &store, 1, Uuid::new_v4(), vec![0x1111_1111; 64]).await?;
+    fingerprinted_file(&db, &store, 2, Uuid::new_v4(), vec![0x1111_111e; 64]).await?;
+    compare_all_pairs(&db, |_, _| {}, &Configuration::default(), None, &store).await?;
+    let similarity = media_file_similarity::Entity::find()
+        .one(&db)
+        .await?
+        .unwrap()
+        .similarity;
+    assert!(
+        (0.85..0.95).contains(&similarity),
+        "similarity {similarity}"
+    );
+
+    assert_eq!(mark_duplicate_files(&db, 0.85, |_, _| {}, &store).await?, 1);
+    assert_eq!(get_duplicate_files(&db).await?.len(), 1);
+    assert_eq!(mark_duplicate_files(&db, 0.95, |_, _| {}, &store).await?, 0);
+    assert!(get_duplicate_files(&db).await?.is_empty());
+    assert_eq!(
+        duplicate_marks(&db, &store).await?,
+        vec![(1, 0, 0), (2, 0, 0)]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn raising_the_threshold_keeps_groups_that_still_qualify() -> Result<()> {
+    let node = Uuid::new_v4();
+    let db = fixtures::memory_database(node).await?;
+    let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
+    // Files 1 and 2 are identical; file 3 is only similar to both.
+    // With equal sample rates the smallest source identity is kept.
+    fingerprinted_file(&db, &store, 1, Uuid::from_u128(1), vec![0x1111_1111; 64]).await?;
+    fingerprinted_file(&db, &store, 2, Uuid::from_u128(2), vec![0x1111_1111; 64]).await?;
+    fingerprinted_file(&db, &store, 3, Uuid::from_u128(3), vec![0x1111_111e; 64]).await?;
+    compare_all_pairs(&db, |_, _| {}, &Configuration::default(), None, &store).await?;
+
+    assert_eq!(mark_duplicate_files(&db, 0.85, |_, _| {}, &store).await?, 2);
+    assert_eq!(
+        duplicate_marks(&db, &store).await?,
+        vec![(1, 0, 0), (2, 1, 1), (3, 1, 1)]
+    );
+    assert_eq!(mark_duplicate_files(&db, 0.95, |_, _| {}, &store).await?, 1);
+    assert_eq!(
+        duplicate_marks(&db, &store).await?,
+        vec![(1, 0, 0), (2, 1, 1), (3, 0, 0)]
+    );
+    assert_eq!(
+        get_duplicate_files(&db)
+            .await?
+            .into_iter()
+            .map(|file| file.id)
+            .collect::<Vec<_>>(),
+        vec![2]
+    );
     Ok(())
 }
 
