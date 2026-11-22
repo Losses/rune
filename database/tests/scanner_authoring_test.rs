@@ -3,7 +3,7 @@ use database::test_fixtures::fixtures;
 use database::{
     actions::{
         index::{index_audio_library, index_media_files},
-        metadata::{author_indexed_track_row, sync_file_descriptions},
+        metadata::{author_indexed_track_row, scan_audio_file, sync_file_descriptions},
     },
     entities::{albums, media_file_albums, media_file_artists, media_file_genres, media_files},
     sync::{
@@ -15,6 +15,35 @@ use fsio::FsIo;
 use metadata::describe::describe_file;
 use sea_orm::{ConnectionTrait, Database, EntityTrait, PaginatorTrait};
 use uuid::Uuid;
+
+#[tokio::test]
+async fn single_file_scan_uses_the_resolved_library_root() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let root = temp.path().join("Music");
+    let album = root.join("Album");
+    std::fs::create_dir_all(&album)?;
+    let track = album.join("song.ogg");
+    std::fs::copy(fixtures::audio_fixture(), &track)?;
+    // Unlike an 8.3 alias, this alternate spelling exists on every filesystem.
+    let alias = album.join("..");
+    let node = Uuid::new_v4();
+    let db = fixtures::memory_database(node).await?;
+    let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
+    let fs = FsIo::new();
+    let id = scan_audio_file(&fs, &db, &node.to_string(), &alias, &track, &store).await?;
+    let row = media_files::Entity::find_by_id(id).one(&db).await?.unwrap();
+    assert_eq!(row.directory, "Album");
+    assert_eq!(row.file_name, "song.ogg");
+
+    let outside = temp.path().join("outside.ogg");
+    std::fs::copy(&track, &outside)?;
+    assert!(
+        scan_audio_file(&fs, &db, &node.to_string(), &alias, &outside, &store)
+            .await
+            .is_err()
+    );
+    Ok(())
+}
 
 #[tokio::test]
 async fn journal_failure_rolls_back_scanned_file() -> Result<()> {
