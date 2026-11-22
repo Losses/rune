@@ -342,6 +342,7 @@ fn store(folder: &Path, name: &str, item: &Item, thumbnail: &Thumbnail) -> Resul
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
     use std::os::unix::fs::PermissionsExt;
 
     use super::*;
@@ -380,7 +381,7 @@ mod tests {
             height,
             image::Rgba(color),
         ))
-        .write_to(&mut std::io::Cursor::new(&mut bytes), ImageFormat::Png)
+        .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
         .unwrap();
         bytes
     }

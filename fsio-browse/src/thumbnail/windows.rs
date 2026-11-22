@@ -99,7 +99,11 @@ fn bitmap_pixels(bitmap: HBITMAP) -> Option<(u32, u32, Vec<u8>)> {
     }
     // Many thumbnail handlers leave alpha at zero for opaque pictures.
     if pixels.as_chunks::<4>().0.iter().all(|pixel| pixel[3] == 0) {
-        pixels.as_chunks_mut::<4>().0.iter_mut().for_each(|pixel| pixel[3] = 255);
+        pixels
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .for_each(|pixel| pixel[3] = 255);
     } else {
         unpremultiply(&mut pixels, 3);
     }
