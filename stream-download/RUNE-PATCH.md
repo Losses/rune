@@ -49,6 +49,15 @@ This is stream-download 0.24.5 from crates.io, with its original licenses, used 
   exits. Tests:
   `src/process/exit_status_tests.rs` (`--features process`); on unpatched 0.24.5 the
   nonzero-exit and cancel-after-EOF tests fail.
+- Adaptive storage capacity (`src/storage/adaptive.rs`, `src/storage/mod.rs`, and
+  `from_create_stream` in `src/lib.rs`): a stream of unknown length uses a ring of the buffer
+  size, but the provider reported no capacity, so a read or seek larger than the ring was not
+  rejected and waited forever for space the writer could not free. The provider now reports its
+  capacity for the stream's content length (new `StorageProvider::max_capacity_for`, which
+  defaults to `max_capacity`): the buffer size for unknown lengths, otherwise the capacity of the
+  fixed or variable provider that the length selects, so finite streams keep reading buffers
+  larger than the buffer size. Tests: `src/storage/adaptive_tests.rs`; on unpatched 0.24.5 the
+  oversized read and seek tests stall.
 
 Regression tests: `src/source/lifecycle_tests.rs` (on unpatched 0.24.5 the cached-seek,
 zero-prefetch and downloader-panic tests fail; the two gap tests guard the 0.22.4 panic), run from this directory with
