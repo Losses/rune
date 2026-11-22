@@ -2467,6 +2467,7 @@ impl PlayerInternal {
 
         debug!("Moving playlist item from index {old_index} to index {new_index}");
 
+        let current_position = self.resolved_current_position();
         let item = self.playlist.remove(old_index);
         self.playlist.insert(new_index, item);
 
@@ -2479,18 +2480,17 @@ impl PlayerInternal {
             },
         );
 
-        // Adjust the current track index if necessary
-        if let Some(current_index) = self.current_track_index {
-            if old_index == current_index {
-                // The currently playing track was moved
-                self.current_track_index = Some(new_index);
-            } else if old_index < current_index && new_index >= current_index {
-                // The track was moved past the current track
-                self.current_track_index = Some(current_index - 1);
-            } else if old_index > current_index && new_index <= current_index {
-                // The track was moved before the current track
-                self.current_track_index = Some(current_index + 1);
-            }
+        if let Some(position) = current_position {
+            let position = if position == old_index {
+                new_index
+            } else if old_index < position && position <= new_index {
+                position - 1
+            } else if new_index <= position && position < old_index {
+                position + 1
+            } else {
+                position
+            };
+            self.set_current_position(position, self.current_track_mapped);
         }
 
         self.schedule_playlist_update();
@@ -5894,6 +5894,38 @@ mod playback_state_tests {
             matches!(&event, PlayerEvent::Loaded { index: 0, item, .. }
                 if *item == library_item(library, ids[1])),
             "{event:?}"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moving_a_direct_shuffle_selection_after_a_removal_keeps_its_successor() -> Result<()> {
+        let library = Uuid::new_v4();
+        let ids = [(); 4].map(|_| Uuid::new_v4());
+        let (mut player, _commands, mut events, wav_path) = long_track_engine(&ids);
+        player.add_to_playlist(library_tracks(library, &ids), AddMode::AppendToEnd);
+        player.playback_mode = PlaybackMode::Shuffle;
+        player.playback_strategy = Box::new(SHIFTED_ORDER);
+        player.load(Some(2), true, false)?;
+        let playing = run_until_track_state(&mut player, &mut events).await?;
+        assert!(
+            matches!(&playing, PlayerEvent::Playing { index: 2, item, .. }
+                if *item == library_item(library, ids[2])),
+            "{playing:?}"
+        );
+
+        player.remove_from_playlist(3)?;
+        player.move_playlist_item(2, 1);
+        let position = player.current_playlist_index();
+        player.next()?;
+        let next = run_until_track_state(&mut player, &mut events).await?;
+        let _ = std::fs::remove_file(wav_path);
+
+        assert_eq!(position, Some(1), "{next:?}");
+        assert!(
+            matches!(&next, PlayerEvent::Playing { index: 2, item, .. }
+                if *item == library_item(library, ids[1])),
+            "{next:?}"
         );
         Ok(())
     }
