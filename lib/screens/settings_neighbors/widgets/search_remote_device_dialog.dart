@@ -10,7 +10,14 @@ class SearchRemoteDeviceDialog extends StatelessWidget {
   /// Closes the search with the chosen device, or null after cancellation.
   final void Function(DiscoveredDeviceMessage?) $close;
 
-  const SearchRemoteDeviceDialog({super.key, required this.$close});
+  /// Devices to show without searching, for a preview.
+  final List<DiscoveredDeviceMessage>? initialDevices;
+
+  const SearchRemoteDeviceDialog({
+    super.key,
+    required this.$close,
+    this.initialDevices,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -51,7 +58,10 @@ class SearchRemoteDeviceDialog extends StatelessWidget {
               height: 420,
               child: Padding(
                 padding: EdgeInsetsDirectional.symmetric(horizontal: 12),
-                child: DiscoveredDevicesList(onSelected: close),
+                child: DiscoveredDevicesList(
+                  onSelected: close,
+                  initialDevices: initialDevices,
+                ),
               ),
             )
           ],

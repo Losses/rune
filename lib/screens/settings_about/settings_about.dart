@@ -29,6 +29,37 @@ const size = 400.0;
 /// build without git information has an empty one.
 String shortBuildHash(String sha) => sha.substring(0, min(8, sha.length));
 
+/// The About page's hidden dialog, opened from the logo's context menu.
+Future<void> showMysteriousDialog(BuildContext context) {
+  return $showModal<void>(
+    context,
+    (context, $close) => NoShortcuts(
+      ContentDialog(
+        title: Text(S.of(context).mysteriousModalTitle),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              S.of(context).mysteriousModalContent,
+              style: TextStyle(height: 1.4),
+            ),
+          ],
+        ),
+        actions: [
+          Button(
+            onPressed: () {
+              $close(null);
+            },
+            child: Text(S.of(context).close),
+          ),
+        ],
+      ),
+    ),
+    barrierDismissible: true,
+    dismissWithEsc: true,
+  );
+}
+
 class SettingsAboutPage extends StatelessWidget {
   const SettingsAboutPage({super.key});
 
@@ -133,34 +164,7 @@ class _LogoSectionState extends State<_LogoSection> {
                           onPressed: () {
                             SettingsManager().setValue(SettingsHomePage.mysteriousKey, true);
 
-                            $showModal<void>(
-                              context,
-                              (context, $close) => NoShortcuts(
-                                ContentDialog(
-                                  title:
-                                      Text(S.of(context).mysteriousModalTitle),
-                                  content: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        S.of(context).mysteriousModalContent,
-                                        style: TextStyle(height: 1.4),
-                                      ),
-                                    ],
-                                  ),
-                                  actions: [
-                                    Button(
-                                      onPressed: () {
-                                        $close(null);
-                                      },
-                                      child: Text(S.of(context).close),
-                                    )
-                                  ],
-                                ),
-                              ),
-                              barrierDismissible: true,
-                              dismissWithEsc: true,
-                            );
+                            showMysteriousDialog(context);
                           },
                         ),
                       ],

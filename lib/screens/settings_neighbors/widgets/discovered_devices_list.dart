@@ -12,10 +12,14 @@ class DiscoveredDevicesList extends StatefulWidget {
   const DiscoveredDevicesList({
     super.key,
     required this.onSelected,
+    this.initialDevices,
   });
 
   /// Called when the user chooses to pair with a device that has an address.
   final void Function(DiscoveredDeviceMessage) onSelected;
+
+  /// Devices to show without discovering any, for a preview.
+  final List<DiscoveredDeviceMessage>? initialDevices;
 
   @override
   State<DiscoveredDevicesList> createState() => _DiscoveredDevicesListState();
@@ -26,12 +30,17 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
   List<DiscoveredDeviceMessage> _devices = [];
   Timer? _pollingTimer;
   StreamSubscription? _responseSubscription;
-  late StreamSubscription<RustSignalPack<GetDiscoveredDeviceResponse>>
+  StreamSubscription<RustSignalPack<GetDiscoveredDeviceResponse>>?
   _subscription;
 
   @override
   void initState() {
     super.initState();
+    final initial = widget.initialDevices;
+    if (initial != null) {
+      _devices = initial;
+      return;
+    }
     _startListening();
     _startDiscovery();
   }
@@ -66,9 +75,11 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
     _pollingTimer?.cancel();
     _responseSubscription?.cancel();
 
-    final stopRequest = StopListeningRequest();
-    stopRequest.sendSignalToRust();
-    _subscription.cancel();
+    if (widget.initialDevices == null) {
+      final stopRequest = StopListeningRequest();
+      stopRequest.sendSignalToRust();
+      _subscription?.cancel();
+    }
 
     super.dispose();
   }

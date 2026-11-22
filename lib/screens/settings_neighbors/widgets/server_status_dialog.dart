@@ -8,16 +8,26 @@ import '../../../utils/api/request_failure.dart';
 import '../../../utils/dialogs/information/error.dart';
 import '../../../bindings/bindings.dart';
 
+/// Asks the server whether it has approved this device.
+typedef DeviceStatusCheck = Future<CheckDeviceOnServerResponse> Function(
+  List<String> hosts,
+  String fingerprint,
+);
+
 class ServerStatusDialog extends StatefulWidget {
   final List<String> hosts;
   final String fingerprint;
   final Function(CheckDeviceOnServerResponse?) close;
+
+  /// Polls the server for its decision; defaults to the real request.
+  final DeviceStatusCheck check;
 
   const ServerStatusDialog({
     super.key,
     required this.hosts,
     required this.fingerprint,
     required this.close,
+    this.check = checkDeviceOnServer,
   });
 
   @override
@@ -55,7 +65,7 @@ class ServerStatusDialogState extends State<ServerStatusDialog> {
   }
 
   Future<CheckDeviceOnServerResponse> _checkDeviceStatus() async {
-    return await checkDeviceOnServer(widget.hosts, widget.fingerprint);
+    return await widget.check(widget.hosts, widget.fingerprint);
   }
 
   Future<void> _handlePollingError(Object error) async {

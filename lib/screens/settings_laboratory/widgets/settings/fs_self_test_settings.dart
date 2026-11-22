@@ -50,15 +50,25 @@ Widget fsSelfTestOutcomeIcon(FsSelfTestLayerOutcome outcome) => switch (outcome)
     Icon(Symbols.error, color: Colors.red, size: 18),
 };
 
+/// Runs the self-test on [path], reporting each layer as it finishes.
+typedef FsSelfTestRunner = Future<FsSelfTestResult> Function(
+  String path, {
+  void Function(FsSelfTestProgress progress)? onProgress,
+});
+
 class FsSelfTestDialog extends StatefulWidget {
   const FsSelfTestDialog({
     super.key,
     required this.path,
     required this.$close,
+    this.run = runFsSelfTest,
   });
 
   final String path;
   final void Function(void) $close;
+
+  /// Runs the test; defaults to the real request to the Rust backend.
+  final FsSelfTestRunner run;
 
   @override
   State<FsSelfTestDialog> createState() => _FsSelfTestDialogState();
@@ -78,7 +88,7 @@ class _FsSelfTestDialogState extends State<FsSelfTestDialog> {
 
   Future<void> _run() async {
     try {
-      final result = await runFsSelfTest(
+      final result = await widget.run(
         widget.path,
         onProgress: (FsSelfTestProgress progress) {
           if (!mounted) return;
