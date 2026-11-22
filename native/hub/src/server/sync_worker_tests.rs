@@ -1658,24 +1658,38 @@ async fn sh15_conditional_head_put_retries_a_s3_409() -> Result<()> {
     let (fixture, session) = real_share(ShareBackend::S3).await;
     let library = support::SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     detailed_sync_pass(&library.sync_store, namespace, &session).await?;
-    session
-        .store
-        .list_prefix("devices/")
-        .await
-        .map_err(|error| anyhow::anyhow!("list devices after base: {error:?}"))?;
     let key = ObjectKey {
         collection: Collection::Playlists,
         id: Uuid::new_v4(),
     };
+    // The first edit creates the alternate slot. Only a subsequent publish
+    // overwrites an existing slot with If-Match, which is what the fixture faults.
     library
         .sync_store
-        .write_local(key, support::playlist("retry conditional head conflict"))
+        .write_local(key.clone(), support::playlist("prime the alternate slot"))
+        .await?;
+    detailed_sync_pass(&library.sync_store, namespace, &session).await?;
+    let edited = support::playlist("retry conditional head conflict");
+    library
+        .sync_store
+        .write_local(key.clone(), edited.clone())
         .await?;
     fixture.conflict_next_conditional_put();
     detailed_sync_pass(&library.sync_store, namespace, &session).await?;
     anyhow::ensure!(
         !fixture.conditional_put_conflict_pending(),
         "share writer never encountered the injected conditional 409"
+    );
+    let reader = support::SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    detailed_sync_pass(&reader.sync_store, namespace, &session).await?;
+    assert_eq!(
+        reader
+            .sync_store
+            .get(&key)
+            .await?
+            .context("retried edit missing")?
+            .value,
+        edited
     );
     Ok(())
 }
