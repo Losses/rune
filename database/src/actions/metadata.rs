@@ -2,7 +2,7 @@ use crate::actions::{
     file::{
         MANAGED_AUDIO_DIRECTORY, get_file_ids_by_descriptions, is_managed_directory, remove_track,
     },
-    index::index_media_files,
+    index::{index_media_file, index_media_files},
     logging::{LogLevel, insert_log},
 };
 use crate::entities::{
@@ -171,7 +171,7 @@ pub async fn sync_file_descriptions(
 ) -> Result<()> {
     let mut work = descriptions.to_vec();
     let failed =
-        sync_file_descriptions_inner(fsio, main_db, node_id, &mut work, force, store).await?;
+        sync_file_descriptions_inner(fsio, main_db, node_id, &mut work, force, None, store).await?;
     for (original, result) in descriptions.iter_mut().zip(work) {
         if result.is_some() {
             *original = result;
@@ -189,6 +189,7 @@ async fn sync_file_descriptions_inner(
     node_id: &str,
     descriptions: &mut [Option<FileDescription>],
     force: bool,
+    scan: Option<&ScanOptions>,
     store: &crate::sync::SeaOrmSyncStore,
 ) -> Result<usize> {
     // Bound both prepared metadata memory and write-lock duration. File I/O is
@@ -338,17 +339,43 @@ async fn sync_file_descriptions_inner(
                     .exec(&txn)
                     .await?;
 
-                author_track(&txn, store, &description.directory, &description.file_name).await?;
+                let id = author_track(&txn, store, &description.directory, &description.file_name)
+                    .await?;
 
+                if let Some(options) = scan {
+                    anyhow::ensure!(
+                        index_media_file(&txn, node_id, id, options.cancel_token.as_ref(), store)
+                            .await
+                            .context("Unable to index file")?,
+                        "Missing metadata summary for file {id}"
+                    );
+                }
                 Ok(())
             }
             .await;
             match result {
-                Ok(()) => txn.commit().await?,
+                Ok(()) => {
+                    txn.commit().await?;
+                }
                 Err(e) => {
-                    txn.rollback().await?;
+                    txn.rollback().await.with_context(|| {
+                        format!("Failed to roll back {} after {e:#}", description.file_name)
+                    })?;
+                    if scan
+                        .and_then(|options| options.cancel_token.as_ref())
+                        .is_some_and(|token| token.is_cancelled())
+                    {
+                        batch_txn
+                            .rollback()
+                            .await
+                            .context("Failed to roll back cancelled metadata batch")?;
+                        return Ok(failed);
+                    }
                     error!("Failed to save {}: {e:#}", description.file_name);
                     if is_fatal_scan_error(&e) {
+                        batch_txn.rollback().await.with_context(|| {
+                            format!("Failed to roll back metadata batch after {e:#}")
+                        })?;
                         return Err(e);
                     }
                     failed += 1;
@@ -377,14 +404,16 @@ async fn author_track(
     store: &crate::sync::SeaOrmSyncStore,
     directory: &str,
     file_name: &str,
-) -> Result<()> {
+) -> Result<i32> {
     let file = media_files::Entity::find()
         .filter(media_files::Column::Directory.eq(directory))
         .filter(media_files::Column::FileName.eq(file_name))
         .one(txn)
         .await?
         .context("scanned file missing")?;
-    author_track_row(txn, store, file).await
+    let id = file.id;
+    author_track_row(txn, store, file).await?;
+    Ok(id)
 }
 
 pub async fn author_track_row(
@@ -804,7 +833,7 @@ where
         cleanup,
         force,
         missing_host_file: policy,
-        cancel_token,
+        ref cancel_token,
     } = options;
     let fsio_for_scan = fsio.clone();
     let root_for_scan = lib_path.to_path_buf();
@@ -848,7 +877,7 @@ where
 
     while !scanner.has_ended() {
         // Check if the cancellation token has been triggered
-        if let Some(ref token) = cancel_token
+        if let Some(token) = cancel_token
             && token.is_cancelled()
         {
             info!("Scan cancelled.");
@@ -919,9 +948,17 @@ where
             continue;
         }
 
-        match sync_file_descriptions_inner(fsio, main_db, node_id, &mut descriptions, force, store)
-            .await
-            .with_context(|| "Unable to describe files")
+        match sync_file_descriptions_inner(
+            fsio,
+            main_db,
+            node_id,
+            &mut descriptions,
+            force,
+            Some(&options),
+            store,
+        )
+        .await
+        .with_context(|| "Unable to describe files")
         {
             Ok(failed) => {
                 if failed > 0 {
@@ -941,16 +978,6 @@ where
         {
             return Ok(processed_files);
         }
-        let file_ids = get_file_ids_by_descriptions(main_db, &descriptions).await?;
-
-        match index_media_files(main_db, node_id, file_ids, cancel_token.as_ref(), store)
-            .await
-            .with_context(|| "Unable to index files")
-        {
-            Ok(_) => {}
-            Err(e) => return Err(e),
-        };
-
         // Update the number of processed files
         processed_files += descriptions.iter().filter(|d| d.is_some()).count();
 

@@ -330,3 +330,84 @@ async fn untitled_track_is_searchable_after_authoring() -> Result<()> {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn ordinary_scan_retries_failed_album_indexing() -> Result<()> {
+    use database::actions::metadata::{MissingHostFilePolicy, ScanOptions, scan_audio_library};
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("song.ogg");
+    std::fs::copy(fixtures::audio_fixture(), &path)?;
+    let node = Uuid::new_v4();
+    let db = fixtures::memory_database(node).await?;
+    let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
+    let fs = FsIo::new();
+    let node_id = node.to_string();
+    let scan = || {
+        scan_audio_library(
+            &fs,
+            &db,
+            &node_id,
+            dir.path(),
+            ScanOptions {
+                cleanup: false,
+                force: false,
+                missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+                cancel_token: None,
+            },
+            |_| {},
+            &store,
+        )
+    };
+
+    // Give the initial track an album tag. The replacement fixture has none.
+    db.execute_unprepared("CREATE TRIGGER initial_album AFTER INSERT ON media_metadata WHEN NEW.meta_key = 'artist' BEGIN UPDATE media_metadata SET meta_key = 'album', meta_value = 'First album' WHERE id = NEW.id; END").await?;
+    for expected_album in ["First album", ""] {
+        if expected_album.is_empty() {
+            db.execute_unprepared("DROP TRIGGER initial_album").await?;
+            std::fs::copy(fixtures::audio_fixture_at(1), &path)?;
+            std::fs::File::options()
+                .write(true)
+                .open(&path)?
+                .set_modified(
+                    std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000),
+                )?;
+        }
+        db.execute_unprepared("CREATE TRIGGER reject_album BEFORE INSERT ON albums BEGIN SELECT RAISE(ABORT, 'album failure'); END").await?;
+        assert_eq!(scan().await?, 0);
+        db.execute_unprepared("DROP TRIGGER reject_album").await?;
+        assert_eq!(scan().await?, 1);
+        let file = media_files::Entity::find().one(&db).await?.unwrap();
+        let assignment = media_file_albums::Entity::find().one(&db).await?.unwrap();
+        let album = albums::Entity::find()
+            .all(&db)
+            .await?
+            .into_iter()
+            .find(|album| album.source_uuid == assignment.album_uuid)
+            .unwrap();
+        assert_eq!(album.name, expected_album);
+        assert_eq!(assignment.track_uuid, file.source_uuid);
+        assert!(
+            store
+                .get_on(
+                    &db,
+                    &ObjectKey {
+                        collection: Collection::TrackAlbums,
+                        id: file.source_uuid.parse()?
+                    }
+                )
+                .await?
+                .is_some()
+        );
+        let head = sync_orm::causal_progress::head_on(&db, store.namespace())
+            .await?
+            .sequence;
+        assert_eq!(scan().await?, 0);
+        assert_eq!(
+            sync_orm::causal_progress::head_on(&db, store.namespace())
+                .await?
+                .sequence,
+            head
+        );
+    }
+    Ok(())
+}
