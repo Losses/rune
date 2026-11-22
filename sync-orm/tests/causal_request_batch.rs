@@ -153,7 +153,7 @@ async fn lost_reply_reopen_concurrent_retry_and_cancel_preserve_admitted_view() 
         .open_snapshot(request, scope(), work, Some(cursor.clone()))
         .await?;
     drop(endpoint);
-    drop(db);
+    db.close().await?;
     let reopened = Database::connect(&url).await?;
     let endpoint = CausalEndpoint::new(
         CausalReplica::<Model>::open(reopened.clone(), namespace, actor).await?,
@@ -204,7 +204,7 @@ async fn lost_reply_reopen_concurrent_retry_and_cancel_preserve_admitted_view() 
     );
     drop(other);
     drop(endpoint);
-    drop(reopened);
+    reopened.close().await?;
     fs::remove_file(path).context("remove temporary database")?;
     Ok(())
 }
