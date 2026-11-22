@@ -438,8 +438,16 @@ pub async fn handle_socket(
         ),
     };
     if let Some(frame) = close {
-        let _ = tx.send(WsMessage::Close(Some(frame))).await;
-        if drain_peer {
+        // A peer that stops reading keeps the outgoing queue full, so queuing the
+        // Close frame must not wait forever. Without a queued Close the peer has
+        // nothing to answer, so the drain is skipped.
+        let queued = tokio::time::timeout(
+            Duration::from_secs(1),
+            tx.send(WsMessage::Close(Some(frame))),
+        )
+        .await
+        .is_ok_and(|sent| sent.is_ok());
+        if queued && drain_peer {
             let drain = async {
                 let mut receiver = receiver.lock().await;
                 while let Some(message) = receiver.next().await {
