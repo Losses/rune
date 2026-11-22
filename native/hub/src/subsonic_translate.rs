@@ -2012,6 +2012,17 @@ fn parse_detail_query(queries: &[MixQuery], request: &'static str) -> Result<Det
     match operators.as_slice() {
         [QueryOperator::LibArtist(id)] => Ok(DetailQuery::Artist(*id)),
         [QueryOperator::LibAlbum(id)] => Ok(DetailQuery::Album(*id)),
+        // An album's page asks for its tracks in track-number order, and `detail_songs` already
+        // lists an album by disc and track number, the order a local library's track numbers
+        // (disc * 1000 + track) give.
+        [
+            QueryOperator::LibAlbum(id),
+            QueryOperator::SortTrackNumber(true),
+        ]
+        | [
+            QueryOperator::SortTrackNumber(true),
+            QueryOperator::LibAlbum(id),
+        ] => Ok(DetailQuery::Album(*id)),
         [
             QueryOperator::LibRandom(count),
             QueryOperator::FilterWithCoverArt(true),
@@ -3066,7 +3077,13 @@ mod tests {
                 serde_json::json!({"searchResult3":search})
             }
             "getAlbum" => {
-                let songs = ["song-1", "song-2"].map(mock_song);
+                // Out of order, and a later disc's first track has the lower track number.
+                let songs = [("song-2", 2, 1), ("song-1", 1, 2)].map(|(id, disc, track)| {
+                    let mut song = mock_song(id);
+                    song["discNumber"] = serde_json::json!(disc);
+                    song["track"] = serde_json::json!(track);
+                    song
+                });
                 serde_json::json!({"album":{
                     "id":"album-1","name":"Album One","artist":"Artist","artistId":"artist-1",
                     "song":songs
@@ -4413,6 +4430,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_album_page_lists_and_plays_its_tracks_in_disc_and_track_order() {
+        let root = TempDir::new().unwrap();
+        let (binding, _) =
+            mock_subsonic_mode(&root, false, SubsonicOpenMode::PlayOnThisDevice).await;
+        let library = binding.library_id;
+        let album = search_collection_summary_request(
+            &binding,
+            &SearchCollectionSummaryRequest {
+                collection_type: Some(CollectionType::Album),
+                bake_cover_arts: Some(false),
+                n: 1,
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .result
+        .remove(0)
+        .id
+        .to_string();
+        // The queries of the album page, `/albums/detail`, in either order.
+        let page = [
+            ("lib::album", album.as_str()),
+            ("sort::track_number", "true"),
+        ];
+        for queries in [page, [page[1], page[0]]] {
+            let listed = mix_query_request(&binding, &mix_request(&queries))
+                .await
+                .unwrap()
+                .unwrap();
+            let tracks = listed
+                .files
+                .iter()
+                .map(|file| file.track.as_str())
+                .collect::<Vec<_>>();
+            assert_eq!(tracks, ["song-1", "song-2"], "{queries:?}");
+
+            let clicked = click_resolve(&queries, 1, library_track(library, "song-2"))
+                .translate(&binding)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                clicked.playing_items,
+                library_tracks(library, &["song-1", "song-2"]),
+                "{queries:?}"
+            );
+            assert_eq!(clicked.start_index, Some(1), "{queries:?}");
+        }
+    }
+
+    #[tokio::test]
     async fn clicked_tracks_resolve_the_list_they_were_clicked_in() {
         let root = TempDir::new().unwrap();
         let (binding, server) =
@@ -4882,7 +4952,7 @@ mod tests {
     async fn other_mix_queries_stay_unsupported() {
         let root = TempDir::new().unwrap();
         let (binding, server) = mock_subsonic(&root, false).await;
-        let cases: [&[(&str, &str)]; 4] = [
+        let cases: [&[(&str, &str)]; 5] = [
             &[("lib::random", "40")],
             &[("filter::with_cover_art", "true")],
             &[("lib::random", "40"), ("filter::with_cover_art", "false")],
@@ -4891,6 +4961,7 @@ mod tests {
                 ("filter::with_cover_art", "true"),
                 ("lib::album", "1"),
             ],
+            &[("lib::album", "1"), ("sort::track_number", "false")],
         ];
         let seeded = MixQueryRequest {
             random_seed: Some(7),
