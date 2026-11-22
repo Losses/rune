@@ -31,8 +31,6 @@ bool $canPop() {
 }
 
 bool $pop() {
-  final navigation = $state();
-
   if (!$canPop()) return false;
 
   final current = $history.current;
@@ -45,14 +43,16 @@ bool $pop() {
     return true;
   }
 
-  if (current is RouteEntry) {
+  // Pages live in the library's navigator; the welcome screens, which can
+  // show dialogs, have none.
+  if (current is RouteEntry && $hasLibraryNavigator) {
     final (success, result) = $history.pop();
 
     final next = $history.current;
 
     if (success) {
       $router.update(next!.name, next.arguments);
-      navigation.pop();
+      $state().pop();
       return true;
     }
   }
@@ -63,7 +63,7 @@ bool $pop() {
 Future<T?> $showModal<T extends Object?>(
   BuildContext context,
   Widget Function(BuildContext context, void Function(T? result) close)
-      builder, {
+  builder, {
   String? name,
   Object? arguments,
   (bool, dynamic) Function()? canPop,
@@ -71,6 +71,7 @@ Future<T?> $showModal<T extends Object?>(
   bool dismissWithEsc = false,
   RouteTransitionsBuilder? transitionBuilder,
   bool staysUsableWhenShrunk = true,
+  bool useRootNavigator = true,
 }) {
   // A dialog already open when the window shrinks stays mounted and scrolls,
   // so what the user typed survives. Dialogs with their own answer to a small
@@ -90,6 +91,7 @@ Future<T?> $showModal<T extends Object?>(
       context: context,
       barrierDismissible: barrierDismissible,
       dismissWithEsc: dismissWithEsc,
+      useRootNavigator: useRootNavigator,
       builder: wrapped,
     );
   }
@@ -98,14 +100,12 @@ Future<T?> $showModal<T extends Object?>(
     barrierDismissible: barrierDismissible,
     dismissWithEsc: dismissWithEsc,
     transitionBuilder: transitionBuilder,
+    useRootNavigator: useRootNavigator,
     builder: wrapped,
   );
 }
 
-Future<T?>? $push<T extends Object?>(
-  String routeName, {
-  Object? arguments,
-}) {
+Future<T?>? $push<T extends Object?>(String routeName, {Object? arguments}) {
   final navigation = $state();
 
   final from = $router.path ?? "/library";
@@ -121,10 +121,7 @@ Future<T?>? $push<T extends Object?>(
   return navigation.pushNamed(routeName, arguments: p);
 }
 
-Future<T?>? $replace<T extends Object?>(
-  String routeName, {
-  Object? arguments,
-}) {
+Future<T?>? $replace<T extends Object?>(String routeName, {Object? arguments}) {
   final navigation = $state();
 
   final from = $router.path ?? "/library";
