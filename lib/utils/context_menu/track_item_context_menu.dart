@@ -8,13 +8,13 @@ import '../../utils/l10n.dart';
 import '../../utils/api/get_all_mixes.dart';
 import '../../utils/api/add_item_to_mix.dart';
 import '../../utils/api/get_all_playlists.dart';
-import '../../utils/api/if_analysis_exists.dart';
 import '../../utils/api/add_item_to_playlist.dart';
 import '../../utils/api/get_parsed_media_file.dart';
 import '../../utils/dialogs/mix/create_edit_mix.dart';
 import '../../bindings/bindings.dart';
 import '../../providers/responsive_providers.dart';
 import '../../providers/library_open_state.dart';
+import '../../providers/request_capabilities.dart';
 import '../dialogs/play_on/play_on_dialog.dart';
 
 import '../rune_log.dart';
@@ -78,6 +78,18 @@ Future<void> _removeFromPlaylist(
   }
 }
 
+/// Whether the open library keeps mixes a track can be added to. A target
+/// that does not, such as a Subsonic server, gets no mix entries in the menu.
+bool _offersMixes(BuildContext context) {
+  bool available(
+    RequestCapability Function(RequestCapabilitiesProvider) select,
+  ) =>
+      capabilityForRequest(context, select, listen: false)
+          is RequestCapabilityAvailable;
+  return available((capabilities) => capabilities.fetchAllMixesRequest) &&
+      available((capabilities) => capabilities.addItemToMixRequest);
+}
+
 void openTrackItemContextMenu(
   Offset localPosition,
   BuildContext context,
@@ -86,8 +98,12 @@ void openTrackItemContextMenu(
   String? occurrenceId,
   int fileId,
   int? playlistId,
-  void Function()? refreshList,
-) async {
+  void Function()? refreshList, {
+  Future<List<Playlist>> Function() loadPlaylists = getAllPlaylists,
+  Future<List<Mix>> Function() loadMixes = getAllMixes,
+  Future<FetchParsedMediaFileResponse> Function(int fileId) loadMediaFile =
+      getParsedMediaFile,
+}) async {
   final targetContext = contextAttachKey.currentContext;
 
   if (targetContext == null) return;
@@ -124,15 +140,14 @@ void openTrackItemContextMenu(
     );
     return;
   }
-  late final bool analyzed;
+  final offersMixes = _offersMixes(context);
   late final List<Playlist> playlists;
-  late final List<Mix> mixes;
+  late final List<Mix>? mixes;
   late final FetchParsedMediaFileResponse parsedMediaFile;
   try {
-    analyzed = await ifAnalyzeExists(fileId);
-    playlists = await getAllPlaylists();
-    mixes = await getAllMixes();
-    parsedMediaFile = await getParsedMediaFile(fileId);
+    playlists = await loadPlaylists();
+    mixes = offersMixes ? await loadMixes() : null;
+    parsedMediaFile = await loadMediaFile(fileId);
   } on RequestFailure catch (error) {
     if (context.mounted) await _showRequestFailure(context, error);
     return;
@@ -172,7 +187,6 @@ void openTrackItemContextMenu(
       parsedMediaFile,
       playlists,
       mixes,
-      analyzed,
       occurrenceId,
       playlistId,
       refreshList,
@@ -180,12 +194,13 @@ void openTrackItemContextMenu(
   );
 }
 
+/// The track menu of a large screen. [mixes] is `null` when the open library
+/// keeps no mixes, which leaves out Add to Mix.
 Widget buildTrackItemContextMenu(
   BuildContext context,
   FetchParsedMediaFileResponse item,
   List<Playlist> playlists,
-  List<Mix> mixes,
-  bool analyzed,
+  List<Mix>? mixes,
   String? occurrenceId,
   int? playlistId,
   void Function()? refreshList,
@@ -202,7 +217,7 @@ Widget buildTrackItemContextMenu(
     );
   }).toList();
 
-  final List<MenuFlyoutItem> mixItems = mixes.where((x) => !x.locked).map((
+  final List<MenuFlyoutItem>? mixItems = mixes?.where((x) => !x.locked).map((
     mixes,
   ) {
     return MenuFlyoutItem(
@@ -376,7 +391,8 @@ Widget buildTrackItemContextMenu(
             ...playlistItems,
           ],
         ),
-      if (!context.read<LibraryOpenStateProvider>().isReadOnlyReplica)
+      if (mixItems != null &&
+          !context.read<LibraryOpenStateProvider>().isReadOnlyReplica)
         MenuFlyoutSubItem(
           leading: const Icon(Symbols.magic_button),
           text: Text(S.of(context).addToMix),
