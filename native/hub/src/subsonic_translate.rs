@@ -9,7 +9,8 @@ use std::{
     sync::Arc,
 };
 use subsonic::{
-    SearchLimits, SubsonicAlbum, SubsonicArtist, SubsonicError, SubsonicServerError, SubsonicSong,
+    SearchLimits, SubsonicAlbum, SubsonicArtist, SubsonicError, SubsonicPlaylist,
+    SubsonicServerError, SubsonicSong,
 };
 
 use crate::TypedRequest;
@@ -233,10 +234,8 @@ async fn fetch_remote_playlist(
     ))
 }
 
-pub(crate) async fn fetch_all_playlists_request(
-    binding: &SubsonicBinding,
-    _: &FetchAllPlaylistsRequest,
-) -> Result<Option<FetchAllPlaylistsResponse>> {
+/// The server's playlists, under the IDs this library gives them.
+async fn interned_playlists(binding: &SubsonicBinding) -> Result<Vec<(i32, SubsonicPlaylist)>> {
     let remote = binding
         .client
         .playlists()
@@ -246,16 +245,30 @@ pub(crate) async fn fetch_all_playlists_request(
         .catalog
         .lock()
         .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
-    let playlists = remote
+    remote
         .into_iter()
         .map(|item| {
-            Ok(Playlist {
-                id: catalog.ids.intern(SubsonicIdKind::Playlist, &item.id)?,
-                name: item.name,
-                group: String::new(),
-            })
+            Ok((
+                catalog.ids.intern(SubsonicIdKind::Playlist, &item.id)?,
+                item,
+            ))
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect()
+}
+
+pub(crate) async fn fetch_all_playlists_request(
+    binding: &SubsonicBinding,
+    _: &FetchAllPlaylistsRequest,
+) -> Result<Option<FetchAllPlaylistsResponse>> {
+    let playlists = interned_playlists(binding)
+        .await?
+        .into_iter()
+        .map(|(id, item)| Playlist {
+            id,
+            name: item.name,
+            group: String::new(),
+        })
+        .collect();
     Ok(Some(FetchAllPlaylistsResponse {
         playlists,
         call_id: None,
@@ -517,6 +530,20 @@ pub(crate) async fn search_for_request(
         .search(&request.query_str, limits)
         .await
         .map_err(subsonic_request_error)?;
+    let playlists = if count > 0 && (all || fields.contains(&CollectionQueryType::Playlist)) {
+        // The search box ends its text with `*`, the prefix wildcard of Rune's search
+        // syntax, which is not part of any playlist name.
+        let query = request.query_str.trim_end_matches('*').to_lowercase();
+        interned_playlists(binding)
+            .await?
+            .into_iter()
+            .filter(|(_, item)| item.name.to_lowercase().contains(&query))
+            .map(|(id, _)| id)
+            .take(count as usize)
+            .collect()
+    } else {
+        Vec::new()
+    };
     let mut catalog = binding
         .catalog
         .lock()
@@ -555,7 +582,7 @@ pub(crate) async fn search_for_request(
         call_id: request.call_id,
         artists,
         albums,
-        playlists: Vec::new(),
+        playlists,
         tracks,
         genres: Vec::new(),
         directories: Vec::new(),
@@ -955,6 +982,46 @@ pub(crate) async fn fetch_collection_by_ids_request(
     binding: &SubsonicBinding,
     request: &FetchCollectionByIdsRequest,
 ) -> Result<Option<FetchCollectionByIdsResponse>> {
+    if request.collection_type == CollectionType::Playlist {
+        {
+            let catalog = binding
+                .catalog
+                .lock()
+                .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+            for id in &request.ids {
+                catalog.ids.resolve(SubsonicIdKind::Playlist, *id)?;
+            }
+        }
+        let playlists = interned_playlists(binding).await?;
+        let mut result = Vec::with_capacity(request.ids.len());
+        for id in &request.ids {
+            let Some((_, item)) = playlists.iter().find(|(playlist_id, _)| playlist_id == id)
+            else {
+                continue;
+            };
+            let cover_art_map = subsonic_cover_map(
+                binding,
+                item.cover_art
+                    .clone()
+                    .map(|cover| vec![(*id, cover)])
+                    .unwrap_or_default(),
+            )
+            .await?;
+            result.push(Collection {
+                id: *id,
+                name: item.name.clone(),
+                queries: Vec::new(),
+                collection_type: CollectionType::Playlist,
+                cover_art_map,
+                readonly: false,
+            });
+        }
+        return Ok(Some(FetchCollectionByIdsResponse {
+            call_id: None,
+            collection_type: request.collection_type,
+            result,
+        }));
+    }
     let kind = match request.collection_type {
         CollectionType::Artist => SubsonicIdKind::Artist,
         CollectionType::Album => SubsonicIdKind::Album,
@@ -1575,6 +1642,10 @@ async fn collection_groups(
     collection_type: CollectionType,
     group_titles: &[String],
 ) -> Result<Vec<CollectionGroup>> {
+    let playlists = match collection_type {
+        CollectionType::Playlist => interned_playlists(binding).await?,
+        _ => Vec::new(),
+    };
     let entries: Vec<(i32, String, String, Option<String>)> = {
         let catalog = binding
             .catalog
@@ -1605,6 +1676,13 @@ async fn collection_groups(
                     )
                 })
                 .collect(),
+            CollectionType::Playlist => playlists
+                .into_iter()
+                .map(|(id, playlist)| {
+                    let group = generate_group_name(&playlist.name);
+                    (id, playlist.name, group, playlist.cover_art)
+                })
+                .collect(),
             _ => {
                 return Err(ExpectedRequestError::Unsupported {
                     request: FetchCollectionGroupsRequest::wire_name(),
@@ -1625,7 +1703,8 @@ async fn collection_groups(
                 queries: Vec::new(),
                 collection_type,
                 cover_art_map: Default::default(),
-                readonly: true,
+                // A Subsonic playlist can be renamed and deleted; artists and albums cannot change.
+                readonly: collection_type != CollectionType::Playlist,
             })
             .collect();
         collections.sort_by(|left, right| left.name.cmp(&right.name));
@@ -1654,9 +1733,16 @@ pub(crate) async fn fetch_collection_group_summary_request(
     binding: &SubsonicBinding,
     request: &FetchCollectionGroupSummaryRequest,
 ) -> Result<Option<CollectionGroupSummaryResponse>> {
-    match request.collection_type {
-        CollectionType::Artist => ensure_artists(binding).await?,
-        CollectionType::Album => ensure_albums(binding).await?,
+    let playlists = match request.collection_type {
+        CollectionType::Artist => {
+            ensure_artists(binding).await?;
+            Vec::new()
+        }
+        CollectionType::Album => {
+            ensure_albums(binding).await?;
+            Vec::new()
+        }
+        CollectionType::Playlist => interned_playlists(binding).await?,
         _ => {
             return Err(ExpectedRequestError::Unsupported {
                 request: FetchCollectionGroupSummaryRequest::wire_name(),
@@ -1664,7 +1750,7 @@ pub(crate) async fn fetch_collection_group_summary_request(
             }
             .into());
         }
-    }
+    };
     let catalog = binding
         .catalog
         .lock()
@@ -1679,6 +1765,10 @@ pub(crate) async fn fetch_collection_group_summary_request(
             .albums
             .values()
             .map(|item| item.name.as_str())
+            .collect(),
+        CollectionType::Playlist => playlists
+            .iter()
+            .map(|(_, item)| item.name.as_str())
             .collect(),
         _ => Vec::new(),
     };
@@ -1703,6 +1793,7 @@ pub(crate) async fn fetch_collection_groups_request(
     match request.collection_type {
         CollectionType::Artist => ensure_artists(binding).await?,
         CollectionType::Album => ensure_albums(binding).await?,
+        CollectionType::Playlist => {}
         _ => {
             return Err(ExpectedRequestError::Unsupported {
                 request: FetchCollectionGroupsRequest::wire_name(),
@@ -2277,14 +2368,15 @@ mod tests {
 
     use super::{
         add_item_to_playlist_request, create_playlist_request, fetch_all_playlists_request,
-        fetch_collection_group_summary_request, fetch_collection_groups_request,
-        fetch_media_file_by_ids_request, fetch_media_files_request,
-        fetch_parsed_media_file_request, fetch_remote_playlist, get_liked_request,
-        get_lyric_request, get_media_files_count_request, get_playlist_by_id_request,
-        jukebox_error, mix_query_request, remove_item_from_playlist_request,
-        remove_playlist_request, reorder_playlist_item_position_request,
-        search_collection_summary_request, search_for_request, search_media_file_summary_request,
-        set_liked_request, subsonic_request_error, update_playlist_request,
+        fetch_collection_by_ids_request, fetch_collection_group_summary_request,
+        fetch_collection_groups_request, fetch_media_file_by_ids_request,
+        fetch_media_files_request, fetch_parsed_media_file_request, fetch_remote_playlist,
+        get_liked_request, get_lyric_request, get_media_files_count_request,
+        get_playlist_by_id_request, jukebox_error, mix_query_request,
+        remove_item_from_playlist_request, remove_playlist_request,
+        reorder_playlist_item_position_request, search_collection_summary_request,
+        search_for_request, search_media_file_summary_request, set_liked_request,
+        subsonic_request_error, update_playlist_request,
     };
     use crate::{
         TypedRequest,
@@ -2292,20 +2384,21 @@ mod tests {
         messages::{
             AddItemToPlaylistRequest, AudioAvailability, CallerQueue, CastPreflightRequest,
             CollectionType, CreateM3u8PlaylistRequest, CreatePlaylistRequest, ExcludedItems,
-            FetchAllPlaylistsRequest, FetchCollectionGroupSummaryRequest,
-            FetchCollectionGroupsRequest, FetchDirectoryTreeRequest, FetchMediaFileByIdsRequest,
-            FetchMediaFilesRequest, FetchParsedMediaFileRequest, FetchPlaylistOccurrencesRequest,
-            GetLikedRequest, GetLyricByTrackIdRequest, GetMediaFilesCountRequest,
-            GetPlaylistByIdRequest, HandoffLoadRequest, LoadPlay, LoadRequest,
-            LoadResolvedItemsRequest, MixQuery, MixQueryRequest, MovePlaylistItemRequest,
-            NextRequest, PauseRequest, PlayRequest, PlaybackMode, PlayingItemRef,
-            PlaylistOperateMode, PlaylistRevisionRequest, PreviousRequest, RefreshSessionRequest,
-            RemoveItemFromPlaylistRequest, RemovePlaylistRequest, RemoveRequest,
-            ReorderPlaylistItemPositionRequest, ResolveMixQueryRequest,
-            SearchCollectionSummaryRequest, SearchForRequest, SearchMediaFileSummaryRequest,
-            SeekRequest, SessionSnapshotRequest, SetAdaptiveSwitchingEnabledRequest,
-            SetLikedRequest, SetPlaybackModeRequest, SetRealtimeFFTEnabledRequest, SwitchRequest,
-            TakeBackHandoffBlockRequest, UpdatePlaylistRequest, VolumeRequest,
+            FetchAllPlaylistsRequest, FetchCollectionByIdsRequest,
+            FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
+            FetchDirectoryTreeRequest, FetchMediaFileByIdsRequest, FetchMediaFilesRequest,
+            FetchParsedMediaFileRequest, FetchPlaylistOccurrencesRequest, GetLikedRequest,
+            GetLyricByTrackIdRequest, GetMediaFilesCountRequest, GetPlaylistByIdRequest,
+            HandoffLoadRequest, LoadPlay, LoadRequest, LoadResolvedItemsRequest, MixQuery,
+            MixQueryRequest, MovePlaylistItemRequest, NextRequest, PauseRequest, PlayRequest,
+            PlaybackMode, PlayingItemRef, PlaylistOperateMode, PlaylistRevisionRequest,
+            PreviousRequest, RefreshSessionRequest, RemoveItemFromPlaylistRequest,
+            RemovePlaylistRequest, RemoveRequest, ReorderPlaylistItemPositionRequest,
+            ResolveMixQueryRequest, SearchCollectionSummaryRequest, SearchForRequest,
+            SearchMediaFileSummaryRequest, SeekRequest, SessionSnapshotRequest,
+            SetAdaptiveSwitchingEnabledRequest, SetLikedRequest, SetPlaybackModeRequest,
+            SetRealtimeFFTEnabledRequest, SwitchRequest, TakeBackHandoffBlockRequest,
+            UpdatePlaylistRequest, VolumeRequest,
         },
         request_error::{ExpectedRequestError, classify},
         request_owner::Implementation,
@@ -3136,6 +3229,186 @@ mod tests {
                 }
             );
         }
+    }
+
+    fn add_mock_playlist(server: &MockServer, id: &str, name: &str) {
+        server.state.playlists.lock().unwrap().push(MockPlaylist {
+            id: id.into(),
+            name: name.into(),
+            songs: Vec::new(),
+        });
+    }
+
+    async fn playlist_ids(binding: &SubsonicBinding) -> HashMap<String, i32> {
+        fetch_all_playlists_request(binding, &FetchAllPlaylistsRequest { call_id: None })
+            .await
+            .unwrap()
+            .unwrap()
+            .playlists
+            .into_iter()
+            .map(|playlist| (playlist.name, playlist.id))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn the_playlists_page_lists_the_server_playlists_by_first_letter() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        add_mock_playlist(&server, "playlist-2", "Aurora");
+        add_mock_playlist(&server, "playlist-3", "rain");
+
+        let summary = fetch_collection_group_summary_request(
+            &binding,
+            &FetchCollectionGroupSummaryRequest {
+                call_id: None,
+                collection_type: CollectionType::Playlist,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(summary.collection_type, CollectionType::Playlist);
+        assert_eq!(
+            summary
+                .groups
+                .iter()
+                .map(|group| (group.group_title.as_str(), group.count))
+                .collect::<Vec<_>>(),
+            [("A", 1), ("R", 2)]
+        );
+
+        let groups = fetch_collection_groups_request(
+            &binding,
+            &FetchCollectionGroupsRequest {
+                call_id: None,
+                collection_type: CollectionType::Playlist,
+                bake_cover_arts: false,
+                group_titles: vec!["A".into(), "R".into()],
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            groups
+                .groups
+                .iter()
+                .map(|group| (
+                    group.group_title.as_str(),
+                    group
+                        .collections
+                        .iter()
+                        .map(|collection| collection.name.as_str())
+                        .collect::<Vec<_>>()
+                ))
+                .collect::<Vec<_>>(),
+            [("A", vec!["Aurora"]), ("R", vec!["Road", "rain"])]
+        );
+        let ids = playlist_ids(&binding).await;
+        for collection in groups.groups.iter().flat_map(|group| &group.collections) {
+            assert_eq!(collection.collection_type, CollectionType::Playlist);
+            assert_eq!(collection.id, ids[&collection.name]);
+            assert!(!collection.readonly);
+        }
+    }
+
+    #[tokio::test]
+    async fn playlists_are_fetched_by_id() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        add_mock_playlist(&server, "playlist-2", "Aurora");
+        let ids = playlist_ids(&binding).await;
+        let request = |ids: Vec<i32>| FetchCollectionByIdsRequest {
+            collection_type: CollectionType::Playlist,
+            bake_cover_arts: false,
+            ids,
+            call_id: None,
+        };
+
+        let fetched =
+            fetch_collection_by_ids_request(&binding, &request(vec![ids["Road"], ids["Aurora"]]))
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(fetched.collection_type, CollectionType::Playlist);
+        assert_eq!(
+            fetched
+                .result
+                .iter()
+                .map(|collection| (collection.id, collection.name.as_str()))
+                .collect::<Vec<_>>(),
+            [(ids["Road"], "Road"), (ids["Aurora"], "Aurora")]
+        );
+        assert!(fetched.result.iter().all(|collection| {
+            collection.collection_type == CollectionType::Playlist && !collection.readonly
+        }));
+
+        server
+            .state
+            .playlists
+            .lock()
+            .unwrap()
+            .retain(|playlist| playlist.name != "Aurora");
+        let fetched =
+            fetch_collection_by_ids_request(&binding, &request(vec![ids["Road"], ids["Aurora"]]))
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(
+            fetched
+                .result
+                .iter()
+                .map(|collection| collection.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Road"]
+        );
+
+        let unknown = fetch_collection_by_ids_request(&binding, &request(vec![i32::MAX]))
+            .await
+            .err()
+            .unwrap();
+        assert!(matches!(
+            unknown.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::InvalidInput { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn search_finds_playlists_by_name() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        add_mock_playlist(&server, "playlist-2", "Aurora");
+        add_mock_playlist(&server, "playlist-3", "rain");
+        let ids = playlist_ids(&binding).await;
+        let search = |query_str: &str, fields: Vec<SearchField>, n: i32| SearchForRequest {
+            call_id: None,
+            query_str: query_str.into(),
+            fields,
+            n,
+        };
+
+        let everything = search_for_request(&binding, &search("ROA*", Vec::new(), 10))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(everything.playlists, [ids["Road"]]);
+
+        let first = search_for_request(&binding, &search("r", vec![SearchField::Playlist], 1))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(first.playlists, [ids["Road"]]);
+
+        server.state.requests.lock().unwrap().clear();
+        let tracks_only = search_for_request(&binding, &search("r", vec![SearchField::Track], 10))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(tracks_only.playlists.is_empty());
+        assert_eq!(
+            server.state.requests.lock().unwrap().as_slice(),
+            ["search3"]
+        );
     }
 
     #[tokio::test]
