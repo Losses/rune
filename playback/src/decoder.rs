@@ -24,6 +24,17 @@ use crate::player::UnavailableReason;
 
 const MAX_DECODE_RETRIES: usize = 3;
 
+/// The result of refilling the decoder's sample buffer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FillOutcome {
+    /// A non-empty packet was decoded.
+    Filled,
+    /// The container reported ordinary EOF during this refill.
+    EndOfStream,
+    /// The refill failed for another reason, such as a read error or exhausted decode retries.
+    Failed,
+}
+
 /// Probes the container and reports whether Symphonia selected its Ogg reader. The extension hint
 /// is deliberately not used: a file can have no extension, a misleading one, or `ogv`.
 fn probe_format(
@@ -363,10 +374,14 @@ impl SymphoniaDecoder {
         self.current_frame_offset = samples_to_pass as usize * self.channels() as usize;
         // Some codecs (e.g. Vorbis) emit an empty first packet after a reset. Mid-track, a seek
         // that stops on it would report success with an empty buffer, which consumers treat as
-        // the end, so decode the next packet. At a confirmed end there is nothing left to decode,
-        // and the empty buffer is the end rather than a failed seek.
-        if self.buffer.is_empty() && !self.decode_next_buffer() && !self.at_end {
-            return Err(unsupported_seek());
+        // the end, so decode the next packet. Only EOF from this refill is a valid empty result;
+        // a read error or exhausted decode retries must not be hidden by an earlier EOF.
+        if self.buffer.is_empty() {
+            match self.decode_next_buffer() {
+                FillOutcome::Filled => {}
+                FillOutcome::EndOfStream => {}
+                FillOutcome::Failed => return Err(unsupported_seek()),
+            }
         }
         Ok(())
     }
@@ -501,10 +516,9 @@ impl SymphoniaDecoder {
     }
 
     /// Decodes the next non-empty packet of the selected track into `buffer`.
-    /// Returns `false` at end of stream or after too many decode errors.
-    fn decode_next_buffer(&mut self) -> bool {
+    fn decode_next_buffer(&mut self) -> FillOutcome {
         if self.broken {
-            return false;
+            return FillOutcome::Failed;
         }
         let mut decode_errors = 0;
         loop {
@@ -515,18 +529,18 @@ impl SymphoniaDecoder {
                     Err(Error::ResetRequired) => {
                         if !self.switch_stream() {
                             self.mark_broken();
-                            return false;
+                            return FillOutcome::Failed;
                         }
                         // The new stream gets its own retry budget.
                         decode_errors = 0;
                     }
                     Err(Error::IoError(e)) if e.kind() == ErrorKind::UnexpectedEof => {
                         self.at_end = true;
-                        return false;
+                        return FillOutcome::EndOfStream;
                     }
                     Err(e) => {
                         log::error!("failed to read the next packet: {e}");
-                        return false;
+                        return FillOutcome::Failed;
                     }
                 }
             };
@@ -539,12 +553,12 @@ impl SymphoniaDecoder {
                     decoded.spec().clone_into(&mut self.spec);
                     self.buffer = Self::get_buffer(decoded, &self.spec);
                     self.current_frame_offset = 0;
-                    return true;
+                    return FillOutcome::Filled;
                 }
                 Err(_) => {
                     decode_errors += 1;
                     if decode_errors > MAX_DECODE_RETRIES {
-                        return false;
+                        return FillOutcome::Failed;
                     }
                 }
             }
@@ -656,7 +670,9 @@ impl Iterator for SymphoniaDecoder {
         if self.broken {
             return None;
         }
-        if self.current_frame_offset >= self.buffer.len() && !self.decode_next_buffer() {
+        if self.current_frame_offset >= self.buffer.len()
+            && self.decode_next_buffer() != FillOutcome::Filled
+        {
             return None;
         }
 
@@ -881,6 +897,49 @@ mod tests {
 
         fn last_decoded(&self) -> AudioBufferRef<'_> {
             AudioBufferRef::F32(Cow::Borrowed(&self.last))
+        }
+    }
+
+    /// A decoder whose first post-reset decode is an empty priming buffer and whose later decodes
+    /// fail, so a failed refill can be told apart from a real end of stream.
+    struct EmptyThenErrorDecoder {
+        params: CodecParameters,
+        empty: AudioBuffer<f32>,
+        decodes: usize,
+    }
+
+    impl Decoder for EmptyThenErrorDecoder {
+        fn try_new(_: &CodecParameters, _: &DecoderOptions) -> std::result::Result<Self, Error> {
+            Err(Error::Unsupported("the empty decoder is built directly"))
+        }
+
+        fn supported_codecs() -> &'static [CodecDescriptor] {
+            &[]
+        }
+
+        fn reset(&mut self) {
+            self.decodes = 0;
+        }
+
+        fn codec_params(&self) -> &CodecParameters {
+            &self.params
+        }
+
+        fn decode(&mut self, _packet: &Packet) -> std::result::Result<AudioBufferRef<'_>, Error> {
+            self.decodes += 1;
+            if self.decodes == 1 {
+                Ok(AudioBufferRef::F32(Cow::Borrowed(&self.empty)))
+            } else {
+                Err(Error::DecodeError("test decode failure"))
+            }
+        }
+
+        fn finalize(&mut self) -> FinalizeResult {
+            FinalizeResult { verify_ok: None }
+        }
+
+        fn last_decoded(&self) -> AudioBufferRef<'_> {
+            AudioBufferRef::F32(Cow::Borrowed(&self.empty))
         }
     }
 
@@ -1411,6 +1470,52 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_failed_refill_after_a_priming_packet_is_not_the_end_of_stream() {
+        let file = File::open(fixture("tone_440_44100.ogg")).expect("open ogg file");
+        let mss = MediaSourceStream::new(Box::new(file), Default::default());
+        let mut decoder =
+            SymphoniaDecoder::new(mss, Some("ogg")).expect("create symphonia decoder");
+        while decoder.next().is_some() {}
+        assert!(decoder.at_end, "the fixture must have reached EOF");
+
+        let spec = SignalSpec::new(44_100, Channels::FRONT_LEFT);
+        let empty = AudioBuffer::<f32>::new(units::Duration::from(4u64), spec);
+        decoder.decoder = Box::new(EmptyThenErrorDecoder {
+            params: CodecParameters::default(),
+            empty,
+            decodes: 0,
+        });
+
+        let error = decoder
+            .try_seek(Duration::from_secs(1))
+            .expect_err("a failed refill must not be reported as a successful seek");
+        assert!(
+            matches!(error, SeekError::NotSupported { .. }),
+            "a failed refill must report a seek error: {error:?}"
+        );
+    }
+
+    #[test]
+    fn a_channel_swapped_offset_is_not_a_match() {
+        let channels = 2usize;
+        let expected_start = 100usize;
+        let reference: Vec<i16> = (0..5_000)
+            .map(|index| if index % channels == 0 { 100 } else { -100 })
+            .collect();
+        let actual: Vec<i16> = (0..4_096)
+            .map(|index| if index % channels == 0 { -100 } else { 100 })
+            .collect();
+
+        let matched = panic::catch_unwind(|| {
+            matching_offset(&actual, &reference, expected_start, 8, channels, "test")
+        });
+        assert!(
+            matched.is_err(),
+            "a channel-swapped offset must not be accepted"
+        );
+    }
+
     fn decode_all(path: &str) -> Vec<i16> {
         let file = File::open(path).expect("open ogg file");
         RuneDecoder::new(BufReader::new(file), Some("ogg"))
@@ -1435,10 +1540,15 @@ mod tests {
             "{context}: only {} samples after the seek",
             actual.len()
         );
+        assert!(channels > 0, "{context}: channels must be positive");
         let low = expected_start.saturating_sub(max_shift);
         let high = (expected_start + max_shift).min(reference.len().saturating_sub(window));
+        // A shifted interleaved window can only match at an odd offset by swapping channels.
+        // Keep candidates on the expected channel phase.
+        let alignment = expected_start % channels;
+        let first = low + (alignment + channels - low % channels) % channels;
         let mut best = (i64::MAX, expected_start);
-        for start in low..=high {
+        for start in (first..=high).step_by(channels) {
             let difference: i64 = actual[..window]
                 .iter()
                 .zip(&reference[start..start + window])
