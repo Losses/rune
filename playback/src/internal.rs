@@ -2188,7 +2188,14 @@ impl PlayerInternal {
                 self.playlist.len(),
                 UpdateReason::RemoveFromPlaylist { index },
             );
-            self.adjust_positions_after_splice(current_position, index..index + 1, 0);
+            if self.playlist.is_empty() {
+                // Nothing is left to continue with, and a cursor into the empty queue would
+                // make Next take a remainder by zero. Stop as clearing the queue does.
+                self.current_track_index = None;
+                self.stop()?;
+            } else {
+                self.adjust_positions_after_splice(current_position, index..index + 1, 0);
+            }
             self.schedule_playlist_update();
         } else {
             bail!(
@@ -5768,6 +5775,79 @@ mod playback_state_tests {
                 ),
                 "{mode:?}"
             );
+        }
+        Ok(())
+    }
+
+    // Removing the last queued track leaves nothing to continue with. Next and Previous must
+    // keep the player running on the empty queue, as clearing the queue does.
+    #[tokio::test]
+    async fn removing_the_last_track_leaves_the_player_running() -> Result<()> {
+        for clear in [false, true] {
+            for paused in [false, true] {
+                let [id, next_id] = [Uuid::new_v4(), Uuid::new_v4()];
+                let (mut internal, sender, mut events, path) = long_track_engine(&[id, next_id]);
+                let library = Uuid::new_v4();
+                sender.send(add_library_tracks(library, &[id]))?;
+                sender.send(PlayerCommand::SetPlaybackMode(PlaybackMode::RepeatAll))?;
+                sender.send(PlayerCommand::Switch(0))?;
+                let event = run_until_track_state(&mut internal, &mut events).await?;
+                assert!(
+                    matches!(&event, PlayerEvent::Playing { item, index: 0, .. }
+                        if *item == library_item(library, id)),
+                    "{event:?}"
+                );
+                if paused {
+                    sender.send(PlayerCommand::Pause)?;
+                    let event = run_until_track_state(&mut internal, &mut events).await?;
+                    assert!(
+                        matches!(event, PlayerEvent::Paused { index: 0, .. }),
+                        "{event:?}"
+                    );
+                }
+                sender.send(if clear {
+                    PlayerCommand::ClearPlaylist
+                } else {
+                    PlayerCommand::RemoveFromPlaylist { index: 0 }
+                })?;
+                tokio::select! {
+                    result = internal.run() => bail!("the player stopped before the edit: {result:?}"),
+                    result = tokio::time::timeout(TEST_DEADLINE, async {
+                        while !matches!(events.recv().await, Some(PlayerEvent::PlaylistUpdated(ref items)) if items.is_empty()) {}
+                    }) => { result?; }
+                }
+                assert!(
+                    internal.playlist.is_empty(),
+                    "clear={clear} paused={paused}"
+                );
+
+                let local = LocalSet::new();
+                local
+                    .run_until(async move {
+                        let runner = tokio::task::spawn_local(async move { internal.run().await });
+                        for command in [PlayerCommand::Next, PlayerCommand::Previous] {
+                            let completion = completed_command(&sender, command);
+                            assert_eq!(
+                                tokio::time::timeout(TEST_DEADLINE, completion).await??,
+                                Ok(())
+                            );
+                            assert!(!runner.is_finished(), "clear={clear} paused={paused}");
+                        }
+                        // The emptied queue still plays a new track.
+                        sender.send(add_library_tracks(library, &[next_id]))?;
+                        sender.send(PlayerCommand::Play)?;
+                        let event = next_track_state(&mut events).await?;
+                        assert!(
+                            matches!(&event, PlayerEvent::Playing { item, index: 0, .. }
+                                if *item == library_item(library, next_id)),
+                            "{event:?}"
+                        );
+                        runner.abort();
+                        Ok::<(), anyhow::Error>(())
+                    })
+                    .await?;
+                let _ = std::fs::remove_file(path);
+            }
         }
         Ok(())
     }
