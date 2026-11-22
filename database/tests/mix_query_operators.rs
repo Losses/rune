@@ -236,6 +236,57 @@ async fn directory_names_are_matched_literally() -> Result<()> {
 }
 
 #[tokio::test]
+async fn root_directory_mix_includes_descendants_and_keeps_home_filters() -> Result<()> {
+    let db = Database::connect("sqlite::memory:").await?;
+    let device = Uuid::new_v4();
+    fixtures::migrate(&db, device).await?;
+    for (id, name, directory, plays) in [
+        (1, "top", "", 1),
+        (2, "middle", "child", 2),
+        (3, "bottom", "child/grandchild", 3),
+    ] {
+        let file = local_file(&db, id, Uuid::new_v4(), name).await?;
+        let mut update: media_files::ActiveModel = file.into();
+        update.directory = ActiveValue::Set(directory.into());
+        update.update(&db).await?;
+        causal_library::fixture_statistics(&db, id, device, 0, plays, "now").await?;
+    }
+    causal_library::fixture_like(&db, 3, true, "now").await?;
+
+    let deep = "lib::directory.deep";
+    assert_eq!(
+        directory_selection(&db, deep, "/").await?,
+        names(&["top", "middle", "bottom"])
+    );
+    assert_eq!(
+        directory_selection(&db, deep, "/child").await?,
+        names(&["middle", "bottom"])
+    );
+    let recommendations = RecommendationDbConnection::new();
+    for (clause, value, expected) in [
+        ("filter::liked", "true", vec![3]),
+        ("sort::playedthrough", "false", vec![3, 2, 1]),
+        ("lib::track", "1", vec![1, 2, 3]),
+    ] {
+        let rows = query_mix_media_files(
+            &db,
+            &recommendations,
+            vec![(deep.into(), "/".into()), (clause.into(), value.into())],
+            0,
+            10,
+            &[],
+        )
+        .await?;
+        let mut ids: Vec<_> = rows.iter().map(|file| file.id).collect();
+        if clause == "lib::track" {
+            ids.sort_unstable();
+        }
+        assert_eq!(ids, expected, "{clause}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn explicit_track_order_is_global_across_pages() -> Result<()> {
     let db = Database::connect("sqlite::memory:").await?;
     let actor = Uuid::new_v4();
