@@ -1744,6 +1744,296 @@
   "subsonicSubtitle": "Connect to a Subsonic music server.",
   "playOnThisDevice": "Play on This Device",
   "controlServerPlayer": "Control the Server's Player",
-  "howDoYouWantToUseIt": "How do you want to use it?"
-
+  "howDoYouWantToUseIt": "How do you want to use it?",
+  "fileDialogOpenTitle": "Open",
+  "@fileDialogOpenTitle": {
+    "description": "Title of the file dialog when opening a file."
+  },
+  "fileDialogSaveTitle": "Save As",
+  "@fileDialogSaveTitle": {
+    "description": "Title of the file dialog when saving a file."
+  },
+  "fileDialogFolderTitle": "Select Folder",
+  "@fileDialogFolderTitle": {
+    "description": "Title of the file dialog when picking a folder."
+  },
+  "fileDialogOpen": "Open",
+  "@fileDialogOpen": {
+    "description": "Button and menu command that opens the selected file or folder in the file dialog."
+  },
+  "fileDialogSelectFolder": "Select Folder",
+  "@fileDialogSelectFolder": {
+    "description": "Confirm button of the file dialog when picking a folder."
+  },
+  "fileDialogFileName": "File Name",
+  "@fileDialogFileName": {
+    "description": "Label of the file dialog's file name box."
+  },
+  "fileDialogSaveAsType": "Save as Type",
+  "@fileDialogSaveAsType": {
+    "description": "Label of the file type box when saving."
+  },
+  "fileDialogFileTypes": "File Types",
+  "@fileDialogFileTypes": {
+    "description": "Accessible name of the file type box when opening files."
+  },
+  "fileDialogAllFiles": "All Files",
+  "@fileDialogAllFiles": {
+    "description": "File type entry that shows every file."
+  },
+  "fileDialogForward": "Forward",
+  "@fileDialogForward": {
+    "description": "Button that goes forward to the next folder."
+  },
+  "fileDialogRecentLocations": "Recent Locations",
+  "@fileDialogRecentLocations": {
+    "description": "Button listing folders visited in the file dialog."
+  },
+  "fileDialogUp": "Up",
+  "@fileDialogUp": {
+    "description": "Button that goes to the parent folder."
+  },
+  "fileDialogAddress": "Address",
+  "@fileDialogAddress": {
+    "description": "Accessible name of the file dialog's address bar."
+  },
+  "fileDialogSearchIn": "Search {folder}",
+  "@fileDialogSearchIn": {
+    "description": "Placeholder of the search box; folder is the folder being shown.",
+    "placeholders": {
+      "folder": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogNewFolder": "New Folder",
+  "@fileDialogNewFolder": {
+    "description": "Command that creates a folder; also the new folder's first name."
+  },
+  "fileDialogView": "View",
+  "@fileDialogView": {
+    "description": "Menu of layouts for the items."
+  },
+  "fileDialogExtraLargeIcons": "Extra Large Icons",
+  "fileDialogLargeIcons": "Large Icons",
+  "fileDialogMediumIcons": "Medium Icons",
+  "fileDialogSmallIcons": "Small Icons",
+  "fileDialogList": "List",
+  "@fileDialogList": {
+    "description": "Layout that lists items in columns."
+  },
+  "fileDialogDetails": "Details",
+  "@fileDialogDetails": {
+    "description": "Layout that shows items with columns of details."
+  },
+  "fileDialogTiles": "Tiles",
+  "@fileDialogTiles": {
+    "description": "Layout that shows items as tiles."
+  },
+  "fileDialogContent": "Content",
+  "@fileDialogContent": {
+    "description": "Layout that shows items with their details on one line."
+  },
+  "fileDialogHiddenItems": "Hidden Items",
+  "@fileDialogHiddenItems": {
+    "description": "Toggle that shows hidden files and folders."
+  },
+  "fileDialogName": "Name",
+  "@fileDialogName": {
+    "description": "Column header and sort option."
+  },
+  "fileDialogDateModified": "Date Modified",
+  "@fileDialogDateModified": {
+    "description": "Column header and sort option."
+  },
+  "fileDialogSize": "Size",
+  "@fileDialogSize": {
+    "description": "Column header and sort option."
+  },
+  "fileDialogAscending": "Ascending",
+  "@fileDialogAscending": {
+    "description": "Sort direction."
+  },
+  "fileDialogDescending": "Descending",
+  "@fileDialogDescending": {
+    "description": "Sort direction."
+  },
+  "fileDialogFileFolder": "File Folder",
+  "@fileDialogFileFolder": {
+    "description": "Type shown for folders."
+  },
+  "fileDialogFileOfType": "{extension} File",
+  "@fileDialogFileOfType": {
+    "description": "Type shown for a file; extension is its extension in capitals, such as FLAC.",
+    "placeholders": {
+      "extension": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogFile": "File",
+  "@fileDialogFile": {
+    "description": "Type shown for a file without an extension."
+  },
+  "fileDialogQuickAccess": "Quick Access",
+  "@fileDialogQuickAccess": {
+    "description": "Navigation pane group of the folders pinned in the system's file browser."
+  },
+  "fileDialogThisDevice": "This Device",
+  "@fileDialogThisDevice": {
+    "description": "Navigation pane group of this device's folders and drives."
+  },
+  "fileDialogDesktop": "Desktop",
+  "fileDialogDocuments": "Documents",
+  "fileDialogDownloads": "Downloads",
+  "fileDialogMusic": "Music",
+  "fileDialogPictures": "Pictures",
+  "fileDialogVideos": "Videos",
+  "fileDialogLocalDisk": "Local Disk",
+  "@fileDialogLocalDisk": {
+    "description": "Name of a drive without a label."
+  },
+  "fileDialogRemovableDisk": "Removable Disk",
+  "@fileDialogRemovableDisk": {
+    "description": "Name of a removable drive without a label."
+  },
+  "fileDialogOpticalDrive": "Optical Drive",
+  "@fileDialogOpticalDrive": {
+    "description": "Name of a CD or DVD drive without a label."
+  },
+  "fileDialogNetworkDrive": "Network Drive",
+  "@fileDialogNetworkDrive": {
+    "description": "Name of a network drive without a label."
+  },
+  "fileDialogDriveName": "{name} ({drive})",
+  "@fileDialogDriveName": {
+    "description": "A drive's name with its letter or mount point, such as Local Disk (C:).",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "drive": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogFreeSpace": "{free} free of {total}",
+  "@fileDialogFreeSpace": {
+    "description": "Free space of a drive.",
+    "placeholders": {
+      "free": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogCopyAsPath": "Copy as Path",
+  "@fileDialogCopyAsPath": {
+    "description": "Context menu command that copies the item's path."
+  },
+  "fileDialogRename": "Rename",
+  "@fileDialogRename": {
+    "description": "Context menu command that renames the item."
+  },
+  "fileDialogEmptyFolder": "This folder is empty.",
+  "fileDialogNoMatches": "No items match your search.",
+  "fileDialogNotFound": "Cannot find {location}. Check the spelling and try again.",
+  "@fileDialogNotFound": {
+    "placeholders": {
+      "location": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogFileNotFound": "Cannot find the file {name}. Check the file name and try again.",
+  "@fileDialogFileNotFound": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogPathNotFound": "The folder of {name} does not exist. Check the path and try again.",
+  "@fileDialogPathNotFound": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogPermissionDenied": "You do not have permission to access {location}.",
+  "@fileDialogPermissionDenied": {
+    "placeholders": {
+      "location": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogUnavailable": "{location} is unavailable. Check that the drive is connected and try again.",
+  "@fileDialogUnavailable": {
+    "placeholders": {
+      "location": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogNotAFolder": "{location} is a file, not a folder.",
+  "@fileDialogNotAFolder": {
+    "placeholders": {
+      "location": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogAlreadyExists": "An item named {name} already exists in this location.",
+  "@fileDialogAlreadyExists": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogInvalidName": "{name} cannot be used as a name here.",
+  "@fileDialogInvalidName": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogConfirmSaveAs": "Confirm Save As",
+  "@fileDialogConfirmSaveAs": {
+    "description": "Title of the question asked before replacing a file."
+  },
+  "fileDialogReplacePrompt": "{name} already exists. Do you want to replace it?",
+  "@fileDialogReplacePrompt": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogReplace": "Replace",
+  "@fileDialogReplace": {
+    "description": "Button that replaces an existing file."
+  },
+  "fileDialogItemCount": "{count, plural, =1{1 item} other{{count} items}}",
+  "@fileDialogItemCount": {
+    "description": "Number of items in the folder, read out by screen readers.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "fileDialogNavigationPane": "Navigation Pane",
+  "@fileDialogNavigationPane": {
+    "description": "Accessible name of the list of places on the left."
+  },
+  "fileDialogItems": "Items",
+  "@fileDialogItems": {
+    "description": "Accessible name of the area listing the folder's items."
+  }
 }

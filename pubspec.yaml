@@ -162,6 +162,51 @@ flutter:
     - assets/watermark.png
     - assets/bandcamp.svg
     - assets/itch.svg
+    - assets/mime/archive/16/
+    - assets/mime/archive/32/
+    - assets/mime/archive/128/
+    - assets/mime/archive2/16/
+    - assets/mime/archive2/32/
+    - assets/mime/archive2/128/
+    - assets/mime/audio/16/
+    - assets/mime/audio/32/
+    - assets/mime/audio/128/
+    - assets/mime/binary/16/
+    - assets/mime/binary/32/
+    - assets/mime/binary/128/
+    - assets/mime/code/16/
+    - assets/mime/code/32/
+    - assets/mime/code/128/
+    - assets/mime/docmisc/16/
+    - assets/mime/docmisc/32/
+    - assets/mime/docmisc/128/
+    - assets/mime/document/16/
+    - assets/mime/document/32/
+    - assets/mime/document/128/
+    - assets/mime/executable/16/
+    - assets/mime/executable/32/
+    - assets/mime/executable/128/
+    - assets/mime/font/16/
+    - assets/mime/font/32/
+    - assets/mime/font/128/
+    - assets/mime/image/16/
+    - assets/mime/image/32/
+    - assets/mime/image/128/
+    - assets/mime/media2/16/
+    - assets/mime/media2/32/
+    - assets/mime/media2/128/
+    - assets/mime/misc/16/
+    - assets/mime/misc/32/
+    - assets/mime/misc/128/
+    - assets/mime/office/16/
+    - assets/mime/office/32/
+    - assets/mime/office/128/
+    - assets/mime/places/16/
+    - assets/mime/places/32/
+    - assets/mime/places/128/
+    - assets/mime/video/16/
+    - assets/mime/video/32/
+    - assets/mime/video/128/
 
   fonts:
     - family: NotoRunic
