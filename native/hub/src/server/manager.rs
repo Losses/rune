@@ -2833,6 +2833,162 @@ mod lifecycle_tests {
         Ok(())
     }
 
+    /// How a controller that stopped reading ends its session.
+    #[derive(Clone, Copy)]
+    enum StalledControllerEnd {
+        /// The controller sends its Close frame and still does not read.
+        PeerClose,
+        /// The server removes the controller's approval.
+        Revocation,
+    }
+
+    /// A controller that never reads fills the connection's outgoing queue.
+    /// Shutting the server down must still close that connection within the
+    /// shutdown deadline, without the controller reading anything.
+    async fn shutdown_releases_stalled_controller(end: StalledControllerEnd) -> Result<()> {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::time::Instant;
+
+        // Frames the connection queues for its socket writer.
+        const OUTGOING_QUEUE_CAPACITY: usize = 32;
+        // Larger than the loopback send and receive buffers together, so the
+        // socket writer cannot finish this frame while the controller does not read.
+        const STALLING_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
+        const SHUTDOWN_DEADLINE: Duration = Duration::from_secs(8);
+
+        let renderer_dir = tempfile::tempdir()?;
+        let controller_dir = tempfile::tempdir()?;
+        let renderer = fixture(renderer_dir.path()).await?;
+        let controller = fixture(controller_dir.path()).await?;
+        let service = &renderer.global_params.node.websocket_service;
+        service
+            .override_handler("StallSettle", |_, _, _| async {
+                ("StallSettleResponse".into(), Ok(Vec::new()))
+            })
+            .await;
+        service
+            .override_handler("StallWriter", |_, _, _| async {
+                (
+                    "StallWriterResponse".into(),
+                    Ok(vec![0; STALLING_RESPONSE_BYTES]),
+                )
+            })
+            .await;
+        let filled = Arc::new(AtomicUsize::new(0));
+        let filled_handler = filled.clone();
+        service
+            .override_handler("StallFill", move |_, _, _| {
+                filled_handler.fetch_add(1, Ordering::SeqCst);
+                async { ("StallFillResponse".into(), Ok(Vec::new())) }
+            })
+            .await;
+
+        let addr = paired_full(&renderer, &controller).await?;
+        let fingerprint = info(&controller).await?.fingerprint;
+        let mut socket = connect_remote(
+            "127.0.0.1",
+            addr.port(),
+            &controller.global_params.config_path,
+            controller.global_params.cert_validator.read().await.clone(),
+            &controller.global_params.node.sync_tokens,
+        )
+        .await?;
+        // One answered request flushes the frames sent when the connection opened.
+        socket_request(&mut socket, "StallSettle", &[]).await?;
+
+        socket
+            .send(Message::Binary(
+                encode_message("StallWriter", &[], Some(Uuid::new_v4())).into(),
+            ))
+            .await?;
+        for _ in 0..OUTGOING_QUEUE_CAPACITY + 4 {
+            socket
+                .send(Message::Binary(
+                    encode_message("StallFill", &[], Some(Uuid::new_v4())).into(),
+                ))
+                .await?;
+        }
+        // Requests are handled one at a time, and each response is queued before
+        // the next request is read. Entering one more fill handler than the queue
+        // holds proves the queue is full behind the frame the writer cannot finish.
+        wait_until("the outgoing queue to fill", || {
+            let entered = filled.load(Ordering::SeqCst);
+            async move { Ok((entered > OUTGOING_QUEUE_CAPACITY).then_some(())) }
+        })
+        .await?;
+
+        match end {
+            StalledControllerEnd::PeerClose => socket.send(Message::Close(None)).await?,
+            StalledControllerEnd::Revocation => {
+                renderer
+                    .global_params
+                    .permission_manager
+                    .read()
+                    .await
+                    .remove_user(&fingerprint)
+                    .await?;
+                wait_until("revoked controller to detach", || async {
+                    Ok(renderer
+                        .global_params
+                        .node
+                        .session()?
+                        .attached_controllers()
+                        .iter()
+                        .all(|controller| controller.fingerprint != fingerprint)
+                        .then_some(()))
+                })
+                .await?;
+            }
+        }
+
+        let started = Instant::now();
+        tokio::time::timeout(SHUTDOWN_DEADLINE, renderer.global_params.node.shutdown())
+            .await
+            .context("server shutdown did not finish within the deadline")??;
+        let MaybeTlsStream::Rustls(tls) = socket.get_ref() else {
+            anyhow::bail!("controller connection is not TLS");
+        };
+        let tcp = tls.get_ref().0;
+        // A raw write bypasses the websocket, which refuses sends after its own
+        // Close. Once the server closes its socket, the next write fails with a reset.
+        let released = wait_until(
+            "server to close the stalled connection",
+            move || async move {
+                match tcp.try_write(b"x") {
+                    Ok(_) => Ok(None),
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
+                    Err(_) => Ok(Some(())),
+                }
+            },
+        );
+        tokio::time::timeout(
+            SHUTDOWN_DEADLINE.saturating_sub(started.elapsed()),
+            released,
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "server kept the stalled connection open {SHUTDOWN_DEADLINE:?} after shutdown \
+                 began ({} fill requests handled)",
+                filled.load(Ordering::SeqCst)
+            )
+        })??;
+
+        drop(socket);
+        controller.global_params.node.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn shutdown_releases_stalled_controller_after_peer_close() -> Result<()> {
+        shutdown_releases_stalled_controller(StalledControllerEnd::PeerClose).await
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn shutdown_releases_stalled_controller_after_revocation() -> Result<()> {
+        shutdown_releases_stalled_controller(StalledControllerEnd::Revocation).await
+    }
+
     async fn socket_request(
         socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
         name: &str,
