@@ -14,7 +14,6 @@ import '../../utils/dialogs/mix/create_edit_mix.dart';
 import '../../bindings/bindings.dart';
 import '../../providers/responsive_providers.dart';
 import '../../providers/library_open_state.dart';
-import '../../providers/request_capabilities.dart';
 import '../dialogs/play_on/play_on_dialog.dart';
 
 import '../rune_log.dart';
@@ -24,6 +23,7 @@ import '../router/navigation.dart';
 import '../router/query_tracks_parameter.dart';
 import '../router/router_aware_flyout_controller.dart';
 import '../dialogs/playlist/create_edit_playlist.dart';
+import 'offers_mixes.dart';
 import 'offline_selection.dart';
 
 Future<void> _showRequestFailure(
@@ -78,18 +78,6 @@ Future<void> _removeFromPlaylist(
   }
 }
 
-/// Whether the open library keeps mixes a track can be added to. A target
-/// that does not, such as a Subsonic server, gets no mix entries in the menu.
-bool _offersMixes(BuildContext context) {
-  bool available(
-    RequestCapability Function(RequestCapabilitiesProvider) select,
-  ) =>
-      capabilityForRequest(context, select, listen: false)
-          is RequestCapabilityAvailable;
-  return available((capabilities) => capabilities.fetchAllMixesRequest) &&
-      available((capabilities) => capabilities.addItemToMixRequest);
-}
-
 void openTrackItemContextMenu(
   Offset localPosition,
   BuildContext context,
@@ -140,13 +128,13 @@ void openTrackItemContextMenu(
     );
     return;
   }
-  final offersMixes = _offersMixes(context);
+  final withMixes = offersMixes(context);
   late final List<Playlist> playlists;
   late final List<Mix>? mixes;
   late final FetchParsedMediaFileResponse parsedMediaFile;
   try {
     playlists = await loadPlaylists();
-    mixes = offersMixes ? await loadMixes() : null;
+    mixes = withMixes ? await loadMixes() : null;
     parsedMediaFile = await loadMediaFile(fileId);
   } on RequestFailure catch (error) {
     if (context.mounted) await _showRequestFailure(context, error);
