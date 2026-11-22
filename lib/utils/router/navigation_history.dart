@@ -49,6 +49,21 @@ class NavigationHistory {
     return (true, routeEntry);
   }
 
+  /// Takes off the pages above the topmost page [name] and returns that page.
+  /// Returns null and leaves the history as it is when no page [name] is
+  /// below the current one, or something other than a page is open above it.
+  RouteEntry? popTo(String name) {
+    final index = history.lastIndexWhere(
+      (entry) => entry is RouteEntry && entry.name == name,
+    );
+    if (index < 0 || index == history.length - 1) return null;
+    if (history.skip(index + 1).any((entry) => entry is! RouteEntry)) {
+      return null;
+    }
+    history.removeRange(index + 1, history.length);
+    return history[index] as RouteEntry;
+  }
+
   void replace(RouteSettings settings) {
     if (history.isNotEmpty) {
       history.removeLast();

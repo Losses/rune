@@ -63,6 +63,28 @@ bool $pop() {
   return false;
 }
 
+/// Goes back to the page [name] below the current one, closing every page above
+/// it at once, as [$pop] goes back one page. Returns false and does nothing
+/// when no page [name] is below the current one.
+bool $popTo(String name) {
+  final current = $history.current;
+  if (current is! RouteEntry) return false;
+
+  final revealed = $history.popTo(name);
+  if (revealed == null) return false;
+
+  $router.update(
+    revealed.name,
+    popTransitionParameter(current.name, revealed.name, revealed.arguments),
+  );
+  $state().popUntil((route) => route.settings.name == name);
+  return true;
+}
+
+/// The pages that are only ever open once. Opening one that is already open
+/// below goes back to it, as it was left, instead of opening another on top.
+const _openOnce = {'/search'};
+
 /// The router's parameter for revealing [revealedName] again after popping
 /// [poppedName]: a transition from the popped page to the revealed one, around
 /// the revealed entry's own [arguments], which pages keep reading as before.
@@ -123,6 +145,8 @@ Future<T?> $showModal<T extends Object?>(
 }
 
 Future<T?>? $push<T extends Object?>(String routeName, {Object? arguments}) {
+  if (_openOnce.contains(routeName) && $popTo(routeName)) return null;
+
   final navigation = $state();
 
   final from = $router.path ?? "/library";

@@ -147,6 +147,11 @@ Future<void> _pumpApp(WidgetTester tester, String initial) async {
 ModalRoute<void> _routeOf(WidgetTester tester, Finder page) =>
     ModalRoute.of(tester.element(page))! as ModalRoute<void>;
 
+List<String> _names() => [for (final entry in $history.history) entry.name];
+
+ParentLink _title(WidgetTester tester) =>
+    tester.widget<ParentLink>(find.byType(ParentLink));
+
 void main() {
   testWidgets(
     'opening a search result and returning by the parent title restores '
@@ -248,6 +253,56 @@ void main() {
       expect(tester.takeException(), isNull);
       expect($router.path, '/artists');
       expect($history.history.map((e) => e.name), ['/library', '/artists']);
+    },
+  );
+
+  testWidgets(
+    'opening search two pages deep from a search result goes back to the '
+    'search page as it was instead of opening another',
+    (tester) async {
+      await _pumpApp(tester, '/search');
+      final searchState = tester.state<_SearchPageState>(
+        find.byType(_SearchPage),
+      );
+      final searchRoute = _routeOf(tester, find.byType(_SearchPage));
+      searchState.controller.jumpTo(1400);
+      await tester.pump();
+      tester
+          .state<CollectionSearchItemState>(find.byType(CollectionSearchItem))
+          .onPressed(tester.element(find.byType(CollectionSearchItem)));
+      await tester.pumpAndSettle();
+      $push('/albums/detail', arguments: QueryTracksParameter(9, 'Nine'));
+      await tester.pumpAndSettle();
+      expect(_names(), [
+        '/library',
+        '/search',
+        '/artists/detail',
+        '/albums/detail',
+      ]);
+
+      // As the search button and its shortcut open it.
+      $push('/search');
+      await tester.pumpAndSettle();
+
+      expect(_names(), ['/library', '/search']);
+      expect($router.path, '/search');
+      expect(find.text('/artists/detail'), findsNothing);
+      expect(find.text('/albums/detail'), findsNothing);
+      expect(_built['/search'], hasLength(1));
+      expect(
+        identical(_routeOf(tester, find.byType(_SearchPage)), searchRoute),
+        isTrue,
+      );
+      expect(
+        tester.state<_SearchPageState>(find.byType(_SearchPage)),
+        same(searchState),
+      );
+      expect(searchState.controller.offset, 1400);
+
+      // Out of search is back to where search was first opened from.
+      expect($pop(), isTrue);
+      await tester.pumpAndSettle();
+      expect(_names(), ['/library']);
     },
   );
 }
