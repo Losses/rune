@@ -16,6 +16,7 @@ use tokio::{
 use uuid::Uuid;
 pub mod broadcastable;
 pub mod diagnostics;
+pub mod file_dialog;
 pub mod nid;
 pub mod player;
 pub mod sync_settings;

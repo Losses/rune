@@ -4,9 +4,10 @@ use thiserror::Error as ThisError;
 
 use crate::access_policy::Denial;
 use crate::messages::{
-    CastLibraryState, LibraryOpenErrorKind, LibraryTaskKind, OpenLibraryFailureKind,
-    ProtocolUpdateSide, RegisterLibraryFailureKind, RemoveLibraryRecordFailureKind,
-    RequestErrorKind, RequestFailureCause, ScrobbleAuthenticationFailure,
+    CastLibraryState, FileDialogFailure, LibraryOpenErrorKind, LibraryTaskKind,
+    OpenLibraryFailureKind, ProtocolUpdateSide, RegisterLibraryFailureKind,
+    RemoveLibraryRecordFailureKind, RequestErrorKind, RequestFailureCause,
+    ScrobbleAuthenticationFailure,
 };
 use crate::rpc::UnsupportedReason;
 use discovery::protocol_version::ProtocolVersion;
@@ -95,6 +96,8 @@ pub enum ExpectedRequestError {
     ScrobbleAuthentication {
         failure: ScrobbleAuthenticationFailure,
     },
+    #[error("File dialog request failed: {failure:?}")]
+    FileDialog { failure: FileDialogFailure },
 }
 
 impl ExpectedRequestError {
@@ -253,6 +256,15 @@ pub fn classify(error: &Error) -> RequestErrorKind {
                     }
                     ScrobbleAuthenticationFailure::Other { .. } => RequestErrorKind::Internal,
                 },
+                ExpectedRequestError::FileDialog { failure } => match failure {
+                    FileDialogFailure::NotFound => RequestErrorKind::NotFound,
+                    FileDialogFailure::NotAFolder | FileDialogFailure::InvalidName => {
+                        RequestErrorKind::InvalidInput
+                    }
+                    FileDialogFailure::PermissionDenied => RequestErrorKind::PermissionDenied,
+                    FileDialogFailure::Unavailable => RequestErrorKind::Unavailable,
+                    FileDialogFailure::AlreadyExists => RequestErrorKind::Conflict,
+                },
             };
         }
     }
@@ -329,6 +341,9 @@ pub fn request_failure_cause(error: &Error) -> Option<RequestFailureCause> {
                     return Some(RequestFailureCause::ScrobbleAuthentication {
                         failure: failure.clone(),
                     });
+                }
+                ExpectedRequestError::FileDialog { failure } => {
+                    return Some(RequestFailureCause::FileDialogFailed { failure: *failure });
                 }
                 _ => {}
             }

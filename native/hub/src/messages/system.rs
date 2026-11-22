@@ -2,8 +2,9 @@ use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    CastLibraryState, LibraryOpenErrorKind, LibraryTaskKind, OpenLibraryFailureKind,
-    RegisterLibraryFailureKind, RemoveLibraryRecordFailureKind, ScrobbleAuthenticationFailure,
+    CastLibraryState, FileDialogFailure, LibraryOpenErrorKind, LibraryTaskKind,
+    OpenLibraryFailureKind, RegisterLibraryFailureKind, RemoveLibraryRecordFailureKind,
+    ScrobbleAuthenticationFailure,
 };
 
 #[derive(Serialize, Deserialize, DartSignal)]
@@ -84,6 +85,10 @@ pub enum RequestFailureCause {
         failure: ScrobbleAuthenticationFailure,
     },
     IndefiniteBroadcastAlreadyRunning,
+    /// Rune's file dialog could not read or change an item.
+    FileDialogFailed {
+        failure: FileDialogFailure,
+    },
 }
 
 #[derive(Deserialize, Serialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]

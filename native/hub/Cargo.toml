@@ -98,6 +98,7 @@ bcrypt = "0.17.0"
 rpassword = "=7.3.1"
 bincode = { version = "2.0.1", features = ["serde"] }
 fsio = { version = "0.1.0", path = "../../fsio" }
+fsio_browse = { version = "0.1.0", path = "../../fsio-browse" }
 mimetype-detector = "0.1.1"
 http-request = { version = "0.1.0", path = "../../http-request" }
 

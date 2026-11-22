@@ -182,6 +182,12 @@ RequestCapabilities snapshot({
     detectOpenDalShareDataRequest: capability,
     initializeNodeRequest: capability,
     runFsSelfTestRequest: capability,
+    listFileDialogPlacesRequest: capability,
+    resolveFileDialogPathRequest: capability,
+    listFileDialogFolderRequest: capability,
+    fetchFileDialogThumbnailRequest: capability,
+    createFileDialogFolderRequest: capability,
+    renameFileDialogEntryRequest: capability,
   ).copyWith(
     playRequest: play,
     pauseRequest: pause,

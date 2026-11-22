@@ -1125,7 +1125,16 @@ mod node_request_loop_tests {
     fn standalone_receivers_are_catalogued() {
         assert_eq!(
             standalone_request_names(),
-            ["InitializeNodeRequest", "RunFsSelfTestRequest"]
+            [
+                "InitializeNodeRequest",
+                "RunFsSelfTestRequest",
+                "ListFileDialogPlacesRequest",
+                "ResolveFileDialogPathRequest",
+                "ListFileDialogFolderRequest",
+                "FetchFileDialogThumbnailRequest",
+                "CreateFileDialogFolderRequest",
+                "RenameFileDialogEntryRequest",
+            ]
         );
     }
 }

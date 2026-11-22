@@ -179,6 +179,12 @@ pub struct RequestCapabilities {
     pub open_library_request: RequestCapability,
     pub initialize_node_request: RequestCapability,
     pub run_fs_self_test_request: RequestCapability,
+    pub list_file_dialog_places_request: RequestCapability,
+    pub resolve_file_dialog_path_request: RequestCapability,
+    pub list_file_dialog_folder_request: RequestCapability,
+    pub fetch_file_dialog_thumbnail_request: RequestCapability,
+    pub create_file_dialog_folder_request: RequestCapability,
+    pub rename_file_dialog_entry_request: RequestCapability,
 }
 
 impl From<Slot> for RequestCapability {
