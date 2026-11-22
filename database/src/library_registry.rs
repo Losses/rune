@@ -961,8 +961,9 @@ impl LibraryRegistry {
         }).await
     }
 
+    /// Reload for a writer that already holds `REGISTRY_WRITE`; persists a v2 conversion.
     fn reload(&mut self) -> Result<()> {
-        *self = Self::load(
+        *self = Self::load_locked(
             self.path
                 .parent()
                 .context("Registry has no parent directory")?,
