@@ -488,15 +488,22 @@ mod tests {
 
     #[test]
     fn the_transport_decides_the_kind_of_texture_on_windows_only() {
-        assert_eq!(wanted_kind(Some(Transport::Readback)), Some(Kind::Pixels));
         #[cfg(target_os = "windows")]
         {
+            assert_eq!(wanted_kind(Some(Transport::Readback)), Some(Kind::Pixels));
             assert_eq!(wanted_kind(Some(Transport::DxgiShared)), Some(Kind::Dxgi));
             assert_eq!(wanted_kind(None), None);
         }
         #[cfg(target_os = "android")]
-        assert_eq!(wanted_kind(None), Some(Kind::Surface));
+        {
+            // Frames read back would show nowhere: the texture's window takes them all.
+            assert_eq!(wanted_kind(Some(Transport::Readback)), Some(Kind::Surface));
+            assert_eq!(wanted_kind(None), Some(Kind::Surface));
+        }
         #[cfg(not(any(target_os = "windows", target_os = "android")))]
-        assert_eq!(wanted_kind(None), Some(Kind::Pixels));
+        {
+            assert_eq!(wanted_kind(Some(Transport::Readback)), Some(Kind::Pixels));
+            assert_eq!(wanted_kind(None), Some(Kind::Pixels));
+        }
     }
 }
