@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use chart_analyzer::{Chart, analyze_file, decode::Cancelled};
+use chart_analyzer::decode::{Cancelled, decode};
+use chart_analyzer::{Chart, analyze_file};
 use fsio::FsIo;
 use std::env;
 use std::fs;
@@ -74,6 +75,34 @@ fn write_wav<const N: usize>(
 
 fn remove(path: &Path) {
     fs::remove_dir_all(path.parent().unwrap()).ok();
+}
+
+fn fixture(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../testdata/chained_ogg")
+        .join(name)
+}
+
+/// Writes `parts` one after another into a temporary Ogg file, as a chained physical stream.
+fn chained_ogg(name: &str, parts: &[&str]) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("chart_analyzer_{name}_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("chained.ogg");
+    let mut bytes = Vec::new();
+    for part in parts {
+        bytes.extend_from_slice(&std::fs::read(fixture(part)).unwrap());
+    }
+    std::fs::write(&path, bytes).unwrap();
+    path
+}
+
+/// The frequency of `samples` at `rate`, from rising zero crossings.
+fn frequency(samples: &[f32], rate: u32) -> f64 {
+    let crossings = samples
+        .windows(2)
+        .filter(|pair| pair[0] <= 0.0 && pair[1] > 0.0)
+        .count();
+    crossings as f64 * f64::from(rate) / samples.len() as f64
 }
 
 #[test]
@@ -149,4 +178,70 @@ fn float_wav_analysis_returns_a_finite_chart_or_an_error() {
         }
     }
     assert!(invalid.is_empty(), "{}", invalid.join("\n"));
+}
+
+#[test]
+fn a_chained_ogg_is_analysed_through_the_second_stream() {
+    let fsio = FsIo::new();
+    let cancel = AtomicBool::new(false);
+    let single = analyze_file(&fsio, &fixture("tone_440_44100.ogg"), &cancel).unwrap();
+    let path = chained_ogg(
+        "chained_ogg_two_streams",
+        &["tone_440_44100.ogg", "tone_660_44100.ogg"],
+    );
+    let chained = analyze_file(&fsio, &path, &cancel).unwrap();
+    let samples = decode(&fsio, &path).unwrap();
+    remove(&path);
+
+    assert!(
+        chained.duration > single.duration * 1.5,
+        "the chained chart lasts {} s, the single stream {} s",
+        chained.duration,
+        single.duration
+    );
+
+    // The second stream is a 660 Hz tone, not a repeat of the first stream's 440 Hz.
+    let first = frequency(&samples[..samples.len() / 4], RATE);
+    let second = frequency(&samples[samples.len() * 3 / 4..], RATE);
+    assert!((first - 440.0).abs() < 10.0, "first stream is {first} Hz");
+    assert!(
+        (second - 660.0).abs() < 10.0,
+        "second stream is {second} Hz"
+    );
+}
+
+#[test]
+fn a_single_stream_ogg_is_analysed_to_its_end() {
+    let fsio = FsIo::new();
+    let cancel = AtomicBool::new(false);
+    let path = fixture("tone_440_44100.ogg");
+    let chart = analyze_file(&fsio, &path, &cancel).unwrap();
+    let samples = decode(&fsio, &path).unwrap();
+
+    assert!((chart.duration - 2.0).abs() < 0.1, "{}", chart.duration);
+    assert!(
+        (samples.len() as f64 - 44_100.0).abs() < 1_000.0,
+        "decoded {} samples",
+        samples.len()
+    );
+    let tone = frequency(&samples[..samples.len() / 2], RATE);
+    assert!((tone - 440.0).abs() < 10.0, "stream is {tone} Hz");
+}
+
+#[test]
+fn an_unsupported_stream_change_is_an_error_not_a_partial_chart() {
+    let fsio = FsIo::new();
+    let cancel = AtomicBool::new(false);
+    let path = chained_ogg(
+        "chained_ogg_rate_change",
+        &["tone_440_44100.ogg", "tone_660_48000.ogg"],
+    );
+    let result = analyze_file(&fsio, &path, &cancel);
+    remove(&path);
+
+    let error = result.expect_err("a sample-rate change must not produce a first-stream chart");
+    assert!(
+        error.to_string().contains("sample rate"),
+        "unexpected error: {error:#}"
+    );
 }

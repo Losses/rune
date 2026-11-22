@@ -104,7 +104,7 @@ pub fn decode_with(
         .iter()
         .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
         .ok_or_else(|| anyhow!("no supported audio track"))?;
-    let (track_id, params) = (track.id, track.codec_params.clone());
+    let (mut track_id, mut params) = (track.id, track.codec_params.clone());
     let mut decoder = fsio_media_source::get_codecs()
         .make(&params, &DecoderOptions::default())
         .map_err(|e| anyhow!("no decoder for the codec: {e}"))?;
@@ -113,6 +113,7 @@ pub fn decode_with(
         bail!("the file has no sample rate");
     }
     let mut resampler: Option<Resampler> = None;
+    let mut source_rate: Option<u32> = None;
     let (mut errors, mut mono) = (0, Vec::new());
     let mut buffer: Option<SampleBuffer<f32>> = None;
     loop {
@@ -123,7 +124,25 @@ pub fn decode_with(
             Ok(p) => p,
             // The end of the stream is an end-of-file error.
             Err(Error::IoError(e)) if e.kind() == ErrorKind::UnexpectedEof => break,
-            Err(Error::ResetRequired) => break,
+            // A chained Ogg file starts a new physical stream here. Symphonia has already
+            // replaced the track list; select the new audio track and continue with it.
+            Err(Error::ResetRequired) => {
+                let Some(track) = format
+                    .tracks()
+                    .iter()
+                    .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+                else {
+                    bail!("the next stream has no supported audio track");
+                };
+                let next_params = track.codec_params.clone();
+                track_id = track.id;
+                decoder = fsio_media_source::get_codecs()
+                    .make(&next_params, &DecoderOptions::default())
+                    .map_err(|e| anyhow!("no decoder for the codec: {e}"))?;
+                params = next_params;
+                errors = 0;
+                continue;
+            }
             Err(e) => bail!("failed to read the file: {e}"),
         };
         if packet.track_id() != track_id {
@@ -142,6 +161,17 @@ pub fn decode_with(
         };
         errors = 0;
         let spec = *decoded.spec();
+        // The resampler is built for the first stream's rate. A later stream at another rate
+        // would be resampled as if it had the first rate, so it is an unsupported transition
+        // instead of a silently wrong chart.
+        if let Some(rate) = source_rate
+            && spec.rate != rate
+        {
+            bail!(
+                "the sample rate changes from {rate} Hz to {} Hz, which is not supported",
+                spec.rate
+            );
+        }
         let channels = spec.channels.count().max(1);
         let buf = match &mut buffer {
             Some(b) if b.capacity() >= decoded.capacity() * channels => b,
@@ -164,7 +194,10 @@ pub fn decode_with(
         // The rate is the first packet's.
         let r = match &mut resampler {
             Some(r) => r,
-            slot => slot.insert(Resampler::new(spec.rate, SR as u32)?),
+            slot => {
+                source_rate = Some(spec.rate);
+                slot.insert(Resampler::new(spec.rate, SR as u32)?)
+            }
         };
         r.push(&mono, sink)?;
     }
