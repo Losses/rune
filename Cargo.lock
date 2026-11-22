@@ -3309,6 +3309,7 @@ dependencies = [
  "libc",
  "log",
  "lyric",
+ "md5",
  "metadata",
  "migration",
  "mimetype-detector",
@@ -7929,6 +7930,7 @@ dependencies = [
 name = "subsonic"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
  "axum",
  "discovery",
  "md5",

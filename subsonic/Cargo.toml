@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+arc-swap = "1.7.1"
 discovery = { path = "../discovery" }
 md5 = "0.7.0"
 rand = "0.8.5"

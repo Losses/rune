@@ -1715,14 +1715,11 @@ pub(crate) async fn replace_subsonic_credential_on_node(
         Ok(http) => http,
         Err(_) => return Err(credential_failure(Kind::Storage)),
     };
-    let client = SubsonicClient::new(
-        endpoint,
-        SubsonicCredentials::Password {
-            user: request.username.clone(),
-            password: request.password.clone(),
-        },
-        http,
-    );
+    let replacement = SubsonicCredentials::Password {
+        user: request.username.clone(),
+        password: request.password.clone(),
+    };
+    let client = SubsonicClient::new(endpoint, replacement.clone(), http);
     match timeout(Duration::from_secs(5), client.probe()).await {
         Err(_) => return Err(credential_failure(Kind::SubsonicUnreachable)),
         Ok(Err(SubsonicError::Transport(_) | SubsonicError::HttpStatus(_))) => {
@@ -1738,25 +1735,26 @@ pub(crate) async fn replace_subsonic_credential_on_node(
         Ok(Err(_)) => return Err(credential_failure(Kind::SubsonicWrongCredentials)),
         Ok(Ok(_)) => {}
     }
-    match node
-        .credentials
-        .replace(
-            *credential,
-            Credential {
-                username: request.username.clone(),
-                secret: Secret::new(request.password.as_bytes().to_vec()),
-            },
-        )
-        .await
     {
-        Ok(()) => {
-            if let Err(error) = publish_library_records_changed(node).await {
-                log::warn!("Could not publish library record change: {error:#}");
-            }
-            Ok(())
+        let _commit = node.subsonic_credential_commit.lock().await;
+        node.credentials
+            .replace(
+                *credential,
+                Credential {
+                    username: request.username.clone(),
+                    secret: Secret::new(request.password.as_bytes().to_vec()),
+                },
+            )
+            .await
+            .map_err(|_| credential_failure(Kind::Storage))?;
+        if let Some(binding) = node.subsonic_binding(record_id.0)? {
+            binding.client.replace_credentials(replacement);
         }
-        Err(_) => Err(credential_failure(Kind::Storage)),
     }
+    if let Err(error) = publish_library_records_changed(node).await {
+        log::warn!("Could not publish library record change: {error:#}");
+    }
+    Ok(())
 }
 
 /// A failed credential replacement, typed like a failed Subsonic registration.
@@ -2004,33 +2002,49 @@ async fn open_subsonic_record(
     credential_ref: CredentialRef,
     play_on_this_device: bool,
 ) -> StdResult<u64, (OpenLibraryFailureKind, anyhow::Error)> {
-    let credential = node
-        .credentials
-        .get(credential_ref)
-        .await
-        .map_err(|error| (OpenLibraryFailureKind::Storage, Error::new(error)))?;
-    let password = String::from_utf8(credential.secret.as_bytes().to_vec())
-        .map_err(|error| (OpenLibraryFailureKind::Storage, error.into()))?;
+    let read_credential = || async {
+        node.credentials
+            .get(credential_ref)
+            .await
+            .map_err(|error| (OpenLibraryFailureKind::Storage, Error::new(error)))
+    };
     let endpoint = Url::parse(endpoint)
         .map_err(|error| (OpenLibraryFailureKind::RemoteProtocol, error.into()))?;
-    let client = SubsonicClient::new(
-        endpoint,
-        SubsonicCredentials::Password {
-            user: credential.username,
-            password,
-        },
-        Client::builder()
-            .connect_timeout(Duration::from_secs(5))
-            .timeout(Duration::from_secs(10))
-            .build()
-            .map_err(|_| {
-                (
-                    OpenLibraryFailureKind::Storage,
-                    anyhow::anyhow!("Could not create Subsonic client"),
-                )
-            })?,
-    );
-    let probe = match timeout(Duration::from_secs(10), client.probe()).await {
+    let http = Client::builder()
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|_| {
+            (
+                OpenLibraryFailureKind::Storage,
+                anyhow::anyhow!("Could not create Subsonic client"),
+            )
+        })?;
+    let mut credential = read_credential().await?;
+    let (client, result, commit) = loop {
+        let password = std::str::from_utf8(credential.secret.as_bytes())
+            .map_err(|error| (OpenLibraryFailureKind::Storage, error.into()))?;
+        let client = SubsonicClient::new(
+            endpoint.clone(),
+            SubsonicCredentials::Password {
+                user: credential.username.clone(),
+                password: password.to_owned(),
+            },
+            http.clone(),
+        );
+        let result = timeout(Duration::from_secs(10), client.probe()).await;
+        let commit = node.subsonic_credential_commit.lock().await;
+        let current = read_credential().await?;
+        if credential.username == current.username
+            && credential.secret.as_bytes() == current.secret.as_bytes()
+        {
+            break (client, result, commit);
+        }
+        // Re-login won while the probe was in flight. Both the client and
+        // the roles returned by getUser must come from the saved credential.
+        credential = current;
+    };
+    let probe = match result {
         Err(_) => {
             return Err((
                 OpenLibraryFailureKind::RemoteUnreachable,
@@ -2081,6 +2095,7 @@ async fn open_subsonic_record(
         .set_open_subsonic_catalog(Some(record_id), binding)
         .await
         .map_err(|error| (OpenLibraryFailureKind::Storage, error))?;
+    drop(commit);
     listen_local_gui(&params, &params.main_token);
     Ok(generation)
 }

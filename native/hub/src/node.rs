@@ -220,6 +220,9 @@ pub struct NodeContext {
     pub node_id: Arc<String>,
     pub library_pool: Arc<LibraryPool>,
     pub credentials: Arc<CredentialStore>,
+    /// Orders the final credential check and binding installation with re-login's
+    /// store and client update. Subsonic HTTP probes run outside this lock.
+    pub(crate) subsonic_credential_commit: Mutex<()>,
     pub access_policy: Arc<RuneAccessPolicy>,
     pub permission_manager: Arc<RwLock<PermissionManager>>,
     pub cert_validator: Arc<RwLock<CertValidator>>,
@@ -422,6 +425,7 @@ impl NodeContext {
                 credentials.clone(),
             )?,
             credentials,
+            subsonic_credential_commit: Mutex::new(()),
             node_id,
             permission_manager: Arc::new(RwLock::new(permission_manager)),
             access_policy,

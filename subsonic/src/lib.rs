@@ -1,5 +1,7 @@
 use std::fmt;
+use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use discovery::endpoint::{EndpointUrl, HttpTransport};
 use rand::RngCore;
 use reqwest::header;
@@ -149,7 +151,7 @@ impl SubsonicProbe {
 /// A Subsonic client with caller-owned credentials and an HTTP client.
 pub struct SubsonicClient {
     base_url: Url,
-    credentials: SubsonicCredentials,
+    credentials: ArcSwap<SubsonicCredentials>,
     http: Client,
 }
 
@@ -157,9 +159,14 @@ impl SubsonicClient {
     pub fn new(base_url: Url, credentials: SubsonicCredentials, http: Client) -> Self {
         Self {
             base_url,
-            credentials,
+            credentials: ArcSwap::from_pointee(credentials),
             http,
         }
+    }
+
+    /// Use a verified replacement for subsequent requests, including from existing players.
+    pub fn replace_credentials(&self, credentials: SubsonicCredentials) {
+        self.credentials.store(Arc::new(credentials));
     }
 
     pub fn from_endpoint(
@@ -196,9 +203,9 @@ impl SubsonicClient {
                 .map(|extension| (extension.name, extension.versions.unwrap_or_default()))
                 .collect();
         }
-        let username = match &self.credentials {
-            SubsonicCredentials::Password { user, .. } => user.clone(),
-            SubsonicCredentials::ApiKey { .. } => {
+        let username = match self.credentials.load().user().map(str::to_owned) {
+            Some(user) => user,
+            None => {
                 let response: TokenInfoResponse = self.call("tokenInfo", &[]).await?;
                 response
                     .token_info
@@ -267,7 +274,7 @@ impl SubsonicClient {
         let existing_keys: Vec<String> =
             url.query_pairs().map(|(key, _)| key.into_owned()).collect();
         let mut query = url.query_pairs_mut();
-        for (key, value) in self.auth_query() {
+        for (key, value) in Self::auth_query(&self.credentials.load()) {
             if !existing_keys.iter().any(|existing| existing == key) {
                 query.append_pair(key, &value);
             }
@@ -646,7 +653,7 @@ impl SubsonicClient {
     /// Build a stream URL with the same authentication parameters used by requests.
     pub fn stream_url(&self, song_id: &str, options: StreamOptions) -> Url {
         let mut url = self.endpoint_url("stream");
-        let mut query = self.auth_query();
+        let mut query = Self::auth_query(&self.credentials.load());
         query.push(("id", song_id.to_owned()));
         if let Some(format) = options.format {
             query.push(("format", format));
@@ -721,7 +728,7 @@ impl SubsonicClient {
     /// Build a cover-art URL with the same authentication parameters used by requests.
     pub fn cover_art_url(&self, id: &str, size: Option<u32>) -> Url {
         let mut url = self.endpoint_url("getCoverArt");
-        let mut query = self.auth_query();
+        let mut query = Self::auth_query(&self.credentials.load());
         query.push(("id", id.to_owned()));
         if let Some(size) = size {
             query.push(("size", size.to_string()));
@@ -773,13 +780,13 @@ impl SubsonicClient {
         url
     }
 
-    fn auth_query(&self) -> Vec<(&'static str, String)> {
+    fn auth_query(credentials: &SubsonicCredentials) -> Vec<(&'static str, String)> {
         let mut query = vec![
             ("c", "rune".to_owned()),
             ("v", CLIENT_VERSION.to_owned()),
             ("f", "json".to_owned()),
         ];
-        match &self.credentials {
+        match credentials {
             SubsonicCredentials::Password { user, password } => {
                 let salt = random_salt();
                 let digest = md5::compute(format!("{password}{salt}"));
@@ -798,7 +805,9 @@ impl SubsonicClient {
         params: &[(&str, &str)],
     ) -> Result<T, SubsonicError> {
         let url = self.endpoint_url(endpoint);
-        let mut query = self.auth_query();
+        // A response must redact the secret that signed its request, even across a re-login.
+        let credentials = self.credentials.load_full();
+        let mut query = Self::auth_query(&credentials);
         query.extend(
             params
                 .iter()
@@ -825,14 +834,18 @@ impl SubsonicClient {
             .await
             .map_err(|error| SubsonicError::Transport(error.without_url().to_string()))?;
         let envelope: RawEnvelope = serde_json::from_slice(&bytes).map_err(|error| {
-            SubsonicError::Malformed(self.redact_secrets(&query, &error.to_string()))
+            SubsonicError::Malformed(Self::redact_secrets(
+                &credentials,
+                &query,
+                &error.to_string(),
+            ))
         })?;
         if envelope.response.status == "failed" {
             let error = envelope
                 .response
                 .error
                 .ok_or_else(|| SubsonicError::Malformed("failed response omitted error".into()))?;
-            let message = self.redact_secrets(&query, &error.message);
+            let message = Self::redact_secrets(&credentials, &query, &error.message);
             if endpoint == "jukeboxControl"
                 && matches!(error.code, 0 | 70)
                 && message.to_ascii_lowercase().contains("jukebox")
@@ -848,11 +861,19 @@ impl SubsonicClient {
             return Err(SubsonicError::Malformed("unknown response status".into()));
         }
         serde_json::from_value(Value::Object(envelope.response.data)).map_err(|error| {
-            SubsonicError::Malformed(self.redact_secrets(&query, &error.to_string()))
+            SubsonicError::Malformed(Self::redact_secrets(
+                &credentials,
+                &query,
+                &error.to_string(),
+            ))
         })
     }
 
-    fn redact_secrets(&self, query: &[(&str, String)], text: &str) -> String {
+    fn redact_secrets(
+        credentials: &SubsonicCredentials,
+        query: &[(&str, String)],
+        text: &str,
+    ) -> String {
         let mut redacted = text.to_owned();
         let mut redact = |secret: &str| {
             if secret.is_empty() {
@@ -873,7 +894,7 @@ impl SubsonicClient {
                 redact(secret);
             }
         }
-        match &self.credentials {
+        match credentials {
             SubsonicCredentials::Password { password, .. } => redact(password),
             SubsonicCredentials::ApiKey { key } => redact(key),
         }
