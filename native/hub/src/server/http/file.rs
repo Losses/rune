@@ -15,7 +15,7 @@ use database::error::ExpectedError;
 use fsio::FsIo;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use tower::ServiceExt;
-use tower_http::services::ServeDir;
+use tower_http::services::ServeFile;
 
 use crate::server::{ServerState, access::AuthorizedLibrary};
 use futures::StreamExt;
@@ -133,18 +133,13 @@ pub async fn file_handler(
         return StatusCode::FORBIDDEN.into_response();
     }
 
-    // Get the relative path
-    let relative_path = match canonical_path.strip_prefix(&canonical_root) {
-        Ok(path) => path,
-        Err(_) => return StatusCode::FORBIDDEN.into_response(),
-    };
+    if !canonical_path.is_file() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
 
-    // Serve the file using ServeDir
-    let service = ServeDir::new(&canonical_root);
-    let request = match Request::builder()
-        .uri(format!("/{}", relative_path.to_string_lossy()))
-        .body(Body::empty())
-    {
+    // Serve the validated file itself so its name is never re-interpreted as URI syntax.
+    let service = ServeFile::new(&canonical_path);
+    let request = match Request::builder().uri("/").body(Body::empty()) {
         Ok(request) => request,
         Err(_) => return StatusCode::BAD_REQUEST.into_response(),
     };
