@@ -43,6 +43,7 @@ import 'utils/api/set_adaptive_switching_enabled.dart';
 import 'utils/api/set_mix_with_others.dart';
 import 'utils/api/operate_playback_with_mix_query.dart';
 import 'utils/start_cafe_playback_after_open.dart';
+import 'utils/recover_failed_startup_open.dart';
 import 'utils/file_storage/mac_secure_manager.dart';
 import 'utils/macos_window_control_button_manager.dart';
 
@@ -626,7 +627,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
   StreamSubscription<RustSignalPack<RequestFailedResponse>>?
   _requestFailureSubscription;
   bool _subsonicReloginOpen = false;
-  bool _startupReloginChecked = false;
+  bool _startupOpenChecked = false;
 
   @override
   void initState() {
@@ -757,32 +758,56 @@ class RuneLifecycleState extends State<RuneLifecycle> {
     }
   }
 
+  Future<void> _recoverFailedStartupOpen(LibraryOpenStateProvider libraryPath) {
+    final registry = libraryPath.registry;
+    return recoverFailedStartupOpen(
+      libraryOpened: libraryPath.initialOpen,
+      failure: () => libraryPath.initialOpenFailure,
+      libraryIsOpen: () => libraryPath.hasOpenLibrary,
+      signInAgain: () async {
+        await WidgetsBinding.instance.endOfFrame;
+        final recordId = registry.lastOpenRecordId;
+        final dialogContext = rootNavigatorKey.currentState?.overlay?.context;
+        if (recordId == null ||
+            dialogContext == null ||
+            !dialogContext.mounted) {
+          return false;
+        }
+        final updated = await showSubsonicReloginDialog(
+          dialogContext,
+          registry,
+          recordId,
+        );
+        if (!updated) return false;
+        await registry.open(recordId);
+        return true;
+      },
+      showChooser: (failure) {
+        if (!mounted) return;
+        final message = failure == null
+            ? null
+            : libraryFailureMessage(S.of(context), failure);
+        $$replace('/');
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final rootContext = rootNavigatorKey.currentContext;
+          if (rootContext != null) {
+            showFailedToInitializeLibrary(rootContext, message);
+          }
+        });
+      },
+    );
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
 
     final libraryPath = context.read<LibraryOpenStateProvider>();
-    if (!_startupReloginChecked) {
-      _startupReloginChecked = true;
-      libraryPath.initialOpen.then((_) {
-        if (!mounted || !needsLibraryRelogin(libraryPath.initialOpenFailure)) {
-          return;
-        }
-        final recordId = libraryPath.registry.lastOpenRecordId;
-        if (recordId == null) return;
-        WidgetsBinding.instance.addPostFrameCallback((_) async {
-          final dialogContext = rootNavigatorKey.currentState?.overlay?.context;
-          if (!mounted || dialogContext == null) return;
-          final updated = await showSubsonicReloginDialog(
-            dialogContext,
-            libraryPath.registry,
-            recordId,
-          );
-          if (updated && mounted) {
-            await libraryPath.registry.open(recordId);
-          }
-        });
-      });
+    if (!_startupOpenChecked) {
+      _startupOpenChecked = true;
+      if (hasStartupLibrary) {
+        unawaited(_recoverFailedStartupOpen(libraryPath));
+      }
     }
     if (_libraryState != libraryPath) {
       _libraryState?.removeListener(_libraryChanged);

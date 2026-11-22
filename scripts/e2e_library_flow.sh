@@ -14,6 +14,7 @@ home="$run_root/home"
 runtime="$run_root/runtime"
 music_a="$run_root/Music A"
 music_b="$run_root/Music B"
+music_a_away="$run_root/Music A (moved away)"
 mkdir -p "$home" "$runtime" "$music_a" "$music_b" \
   "$run_root/config" "$run_root/data" "$run_root/cache"
 chmod 700 "$runtime"
@@ -85,10 +86,17 @@ export E2E_LIBRARY_B="$music_b"
 (cd "$repo_root" && nix develop -c bash -c 'rinf gen && flutter gen-l10n')
 
 started=$SECONDS
-for phase in 1 2 3 4; do
+for phase in 1 2 3 4 5; do
   export E2E_PHASE="$phase"
+  # Phase 2 starts while Music A, the last open library, is missing; it is back
+  # for phase 3.
+  if [[ "$phase" == 2 ]]; then
+    mv "$music_a" "$music_a_away"
+  elif [[ "$phase" == 3 ]]; then
+    mv "$music_a_away" "$music_a"
+  fi
   command=(dbus-run-session -- nix develop -c flutter test integration_test/e2e_library_flow_test.dart -d linux)
-  printf 'E2E library flow phase %s/4\n' "$phase"
+  printf 'E2E library flow phase %s/5\n' "$phase"
   timeout --signal=TERM --kill-after=10s 3600s "${command[@]}"
 
   if [[ "$phase" == 1 ]]; then
