@@ -293,4 +293,36 @@ void main() {
       expect(find.text(task), findsNothing);
     }
   });
+
+  for (final service in OpenDalServiceKind.values) {
+    testWidgets(
+      'catalog task buttons start tasks for a ${service.name} library',
+      (tester) async {
+        final record = LibraryRecordSummary(
+          recordId: '${service.name}-record',
+          alias: 'music',
+          kind: LibraryRecordKindSummaryOpenDal(
+            libraryId: '${service.name}-library',
+            service: service,
+            endpoint: 'https://storage.example',
+            root: 'music',
+          ),
+        );
+        final manager = await _pumpTaskButtons(tester, record: record);
+        await tester.tap(find.text('Scan'));
+        await tester.pumpAndSettle();
+        expect(manager.scanForces, [false]);
+        await tester.tap(find.text('Analyze'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Deduplicate'));
+        await tester.pumpAndSettle();
+        expect(manager.taskStarts, ['Analyze', 'Deduplicate']);
+
+        final (openState, registry) = await _openState(record);
+        addTearDown(openState.dispose);
+        addTearDown(registry.dispose);
+        expect(openState.catalogLibraryId, '${service.name}-library');
+      },
+    );
+  }
 }
