@@ -1,6 +1,6 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Error, Result};
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -76,11 +76,17 @@ where
     }
 }
 
+/// The most distinct libraries one request body may name. A queue that spans hundreds of
+/// libraries is not a real use, and the limit keeps the central authorization bounded before
+/// any handler runs.
+pub(crate) const MAX_BODY_LIBRARIES: usize = 256;
+
 /// Authorize the libraries a request's body names, as its catalogue entry declares.
 ///
 /// `PlayerReads` requests are scoped to the player, not to an addressed library, so each
 /// named library is checked with the caller's connection view grant instead of the request's
-/// node-wide Control rule.
+/// node-wide Control rule. A request naming more than [`MAX_BODY_LIBRARIES`] distinct
+/// libraries is refused before any per-library work.
 async fn authorize_body_libraries<R: TargetRequest + NamedLibraries>(
     node: &NodeContext,
     session: &Session,
@@ -91,18 +97,35 @@ async fn authorize_body_libraries<R: TargetRequest + NamedLibraries>(
         BodyLibraries::NoLibrary => return Ok(()),
         BodyLibraries::Authorized | BodyLibraries::PlayerReads => {}
     }
-    let mut named = Vec::new();
+    let mut named = HashSet::new();
+    let mut ordered = Vec::new();
     request.visit_libraries(&mut |library_id| {
-        if !named.contains(&library_id) {
-            named.push(library_id);
+        if named.len() > MAX_BODY_LIBRARIES {
+            return;
+        }
+        if named.insert(library_id) {
+            ordered.push(library_id);
         }
     });
-    for library_id in named {
-        let library_id = Uuid::parse_str(library_id).map_err(|error| {
-            ExpectedRequestError::invalid_input(format!("Invalid library id: {error}"))
-        })?;
-        match R::BODY_LIBRARIES {
-            BodyLibraries::Authorized => {
+    if ordered.len() > MAX_BODY_LIBRARIES {
+        return Err(ExpectedRequestError::invalid_input(format!(
+            "A request may name at most {MAX_BODY_LIBRARIES} libraries"
+        ))
+        .into());
+    }
+    let library_ids = ordered
+        .into_iter()
+        .map(|library_id| {
+            Uuid::parse_str(library_id).map_err(|error| {
+                Error::new(ExpectedRequestError::invalid_input(format!(
+                    "Invalid library id: {error}"
+                )))
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    match R::BODY_LIBRARIES {
+        BodyLibraries::Authorized => {
+            for library_id in library_ids {
                 node.authorize_request(session, R::wire_name(), None, Some(library_id))
                     .await?;
                 let addressed_library =
@@ -116,11 +139,11 @@ async fn authorize_body_libraries<R: TargetRequest + NamedLibraries>(
                     .into());
                 }
             }
-            BodyLibraries::PlayerReads => {
-                node.authorize_library_view(session, library_id).await?;
-            }
-            BodyLibraries::NoLibrary => {}
         }
+        BodyLibraries::PlayerReads => {
+            node.authorize_library_views(session, library_ids).await?;
+        }
+        BodyLibraries::NoLibrary => {}
     }
     Ok(())
 }

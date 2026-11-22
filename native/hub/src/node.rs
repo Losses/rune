@@ -1259,17 +1259,20 @@ impl NodeContext {
         })
     }
 
-    /// Authorize a remote session to read one library through this node. A player request's
-    /// own access rule is Control, which is node-wide, so the libraries its player reads need
-    /// this separate library-scoped check.
-    pub(crate) async fn authorize_library_view(
+    /// Authorize a remote session to read the given libraries through this node. A player
+    /// request's own access rule is Control, which is node-wide, so the libraries its player
+    /// reads need this separate library-scoped check. The session is verified once for the
+    /// whole request.
+    pub(crate) async fn authorize_library_views(
         &self,
         session: &Session,
-        library_id: Uuid,
+        library_ids: impl IntoIterator<Item = Uuid>,
     ) -> Result<()> {
         let peer = self.verified_peer(session).await?;
-        self.access_policy
-            .check(&peer, &Action::ConnectionView { library_id })?;
+        for library_id in library_ids {
+            self.access_policy
+                .check(&peer, &Action::ConnectionView { library_id })?;
+        }
         Ok(())
     }
 

@@ -30,6 +30,7 @@ mod access_policy_tests {
     use crate::server::libraries::{
         cast_library_state, list_peer_libraries, list_renderer_candidates,
     };
+    use crate::server::server_request::MAX_BODY_LIBRARIES;
     use crate::server::sync::client::LibrarySession;
     use crate::server::sync_worker::share_worker_tests::TestPeerSession;
     use crate::test_wait::{TEST_DEADLINE, wait_until};
@@ -551,6 +552,86 @@ mod access_policy_tests {
             node.session()?.queue_revision().await,
             controller_revision
         );
+
+        pair.close().await?;
+        Ok(())
+    }
+
+    /// The library limit counts distinct libraries, and a request over it is refused before
+    /// any per-library authorization or handler work.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn player_reads_requests_bound_the_number_of_named_libraries() -> Result<()> {
+        let pair = PolicyPair::new().await?;
+        let controller = info(&pair.a).await?.fingerprint;
+        set_controller_library_grants(&pair, &controller, &[])?;
+        let user = pair
+            .b
+            .global_params
+            .node
+            .permission_manager
+            .read()
+            .await
+            .verify_by_fingerprint(&controller)
+            .await
+            .context("approved controller")?;
+        let session = Session {
+            fingerprint: user.fingerprint,
+            public_key: user.public_key,
+            base_url: Url::parse("https://127.0.0.1:7863/").unwrap(),
+        };
+        let node = Arc::clone(&pair.b.global_params.node);
+        let queue_before = pair.b.global_params.player.lock().await.get_playlist();
+        let revision_before = node.session()?.queue_revision().await;
+
+        let at_limit = (0..MAX_BODY_LIBRARIES)
+            .map(|_| PlayingItemRef::LibraryTrack {
+                library_id: Uuid::new_v4().to_string(),
+                track: Uuid::new_v4().to_string(),
+            })
+            .collect::<Vec<_>>();
+        let error = send_player_read(
+            &node,
+            "LoadResolvedItemsRequest",
+            rinf::serialize(&load_request(at_limit, PlaylistOperateMode::Replace))?,
+            &session,
+        )
+        .await
+        .expect_err("libraries without a grant must still be refused at the limit");
+        assert_eq!(
+            classify(&error),
+            RequestErrorKind::PermissionDenied,
+            "{error:#}"
+        );
+        assert_eq!(
+            pair.b.global_params.player.lock().await.get_playlist(),
+            queue_before
+        );
+        assert_eq!(node.session()?.queue_revision().await, revision_before);
+
+        let over_limit = (0..=MAX_BODY_LIBRARIES)
+            .map(|_| PlayingItemRef::LibraryTrack {
+                library_id: Uuid::new_v4().to_string(),
+                track: Uuid::new_v4().to_string(),
+            })
+            .collect::<Vec<_>>();
+        let error = send_player_read(
+            &node,
+            "LoadResolvedItemsRequest",
+            rinf::serialize(&load_request(over_limit, PlaylistOperateMode::Replace))?,
+            &session,
+        )
+        .await
+        .expect_err("a request over the library limit must be refused");
+        assert_eq!(
+            classify(&error),
+            RequestErrorKind::InvalidInput,
+            "{error:#}"
+        );
+        assert_eq!(
+            pair.b.global_params.player.lock().await.get_playlist(),
+            queue_before
+        );
+        assert_eq!(node.session()?.queue_revision().await, revision_before);
 
         pair.close().await?;
         Ok(())
