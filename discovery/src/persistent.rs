@@ -301,22 +301,29 @@ where
             })?;
 
         // Write serialized content to file
-        fs::write(&self.file_path, &content).map_err(|e| PersistenceError::Io {
+        let written = fs::write(&self.file_path, &content).map_err(|e| PersistenceError::Io {
             source: e,
             context: format!("writing to file {}", self.file_path.display()),
-        })?;
+        });
 
-        // Resume watching after save is complete
-        self.watcher
+        // Resume watching even when the write failed, so a later save can pause it again.
+        let rewatched = self
+            .watcher
             .write()
             .await
             .watch(&self.file_path, RecursiveMode::NonRecursive)
             .map_err(|e| PersistenceError::Watcher {
                 source: e,
                 action: "rewatching file".to_string(),
-            })?;
+            });
 
-        Ok(())
+        match (written, rewatched) {
+            (Err(write_error), Err(watch_error)) => {
+                log::warn!("{watch_error}");
+                Err(write_error)
+            }
+            (written, rewatched) => written.and(rewatched),
+        }
     }
 
     /// Obtains a read lock on the managed data, allowing concurrent read access.
@@ -341,8 +348,9 @@ where
     ///
     /// This method takes a closure `updater` that operates on a clone of the current data. The closure
     /// should modify the data and return both the modified data and a result value. After the updater
-    /// function completes successfully, this method updates the managed data with the modified version
-    /// and saves it to the persistent file.
+    /// function completes successfully, this method saves the modified data to the persistent file and
+    /// only then replaces the managed data and notifies subscribers. If the save fails, the managed
+    /// data and subscribers are left untouched.
     ///
     /// # Arguments
     /// * `updater` - A closure that takes a clone of the current data, modifies it, and returns
@@ -361,6 +369,27 @@ where
     where
         F: FnOnce(T) -> Fut,
         Fut: Future<Output = Result<(T, R), E>>,
+        E: From<PersistenceError>,
+    {
+        self.update_with_commit(updater, || Ok(())).await
+    }
+
+    /// Like [`update`](Self::update), but runs `commit` once the updated data is saved and before
+    /// it is published.
+    ///
+    /// `commit` runs while the data and file locks are still held, so it can apply side effects
+    /// that must only happen once the new data is durable. If `commit` fails, the previous file
+    /// contents are written back (best effort; a failed write-back is logged), the managed data
+    /// and subscribers are left untouched, and the commit error is returned.
+    ///
+    /// # Errors
+    /// Returns the updater's error, a `PersistenceError` from reading or saving the file, or the
+    /// error returned by `commit`.
+    pub async fn update_with_commit<F, Fut, R, E, C>(&self, updater: F, commit: C) -> Result<R, E>
+    where
+        F: FnOnce(T) -> Fut,
+        Fut: Future<Output = Result<(T, R), E>>,
+        C: FnOnce() -> Result<(), E>,
         E: From<PersistenceError>,
     {
         // In-process writers queue on the data lock first, so only one task per
@@ -382,11 +411,20 @@ where
                 }));
             }
         };
-        let (new_data, result) = updater(current_data).await?; // Call the updater function
-        *data = new_data.clone(); // Update managed data with the new data
+        let (new_data, result) = updater(current_data.clone()).await?;
+        self.save_internal(&new_data).await.map_err(E::from)?;
+        if let Err(error) = commit() {
+            if let Err(restore_error) = self.save_internal(&current_data).await {
+                log::warn!(
+                    "Could not restore {} after a failed update: {restore_error}",
+                    self.file_path.display()
+                );
+            }
+            return Err(error);
+        }
+        *data = new_data.clone();
         let _ = self.change_tx.send(new_data);
-        self.save_internal(&*data).await.map_err(E::from)?; // Save the updated data to file
-        Ok(result) // Return the result from the updater function
+        Ok(result)
     }
 
     /// Returns a broadcast receiver for change notifications.

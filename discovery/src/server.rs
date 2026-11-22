@@ -444,25 +444,30 @@ impl PermissionManager {
         fingerprint: &str,
         new_status: UserStatus,
     ) -> Result<(), PermissionError> {
+        let status = new_status.clone();
+        // The trust hooks run only once the new status is saved; a failed save leaves
+        // grants untouched, and a failed hook restores the previous trust file.
         self.storage
-            .update(|mut permissions| async move {
-                // Update operation on persistent storage
-                let user = permissions
-                    .users
-                    .get_mut(fingerprint) // Get mutable reference to user by fingerprint
-                    .ok_or(PermissionError::UserNotFound)?; // Return error if user not found
-                self.notify_trust_change(fingerprint, Some(&new_status))?;
-                user.status = new_status.clone(); // Update user status
-                if new_status != UserStatus::Pending {
-                    // A decided request must not keep a pending slot or be
-                    // evicted by later requests from the same address.
-                    let mut ip_apps = self.ip_applications.write().await;
-                    for queue in ip_apps.values_mut() {
-                        queue.retain(|queued| queued != fingerprint);
+            .update_with_commit(
+                |mut permissions| async move {
+                    // Update operation on persistent storage
+                    let user = permissions
+                        .users
+                        .get_mut(fingerprint) // Get mutable reference to user by fingerprint
+                        .ok_or(PermissionError::UserNotFound)?; // Return error if user not found
+                    user.status = status.clone(); // Update user status
+                    if status != UserStatus::Pending {
+                        // A decided request must not keep a pending slot or be
+                        // evicted by later requests from the same address.
+                        let mut ip_apps = self.ip_applications.write().await;
+                        for queue in ip_apps.values_mut() {
+                            queue.retain(|queued| queued != fingerprint);
+                        }
                     }
-                }
-                Ok::<_, PermissionError>((permissions, ())) // Return updated permissions and success result
-            })
+                    Ok::<_, PermissionError>((permissions, ())) // Return updated permissions and success result
+                },
+                || self.notify_trust_change(fingerprint, Some(&new_status)),
+            )
             .await?;
         self.change_sender
             .send_modify(|generation| *generation = generation.wrapping_add(1));
@@ -483,19 +488,21 @@ impl PermissionManager {
     /// Returns `PermissionError::UserNotFound` if no user with the given fingerprint is found.
     /// Returns `PermissionError::Persistence` if there is an issue updating the persistent storage.
     pub async fn remove_user(&self, fingerprint: &str) -> Result<(), PermissionError> {
+        // The trust hooks run only once the removal is saved; a failed save leaves
+        // grants untouched, and a failed hook restores the previous trust file.
         self.storage
-            .update(|mut permissions| async move {
-                // Update operation on persistent storage
-                if permissions.users.contains_key(fingerprint) {
-                    self.notify_trust_change(fingerprint, None)?;
-                }
-                if permissions.users.remove(fingerprint).is_none() {
-                    // Try to remove user by fingerprint
-                    Err(PermissionError::UserNotFound) // Return error if user was not found (remove returned None)
-                } else {
-                    Ok::<_, PermissionError>((permissions, ())) // Return updated permissions and success result
-                }
-            })
+            .update_with_commit(
+                |mut permissions| async move {
+                    // Update operation on persistent storage
+                    if permissions.users.remove(fingerprint).is_none() {
+                        // Try to remove user by fingerprint
+                        Err(PermissionError::UserNotFound) // Return error if user was not found (remove returned None)
+                    } else {
+                        Ok::<_, PermissionError>((permissions, ())) // Return updated permissions and success result
+                    }
+                },
+                || self.notify_trust_change(fingerprint, None),
+            )
             .await?;
         self.change_sender
             .send_modify(|generation| *generation = generation.wrapping_add(1));
