@@ -39,6 +39,7 @@ class LibraryOpenStateProvider with ChangeNotifier {
   String? get catalogLibraryId => switch (openRecord?.kind) {
     LibraryRecordKindSummaryLocal(:final libraryId) => libraryId,
     LibraryRecordKindSummaryReplica(:final libraryId) => libraryId,
+    LibraryRecordKindSummaryOpenDal(:final libraryId) => libraryId,
     _ => null,
   };
   bool get hasCatalog => catalogLibraryId != null;
