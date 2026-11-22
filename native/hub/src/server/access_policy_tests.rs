@@ -2266,4 +2266,306 @@ mod access_policy_tests {
         );
         a.global_params.node.shutdown().await
     }
+
+    #[derive(Clone, Copy)]
+    enum TrustMutation {
+        Block,
+        #[cfg(unix)]
+        Remove,
+    }
+
+    impl TrustMutation {
+        async fn apply(
+            self,
+            a: &Fixture,
+            fingerprint: &str,
+        ) -> Result<(), ::discovery::server::PermissionError> {
+            let permissions = a.global_params.permission_manager.write().await;
+            match self {
+                Self::Block => {
+                    permissions
+                        .change_user_status(fingerprint, UserStatus::Blocked)
+                        .await
+                }
+                #[cfg(unix)]
+                Self::Remove => permissions.remove_user(fingerprint).await,
+            }
+        }
+
+        /// What the trust list shows for the device once the mutation has taken effect.
+        #[cfg(unix)]
+        fn expected_status(self) -> Option<UserStatus> {
+            match self {
+                Self::Block => Some(UserStatus::Blocked),
+                Self::Remove => None,
+            }
+        }
+    }
+
+    /// A node whose single approved device is restricted to the guest preset.
+    async fn restricted_device_node(dir: &Path, fingerprint: &str) -> Result<Fixture> {
+        let a = fixture(dir).await?;
+        let permissions = a.global_params.permission_manager.write().await;
+        permissions
+            .add_user(
+                "key".into(),
+                fingerprint.into(),
+                "alias".into(),
+                "test".into(),
+                DeviceType::Desktop,
+                "127.0.0.3".into(),
+            )
+            .await?;
+        permissions
+            .change_user_status(fingerprint, UserStatus::Approved)
+            .await?;
+        drop(permissions);
+        a.global_params
+            .node
+            .access_policy
+            .set(fingerprint, DeviceGrants::guest())?;
+        Ok(a)
+    }
+
+    async fn trust_status(a: &Fixture, fingerprint: &str) -> Option<UserStatus> {
+        a.global_params
+            .permission_manager
+            .read()
+            .await
+            .verify_by_fingerprint(fingerprint)
+            .await
+            .map(|user| user.status)
+    }
+
+    /// Makes `path` read-only and proves it: a process that may write anyway (such as root)
+    /// would otherwise let the failure scenarios pass without exercising a failed write.
+    #[cfg(unix)]
+    fn make_unwritable(path: &Path) -> Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o444))?;
+        assert!(
+            fs::OpenOptions::new().write(true).open(path).is_err(),
+            "{} is still writable; run this test as an unprivileged user",
+            path.display()
+        );
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn make_writable(path: &Path) -> Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o644))?;
+        Ok(())
+    }
+
+    /// Reopens the trust list and grants from disk, as a restart would.
+    #[cfg(unix)]
+    async fn reload_policy(
+        config: &Path,
+    ) -> Result<(PermissionManager, crate::access_policy::RuneAccessPolicy)> {
+        let permissions = PermissionManager::new(config)?;
+        let policy =
+            crate::access_policy::RuneAccessPolicy::load(config, &permissions.list_users().await)?;
+        Ok((permissions, policy))
+    }
+
+    #[cfg(unix)]
+    fn peer(fingerprint: &str) -> ::discovery::access_policy::PeerIdentity {
+        ::discovery::access_policy::PeerIdentity {
+            fingerprint: fingerprint.into(),
+            public_key: "key".into(),
+        }
+    }
+
+    #[cfg(unix)]
+    async fn failed_trust_save_keeps_restricted_grants(mutation: TrustMutation) -> Result<()> {
+        use ::discovery::access_policy::AccessPolicy;
+
+        let dir = tempfile::tempdir()?;
+        let fingerprint = "restricted-device";
+        let a = restricted_device_node(dir.path(), fingerprint).await?;
+        let trust_file = dir.path().join(".known-clients");
+        let grants_file = dir.path().join("grants.json");
+        let trust_before = fs::read(&trust_file)?;
+        let grants_before = fs::read(&grants_file)?;
+
+        make_unwritable(&trust_file)?;
+        assert!(mutation.apply(&a, fingerprint).await.is_err());
+
+        assert_eq!(
+            trust_status(&a, fingerprint).await,
+            Some(UserStatus::Approved)
+        );
+        assert_eq!(
+            a.global_params.node.access_policy.grants(fingerprint)?,
+            DeviceGrants::guest()
+        );
+        assert_eq!(fs::read(&trust_file)?, trust_before);
+        assert_eq!(fs::read(&grants_file)?, grants_before);
+
+        make_writable(&trust_file)?;
+        let (_reloaded_permissions, reloaded_policy) = reload_policy(dir.path()).await?;
+        assert_eq!(reloaded_policy.grants(fingerprint)?, DeviceGrants::guest());
+        assert!(
+            reloaded_policy
+                .check(
+                    &peer(fingerprint),
+                    &Action::ConnectionEdit {
+                        library_id: Uuid::new_v4()
+                    }
+                )
+                .is_err()
+        );
+
+        mutation
+            .apply(&a, fingerprint)
+            .await
+            .context("retry once the trust file is writable again")?;
+        assert_eq!(
+            trust_status(&a, fingerprint).await,
+            mutation.expected_status()
+        );
+        assert!(
+            a.global_params
+                .node
+                .access_policy
+                .grants(fingerprint)
+                .is_err()
+        );
+        a.global_params.node.shutdown().await
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn blocking_a_device_keeps_its_restricted_grants_when_the_trust_file_cannot_be_written()
+    -> Result<()> {
+        failed_trust_save_keeps_restricted_grants(TrustMutation::Block).await
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn removing_a_device_keeps_its_restricted_grants_when_the_trust_file_cannot_be_written()
+    -> Result<()> {
+        failed_trust_save_keeps_restricted_grants(TrustMutation::Remove).await
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn approving_a_device_grants_nothing_when_the_trust_file_cannot_be_written() -> Result<()>
+    {
+        use ::discovery::access_policy::AccessPolicy;
+
+        let dir = tempfile::tempdir()?;
+        let fingerprint = "pending-device";
+        let a = fixture(dir.path()).await?;
+        a.global_params
+            .permission_manager
+            .write()
+            .await
+            .add_user(
+                "key".into(),
+                fingerprint.into(),
+                "alias".into(),
+                "test".into(),
+                DeviceType::Desktop,
+                "127.0.0.3".into(),
+            )
+            .await?;
+        let trust_file = dir.path().join(".known-clients");
+        let trust_before = fs::read(&trust_file)?;
+
+        make_unwritable(&trust_file)?;
+        let approval = a
+            .global_params
+            .permission_manager
+            .write()
+            .await
+            .change_user_status(fingerprint, UserStatus::Approved)
+            .await;
+        assert!(approval.is_err());
+
+        assert_eq!(
+            trust_status(&a, fingerprint).await,
+            Some(UserStatus::Pending)
+        );
+        assert!(
+            a.global_params
+                .node
+                .access_policy
+                .grants(fingerprint)
+                .is_err()
+        );
+        assert_eq!(fs::read(&trust_file)?, trust_before);
+
+        make_writable(&trust_file)?;
+        let (reloaded_permissions, reloaded_policy) = reload_policy(dir.path()).await?;
+        assert_eq!(
+            reloaded_permissions
+                .verify_by_fingerprint(fingerprint)
+                .await
+                .map(|user| user.status),
+            Some(UserStatus::Pending)
+        );
+        assert!(reloaded_policy.grants(fingerprint).is_err());
+        assert!(
+            reloaded_policy
+                .check(
+                    &peer(fingerprint),
+                    &Action::ConnectionView {
+                        library_id: Uuid::new_v4()
+                    }
+                )
+                .is_err()
+        );
+        a.global_params.node.shutdown().await
+    }
+
+    #[tokio::test]
+    async fn failed_grant_save_leaves_the_device_approved_and_can_be_retried() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let fingerprint = "restricted-device";
+        let a = restricted_device_node(dir.path(), fingerprint).await?;
+        let trust_file = dir.path().join(".known-clients");
+        let grants_file = dir.path().join("grants.json");
+        let trust_before = fs::read(&trust_file)?;
+        let grants_before = fs::read(&grants_file)?;
+
+        let blocker = dir.path().join("grants.json.tmp");
+        fs::create_dir(&blocker)?;
+        assert!(
+            TrustMutation::Block
+                .apply(&a, fingerprint)
+                .await
+                .is_err()
+        );
+
+        assert_eq!(
+            trust_status(&a, fingerprint).await,
+            Some(UserStatus::Approved)
+        );
+        assert_eq!(
+            a.global_params.node.access_policy.grants(fingerprint)?,
+            DeviceGrants::guest()
+        );
+        assert_eq!(fs::read(&trust_file)?, trust_before);
+        assert_eq!(fs::read(&grants_file)?, grants_before);
+
+        fs::remove_dir(&blocker)?;
+        TrustMutation::Block
+            .apply(&a, fingerprint)
+            .await
+            .context("retry once the grants file is writable again")?;
+        assert_eq!(
+            trust_status(&a, fingerprint).await,
+            Some(UserStatus::Blocked)
+        );
+        assert!(
+            a.global_params
+                .node
+                .access_policy
+                .grants(fingerprint)
+                .is_err()
+        );
+        a.global_params.node.shutdown().await
+    }
 }
