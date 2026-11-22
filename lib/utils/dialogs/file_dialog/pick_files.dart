@@ -9,16 +9,11 @@ import '../../../bindings/bindings.dart';
 import 'file_dialog.dart';
 import 'file_dialog_model.dart';
 
-/// Whether Rune's own file dialog picks files on this device. A sandboxed
-/// Mac, iPhones, iPads and Android devices keep the system's picker: only it
-/// can grant Rune access to a place it has not seen before.
-bool get runeFileDialogAvailable {
-  if (Platform.isWindows || Platform.isLinux) return true;
-  if (Platform.isMacOS) {
-    return !Platform.environment.containsKey('APP_SANDBOX_CONTAINER_ID');
-  }
-  return false;
-}
+/// Whether Rune's own file dialog picks files on this device: on Windows and
+/// Linux, the embedded kiosk included. Macs, iPhones, iPads and Android
+/// devices keep the system's picker, which is what grants Rune access to a
+/// place it has not seen before.
+bool get runeFileDialogAvailable => Platform.isWindows || Platform.isLinux;
 
 List<FileDialogFileType> _fileTypes(List<XTypeGroup> groups) => [
   for (final group in groups)

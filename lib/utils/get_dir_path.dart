@@ -26,7 +26,7 @@ Future<String?> getDirPath(BuildContext context) async {
     return dir?.uri;
   }
 
-  // A sandboxed Mac: the system's picker grants access to the folder.
+  // A Mac: the system's picker grants access to the folder.
   final path = await FastFilePicker.pickFolder(writePermission: true);
 
   if (path == null) {
