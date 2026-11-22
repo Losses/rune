@@ -158,8 +158,10 @@ void main() {
 /// Pumps [RuneLifecycle] above the root navigator, as the app does, with the
 /// providers it reads.
 Future<void> _pumpApp(WidgetTester tester) async {
-  // main() reads this from the settings before the app starts.
+  // main() sets these before the app starts: cafe mode from the settings, and
+  // whether the last library is reopened.
   cafeMode = false;
+  hasStartupLibrary = false;
   await tester.pumpWidget(
     MultiProvider(
       providers: [

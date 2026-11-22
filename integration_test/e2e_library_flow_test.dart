@@ -59,7 +59,22 @@ void main() {
         await expectVisible(tester, find.text('Music A'));
         await expectVisible(tester, find.text('Music B'));
       case 2:
-        await expectStartupInLibrary(tester, folderA);
+        // The script has moved Music A, the last open library, away.
+        await expectChooserAfterFailedStartup(tester);
+        await tester.tap(find.text('Music B').last);
+        await expectVisible(
+          tester,
+          find.byType(LibraryHomePage),
+          description: 'Music B to open from the library chooser',
+        );
+        await openTracks(tester);
+        await expectVisible(tester, find.textContaining('Startup B'));
+      case 3:
+        await expectStartupInLibrary(tester, folderB);
+        await openTracks(tester);
+        await expectVisible(tester, find.textContaining('Startup B'));
+        await openLibrarySettings(tester);
+        await selectLibrary(tester, 'Music A', 'switch');
         await openTracks(tester);
         await expectVisible(tester, find.textContaining('Startup A'));
         await openLibrarySettings(tester);
@@ -67,7 +82,7 @@ void main() {
         await expectAbsent(tester, find.text('Music B'));
         expect(Directory(folderB).existsSync(), isTrue);
         expect(File('$folderB/startup_1.ogg').existsSync(), isTrue);
-      case 3:
+      case 4:
         await expectStartupInLibrary(tester, folderA);
         await openTracks(tester);
         await expectVisible(tester, find.textContaining('Startup A'));
@@ -78,7 +93,7 @@ void main() {
           find.byType(WelcomePage),
           description: 'Welcome after removing the open library',
         );
-      case 4:
+      case 5:
         await expectVisible(tester, find.byType(WelcomePage));
         final context = tester.element(find.byType(WelcomePage));
         expect(context.read<LibraryRegistryProvider>().records, isEmpty);
@@ -200,6 +215,30 @@ Future<void> expectStartupInLibrary(WidgetTester tester, String path) async {
     default:
       fail('startup did not open the expected local library');
   }
+}
+
+Future<void> expectChooserAfterFailedStartup(WidgetTester tester) async {
+  await expectVisible(
+    tester,
+    find.byType(HomePage),
+    description: 'the library chooser after the last library failed to open',
+  );
+  final s = S.of(tester.element(find.byType(HomePage)));
+  await expectVisible(
+    tester,
+    find.text(s.unableToOpenLibrary),
+    description: 'the reason the last library did not open',
+  );
+  expect(find.text(s.libraryMediaFolderMissing), findsOneWidget);
+  expect(
+    tester
+        .element(find.byType(HomePage))
+        .read<LibraryRegistryProvider>()
+        .openRecord,
+    isNull,
+  );
+  await tester.tap(find.widgetWithText(FilledButton, s.close).last);
+  await expectAbsent(tester, find.text(s.unableToOpenLibrary));
 }
 
 Future<void> openLibrarySettings(WidgetTester tester) async {
