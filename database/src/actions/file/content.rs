@@ -19,6 +19,18 @@ pub const MAX_BLOB_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 /// Reserved application-managed content; ordinary library scans do not author it.
 pub const MANAGED_AUDIO_DIRECTORY: &str = "Rune Sync";
 
+pub(crate) fn canonical_download_path(
+    fsio: &FsIo,
+    path: &Path,
+) -> Result<PathBuf, fsio::FileIoError> {
+    // A short Windows root and its long child must use the same path prefix.
+    #[cfg(windows)]
+    if fsio.storage() == fsio::StorageLocation::Local {
+        return std::fs::canonicalize(path).map_err(fsio::FileIoError::Io);
+    }
+    fsio.canonicalize_path(path)
+}
+
 pub fn is_managed_directory(directory: &str) -> bool {
     directory == MANAGED_AUDIO_DIRECTORY
         || directory.starts_with(&format!("{MANAGED_AUDIO_DIRECTORY}/"))
@@ -83,10 +95,8 @@ pub fn blob_path(fsio: &FsIo, root: &Path, digest: &str, extension: &str) -> Res
     fsio.create_dir_all(&dir)?;
     #[cfg(not(target_os = "android"))]
     {
-        let canonical_root = fsio
-            .canonicalize_path(root)
-            .context("invalid library root")?;
-        let canonical_dir = fsio.canonicalize_path(&dir)?;
+        let canonical_root = canonical_download_path(fsio, root).context("invalid library root")?;
+        let canonical_dir = canonical_download_path(fsio, &dir)?;
         ensure!(
             canonical_dir.starts_with(&canonical_root),
             "download directory escapes library root"
@@ -113,8 +123,8 @@ pub fn blob_path_for_track(
     fsio.create_dir_all(&directory)?;
     #[cfg(not(target_os = "android"))]
     {
-        let parent = fsio.canonicalize_path(base.parent().unwrap())?;
-        let canonical = fsio.canonicalize_path(&directory)?;
+        let parent = base.parent().unwrap();
+        let canonical = canonical_download_path(fsio, &directory)?;
         ensure!(
             canonical.starts_with(parent),
             "track directory escapes library root"
@@ -257,8 +267,10 @@ pub async fn attach_download(
     path: &Path,
 ) -> Result<()> {
     #[cfg(not(target_os = "android"))]
-    let (canonical_root, canonical) =
-        (fsio.canonicalize_path(root)?, fsio.canonicalize_path(path)?);
+    let (canonical_root, canonical) = (
+        canonical_download_path(fsio, root)?,
+        canonical_download_path(fsio, path)?,
+    );
     #[cfg(not(target_os = "android"))]
     let relative = canonical
         .strip_prefix(&canonical_root)
