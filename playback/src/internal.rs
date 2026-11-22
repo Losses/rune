@@ -93,47 +93,43 @@ async fn open_local_source(fsio: Arc<FsIo>, path: PathBuf) -> Result<AnySource> 
             }
             anyhow::Error::new(error)
         })?;
-    let (stream, failure) = if remote {
-        let failure = Arc::new(Mutex::new(None));
-        (
-            Box::new(FailureTrackingFile {
-                inner: stream,
-                failure: failure.clone(),
-            }) as Box<dyn FileStream>,
-            Some(failure),
-        )
+    let failure = Arc::new(Mutex::new(None));
+    let stream = if remote {
+        Box::new(FailureTrackingFile {
+            inner: stream,
+            failure: failure.clone(),
+        }) as Box<dyn FileStream>
     } else {
-        (stream, None)
+        stream
     };
     let extension = path.extension().and_then(|value| value.to_str());
-    let decoder = match probe_decoder(BufReader::new(stream), extension.map(str::to_owned), None)
-        .await
-    {
-        Ok(decoder) => decoder,
-        Err(error) => {
-            if let Some(reason) = failure
-                .as_ref()
-                .and_then(|failure| failure.lock().ok().and_then(|value| *value))
-            {
-                return Err(match reason {
-                    UnavailableReason::AccessRevoked => anyhow!(RemoteAudioError::AccessRevoked),
-                    UnavailableReason::SourceUnreachable => {
-                        anyhow!(RemoteAudioError::unreachable(error))
-                    }
-                    UnavailableReason::LibraryUnavailable => {
-                        anyhow!(RemoteAudioError::LibraryUnavailable)
-                    }
-                    UnavailableReason::Unreadable => error,
-                    UnavailableReason::CredentialsRejected => {
-                        anyhow!(RemoteAudioError::CredentialsRejected)
-                    }
-                    UnavailableReason::TrackGone => anyhow!(RemoteAudioError::TrackGone),
-                });
+    let mut decoder =
+        match probe_decoder(BufReader::new(stream), extension.map(str::to_owned), None).await {
+            Ok(decoder) => decoder,
+            Err(error) => {
+                if let Some(reason) = failure.lock().ok().and_then(|value| *value) {
+                    return Err(match reason {
+                        UnavailableReason::AccessRevoked => {
+                            anyhow!(RemoteAudioError::AccessRevoked)
+                        }
+                        UnavailableReason::SourceUnreachable => {
+                            anyhow!(RemoteAudioError::unreachable(error))
+                        }
+                        UnavailableReason::LibraryUnavailable => {
+                            anyhow!(RemoteAudioError::LibraryUnavailable)
+                        }
+                        UnavailableReason::Unreadable => error,
+                        UnavailableReason::CredentialsRejected => {
+                            anyhow!(RemoteAudioError::CredentialsRejected)
+                        }
+                        UnavailableReason::TrackGone => anyhow!(RemoteAudioError::TrackGone),
+                    });
+                }
+                return Err(error);
             }
-            return Err(error);
-        }
-    };
-    Ok(AnySource::Local(rune_buffered(decoder), failure))
+        };
+    decoder.set_failure_sink(failure.clone());
+    Ok(AnySource::Local(rune_buffered(decoder), Some(failure)))
 }
 
 struct FailureTrackingFile {
@@ -202,6 +198,7 @@ pub enum AnySource {
     Buffered(
         RuneBuffered<RuneDecoder<Cursor<Vec<u8>>>>,
         AudioPlaybackNote,
+        Arc<Mutex<Option<UnavailableReason>>>,
     ),
 }
 
@@ -219,7 +216,8 @@ async fn open_library_stream(
     let failed = remote.failure_reason;
     let reader = ManagedStream::new_with_failure(reader, remote.cancellation, failed.clone());
     debug!("Probing decoder for library track {id}");
-    let decoder = probe_decoder(reader, Some(remote.extension), Some(size)).await?;
+    let mut decoder = probe_decoder(reader, Some(remote.extension), Some(size)).await?;
+    decoder.set_failure_sink(failed.clone());
     guard.disarm();
     debug!("Decoder ready for library track {id}");
     Ok((
@@ -239,10 +237,12 @@ async fn open_subsonic_stream(
     match remote.request.prepare().await? {
         AudioSourceMode::Buffered { bytes, note } => {
             let size = u64::try_from(bytes.len()).ok();
-            let decoder = probe_decoder(Cursor::new(bytes), Some(remote.extension), size).await?;
+            let mut decoder =
+                probe_decoder(Cursor::new(bytes), Some(remote.extension), size).await?;
+            decoder.set_failure_sink(failed.clone());
             guard.disarm();
             return Ok((
-                AnySource::Buffered(rune_buffered(decoder), note),
+                AnySource::Buffered(rune_buffered(decoder), note, failed),
                 PathBuf::new(),
             ));
         }
@@ -267,8 +267,9 @@ async fn open_subsonic_stream(
         }
     };
     let reader = ManagedStream::new_with_failure(reader, remote.cancellation, failed.clone());
-    let decoder =
+    let mut decoder =
         probe_decoder(reader, Some(remote.extension), (size != 0).then_some(size)).await?;
+    decoder.set_failure_sink(failed.clone());
     guard.disarm();
     Ok((
         AnySource::Online(rune_buffered(decoder), failed),
@@ -281,7 +282,7 @@ impl Debug for AnySource {
         match self {
             AnySource::Local(_, _) => f.debug_struct("AnySource::Local").finish(),
             AnySource::Online(_, _) => f.debug_struct("AnySource::Online").finish(),
-            AnySource::Buffered(_, note) => {
+            AnySource::Buffered(_, note, _) => {
                 f.debug_tuple("AnySource::Buffered").field(note).finish()
             }
         }
@@ -293,7 +294,7 @@ impl AnySource {
         match self {
             AnySource::Local(s, _) => s.current_samples(),
             AnySource::Online(s, _) => s.current_samples(),
-            AnySource::Buffered(s, _) => s.current_samples(),
+            AnySource::Buffered(s, _, _) => s.current_samples(),
         }
     }
 }
@@ -305,7 +306,7 @@ impl Iterator for AnySource {
         match self {
             AnySource::Local(s, _) => s.next(),
             AnySource::Online(s, _) => s.next(),
-            AnySource::Buffered(s, _) => s.next(),
+            AnySource::Buffered(s, _, _) => s.next(),
         }
     }
 }
@@ -315,7 +316,7 @@ impl Source for AnySource {
         match self {
             AnySource::Local(s, _) => s.current_frame_len(),
             AnySource::Online(s, _) => s.current_frame_len(),
-            AnySource::Buffered(s, _) => s.current_frame_len(),
+            AnySource::Buffered(s, _, _) => s.current_frame_len(),
         }
     }
 
@@ -323,7 +324,7 @@ impl Source for AnySource {
         match self {
             AnySource::Local(s, _) => s.channels(),
             AnySource::Online(s, _) => s.channels(),
-            AnySource::Buffered(s, _) => s.channels(),
+            AnySource::Buffered(s, _, _) => s.channels(),
         }
     }
 
@@ -331,7 +332,7 @@ impl Source for AnySource {
         match self {
             AnySource::Local(s, _) => s.sample_rate(),
             AnySource::Online(s, _) => s.sample_rate(),
-            AnySource::Buffered(s, _) => s.sample_rate(),
+            AnySource::Buffered(s, _, _) => s.sample_rate(),
         }
     }
 
@@ -339,7 +340,7 @@ impl Source for AnySource {
         match self {
             AnySource::Local(s, _) => s.total_duration(),
             AnySource::Online(s, _) => s.total_duration(),
-            AnySource::Buffered(s, _) => s.total_duration(),
+            AnySource::Buffered(s, _, _) => s.total_duration(),
         }
     }
 
@@ -347,7 +348,7 @@ impl Source for AnySource {
         match self {
             AnySource::Local(s, _) => s.try_seek(pos),
             AnySource::Online(s, _) => s.try_seek(pos),
-            AnySource::Buffered(s, _) => s.try_seek(pos),
+            AnySource::Buffered(s, _, _) => s.try_seek(pos),
         }
     }
 }
@@ -357,7 +358,7 @@ impl AnySource {
         match self {
             AnySource::Local(_, failed) => failed.clone(),
             AnySource::Online(_, failed) => Some(failed.clone()),
-            AnySource::Buffered(_, _) => None,
+            AnySource::Buffered(_, _, failed) => Some(failed.clone()),
         }
     }
 }
@@ -1332,8 +1333,9 @@ impl PlayerInternal {
                                 CancellationToken::new(),
                                 failed.clone(),
                             );
-                            let decoder =
+                            let mut decoder =
                                 probe_decoder(reader, ext.map(str::to_owned), None).await?;
+                            decoder.set_failure_sink(failed.clone());
                             Ok((
                                 AnySource::Online(rune_buffered(decoder), failed),
                                 PathBuf::new(),
@@ -3435,6 +3437,54 @@ mod playback_state_tests {
             None,
         );
         assert!(internal.playlist.iter().all(|item| item.block.is_none()));
+        Ok(())
+    }
+
+    #[test]
+    fn an_unsupported_stream_failure_is_reported_once_without_end_of_track() -> Result<()> {
+        let (commands_sender, commands) = mpsc::unbounded_channel();
+        let (event_sender, mut events) = mpsc::unbounded_channel();
+        let outputs = Arc::new(TestOutputs::default());
+        let mut internal = PlayerInternal::new(
+            commands,
+            event_sender,
+            CancellationToken::new(),
+            commands_sender,
+            Arc::new(FsIo::new_noop()),
+            PcmTap::new(),
+            Arc::new(RwLock::new(None)),
+            outputs.clone(),
+        );
+        let (stream, handle) = outputs.open(Arc::new(|_| {})).expect("fake output");
+        internal.sink = Some(try_new_sink(&handle)?);
+        internal._stream = Some(stream);
+        internal.state = InternalPlaybackState::Playing;
+        let item = library_item(Uuid::new_v4(), Uuid::new_v4());
+        internal.current_item = Some(item.clone());
+        internal.current_track_index = Some(0);
+        internal.current_track_path = Some(PathBuf::from("chained.ogg"));
+        internal.active_stream_failure =
+            Some(Arc::new(Mutex::new(Some(UnavailableReason::Unreadable))));
+
+        internal.send_progress()?;
+
+        let mut received = Vec::new();
+        while let Ok(event) = events.try_recv() {
+            received.push(event);
+        }
+        assert!(
+            received.iter().any(|event| matches!(
+                event,
+                PlayerEvent::Unavailable(found, UnavailableReason::Unreadable) if found == &item
+            )),
+            "the decoder failure was not reported as unavailable: {received:?}"
+        );
+        assert!(
+            !received
+                .iter()
+                .any(|event| matches!(event, PlayerEvent::EndOfTrack { .. })),
+            "an unsupported stream must not advance as an ordinary end of track: {received:?}"
+        );
         Ok(())
     }
 
