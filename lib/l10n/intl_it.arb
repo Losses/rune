@@ -952,6 +952,18 @@
   "@registerInvalidSubtitle": {
     "description": "Il contenuto del modal di chiave di registrazione non valida"
   },
+  "importM3u8AmbiguousSubtitle": "I tuoi brani sono stati importati, ma alcune voci corrispondevano a più file. Rune ha importato una corrispondenza per ciascuna.",
+  "@importM3u8AmbiguousSubtitle": {
+    "description": "The content of the partially import success modal when some entries matched multiple files."
+  },
+  "importM3u8AmbiguousPaths": "Più file corrispondenti",
+  "@importM3u8AmbiguousPaths": {
+    "description": "The heading of the ambiguous playlist entries in the partially import success modal."
+  },
+  "importM3u8NotFoundPaths": "Non trovato",
+  "@importM3u8NotFoundPaths": {
+    "description": "The heading of the unmatched playlist entries in the partially import success modal."
+  },
   "importM3u8Success": "Parzialmente Riuscito",
   "@importM3u8Success": {
     "description": "Il titolo del modal di importazione parzialmente riuscita"

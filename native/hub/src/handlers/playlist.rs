@@ -381,6 +381,7 @@ impl Signal for CreateM3u8PlaylistRequest {
             }),
             imported_count: Some(import_result.matched_ids.len() as i32),
             not_found_paths: import_result.unmatched_paths,
+            ambiguous_paths: import_result.ambiguous_paths,
         }))
     }
 }

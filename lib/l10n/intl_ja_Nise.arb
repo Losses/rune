@@ -950,6 +950,18 @@
   "@registerInvalidSubtitle": {
     "description": "The content of the invalid register key modal"
   },
+  "importM3u8AmbiguousSubtitle": "曲取込完了、複数文件ニ一致スル項目アリ。各項目ニツキ一致曲一ツ取込。",
+  "@importM3u8AmbiguousSubtitle": {
+    "description": "The content of the partially import success modal when some entries matched multiple files."
+  },
+  "importM3u8AmbiguousPaths": "複数文件ニ一致",
+  "@importM3u8AmbiguousPaths": {
+    "description": "The heading of the ambiguous playlist entries in the partially import success modal."
+  },
+  "importM3u8NotFoundPaths": "見狩無",
+  "@importM3u8NotFoundPaths": {
+    "description": "The heading of the unmatched playlist entries in the partially import success modal."
+  },
   "importM3u8Success": "一部成功",
   "@importM3u8Success": {
     "description": "The title of the partially import success modal"

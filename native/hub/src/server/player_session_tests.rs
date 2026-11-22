@@ -9175,6 +9175,136 @@ async fn remote_m3u8_and_independent_lyrics_cannot_read_outside_library() -> Res
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn m3u8_import_reports_ambiguous_paths_and_keeps_occurrence_order() -> Result<()> {
+    use database::entities::{media_file_playlists, playlists};
+    use sea_orm::{ColumnTrait, QueryFilter, QueryOrder};
+
+    let node_dir = tempfile::tempdir()?;
+    let fixture = fixture(node_dir.path()).await?;
+    let library = fixture.global_params.test_library().clone();
+    let media_root = Path::new(&library.media_root);
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg");
+
+    for directory in ["disc-a", "disc-b"] {
+        let directory = media_root.join(directory);
+        fs::create_dir_all(&directory)?;
+        let target = directory.join("ambiguous.ogg");
+        fs::copy(&source, &target)?;
+        scan_audio_file(
+            &library.fsio,
+            &library.main_db,
+            &fixture.global_params.node_id,
+            media_root,
+            &target,
+            &library.library_sync.record_store(),
+        )
+        .await?;
+    }
+    let unique_path = media_root.join("unique.ogg");
+    fs::copy(&source, &unique_path)?;
+    scan_audio_file(
+        &library.fsio,
+        &library.main_db,
+        &fixture.global_params.node_id,
+        media_root,
+        &unique_path,
+        &library.library_sync.record_store(),
+    )
+    .await?;
+
+    let ambiguous_files = media_files::Entity::find()
+        .filter(media_files::Column::FileName.eq("ambiguous.ogg"))
+        .order_by_asc(media_files::Column::Id)
+        .all(&*library.main_db)
+        .await?;
+    assert_eq!(ambiguous_files.len(), 2);
+    let selected = ambiguous_files.last().context("ambiguous files")?;
+    let unique = media_files::Entity::find()
+        .filter(media_files::Column::FileName.eq("unique.ogg"))
+        .one(&*library.main_db)
+        .await?
+        .context("unique file")?;
+
+    let ambiguity_only_path = node_dir.path().join("ambiguity-only.m3u8");
+    fs::write(
+        &ambiguity_only_path,
+        "unique.ogg\nambiguous.ogg\nunique.ogg\nambiguous.ogg\n",
+    )?;
+    let ambiguity_only_request = CreateM3u8PlaylistRequest {
+        call_id: None,
+        name: "ambiguity only".into(),
+        group: "tests".into(),
+        path: ambiguity_only_path.to_string_lossy().into_owned(),
+    };
+    let ambiguity_only = ambiguity_only_request
+        .handle(
+            (Some(library.clone()), Arc::new(Quiet)),
+            None,
+            &ambiguity_only_request,
+        )
+        .await?
+        .context("ambiguity-only import response")?;
+    // The response is the API boundary; asserting its serialized shape keeps
+    // this test failing when the diagnostic is dropped from the response.
+    let ambiguity_only_payload = serde_json::to_value(&ambiguity_only)?;
+    assert_eq!(ambiguity_only_payload["imported_count"], json!(4));
+    assert_eq!(ambiguity_only_payload["not_found_paths"], json!([]));
+    assert_eq!(
+        ambiguity_only_payload["ambiguous_paths"],
+        json!(["ambiguous.ogg", "ambiguous.ogg"])
+    );
+
+    let playlist = playlists::Entity::find_by_id(
+        ambiguity_only
+            .playlist
+            .as_ref()
+            .context("imported playlist")?
+            .id,
+    )
+    .one(&*library.main_db)
+    .await?
+    .context("stored playlist")?;
+    let occurrences = media_file_playlists::Entity::find()
+        .filter(media_file_playlists::Column::PlaylistUuid.eq(&playlist.source_uuid))
+        .order_by_asc(media_file_playlists::Column::Position)
+        .all(&*library.main_db)
+        .await?;
+    let track_uuids = occurrences
+        .iter()
+        .map(|occurrence| occurrence.track_uuid.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        track_uuids,
+        vec![
+            unique.source_uuid.as_str(),
+            selected.source_uuid.as_str(),
+            unique.source_uuid.as_str(),
+            selected.source_uuid.as_str(),
+        ]
+    );
+
+    let mixed_path = node_dir.path().join("mixed.m3u8");
+    fs::write(&mixed_path, "ambiguous.ogg\nmissing.ogg\n")?;
+    let mixed_request = CreateM3u8PlaylistRequest {
+        call_id: None,
+        name: "mixed".into(),
+        group: "tests".into(),
+        path: mixed_path.to_string_lossy().into_owned(),
+    };
+    let mixed = mixed_request
+        .handle((Some(library.clone()), Arc::new(Quiet)), None, &mixed_request)
+        .await?
+        .context("mixed import response")?;
+    let mixed_payload = serde_json::to_value(&mixed)?;
+    assert_eq!(mixed_payload["imported_count"], json!(1));
+    assert_eq!(mixed_payload["not_found_paths"], json!(["missing.ogg"]));
+    assert_eq!(mixed_payload["ambiguous_paths"], json!(["ambiguous.ogg"]));
+
+    fixture.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn remote_independent_file_lyrics_are_refused() -> Result<()> {
     use crate::access_policy::{ConnectionLevel, DeviceGrants, LibraryGrants, SyncLevel};
     use crate::backends::remote::connect_remote;

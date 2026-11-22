@@ -683,6 +683,18 @@
   "@registerInvalidSubtitle": {
     "description": "無效註冊金鑰視窗的內容。"
   },
+  "importM3u8AmbiguousSubtitle": "您的音軌已匯入，但有些項目符合多個檔案。Rune 已為每個項目匯入一個符合的音軌。",
+  "@importM3u8AmbiguousSubtitle": {
+    "description": "The content of the partially import success modal when some entries matched multiple files."
+  },
+  "importM3u8AmbiguousPaths": "符合多個檔案",
+  "@importM3u8AmbiguousPaths": {
+    "description": "The heading of the ambiguous playlist entries in the partially import success modal."
+  },
+  "importM3u8NotFoundPaths": "找不到",
+  "@importM3u8NotFoundPaths": {
+    "description": "The heading of the unmatched playlist entries in the partially import success modal."
+  },
   "importM3u8Success": "匯入成功",
   "@importM3u8Success": {
     "description": "部分匯入成功視窗的標題。"

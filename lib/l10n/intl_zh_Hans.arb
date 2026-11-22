@@ -972,6 +972,18 @@
   "@registerInvalidSubtitle": {
     "description": "无效注册密钥模态的内容。"
   },
+  "importM3u8AmbiguousSubtitle": "您的曲目已导入，但有些条目匹配到多个文件。Rune 已为每个条目导入一个匹配的曲目。",
+  "@importM3u8AmbiguousSubtitle": {
+    "description": "The content of the partially import success modal when some entries matched multiple files."
+  },
+  "importM3u8AmbiguousPaths": "匹配多个文件",
+  "@importM3u8AmbiguousPaths": {
+    "description": "The heading of the ambiguous playlist entries in the partially import success modal."
+  },
+  "importM3u8NotFoundPaths": "未找到",
+  "@importM3u8NotFoundPaths": {
+    "description": "The heading of the unmatched playlist entries in the partially import success modal."
+  },
   "importM3u8Success": "导入成功",
   "@importM3u8Success": {
     "description": "部分导入成功模态的标题。"

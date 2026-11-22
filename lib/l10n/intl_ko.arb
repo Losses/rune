@@ -952,6 +952,18 @@
   "@registerInvalidSubtitle": {
     "description": "잘못된 등록 키 모달의 내용입니다."
   },
+  "importM3u8AmbiguousSubtitle": "트랙이 가져와졌지만 여러 파일과 일치하는 항목이 있습니다. 각 항목마다 일치하는 트랙 하나를 가져왔습니다.",
+  "@importM3u8AmbiguousSubtitle": {
+    "description": "The content of the partially import success modal when some entries matched multiple files."
+  },
+  "importM3u8AmbiguousPaths": "여러 파일과 일치",
+  "@importM3u8AmbiguousPaths": {
+    "description": "The heading of the ambiguous playlist entries in the partially import success modal."
+  },
+  "importM3u8NotFoundPaths": "찾을 수 없음",
+  "@importM3u8NotFoundPaths": {
+    "description": "The heading of the unmatched playlist entries in the partially import success modal."
+  },
   "importM3u8Success": "부분적으로 성공",
   "@importM3u8Success": {
     "description": "부분적으로 가져오기 성공 모달의 제목입니다."

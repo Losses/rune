@@ -1,18 +1,48 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../../bindings/bindings.dart';
 import '../../l10n.dart';
 
 import '../information/error.dart';
 
-Future<void> showCreateImportM3u8SuccessDialog(
+/// Shows the entries an import could not match or matched ambiguously.
+///
+/// Does nothing when every entry matched exactly one track.
+Future<void> showM3u8ImportResultDialog(
   BuildContext context,
-  List<String> failedList,
+  CreateM3u8PlaylistResponse result,
 ) async {
+  if (result.notFoundPaths.isEmpty && result.ambiguousPaths.isEmpty) return;
+
+  await showCreateImportM3u8SuccessDialog(
+    context,
+    notFoundPaths: result.notFoundPaths,
+    ambiguousPaths: result.ambiguousPaths,
+  );
+}
+
+Future<void> showCreateImportM3u8SuccessDialog(
+  BuildContext context, {
+  required List<String> notFoundPaths,
+  required List<String> ambiguousPaths,
+}) async {
+  final s = S.of(context);
+  final hasAmbiguousPaths = ambiguousPaths.isNotEmpty;
+  final errorMessage = hasAmbiguousPaths
+      ? [
+          '${s.importM3u8AmbiguousPaths}:\n${ambiguousPaths.join('\n\n')}',
+          if (notFoundPaths.isNotEmpty)
+            '${s.importM3u8NotFoundPaths}:\n${notFoundPaths.join('\n\n')}',
+        ].join('\n\n')
+      : notFoundPaths.join('\n\n');
+
   await showErrorDialog(
     context: context,
-    title: S.of(context).importM3u8Success,
-    subtitle: S.of(context).importM3u8SuccessSubtitle,
-    errorMessage: failedList.join('\n\n'),
+    title: s.importM3u8Success,
+    subtitle: hasAmbiguousPaths
+        ? s.importM3u8AmbiguousSubtitle
+        : s.importM3u8SuccessSubtitle,
+    errorMessage: errorMessage,
     useFilledButton: false,
     barrierDismissible: true,
   );
