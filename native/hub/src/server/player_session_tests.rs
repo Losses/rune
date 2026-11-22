@@ -1186,6 +1186,183 @@ async fn play_clicked_track(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn local_load_starts_the_selected_track_after_the_catalog_drops_an_earlier_one() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let ids = [
+        session_audio(&fixture, "cleanup-first.ogg").await?,
+        session_audio(&fixture, "cleanup-second.ogg").await?,
+        session_audio(&fixture, "cleanup-third.ogg").await?,
+    ];
+    let items = futures::future::join_all(ids.iter().map(|id| library_track_for_id(&fixture, *id)))
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?;
+    let queries = ids
+        .iter()
+        .map(|id| MixQuery {
+            operator: "lib::track".into(),
+            parameter: id.to_string(),
+        })
+        .collect::<Vec<_>>();
+    let resolved = dispatch_gui_request(
+        &fixture.global_params,
+        &ResolveMixQueryRequest {
+            call_id: None,
+            queries,
+            hint_position: 1,
+            initial_playback_item: Some(items[1].into()),
+            instantly_play: true,
+            fallback_playing_items: Vec::new(),
+            excluded: ExcludedItems { items: Vec::new() },
+        },
+    )
+    .await?
+    .context("resolved track list")?;
+    assert_eq!(
+        resolved.playing_items,
+        items
+            .iter()
+            .map(|item| PlayingItemRef::from(*item))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(resolved.start_index, Some(1));
+
+    // The scanner removes the first track after the list was resolved, before the load
+    // prepares it.
+    media_files::Entity::delete_by_id(ids[0])
+        .exec(&*fixture.global_params.test_library().main_db)
+        .await?;
+    let revision = dispatch_gui_request(
+        &fixture.global_params,
+        &PlaylistRevisionRequest { call_id: None },
+    )
+    .await?
+    .context("player queue revision")?
+    .revision;
+    dispatch_gui_request(
+        &fixture.global_params,
+        &LoadResolvedItemsRequest {
+            call_id: None,
+            items: resolved.playing_items,
+            start_index: resolved.start_index,
+            mode: PlaylistOperateMode::Replace,
+            expected_revision: Some(revision),
+            playback_mode: None,
+            position_seconds: None,
+            play: LoadPlay::Auto,
+        },
+    )
+    .await?;
+    let playing = wait_player(&fixture, |status| {
+        status.state == PlayerPlaybackState::Playing && status.item.is_some()
+    })
+    .await?;
+    assert_eq!(
+        playing.item,
+        Some(PlayingItem::from(items[1])),
+        "the load started a different track after the catalog changed"
+    );
+    assert_eq!(
+        playing.playlist,
+        vec![
+            PlayingItem::from(items[1]),
+            PlayingItem::from(items[2])
+        ]
+    );
+    fixture.global_params.node.shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn local_load_maps_duplicate_occurrences_and_rejects_a_removed_selection() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let ids = [
+        session_audio(&fixture, "duplicate-first.ogg").await?,
+        session_audio(&fixture, "duplicate-second.ogg").await?,
+        session_audio(&fixture, "duplicate-third.ogg").await?,
+    ];
+    let items = futures::future::join_all(ids.iter().map(|id| library_track_for_id(&fixture, *id)))
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?;
+    // The scanner removes B, which the list names between two occurrences of A.
+    media_files::Entity::delete_by_id(ids[1])
+        .exec(&*fixture.global_params.test_library().main_db)
+        .await?;
+    let load = |items: Vec<PlayingItemRef>, start_index: u32| LoadResolvedItemsRequest {
+        call_id: None,
+        items,
+        start_index: Some(start_index),
+        mode: PlaylistOperateMode::Replace,
+        expected_revision: None,
+        playback_mode: None,
+        position_seconds: None,
+        play: LoadPlay::Auto,
+    };
+
+    let duplicated = vec![
+        PlayingItemRef::from(items[0]),
+        PlayingItemRef::from(items[1]),
+        PlayingItemRef::from(items[0]),
+        PlayingItemRef::from(items[2]),
+    ];
+    dispatch_gui_request(&fixture.global_params, &load(duplicated, 2)).await?;
+    let playing = wait_player(&fixture, |status| {
+        status.state == PlayerPlaybackState::Playing && status.item.is_some()
+    })
+    .await?;
+    assert_eq!(
+        playing.item,
+        Some(PlayingItem::from(items[0])),
+        "the load started a different occurrence than the selected one"
+    );
+    assert_eq!(playing.index, Some(1));
+    assert_eq!(
+        playing.playlist,
+        vec![
+            PlayingItem::from(items[0]),
+            PlayingItem::from(items[0]),
+            PlayingItem::from(items[2])
+        ]
+    );
+
+    let before = {
+        fixture.global_params.player.lock().await.pause();
+        wait_player(&fixture, |status| {
+            status.state == PlayerPlaybackState::Paused
+        })
+        .await?
+    };
+    let error = match dispatch_gui_request(
+        &fixture.global_params,
+        &load(
+            items
+                .iter()
+                .map(|item| PlayingItemRef::from(*item))
+                .collect(),
+            1,
+        ),
+    )
+    .await
+    {
+        Ok(_) => panic!("a load whose selected track left the catalog succeeded"),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        error.downcast_ref::<ExpectedRequestError>(),
+        Some(ExpectedRequestError::Unavailable {
+            what: "selected track"
+        })
+    ));
+    let after = fixture.global_params.player.lock().await.get_status();
+    assert_eq!(after.playlist, before.playlist);
+    assert_eq!(after.item, before.item);
+    assert_eq!(after.index, before.index);
+    fixture.global_params.node.shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn clicked_subsonic_tracks_play_on_this_device() -> Result<()> {
     use crate::messages::{FetchMediaFilesRequest, MixQueryRequest, SearchForRequest};
 
