@@ -4,6 +4,8 @@
 use std::io::{self, Read, Seek, Write};
 
 pub mod adaptive;
+#[cfg(test)]
+mod adaptive_tests;
 pub mod bounded;
 #[cfg(test)]
 mod bounded_tests;
@@ -31,6 +33,16 @@ pub trait StorageProvider: Send {
     /// Returns the maximum number of bytes this provider can hold at a time.
     fn max_capacity(&self) -> Option<usize> {
         None
+    }
+
+    /// Returns the maximum number of bytes this provider can hold at a time for a stream with the
+    /// given content length.
+    ///
+    /// Providers whose capacity depends on the content length, such as
+    /// [`AdaptiveStorageProvider`](adaptive::AdaptiveStorageProvider), override this. The default
+    /// returns [`max_capacity`](Self::max_capacity).
+    fn max_capacity_for(&self, _content_length: Option<u64>) -> Option<usize> {
+        self.max_capacity()
     }
 }
 

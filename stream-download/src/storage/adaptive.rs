@@ -41,6 +41,13 @@ use super::{StorageProvider, StorageReader, StorageWriter};
 ///   - Finite streams smaller than or equal to the buffer size
 /// - `V`: Variable-length storage provider, used for:
 ///   - Finite streams larger than the buffer size
+///
+/// The capacity depends on the content length, so it is reported by
+/// [`max_capacity_for`](StorageProvider::max_capacity_for): the buffer size for unknown lengths,
+/// otherwise the capacity of the provider selected for that length. [`max_capacity`] without a
+/// length reports none.
+///
+/// [`max_capacity`]: StorageProvider::max_capacity
 #[derive(Clone, Debug)]
 pub struct AdaptiveStorageProvider<F, V>
 where
@@ -77,6 +84,11 @@ where
             variable_storage,
         }
     }
+
+    /// Returns whether a finite stream of `length` bytes uses the fixed-length storage.
+    fn uses_fixed_storage(&self, length: u64) -> bool {
+        u64::try_from(self.buffer_size.get()).is_ok_and(|buffer| length <= buffer)
+    }
 }
 
 impl<T> AdaptiveStorageProvider<T, T>
@@ -104,6 +116,14 @@ where
     type Reader = AdaptiveStorageReader<F::Reader, V::Reader>;
     type Writer = AdaptiveStorageWriter<F::Writer, V::Writer>;
 
+    fn max_capacity_for(&self, content_length: Option<u64>) -> Option<usize> {
+        match content_length {
+            None => Some(self.buffer_size.get()),
+            Some(length) if self.uses_fixed_storage(length) => self.fixed_storage.max_capacity(),
+            Some(_) => self.variable_storage.max_capacity(),
+        }
+    }
+
     fn into_reader_writer(
         self,
         content_length: Option<u64>,
@@ -116,7 +136,7 @@ where
                 Ok((Self::Reader::Bounded(reader), Self::Writer::Bounded(writer)))
             }
             Some(length) => {
-                if u64::try_from(self.buffer_size.get()).is_ok_and(|buffer| length <= buffer) {
+                if self.uses_fixed_storage(length) {
                     // Small enough for fixed-length storage
                     let (reader, writer) = self.fixed_storage.into_reader_writer(Some(length))?;
                     Ok((Self::Reader::Fixed(reader), Self::Writer::Fixed(writer)))

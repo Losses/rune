@@ -396,7 +396,7 @@ impl<P: StorageProvider> StreamDownload<P> {
             .await
             .map_err(StreamInitializationError::StreamCreationFailure)?;
         let content_length = stream.content_length();
-        let storage_capacity = storage_provider.max_capacity();
+        let storage_capacity = storage_provider.max_capacity_for(content_length);
         let (reader, writer) = storage_provider
             .into_reader_writer(content_length)
             .map_err(StreamInitializationError::StorageCreationFailure)?;
