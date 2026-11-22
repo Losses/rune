@@ -10,6 +10,13 @@ pub(crate) struct ListenProgress {
     position: Duration,
     playing: bool,
     observed_at: Instant,
+    // How far the position and the clock have moved since this uninterrupted playing interval
+    // began. Counting the smaller of the two totals keeps a position that briefly runs ahead
+    // from losing that lead when it later stalls, while still never counting more than the
+    // elapsed time.
+    interval_advanced: Duration,
+    interval_elapsed: Duration,
+    interval_heard: Duration,
 }
 
 impl Default for ListenProgress {
@@ -19,6 +26,9 @@ impl Default for ListenProgress {
             position: Duration::ZERO,
             playing: false,
             observed_at: Instant::now(),
+            interval_advanced: Duration::ZERO,
+            interval_elapsed: Duration::ZERO,
+            interval_heard: Duration::ZERO,
         }
     }
 }
@@ -35,18 +45,35 @@ impl ListenProgress {
         self.position = position;
         self.playing = playing;
         self.observed_at = observed_at;
+        self.reset_interval();
     }
 
     /// Records a progress report. A forward move counts when the previous report was playing,
     /// but never more than the time that actually passed. The report itself may already be
     /// paused, which keeps the last played segment.
     pub(crate) fn update(&mut self, position: Duration, playing: bool, observed_at: Instant) {
+        let elapsed = observed_at.saturating_duration_since(self.observed_at);
+        let continuing = self.playing && playing && position >= self.position;
         if self.playing && position >= self.position {
-            let advanced = position - self.position;
-            let elapsed = observed_at.saturating_duration_since(self.observed_at);
-            self.heard += advanced.min(elapsed);
+            self.interval_advanced += position - self.position;
+            self.interval_elapsed += elapsed;
+            let counted = self.interval_advanced.min(self.interval_elapsed);
+            self.heard += counted.saturating_sub(self.interval_heard);
+            self.interval_heard = counted;
         }
-        self.rebase(position, playing, observed_at);
+        self.position = position;
+        self.playing = playing;
+        self.observed_at = observed_at;
+        if !continuing {
+            self.reset_interval();
+        }
+    }
+
+    /// Ends the current playing interval, so its totals are not carried into the next one.
+    fn reset_interval(&mut self) {
+        self.interval_advanced = Duration::ZERO;
+        self.interval_elapsed = Duration::ZERO;
+        self.interval_heard = Duration::ZERO;
     }
 
     pub(crate) fn heard(&self) -> Duration {
@@ -75,6 +102,98 @@ mod tests {
         listen.update(seconds(2), true, start + seconds(2));
 
         assert_eq!(listen.heard(), seconds(2));
+    }
+
+    #[test]
+    fn a_burst_of_progress_catches_up_after_a_stall() {
+        let start = Instant::now();
+        let mut listen = ListenProgress::default();
+        listen.reset(seconds(0), true, start);
+        listen.update(
+            Duration::from_millis(200),
+            true,
+            start + Duration::from_millis(100),
+        );
+        assert_eq!(listen.heard(), Duration::from_millis(100));
+
+        listen.update(
+            Duration::from_millis(200),
+            true,
+            start + Duration::from_millis(200),
+        );
+        assert_eq!(listen.heard(), Duration::from_millis(200));
+    }
+
+    #[test]
+    fn lagging_and_catching_up_progress_keeps_the_full_interval() {
+        let start = Instant::now();
+        let mut listen = ListenProgress::default();
+        listen.reset(seconds(0), true, start);
+        listen.update(
+            Duration::from_millis(95),
+            true,
+            start + Duration::from_millis(100),
+        );
+        listen.update(
+            Duration::from_millis(200),
+            true,
+            start + Duration::from_millis(200),
+        );
+
+        assert_eq!(listen.heard(), Duration::from_millis(200));
+    }
+
+    #[test]
+    fn a_pause_resets_the_interval_accumulators() {
+        let start = Instant::now();
+        let mut listen = ListenProgress::default();
+        listen.reset(seconds(0), true, start);
+        listen.update(
+            Duration::from_millis(200),
+            true,
+            start + Duration::from_millis(100),
+        );
+        listen.update(
+            Duration::from_millis(200),
+            false,
+            start + Duration::from_millis(150),
+        );
+        listen.update(
+            Duration::from_millis(200),
+            true,
+            start + Duration::from_millis(200),
+        );
+        listen.update(
+            Duration::from_millis(200),
+            true,
+            start + Duration::from_millis(300),
+        );
+
+        assert_eq!(listen.heard(), Duration::from_millis(150));
+    }
+
+    #[test]
+    fn a_seek_resets_the_interval_accumulators() {
+        let start = Instant::now();
+        let mut listen = ListenProgress::default();
+        listen.reset(seconds(0), true, start);
+        listen.update(
+            Duration::from_millis(200),
+            true,
+            start + Duration::from_millis(100),
+        );
+        listen.rebase(
+            Duration::from_millis(200),
+            true,
+            start + Duration::from_millis(150),
+        );
+        listen.update(
+            Duration::from_millis(200),
+            true,
+            start + Duration::from_millis(250),
+        );
+
+        assert_eq!(listen.heard(), Duration::from_millis(100));
     }
 
     #[test]
