@@ -141,6 +141,8 @@ pub struct CreateM3u8PlaylistResponse {
     pub not_found_paths: Vec<String>,
     #[serde(default)]
     pub call_id: Option<u64>,
+    #[serde(default)]
+    pub ambiguous_paths: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]

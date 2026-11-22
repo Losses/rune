@@ -950,6 +950,18 @@
   "@registerInvalidSubtitle": {
     "description": "無效註冊密鑰模態嘅內容。"
   },
+  "importM3u8AmbiguousSubtitle": "你嘅歌曲已經導入咗，但有啲項目符合多個檔案。Rune 已經為每個項目導入一個符合嘅曲目。",
+  "@importM3u8AmbiguousSubtitle": {
+    "description": "The content of the partially import success modal when some entries matched multiple files."
+  },
+  "importM3u8AmbiguousPaths": "符合多個檔案",
+  "@importM3u8AmbiguousPaths": {
+    "description": "The heading of the ambiguous playlist entries in the partially import success modal."
+  },
+  "importM3u8NotFoundPaths": "搵唔到",
+  "@importM3u8NotFoundPaths": {
+    "description": "The heading of the unmatched playlist entries in the partially import success modal."
+  },
   "importM3u8Success": "導入成功",
   "@importM3u8Success": {
     "description": "部分導入成功模態嘅標題。"

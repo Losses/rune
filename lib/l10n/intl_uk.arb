@@ -950,6 +950,18 @@
   "@registerInvalidSubtitle": {
     "description": "Вміст модального вікна з недійсним реєстраційним ключем"
   },
+  "importM3u8AmbiguousSubtitle": "Ваші треки були імпортовані, але деякі записи збігалися з кількома файлами. Rune імпортував по одному збігу для кожного.",
+  "@importM3u8AmbiguousSubtitle": {
+    "description": "The content of the partially import success modal when some entries matched multiple files."
+  },
+  "importM3u8AmbiguousPaths": "Збігається кілька файлів",
+  "@importM3u8AmbiguousPaths": {
+    "description": "The heading of the ambiguous playlist entries in the partially import success modal."
+  },
+  "importM3u8NotFoundPaths": "Не знайдено",
+  "@importM3u8NotFoundPaths": {
+    "description": "The heading of the unmatched playlist entries in the partially import success modal."
+  },
   "importM3u8Success": "Частково успішно",
   "@importM3u8Success": {
     "description": "Заголовок модального вікна про частково успішне імпортування"

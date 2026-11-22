@@ -223,12 +223,7 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
                             CollectionCache().clearType(
                               CollectionType.playlist,
                             );
-                            if (result.notFoundPaths.isNotEmpty) {
-                              showCreateImportM3u8SuccessDialog(
-                                context,
-                                result.notFoundPaths,
-                              );
-                            }
+                            showM3u8ImportResultDialog(context, result);
                             return;
                           } else if (widget.playlistId != null) {
                             response = await updatePlaylist(

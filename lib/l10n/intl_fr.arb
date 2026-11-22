@@ -952,6 +952,18 @@
   "@registerInvalidSubtitle": {
     "description": "Le contenu de la fenêtre modale de clé d'enregistrement invalide"
   },
+  "importM3u8AmbiguousSubtitle": "Vos morceaux ont été importés, mais certaines entrées correspondaient à plusieurs fichiers. Rune a importé une correspondance pour chacune.",
+  "@importM3u8AmbiguousSubtitle": {
+    "description": "The content of the partially import success modal when some entries matched multiple files."
+  },
+  "importM3u8AmbiguousPaths": "Plusieurs fichiers correspondants",
+  "@importM3u8AmbiguousPaths": {
+    "description": "The heading of the ambiguous playlist entries in the partially import success modal."
+  },
+  "importM3u8NotFoundPaths": "Introuvable",
+  "@importM3u8NotFoundPaths": {
+    "description": "The heading of the unmatched playlist entries in the partially import success modal."
+  },
   "importM3u8Success": "Partiellement réussi",
   "@importM3u8Success": {
     "description": "Le titre de la fenêtre modale de succès partiel de l'importation"

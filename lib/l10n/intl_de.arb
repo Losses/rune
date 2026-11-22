@@ -950,6 +950,18 @@
   "@registerInvalidSubtitle": {
     "description": "The content of the invalid register key modal"
   },
+  "importM3u8AmbiguousSubtitle": "Ihre Titel wurden importiert, aber einige Einträge passten zu mehreren Dateien. Rune hat für jeden Eintrag eine Übereinstimmung importiert.",
+  "@importM3u8AmbiguousSubtitle": {
+    "description": "The content of the partially import success modal when some entries matched multiple files."
+  },
+  "importM3u8AmbiguousPaths": "Mehrere Dateien gefunden",
+  "@importM3u8AmbiguousPaths": {
+    "description": "The heading of the ambiguous playlist entries in the partially import success modal."
+  },
+  "importM3u8NotFoundPaths": "Nicht gefunden",
+  "@importM3u8NotFoundPaths": {
+    "description": "The heading of the unmatched playlist entries in the partially import success modal."
+  },
   "importM3u8Success": "Teilweise erfolgreich",
   "@importM3u8Success": {
     "description": "The title of the partially import success modal"
