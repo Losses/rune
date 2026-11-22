@@ -20,8 +20,7 @@ impl AndroidFsIo {
     pub(crate) fn new(db_path: &Path, root_uri: &str) -> Result<Self, FileIoError> {
         let root_file = from_tree_url(root_uri).map_err(|e| FileIoError::Saf(e.to_string()))?;
 
-        let db_file = Self::find_file_by_path(root_file, db_path, true)
-            .map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let db_file = Self::find_file_by_path(root_file, db_path, true)?;
 
         let std_file = db_file
             .open("rw")
@@ -85,15 +84,17 @@ impl AndroidFsIo {
         start_file: AndroidFile,
         path: &Path,
         create_if_not_exist: bool,
-    ) -> Result<AndroidFile, String> {
+    ) -> Result<AndroidFile, FileIoError> {
         let mut current_file = start_file;
         for component in path.components() {
             let component_name = match component {
-                Component::Normal(name) => name.to_str().ok_or("Invalid path component")?,
+                Component::Normal(name) => name.to_str().ok_or(FileIoError::InvalidPath)?,
                 _ => continue,
             };
 
-            let files = current_file.list_files().map_err(|e| e.to_string())?;
+            let files = current_file
+                .list_files()
+                .map_err(|e| FileIoError::Saf(e.to_string()))?;
             let found_file = files.into_iter().find(|f| f.filename == component_name);
 
             current_file = match found_file {
@@ -103,14 +104,14 @@ impl AndroidFsIo {
                         if let Some(_ext) = Path::new(component_name).extension() {
                             current_file
                                 .create_file("application/octet-stream", component_name)
-                                .map_err(|e| e.to_string())?
+                                .map_err(|e| FileIoError::Saf(e.to_string()))?
                         } else {
                             current_file
                                 .create_directory(component_name)
-                                .map_err(|e| e.to_string())?
+                                .map_err(|e| FileIoError::Saf(e.to_string()))?
                         }
                     } else {
-                        return Err(format!("File not found: {}", component_name));
+                        return Err(FileIoError::PathNotFound(path.display().to_string()));
                     }
                 }
             };
@@ -202,8 +203,7 @@ impl AndroidFsIo {
         // platforms hit the real filesystem), then cache just this entry.
         let root_file =
             from_tree_url(&self.root_uri).map_err(|e| FileIoError::Saf(e.to_string()))?;
-        let file = Self::find_file_by_path(root_file, path, false)
-            .map_err(|_| FileIoError::PathNotFound(path.to_string_lossy().to_string()))?;
+        let file = Self::find_file_by_path(root_file, path, false)?;
 
         let parent = path.parent().unwrap_or_else(|| Path::new(""));
         let conn = self.db.lock().unwrap();

@@ -66,6 +66,23 @@ async fn disabling_the_last_rule_before_any_download_is_an_empty_cleanup() -> Re
 }
 
 #[tokio::test]
+async fn a_missing_directory_with_a_recorded_download_is_reported() -> Result<()> {
+    let library = causal_library::SqlLibrary::new(Uuid::new_v4(), Uuid::new_v4()).await?;
+    let file = causal_library::local_file(&library.db, 1, Uuid::new_v4(), "track.ogg").await?;
+    let mut row: media_files::ActiveModel = file.into();
+    row.directory = Set("Rune Sync".into());
+    let stored = row.update(&library.db).await?;
+    assert!(cleanup(&library, library.root.path()).await.is_err());
+    assert_eq!(
+        media_files::Entity::find_by_id(stored.id)
+            .one(&library.db)
+            .await?,
+        Some(stored)
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn cleanup_reports_invalid_directories() -> Result<()> {
     let library = causal_library::SqlLibrary::new(Uuid::new_v4(), Uuid::new_v4()).await?;
     let root = library.root.path();

@@ -196,8 +196,12 @@ pub async fn cleanup_unselected_downloads(
         Err(error) => {
             let missing = matches!(&error, FileIoError::PathNotFound(_))
                 || matches!(&error, FileIoError::Io(io) if io.kind() == ErrorKind::NotFound);
-            // A dangling entry also fails to resolve. Only an absent entry is an empty cleanup.
-            if missing && fsio.is_dir(root).await? && !fsio.entry_exists(&managed_path)? {
+            // An unresolved entry or a recorded local download still needs attention.
+            if missing
+                && !rows.iter().any(|row| is_managed_directory(&row.directory))
+                && fsio.is_dir(root).await?
+                && !fsio.entry_exists(&managed_path)?
+            {
                 return Ok(CleanupReport::default());
             }
             return Err(error.into());

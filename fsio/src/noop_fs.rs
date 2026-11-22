@@ -133,6 +133,10 @@ impl FileIo for NoOpFsIo {
         Ok(false)
     }
 
+    fn entry_exists(&self, _path: &Path) -> Result<bool, FileIoError> {
+        Ok(false)
+    }
+
     async fn is_file(&self, _path: &Path) -> Result<bool, FileIoError> {
         Ok(false)
     }
