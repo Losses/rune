@@ -9,9 +9,11 @@ use ::database::{
 use anyhow::Result;
 use database::sync::model::{Collection, Genre, ObjectKey, Payload, RuneModel};
 use database::test_fixtures::fixtures;
+use migration::catalog_identity;
 use migration::catalog_identity::ParentKind;
 use sea_orm::Database;
 use std::collections::HashSet;
+use uuid::Uuid;
 
 const NODE_ID: &str = "collection-type-test";
 
@@ -63,9 +65,9 @@ async fn a_mix_with_genre_and_directory_queries_reads_back() -> Result<()> {
     let db = Database::connect("sqlite::memory:").await?;
     initialize_db(&db, NODE_ID).await?;
 
-    let actor = uuid::Uuid::new_v4();
+    let actor = Uuid::new_v4();
     let library = fixtures::open_library(db.clone(), actor, None).await?;
-    let genre = migration::catalog_identity::parent(ParentKind::Genre, "Rock");
+    let genre = catalog_identity::parent(ParentKind::Genre, "Rock");
     RuneModel::project(
         &db,
         &ObjectKey {

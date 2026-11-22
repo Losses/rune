@@ -24,6 +24,7 @@ use std::{
     sync::Arc,
 };
 use sync::SyncPeer;
+use tokio::time as tokio_time;
 use tokio::time::Instant;
 use uuid::Uuid;
 
@@ -115,7 +116,7 @@ pub async fn download_requested_audio_until(
     fsio: Arc<FsIo>,
     root: PathBuf,
     context: DownloadAudioContext<'_>,
-    deadline: tokio::time::Instant,
+    deadline: tokio_time::Instant,
 ) -> Result<DownloadReport> {
     download_audio_pass(
         db,

@@ -40,6 +40,10 @@ use crate::{
     persistent::PersistentDataManager,
     utils::{DeviceInfo, DeviceType},
 };
+use std::future;
+use tokio::task;
+use tokio::time as tokio_time;
+use tokio::time::Instant;
 
 /// Represents a discovered device on the network.
 ///
@@ -101,7 +105,7 @@ pub struct DiscoveryService {
 struct AnnouncementTask {
     cancel: CancellationToken,
     handle: JoinHandle<()>,
-    deadline: Option<tokio::time::Instant>,
+    deadline: Option<tokio_time::Instant>,
 }
 
 impl AnnouncementTask {
@@ -109,7 +113,7 @@ impl AnnouncementTask {
         !self.handle.is_finished()
             && self
                 .deadline
-                .is_none_or(|deadline| deadline > tokio::time::Instant::now())
+                .is_none_or(|deadline| deadline > Instant::now())
     }
 
     async fn stop(self) {
@@ -297,7 +301,7 @@ impl DiscoveryService {
                 Err(e) => {
                     last_error = Some(e);
                     retries -= 1;
-                    tokio::time::sleep(backoff).await;
+                    tokio_time::sleep(backoff).await;
                     backoff *= 2;
                 }
             }
@@ -326,7 +330,7 @@ impl DiscoveryService {
                 let interface_ip = ipv4_net.addr();
 
                 // Use blocking task for socket configuration as socket2 is blocking
-                let socket = tokio::task::spawn_blocking(move || {
+                let socket = task::spawn_blocking(move || {
                     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
                     socket.set_nonblocking(true)?;
 
@@ -423,7 +427,7 @@ impl DiscoveryService {
         }
 
         let sockets = self.get_sockets_with_retry().await?;
-        let deadline = duration_limit.map(|limit| tokio::time::Instant::now() + limit);
+        let deadline = duration_limit.map(|limit| Instant::now() + limit);
         let cancel = CancellationToken::new();
         let task_cancel = cancel.clone();
 
@@ -433,12 +437,12 @@ impl DiscoveryService {
         let handle = tokio::spawn(async move {
             let expire = async {
                 match deadline {
-                    Some(deadline) => tokio::time::sleep_until(deadline).await,
-                    None => std::future::pending().await,
+                    Some(deadline) => tokio_time::sleep_until(deadline).await,
+                    None => future::pending().await,
                 }
             };
             let announce = async {
-                let mut interval = tokio::time::interval(interval);
+                let mut interval = tokio_time::interval(interval);
                 interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
                 let announcement = announcement_message(&device_info);
                 loop {

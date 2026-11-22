@@ -26,6 +26,8 @@ use hub::{
 };
 use sea_orm::sea_query;
 use sea_orm::{ConnectionTrait, Database, EntityTrait, ExprTrait, Set};
+use std::fs;
+use std::path as std_path;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -34,7 +36,7 @@ async fn request_library(
     fsio: Arc<FsIo>,
     media_root: String,
     actor: Uuid,
-    config_path: &std::path::Path,
+    config_path: &std_path::Path,
 ) -> Result<LibraryHandle> {
     let library_id = Uuid::new_v4();
     let library_sync = LibrarySyncStore::open(db.clone(), actor, Some(library_id)).await?;
@@ -66,8 +68,8 @@ async fn request_library(
 #[tokio::test]
 async fn pending_rows_are_returned_and_reported_without_becoming_playable() -> Result<()> {
     let dir = tempfile::tempdir()?;
-    std::fs::write(dir.path().join("local.ogg"), b"local")?;
-    std::fs::write(dir.path().join("staged.ogg"), b"uncommitted")?;
+    fs::write(dir.path().join("local.ogg"), b"local")?;
+    fs::write(dir.path().join("staged.ogg"), b"uncommitted")?;
     let db = Database::connect("sqlite::memory:").await?;
     let node = Uuid::new_v4();
     fixtures::migrate(&db, node).await?;
@@ -309,7 +311,7 @@ async fn scanned_symlinked_folder_is_playable() -> Result<()> {
     use std::os::unix::fs::symlink;
     let root = tempfile::tempdir()?;
     let outside = tempfile::tempdir()?;
-    std::fs::copy(fixtures::audio_fixture(), outside.path().join("track.ogg"))?;
+    fs::copy(fixtures::audio_fixture(), outside.path().join("track.ogg"))?;
     symlink(outside.path(), root.path().join("linked"))?;
     let db = Database::connect("sqlite::memory:").await?;
     let node = Uuid::new_v4();

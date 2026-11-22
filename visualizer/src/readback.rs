@@ -13,6 +13,13 @@ use std::sync::{Arc, Mutex, Weak};
 use anyhow::{Result, anyhow};
 
 use crate::pipeline::FORMAT;
+use wgpu::BufferUsages;
+use wgpu::MapMode;
+use wgpu::Origin3d;
+use wgpu::PollType;
+use wgpu::TextureAspect;
+use wgpu::TextureDimension;
+use wgpu::TextureUsages;
 
 /// Readback buffers per target: one being written, one being mapped, one held by the screen.
 const BUFFERS: usize = 3;
@@ -93,11 +100,11 @@ impl Target {
             },
             mip_level_count: 1,
             sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
+            dimension: TextureDimension::D2,
             format: FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::COPY_SRC
-                | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: TextureUsages::RENDER_ATTACHMENT
+                | TextureUsages::COPY_SRC
+                | TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
         let view = texture.create_view(&Default::default());
@@ -107,7 +114,7 @@ impl Target {
                 device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("visualizer readback"),
                     size: u64::from(padded_row) * u64::from(height),
-                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                    usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
                     mapped_at_creation: false,
                 })
             })
@@ -139,8 +146,8 @@ impl Target {
                 wgpu::TexelCopyTextureInfo {
                     texture: &self.texture,
                     mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
+                    origin: Origin3d::ZERO,
+                    aspect: TextureAspect::All,
                 },
                 wgpu::TexelCopyBufferInfo {
                     buffer: &buffer,
@@ -159,20 +166,18 @@ impl Target {
             queue.submit(Some(encoder.finish()));
             let state = Arc::new(AtomicU8::new(PENDING));
             let done = Arc::clone(&state);
-            buffer
-                .slice(..)
-                .map_async(wgpu::MapMode::Read, move |result| {
-                    done.store(
-                        if result.is_ok() { MAPPED } else { FAILED },
-                        Ordering::Release,
-                    );
-                });
+            buffer.slice(..).map_async(MapMode::Read, move |result| {
+                done.store(
+                    if result.is_ok() { MAPPED } else { FAILED },
+                    Ordering::Release,
+                );
+            });
             self.in_flight.push_back(InFlight { buffer, state });
         }
 
         // Runs the callbacks of finished mappings without blocking.
         device
-            .poll(wgpu::PollType::Poll)
+            .poll(PollType::Poll)
             .map_err(|e| anyhow!("GPU poll failed: {e:?}"))?;
 
         let mut newest = None;

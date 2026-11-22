@@ -12,6 +12,8 @@ use database::{
 };
 use fsio::FsIo;
 use sea_orm::{ActiveModelTrait, Database, EntityTrait, Set};
+use std::fs;
+use std::os::unix::fs as std_fs;
 use std::path::Path;
 use uuid::Uuid;
 
@@ -42,7 +44,7 @@ async fn disabling_the_last_rule_before_any_download_is_an_empty_cleanup() -> Re
     assert!(!track.local_available);
     let root = library.root.path();
     let unrelated = root.join("notes.txt");
-    std::fs::write(&unrelated, b"keep")?;
+    fs::write(&unrelated, b"keep")?;
     let query = vec![("lib::track".to_owned(), track.id.to_string())];
     let rule = set_download_rule(db, query.clone(), None, true).await?;
     set_download_rule(db, query, None, false).await?;
@@ -50,7 +52,7 @@ async fn disabling_the_last_rule_before_any_download_is_an_empty_cleanup() -> Re
     let report = cleanup(&library, root).await?;
     assert_eq!((report.removed, report.delete_failures), (0, 0));
     assert!(!root.join("Rune Sync").exists());
-    assert_eq!(std::fs::read(unrelated)?, b"keep");
+    assert_eq!(fs::read(unrelated)?, b"keep");
     assert_eq!(
         media_files::Entity::find_by_id(track.id).one(db).await?,
         Some(track)
@@ -87,7 +89,7 @@ async fn cleanup_reports_invalid_directories() -> Result<()> {
     let library = causal_library::SqlLibrary::new(Uuid::new_v4(), Uuid::new_v4()).await?;
     let root = library.root.path();
     let managed = root.join("Rune Sync");
-    std::fs::write(&managed, b"keep")?;
+    fs::write(&managed, b"keep")?;
     for invalid_root in [
         root.join("missing library"),
         managed.clone(),
@@ -99,7 +101,7 @@ async fn cleanup_reports_invalid_directories() -> Result<()> {
             invalid_root.display()
         );
     }
-    assert_eq!(std::fs::read(managed)?, b"keep");
+    assert_eq!(fs::read(managed)?, b"keep");
     Ok(())
 }
 
@@ -109,9 +111,9 @@ async fn cleanup_preserves_an_unresolved_managed_directory_entry() -> Result<()>
     let library = causal_library::SqlLibrary::new(Uuid::new_v4(), Uuid::new_v4()).await?;
     let root = library.root.path();
     let entry = root.join("Rune Sync");
-    std::os::unix::fs::symlink(root.join("missing"), &entry)?;
+    std_fs::symlink(root.join("missing"), &entry)?;
     assert!(cleanup(&library, root).await.is_err());
-    assert!(std::fs::symlink_metadata(entry)?.is_symlink());
+    assert!(fs::symlink_metadata(entry)?.is_symlink());
     Ok(())
 }
 
@@ -124,17 +126,17 @@ async fn cleanup_removes_only_unselected_managed_files() -> Result<()> {
     let root = tempfile::tempdir()?;
     let fs = FsIo::new();
     let managed = root.path().join("Rune Sync");
-    std::fs::create_dir_all(&managed)?;
+    fs::create_dir_all(&managed)?;
     let mut ids = Vec::new();
     for (index, directory) in [managed.as_path(), managed.as_path(), root.path()]
         .iter()
         .enumerate()
     {
         let path = root.path().join(format!("{index}.ogg"));
-        std::fs::copy(fixtures::audio_fixture(), &path)?;
+        fs::copy(fixtures::audio_fixture(), &path)?;
         let id = scan_audio_file(&fs, &db, &node.to_string(), root.path(), &path, &store).await?;
         if index < 2 {
-            std::fs::rename(&path, directory.join(format!("{index}.ogg")))?;
+            fs::rename(&path, directory.join(format!("{index}.ogg")))?;
         }
         let mut row: media_files::ActiveModel = media_files::Entity::find_by_id(id)
             .one(&db)

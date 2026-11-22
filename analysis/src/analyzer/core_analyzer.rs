@@ -32,6 +32,8 @@ use crate::{
         computing_device::ComputingDevice,
     },
 };
+use std::iter;
+use std::mem;
 
 macro_rules! check_cancellation {
     ($self:expr) => {
@@ -184,7 +186,7 @@ impl Analyzer {
         T: Sample + IntoSample<f32>,
     {
         let frames = buf.frames();
-        let mut samples = std::mem::take(&mut self.sample_buffer);
+        let mut samples = mem::take(&mut self.sample_buffer);
         append_mixed(buf, &mut samples);
         self.consume_mixed_samples(samples, frames);
     }
@@ -216,7 +218,7 @@ impl Analyzer {
         let keep = final_length.map_or(available, |n| {
             available.min(n.saturating_sub(self.emitted_samples))
         });
-        let mut target = std::mem::take(&mut self.target_buffer);
+        let mut target = mem::take(&mut self.target_buffer);
         target.extend_from_slice(&self.resampler_output_buffer[0][skip..skip + keep]);
         self.emitted_samples += keep;
         let mut consumed = 0;
@@ -256,7 +258,7 @@ impl Analyzer {
             .div_ceil(self.sample_rate as u64) as usize;
         if !self.sample_buffer.is_empty() {
             self.sample_buffer.resize(self.actual_data_size, 0.0);
-            let input = std::mem::take(&mut self.sample_buffer);
+            let input = mem::take(&mut self.sample_buffer);
             self.resample_source_block(&input, Some(expected));
         }
         let padding = vec![0.0; self.actual_data_size];
@@ -270,10 +272,10 @@ impl Analyzer {
             if self.count == 0 {
                 let leading = (self.window_size - self.target_buffer.len()) / 2;
                 self.target_buffer
-                    .splice(0..0, std::iter::repeat_n(0.0, leading));
+                    .splice(0..0, iter::repeat_n(0.0, leading));
             }
             self.target_buffer.resize(self.window_size, 0.0);
-            let chunk = std::mem::take(&mut self.target_buffer);
+            let chunk = mem::take(&mut self.target_buffer);
             self.process_audio_chunk(&chunk, false);
         }
         Arc::clone(&self.sub_analyzer).lock().unwrap().flush(self);
@@ -419,6 +421,9 @@ mod regression_tests {
 
 #[cfg(test)]
 mod streaming_tests {
+    use std::mem;
+    use wgpu::Instance;
+    use wgpu::RequestAdapterOptions;
 
     use super::*;
     use std::f32::consts::PI;
@@ -427,7 +432,7 @@ mod streaming_tests {
         a.sample_rate = rate;
         a.initialize_resampler();
         for chunk in samples.chunks(packet) {
-            let mut input = std::mem::take(&mut a.sample_buffer);
+            let mut input = mem::take(&mut a.sample_buffer);
             input.extend_from_slice(chunk);
             a.consume_mixed_samples(input, chunk.len());
         }
@@ -466,7 +471,7 @@ mod streaming_tests {
     #[test]
     fn gpu_finishes_all_counted_windows() {
         if pollster::block_on(
-            wgpu::Instance::default().request_adapter(&wgpu::RequestAdapterOptions::default()),
+            Instance::default().request_adapter(&RequestAdapterOptions::default()),
         )
         .is_none()
         {

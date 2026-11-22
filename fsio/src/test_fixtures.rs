@@ -9,6 +9,9 @@ use std::{
     },
 };
 
+use std::ffi;
+use std::ffi::OsString;
+use std::io;
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::{TcpListener, TcpStream},
@@ -20,14 +23,14 @@ use tokio::{
 /// `suffix`. Apple file systems store only UTF-8 names.
 #[allow(dead_code)]
 #[cfg(any(windows, all(unix, not(target_vendor = "apple"))))]
-pub fn non_unicode_name(prefix: &str, suffix: &str) -> std::ffi::OsString {
+pub fn non_unicode_name(prefix: &str, suffix: &str) -> ffi::OsString {
     #[cfg(unix)]
     let name = {
         use std::os::unix::ffi::OsStringExt;
         let mut bytes = prefix.as_bytes().to_vec();
         bytes.push(0xff);
         bytes.extend_from_slice(suffix.as_bytes());
-        std::ffi::OsString::from_vec(bytes)
+        OsString::from_vec(bytes)
     };
     #[cfg(windows)]
     let name = {
@@ -37,7 +40,7 @@ pub fn non_unicode_name(prefix: &str, suffix: &str) -> std::ffi::OsString {
             .chain([0xd800])
             .chain(suffix.encode_utf16())
             .collect();
-        std::ffi::OsString::from_wide(&wide)
+        OsString::from_wide(&wide)
     };
     name
 }
@@ -93,7 +96,7 @@ pub struct WebDavFixture {
 }
 
 impl WebDavFixture {
-    pub async fn start(files: Vec<(String, Vec<u8>)>) -> std::io::Result<Self> {
+    pub async fn start(files: Vec<(String, Vec<u8>)>) -> io::Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let address = listener.local_addr()?;
         let files = Arc::new(Mutex::new(files.into_iter().collect::<HashMap<_, _>>()));
@@ -165,7 +168,7 @@ impl WebDavFixture {
     }
 
     #[allow(dead_code)]
-    pub async fn start_read_only(files: Vec<(String, Vec<u8>)>) -> std::io::Result<Self> {
+    pub async fn start_read_only(files: Vec<(String, Vec<u8>)>) -> io::Result<Self> {
         let fixture = Self::start(files).await?;
         fixture.reject_writes.store(true, Ordering::SeqCst);
         Ok(fixture)
@@ -232,23 +235,21 @@ struct S3ServerState {
 }
 
 impl S3Fixture {
-    pub async fn start(files: Vec<(String, Vec<u8>)>) -> std::io::Result<Self> {
+    pub async fn start(files: Vec<(String, Vec<u8>)>) -> io::Result<Self> {
         Self::start_with_metadata(files, S3ObjectMetadata::Full).await
     }
 
     /// Starts a server that reports neither an ETag nor a modification time,
     /// so clients have no change signal for its objects.
     #[allow(dead_code)]
-    pub async fn start_without_object_metadata(
-        files: Vec<(String, Vec<u8>)>,
-    ) -> std::io::Result<Self> {
+    pub async fn start_without_object_metadata(files: Vec<(String, Vec<u8>)>) -> io::Result<Self> {
         Self::start_with_metadata(files, S3ObjectMetadata::Hidden).await
     }
 
     async fn start_with_metadata(
         files: Vec<(String, Vec<u8>)>,
         object_metadata: S3ObjectMetadata,
-    ) -> std::io::Result<Self> {
+    ) -> io::Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let address = listener.local_addr()?;
         let files = Arc::new(Mutex::new(files.into_iter().collect::<HashMap<_, _>>()));
@@ -339,7 +340,7 @@ impl S3Fixture {
     }
 
     #[allow(dead_code)]
-    pub async fn start_read_only(files: Vec<(String, Vec<u8>)>) -> std::io::Result<Self> {
+    pub async fn start_read_only(files: Vec<(String, Vec<u8>)>) -> io::Result<Self> {
         let fixture = Self::start(files).await?;
         fixture.reject_writes.store(true, Ordering::SeqCst);
         Ok(fixture)
@@ -921,7 +922,7 @@ async fn serve_webdav(stream: TcpStream, state: WebDavServerState) {
 
 async fn read_request(
     reader: &mut BufReader<TcpStream>,
-) -> std::io::Result<Option<(String, String, HashMap<String, String>, Vec<u8>)>> {
+) -> io::Result<Option<(String, String, HashMap<String, String>, Vec<u8>)>> {
     let mut line = String::new();
     if reader.read_line(&mut line).await? == 0 {
         return Ok(None);
@@ -963,7 +964,7 @@ async fn read_request(
     Ok(Some((method, path, headers, body)))
 }
 
-async fn read_chunked_body(reader: &mut BufReader<TcpStream>) -> std::io::Result<Vec<u8>> {
+async fn read_chunked_body(reader: &mut BufReader<TcpStream>) -> io::Result<Vec<u8>> {
     let mut buffer = [0; 8192];
     let mut body = Vec::new();
     loop {
@@ -1005,11 +1006,7 @@ async fn read_chunked_body(reader: &mut BufReader<TcpStream>) -> std::io::Result
     }
 }
 
-async fn write_response(
-    stream: &mut TcpStream,
-    headers: &[u8],
-    body: &[u8],
-) -> std::io::Result<()> {
+async fn write_response(stream: &mut TcpStream, headers: &[u8], body: &[u8]) -> io::Result<()> {
     stream.write_all(headers).await?;
     stream.write_all(body).await?;
     stream.flush().await?;

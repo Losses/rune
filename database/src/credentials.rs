@@ -21,6 +21,7 @@ use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::library_registry::registry_write_guard;
+use std::mem;
 
 const VERSION: u8 = 1;
 const KEY_LENGTH: usize = 32;
@@ -48,7 +49,7 @@ impl Secret {
     }
 
     fn take_bytes(&mut self) -> Vec<u8> {
-        std::mem::take(&mut self.0)
+        mem::take(&mut self.0)
     }
 }
 
@@ -262,7 +263,7 @@ impl CredentialStore {
         // Android app storage can deny hard links. persist_noclobber uses a
         // no-replace rename there, so no creator can overwrite the winning key.
         match temp.persist_noclobber(self.key_file()) {
-            Ok(_) => Ok(std::mem::take(&mut *key)),
+            Ok(_) => Ok(mem::take(&mut *key)),
             Err(error) if error.error.kind() == ErrorKind::AlreadyExists => self.load_key(),
             Err(error) => Err(CredentialStoreError::CredentialStoreIo(error.error)),
         }

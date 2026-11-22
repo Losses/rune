@@ -1,9 +1,10 @@
 use fsio::FsIo;
 use metadata::reader::get_metadata;
+use std::env;
 
 fn main() {
     // Get the first command line argument.
-    let args: Vec<String> = std::env::args().collect();
+    let args: Vec<String> = env::args().collect();
     let path = args.get(1).expect("file path not provided");
     let fsio = FsIo::new();
 

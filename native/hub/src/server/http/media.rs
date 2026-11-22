@@ -15,6 +15,7 @@ use crate::{
     utils::parse_media_files,
 };
 use database::actions::{cover_art::bake_cover_art_by_file_ids, metadata::get_parsed_file_by_id};
+use tokio::fs;
 
 #[derive(Serialize)]
 pub struct MediaMetadataResponse {
@@ -95,7 +96,7 @@ pub async fn get_cover_art_handler(
         .cloned()
         .ok_or_else(|| (StatusCode::NOT_FOUND, "Cover art not found".to_string()))?;
 
-    let cover_data = match tokio::fs::read(&cover_path).await {
+    let cover_data = match fs::read(&cover_path).await {
         Ok(data) => data,
         Err(e) => {
             return Err((

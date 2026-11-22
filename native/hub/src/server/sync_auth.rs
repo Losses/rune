@@ -10,10 +10,13 @@ use axum::{
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use discovery::access_policy::PeerIdentity;
 use discovery::server::{PermissionManager, UserStatus};
+use discovery::ssl;
 use rand::{RngCore, rngs::OsRng};
 use rsa::{Pss, RsaPublicKey, pkcs8::DecodePublicKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::fmt;
+use std::net;
 use std::{
     collections::HashMap,
     net::SocketAddr,
@@ -31,7 +34,7 @@ pub(crate) const TOKEN_TTL: Duration = Duration::from_secs(300);
 const DOMAIN: &str = "rune-sync-auth-1";
 #[derive(Default)]
 struct Entries {
-    nonces: HashMap<String, (std::net::IpAddr, Instant)>,
+    nonces: HashMap<String, (net::IpAddr, Instant)>,
     tokens: HashMap<String, (String, Instant)>,
     #[cfg(test)]
     reject_next_authorization_for: Option<String>,
@@ -69,8 +72,8 @@ fn random() -> String {
 pub fn message(server: &str, nonce: &str) -> Vec<u8> {
     format!("{DOMAIN}\n{server}\n{nonce}").into_bytes()
 }
-impl std::fmt::Debug for SyncAuth {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for SyncAuth {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SyncAuth").finish_non_exhaustive()
     }
 }
@@ -251,7 +254,7 @@ async fn authorize(
         }
         _ => return Err(StatusCode::UNAUTHORIZED),
     };
-    if discovery::ssl::calculate_base85_fingerprint(&spki).map_err(|_| StatusCode::UNAUTHORIZED)?
+    if ssl::calculate_base85_fingerprint(&spki).map_err(|_| StatusCode::UNAUTHORIZED)?
         != request.fingerprint
     {
         return Err(StatusCode::UNAUTHORIZED);
@@ -336,12 +339,17 @@ pub async fn require_auth(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::middleware;
     use axum::{
         body::{Body, to_bytes},
         http::Request,
     };
+    use discovery::ssl;
     use discovery::utils::DeviceType;
     use rsa::{RsaPrivateKey, pkcs8::DecodePrivateKey};
+    use std::env;
+    use std::fs;
+    use tokio::task;
     use tokio::time::timeout;
     use tower::ServiceExt;
 
@@ -402,7 +410,7 @@ mod tests {
         permissions: &RwLock<PermissionManager>,
         app: &Router,
     ) -> (String, String) {
-        let cert = discovery::ssl::generate_self_signed_cert("test", "rune", "CA", 1).unwrap();
+        let cert = ssl::generate_self_signed_cert("test", "rune", "CA", 1).unwrap();
         let fingerprint = cert.public_key_fingerprint;
         let permissions = permissions.write().await;
         permissions
@@ -485,10 +493,10 @@ mod tests {
 
     #[tokio::test]
     async fn authorization_requires_key_proof_and_tracks_revocation() {
-        let dir = std::env::temp_dir().join(format!("rune-auth-{}", random()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = env::temp_dir().join(format!("rune-auth-{}", random()));
+        fs::create_dir_all(&dir).unwrap();
         let permissions = Arc::new(RwLock::new(PermissionManager::new(&dir).unwrap()));
-        let cert = discovery::ssl::generate_self_signed_cert("test", "rune", "CA", 1).unwrap();
+        let cert = ssl::generate_self_signed_cert("test", "rune", "CA", 1).unwrap();
         let fingerprint = cert.public_key_fingerprint.clone();
         let auth = SyncAuth::new(permissions.clone(), "server".into());
         permissions
@@ -562,10 +570,7 @@ mod tests {
         }
         let protected = Router::new()
             .route("/protected", get(|| async { StatusCode::OK }))
-            .layer(axum::middleware::from_fn_with_state(
-                auth.clone(),
-                require_auth,
-            ));
+            .layer(middleware::from_fn_with_state(auth.clone(), require_auth));
         for (token, status) in [
             (&issued[0], StatusCode::UNAUTHORIZED),
             (&issued[19], StatusCode::OK),
@@ -615,7 +620,7 @@ mod tests {
                 if auth.entries().tokens.is_empty() {
                     break;
                 }
-                tokio::task::yield_now().await;
+                task::yield_now().await;
             }
         })
         .await
@@ -653,13 +658,13 @@ mod tests {
                 .0,
             StatusCode::OK
         );
-        let _ = std::fs::remove_dir_all(dir);
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[tokio::test]
     async fn test_authorization_rejection_is_scoped_to_its_fingerprint() {
-        let dir = std::env::temp_dir().join(format!("rune-auth-{}", random()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = env::temp_dir().join(format!("rune-auth-{}", random()));
+        fs::create_dir_all(&dir).unwrap();
         let permissions = Arc::new(RwLock::new(PermissionManager::new(&dir).unwrap()));
         let auth = SyncAuth::new(permissions, "server".into());
         let target_fingerprint = "stream-peer";
@@ -706,6 +711,6 @@ mod tests {
         .await;
         assert!(matches!(target, Err(StatusCode::UNAUTHORIZED)));
         assert!(auth.entries().reject_next_authorization_for.is_none());
-        let _ = std::fs::remove_dir_all(dir);
+        let _ = fs::remove_dir_all(dir);
     }
 }

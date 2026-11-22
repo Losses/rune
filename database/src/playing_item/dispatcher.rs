@@ -14,6 +14,7 @@ use super::{
     independent_file::IndependentFileProcessor, library_item::LibraryItemProcessor,
     online_file::OnlineFileProcessor,
 };
+use uuid::Uuid;
 
 pub struct PlayingItemActionDispatcher {
     in_library_processor: Box<dyn PlayingFileMetadataProvider + Send + Sync>,
@@ -25,7 +26,7 @@ pub struct PlayingItemActionDispatcher {
 /// asked about. Without one there may be no database at all.
 fn has_library_track(items: &[PlayingItem]) -> bool {
     items.iter().any(|item| {
-        matches!(item, PlayingItem::LibraryTrack { track, .. } if uuid::Uuid::parse_str(track).is_ok())
+        matches!(item, PlayingItem::LibraryTrack { track, .. } if Uuid::parse_str(track).is_ok())
     })
 }
 
@@ -182,7 +183,7 @@ impl PlayingItemActionDispatcher {
         item: &PlayingItem,
     ) -> Option<i32> {
         match item {
-            PlayingItem::LibraryTrack { track, .. } if uuid::Uuid::parse_str(track).is_ok() => {
+            PlayingItem::LibraryTrack { track, .. } if Uuid::parse_str(track).is_ok() => {
                 self.in_library_processor
                     .get_cover_art_primary_color(fsio, lib_path, main_db, item)
                     .await

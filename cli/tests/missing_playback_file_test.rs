@@ -7,8 +7,10 @@ use database::{
     sync::LibrarySyncStore,
 };
 use fsio::FsIo;
+use log::LevelFilter;
 use log::{Log, Metadata, Record};
 use rune::playback::{play_by_id, play_random};
+use std::path::Path;
 use uuid::Uuid;
 
 struct PlaybackLog(Mutex<Vec<String>>);
@@ -32,7 +34,7 @@ static LOG: PlaybackLog = PlaybackLog(Mutex::new(Vec::new()));
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn stale_catalog_entries_are_reported_and_valid_random_tracks_play() -> Result<()> {
     log::set_logger(&LOG)?;
-    log::set_max_level(log::LevelFilter::Debug);
+    log::set_max_level(LevelFilter::Debug);
     let root = tempfile::tempdir()?;
     let root_path = root.path().canonicalize()?;
     let node = Uuid::new_v4();
@@ -41,7 +43,7 @@ async fn stale_catalog_entries_are_reported_and_valid_random_tracks_play() -> Re
     let db = connect_main_db(&fsio, root_path.to_str().unwrap(), None, &node.to_string()).await?;
     let library = LibrarySyncStore::open(db.clone(), node, Some(library_id)).await?;
     let store = library.record_store();
-    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/startup_0.ogg");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/startup_0.ogg");
     let mut ids = Vec::new();
     for name in ["missing.ogg", "valid.ogg"] {
         let path = root_path.join(name);

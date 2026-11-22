@@ -22,6 +22,7 @@ use crate::inspect::InspectBinding;
 use crate::moments::{Strength, key};
 use crate::scene::{FallbackDecl, MusicValues};
 use crate::switching::FOLLOWED;
+use toml::Value;
 
 /// The file the runtime starts with.
 pub const EMBEDDED: &str = include_str!("../../runtime.toml");
@@ -290,8 +291,8 @@ struct Bound {
 
 fn number(value: &toml::Value, what: &str) -> Result<f32> {
     let v = match value {
-        toml::Value::Float(v) => *v as f32,
-        toml::Value::Integer(v) => *v as f32,
+        Value::Float(v) => *v as f32,
+        Value::Integer(v) => *v as f32,
         other => bail!("{what} must be a number, not {other}"),
     };
     ensure!(v.is_finite(), "{what} must be a finite number");
@@ -433,7 +434,7 @@ impl Bound {
         let what = format!("`when.{key}`");
         let result = (|| match self.when.get(key) {
             None => Ok(default),
-            Some(toml::Value::Array(items)) if items.len() == 3 => Ok([
+            Some(Value::Array(items)) if items.len() == 3 => Ok([
                 number(&items[0], &what)?,
                 number(&items[1], &what)?,
                 number(&items[2], &what)?,
@@ -449,7 +450,7 @@ impl Bound {
         let what = format!("`when.{key}`");
         let result = (|| match self.when.get(key) {
             None => Ok(default),
-            Some(toml::Value::Array(items)) if items.len() == 5 => {
+            Some(Value::Array(items)) if items.len() == 5 => {
                 let mut wishes = [0.0; 5];
                 for (wish, item) in wishes.iter_mut().zip(items) {
                     *wish = number(item, &what)?;
@@ -468,7 +469,7 @@ impl Bound {
         let result = (|| {
             let name = match self.when.get(key) {
                 None => default,
-                Some(toml::Value::String(name)) => name,
+                Some(Value::String(name)) => name,
                 Some(other) => bail!("`when.{key}` must be the name of a source, not {other}"),
             };
             let source = find(name)?;

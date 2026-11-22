@@ -6,6 +6,9 @@ use database::{
     entities::{albums, media_file_albums},
     sync::model::*,
 };
+use fsio::FsIo;
+use migration::catalog_identity;
+use migration::catalog_identity::ParentKind;
 use sea_orm::{EntityTrait, PaginatorTrait};
 use support::fixtures;
 use support::{SqlLibrary, key};
@@ -27,10 +30,7 @@ async fn cleanup_during_partial_sync_does_not_delete_source_album() -> Result<()
         .collect(),
     };
     let after = target.initialize_from(&source.peer, &scope).await?;
-    let album = migration::catalog_identity::parent(
-        migration::catalog_identity::ParentKind::Album,
-        "Album",
-    );
+    let album = catalog_identity::parent(ParentKind::Album, "Album");
     let track = Uuid::new_v4();
     source
         .peer
@@ -86,7 +86,7 @@ async fn cleanup_during_partial_sync_does_not_delete_source_album() -> Result<()
     let head = target.peer.head().await?;
     let actor = target.sync_store.record_store().author().to_string();
     fixtures::cleanup_scan(
-        &fsio::FsIo::new(),
+        &FsIo::new(),
         &target.db,
         &actor,
         target.root.path(),

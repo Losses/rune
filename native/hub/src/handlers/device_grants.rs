@@ -17,6 +17,7 @@ use crate::{
     request_error::ExpectedRequestError,
     utils::{GlobalParams, ParamsExtractor},
 };
+use std::collections;
 
 impl From<DeviceConnectionLevel> for ConnectionLevel {
     fn from(level: DeviceConnectionLevel) -> Self {
@@ -167,7 +168,7 @@ impl Signal for GetDeviceGrantsRequest {
                     .keys()
                     .chain(grants.sync.libraries.keys())
                     .copied()
-                    .collect::<std::collections::BTreeSet<_>>()
+                    .collect::<collections::BTreeSet<_>>()
                     .into_iter()
                     .map(|id| DeviceLibraryGrant {
                         library_id: id.to_string(),

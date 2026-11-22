@@ -1,10 +1,12 @@
+use crc_fast::CrcParams;
+use crc_fast::Digest;
 use std::sync::OnceLock;
 
 fn params() -> crc_fast::CrcParams {
     static PARAMS: OnceLock<crc_fast::CrcParams> = OnceLock::new();
     *PARAMS.get_or_init(|| {
         // Historical Rune CRC: NOT standard Ogg CRC or CRC32C.
-        crc_fast::CrcParams::new("RUNE", 32, 0x1bf52, 0, false, 0, 0xce7402ce)
+        CrcParams::new("RUNE", 32, 0x1bf52, 0, false, 0, 0xce7402ce)
     })
 }
 
@@ -20,7 +22,7 @@ impl Default for MediaCrc {
 
 impl MediaCrc {
     pub fn new() -> Self {
-        Self(crc_fast::Digest::new_with_params(params()))
+        Self(Digest::new_with_params(params()))
     }
 
     pub fn update(&mut self, bytes: &[u8]) {

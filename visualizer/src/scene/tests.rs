@@ -2,25 +2,39 @@
 
 use super::*;
 use crate::bind;
+use image::RgbaImage;
+use naga::TypeInner;
+use std::env;
+use std::fs;
+use std::process as std_process;
+use std::time::Duration;
+use toml::Value as TomlValue;
+use wgpu::BufferUsages;
+use wgpu::DeviceDescriptor;
+use wgpu::Instance;
+use wgpu::MapMode;
+use wgpu::PollType;
+use wgpu::RequestAdapterOptions;
+use wgpu::TextureFormat;
+use wgpu::TextureUsages;
 
 const SIZE: (u32, u32) = (64, 32);
-const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+const FORMAT: wgpu::TextureFormat = TextureFormat::Rgba8Unorm;
 
 fn gpu() -> Option<(wgpu::Device, wgpu::Queue)> {
-    let instance = wgpu::Instance::default();
+    let instance = Instance::default();
     let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .ok()?;
-    pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()
+        pollster::block_on(instance.request_adapter(&RequestAdapterOptions::default())).ok()?;
+    pollster::block_on(adapter.request_device(&DeviceDescriptor::default())).ok()
 }
 
 /// A scene folder of its own under the temp directory, with `files` in it.
 fn folder(name: &str, files: &[(&str, &str)]) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("rune-scene-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = env::temp_dir().join(format!("rune-scene-{name}-{}", std_process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
     for (file, text) in files {
-        std::fs::write(dir.join(file), text).unwrap();
+        fs::write(dir.join(file), text).unwrap();
     }
     dir
 }
@@ -102,7 +116,7 @@ impl Screen {
             "test screen",
             SIZE,
             FORMAT,
-            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            TextureUsages::RENDER_ATTACHMENT | TextureUsages::COPY_SRC,
             1,
         );
         let view = texture.create_view(&Default::default());
@@ -120,7 +134,7 @@ impl Screen {
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: u64::from(row * SIZE.1),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
         let mut encoder = device.create_command_encoder(&Default::default());
@@ -137,9 +151,9 @@ impl Screen {
             self.texture.size(),
         );
         queue.submit(Some(encoder.finish()));
-        buffer.slice(..).map_async(wgpu::MapMode::Read, |_| {});
+        buffer.slice(..).map_async(MapMode::Read, |_| {});
         device
-            .poll(wgpu::PollType::Wait {
+            .poll(PollType::Wait {
                 submission_index: None,
                 timeout: None,
             })
@@ -254,7 +268,7 @@ fn state_offsets<const N: usize>(files: &Files, names: [&str; N]) -> [u64; N] {
         .find(|(_, ty)| ty.name.as_deref() == Some("State"))
         .unwrap()
         .1;
-    let naga::TypeInner::Struct { members, .. } = &state.inner else {
+    let TypeInner::Struct { members, .. } = &state.inner else {
         panic!("State must be a struct");
     };
     names.map(|name| {
@@ -283,7 +297,7 @@ fn torii_sea_spirit_stays_with_the_formation_at_long_frames() {
     let readback = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Torii Sea spirit motion"),
         size: frames * stride,
-        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
 
@@ -297,7 +311,7 @@ fn torii_sea_spirit_stays_with_the_formation_at_long_frames() {
                     .iter_mut()
                     .find(|p| p.id == id)
                     .unwrap();
-                param.default = toml::Value::Float(param.max.unwrap());
+                param.default = TomlValue::Float(param.max.unwrap());
             }
         }
         let mut scene =
@@ -326,7 +340,7 @@ fn torii_sea_spirit_stays_with_the_formation_at_long_frames() {
                     song_chart: None,
                     song_seed: Some(473),
                     accent: None,
-                    wall: start + std::time::Duration::from_secs_f64(time),
+                    wall: start + Duration::from_secs_f64(time),
                 },
                 None,
             );
@@ -335,8 +349,8 @@ fn torii_sea_spirit_stays_with_the_formation_at_long_frames() {
         }
         readback
             .slice(..)
-            .map_async(wgpu::MapMode::Read, |result| result.unwrap());
-        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+            .map_async(MapMode::Read, |result| result.unwrap());
+        device.poll(PollType::wait_indefinitely()).unwrap();
         let data = readback.slice(..).get_mapped_range().unwrap();
         let read = |i, offset| {
             let at = (i * stride + offset) as usize;
@@ -396,7 +410,7 @@ fn torii_sea_trails_span_the_configured_duration() {
         let readback = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Torii Sea history"),
             size: u64::from(last + 1) * stride,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
         let start = Instant::now();
@@ -422,7 +436,7 @@ fn torii_sea_trails_span_the_configured_duration() {
                     song_chart: None,
                     song_seed: Some(473),
                     accent: None,
-                    wall: start + std::time::Duration::from_secs_f64(time),
+                    wall: start + Duration::from_secs_f64(time),
                 },
                 None,
             );
@@ -438,9 +452,9 @@ fn torii_sea_trails_span_the_configured_duration() {
         }
         readback
             .slice(..)
-            .map_async(wgpu::MapMode::Read, |result| result.unwrap());
+            .map_async(MapMode::Read, |result| result.unwrap());
         device
-            .poll(wgpu::PollType::Wait {
+            .poll(PollType::Wait {
                 submission_index: None,
                 timeout: None,
             })
@@ -527,14 +541,14 @@ fn a_reload_keeps_the_state_unless_it_changed() {
     assert!(!scene.reload(&device, &queue).unwrap(), "nothing changed");
 
     // A new default only updates the parameters: the trail now grows by 0.2.
-    std::fs::write(dir.join(MANIFEST), MANIFEST_TEXT.replace("0.1", "0.2")).unwrap();
+    fs::write(dir.join(MANIFEST), MANIFEST_TEXT.replace("0.1", "0.2")).unwrap();
     assert!(scene.reload(&device, &queue).unwrap());
     frame(&mut scene, gpu, &screen, 0.2, 0.0);
     let c = screen.middle(&device, &queue);
     assert!(close(c, [0.4, 0.3, 0.0]), "{c:?}");
 
     // A new shader rebuilds the scene; the state reads the same, so it is kept.
-    std::fs::write(
+    fs::write(
         dir.join("final.wgsl"),
         FINAL.replace("1.0);", "1.0) * 1.0;"),
     )
@@ -545,7 +559,7 @@ fn a_reload_keeps_the_state_unless_it_changed() {
     assert!((c[1] - 0.4).abs() < 0.02, "frames counted on: {c:?}");
 
     // A different State starts over.
-    std::fs::write(
+    fs::write(
         dir.join("state.wgsl"),
         STATE.replace("beats: u32,", "beats: u32,\n  more: f32,"),
     )
@@ -564,7 +578,7 @@ fn a_broken_shader_names_its_file_and_line_and_keeps_the_scene() {
     };
     let dir = counter("broken");
     let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
-    std::fs::write(
+    fs::write(
         dir.join("trail.wgsl"),
         TRAIL.replace("params.step", "params.stpe"),
     )
@@ -655,8 +669,8 @@ fn paperclip_exposes_the_picture_once_before_choosing_its_palette() {
             .iter_mut()
             .find(|param| param["id"].as_str() == Some("exposure"))
             .unwrap();
-        exposure["default"] = toml::Value::Float(ev);
-        std::fs::write(dir.join(MANIFEST), toml::to_string(&manifest).unwrap()).unwrap();
+        exposure["default"] = TomlValue::Float(ev);
+        fs::write(dir.join(MANIFEST), toml::to_string(&manifest).unwrap()).unwrap();
         let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
         frame(&mut scene, (&device, &queue), &screen, 0.0, 0.0);
 
@@ -675,7 +689,7 @@ fn paperclip_exposes_the_picture_once_before_choosing_its_palette() {
             );
         }
     }
-    std::fs::remove_dir_all(dir).unwrap();
+    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -718,7 +732,7 @@ fn shade(px: Pixel) -> vec4f {
 "#;
     let dir = folder("asset", &[(MANIFEST, manifest), ("a.wgsl", shader)]);
     let image_path = dir.join("field.png");
-    image::RgbaImage::from_pixel(8, 8, image::Rgba([128, 128, 128, 255]))
+    RgbaImage::from_pixel(8, 8, image::Rgba([128, 128, 128, 255]))
         .save(&image_path)
         .unwrap();
     let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
@@ -728,7 +742,7 @@ fn shade(px: Pixel) -> vec4f {
     // Mid grey as data reads about 0.502.
     assert!(close(pixel, [0.502; 3]), "original asset: {pixel:?}");
 
-    image::RgbaImage::from_pixel(8, 8, image::Rgba([255, 0, 0, 255]))
+    RgbaImage::from_pixel(8, 8, image::Rgba([255, 0, 0, 255]))
         .save(&image_path)
         .unwrap();
     assert!(!scene.reload(&device, &queue).unwrap(), "image-only edit");
@@ -736,7 +750,7 @@ fn shade(px: Pixel) -> vec4f {
     let pixel = screen.middle(&device, &queue);
     assert!(close(pixel, [0.502; 3]), "after image edit: {pixel:?}");
 
-    std::fs::write(
+    fs::write(
         dir.join(MANIFEST),
         manifest.replace("default = 1.0", "default = 0.5"),
     )
@@ -752,7 +766,7 @@ fn shade(px: Pixel) -> vec4f {
         "after defaults edit: {pixel:?}"
     );
 
-    std::fs::write(dir.join("a.wgsl"), format!("{shader}\n// rebuild\n")).unwrap();
+    fs::write(dir.join("a.wgsl"), format!("{shader}\n// rebuild\n")).unwrap();
     assert!(scene.reload(&device, &queue).unwrap(), "shader edit");
     frame(&mut scene, gpu, &screen, 0.3, 0.0);
     let pixel = screen.middle(&device, &queue);
@@ -846,8 +860,8 @@ fn a_scene_reads_the_covers_atlas() {
         queue.submit(Some(encoder.finish()));
         screen.middle(&device, &queue)
     };
-    let red = image::RgbaImage::from_pixel(50, 50, image::Rgba([255, 0, 0, 255]));
-    let blue = image::RgbaImage::from_pixel(50, 50, image::Rgba([0, 0, 255, 255]));
+    let red = RgbaImage::from_pixel(50, 50, image::Rgba([255, 0, 0, 255]));
+    let blue = RgbaImage::from_pixel(50, 50, image::Rgba([0, 0, 255, 255]));
     let atlas = Arc::new(covers::pack(Some(&red), &[blue.clone(), blue]).unwrap());
     assert_eq!(atlas.count, 3);
 
@@ -861,7 +875,7 @@ fn a_scene_reads_the_covers_atlas() {
 
     // The playing cover replaces cell 0 only: the green cell 1 stays, and a later atlas does not
     // bring the old cell 0 back.
-    let green = image::RgbaImage::from_pixel(50, 50, image::Rgba([0, 255, 0, 255]));
+    let green = RgbaImage::from_pixel(50, 50, image::Rgba([0, 255, 0, 255]));
     let cell = Arc::new(covers::Cell::new(Some(&green)));
     scene.set_playing_cover(&device, &queue, Some(Arc::clone(&cell)));
     assert!(close(draw(&mut scene), [0.0, 0.8, 1.0]));
@@ -1020,9 +1034,9 @@ fn a_held_shot_and_a_lab_pace_survive_a_reload_of_the_scene() {
     assert!(scene.hold_shot(Some(1)));
     scene.cycle_pace();
     // A change that rebuilds the scene (a third shot) gets a new director, which holds again.
-    std::fs::write(
+    fs::write(
         dir.join(MANIFEST),
-        std::fs::read_to_string(dir.join(MANIFEST)).unwrap() + "[[shot]]\nsize = \"top\"\n",
+        fs::read_to_string(dir.join(MANIFEST)).unwrap() + "[[shot]]\nsize = \"top\"\n",
     )
     .unwrap();
     assert!(scene.reload(&device, &queue).unwrap());
@@ -1033,9 +1047,9 @@ fn a_held_shot_and_a_lab_pace_survive_a_reload_of_the_scene() {
     assert!(view.pace_overridden);
     // Released, it stays released through the next reload.
     scene.hold_shot(None);
-    std::fs::write(
+    fs::write(
         dir.join(MANIFEST),
-        std::fs::read_to_string(dir.join(MANIFEST)).unwrap() + "[[shot]]\nsize = \"medium\"\n",
+        fs::read_to_string(dir.join(MANIFEST)).unwrap() + "[[shot]]\nsize = \"medium\"\n",
     )
     .unwrap();
     assert!(scene.reload(&device, &queue).unwrap());
@@ -1120,9 +1134,9 @@ fn a_held_look_survives_a_reload_of_the_scene() {
     let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
     frame(&mut scene, gpu, &screen, 0.0, 0.0);
     assert!(scene.hold_look(Some(1)));
-    std::fs::write(
+    fs::write(
         dir.join(MANIFEST),
-        std::fs::read_to_string(dir.join(MANIFEST)).unwrap() + "[[look]]\n[[look]]\n",
+        fs::read_to_string(dir.join(MANIFEST)).unwrap() + "[[look]]\n[[look]]\n",
     )
     .unwrap();
     assert!(scene.reload(&device, &queue).unwrap());
@@ -1133,8 +1147,8 @@ fn a_held_look_survives_a_reload_of_the_scene() {
     // The same number of looks (a change elsewhere): the look on and the hold stay.
     assert!(scene.hold_look(Some(3)));
     frame(&mut scene, gpu, &screen, 0.0, 0.0);
-    let text = std::fs::read_to_string(dir.join(MANIFEST)).unwrap();
-    std::fs::write(
+    let text = fs::read_to_string(dir.join(MANIFEST)).unwrap();
+    fs::write(
         dir.join(MANIFEST),
         text.replace("tonemap = \"none\"", "tonemap = \"aces\""),
     )
@@ -1275,7 +1289,7 @@ fn a_labs_binds_read_params_and_earlier_inputs_and_follow_the_params_live() {
     assert_eq!(scene.bindings().len(), 2);
     // The param changes in the app: the files on disk say so, and the next frame reads it.
     let manifest = format!("{MANIFEST_TEXT}{text}").replace("default = 0.1", "default = 0.2");
-    std::fs::write(dir.join(MANIFEST), manifest).unwrap();
+    fs::write(dir.join(MANIFEST), manifest).unwrap();
     assert!(scene.reload(&device, &queue).unwrap());
     next(&mut scene);
     assert!((output(&scene, "level") - 0.1).abs() < 1e-5);
@@ -1305,7 +1319,7 @@ fn changing_only_the_binds_keeps_the_pipelines_and_changing_an_input_rebuilds() 
     // A new bind (the range of the meter is now 16) is taken at once. The pipelines stay: the
     // trail, which a rebuilt scene starts again, grows on.
     let text = format!("{MANIFEST_TEXT}{INPUT_TEXT}").replace("from = [0, 8]", "from = [0, 16]");
-    std::fs::write(dir.join(MANIFEST), &text).unwrap();
+    fs::write(dir.join(MANIFEST), &text).unwrap();
     assert!(scene.reload(&device, &queue).unwrap());
     let c = next(&mut scene);
     assert!(close(c, [0.3, 0.25, 0.75]), "{c:?}");
@@ -1315,14 +1329,14 @@ fn changing_only_the_binds_keeps_the_pipelines_and_changing_an_input_rebuilds() 
     // A change to an input is a change of the struct: the scene is rebuilt (its trail starts
     // again), and the binds, which were made for the old input, start over.
     let rest = text.replace("rest = 0.75", "rest = 0.5");
-    std::fs::write(dir.join(MANIFEST), rest).unwrap();
+    fs::write(dir.join(MANIFEST), rest).unwrap();
     assert!(scene.reload(&device, &queue).unwrap());
     let c = next(&mut scene);
     assert!(close(c, [0.1, 0.25, 0.5]), "{c:?}");
     assert!((distance(&scene) - 4.0 / 60.0).abs() < 1e-3);
 
     // A change to a shader rebuilds too, and binds that did not change keep their state.
-    std::fs::write(dir.join("final.wgsl"), format!("{INPUT_FINAL}\n")).unwrap();
+    fs::write(dir.join("final.wgsl"), format!("{INPUT_FINAL}\n")).unwrap();
     assert!(scene.reload(&device, &queue).unwrap());
     next(&mut scene);
     let kept = distance(&scene);
@@ -1380,7 +1394,7 @@ fn a_lab_replaces_the_binds_live_and_a_save_of_the_same_text_reloads_nothing() {
     assert_eq!(scene.bindings()[0].when, "{ from = [0, 16] }");
     // The file the lab saves says the same: the scene finds nothing to reload, and a later
     // change on disk still does.
-    std::fs::write(dir.join(MANIFEST), format!("{MANIFEST_TEXT}{text}")).unwrap();
+    fs::write(dir.join(MANIFEST), format!("{MANIFEST_TEXT}{text}")).unwrap();
     assert!(!scene.reload(&device, &queue).unwrap());
     assert!(!scene.reload(&device, &queue).unwrap());
 
@@ -1422,7 +1436,7 @@ fn a_lab_replaces_the_binds_live_and_a_save_of_the_same_text_reloads_nothing() {
     // does take the scene back to what it says.
     assert!(!scene.reload(&device, &queue).unwrap());
     assert_eq!(scene.inputs()[2].rest, 0.5);
-    std::fs::write(
+    fs::write(
         dir.join(MANIFEST),
         format!("{MANIFEST_TEXT}{text}").replace("from = [0, 16]", "from = [0, 32]"),
     )
@@ -1491,16 +1505,16 @@ fn emoji_tunnel_flake_culling_keeps_visible_pixels() {
     };
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("scenes/emoji-tunnel");
     let dir = folder("flake-bounds", &[]);
-    std::fs::create_dir_all(dir.join("assets")).unwrap();
+    fs::create_dir_all(dir.join("assets")).unwrap();
     for file in [
         "state.wgsl",
         "badge.wgsl",
         "assets/crests.png",
         "assets/emoji.png",
     ] {
-        std::fs::copy(source.join(file), dir.join(file)).unwrap();
+        fs::copy(source.join(file), dir.join(file)).unwrap();
     }
-    let mut manifest = std::fs::read_to_string(source.join("scene.toml"))
+    let mut manifest = fs::read_to_string(source.join("scene.toml"))
         .unwrap()
         .parse::<toml::Table>()
         .unwrap();
@@ -1516,11 +1530,11 @@ bloom = { intensity = 0.0 }
     .parse::<toml::Table>()
     .unwrap()
     .into();
-    std::fs::write(dir.join("scene.toml"), toml::to_string(&manifest).unwrap()).unwrap();
-    let update = std::fs::read_to_string(source.join("update.wgsl"))
+    fs::write(dir.join("scene.toml"), toml::to_string(&manifest).unwrap()).unwrap();
+    let update = fs::read_to_string(source.join("update.wgsl"))
         .unwrap()
         .replace("fn update()", "fn tunnel_update()");
-    std::fs::write(
+    fs::write(
         dir.join("update.wgsl"),
         format!(
             "{update}\n{}",
@@ -1528,7 +1542,7 @@ bloom = { intensity = 0.0 }
         ),
     )
     .unwrap();
-    std::fs::write(
+    fs::write(
         dir.join("tunnel.wgsl"),
         include_str!("../../tests/fixtures/flake-bounds-view.wgsl"),
     )
@@ -1536,7 +1550,7 @@ bloom = { intensity = 0.0 }
     let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
     let screen = Screen::new(&device);
     frame(&mut scene, (&device, &queue), &screen, 0.0, 0.0);
-    std::fs::remove_dir_all(dir).unwrap();
+    fs::remove_dir_all(dir).unwrap();
 
     // Red is a direct box hit, green means the circle kept it, blue means the tile listed it.
     let witnesses = [
@@ -1569,11 +1583,11 @@ fn emoji_tunnel_keeps_answered_moments_until_the_move_ends() {
     };
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("scenes/emoji-tunnel");
     let dir = folder("emoji-moment-history", &[]);
-    let state = std::fs::read_to_string(source.join("state.wgsl")).unwrap();
-    let update = std::fs::read_to_string(source.join("update.wgsl")).unwrap();
+    let state = fs::read_to_string(source.join("state.wgsl")).unwrap();
+    let update = fs::read_to_string(source.join("update.wgsl")).unwrap();
     let probe = include_str!("../../tests/fixtures/emoji-moment-history.wgsl");
     let (update_probe, view_probe) = probe.split_once("fn shade").unwrap();
-    std::fs::write(
+    fs::write(
         dir.join("state.wgsl"),
         state.replace(
             "struct State {",
@@ -1582,7 +1596,7 @@ fn emoji_tunnel_keeps_answered_moments_until_the_move_ends() {
         ),
     )
     .unwrap();
-    std::fs::write(
+    fs::write(
         dir.join("update.wgsl"),
         format!(
             "{}
@@ -1591,8 +1605,8 @@ fn emoji_tunnel_keeps_answered_moments_until_the_move_ends() {
         ),
     )
     .unwrap();
-    std::fs::write(dir.join("tunnel.wgsl"), format!("fn shade{view_probe}")).unwrap();
-    let mut manifest = std::fs::read_to_string(source.join(MANIFEST))
+    fs::write(dir.join("tunnel.wgsl"), format!("fn shade{view_probe}")).unwrap();
+    let mut manifest = fs::read_to_string(source.join(MANIFEST))
         .unwrap()
         .parse::<toml::Table>()
         .unwrap();
@@ -1623,7 +1637,7 @@ bloom = { intensity = 0.0 }
                 .unwrap();
             move_time["default"] = 2.0.into();
         }
-        std::fs::write(dir.join(MANIFEST), toml::to_string(&manifest).unwrap()).unwrap();
+        fs::write(dir.join(MANIFEST), toml::to_string(&manifest).unwrap()).unwrap();
         let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
         let start = Instant::now();
         let mut chart = ChartState {
@@ -1699,7 +1713,7 @@ bloom = { intensity = 0.0 }
         }
         assert_eq!(notes, 19, "admitted notes, including the warm-up");
     }
-    std::fs::remove_dir_all(dir).unwrap();
+    fs::remove_dir_all(dir).unwrap();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
@@ -1729,7 +1743,7 @@ fn growth_camera_settles_after_a_growth_step() {
         .find(|(_, ty)| ty.name.as_deref() == Some("State"))
         .unwrap()
         .1;
-    let naga::TypeInner::Struct { members, .. } = &state.inner else {
+    let TypeInner::Struct { members, .. } = &state.inner else {
         panic!("Growth state must be a struct");
     };
     let offsets = ["top_to", "top", "cam_top", "cam_rise", "cam_pos"].map(|name| {
@@ -1753,14 +1767,14 @@ fn growth_camera_settles_after_a_growth_step() {
         let follow = setting.unwrap_or(default_follow);
         if let Some(value) = setting {
             assert!((follow_param.min.unwrap()..=follow_param.max.unwrap()).contains(&value));
-            files.manifest.params[follow_index].default = toml::Value::Float(value);
+            files.manifest.params[follow_index].default = TomlValue::Float(value);
         }
         let mut scene =
             Scene::build(&device, &queue, source.clone(), files, FORMAT, SIZE, 48_000).unwrap();
         let readback = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Growth state readback"),
             size: scene.state.size(),
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let read = |scene: &Scene| {
@@ -1769,8 +1783,8 @@ fn growth_camera_settles_after_a_growth_step() {
             queue.submit(Some(encoder.finish()));
             readback
                 .slice(..)
-                .map_async(wgpu::MapMode::Read, |result| result.unwrap());
-            device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+                .map_async(MapMode::Read, |result| result.unwrap());
+            device.poll(PollType::wait_indefinitely()).unwrap();
             let data = readback.slice(..).get_mapped_range().unwrap();
             let [target, tip, height, velocity, y] = offsets;
             let values = [target, tip, height, velocity, y + 4]

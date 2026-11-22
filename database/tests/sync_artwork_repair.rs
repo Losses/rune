@@ -5,6 +5,7 @@ use database::{
     entities::{media_cover_art, media_files},
     sync::model::*,
 };
+use migration::catalog_identity;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set, sea_query::Expr};
 use support::{SqlLibrary, key};
 use uuid::Uuid;
@@ -15,7 +16,7 @@ async fn corrupt_body_repairs_same_row_and_rolls_back_on_failure() -> Result<()>
     let file = Uuid::new_v4();
     let body = b"verified original".to_vec();
     let digest = blake3::hash(&body).to_hex().to_string();
-    let id = migration::catalog_identity::artwork(&digest);
+    let id = catalog_identity::artwork(&digest);
     let Payload::Track(mut track) = support::track() else {
         unreachable!()
     };
@@ -130,10 +131,10 @@ async fn unrelated_local_body_does_not_satisfy_missing_artwork_reference() -> Re
     let stray_body = b"unrelated bytes".to_vec();
     let stray_digest = blake3::hash(&stray_body).to_hex().to_string();
     let stray_size = stray_body.len() as i64;
-    let stray_id = migration::catalog_identity::artwork(&stray_digest);
+    let stray_id = catalog_identity::artwork(&stray_digest);
     let body = b"expected bytes".to_vec();
     let digest = blake3::hash(&body).to_hex().to_string();
-    let expected = migration::catalog_identity::artwork(&digest);
+    let expected = catalog_identity::artwork(&digest);
     media_cover_art::Entity::insert(media_cover_art::ActiveModel {
         file_hash: Set(format!("blake3:{stray_digest}")),
         binary: Set(stray_body),

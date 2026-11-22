@@ -5,6 +5,7 @@
 
 use realfft::RealFftPlanner;
 use realfft::num_complex::Complex;
+use std::mem;
 
 use crate::front::{EPS, FPS};
 use crate::np::{argmax, argmin, hanning, mean, round_half_even, std};
@@ -296,7 +297,7 @@ fn viterbi(emit: &[Vec<f64>], log_bpm: &[f64]) -> Vec<usize> {
             back[w][to] = arg;
             next[to] = top + emit[w][to];
         }
-        std::mem::swap(&mut best, &mut next);
+        mem::swap(&mut best, &mut next);
     }
     let mut path = vec![0; emit.len()];
     path[emit.len() - 1] = argmax(&best);

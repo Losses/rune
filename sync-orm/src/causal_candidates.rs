@@ -4,6 +4,7 @@ use sea_orm::{
     ConnectionTrait, DatabaseTransaction, DbErr, ExprTrait, FromQueryResult,
     sea_query::{Alias, Condition, Expr, Func, Order, Query},
 };
+use std::cmp;
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
@@ -121,7 +122,7 @@ pub async fn page_on(
     let mut bytes = 0usize;
     loop {
         // One extra header probes for more while keeping parameter counts bounded.
-        let fetch = std::cmp::min(
+        let fetch = cmp::min(
             max_items.saturating_sub(rows.len()).saturating_add(1),
             MAX_HEADER_BATCH,
         );

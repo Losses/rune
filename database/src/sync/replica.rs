@@ -11,6 +11,7 @@ use super::share::{
 };
 use crate::sync::{import, legacy};
 use anyhow::{Result, ensure};
+use chrono::Utc;
 use sea_orm::{
     ConnectionTrait, DatabaseConnection, DatabaseTransaction, TransactionTrait,
     sea_query::{Alias, Expr, Query},
@@ -31,6 +32,9 @@ use sync::{
         plan_keeper, plan_publish,
     },
 };
+use sync_orm::causal_progress;
+use sync_orm::causal_store;
+use sync_orm::maintenance;
 use sync_orm::{
     causal_candidates::{CandidatePageRequest, CandidateRow, page_on as candidate_page_on},
     causal_capabilities::CausalEndpoint,
@@ -333,7 +337,7 @@ impl LibrarySyncStore {
             identity.replica,
             identity.namespace,
             cache_path,
-            chrono::Utc::now().timestamp_millis(),
+            Utc::now().timestamp_millis(),
         )
         .await?;
         Ok(format!("{}.{}", state.stream, state.generation))
@@ -350,7 +354,7 @@ impl LibrarySyncStore {
             identity.replica,
             identity.namespace,
             cache_path,
-            chrono::Utc::now().timestamp_millis(),
+            Utc::now().timestamp_millis(),
         )
         .await?;
         let journal = self.inner.clone();
@@ -417,9 +421,7 @@ impl LibrarySyncStore {
     }
     /// Explicitly traverse the registry; reads never initiate source import.
     async fn import_collections(&self, collections: &[Collection]) -> Result<()> {
-        if sync_orm::causal_progress::initialization_complete_on(&self.db, self.inner.namespace())
-            .await?
-        {
+        if causal_progress::initialization_complete_on(&self.db, self.inner.namespace()).await? {
             return Ok(());
         }
         for (index, collection) in collections.iter().enumerate() {
@@ -428,11 +430,8 @@ impl LibrarySyncStore {
                 let tx = self.db.begin().await?;
                 let page = import::batch(&tx, &self.inner, collection, after).await?;
                 if page.done && index + 1 == collections.len() {
-                    sync_orm::causal_progress::complete_initialization_on(
-                        &tx,
-                        self.inner.namespace(),
-                    )
-                    .await?;
+                    causal_progress::complete_initialization_on(&tx, self.inner.namespace())
+                        .await?;
                 }
                 tx.commit().await?;
                 if page.done {
@@ -474,7 +473,7 @@ impl LibrarySyncStore {
             "namespace identity cannot be nil"
         );
         RuneModel::validate_database_on(&db).await?;
-        let mut existing = sync_orm::causal_store::list_namespace_ids_on(&db, 2).await?;
+        let mut existing = causal_store::list_namespace_ids_on(&db, 2).await?;
         ensure!(
             existing.len() <= 1,
             "multiple namespaces require explicit selection"
@@ -530,12 +529,12 @@ impl LibrarySyncStore {
         }
         Ok(library)
     }
-    pub async fn maintain(&self, state: &mut sync_orm::maintenance::Maintenance) -> Result<()> {
+    pub async fn maintain(&self, state: &mut maintenance::Maintenance) -> Result<()> {
         state
             .advance::<RuneModel>(
                 &self.db,
                 self.identity().await?,
-                chrono::Utc::now().timestamp_millis(),
+                Utc::now().timestamp_millis(),
             )
             .await?;
         Ok(())
@@ -625,7 +624,7 @@ impl LibrarySyncStore {
             identity.replica,
             library_id,
             cache_path,
-            chrono::Utc::now().timestamp_millis(),
+            Utc::now().timestamp_millis(),
         )
         .await
         .map_err(|error| SharePushError::Failed(error.to_string()))?;
@@ -840,11 +839,7 @@ impl LibrarySyncStore {
                         .map_err(|error| SharePushError::Failed(error.to_string()))?;
                     match store.get(&key).await {
                         Ok(value) => {
-                            state.observe_tag(
-                                object,
-                                value.tag,
-                                chrono::Utc::now().timestamp_millis(),
-                            );
+                            state.observe_tag(object, value.tag, Utc::now().timestamp_millis());
                             BaseSize::GzipBytes(value.bytes.len() as u64)
                         }
                         Err(StoreError::NotFound) => BaseSize::Absent,
@@ -855,7 +850,7 @@ impl LibrarySyncStore {
         } else {
             BaseSize::Absent
         };
-        let now_ms = chrono::Utc::now().timestamp_millis().max(0) as u64;
+        let now_ms = Utc::now().timestamp_millis().max(0) as u64;
         let activities = heads
             .iter()
             .map(|(prefix, head)| StreamActivity {

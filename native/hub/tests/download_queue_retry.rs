@@ -2,6 +2,8 @@ use anyhow::Result;
 use axum::body::Body;
 use axum::http::Response;
 use axum::{Router, extract::Path, http::StatusCode, routing::get};
+use chrono::DateTime;
+use chrono::Utc;
 use database::test_fixtures::causal_library as support;
 use database::{
     actions::{
@@ -19,16 +21,21 @@ use database::{
 };
 use fsio::FsIo;
 use futures::StreamExt;
+use futures::stream;
+use http_request::sync as http_request_sync;
 use http_request::sync::MetadataPeer;
 use hub::server::sync::downloads::{
     DownloadAudioContext, DownloadAudioPass, DownloadPassOutcome, DownloadProgress,
     download_audio_pass, download_requested_audio, download_requested_audio_until,
 };
+use reqwest::Client;
 use sea_orm::sea_query::Expr;
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
 };
 use std::collections::HashMap;
+use std::fs;
+use std::io;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -38,6 +45,8 @@ use support::fixtures;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
+use tokio::task;
+use tokio::time as tokio_time;
 use tokio::time::Instant;
 use uuid::Uuid;
 
@@ -53,7 +62,7 @@ struct Fixture {
     replace_during_download: Arc<AtomicBool>,
     gets: Arc<AtomicUsize>,
     base: String,
-    server: tokio::task::JoinHandle<()>,
+    server: task::JoinHandle<()>,
 }
 
 impl Fixture {
@@ -72,7 +81,7 @@ impl Fixture {
         for index in 0..2 {
             let path = fixtures::audio_fixture_at(index);
             let blob = hash_file(&fs, &path)?;
-            bodies.insert(blob.digest.clone(), std::fs::read(path)?);
+            bodies.insert(blob.digest.clone(), fs::read(path)?);
             blobs.push(blob);
         }
         let mut tracks = Vec::new();
@@ -125,7 +134,7 @@ impl Fixture {
         let request_replace = replace_during_download.clone();
         let request_store = store.clone();
         let first_track = tracks[0].0;
-        let peer = http_request::sync::router(metadata).route(
+        let peer = http_request_sync::router(metadata).route(
             "/sync/blobs/{digest}",
             get(move |Path(digest): Path<String>| {
                 let bytes = bytes.clone();
@@ -165,15 +174,14 @@ impl Fixture {
                     let body = bytes[&digest].clone();
                     let split = body.len() / 2;
                     let (first, second) = (body[..split].to_vec(), body[split..].to_vec());
-                    let stream = futures::stream::once(
-                        async move { Ok::<_, std::io::Error>(first) },
-                    )
-                    .chain(futures::stream::once(async move {
-                        if slow.load(Ordering::SeqCst) {
-                            tokio::time::sleep(Duration::from_millis(300)).await;
-                        }
-                        Ok::<_, std::io::Error>(second)
-                    }));
+                    let stream = stream::once(async move { Ok::<_, io::Error>(first) }).chain(
+                        stream::once(async move {
+                            if slow.load(Ordering::SeqCst) {
+                                tokio_time::sleep(Duration::from_millis(300)).await;
+                            }
+                            Ok::<_, io::Error>(second)
+                        }),
+                    );
                     Response::new(Body::from_stream(stream))
                 }
             }),
@@ -207,14 +215,14 @@ impl Fixture {
             self.fs.clone(),
             self.root.path().into(),
             self.node,
-            &MetadataPeer::new(base, reqwest::Client::new()),
+            &MetadataPeer::new(base, Client::new()),
             Arc::new(|| {}),
         )
         .await
     }
 
     async fn run_pass(&self, progress: &mut DownloadProgress) -> Result<DownloadAudioPass> {
-        let peer = MetadataPeer::new(&self.base, reqwest::Client::new());
+        let peer = MetadataPeer::new(&self.base, Client::new());
         download_audio_pass(
             self.db.clone(),
             &RecommendationDbConnection::new(),
@@ -258,10 +266,7 @@ async fn failed_rules_and_items_do_not_block_following_downloads_or_repeat_attem
         .unwrap();
     assert_eq!(job.attempts, 1);
     assert!(job.last_error.is_some());
-    assert!(
-        chrono::DateTime::parse_from_rfc3339(job.retry_at.as_deref().unwrap())?
-            > chrono::Utc::now()
-    );
+    assert!(DateTime::parse_from_rfc3339(job.retry_at.as_deref().unwrap())? > Utc::now());
     assert_eq!(job.retry_source.as_deref(), Some(fixture.base.as_str()));
     fixture.fail.store(false, Ordering::SeqCst);
     assert_eq!(fixture.run(&fixture.base).await?.downloaded, 0);
@@ -322,13 +327,13 @@ async fn preparation_failure_isolated_to_its_file() -> Result<()> {
         "ogg",
     )?;
     let parent = path.parent().unwrap();
-    std::fs::remove_dir(parent)?;
-    std::fs::write(parent, b"blocked destination")?;
+    fs::remove_dir(parent)?;
+    fs::write(parent, b"blocked destination")?;
     let report = fixture.run(&fixture.base).await?;
     assert_eq!(report.requested, 2);
     assert_eq!(report.downloaded, 1);
     assert_eq!(fixture.gets.load(Ordering::SeqCst), 1);
-    std::fs::remove_file(parent)?;
+    fs::remove_file(parent)?;
     assert_eq!(fixture.run(&fixture.base).await?.downloaded, 1);
     let files = media_files::Entity::find().all(&fixture.db).await?;
     for file in files {
@@ -379,7 +384,7 @@ async fn obsolete_reservation_is_released_without_reimporting_managed_bytes() ->
         "ogg",
     )
     .await?;
-    std::fs::copy(fixtures::audio_fixture(), &path)?;
+    fs::copy(fixtures::audio_fixture(), &path)?;
     fixture
         .store
         .write_local(
@@ -446,9 +451,9 @@ async fn managed_corruption_is_repaired_without_metadata_authorship() -> Result<
         .path()
         .join(&before.directory)
         .join(&before.file_name);
-    let mut bytes = std::fs::read(&path)?;
+    let mut bytes = fs::read(&path)?;
     bytes[0] ^= 0xff;
-    std::fs::write(&path, bytes)?;
+    fs::write(&path, bytes)?;
     let mut verifier = ManagedAudioVerifier::default();
     let mut invalidated = false;
     for _ in 0..4096 {
@@ -500,9 +505,9 @@ async fn stale_managed_verification_cannot_invalidate_changed_source() -> Result
         .path()
         .join(&row.directory)
         .join(&row.file_name);
-    let mut bytes = std::fs::read(&path)?;
+    let mut bytes = fs::read(&path)?;
     bytes[0] ^= 0xff;
-    std::fs::write(&path, bytes)?;
+    fs::write(&path, bytes)?;
     let mut verifier = ManagedAudioVerifier::default();
     assert_eq!(
         verifier
@@ -884,7 +889,7 @@ async fn transfer_finishes_after_pass_deadline_without_starting_next_file() -> R
         fixture.root.path().into(),
         DownloadAudioContext {
             node_id: fixture.node,
-            remote: &MetadataPeer::new(&fixture.base, reqwest::Client::new()),
+            remote: &MetadataPeer::new(&fixture.base, Client::new()),
             notify: Arc::new(|| {}),
             playback_queue: &[],
         },
@@ -926,17 +931,17 @@ async fn head_and_get_blob_do_not_rehash() -> Result<()> {
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let base = format!("http://{}", listener.local_addr()?);
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    let client = reqwest::Client::new();
+    let client = Client::new();
     let url = format!("{base}/sync/blobs/{}", blob.digest);
     let head = format!("{url}?track_id={track}");
     assert_eq!(client.head(&head).send().await?.status(), StatusCode::OK);
-    let mut bytes = std::fs::read(&path)?;
+    let mut bytes = fs::read(&path)?;
     bytes[0] ^= 1;
-    std::fs::write(&path, &bytes)?;
+    fs::write(&path, &bytes)?;
     assert_eq!(client.head(&head).send().await?.status(), StatusCode::OK);
     assert_eq!(client.get(&url).send().await?.status(), StatusCode::OK);
     bytes.pop();
-    std::fs::write(&path, &bytes)?;
+    fs::write(&path, &bytes)?;
     assert_eq!(
         client.head(&head).send().await?.status(),
         StatusCode::NOT_FOUND

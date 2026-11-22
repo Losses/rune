@@ -2,9 +2,14 @@ use anyhow::Result;
 use database::sync::model::RuneModel;
 use database::sync::model::*;
 use database::test_fixtures::causal_library as support;
+use futures::stream;
+use http_request::sync as http_request_sync;
 use http_request::sync::router;
+use reqwest::Client;
+use reqwest::StatusCode;
+use std::io;
 use tokio::net::TcpListener;
-type MetadataPeer = http_request::sync::MetadataPeer<RuneModel>;
+type MetadataPeer = http_request_sync::MetadataPeer<RuneModel>;
 use support::{SqlLibrary, key};
 use sync::{self as p, SyncPeer};
 use uuid::Uuid;
@@ -25,7 +30,7 @@ async fn http_transfers_both_directions_and_rejects_large_requests() -> Result<(
     let server = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
-    let remote = MetadataPeer::new(&url, reqwest::Client::new());
+    let remote = MetadataPeer::new(&url, Client::new());
     let scope = Scope {
         collections: [Collection::Playlists].into_iter().collect(),
     };
@@ -66,14 +71,14 @@ async fn http_transfers_both_directions_and_rejects_large_requests() -> Result<(
     )
     .await?;
     assert!(source.peer.get(&reverse).await?.is_none());
-    let status = reqwest::Client::new()
+    let status = Client::new()
         .post(format!("{url}/sync/metadata"))
         .header("content-type", "application/json")
         .body(" ".repeat(9 * 1024 * 1024 + 1))
         .send()
         .await?
         .status();
-    assert_eq!(status, reqwest::StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
     server.abort();
     Ok(())
 }
@@ -89,8 +94,8 @@ async fn rejects_large_responses_with_and_without_content_length() -> Result<()>
         .route(
             "/stream/sync/metadata",
             post(|| async {
-                Body::from_stream(futures::stream::iter(
-                    (0..33).map(|_| Ok::<_, std::io::Error>(vec![b'x'; 1024 * 1024])),
+                Body::from_stream(stream::iter(
+                    (0..33).map(|_| Ok::<_, io::Error>(vec![b'x'; 1024 * 1024])),
                 ))
             }),
         );
@@ -100,7 +105,7 @@ async fn rejects_large_responses_with_and_without_content_length() -> Result<()>
         axum::serve(listener, app).await.unwrap();
     });
     for path in ["length", "stream"] {
-        let remote = MetadataPeer::new(format!("http://{address}/{path}"), reqwest::Client::new());
+        let remote = MetadataPeer::new(format!("http://{address}/{path}"), Client::new());
         assert!(matches!(
             SyncPeer::identity(&remote).await,
             Err(p::SyncError::LogicalLimit)
@@ -137,7 +142,7 @@ async fn connection_failure_keeps_checkpoint() -> Result<()> {
     let server = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
-    let remote = MetadataPeer::new(&url, reqwest::Client::new());
+    let remote = MetadataPeer::new(&url, Client::new());
     support::drive(
         &*target,
         &*target,
@@ -151,7 +156,7 @@ async fn connection_failure_keeps_checkpoint() -> Result<()> {
     assert_eq!(before.as_ref().unwrap().sequence, 1);
     server.abort();
     let _ = server.await;
-    let remote = MetadataPeer::new(&url, reqwest::Client::new());
+    let remote = MetadataPeer::new(&url, Client::new());
     assert!(
         support::drive(&*target, &*target, &*target, &remote, &remote, scope)
             .await

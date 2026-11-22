@@ -12,6 +12,7 @@ use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 use windows::core::{PCSTR, w};
 
 use crate::{Result, TextureError};
+use std::mem;
 
 /// `FlutterDesktopPluginRegistrarRef`.
 pub(super) type PluginRegistrar = *mut c_void;
@@ -165,5 +166,5 @@ fn lookup<F: Copy>(module: HMODULE, name: &'static CStr) -> Result<F> {
     };
     // SAFETY: a function pointer of the size of `F`, which the caller says is the function's
     // signature.
-    Ok(unsafe { std::mem::transmute_copy::<_, F>(&address) })
+    Ok(unsafe { mem::transmute_copy::<_, F>(&address) })
 }

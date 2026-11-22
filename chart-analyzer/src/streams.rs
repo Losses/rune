@@ -11,6 +11,7 @@ use crate::chart::LeadSpan;
 use crate::front::{EPS, EPS32, FPS, Front};
 use crate::ndimage::{gaussian_filter1d, maximum_filter1d, uniform_filter1d};
 use crate::np::{interp, percentile, round_to};
+use std::array;
 
 /// The events of an onset curve are its peaks: highest within `gap` seconds either side
 /// (the gaps of the low, mid, high and harmonic streams).
@@ -130,7 +131,7 @@ pub fn lead_stream(
     // The spans so far: start, end (not known until the next starts) and stream.
     let mut lead: Vec<(f64, f64, Option<usize>)> = vec![];
     for g in (0..nf).step_by(1.max((LEAD_STEP * FPS) as usize)) {
-        let vals: [f64; 4] = std::array::from_fn(|k| sal[k][g]);
+        let vals: [f64; 4] = array::from_fn(|k| sal[k][g]);
         let top = vals
             .iter()
             .enumerate()

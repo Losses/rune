@@ -1,3 +1,4 @@
+use analysis::analysis as analysis_analysis;
 use analysis::{CURRENT_ANALYSIS_VERSION, utils::computing_device::ComputingDevice};
 use anyhow::Result;
 use database::test_fixtures::fixtures;
@@ -20,6 +21,7 @@ use migration::{Migrator, MigratorTrait};
 use sea_orm::{
     ColumnTrait, ConnectionTrait, Database, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
 };
+use std::fs;
 use std::{
     f64::consts::PI,
     sync::{
@@ -27,11 +29,12 @@ use std::{
         atomic::{AtomicUsize, Ordering},
     },
 };
+use uuid::Uuid;
 
 #[tokio::test]
 async fn legacy_rows_are_invalid_and_replaced_only_after_success() -> Result<()> {
     let db = Database::connect("sqlite::memory:").await?;
-    let actor = uuid::Uuid::parse_str("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")?;
+    let actor = Uuid::parse_str("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")?;
     let _ = migration::initialize_node_id(actor.to_string());
     let prior_count = Migrator::migrations()
         .iter()
@@ -146,7 +149,7 @@ async fn legacy_rows_are_invalid_and_replaced_only_after_success() -> Result<()>
 
 #[tokio::test]
 async fn undecodable_track_is_skipped_retried_and_does_not_block_neighbors() -> Result<()> {
-    let actor = uuid::Uuid::new_v4();
+    let actor = Uuid::new_v4();
     let db = fixtures::memory_database(actor).await?;
     let library = fixtures::open_library(db.clone(), actor, None).await?;
     let store = library.record_store();
@@ -161,7 +164,7 @@ async fn undecodable_track_is_skipped_retried_and_does_not_block_neighbors() -> 
         &["bad.ogg", "good.ogg"],
     )
     .await?;
-    std::fs::write(root.path().join("bad.ogg"), b"not an audio file")?;
+    fs::write(root.path().join("bad.ogg"), b"not an audio file")?;
 
     let first_run = analysis_audio_library(
         Arc::new(fs.clone()),
@@ -206,7 +209,7 @@ async fn undecodable_track_is_skipped_retried_and_does_not_block_neighbors() -> 
 
 #[tokio::test]
 async fn analysis_write_failure_stops_queued_files() -> Result<()> {
-    let actor = uuid::Uuid::new_v4();
+    let actor = Uuid::new_v4();
     let db = fixtures::memory_database(actor).await?;
     let library = fixtures::open_library(db.clone(), actor, None).await?;
     let store = library.record_store();
@@ -295,8 +298,8 @@ fn silence_short_clips_and_sample_rates_produce_finite_features() -> Result<()> 
                     wav.extend(x.to_le_bytes());
                 }
                 let path = dir.path().join("test.wav");
-                std::fs::write(&path, wav)?;
-                let result = analysis::analysis::analyze_audio(
+                fs::write(&path, wav)?;
+                let result = analysis_analysis::analyze_audio(
                     &FsIo::new(),
                     path.to_str().unwrap(),
                     1024,
@@ -306,7 +309,7 @@ fn silence_short_clips_and_sample_rates_produce_finite_features() -> Result<()> 
                 )?
                 .unwrap();
                 assert!(result.is_finite());
-                let normalized = analysis::analysis::normalize_analysis_result(&result);
+                let normalized = analysis_analysis::normalize_analysis_result(&result);
                 assert!(normalized.energy.is_finite() && normalized.zcr.is_finite());
                 assert_eq!(result.stat.total_samples, frames);
                 assert_eq!(result.stat.sample_rate, rate);

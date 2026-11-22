@@ -2,7 +2,10 @@
 
 use anyhow::Result;
 use axum::body::Body;
+use axum::extract;
+use axum::http as axum_http;
 use axum::http::Response;
+use axum::response;
 use axum::{
     Router,
     extract::State,
@@ -23,23 +26,27 @@ use database::{
 use entities::media_cover_art::Column;
 use entities::media_cover_art::Entity;
 use fsio::OpenMode;
+use futures::stream;
+use std::io;
 use std::io::Error;
 use std::io::ErrorKind;
+use std::path as std_path;
 use std::sync::Arc;
+use tokio::sync as tokio_sync;
 
 /// The application replaces a library only while its background workers are stopped.
 #[derive(Clone)]
-pub struct SharedLibrary(pub Arc<tokio::sync::RwLock<LibrarySyncStore>>);
+pub struct SharedLibrary(pub Arc<tokio_sync::RwLock<LibrarySyncStore>>);
 
 /// Context for the audio routes. Mount these routes only after authenticating the peer.
 #[derive(Clone)]
 pub struct BlobContext {
-    pub store: Arc<tokio::sync::RwLock<LibrarySyncStore>>,
+    pub store: Arc<tokio_sync::RwLock<LibrarySyncStore>>,
     pub db: sea_orm::DatabaseConnection,
     pub fsio: Arc<fsio::FsIo>,
-    pub root: std::path::PathBuf,
+    pub root: std_path::PathBuf,
     pub node_id: uuid::Uuid,
-    pub upload_lock: Arc<tokio::sync::Mutex<()>>,
+    pub upload_lock: Arc<tokio_sync::Mutex<()>>,
     pub notify: Arc<dyn Fn() + Send + Sync>,
 }
 
@@ -61,8 +68,8 @@ struct BlobPath {
 
 async fn get_artwork(
     State(context): State<BlobContext>,
-    axum::extract::Path(ArtworkPath { id }): axum::extract::Path<ArtworkPath>,
-) -> Result<axum::response::Response, StatusCode> {
+    extract::Path(ArtworkPath { id }): extract::Path<ArtworkPath>,
+) -> Result<response::Response, StatusCode> {
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
     let store = context.store.read().await;
     let record = store
@@ -102,8 +109,8 @@ struct HeadQuery {
 }
 async fn head_blob(
     State(context): State<BlobContext>,
-    axum::extract::Path(BlobPath { digest }): axum::extract::Path<BlobPath>,
-    axum::extract::Query(query): axum::extract::Query<HeadQuery>,
+    extract::Path(BlobPath { digest }): extract::Path<BlobPath>,
+    extract::Query(query): extract::Query<HeadQuery>,
 ) -> Result<StatusCode, StatusCode> {
     file::validate_digest(&digest).map_err(|_| StatusCode::BAD_REQUEST)?;
     let store = context.store.read().await;
@@ -142,9 +149,9 @@ async fn head_blob(
 
 async fn get_blob(
     State(context): State<BlobContext>,
-    axum::extract::Path(BlobPath { digest }): axum::extract::Path<BlobPath>,
-    headers: axum::http::HeaderMap,
-) -> Result<axum::response::Response, StatusCode> {
+    extract::Path(BlobPath { digest }): extract::Path<BlobPath>,
+    headers: axum_http::HeaderMap,
+) -> Result<response::Response, StatusCode> {
     use std::io::{Read, Seek, SeekFrom};
     let path = file::cached_blob_path(&context.db, &context.fsio, &context.root, &digest)
         .await
@@ -174,9 +181,9 @@ async fn get_blob(
     };
     file.seek(SeekFrom::Start(start))
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let chunks = futures::stream::try_unfold((file, length), |(mut file, remaining)| async move {
+    let chunks = stream::try_unfold((file, length), |(mut file, remaining)| async move {
         if remaining == 0 {
-            return Ok::<_, std::io::Error>(None);
+            return Ok::<_, io::Error>(None);
         }
         let mut buffer = vec![0; remaining.min(64 * 1024) as usize];
         let count = file.read(&mut buffer)?;

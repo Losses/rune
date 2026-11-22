@@ -36,6 +36,10 @@ use crate::{
     ssl::calculate_base85_fingerprint,
     utils::server_name_to_string,
 };
+use futures::future;
+use hyper::Request;
+use rustls::crypto;
+use std::time as std_time;
 
 /// Type alias for certificate information, represented as an optional tuple.
 ///
@@ -598,7 +602,7 @@ pub async fn fetch_server_certificate(url: &str) -> Result<ServerCert, CertValid
         }
     });
 
-    let request = hyper::Request::builder()
+    let request = Request::builder()
         .uri(uri) // Build GET request to the target URI
         .method("GET")
         .body(Empty::<Bytes>::new())?; // Empty body for GET request
@@ -667,7 +671,7 @@ fn verify_presented_key_signature(
     cert: &CertificateDer<'_>,
     signature: &rustls::DigitallySignedStruct,
 ) -> Result<HandshakeSignatureValid, RustlsError> {
-    rustls::crypto::verify_tls12_signature(
+    crypto::verify_tls12_signature(
         message,
         cert,
         signature,
@@ -729,7 +733,7 @@ impl ServerCertVerifier for TempCertVerifier {
         cert: &CertificateDer<'_>,
         signature: &rustls::DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, RustlsError> {
-        rustls::crypto::verify_tls13_signature(
+        crypto::verify_tls13_signature(
             message,
             cert,
             signature,
@@ -882,7 +886,7 @@ pub async fn select_best_host(hosts: Vec<String>, config: Arc<ClientConfig>) -> 
 pub async fn measure_host_response_times(
     hosts: Vec<String>,
     config: ClientConfig,
-) -> Result<Vec<(String, std::time::Duration)>> {
+) -> Result<Vec<(String, std_time::Duration)>> {
     if hosts.is_empty() {
         return Err(anyhow!("No hosts provided"));
     }
@@ -903,10 +907,10 @@ pub async fn measure_host_response_times(
         tasks.push(task);
     }
 
-    let results = futures::future::join_all(tasks).await;
+    let results = future::join_all(tasks).await;
 
     // Filter successful connections and sort by response time
-    let mut response_times: Vec<(String, std::time::Duration)> = results
+    let mut response_times: Vec<(String, std_time::Duration)> = results
         .into_iter()
         .filter_map(|(host, result, duration)| {
             if result.is_ok() {
@@ -940,6 +944,7 @@ mod tests {
         sync::{Arc, Mutex},
         time::Duration,
     };
+    use tokio::time as tokio_time;
     use tokio::{net::TcpListener, task::JoinHandle};
     use tokio_rustls::TlsAcceptor;
 
@@ -1041,7 +1046,7 @@ mod tests {
         let silent = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let stalled = format!("https://127.0.0.1:{}/", silent.local_addr().unwrap().port());
 
-        let selected = tokio::time::timeout(
+        let selected = tokio_time::timeout(
             Duration::from_secs(60),
             select_best_host(
                 vec![FAILING_HOST.to_owned(), stalled],

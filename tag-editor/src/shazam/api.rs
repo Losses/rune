@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use super::rate_limiter::RateLimiter;
 use super::spectrogram::Signature;
+use tokio::time as tokio_time;
 
 #[derive(Serialize, Debug)]
 struct IdentifyRequest<'a> {
@@ -146,7 +147,7 @@ pub async fn identify(signature: Signature) -> Result<(Vec<Match>, Option<Track>
             }
             StatusCode::TOO_MANY_REQUESTS if attempts < 3 => {
                 attempts += 1;
-                tokio::time::sleep(Duration::from_secs(3)).await;
+                tokio_time::sleep(Duration::from_secs(3)).await;
                 continue;
             }
             _ => {

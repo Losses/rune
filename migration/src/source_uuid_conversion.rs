@@ -1,8 +1,10 @@
 //! Transactional conversion of source relationships to stable UUIDs.
+use sea_orm_migration::sea_orm as sea_orm_migration_sea_orm;
 use sea_orm_migration::{
     prelude::*,
     sea_orm::{ConnectionTrait, DatabaseTransaction, Value, prelude::Uuid},
 };
+use std::cmp;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 fn invalid(message: impl Into<String>) -> DbErr {
@@ -21,7 +23,7 @@ async fn rows(
     tx: &DatabaseTransaction,
     table: &str,
     cols: &[&str],
-) -> Result<Vec<sea_orm_migration::sea_orm::QueryResult>, DbErr> {
+) -> Result<Vec<sea_orm_migration_sea_orm::QueryResult>, DbErr> {
     let q = Query::select()
         .columns(cols.iter().map(|c| Alias::new(*c)))
         .from(Alias::new(table))
@@ -772,7 +774,7 @@ pub async fn convert(tx: &DatabaseTransaction, initial_sequence: Option<i64>) ->
                     .from(Alias::new(table))
                     .to_owned();
                 if let Some(row) = tx.query_one(&query).await? {
-                    highest = std::cmp::max(
+                    highest = cmp::max(
                         highest,
                         row.try_get_by_index::<Option<i64>>(0)?.unwrap_or(0),
                     );
@@ -959,11 +961,12 @@ pub async fn convert(tx: &DatabaseTransaction, initial_sequence: Option<i64>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sea_orm_migration::sea_orm as sea_orm_migration_sea_orm;
     use sea_orm_migration::{
         MigrationTrait, MigratorTrait,
         sea_orm::{Database, Statement},
     };
-    async fn before_conversion() -> sea_orm_migration::sea_orm::DatabaseConnection {
+    async fn before_conversion() -> sea_orm_migration_sea_orm::DatabaseConnection {
         let _ = crate::initialize_node_id("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".to_owned());
         let db = Database::connect("sqlite::memory:").await.unwrap();
         db.execute_unprepared("PRAGMA foreign_keys=ON")

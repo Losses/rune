@@ -170,6 +170,7 @@ fn seek_target(event: &MediaControlEvent, current_position: Duration) -> Option<
 #[cfg(target_os = "windows")]
 mod windows {
     use std::io::Error;
+    #[cfg(windows)]
     use std::mem;
     use std::sync::mpsc;
     use std::thread::{self, JoinHandle};
@@ -333,6 +334,8 @@ mod windows {
 mod tests {
     use super::*;
     use crate::MediaPosition;
+    #[cfg(windows)]
+    use std::mem;
 
     #[test]
     fn a_position_from_the_lock_screen_is_given_in_seconds() {
@@ -397,7 +400,7 @@ mod tests {
                     let _ = subclass.dispatched_tx.send(GetCurrentThreadId());
                     return LRESULT(0);
                 }
-                let prev: WNDPROC = std::mem::transmute(subclass.prev_wnd_proc);
+                let prev: WNDPROC = mem::transmute(subclass.prev_wnd_proc);
                 CallWindowProcW(prev, hwnd, msg, wparam, lparam)
             }
         }

@@ -33,6 +33,8 @@ use ::fsio::{FsIo, OpenMode};
 use ::fsio_media_source::FsioMediaSource;
 
 use crate::front::SR;
+use std::error;
+use symphonia::default as symphonia_default;
 
 /// How many packets in a row may fail to decode before the file is given up on. One bad frame
 /// in the middle of a file is skipped, as the player does.
@@ -60,7 +62,7 @@ impl fmt::Display for Cancelled {
     }
 }
 
-impl std::error::Error for Cancelled {}
+impl error::Error for Cancelled {}
 
 /// `decode`: the whole file at `path` as mono `f32` at 22050 Hz (the channels' mean), in one
 /// vector. `decode_with` does the same without holding the song.
@@ -93,7 +95,7 @@ pub fn decode_with(
         enable_gapless: true,
         ..Default::default()
     };
-    let mut format = symphonia::default::get_probe()
+    let mut format = symphonia_default::get_probe()
         .format(&hint, mss, &format_opts, &MetadataOptions::default())
         .map_err(|e| anyhow!("unsupported format: {e}"))?
         .format;
@@ -299,6 +301,9 @@ impl Resampler {
 
 #[cfg(test)]
 mod tests {
+    use std::env;
+    use std::fs;
+    use std::process as std_process;
 
     use super::*;
     use std::f64::consts::{FRAC_1_SQRT_2, PI};
@@ -371,12 +376,12 @@ mod tests {
 
     #[test]
     fn a_file_that_is_not_audio_is_an_error() {
-        let dir = std::env::temp_dir().join(format!("chart_analyzer_test_{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = env::temp_dir().join(format!("chart_analyzer_test_{}", std_process::id()));
+        fs::create_dir_all(&dir).unwrap();
         let path = dir.join("noise.flac");
-        std::fs::write(&path, b"this is not a flac file at all, just text").unwrap();
+        fs::write(&path, b"this is not a flac file at all, just text").unwrap();
         assert!(decode(&FsIo::new(), &path).is_err());
         assert!(decode(&FsIo::new(), &dir.join("missing.flac")).is_err());
-        std::fs::remove_dir_all(&dir).ok();
+        fs::remove_dir_all(&dir).ok();
     }
 }

@@ -34,6 +34,9 @@ use crate::request_error::ExpectedRequestError;
 use crate::server::api::{
     check_fingerprint, fetch_device_info, fetch_device_info_at_port, reported_status,
 };
+use tokio::task;
+use tokio::time as tokio_time;
+use url::Url;
 
 const PAIRED_SERVER_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
@@ -160,7 +163,7 @@ pub(crate) async fn list_renderer_candidates(
             .or_default()
             .push(endpoint);
     }
-    let mut probes = tokio::task::JoinSet::<Result<Option<RendererCandidate>>>::new();
+    let mut probes = task::JoinSet::<Result<Option<RendererCandidate>>>::new();
     for (fingerprint, endpoints) in peers {
         let node = node.clone();
         let private_key = private_key.clone();
@@ -179,7 +182,7 @@ pub(crate) async fn list_renderer_candidates(
                 blocked_library_id: None,
                 library_state: None,
             };
-            match tokio::time::timeout(
+            match tokio_time::timeout(
                 Duration::from_secs(3),
                 probe_renderer(
                     node,
@@ -223,7 +226,7 @@ pub(crate) async fn list_paired_servers(node: &NodeContext) -> Result<Vec<Client
     let own = node.device_info().await?.fingerprint;
     let validator = node.cert_validator.read().await.clone();
     let trusted = validator.clone_trusted_entries().await;
-    let mut probes = tokio::task::JoinSet::<Option<ClientSummary>>::new();
+    let mut probes = task::JoinSet::<Option<ClientSummary>>::new();
     for (fingerprint, hosts) in trusted {
         if fingerprint == own || hosts.is_empty() || refused_here(node, &fingerprint).await {
             continue;
@@ -231,7 +234,7 @@ pub(crate) async fn list_paired_servers(node: &NodeContext) -> Result<Vec<Client
         let validator = validator.clone();
         let own_fingerprint = own.clone();
         probes.spawn(async move {
-            match tokio::time::timeout(
+            match tokio_time::timeout(
                 PAIRED_SERVER_PROBE_TIMEOUT,
                 probe_paired_server(validator, &own_fingerprint, fingerprint.clone(), hosts),
             )
@@ -300,7 +303,7 @@ async fn probe_renderer(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let selected = select_renderer_host(&node, hosts).await?;
-    let url = url::Url::parse(&selected)?;
+    let url = Url::parse(&selected)?;
     let address = DeviceAddress::new(
         url.host_str().context("Invalid peer host")?,
         url.port().unwrap_or(DEFAULT_DEVICE_PORT),

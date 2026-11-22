@@ -7,7 +7,12 @@ use std::{
 
 use anyhow::Result;
 use async_trait::async_trait;
+use std::fmt;
+use std::fs;
+use std::io;
+use std::ops;
 use thiserror::Error;
+use tokio::runtime;
 
 #[derive(Error, Debug)]
 pub enum FileIoError {
@@ -18,7 +23,7 @@ pub enum FileIoError {
     #[error("permission denied: {0}")]
     PermissionDenied(String),
     #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
     #[error("database error: {0}")]
     Database(String),
     #[error("Android SAF error: {0}")]
@@ -116,7 +121,7 @@ pub trait FileStream: Read + Write + Seek + Send + Sync {
     fn sync_all(&mut self) -> Result<(), FileIoError>;
 }
 
-impl FileStream for std::fs::File {
+impl FileStream for fs::File {
     fn sync_all(&mut self) -> Result<(), FileIoError> {
         File::sync_all(self).map_err(FileIoError::Io)
     }
@@ -224,7 +229,7 @@ impl FsIo {
     /// can be dropped on any thread.
     pub fn new_opendal(
         config: OpenDalConfig,
-        handle: tokio::runtime::Handle,
+        handle: runtime::Handle,
     ) -> Result<Self, FileIoError> {
         Ok(Self {
             inner: Arc::new(OpenDalFsIo::new(config, handle)?),
@@ -239,15 +244,15 @@ impl Default for FsIo {
     }
 }
 
-impl std::fmt::Debug for FsIo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for FsIo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FsIo")
             .field("inner", &self.inner.name())
             .finish()
     }
 }
 
-impl std::ops::Deref for FsIo {
+impl ops::Deref for FsIo {
     type Target = dyn FileIo;
 
     fn deref(&self) -> &Self::Target {

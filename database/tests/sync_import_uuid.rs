@@ -6,6 +6,8 @@ use database::{
     entities::{albums, playlists},
     sync::model::*,
 };
+use migration::catalog_identity;
+use migration::catalog_identity::ParentKind;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set, sea_query::Expr};
 use uuid::Uuid;
 
@@ -32,10 +34,7 @@ async fn explicit_import_rejects_incompatible_parent_and_assigns_playlist_id() -
         local.sync_store.import_basic().await.is_err(),
         "incompatible parent UUID was rewritten"
     );
-    let album_id = migration::catalog_identity::parent(
-        migration::catalog_identity::ParentKind::Album,
-        "legacy",
-    );
+    let album_id = catalog_identity::parent(ParentKind::Album, "legacy");
     albums::Entity::update_many()
         .col_expr(
             albums::Column::SourceUuid,

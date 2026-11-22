@@ -6,11 +6,13 @@
 //! it any more, so a frame that Flutter (or the latest-frame slot) still has, or that the GPU is
 //! still drawing (`crate::in_flight`), is never drawn over.
 
-use hal::metal::Device;
+use metal::Device;
 use std::collections::{HashMap, VecDeque};
 use std::ptr::NonNull;
 
 use anyhow::{Context, Result, bail};
+use hal::api;
+use hal::metal;
 use objc2_core_foundation::{CFDictionary, CFNumber, CFRetained, CFString, CFType};
 use objc2_core_video::{
     CVPixelBuffer, CVPixelBufferGetBaseAddress, CVPixelBufferGetBytesPerRow,
@@ -28,6 +30,12 @@ use objc2_metal::{
 use wgpu::hal;
 
 use crate::in_flight::MAX_IN_FLIGHT;
+use objc2_core_foundation::CFBoolean;
+use std::ptr;
+use std::slice;
+use wgpu::TextureDimension;
+use wgpu::TextureUsages;
+use wgpu::TextureUses;
 
 /// Published frames that stay referenced here after a newer one replaced them, so that a buffer
 /// goes back to the pool only a few frames after Flutter let go of it: its compositor may still
@@ -73,9 +81,7 @@ impl PixelBuffer {
         if !base.is_null() && stride >= row {
             for y in 0..height as usize {
                 // SAFETY: the buffer is locked and has `height` rows of `stride` bytes.
-                out.extend_from_slice(unsafe {
-                    std::slice::from_raw_parts(base.add(y * stride), row)
-                });
+                out.extend_from_slice(unsafe { slice::from_raw_parts(base.add(y * stride), row) });
             }
         }
         // SAFETY: matches the lock above.
@@ -105,7 +111,7 @@ impl SurfaceTargets {
     pub fn new(device: &wgpu::Device, width: u32, height: u32) -> Result<Self> {
         // Fail early, before anything is drawn, if this is not the Metal backend.
         // SAFETY: only checks which backend the device runs on.
-        if unsafe { device.as_hal::<hal::api::Metal>() }.is_none() {
+        if unsafe { device.as_hal::<api::Metal>() }.is_none() {
             bail!("The GPU device does not run on Metal");
         }
         let number = |value: i32| CFNumber::new_i32(value);
@@ -130,7 +136,7 @@ impl SurfaceTargets {
                 &number(width as i32),
                 &number(height as i32),
                 &CFDictionary::<CFString, CFType>::empty(),
-                objc2_core_foundation::CFBoolean::new(true),
+                CFBoolean::new(true),
             ],
         );
         let pool_attributes = CFDictionary::<CFString, CFType>::from_slices(
@@ -138,7 +144,7 @@ impl SurfaceTargets {
             &[&number((KEEP_RECENT + MAX_IN_FLIGHT + 1) as i32)],
         );
         let aux = CFDictionary::<CFString, CFType>::from_slices(&aux_keys, &[&number(MAX_BUFFERS)]);
-        let mut pool: *mut CVPixelBufferPool = std::ptr::null_mut();
+        let mut pool: *mut CVPixelBufferPool = ptr::null_mut();
         // SAFETY: valid dictionaries and an out pointer to a local.
         let status = unsafe {
             CVPixelBufferPool::create(
@@ -173,7 +179,7 @@ impl SurfaceTargets {
         &mut self,
         device: &wgpu::Device,
     ) -> Result<Option<(PixelBuffer, wgpu::TextureView)>> {
-        let mut raw: *mut CVPixelBuffer = std::ptr::null_mut();
+        let mut raw: *mut CVPixelBuffer = ptr::null_mut();
         // SAFETY: a valid pool and dictionary, and an out pointer to a local.
         let status = unsafe {
             CVPixelBufferPool::create_pixel_buffer_with_aux_attributes(
@@ -221,7 +227,7 @@ impl SurfaceTargets {
         // SAFETY: `new` checked that this is the Metal backend; the guard is dropped before
         // wgpu is used again.
         let raw = {
-            let hal_device = unsafe { device.as_hal::<hal::api::Metal>() }
+            let hal_device = unsafe { device.as_hal::<api::Metal>() }
                 .context("The GPU device does not run on Metal")?;
             // SAFETY: a plain descriptor for a 2D texture of the pool's size and format.
             let descriptor = unsafe {
@@ -259,20 +265,19 @@ impl SurfaceTargets {
                 },
                 None,
             );
-            device.create_texture_from_hal::<hal::api::Metal>(
+            device.create_texture_from_hal::<api::Metal>(
                 hal_texture,
                 &wgpu::TextureDescriptor {
                     label: Some("visualizer IOSurface target"),
                     size,
                     mip_level_count: 1,
                     sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
+                    dimension: TextureDimension::D2,
                     format: crate::pipeline::FORMAT,
-                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
                     view_formats: &[],
                 },
-                wgpu::TextureUses::UNINITIALIZED,
+                TextureUses::UNINITIALIZED,
             )
         };
         Ok(texture.create_view(&Default::default()))

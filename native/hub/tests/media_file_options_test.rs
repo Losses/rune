@@ -16,6 +16,8 @@ use hub::{
     messages::{FetchMediaFilesRequest, SearchMediaFileSummaryRequest},
 };
 use sea_orm::{Database, EntityTrait, Set};
+use serde_json::Value;
+use std::path as std_path;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -23,7 +25,7 @@ async fn request_library(
     db: sea_orm::DatabaseConnection,
     actor: Uuid,
     root: &str,
-    config_path: &std::path::Path,
+    config_path: &std_path::Path,
 ) -> Result<LibraryHandle> {
     let library_id = Uuid::new_v4();
     let library_sync = LibrarySyncStore::open(db.clone(), actor, Some(library_id)).await?;
@@ -133,8 +135,8 @@ async fn media_file_handler_reports_absence_and_real_metadata_as_optional_values
             .find(|file| file.id == 2)
             .unwrap(),
     )?;
-    assert_eq!(without["cover_art_id"], serde_json::Value::Null);
-    assert_eq!(without["track_number"], serde_json::Value::Null);
+    assert_eq!(without["cover_art_id"], Value::Null);
+    assert_eq!(without["track_number"], Value::Null);
     assert_eq!(with["cover_art_id"], 91);
     assert_eq!(with["track_number"], 7);
     let zero_track = serde_json::to_value(
@@ -144,7 +146,7 @@ async fn media_file_handler_reports_absence_and_real_metadata_as_optional_values
             .find(|file| file.id == 3)
             .unwrap(),
     )?;
-    assert_eq!(zero_track["cover_art_id"], serde_json::Value::Null);
+    assert_eq!(zero_track["cover_art_id"], Value::Null);
     assert_eq!(zero_track["track_number"], 0);
 
     let summary_request = SearchMediaFileSummaryRequest {
@@ -162,6 +164,6 @@ async fn media_file_handler_reports_absence_and_real_metadata_as_optional_values
             .find(|summary| summary.id == 1)
             .unwrap(),
     )?;
-    assert_eq!(without_cover["cover_art_id"], serde_json::Value::Null);
+    assert_eq!(without_cover["cover_art_id"], Value::Null);
     Ok(())
 }

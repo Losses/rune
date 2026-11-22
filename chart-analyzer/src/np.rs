@@ -2,7 +2,9 @@
 //! are not the obvious ones (the Hann window's formula, percentile's interpolation, `interp`'s
 //! clamping, Python's banker's rounding). Each has a test against values numpy computed.
 
+use std::array::from_fn;
 use std::f64::consts::PI;
+use std::ops::Add;
 
 /// `np.hanning(n)`: the symmetric Hann window of `n` points (zero at both ends), as numpy writes
 /// it, so that the values are bit for bit numpy's.
@@ -152,7 +154,7 @@ pub fn geomspace(start: f64, stop: f64, num: usize) -> Vec<f64> {
 /// two halves (the first a multiple of 8) summed the same way. 0 for no values.
 pub fn pairwise_sum<T>(a: &[T]) -> T
 where
-    T: Copy + Default + std::ops::Add<Output = T>,
+    T: Copy + Default + Add<Output = T>,
 {
     const BLOCK: usize = 128;
     let n = a.len();
@@ -160,7 +162,7 @@ where
         return a.iter().fold(T::default(), |sum, &v| sum + v);
     }
     if n <= BLOCK {
-        let mut r: [T; 8] = std::array::from_fn(|j| a[j]);
+        let mut r: [T; 8] = from_fn(|j| a[j]);
         let whole = n - n % 8;
         for chunk in a[8..whole].as_chunks::<8>().0.iter() {
             for (partial, &v) in r.iter_mut().zip(chunk) {

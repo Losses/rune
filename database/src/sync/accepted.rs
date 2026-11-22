@@ -3,6 +3,8 @@ use super::SeaOrmSyncStore;
 use super::model::{Collection, ObjectKey, Record};
 use anyhow::Result;
 use sea_orm::DatabaseTransaction;
+use sync::protocol;
+use sync_orm::causal_store;
 use uuid::Uuid;
 
 pub struct AcceptedState<'a> {
@@ -24,8 +26,8 @@ impl<'a> AcceptedState<'a> {
         &self,
         collection: Collection,
         after: Option<Uuid>,
-        limits: sync::protocol::PageLimits,
-    ) -> Result<sync_orm::causal_store::ProjectedPage<super::model::RuneModel>> {
+        limits: protocol::PageLimits,
+    ) -> Result<causal_store::ProjectedPage<super::model::RuneModel>> {
         self.store
             .projected_records_on(self.transaction, collection, after, limits)
             .await

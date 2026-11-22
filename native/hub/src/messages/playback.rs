@@ -1,4 +1,5 @@
 use crate::request_error::ExpectedRequestError;
+use playback::player;
 use playback::{
     PlaybackMode as PlayerPlaybackMode,
     player::{
@@ -381,8 +382,8 @@ impl crate::rpc::NamedLibraries for PlayingItemRef {
     }
 }
 
-impl From<playback::player::LibraryItem> for PlayingItemRef {
-    fn from(item: playback::player::LibraryItem) -> Self {
+impl From<player::LibraryItem> for PlayingItemRef {
+    fn from(item: player::LibraryItem) -> Self {
         Self::LibraryTrack {
             library_id: item.library_id.to_string(),
             track: item.file_uuid.to_string(),
@@ -390,8 +391,8 @@ impl From<playback::player::LibraryItem> for PlayingItemRef {
     }
 }
 
-impl From<playback::player::SubsonicItem> for PlayingItemRef {
-    fn from(item: playback::player::SubsonicItem) -> Self {
+impl From<player::SubsonicItem> for PlayingItemRef {
+    fn from(item: player::SubsonicItem) -> Self {
         Self::LibraryTrack {
             library_id: item.library_id.to_string(),
             track: item.track_id,

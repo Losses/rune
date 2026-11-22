@@ -3,8 +3,34 @@
 //! draw into HDR buffers, and the runtime's post-processing makes the frame.
 
 use crate::bind::Bindings;
+use half::f16;
+use std::fmt;
+use std::fs;
 use std::io::Error;
 use std::io::ErrorKind;
+use std::mem;
+use wgpu::AddressMode;
+use wgpu::BindingResource;
+use wgpu::BindingType;
+use wgpu::BufferBindingType;
+use wgpu::BufferUsages;
+use wgpu::Color;
+use wgpu::ColorWrites;
+use wgpu::ErrorFilter;
+use wgpu::FilterMode;
+use wgpu::LoadOp;
+use wgpu::MipmapFilterMode;
+use wgpu::Origin3d;
+use wgpu::SamplerBindingType;
+use wgpu::ShaderSource;
+use wgpu::ShaderStages;
+use wgpu::StoreOp;
+use wgpu::TextureAspect;
+use wgpu::TextureDimension;
+use wgpu::TextureFormat;
+use wgpu::TextureSampleType;
+use wgpu::TextureUsages;
+use wgpu::TextureViewDimension;
 mod audio;
 mod decider;
 mod director;
@@ -77,7 +103,7 @@ static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 /// Buffers of a scene may take this much memory together.
 const MAX_BUFFER_BYTES: u64 = 256 << 20;
 /// The format of `out`, which the post-processing reads.
-const OUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+const OUT_FORMAT: wgpu::TextureFormat = TextureFormat::Rgba16Float;
 
 /// Whether `path` is a scene's folder.
 pub fn is_scene(path: &Path) -> bool {
@@ -112,7 +138,7 @@ pub enum Source {
 impl Source {
     fn read(&self, name: &str) -> Result<Vec<u8>> {
         match self {
-            Self::Dir(dir) => std::fs::read(dir.join(name)),
+            Self::Dir(dir) => fs::read(dir.join(name)),
             Self::Embedded(files) => files
                 .iter()
                 .find(|(path, _)| *path == name)
@@ -152,8 +178,8 @@ impl Source {
     }
 }
 
-impl std::fmt::Display for Source {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for Source {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Dir(dir) => dir.display().fmt(f),
             Self::Embedded(_) => f.write_str("(built in)"),
@@ -321,13 +347,13 @@ impl Mipper {
     fn new(device: &wgpu::Device) -> Self {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("scene mips"),
-            source: wgpu::ShaderSource::Wgsl(MIP_SHADER.into()),
+            source: ShaderSource::Wgsl(MIP_SHADER.into()),
         });
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("scene mips"),
             entries: &[
-                texture_entry(0, wgpu::ShaderStages::FRAGMENT, true),
-                sampler_entry(1, wgpu::ShaderStages::FRAGMENT),
+                texture_entry(0, ShaderStages::FRAGMENT, true),
+                sampler_entry(1, ShaderStages::FRAGMENT),
             ],
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -335,10 +361,10 @@ impl Mipper {
             bind_group_layouts: &[Some(&layout)],
             immediate_size: 0,
         });
-        let sampler = linear_sampler(device, wgpu::AddressMode::ClampToEdge);
+        let sampler = linear_sampler(device, AddressMode::ClampToEdge);
         let load_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("scene copy"),
-            entries: &[texture_entry(0, wgpu::ShaderStages::FRAGMENT, false)],
+            entries: &[texture_entry(0, ShaderStages::FRAGMENT, false)],
         });
         let load_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("scene copy"),
@@ -399,10 +425,10 @@ impl Mipper {
         source: &wgpu::TextureView,
         target: &wgpu::TextureView,
     ) {
-        let filterable = format != wgpu::TextureFormat::Rgba32Float;
+        let filterable = format != TextureFormat::Rgba32Float;
         let source = wgpu::BindGroupEntry {
             binding: 0,
-            resource: wgpu::BindingResource::TextureView(source),
+            resource: BindingResource::TextureView(source),
         };
         let (pipeline, group) = if filterable {
             let i = self.pipeline(device, format);
@@ -413,7 +439,7 @@ impl Mipper {
                     source,
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                        resource: BindingResource::Sampler(&self.sampler),
                     },
                 ],
             });
@@ -448,11 +474,11 @@ impl Mipper {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&pair[0]),
+                        resource: BindingResource::TextureView(&pair[0]),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                        resource: BindingResource::Sampler(&self.sampler),
                     },
                 ],
             });
@@ -572,9 +598,9 @@ fn texture_entry(
     wgpu::BindGroupLayoutEntry {
         binding,
         visibility,
-        ty: wgpu::BindingType::Texture {
-            sample_type: wgpu::TextureSampleType::Float { filterable },
-            view_dimension: wgpu::TextureViewDimension::D2,
+        ty: BindingType::Texture {
+            sample_type: TextureSampleType::Float { filterable },
+            view_dimension: TextureViewDimension::D2,
             multisampled: false,
         },
         count: None,
@@ -585,7 +611,7 @@ fn sampler_entry(binding: u32, visibility: wgpu::ShaderStages) -> wgpu::BindGrou
     wgpu::BindGroupLayoutEntry {
         binding,
         visibility,
-        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+        ty: BindingType::Sampler(SamplerBindingType::Filtering),
         count: None,
     }
 }
@@ -598,7 +624,7 @@ fn buffer_entry(
     wgpu::BindGroupLayoutEntry {
         binding,
         visibility,
-        ty: wgpu::BindingType::Buffer {
+        ty: BindingType::Buffer {
             ty,
             has_dynamic_offset: false,
             min_binding_size: None,
@@ -612,9 +638,9 @@ fn linear_sampler(device: &wgpu::Device, address: wgpu::AddressMode) -> wgpu::Sa
         label: Some("scene"),
         address_mode_u: address,
         address_mode_v: address,
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Linear,
-        mipmap_filter: wgpu::MipmapFilterMode::Linear,
+        mag_filter: FilterMode::Linear,
+        min_filter: FilterMode::Linear,
+        mipmap_filter: MipmapFilterMode::Linear,
         ..Default::default()
     })
 }
@@ -643,7 +669,7 @@ fn fullscreen_pipeline(
             targets: &[Some(wgpu::ColorTargetState {
                 format,
                 blend: None,
-                write_mask: wgpu::ColorWrites::ALL,
+                write_mask: ColorWrites::ALL,
             })],
         }),
         primitive: Default::default(),
@@ -667,8 +693,8 @@ fn begin_pass<'a>(
             depth_slice: None,
             resolve_target: None,
             ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                store: wgpu::StoreOp::Store,
+                load: LoadOp::Clear(Color::BLACK),
+                store: StoreOp::Store,
             },
         })],
         depth_stencil_attachment: None,
@@ -718,7 +744,7 @@ fn plain_texture(
         },
         mip_level_count: mips,
         sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
+        dimension: TextureDimension::D2,
         format,
         usage,
         view_formats: &[],
@@ -731,8 +757,8 @@ fn write_texture(queue: &wgpu::Queue, texture: &wgpu::Texture, data: &[u8], byte
         wgpu::TexelCopyTextureInfo {
             texture,
             mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
+            origin: Origin3d::ZERO,
+            aspect: TextureAspect::All,
         },
         data,
         wgpu::TexelCopyBufferLayout {
@@ -750,8 +776,8 @@ fn write_cell(queue: &wgpu::Queue, texture: &wgpu::Texture, cell: &Cell) {
         wgpu::TexelCopyTextureInfo {
             texture,
             mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
+            origin: Origin3d::ZERO,
+            aspect: TextureAspect::All,
         },
         &cell.rgba,
         wgpu::TexelCopyBufferLayout {
@@ -769,7 +795,7 @@ fn write_cell(queue: &wgpu::Queue, texture: &wgpu::Texture, cell: &Cell) {
 
 fn f16_bytes(values: impl Iterator<Item = f32>) -> Vec<u8> {
     values
-        .flat_map(|v| half::f16::from_f32(v).to_le_bytes())
+        .flat_map(|v| f16::from_f32(v).to_le_bytes())
         .collect()
 }
 
@@ -828,7 +854,7 @@ impl Sized {
                     &spec.id,
                     (w, h),
                     spec.format.wgpu(),
-                    wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                    TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
                     mips,
                 );
                 let level = |i| {
@@ -859,7 +885,7 @@ impl Sized {
             "scene out",
             size,
             OUT_FORMAT,
-            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
             1,
         );
         let out_view = out.create_view(&Default::default());
@@ -975,12 +1001,12 @@ impl Scene {
             (None, None) => 16,
         };
 
-        let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let scope = device.push_error_scope(ErrorFilter::Validation);
         let uniform = |label, size| {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(label),
                 size,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             })
         };
@@ -1002,9 +1028,7 @@ impl Scene {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(label),
                 size,
-                usage: wgpu::BufferUsages::STORAGE
-                    | wgpu::BufferUsages::COPY_DST
-                    | wgpu::BufferUsages::COPY_SRC,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
                 mapped_at_creation: false,
             })
         };
@@ -1017,24 +1041,24 @@ impl Scene {
             device,
             "scene spectrum",
             (SPECTRUM_WIDTH as u32, SPECTRUM_ROWS as u32),
-            wgpu::TextureFormat::R16Float,
-            wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            TextureFormat::R16Float,
+            TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
             1,
         );
         let waveform = plain_texture(
             device,
             "scene waveform",
             (WAVEFORM_WIDTH as u32, 1),
-            wgpu::TextureFormat::Rg16Float,
-            wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            TextureFormat::Rg16Float,
+            TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
             1,
         );
         let noise_texture = plain_texture(
             device,
             "scene blue noise",
             (noise::SIZE as u32, noise::SIZE as u32),
-            wgpu::TextureFormat::Rgba8Unorm,
-            wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            TextureFormat::Rgba8Unorm,
+            TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
             1,
         );
         write_texture(queue, &noise_texture, noise::rgba(), 4);
@@ -1046,10 +1070,10 @@ impl Scene {
             device,
             "scene covers",
             (covers_size, covers_size),
-            wgpu::TextureFormat::Rgba8UnormSrgb,
-            wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_DST
-                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            TextureFormat::Rgba8UnormSrgb,
+            TextureUsages::TEXTURE_BINDING
+                | TextureUsages::COPY_DST
+                | TextureUsages::RENDER_ATTACHMENT,
             covers_mips,
         );
         let covers_levels: Vec<wgpu::TextureView> = (0..covers_mips)
@@ -1070,9 +1094,9 @@ impl Scene {
                 .with_context(|| format!("Failed to decode {}", asset.file))?
                 .to_rgba8();
             let format = if asset.linear {
-                wgpu::TextureFormat::Rgba8Unorm
+                TextureFormat::Rgba8Unorm
             } else {
-                wgpu::TextureFormat::Rgba8UnormSrgb
+                TextureFormat::Rgba8UnormSrgb
             };
             let (w, h) = image.dimensions();
             let mips = 32 - w.max(h).leading_zeros();
@@ -1081,9 +1105,9 @@ impl Scene {
                 &asset.id,
                 (w, h),
                 format,
-                wgpu::TextureUsages::TEXTURE_BINDING
-                    | wgpu::TextureUsages::COPY_DST
-                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                TextureUsages::TEXTURE_BINDING
+                    | TextureUsages::COPY_DST
+                    | TextureUsages::RENDER_ATTACHMENT,
                 mips,
             );
             write_texture(queue, &texture, image.as_raw(), 4);
@@ -1109,8 +1133,8 @@ impl Scene {
             noise_texture.create_view(&Default::default()),
         );
         let samplers = [
-            linear_sampler(device, wgpu::AddressMode::ClampToEdge),
-            linear_sampler(device, wgpu::AddressMode::Repeat),
+            linear_sampler(device, AddressMode::ClampToEdge),
+            linear_sampler(device, AddressMode::Repeat),
             device.create_sampler(&wgpu::SamplerDescriptor {
                 label: Some("scene nearest"),
                 ..Default::default()
@@ -1120,10 +1144,10 @@ impl Scene {
         // Group 0: what every module sees; the update also writes the state and Post.
         let globals = |stage: wgsl::Stage| {
             let visibility = match stage {
-                wgsl::Stage::Update => wgpu::ShaderStages::COMPUTE,
-                wgsl::Stage::Pass => wgpu::ShaderStages::FRAGMENT,
+                wgsl::Stage::Update => ShaderStages::COMPUTE,
+                wgsl::Stage::Pass => ShaderStages::FRAGMENT,
             };
-            let uniform = wgpu::BufferBindingType::Uniform;
+            let uniform = BufferBindingType::Uniform;
             let mut entries = vec![
                 buffer_entry(wgsl::BIND_FRAME, visibility, uniform),
                 buffer_entry(wgsl::BIND_MUSIC, visibility, uniform),
@@ -1134,7 +1158,7 @@ impl Scene {
                 buffer_entry(
                     wgsl::BIND_STATE,
                     visibility,
-                    wgpu::BufferBindingType::Storage {
+                    BufferBindingType::Storage {
                         read_only: stage == wgsl::Stage::Pass,
                     },
                 ),
@@ -1150,7 +1174,7 @@ impl Scene {
                 entries.push(buffer_entry(
                     wgsl::BIND_POST,
                     visibility,
-                    wgpu::BufferBindingType::Storage { read_only: false },
+                    BufferBindingType::Storage { read_only: false },
                 ));
             }
             for i in 0..assets.len() {
@@ -1172,33 +1196,27 @@ impl Scene {
                 (wgsl::BIND_LOOK, look.as_entire_binding()),
                 (wgsl::BIND_INPUT, input_buffer.as_entire_binding()),
                 (wgsl::BIND_STATE, state_buffer.as_entire_binding()),
-                (
-                    wgsl::BIND_SPECTRUM,
-                    wgpu::BindingResource::TextureView(&views.0),
-                ),
-                (
-                    wgsl::BIND_WAVEFORM,
-                    wgpu::BindingResource::TextureView(&views.1),
-                ),
+                (wgsl::BIND_SPECTRUM, BindingResource::TextureView(&views.0)),
+                (wgsl::BIND_WAVEFORM, BindingResource::TextureView(&views.1)),
                 (
                     wgsl::BIND_BLUE_NOISE,
-                    wgpu::BindingResource::TextureView(&views.2),
+                    BindingResource::TextureView(&views.2),
                 ),
                 (
                     wgsl::BIND_COVERS,
-                    wgpu::BindingResource::TextureView(&covers_view),
+                    BindingResource::TextureView(&covers_view),
                 ),
                 (
                     wgsl::BIND_LINEAR_CLAMP,
-                    wgpu::BindingResource::Sampler(&samplers[0]),
+                    BindingResource::Sampler(&samplers[0]),
                 ),
                 (
                     wgsl::BIND_LINEAR_REPEAT,
-                    wgpu::BindingResource::Sampler(&samplers[1]),
+                    BindingResource::Sampler(&samplers[1]),
                 ),
                 (
                     wgsl::BIND_NEAREST_CLAMP,
-                    wgpu::BindingResource::Sampler(&samplers[2]),
+                    BindingResource::Sampler(&samplers[2]),
                 ),
             ];
             if stage == wgsl::Stage::Update {
@@ -1207,7 +1225,7 @@ impl Scene {
             for (i, view) in assets.iter().enumerate() {
                 resources.push((
                     wgsl::BIND_ASSETS + i as u32,
-                    wgpu::BindingResource::TextureView(view),
+                    BindingResource::TextureView(view),
                 ));
             }
             let entries: Vec<wgpu::BindGroupEntry> = resources
@@ -1227,7 +1245,7 @@ impl Scene {
                 let (layout, group) = globals(wgsl::Stage::Update);
                 let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                     label: Some("scene update"),
-                    source: wgpu::ShaderSource::Wgsl(Cow::Owned(text)),
+                    source: ShaderSource::Wgsl(Cow::Owned(text)),
                 });
                 let pipeline_layout =
                     device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -1261,11 +1279,7 @@ impl Scene {
                 };
                 let index = index.ok_or_else(|| anyhow!("no buffer {input}"))?;
                 let filterable = manifest.buffers[index].format != Format::Rgba32float;
-                entries.push(texture_entry(
-                    i as u32,
-                    wgpu::ShaderStages::FRAGMENT,
-                    filterable,
-                ));
+                entries.push(texture_entry(i as u32, ShaderStages::FRAGMENT, filterable));
                 inputs.push(if prev {
                     Input::Prev(index)
                 } else {
@@ -1278,7 +1292,7 @@ impl Scene {
             });
             let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some(&pass.shader),
-                source: wgpu::ShaderSource::Wgsl(Cow::Owned(text)),
+                source: ShaderSource::Wgsl(Cow::Owned(text)),
             });
             let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some(&pass.shader),
@@ -1400,10 +1414,10 @@ impl Scene {
         if self.analyzer.sample_rate() != previous.analyzer.sample_rate() {
             return;
         }
-        std::mem::swap(&mut self.analyzer, &mut previous.analyzer);
-        std::mem::swap(&mut self.wall, &mut previous.wall);
-        std::mem::swap(&mut self.heard, &mut previous.heard);
-        std::mem::swap(&mut self.warm, &mut previous.warm);
+        mem::swap(&mut self.analyzer, &mut previous.analyzer);
+        mem::swap(&mut self.wall, &mut previous.wall);
+        mem::swap(&mut self.heard, &mut previous.heard);
+        mem::swap(&mut self.warm, &mut previous.warm);
         self.music_values = previous.music_values;
         self.last_song = previous.last_song;
     }
@@ -1478,7 +1492,7 @@ impl Scene {
     /// What decided the last frames of the scene on screen, as the event log tells it: taken, so
     /// that a frame is told once.
     pub fn take_events(&mut self) -> Vec<crate::inspect::LabEvent> {
-        std::mem::take(&mut self.events)
+        mem::take(&mut self.events)
     }
 
     /// A number the scene has of its own, which another scene (and this one built again from
@@ -1806,7 +1820,7 @@ impl Scene {
         next.take_music_from(self);
         // Bindings that did not change keep their state (an accumulated distance, an envelope).
         if same_binds {
-            std::mem::swap(&mut next.bindings, &mut self.bindings);
+            mem::swap(&mut next.bindings, &mut self.bindings);
         }
         // What a scene lab set on the scene survives its being saved: the director is new, the
         // hold and the pace are the lab's.
@@ -1888,12 +1902,8 @@ impl Scene {
             return;
         };
         let mut encoder = device.create_command_encoder(&Default::default());
-        self.mipper.generate(
-            device,
-            &mut encoder,
-            wgpu::TextureFormat::Rgba8UnormSrgb,
-            levels,
-        );
+        self.mipper
+            .generate(device, &mut encoder, TextureFormat::Rgba8UnormSrgb, levels);
         queue.submit(Some(encoder.finish()));
     }
 
@@ -2081,7 +2091,7 @@ impl Scene {
         // the frame's music.
         // A rebuilt scene has a new director: its stepping starts over as on a first frame, and
         // without a chart the scene is told of the shot it begins on below.
-        let rebuilt = std::mem::take(&mut self.restep);
+        let rebuilt = mem::take(&mut self.restep);
         let stepped = match input.song_chart {
             Some(song) => self.stepper.frame(
                 &mut self.decider,
@@ -2215,7 +2225,7 @@ impl Scene {
                 .enumerate()
                 .map(|(i, view)| wgpu::BindGroupEntry {
                     binding: i as u32,
-                    resource: wgpu::BindingResource::TextureView(view),
+                    resource: BindingResource::TextureView(view),
                 })
                 .collect();
             let inputs = device.create_bind_group(&wgpu::BindGroupDescriptor {

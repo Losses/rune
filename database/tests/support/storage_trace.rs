@@ -9,6 +9,7 @@ use std::{
         atomic::{AtomicI64, Ordering},
     },
 };
+use std::ptr;
 extern "C" {
     fn syscall(number: c_long, ...) -> c_long;
     fn getenv(name: *const c_char) -> *mut c_char;
@@ -162,10 +163,10 @@ unsafe fn do_open(path: *const c_char, flags: c_int, mode: c_int) -> c_int {
     let saved = *__errno_location();
     if fd >= 0 && kind != 0 && kind != b'P' {
         if !existed && flags & O_CREAT != 0 {
-            event(b'C', kind, 0, std::ptr::null(), 0);
+            event(b'C', kind, 0, ptr::null(), 0);
         }
         if flags & O_TRUNC != 0 {
-            event(b'T', kind, 0, std::ptr::null(), 0);
+            event(b'T', kind, 0, ptr::null(), 0);
         }
     }
     *__errno_location() = saved;
@@ -221,7 +222,7 @@ unsafe fn sync_call(fd: c_int, call: c_long) -> c_int {
     let n = syscall(call, fd) as c_int;
     let saved = *__errno_location();
     if n == 0 {
-        event(b'S', kind_fd(fd), 0, std::ptr::null(), 0);
+        event(b'S', kind_fd(fd), 0, ptr::null(), 0);
     }
     *__errno_location() = saved;
     n
@@ -238,7 +239,7 @@ unsafe fn truncate_call(fd: c_int, len: i64) -> c_int {
     let n = syscall(SYS_FTRUNCATE, fd, len) as c_int;
     let saved = *__errno_location();
     if n == 0 {
-        event(b'T', kind_fd(fd), len as u64, std::ptr::null(), 0);
+        event(b'T', kind_fd(fd), len as u64, ptr::null(), 0);
     }
     *__errno_location() = saved;
     n
@@ -261,7 +262,7 @@ pub unsafe extern "C" fn unlink(path: *const c_char) -> c_int {
     let n = syscall(SYS_UNLINKAT, AT_FDCWD, path, 0) as c_int;
     let saved = *__errno_location();
     if n == 0 {
-        event(b'U', kind, 0, std::ptr::null(), 0);
+        event(b'U', kind, 0, ptr::null(), 0);
     }
     *__errno_location() = saved;
     n

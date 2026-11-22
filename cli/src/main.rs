@@ -29,7 +29,11 @@ use prettytable::{Table, row};
 use tracing_subscriber::filter::EnvFilter;
 
 use fsio::FsIo;
+use rune::sync::sync_library;
 
+use reqwest::Certificate;
+use reqwest::Client;
+use reqwest::header;
 use rune::{
     analysis::*,
     index::index_audio_library,
@@ -37,6 +41,9 @@ use rune::{
     playback::*,
     recommend::*,
 };
+use std::env;
+use std::error as std_error;
+use std::process as std_process;
 use uuid::Uuid;
 
 #[derive(Parser)]
@@ -191,7 +198,7 @@ async fn main() {
         Ok(path) => path,
         Err(e) => {
             error!("Failed to canonicalize path: {e}");
-            std::process::exit(1);
+            std_process::exit(1);
         }
     };
 
@@ -199,7 +206,7 @@ async fn main() {
         Some(path) => path,
         _ => {
             error!("Invalid path, could not convert to string");
-            std::process::exit(1);
+            std_process::exit(1);
         }
     };
     let fsio = Arc::new(FsIo::new());
@@ -243,7 +250,7 @@ async fn main() {
         Ok(db) => db,
         Err(e) => {
             error!("Failed to connect to main database: {e}");
-            std::process::exit(1);
+            std_process::exit(1);
         }
     };
 
@@ -252,7 +259,7 @@ async fn main() {
         Ok(id) => id,
         Err(e) => {
             error!("Failed to resolve library identity: {e:#}");
-            std::process::exit(1);
+            std_process::exit(1);
         }
     };
 
@@ -262,17 +269,16 @@ async fn main() {
         token_file,
     } = &cli.command
     {
-        let result: Result<(), Box<dyn std::error::Error>> = async {
-            let mut builder = reqwest::Client::builder()
+        let result: Result<(), Box<dyn std_error::Error>> = async {
+            let mut builder = Client::builder()
                 .connect_timeout(Duration::from_secs(30))
                 .read_timeout(Duration::from_secs(30));
             if let Some(path) = ca {
-                builder =
-                    builder.add_root_certificate(reqwest::Certificate::from_pem(&fs::read(path)?)?);
+                builder = builder.add_root_certificate(Certificate::from_pem(&fs::read(path)?)?);
             }
             let token = match token_file {
                 Some(path) => Some(fs::read_to_string(path)?),
-                None => std::env::var("RUNE_SYNC_TOKEN").ok(),
+                None => env::var("RUNE_SYNC_TOKEN").ok(),
             };
             if let Some(token) = token {
                 if !server.starts_with("https://") {
@@ -281,7 +287,7 @@ async fn main() {
                 let mut headers = HeaderMap::new();
                 let mut value = HeaderValue::from_str(&format!("Bearer {}", token.trim()))?;
                 value.set_sensitive(true);
-                headers.insert(reqwest::header::AUTHORIZATION, value);
+                headers.insert(header::AUTHORIZATION, value);
                 builder = builder.default_headers(headers);
             }
             let library = LibrarySyncStore::open(
@@ -291,7 +297,7 @@ async fn main() {
             )
             .await?;
             library.import_existing(Uuid::parse_str(&node_id)?).await?;
-            let report = rune::sync::sync_library(
+            let report = sync_library(
                 main_db.clone(),
                 Uuid::parse_str(&node_id)?,
                 server,
@@ -310,7 +316,7 @@ async fn main() {
         .await;
         if let Err(error) = result {
             error!("Sync failed: {error:#}");
-            std::process::exit(1);
+            std_process::exit(1);
         }
         return;
     }
@@ -336,7 +342,7 @@ async fn main() {
                 Ok(library) => library,
                 Err(error) => {
                     error!("Failed to open metadata replica: {error:#}");
-                    std::process::exit(1);
+                    std_process::exit(1);
                 }
             };
             if let Err(error) = scan_audio_library(
@@ -356,7 +362,7 @@ async fn main() {
             .await
             {
                 error!("Library scan failed: {error:#}");
-                std::process::exit(1);
+                std_process::exit(1);
             }
             if let Err(error) = scan_cover_arts(
                 fsio,
@@ -370,7 +376,7 @@ async fn main() {
             .await
             {
                 error!("Artwork scan failed: {error:#}");
-                std::process::exit(1);
+                std_process::exit(1);
             }
             info!("Library scanned successfully.");
         }
@@ -387,7 +393,7 @@ async fn main() {
             .await;
             if let Err(error) = result {
                 error!("Audio indexing failed: {error:#}");
-                std::process::exit(1);
+                std_process::exit(1);
             }
         }
         Commands::Analyze { computing_device } => {
@@ -480,7 +486,7 @@ async fn main() {
             .await
             {
                 error!("Recommendation failed: {error:#}");
-                std::process::exit(1);
+                std_process::exit(1);
             }
         }
         Commands::Mix {
@@ -503,7 +509,7 @@ async fn main() {
             .await
             {
                 error!("Mix failed: {error:#}");
-                std::process::exit(1);
+                std_process::exit(1);
             }
         }
         Commands::Search { query, num } => match search_for(&main_db, query, None, *num).await {

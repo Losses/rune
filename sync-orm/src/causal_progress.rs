@@ -1,6 +1,7 @@
 //! Transaction-bound publication continuity and directional completion.
 use crate::causal_leases::lock_on;
 use anyhow::{Result, ensure};
+use chrono::Utc;
 use sea_orm::{
     ConnectionTrait, DatabaseTransaction, ExprTrait,
     sea_query::{Alias, Condition, Expr, OnConflict, Query},
@@ -70,10 +71,7 @@ pub async fn complete_initialization_on(tx: &DatabaseTransaction, namespace: Uui
     lock_on(tx, namespace).await?;
     let query = Query::update()
         .table(Alias::new("sync_meta"))
-        .value(
-            Alias::new("initialized_at"),
-            chrono::Utc::now().to_rfc3339(),
-        )
+        .value(Alias::new("initialized_at"), Utc::now().to_rfc3339())
         .and_where(Expr::col(Alias::new("namespace")).eq(namespace.as_bytes().to_vec()))
         .and_where(Expr::col(Alias::new("initialized_at")).is_null())
         .to_owned();
@@ -162,7 +160,7 @@ pub async fn adopt_checkpoint_on(
             Vec::<u8>::new().into(),
             sequence.into(),
             received.anchor.to_vec().into(),
-            chrono::Utc::now().to_rfc3339().into(),
+            Utc::now().to_rfc3339().into(),
         ])
         .on_conflict(
             OnConflict::columns(
@@ -319,7 +317,7 @@ pub async fn initialize_checkpoint_on<M: SyncModel>(
             serde_json::to_vec(scope)?.into(),
             i64::try_from(received.sequence)?.into(),
             received.anchor.to_vec().into(),
-            chrono::Utc::now().to_rfc3339().into(),
+            Utc::now().to_rfc3339().into(),
         ])
         .on_conflict(
             OnConflict::columns(
@@ -369,7 +367,7 @@ pub(crate) async fn finish_session_locked_on<M: SyncModel>(
     ensure!(current == *through, p::SyncError::RetryAt(current));
     let query = Query::update()
         .table(Alias::new("sync_checkpoints"))
-        .value(Alias::new("completed_at"), chrono::Utc::now().to_rfc3339())
+        .value(Alias::new("completed_at"), Utc::now().to_rfc3339())
         .cond_where(checkpoint_filter(key))
         .to_owned();
     ensure!(

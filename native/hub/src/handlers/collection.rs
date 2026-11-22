@@ -19,6 +19,7 @@ use uuid::Uuid;
 
 use crate::utils::{GlobalParams, ParamsExtractor, inject_cover_art_map, require_library};
 use crate::{Session, Signal, messages::*};
+use std::clone;
 
 impl From<CollectionQueryType> for CollectionType {
     fn from(value: CollectionQueryType) -> Self {
@@ -76,7 +77,7 @@ async fn handle_fetch_group_summary<T: CollectionQuery>(
     }))
 }
 
-async fn handle_fetch_groups<T: CollectionQuery + std::clone::Clone>(
+async fn handle_fetch_groups<T: CollectionQuery + clone::Clone>(
     fsio: &Arc<FsIo>,
     main_db: &Arc<MainDbConnection>,
     recommend_db: &Arc<RecommendationDbConnection>,
@@ -131,7 +132,7 @@ async fn handle_fetch_groups<T: CollectionQuery + std::clone::Clone>(
     }))
 }
 
-async fn handle_fetch_by_id<T: CollectionQuery + std::clone::Clone>(
+async fn handle_fetch_by_id<T: CollectionQuery + clone::Clone>(
     fsio: &Arc<FsIo>,
     main_db: &Arc<MainDbConnection>,
     recommend_db: &Arc<RecommendationDbConnection>,

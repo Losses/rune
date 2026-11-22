@@ -19,6 +19,8 @@ use crate::library_pool::LibraryHandle;
 use crate::utils::{GlobalParams, ParamsExtractor, process_cover_art_map, require_library};
 use crate::{Session, Signal, messages::*};
 use ::database::actions::playlists::{get_all_playlists, get_playlist_by_id};
+use std::collections;
+use tokio::fs;
 
 type PlaylistArgs = Option<LibraryHandle>;
 
@@ -354,7 +356,7 @@ impl Signal for CreateM3u8PlaylistRequest {
             )?;
             library.fsio.read_to_string(&import_path)?
         } else {
-            tokio::fs::read_to_string(path).await?
+            fs::read_to_string(path).await?
         };
         let lines = parse_m3u8_lines(&content);
 
@@ -462,7 +464,7 @@ impl Signal for FetchPlaylistOccurrencesRequest {
             root,
         )
         .await?;
-        let files: std::collections::HashMap<_, _> =
+        let files: collections::HashMap<_, _> =
             files.into_iter().map(|file| (file.id, file)).collect();
         let cover_art_map = if request.bake_cover_arts {
             bake_cover_art_by_media_files(&library.fsio, &library.main_db, source_files).await?

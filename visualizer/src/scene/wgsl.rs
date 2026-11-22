@@ -507,6 +507,7 @@ fn rv_fragment(v: RvVaryings) -> @location(0) vec4f {{
 
 #[cfg(test)]
 mod tests {
+    use naga::TypeInner;
 
     use super::super::manifest as super_super_manifest;
     use super::super::manifest::MAX_ASSETS;
@@ -599,7 +600,7 @@ inputs = ["prev:trail"]
             .find(|(_, t)| t.name.as_deref() == Some("Frame"))
             .unwrap();
         assert_eq!(u64::from(layouter[handle].size), FRAME_SIZE);
-        let naga::TypeInner::Struct { members, .. } = &module.types[handle].inner else {
+        let TypeInner::Struct { members, .. } = &module.types[handle].inner else {
             panic!("not a struct");
         };
         let offset = |name: &str| {

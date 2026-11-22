@@ -1,5 +1,9 @@
 use crate::macros::non_local_request_names;
 mod access_policy_tests {
+    use reqwest::StatusCode;
+    use sea_orm::sqlx;
+    use tokio::time as tokio_time;
+    use url::Url;
     use super::player_session_tests::replicate_host_library_at;
     use super::*;
     use crate::Session;
@@ -94,12 +98,12 @@ mod access_policy_tests {
         let session = Session {
             fingerprint: user.fingerprint.clone(),
             public_key: user.public_key.clone(),
-            base_url: url::Url::parse("https://127.0.0.1:7863/").unwrap(),
+            base_url: Url::parse("https://127.0.0.1:7863/").unwrap(),
         };
         let second_session = Session {
             fingerprint: user.fingerprint.clone(),
             public_key: user.public_key.clone(),
-            base_url: url::Url::parse("https://127.0.0.1:7863/").unwrap(),
+            base_url: Url::parse("https://127.0.0.1:7863/").unwrap(),
         };
         let item = PlayingItemRef::LibraryTrack {
             library_id: library_b.to_string(),
@@ -152,7 +156,7 @@ mod access_policy_tests {
                 Some(Session {
                     fingerprint: user.fingerprint.clone(),
                     public_key: user.public_key.clone(),
-                    base_url: url::Url::parse("https://127.0.0.1:7863/").unwrap(),
+                    base_url: Url::parse("https://127.0.0.1:7863/").unwrap(),
                 }),
                 Some(pair.id),
                 &node,
@@ -174,7 +178,7 @@ mod access_policy_tests {
                 Some(Session {
                     fingerprint: user.fingerprint,
                     public_key: user.public_key,
-                    base_url: url::Url::parse("https://127.0.0.1:7863/").unwrap(),
+                    base_url: Url::parse("https://127.0.0.1:7863/").unwrap(),
                 }),
                 Some(pair.id),
                 &node,
@@ -258,7 +262,7 @@ mod access_policy_tests {
                 Some(Session {
                     fingerprint: user.fingerprint,
                     public_key: user.public_key,
-                    base_url: url::Url::parse("https://127.0.0.1:7863/").unwrap(),
+                    base_url: Url::parse("https://127.0.0.1:7863/").unwrap(),
                 }),
                 Some(pair.id),
                 &node,
@@ -300,7 +304,7 @@ mod access_policy_tests {
         let session = Session {
             fingerprint: user.fingerprint,
             public_key: user.public_key,
-            base_url: url::Url::parse("https://127.0.0.1:7863/").unwrap(),
+            base_url: Url::parse("https://127.0.0.1:7863/").unwrap(),
         };
 
         let node = Arc::clone(&pair.a.global_params.node);
@@ -543,11 +547,11 @@ mod access_policy_tests {
             .create_if_missing(false)
             .busy_timeout(Duration::ZERO);
         let mut connection = SqliteConnection::connect_with(&options).await?;
-        sea_orm::sqlx::query("BEGIN IMMEDIATE")
+        sqlx::query("BEGIN IMMEDIATE")
             .execute(&mut connection)
             .await?;
         let mut contender = SqliteConnection::connect_with(&options).await?;
-        let error = sea_orm::sqlx::query("BEGIN IMMEDIATE")
+        let error = sqlx::query("BEGIN IMMEDIATE")
             .execute(&mut contender)
             .await
             .expect_err("second writer must be blocked by the held immediate transaction");
@@ -572,7 +576,7 @@ mod access_policy_tests {
             connections.push(pool.acquire().await?);
         }
         for connection in &mut connections {
-            sea_orm::sqlx::query("PRAGMA busy_timeout = 100")
+            sqlx::query("PRAGMA busy_timeout = 100")
                 .execute(&mut **connection)
                 .await?;
         }
@@ -595,7 +599,7 @@ mod access_policy_tests {
             error.downcast_ref::<SyncError>(),
             Some(&SyncError::StorageBusy)
         );
-        sea_orm::sqlx::query("ROLLBACK").execute(&mut lock).await?;
+        sqlx::query("ROLLBACK").execute(&mut lock).await?;
         assert_eq!(pair.pass(false).await?, PeerPass::Complete);
         let replica = pair.b.global_params.test_library();
         assert!(replica.library_sync.get(&key).await?.is_some());
@@ -611,7 +615,7 @@ mod access_policy_tests {
         set_sqlite_busy_timeout(&pair.b).await?;
 
         let result = pair.pass(false).await;
-        sea_orm::sqlx::query("ROLLBACK").execute(&mut lock).await?;
+        sqlx::query("ROLLBACK").execute(&mut lock).await?;
         let error = result.expect_err("held SQLite lock must exhaust the retry cap");
         assert_eq!(
             error.downcast_ref::<SyncError>(),
@@ -710,7 +714,7 @@ mod access_policy_tests {
             .get(format!("https://{}/files/library/migration.txt", pair.addr))
             .send()
             .await?;
-        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.bytes().await?.as_ref(), b"migration");
         socket.close(None).await?;
         pair.close().await
@@ -958,7 +962,7 @@ mod access_policy_tests {
             Some(SyncError::Forbidden)
         ));
         for _ in 0..3 {
-            tokio::time::timeout(TEST_DEADLINE, sleep(Duration::from_secs(1))).await?;
+            tokio_time::timeout(TEST_DEADLINE, sleep(Duration::from_secs(1))).await?;
             assert_eq!(
                 pair.pass(false).await?,
                 PeerPass::Complete,
@@ -1128,7 +1132,7 @@ mod access_policy_tests {
             .json(&serde_json::json!({"operation": "identity"}))
             .send()
             .await?;
-        assert_eq!(metadata.status(), reqwest::StatusCode::FORBIDDEN);
+        assert_eq!(metadata.status(), StatusCode::FORBIDDEN);
         assert_eq!(
             metadata.json::<serde_json::Value>().await?,
             serde_json::json!({"error": "forbidden"})
@@ -1146,7 +1150,7 @@ mod access_policy_tests {
                     .send()
                     .await?
                     .status(),
-                reqwest::StatusCode::FORBIDDEN,
+                StatusCode::FORBIDDEN,
                 "{path}"
             );
         }
@@ -1234,15 +1238,15 @@ mod access_policy_tests {
             .json(&serde_json::json!({"operation": "identity"}))
             .send()
             .await?;
-        assert_eq!(metadata.status(), reqwest::StatusCode::FORBIDDEN);
+        assert_eq!(metadata.status(), StatusCode::FORBIDDEN);
         let source = pair.a.global_params.library_pool.acquire(pair.id).await?;
         let album = write_album(&source, "guest cannot replicate").await?;
         assert_eq!(pair.pass(false).await?, PeerPass::LibraryNotServed);
         let replica = pair.b.global_params.library_pool.acquire(pair.id).await?;
         assert!(replica.library_sync.get(&album).await?.is_none());
         let [audio, cover] = served_files(&pair, "guest-browse.txt").await?;
-        assert_eq!(status(&pair, &audio).await?, reqwest::StatusCode::FORBIDDEN);
-        assert_eq!(status(&pair, &cover).await?, reqwest::StatusCode::OK);
+        assert_eq!(status(&pair, &audio).await?, StatusCode::FORBIDDEN);
+        assert_eq!(status(&pair, &cover).await?, StatusCode::OK);
         let digest = blake3::hash(b"guest blob").to_hex();
         assert_eq!(
             pair.client
@@ -1253,7 +1257,7 @@ mod access_policy_tests {
                 .send()
                 .await?
                 .status(),
-            reqwest::StatusCode::FORBIDDEN
+            StatusCode::FORBIDDEN
         );
         socket.close(None).await?;
         pair.close().await
@@ -1531,7 +1535,7 @@ mod access_policy_tests {
                 .json(&serde_json::json!({"operation": "identity"}))
                 .send()
                 .await?;
-            assert_eq!(sync_response.status(), reqwest::StatusCode::FORBIDDEN);
+            assert_eq!(sync_response.status(), StatusCode::FORBIDDEN);
         }
 
         // Explicitly share `later_id` as well; `unshared_id` remains hidden.
@@ -1826,7 +1830,7 @@ mod access_policy_tests {
                 .send()
                 .await?
                 .status(),
-            reqwest::StatusCode::FORBIDDEN
+            StatusCode::FORBIDDEN
         );
         socket.close(None).await?;
         pair.close().await
@@ -1892,7 +1896,7 @@ mod access_policy_tests {
                 .get(format!("https://{}/{path}", pair.addr))
                 .send()
                 .await?;
-            assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
             assert_ne!(
                 response.bytes().await?.as_ref(),
                 b"cover from another library"
@@ -1905,7 +1909,7 @@ mod access_policy_tests {
             .get(format!("https://{}/{cover}", pair.addr))
             .send()
             .await?;
-        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.bytes().await?.as_ref(), b"cover");
         pair.close().await
     }
@@ -1953,8 +1957,8 @@ mod access_policy_tests {
         let failure: RemoteRequestFailed = rinf::deserialize(&payload)?;
         assert_eq!(failure.kind, RequestErrorKind::PermissionDenied);
         assert_eq!(
-            tokio::time::timeout(TEST_DEADLINE, request).await??.status(),
-            reqwest::StatusCode::FORBIDDEN
+            tokio_time::timeout(TEST_DEADLINE, request).await??.status(),
+            StatusCode::FORBIDDEN
         );
         drop(connections);
         pair.close().await

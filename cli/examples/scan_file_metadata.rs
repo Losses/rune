@@ -5,6 +5,7 @@ use ::metadata::{
     describe::{FileDescription, describe_file},
     scanner::AudioScanner,
 };
+use std::env;
 
 fn to_unix_path_string(path_buf: PathBuf) -> Option<String> {
     let path = path_buf.as_path();
@@ -15,7 +16,7 @@ fn to_unix_path_string(path_buf: PathBuf) -> Option<String> {
 #[tokio::main]
 async fn main() {
     // Get the first command line argument.
-    let args: Vec<String> = std::env::args().collect();
+    let args: Vec<String> = env::args().collect();
     let path = args.get(1).cloned().expect("Audio data path not provided");
     let fsio = FsIo::new();
 

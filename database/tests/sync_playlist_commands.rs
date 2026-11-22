@@ -14,6 +14,7 @@ use database::{
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{Database, EntityTrait, PaginatorTrait, QueryFilter, Set};
 use std::sync::Arc;
+use tokio::fs;
 use uuid::Uuid;
 #[tokio::test]
 async fn commands_publish_playlist_and_occurrence_removals() -> Result<()> {
@@ -241,7 +242,7 @@ async fn occurrence_cursor_preserves_duplicates_and_commands_address_one_uuid() 
     .exec(&db)
     .await?;
     let import_path = root.path().join("list.m3u8");
-    tokio::fs::write(
+    fs::write(
         &import_path,
         "#EXTM3U\nremote.flac\nremote.flac\nmissing.flac\n",
     )

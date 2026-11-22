@@ -3,6 +3,7 @@ use std::{collections::HashMap, f32, f32::consts::PI, sync::Mutex};
 use anyhow::{Result, bail};
 use lazy_static::lazy_static;
 use rustfft::num_complex::Complex;
+use std::iter;
 
 // Code refactored from:
 // * https://github.com/meyda/meyda/ (MIT)
@@ -244,7 +245,7 @@ pub fn create_chroma_filter_bank(
     let bin_width_bins: Vec<f32> = frequency_bins
         .windows(2)
         .map(|w| (w[1] - w[0]).max(1.0))
-        .chain(std::iter::once(1.0))
+        .chain(iter::once(1.0))
         .collect();
 
     let half_num_filters = (num_filters / 2) as isize;

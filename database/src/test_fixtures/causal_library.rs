@@ -7,8 +7,10 @@ use anyhow::Result;
 use http_request::sync::MetadataStore;
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{Database, DatabaseConnection, TransactionTrait};
+use std::env;
 use std::sync::Arc;
 use sync::{self as p, SyncModel};
+use sync_orm::causal_progress;
 use uuid::Uuid;
 
 pub type Peer = Arc<dyn MetadataStore<RuneModel>>;
@@ -53,8 +55,7 @@ impl SqlLibrary {
         };
         let local = self.sync_store.identity().await?;
         let tx = self.db.begin().await?;
-        sync_orm::causal_progress::initialize_checkpoint_on(&tx, &local, &checkpoint, scope, &head)
-            .await?;
+        causal_progress::initialize_checkpoint_on(&tx, &local, &checkpoint, scope, &head).await?;
         tx.commit().await?;
         Ok(head)
     }
@@ -131,7 +132,7 @@ pub async fn drive(
             .await?
         {
             p::SessionAdvance::Complete(progress) => {
-                if std::env::var_os("RUNE_SYNC_TRACE").is_some() {
+                if env::var_os("RUNE_SYNC_TRACE").is_some() {
                     eprintln!(
                         "exchange steps={step} elapsed_ms={} through={}",
                         started.elapsed().as_millis(),

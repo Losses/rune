@@ -7,12 +7,17 @@ use tokio::fs;
 use walkdir::WalkDir;
 
 use super::{DirWalk, FileIo, FileIoError, FileStream, FsNode, OpenMode, StorageLocation};
+use std::fs as std_fs;
+use std::io::Error;
+use std::io::ErrorKind;
+use std::time as std_time;
+use tokio::task;
 
 /// The canonical form of `path` with its metadata, or `InvalidPath` when that
 /// form is not valid Unicode.
 fn canonical_node(path: &Path) -> Result<FsNode, FileIoError> {
     let path = dunce::canonicalize(path).map_err(FileIoError::Io)?;
-    let metadata = std::fs::metadata(&path)?;
+    let metadata = std_fs::metadata(&path)?;
     Ok(FsNode {
         filename: path
             .file_name()
@@ -30,9 +35,9 @@ fn canonical_node(path: &Path) -> Result<FsNode, FileIoError> {
 /// [`canonical_node`] on a blocking thread, for async callers.
 async fn canonical_node_async(path: &Path) -> Result<FsNode, FileIoError> {
     let path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || canonical_node(&path))
+    task::spawn_blocking(move || canonical_node(&path))
         .await
-        .map_err(|error| FileIoError::Io(std::io::Error::other(error)))?
+        .map_err(|error| FileIoError::Io(Error::other(error)))?
 }
 
 pub(crate) struct StdFsIo;
@@ -82,11 +87,11 @@ impl FileIo for StdFsIo {
     }
 
     fn read(&self, path: &Path) -> Result<Vec<u8>, FileIoError> {
-        std::fs::read(path).map_err(FileIoError::Io)
+        std_fs::read(path).map_err(FileIoError::Io)
     }
 
     fn read_to_string(&self, path: &Path) -> Result<String, FileIoError> {
-        std::fs::read_to_string(path).map_err(FileIoError::Io)
+        std_fs::read_to_string(path).map_err(FileIoError::Io)
     }
 
     async fn write(&self, path: &Path, contents: &[u8]) -> Result<(), FileIoError> {
@@ -104,7 +109,7 @@ impl FileIo for StdFsIo {
     }
 
     fn create_dir_all(&self, path: &Path) -> Result<(), FileIoError> {
-        std::fs::create_dir_all(path).map_err(FileIoError::Io)
+        std_fs::create_dir_all(path).map_err(FileIoError::Io)
     }
 
     async fn read_dir(&self, path: &Path) -> Result<Vec<FsNode>, FileIoError> {
@@ -188,13 +193,13 @@ impl FileIo for StdFsIo {
     }
 
     fn exists(&self, path: &Path) -> Result<bool, FileIoError> {
-        Ok(std::fs::exists(path)?)
+        Ok(std_fs::exists(path)?)
     }
 
     fn entry_exists(&self, path: &Path) -> Result<bool, FileIoError> {
-        match std::fs::symlink_metadata(path) {
+        match std_fs::symlink_metadata(path) {
             Ok(_) => Ok(true),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
             Err(error) => Err(error.into()),
         }
     }
@@ -223,7 +228,7 @@ impl FileIo for StdFsIo {
 
     fn canonicalize_str(&self, path: &str) -> Result<FsNode, FileIoError> {
         let path = self.canonicalize_path_str(path)?;
-        let metadata = std::fs::metadata(&path)?;
+        let metadata = std_fs::metadata(&path)?;
         Ok(FsNode {
             filename: path
                 .file_name()
@@ -239,9 +244,9 @@ impl FileIo for StdFsIo {
     }
 
     fn modified_time(&self, path: &Path) -> Result<u64, FileIoError> {
-        let modified = std::fs::metadata(path)?
+        let modified = std_fs::metadata(path)?
             .modified()?
-            .duration_since(std::time::UNIX_EPOCH)
+            .duration_since(std_time::UNIX_EPOCH)
             .unwrap_or_default();
         Ok(modified.as_secs())
     }

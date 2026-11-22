@@ -1,4 +1,5 @@
 use rustfft::num_complex::Complex;
+use std::fmt;
 pub struct AudioDescription {
     pub sample_rate: u32,
     pub duration: f64,
@@ -9,8 +10,8 @@ pub struct AudioDescription {
     pub energy: f32,
 }
 
-impl std::fmt::Debug for AudioDescription {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for AudioDescription {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AudioDescription")
             .field("sample_rate", &self.sample_rate)
             .field("duration", &self.duration)

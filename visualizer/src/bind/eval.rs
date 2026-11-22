@@ -18,6 +18,9 @@ use super::sources::{self, Reading, Source};
 use crate::course;
 use crate::scene::{Bind, FallbackDecl, InputDecl, MusicValues, Param, ParamKind};
 use crate::switching::pick_by_label;
+use std::mem;
+use std::slice;
+use toml::Value;
 
 /// The `how`s a binding knows.
 pub const HOWS: &[&str] = &["follow", "trigger", "step", "pick", "accumulate"];
@@ -423,8 +426,8 @@ struct Declared {
 
 fn number(value: &toml::Value, what: &str) -> Result<f32> {
     let v = match value {
-        toml::Value::Float(v) => *v as f32,
-        toml::Value::Integer(v) => *v as f32,
+        Value::Float(v) => *v as f32,
+        Value::Integer(v) => *v as f32,
         other => bail!("{what} must be a number, not {other}"),
     };
     ensure!(v.is_finite(), "{what} must be a finite number");
@@ -450,11 +453,11 @@ impl<'a> When<'a> {
         rule: &str,
     ) -> Result<Num> {
         let what = format!("`when.{key}`");
-        if let toml::Value::Table(table) = value {
+        if let Value::Table(table) = value {
             let shape =
                 || format!("{what} must be a number or {{ param = \"<id>\", mul = k, add = c }}");
             let id = match table.get("param") {
-                Some(toml::Value::String(id)) => id,
+                Some(Value::String(id)) => id,
                 _ => bail!("{}", shape()),
             };
             ensure!(
@@ -527,7 +530,7 @@ impl<'a> When<'a> {
             return Ok(None);
         };
         let what = format!("`when.{key}`");
-        let toml::Value::Array(items) = value else {
+        let Value::Array(items) = value else {
             bail!("{what} must be [lo, hi]");
         };
         ensure!(items.len() == 2, "{what} must be [lo, hi]");
@@ -542,7 +545,7 @@ impl<'a> When<'a> {
         self.read.push(key);
         match self.table.get(key) {
             None => Ok(default),
-            Some(toml::Value::Boolean(v)) => Ok(*v),
+            Some(Value::Boolean(v)) => Ok(*v),
             Some(other) => bail!("`when.{key}` must be true or false, not {other}"),
         }
     }
@@ -551,7 +554,7 @@ impl<'a> When<'a> {
         self.read.push(key);
         match self.table.get(key) {
             None => Ok(None),
-            Some(toml::Value::String(v)) => Ok(Some(v)),
+            Some(Value::String(v)) => Ok(Some(v)),
             Some(other) => bail!("`when.{key}` must be a word, not {other}"),
         }
     }
@@ -595,7 +598,7 @@ impl Evaluator {
             input,
             Scope {
                 params: &[],
-                inputs: std::slice::from_ref(input),
+                inputs: slice::from_ref(input),
             },
         )
     }
@@ -649,7 +652,7 @@ impl Evaluator {
         when.read.push("mul");
         let mul = match when.table.get("mul") {
             None => None,
-            Some(toml::Value::String(name)) => Some(Mul::Source(
+            Some(Value::String(name)) => Some(Mul::Source(
                 Src::parse(name, scope, slot).context("`when.mul`")?,
             )),
             Some(value) => Some(Mul::Num(when.num_of(value, "mul", any, "")?)),
@@ -739,11 +742,11 @@ impl Evaluator {
                 let every = when.dynamic("every", 1.0, positive, "must be above 0")?;
                 let chance = when.dynamic("chance", 1.0, unit_range, "must be from 0 to 1")?;
                 let start = match when.table.get("start") {
-                    Some(toml::Value::String(word)) if word == "seed" => {
+                    Some(Value::String(word)) if word == "seed" => {
                         when.read.push("start");
                         Start::Seed
                     }
-                    Some(toml::Value::String(other)) => {
+                    Some(Value::String(other)) => {
                         bail!("no `when.start` `{other}` (it is an index, a parameter or seed)")
                     }
                     _ => Start::Index(when.dynamic(
@@ -1342,7 +1345,7 @@ impl Bindings {
                 .iter_mut()
                 .find(|(_, old)| old.bind == fresh.bind && old.input == fresh.input);
             if let Some((_, old)) = same {
-                std::mem::swap(fresh, old);
+                mem::swap(fresh, old);
                 next.values[*slot] = fresh.tick.output;
             }
         }
@@ -1410,6 +1413,8 @@ impl Bindings {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections;
+    use std::ops;
 
     /// A chart with the beat followed, at 120 bpm, so that a beat is half a second.
     fn a() -> MusicValues {
@@ -2233,7 +2238,7 @@ mod tests {
         both.extend(bars(10, 1.0, 1.0));
         both.extend(bars(10, 1.0, 0.0));
         let out = picks("chance = 0.5, jump = \"next\"", &both);
-        let steps = |range: std::ops::Range<usize>, from: u32| -> Vec<u32> {
+        let steps = |range: ops::Range<usize>, from: u32| -> Vec<u32> {
             range
                 .map(|i| (out[i] + 5 - if i == 0 { from } else { out[i - 1] }) % 5)
                 .collect()
@@ -2256,14 +2261,14 @@ mod tests {
             e.tick_in(0.1, &a(), Level::A, &env(&[], seed)).output
         };
         assert_eq!(seeded(7), seeded(7));
-        let seen: std::collections::HashSet<u32> = (0..64).map(|s| seeded(s) as u32).collect();
+        let seen: collections::HashSet<u32> = (0..64).map(|s| seeded(s) as u32).collect();
         assert!(seen.len() >= 4 && seen.iter().all(|i| *i < 5), "{seen:?}");
         // Random is another option every time, the same ones on every run of the song.
         let out = picks("jump = \"random\"", &bars(30, 1.0, 2.0));
         assert!(out.windows(2).all(|w| w[0] != w[1] && w[1] < 5));
         assert!(out[0] != 0);
         assert_eq!(out, picks("jump = \"random\"", &bars(30, 1.0, 2.0)));
-        assert!(out.iter().collect::<std::collections::HashSet<_>>().len() >= 4);
+        assert!(out.iter().collect::<collections::HashSet<_>>().len() >= 4);
         // These keys are for events: a pick by label refuses them, a bad word is named.
         assert!(
             error("source = \"section_label\"\nhow = \"pick\"\nwhen = { options = 3, every = 2 }")

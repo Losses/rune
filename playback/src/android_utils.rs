@@ -6,6 +6,7 @@ use std::{
     sync::{Once, OnceLock},
 };
 
+use jni::sys;
 use jni::{
     JNIEnv, JavaVM,
     objects::{GlobalRef, JObject},
@@ -68,7 +69,7 @@ pub extern "system" fn JNI_OnLoad(vm: *mut JavaVM, _: *mut c_void) -> jint {
             JVM = Some(vm as *mut c_void);
 
             // Initialize ClassLoader for proper class finding from non-main threads
-            let java_vm = JavaVM::from_raw(vm as *mut jni::sys::JavaVM).unwrap();
+            let java_vm = JavaVM::from_raw(vm as *mut sys::JavaVM).unwrap();
             if let Ok(mut env) = java_vm.get_env() {
                 if let Err(e) = ndk_saf::initialize_class_loader(vm, &mut env) {
                     error!("JNI_OnLoad: Failed to setup ClassLoader: {:?}", e);

@@ -12,6 +12,7 @@ use database::{
 };
 use fsio::FsIo;
 use sea_orm::{ColumnTrait, ConnectionTrait, Database, EntityTrait, PaginatorTrait, QueryFilter};
+use std::fs;
 use support::fixtures;
 use uuid::Uuid;
 
@@ -23,7 +24,7 @@ async fn missing_host_file_remove_everywhere_authors_removal() -> Result<()> {
     let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
     let root = tempfile::tempdir()?;
     let path = root.path().join("track.ogg");
-    std::fs::copy(fixtures::audio_fixture(), &path)?;
+    fs::copy(fixtures::audio_fixture(), &path)?;
     let fs = FsIo::new();
     let id = scan_audio_file(&fs, &db, &node.to_string(), root.path(), &path, &store).await?;
     use database::entities::{media_file_likes, media_file_stats};
@@ -54,7 +55,7 @@ async fn missing_host_file_remove_everywhere_authors_removal() -> Result<()> {
     })
     .exec(&db)
     .await?;
-    std::fs::remove_file(path)?;
+    fs::remove_file(path)?;
     fixtures::cleanup_scan(
         &fs,
         &db,
@@ -88,7 +89,7 @@ async fn unavailable_case(managed: bool, policy: MissingHostFilePolicy) -> Resul
     let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
     let root = tempfile::tempdir()?;
     let path = root.path().join("track.ogg");
-    std::fs::copy(fixtures::audio_fixture(), &path)?;
+    fs::copy(fixtures::audio_fixture(), &path)?;
     let fs = FsIo::new();
     let id = scan_audio_file(&fs, &db, &node.to_string(), root.path(), &path, &store).await?;
     if managed {
@@ -105,7 +106,7 @@ async fn unavailable_case(managed: bool, policy: MissingHostFilePolicy) -> Resul
         id: row.source_uuid.parse()?,
     };
     let before = store.get_on(&db, &key).await?;
-    std::fs::remove_file(path)?;
+    fs::remove_file(path)?;
     fixtures::cleanup_scan(&fs, &db, &node.to_string(), root.path(), &store, policy).await?;
     assert!(
         !media_files::Entity::find_by_id(id)
@@ -137,10 +138,10 @@ async fn mass_missing_host_files_are_not_removed() -> Result<()> {
     let mut ids = Vec::new();
     for i in 0..10 {
         let path = root.path().join(format!("track{i}.ogg"));
-        std::fs::copy(fixtures::audio_fixture(), &path)?;
+        fs::copy(fixtures::audio_fixture(), &path)?;
         ids.push(scan_audio_file(&fs, &db, &node.to_string(), root.path(), &path, &store).await?);
         if i < 6 {
-            std::fs::remove_file(path)?;
+            fs::remove_file(path)?;
         }
     }
     fixtures::cleanup_scan(
@@ -173,7 +174,7 @@ async fn missing_host_removal_reaches_another_replica() -> Result<()> {
     let a = support::SqlLibrary::new(namespace, node).await?;
     let b = support::SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     let path = a.root.path().join("track.ogg");
-    std::fs::copy(fixtures::audio_fixture(), &path)?;
+    fs::copy(fixtures::audio_fixture(), &path)?;
     let fs = FsIo::new();
     let store = a.sync_store.record_store();
     let id = scan_audio_file(&fs, &a.db, &node.to_string(), a.root.path(), &path, &store).await?;
@@ -191,7 +192,7 @@ async fn missing_host_removal_reaches_another_replica() -> Result<()> {
             .await?
             .is_some()
     );
-    std::fs::remove_file(path)?;
+    fs::remove_file(path)?;
     fixtures::cleanup_scan(
         &fs,
         &a.db,
@@ -222,8 +223,8 @@ async fn missing_library_root_fails_the_scan_and_keeps_its_tracks() -> Result<()
     let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
     let temp = tempfile::tempdir()?;
     let root = temp.path().join("library");
-    std::fs::create_dir(&root)?;
-    std::fs::copy(fixtures::audio_fixture(), root.join("track.ogg"))?;
+    fs::create_dir(&root)?;
+    fs::copy(fixtures::audio_fixture(), root.join("track.ogg"))?;
     let fs = FsIo::new();
     let actor = node.to_string();
     let scan = || {
@@ -239,7 +240,7 @@ async fn missing_library_root_fails_the_scan_and_keeps_its_tracks() -> Result<()
     assert_eq!(scan().await?, 1);
     let indexed = media_files::Entity::find().all(&db).await?;
 
-    std::fs::rename(&root, temp.path().join("offline"))?;
+    fs::rename(&root, temp.path().join("offline"))?;
     let scanned = scan().await;
 
     assert!(
@@ -277,14 +278,14 @@ async fn rejected_missing_file_removal_is_logged_and_rolled_back() -> Result<()>
     let node = Uuid::new_v4();
     let temp = tempfile::tempdir()?;
     let root = temp.path().join("library");
-    std::fs::create_dir(&root)?;
+    fs::create_dir(&root)?;
     let db = fixtures::disk_database(&temp.path().join("library.sqlite"), node).await?;
     let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
     let fs = FsIo::new();
     let blocked_path = root.join("blocked.ogg");
     let removed_path = root.join("removed.ogg");
-    std::fs::copy(fixtures::audio_fixture(), &blocked_path)?;
-    std::fs::copy(fixtures::audio_fixture(), &removed_path)?;
+    fs::copy(fixtures::audio_fixture(), &blocked_path)?;
+    fs::copy(fixtures::audio_fixture(), &removed_path)?;
     let actor = node.to_string();
     let blocked_id = scan_audio_file(&fs, &db, &actor, &root, &blocked_path, &store).await?;
     let removed_id = scan_audio_file(&fs, &db, &actor, &root, &removed_path, &store).await?;
@@ -300,8 +301,8 @@ async fn rejected_missing_file_removal_is_logged_and_rolled_back() -> Result<()>
          BEGIN SELECT RAISE(ABORT, 'cleanup rejected by test trigger'); END"
     ))
     .await?;
-    std::fs::remove_file(&blocked_path)?;
-    std::fs::remove_file(&removed_path)?;
+    fs::remove_file(&blocked_path)?;
+    fs::remove_file(&removed_path)?;
 
     let scanned = fixtures::cleanup_scan(
         &fs,

@@ -18,6 +18,24 @@ use crate::bind::CourseBinds;
 use crate::course::{Course, Phrase};
 use crate::covers::{Cell as CoverCell, SHARP};
 use crate::scene::{MusicValues, Scene};
+use wgpu::AddressMode;
+use wgpu::BindingResource;
+use wgpu::BindingType;
+use wgpu::BufferBindingType;
+use wgpu::BufferUsages;
+use wgpu::Color;
+use wgpu::ColorWrites;
+use wgpu::FilterMode;
+use wgpu::LoadOp;
+use wgpu::SamplerBindingType;
+use wgpu::ShaderSource;
+use wgpu::ShaderStages;
+use wgpu::StoreOp;
+use wgpu::TextureDimension;
+use wgpu::TextureFormat;
+use wgpu::TextureSampleType;
+use wgpu::TextureUsages;
+use wgpu::TextureViewDimension;
 
 /// The pass and, appended, the cut-in it draws for one of its kinds.
 const SHADER: &str = concat!(include_str!("transition.wgsl"), include_str!("cutin.wgsl"));
@@ -712,13 +730,13 @@ impl Transitions {
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
         let entry = |binding, ty| wgpu::BindGroupLayoutEntry {
             binding,
-            visibility: wgpu::ShaderStages::FRAGMENT,
+            visibility: ShaderStages::FRAGMENT,
             ty,
             count: None,
         };
-        let texture = wgpu::BindingType::Texture {
-            sample_type: wgpu::TextureSampleType::Float { filterable: false },
-            view_dimension: wgpu::TextureViewDimension::D2,
+        let texture = BindingType::Texture {
+            sample_type: TextureSampleType::Float { filterable: false },
+            view_dimension: TextureViewDimension::D2,
             multisampled: false,
         };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -726,8 +744,8 @@ impl Transitions {
             entries: &[
                 entry(
                     0,
-                    wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
+                    BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
@@ -736,16 +754,13 @@ impl Transitions {
                 entry(2, texture),
                 entry(
                     3,
-                    wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
+                    BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: true },
+                        view_dimension: TextureViewDimension::D2,
                         multisampled: false,
                     },
                 ),
-                entry(
-                    4,
-                    wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                ),
+                entry(4, BindingType::Sampler(SamplerBindingType::Filtering)),
             ],
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -755,7 +770,7 @@ impl Transitions {
         });
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("transition"),
-            source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+            source: ShaderSource::Wgsl(SHADER.into()),
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("transition"),
@@ -773,7 +788,7 @@ impl Transitions {
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
+                    write_mask: ColorWrites::ALL,
                 })],
             }),
             primitive: Default::default(),
@@ -785,7 +800,7 @@ impl Transitions {
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("transition"),
             size: UNIFORM_SIZE,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let cover = cover_texture(device, 1);
@@ -793,10 +808,10 @@ impl Transitions {
         // The cover pans past its edge while the band holds: mirrored there.
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("transition cover"),
-            address_mode_u: wgpu::AddressMode::MirrorRepeat,
-            address_mode_v: wgpu::AddressMode::MirrorRepeat,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
+            address_mode_u: AddressMode::MirrorRepeat,
+            address_mode_v: AddressMode::MirrorRepeat,
+            mag_filter: FilterMode::Linear,
+            min_filter: FilterMode::Linear,
             ..Default::default()
         });
         Self {
@@ -877,21 +892,19 @@ impl Transitions {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(fresh),
+                    resource: BindingResource::TextureView(fresh),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::TextureView(
-                        held.map_or(fresh, |held| &held.1),
-                    ),
+                    resource: BindingResource::TextureView(held.map_or(fresh, |held| &held.1)),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&self.cover_view),
+                    resource: BindingResource::TextureView(&self.cover_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    resource: BindingResource::Sampler(&self.sampler),
                 },
             ],
         })
@@ -943,12 +956,12 @@ impl Transitions {
                 },
                 mip_level_count: 1,
                 sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
+                dimension: TextureDimension::D2,
                 format: self.format,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING
-                    | wgpu::TextureUsages::COPY_SRC
-                    | wgpu::TextureUsages::COPY_DST,
+                usage: TextureUsages::RENDER_ATTACHMENT
+                    | TextureUsages::TEXTURE_BINDING
+                    | TextureUsages::COPY_SRC
+                    | TextureUsages::COPY_DST,
                 view_formats: &[],
             });
             let view = texture.create_view(&Default::default());
@@ -1116,8 +1129,8 @@ impl Transitions {
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: wgpu::StoreOp::Store,
+                    load: LoadOp::Clear(Color::BLACK),
+                    store: StoreOp::Store,
                 },
             })],
             depth_stencil_attachment: None,
@@ -1146,9 +1159,9 @@ fn cover_texture(device: &wgpu::Device, side: u32) -> wgpu::Texture {
         },
         mip_level_count: 1,
         sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        dimension: TextureDimension::D2,
+        format: TextureFormat::Rgba8Unorm,
+        usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
         view_formats: &[],
     })
 }
@@ -1250,6 +1263,7 @@ impl Params {
 
 #[cfg(test)]
 mod tests {
+    use std::ops;
     impl OverlayRun {
         /// An overlay of `kind` that starts at `start`, in the music `music` at `phrase`: to the end
         /// of the phrase (see `crate::course::Phrase::beats_left`).
@@ -1696,7 +1710,7 @@ mod tests {
             assert!((peak - most).abs() < 1e-3, "{peak}");
             // Few at first, the most a third of the way, few again near the end (blank steps
             // aside).
-            let mean = |range: std::ops::Range<usize>| {
+            let mean = |range: ops::Range<usize>| {
                 let lit: Vec<f32> = amounts[range]
                     .iter()
                     .copied()

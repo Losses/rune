@@ -32,6 +32,11 @@ use super::analysis::get_centralized_analysis_result;
 use super::collection::{CollectionQuery, CollectionQueryListMode, CollectionQueryType};
 use super::recommendation::get_recommendation_by_parameter;
 use super::utils::CollectionDefinition;
+use sea_orm::sea_query;
+use std::cmp;
+use std::collections;
+use sync::protocol;
+use sync_orm::causal_store;
 
 impl CollectionDefinition for mixes::Entity {
     fn group_column() -> Self::Column {
@@ -147,7 +152,7 @@ impl CollectionQuery for mixes::Model {
             }
 
             CollectionQueryListMode::Random => {
-                let mut query: sea_orm::sea_query::SelectStatement =
+                let mut query: sea_query::SelectStatement =
                     mixes::Entity::find().as_query().to_owned();
 
                 let select = query
@@ -472,7 +477,7 @@ pub async fn add_item_to_mix(
 pub async fn initialize_mix_queries_before_replication(db: &DatabaseConnection) -> Result<()> {
     let tx = db.begin().await?;
     anyhow::ensure!(
-        sync_orm::causal_store::list_namespace_ids_on(&tx, 1)
+        causal_store::list_namespace_ids_on(&tx, 1)
             .await?
             .is_empty(),
         "replica already initialized"
@@ -1189,7 +1194,7 @@ pub async fn query_mix_media_files_with_seed(
             .await?;
 
         // Create a hash map to store files by their ID
-        let file_map: std::collections::HashMap<i32, _> = media_files
+        let file_map: collections::HashMap<i32, _> = media_files
             .into_iter()
             .map(|file| (file.id, file))
             .collect();
@@ -1252,7 +1257,7 @@ pub async fn query_mix_media_files_with_seed(
     }
 
     let final_page_size = if let Some(limit) = pipe_limit {
-        std::cmp::min(limit - cursor as u64, page_size as u64)
+        cmp::min(limit - cursor as u64, page_size as u64)
     } else {
         page_size as u64
     };
@@ -1336,8 +1341,7 @@ pub async fn query_views_on<C: sea_orm::ConnectionTrait>(
             let id = target.context("mix reference missing UUID")?;
             let collection = RuneModel::collection_from_tag(target_kind.tag())
                 .context("unregistered mix reference")?;
-            let local =
-                RuneModel::local_id_on(db, &sync::protocol::ObjectKey { collection, id }).await?;
+            let local = RuneModel::local_id_on(db, &protocol::ObjectKey { collection, id }).await?;
             (
                 local.map_or_else(|| id.to_string(), |id| id.to_string()),
                 local.is_some(),

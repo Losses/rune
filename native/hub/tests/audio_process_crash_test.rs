@@ -23,10 +23,13 @@ use hub::server::sync::{
     http::{BlobContext, SharedLibrary, blob_router},
     library_router,
 };
+use reqwest::Client;
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait, PaginatorTrait,
     QueryFilter, Statement,
 };
+use std::env;
+use std::fs;
 use std::fs::File;
 use std::{
     path::{Path, PathBuf},
@@ -39,6 +42,7 @@ use tokio::net::TcpListener;
 use tokio::runtime::Builder;
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
+use tokio::time as tokio_time;
 use uuid::Uuid;
 
 async fn open_replica(path: &Path) -> Result<DatabaseConnection> {
@@ -72,12 +76,12 @@ async fn revision_counter(db: &DatabaseConnection) -> Result<i64> {
 
 #[test]
 fn import_child() -> Result<()> {
-    let Ok(db_path) = std::env::var("RUNE_TEST_DB") else {
+    let Ok(db_path) = env::var("RUNE_TEST_DB") else {
         return Ok(());
     };
-    let root = PathBuf::from(std::env::var("RUNE_TEST_ROOT")?);
-    let node = Uuid::parse_str(&std::env::var("RUNE_TEST_NODE")?)?;
-    let server = std::env::var("RUNE_TEST_SERVER")?;
+    let root = PathBuf::from(env::var("RUNE_TEST_ROOT")?);
+    let node = Uuid::parse_str(&env::var("RUNE_TEST_NODE")?)?;
+    let server = env::var("RUNE_TEST_SERVER")?;
     Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
@@ -91,7 +95,7 @@ fn import_child() -> Result<()> {
                 fsio,
                 root,
                 node,
-                &MetadataPeer::new(&server, reqwest::Client::new()),
+                &MetadataPeer::new(&server, Client::new()),
                 Arc::new(|| {}),
             )
             .await?;
@@ -111,8 +115,8 @@ async fn killed_imports_recover_across_publication_stages() -> Result<()> {
     let source_node = Uuid::new_v4();
     let source_db = fixtures::initialized_memory(source_node).await?;
     for index in 0..2 {
-        let bytes = std::fs::read(fixtures::audio_fixture_at(index))?;
-        std::fs::write(source_root.path().join(format!("source{index}.ogg")), bytes)?;
+        let bytes = fs::read(fixtures::audio_fixture_at(index))?;
+        fs::write(source_root.path().join(format!("source{index}.ogg")), bytes)?;
     }
     let source = fixtures::open_library(source_db.clone(), source_node, None).await?;
     fixtures::scan_library(
@@ -180,7 +184,7 @@ async fn killed_imports_recover_across_publication_stages() -> Result<()> {
             "replica must use SQLite EXTRA synchronous mode"
         );
         initialize_db(&db, &node.to_string()).await?;
-        sync_library(db.clone(), node, &base, reqwest::Client::new()).await?;
+        sync_library(db.clone(), node, &base, Client::new()).await?;
         let selected = media_files::Entity::find()
             .filter(media_files::Column::SourceUuid.eq(selected_track.to_string()))
             .one(&db)
@@ -217,7 +221,7 @@ async fn killed_imports_recover_across_publication_stages() -> Result<()> {
         let marker = root.path().join("fault.marker");
         let log_path = root.path().join("child.log");
         let log = File::create(&log_path)?;
-        let mut child = Command::new(std::env::current_exe()?)
+        let mut child = Command::new(env::current_exe()?)
             .args(["--exact", "import_child", "--nocapture"])
             .env("RUNE_TEST_DB", &db_path)
             .env("RUNE_TEST_ROOT", root.path())
@@ -228,7 +232,7 @@ async fn killed_imports_recover_across_publication_stages() -> Result<()> {
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log))
             .spawn()?;
-        let reached = tokio::time::timeout(Duration::from_secs(45), async {
+        let reached = tokio_time::timeout(Duration::from_secs(45), async {
             loop {
                 if marker.exists() {
                     break true;
@@ -236,7 +240,7 @@ async fn killed_imports_recover_across_publication_stages() -> Result<()> {
                 if child.try_wait().unwrap().is_some() {
                     break false;
                 }
-                tokio::time::sleep(Duration::from_millis(25)).await;
+                tokio_time::sleep(Duration::from_millis(25)).await;
             }
         })
         .await
@@ -246,7 +250,7 @@ async fn killed_imports_recover_across_publication_stages() -> Result<()> {
             let _ = child.wait();
             anyhow::bail!(
                 "child did not reach {stage}: {}",
-                std::fs::read_to_string(&log_path).unwrap_or_default()
+                fs::read_to_string(&log_path).unwrap_or_default()
             );
         }
         child.kill()?;
@@ -282,12 +286,12 @@ async fn killed_imports_recover_across_publication_stages() -> Result<()> {
             assert_eq!(hash_file(&fsio, &final_path)?, selected_blob, "{stage}");
         }
         if stage == "partial" {
-            let partials = std::fs::read_dir(final_path.parent().unwrap())?
+            let partials = fs::read_dir(final_path.parent().unwrap())?
                 .filter_map(|entry| entry.ok())
                 .filter(|entry| entry.file_name().to_string_lossy().contains(".part-"))
                 .collect::<Vec<_>>();
             assert_eq!(partials.len(), 1);
-            let partial = std::fs::metadata(partials[0].path())?;
+            let partial = fs::metadata(partials[0].path())?;
             assert!(partial.len() > 0 && partial.len() < selected_blob.size);
         }
         // A user or startup scan can run before the interrupted import is retried.
@@ -372,7 +376,7 @@ async fn killed_imports_recover_across_publication_stages() -> Result<()> {
             fsio.clone(),
             root.path().into(),
             node,
-            &MetadataPeer::new(&base, reqwest::Client::new()),
+            &MetadataPeer::new(&base, Client::new()),
             Arc::new(|| {}),
         )
         .await?;

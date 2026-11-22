@@ -1,4 +1,6 @@
 use crate::error::ExpectedError;
+use sea_orm::Condition;
+use sea_orm::sea_query;
 use std::ffi::OsStr;
 mod access;
 mod content;
@@ -129,8 +131,7 @@ pub async fn get_random_files(
     db: &DatabaseConnection,
     n: usize,
 ) -> Result<Vec<media_files::Model>, sea_orm::DbErr> {
-    let mut query: sea_orm::sea_query::SelectStatement =
-        media_files::Entity::find().as_query().to_owned();
+    let mut query: sea_query::SelectStatement = media_files::Entity::find().as_query().to_owned();
     let select = query
         .order_by_expr(SimpleExpr::FunctionCall(Func::random()), Order::Asc)
         .limit(n as u64);
@@ -241,7 +242,7 @@ pub async fn get_file_ids_by_descriptions(
         return Ok(vec![]);
     }
 
-    let mut conditions = sea_orm::Condition::any();
+    let mut conditions = Condition::any();
 
     for description in descriptions {
         match description {

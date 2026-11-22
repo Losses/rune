@@ -5,6 +5,7 @@ use sea_orm::{
     ConnectionTrait, DatabaseTransaction, ExprTrait, FromQueryResult,
     sea_query::{Alias, Expr, Func, JoinType, Query},
 };
+use std::cmp;
 use uuid::Uuid;
 
 /// Maximum age for an export pin before the exporter must publish a base.
@@ -274,10 +275,7 @@ pub(crate) async fn minimum_pin_on(
         };
         let pin = (state, sequence);
         minimum = Some(minimum.map_or(pin, |current: (i64, i64)| {
-            (
-                std::cmp::min(current.0, pin.0),
-                std::cmp::min(current.1, pin.1),
-            )
+            (cmp::min(current.0, pin.0), cmp::min(current.1, pin.1))
         }));
     }
     Ok(minimum)

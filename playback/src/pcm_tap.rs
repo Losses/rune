@@ -204,6 +204,7 @@ where
 mod tests {
     use super::*;
     use rodio::buffer::SamplesBuffer;
+    use std::iter;
 
     fn source(samples: Vec<i16>) -> SamplesBuffer<i16> {
         SamplesBuffer::new(2, 48_000, samples)
@@ -263,7 +264,7 @@ mod tests {
         source.next(); // left of frame 0
         tap.set_enabled(true);
         let _: Vec<i16> = source.collect(); // starts on a right sample
-        let got: Vec<f32> = std::iter::from_fn(|| consumer.pop().ok()).collect();
+        let got: Vec<f32> = iter::from_fn(|| consumer.pop().ok()).collect();
         assert!(!got.is_empty() && got.len().is_multiple_of(2));
         assert!(
             got.as_chunks::<2>()
@@ -281,7 +282,7 @@ mod tests {
         let mut consumer = tap.take_consumer().unwrap();
         let input: Vec<i16> = (0..3 * 2000).map(|i| (i % 3) as i16 * 1000).collect();
         let _: Vec<i16> = tap.wrap(SamplesBuffer::new(3, 48_000, input)).collect();
-        let got: Vec<f32> = std::iter::from_fn(|| consumer.pop().ok()).collect();
+        let got: Vec<f32> = iter::from_fn(|| consumer.pop().ok()).collect();
         assert!(got.len().is_multiple_of(3));
         assert!(
             got.as_chunks::<3>()
@@ -302,7 +303,7 @@ mod tests {
         let _: Vec<i16> = tap.wrap(source(input)).collect();
         // One 1024-sample batch fits; the next would only partly fit and is dropped whole.
         assert_eq!(consumer.slots(), 1024);
-        let got: Vec<f32> = std::iter::from_fn(|| consumer.pop().ok()).collect();
+        let got: Vec<f32> = iter::from_fn(|| consumer.pop().ok()).collect();
         assert!(
             got.as_chunks::<2>()
                 .0

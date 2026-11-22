@@ -70,6 +70,7 @@ use crate::{
     visualizer::{feed_cover_bytes, playing_cover_changed},
 };
 use store::SessionState;
+use tokio::task;
 
 /// One renderer and its durable queue, with node-scoped event listeners.
 pub(crate) struct HandoffLoadParams {
@@ -995,10 +996,9 @@ async fn handle_status_event(
             let broadcaster = Arc::clone(broadcaster);
             let weak_node = Arc::downgrade(node);
             tokio::spawn(async move {
-                let chart = tokio::task::spawn_blocking(move || {
-                    visualizer::analyze_chart_file(&fsio, &path)
-                })
-                .await;
+                let chart =
+                    task::spawn_blocking(move || visualizer::analyze_chart_file(&fsio, &path))
+                        .await;
                 let Ok(Ok(chart)) = chart else {
                     return;
                 };

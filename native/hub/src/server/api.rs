@@ -20,6 +20,7 @@ use ::discovery::{
     endpoint::{DeviceAddress, DeviceScheme, device_url},
     utils::DeviceType,
 };
+use tokio::time as tokio_time;
 
 /// Remove a paired device from both trust directions.
 pub async fn remove_trusted_device(
@@ -57,7 +58,7 @@ async fn verify_hosts_for_fingerprint(
             .map_err(|_| ExpectedRequestError::invalid_input("Device address is malformed"))?;
         let url = address.url(DeviceScheme::Https, "/ping")?;
         canonical_hosts.push(address.to_string());
-        let certificate = tokio::time::timeout(
+        let certificate = tokio_time::timeout(
             Duration::from_secs(5),
             fetch_server_certificate(url.as_str()),
         )

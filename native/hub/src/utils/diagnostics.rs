@@ -5,13 +5,18 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use anyhow::Error;
 use fsio::FsIo;
 #[cfg(target_os = "android")]
 use fsio::self_test::skipped_layer_results;
 use fsio::self_test::{FsSelfTestLayerResult, run_fs_self_test};
+use futures::FutureExt;
 use log::{error, info};
 use rinf::{DartSignal, RustSignal};
+use sea_orm::sqlx;
 use sea_orm::sqlx::{ConnectOptions, Connection, sqlite::SqliteConnectOptions};
+use std::panic;
+use tokio::fs;
 use uuid::Uuid;
 
 use crate::macros::StandaloneRequestReceiver;
@@ -126,7 +131,7 @@ async fn run_wal_probe(path: &str, db_path: &str) -> anyhow::Result<()> {
     let storage = get_storage_info(&fsio, path, Some(db_path))?;
     #[cfg(target_os = "android")]
     if storage.db_dir.is_absolute() {
-        tokio::fs::create_dir_all(&storage.db_dir).await?;
+        fs::create_dir_all(&storage.db_dir).await?;
     } else {
         fsio.ensure_directory(&storage.db_dir).await?;
     }
@@ -138,7 +143,7 @@ async fn run_wal_probe(path: &str, db_path: &str) -> anyhow::Result<()> {
         .join(format!(".wal-probe-{}.db", Uuid::new_v4().simple()));
     #[cfg(target_os = "android")]
     let native_path = if storage.db_dir.is_absolute() {
-        tokio::fs::write(&temporary_path, b"").await?;
+        fs::write(&temporary_path, b"").await?;
         temporary_path.clone()
     } else {
         let node = fsio.ensure_file(&temporary_path).await?;
@@ -155,24 +160,24 @@ async fn run_wal_probe(path: &str, db_path: &str) -> anyhow::Result<()> {
             .filename(&native_path)
             .create_if_missing(true);
         let mut connection = options.connect().await?;
-        let mode: String = sea_orm::sqlx::query_scalar("PRAGMA journal_mode=WAL")
+        let mode: String = sqlx::query_scalar("PRAGMA journal_mode=WAL")
             .fetch_one(&mut connection)
             .await?;
         anyhow::ensure!(
             mode.eq_ignore_ascii_case("wal"),
             "SQLite selected journal mode {mode}"
         );
-        sea_orm::sqlx::query("CREATE TABLE wal_probe (value INTEGER NOT NULL)")
+        sqlx::query("CREATE TABLE wal_probe (value INTEGER NOT NULL)")
             .execute(&mut connection)
             .await?;
-        sea_orm::sqlx::query("INSERT INTO wal_probe (value) VALUES (1)")
+        sqlx::query("INSERT INTO wal_probe (value) VALUES (1)")
             .execute(&mut connection)
             .await?;
-        let value: i64 = sea_orm::sqlx::query_scalar("SELECT value FROM wal_probe")
+        let value: i64 = sqlx::query_scalar("SELECT value FROM wal_probe")
             .fetch_one(&mut connection)
             .await?;
         anyhow::ensure!(value == 1, "SQLite WAL probe read back an unexpected value");
-        let mode: String = sea_orm::sqlx::query_scalar("PRAGMA journal_mode=DELETE")
+        let mode: String = sqlx::query_scalar("PRAGMA journal_mode=DELETE")
             .fetch_one(&mut connection)
             .await?;
         anyhow::ensure!(
@@ -207,7 +212,7 @@ async fn run_wal_probe(path: &str, db_path: &str) -> anyhow::Result<()> {
 async fn remove_sqlite_files_if_present(paths: [PathBuf; 3]) -> anyhow::Result<()> {
     let mut first_error = None;
     for path in paths {
-        if let Err(error) = tokio::fs::remove_file(path).await
+        if let Err(error) = fs::remove_file(path).await
             && error.kind() != ErrorKind::NotFound
             && first_error.is_none()
         {
@@ -221,9 +226,9 @@ async fn remove_fsio_files_if_present(fsio: &FsIo, paths: [PathBuf; 3]) -> anyho
     let mut first_error = None;
     for path in paths {
         let result = match fsio.exists(&path) {
-            Ok(true) => fsio.remove_file(&path).await.map_err(anyhow::Error::from),
+            Ok(true) => fsio.remove_file(&path).await.map_err(Error::from),
             Ok(false) => Ok(()),
-            Err(error) => Err(anyhow::Error::from(error)),
+            Err(error) => Err(Error::from(error)),
         };
         if let Err(error) = result
             && first_error.is_none()
@@ -245,8 +250,8 @@ pub async fn receive_fs_self_test() {
         let db_path = dart_signal.message.db_path;
         info!("Running filesystem self-test on: {path}");
 
-        let results = std::panic::AssertUnwindSafe(run_self_test(&path));
-        let results = match futures::FutureExt::catch_unwind(results).await {
+        let results = panic::AssertUnwindSafe(run_self_test(&path));
+        let results = match FutureExt::catch_unwind(results).await {
             Ok(results) => results,
             Err(e) => {
                 error!("Filesystem self-test panicked: {e:?}");
@@ -310,6 +315,8 @@ impl StandaloneRequestReceiver for RunFsSelfTestRequest {
 #[cfg(test)]
 mod tests {
     use crate::messages::FsSelfTestLayerOutcome;
+    use std::fs as std_fs;
+    use tokio::fs;
 
     use super::*;
     use anyhow::Context;
@@ -365,7 +372,7 @@ mod tests {
     async fn wal_self_test_reports_typed_result_and_removes_probe_file() -> anyhow::Result<()> {
         let directory = TempDir::new()?;
         let library = directory.path().join("library");
-        tokio::fs::create_dir_all(&library).await?;
+        fs::create_dir_all(&library).await?;
         let result = run_wal_self_test(
             library.to_str().context("library path")?,
             directory.path().to_str().context("database path")?,
@@ -373,7 +380,7 @@ mod tests {
         .await;
         assert!(result.supported, "{:?}", result.detail);
         let db_dir = library.join(".rune");
-        assert!(!std::fs::read_dir(db_dir)?.any(|entry| {
+        assert!(!std_fs::read_dir(db_dir)?.any(|entry| {
             entry
                 .map(|entry| {
                     entry

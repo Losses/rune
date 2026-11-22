@@ -8,18 +8,20 @@ use database::{
 use std::{path::PathBuf, sync::Arc};
 
 use fsio::FsIo;
+use std::env;
+use uuid::Uuid;
 
 #[tokio::main]
 async fn main() {
     let path = ".";
     let fsio = FsIo::new();
-    let node_id = uuid::Uuid::new_v4();
+    let node_id = Uuid::new_v4();
     let main_db = connect_main_db(&fsio, path, None, &node_id.to_string())
         .await
         .unwrap();
 
     // Get the first command line argument.
-    let args: Vec<String> = std::env::args().collect();
+    let args: Vec<String> = env::args().collect();
     let path = args.get(1).cloned().expect("Audio data path not provided");
 
     let root_path = PathBuf::from(&path);

@@ -3,13 +3,19 @@ use crate::causal_candidates::CandidateRow;
 use crate::causal_leases::{begin_write, lock_on};
 use crate::causal_schema::{ensure_export_cursors_on, ensure_journal_origin_on};
 use crate::causal_writer::WriterIncarnation;
+use anyhow::Error;
 use anyhow::{Result, ensure};
+use chrono::Utc;
 use sea_orm::sea_query::Order;
 use sea_orm::{
     ConnectionTrait, DatabaseConnection, DatabaseTransaction, DbBackend, ExprTrait,
     FromQueryResult, Statement, TransactionTrait,
     sea_query::{Alias, Expr, Query},
 };
+use std::cmp;
+use std::collections;
+use std::result;
+use std::str;
 use std::{cmp::max, marker::PhantomData, sync::Arc};
 use sync::causal::{self, Context};
 use sync::protocol::{self, ModelId, StoreIdentity, SyncModel};
@@ -24,7 +30,7 @@ async fn ensure_writer_columns_on<C: ConnectionTrait>(db: &C) -> Result<()> {
         .await?
         .into_iter()
         .map(|row| row.try_get_by_index::<String>(1))
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+        .collect::<result::Result<Vec<_>, _>>()?;
     for (name, sql_type) in [
         ("writer_incarnation", "BLOB"),
         ("writer_author", "BLOB"),
@@ -165,7 +171,7 @@ async fn reserve_writer_on<C: ConnectionTrait>(
         "missing causal namespace"
     );
     WriterIncarnation::with_reservation(author, incarnation, start as u64, end as u64)
-        .map_err(anyhow::Error::msg)
+        .map_err(Error::msg)
 }
 
 #[derive(Clone, Debug)]
@@ -383,7 +389,7 @@ impl<M: SyncModel> CausalReplica<M> {
         tx.execute(&q).await?;
         let writer = Arc::new(
             WriterIncarnation::with_reservation(author, writer_id, 0, reserved_end as u64)
-                .map_err(anyhow::Error::msg)?,
+                .map_err(Error::msg)?,
         );
         Ok(Self {
             db,
@@ -599,7 +605,7 @@ impl<M: SyncModel> CausalReplica<M> {
             return Err(protocol::SyncError::WorkLimit.into());
         }
         let before = winner(&current)?;
-        let known: std::collections::BTreeSet<Dot> =
+        let known: collections::BTreeSet<Dot> =
             current.iter().map(|candidate| candidate.dot).collect();
         let removed = match observed {
             protocol::Observed::AllCurrent => known.clone(),
@@ -620,7 +626,7 @@ impl<M: SyncModel> CausalReplica<M> {
             counter: u64::try_from(meta.revision_counter)?
                 .checked_add(1)
                 .filter(|n| *n <= protocol::MAX_NUMBER)
-                .ok_or_else(|| anyhow::Error::new(protocol::SyncError::ClockExhausted))?,
+                .ok_or_else(|| Error::new(protocol::SyncError::ClockExhausted))?,
             actor: self.writer.author(),
         };
         M::validate_revision(&key, &value, &revision)?;
@@ -682,11 +688,11 @@ impl<M: SyncModel> CausalReplica<M> {
         let state = meta
             .state_seq
             .checked_add(1)
-            .ok_or_else(|| anyhow::Error::new(protocol::SyncError::ClockExhausted))?;
+            .ok_or_else(|| Error::new(protocol::SyncError::ClockExhausted))?;
         let sequence = meta
             .head
             .checked_add(1)
-            .ok_or_else(|| anyhow::Error::new(protocol::SyncError::ClockExhausted))?;
+            .ok_or_else(|| Error::new(protocol::SyncError::ClockExhausted))?;
         let event = Event::Key(KeyDelta {
             key: key.clone(),
             author: revision,
@@ -1171,7 +1177,7 @@ impl<M: SyncModel> CausalReplica<M> {
                     for candidate in [&change.before, &change.after].into_iter().flatten() {
                         projection_bytes = projection_bytes
                             .checked_add(protocol::canonical_candidate(candidate)?.len() as u64)
-                            .ok_or_else(|| anyhow::Error::new(protocol::SyncError::WorkLimit))?;
+                            .ok_or_else(|| Error::new(protocol::SyncError::WorkLimit))?;
                     }
                     ensure!(
                         projection_bytes <= limits.max_projection_bytes,
@@ -1202,7 +1208,7 @@ impl<M: SyncModel> CausalReplica<M> {
                     for candidate in [&change.before, &change.after].into_iter().flatten() {
                         projection_bytes = projection_bytes
                             .checked_add(protocol::canonical_candidate(candidate)?.len() as u64)
-                            .ok_or_else(|| anyhow::Error::new(protocol::SyncError::WorkLimit))?;
+                            .ok_or_else(|| Error::new(protocol::SyncError::WorkLimit))?;
                     }
                     ensure!(
                         projection_bytes <= limits.max_projection_bytes,
@@ -1218,7 +1224,7 @@ impl<M: SyncModel> CausalReplica<M> {
             .value(Alias::new("sequence"), i64::try_from(page.next.sequence)?)
             .value(Alias::new("anchor"), page.next.anchor.to_vec());
         if page.done {
-            update.value(Alias::new("completed_at"), chrono::Utc::now().to_rfc3339());
+            update.value(Alias::new("completed_at"), Utc::now().to_rfc3339());
         }
         update
             .and_where(Expr::col(Alias::new("namespace")).eq(self.namespace.as_bytes().to_vec()))
@@ -1568,7 +1574,7 @@ impl<M: SyncModel> CausalReplica<M> {
             let sequence = u64::try_from(row.try_get_by_index::<i64>(0)?)?;
             ensure!(sequence == page.next.sequence + 1, "journal gap");
             let tag: Vec<u8> = row.try_get_by_index(1)?;
-            let tag = std::str::from_utf8(&tag)?;
+            let tag = str::from_utf8(&tag)?;
             let collection = M::collection_from_tag(tag)
                 .ok_or_else(|| anyhow::anyhow!("unknown journal collection"))?;
             ensure!(
@@ -1791,7 +1797,7 @@ impl<M: SyncModel> CausalReplica<M> {
                 && limits.max_mutations <= protocol::MAX_MUTATIONS,
             protocol::SyncError::Invalid("invalid merge apply limits".into())
         );
-        *budget = std::cmp::min(*budget, limits.max_mutations)
+        *budget = cmp::min(*budget, limits.max_mutations)
             .checked_sub(1)
             .ok_or(protocol::SyncError::WorkLimit)?;
         let event = protocol::Event::Merge(Box::new(delta.clone()));
@@ -1850,7 +1856,7 @@ impl<M: SyncModel> CausalReplica<M> {
                 )
                 .and_where(Expr::col(Alias::new("live_from")).is_not_null())
                 .and_where(Expr::col(Alias::new("live_until")).is_null())
-                .limit(std::cmp::min(*budget, protocol::MAX_MUTATIONS).saturating_add(1))
+                .limit(cmp::min(*budget, protocol::MAX_MUTATIONS).saturating_add(1))
                 .to_owned();
             for row in tx.query_all(&q).await? {
                 keys.insert(Uuid::from_slice(&row.try_get_by_index::<Vec<u8>>(0)?)?);
@@ -2003,7 +2009,7 @@ impl<M: SyncModel> CausalReplica<M> {
                 && projection_bytes <= limits.max_projection_bytes,
             protocol::SyncError::WorkLimit
         );
-        let observed_revision = std::cmp::max(meta.revision_counter, i64::try_from(revision)?);
+        let observed_revision = cmp::max(meta.revision_counter, i64::try_from(revision)?);
         if changed {
             let body = protocol::canonical_event(event)?;
             let kind = match event {

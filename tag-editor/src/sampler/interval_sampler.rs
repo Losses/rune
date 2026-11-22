@@ -17,6 +17,7 @@ use tokio_util::sync::CancellationToken;
 
 use analysis::utils::audio_metadata_reader::{get_codec_information, get_format};
 use fsio::FsIo;
+use std::iter;
 
 pub struct SampleEvent {
     pub sample_index: usize,  // The index of the current sample
@@ -326,7 +327,7 @@ fn resample_window(
     let mut data = Vec::with_capacity(expected);
 
     // Flush the FFT overlap with zero input so the window's final samples are available.
-    for block in samples.chunks(block_len).chain(std::iter::once(&[][..])) {
+    for block in samples.chunks(block_len).chain(iter::once(&[][..])) {
         let (_, written) = if block.len() == block_len {
             resampler.process_into_buffer(&[block], output, None)?
         } else {

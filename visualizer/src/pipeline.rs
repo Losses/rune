@@ -8,9 +8,19 @@
 //! Frames handed to Flutter without a copy are submitted without waiting for the GPU and handed
 //! out once it has finished them (see [`crate::in_flight`]).
 
+use std::mem;
+use std::panic;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
+use std::thread;
 use std::time::{Duration, Instant};
+use wgpu::DeviceType;
+use wgpu::Features;
+use wgpu::Instance;
+use wgpu::PollError;
+use wgpu::PollType;
+use wgpu::PowerPreference;
+use wgpu::TextureFormat;
 
 #[cfg(target_os = "android")]
 use anyhow::bail;
@@ -50,9 +60,9 @@ use crate::{DEFAULT_FPS, DeviceUuids, switching};
 /// (`GL_RGBA8`). Scenes draw the target as it is, so with a linear format the bytes are exactly
 /// what the scene drew. Android's swapchains take RGBA too (see `crate::window`).
 #[cfg(target_vendor = "apple")]
-pub(crate) const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
+pub(crate) const FORMAT: wgpu::TextureFormat = TextureFormat::Bgra8Unorm;
 #[cfg(not(target_vendor = "apple"))]
-pub(crate) const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+pub(crate) const FORMAT: wgpu::TextureFormat = TextureFormat::Rgba8Unorm;
 
 pub struct Pipeline {
     device: wgpu::Device,
@@ -158,7 +168,7 @@ impl SceneBuild {
         // wgpu's Vulkan backend compiles shaders with naga, which panics on the odd one (a struct
         // field's address as a call argument, for one). That happens on this thread; without the
         // guard the scene would never come in and the status would say nothing.
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        panic::catch_unwind(panic::AssertUnwindSafe(|| {
             Scene::load_from(
                 &self.device,
                 &self.queue,
@@ -282,9 +292,9 @@ fn choose_adapter(
 /// or why there is none. It takes about as long as creating a GPU instance, so call it off the
 /// UI's thread.
 pub fn probe_gpu() -> Result<String> {
-    let instance = wgpu::Instance::default();
+    let instance = Instance::default();
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
+        power_preference: PowerPreference::HighPerformance,
         ..Default::default()
     }))
     .map_err(|e| anyhow!("No GPU adapter: {e}"))?;
@@ -298,7 +308,7 @@ pub fn probe_gpu() -> Result<String> {
 /// own stack). The visualizer does not start on one.
 fn refuse_software(adapter: &wgpu::Adapter) -> Result<()> {
     let info = adapter.get_info();
-    if info.device_type == wgpu::DeviceType::Cpu {
+    if info.device_type == DeviceType::Cpu {
         anyhow::bail!(
             "The visualizer needs a GPU; only a software renderer ({}) is available",
             info.name
@@ -338,7 +348,7 @@ fn any_adapter(
     #[cfg(not(target_os = "linux"))]
     let _ = device_uuids;
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
+        power_preference: PowerPreference::HighPerformance,
         compatible_surface,
         ..Default::default()
     }))
@@ -365,7 +375,7 @@ fn request_device(
     }
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         // For the GPU time of a frame (see `crate::gpu_time`), where there are timestamps.
-        required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
+        required_features: adapter.features() & Features::TIMESTAMP_QUERY,
         ..Default::default()
     }))
     .context("Failed to create the GPU device")?;
@@ -411,7 +421,7 @@ impl Pipeline {
         on_gpu_error: Arc<dyn Fn(String) + Send + Sync>,
         #[cfg(target_os = "android")] window: Option<Window>,
     ) -> Result<Self> {
-        let instance = wgpu::Instance::default();
+        let instance = Instance::default();
         // The surface comes first, so that the adapter is one that can present into it.
         #[cfg(target_os = "android")]
         let surface = match window {
@@ -557,10 +567,7 @@ impl Pipeline {
 
     /// The GPU time of the frames (seconds) that finished since the last call.
     pub fn take_frame_times(&mut self) -> Vec<f64> {
-        self.recorded
-            .as_mut()
-            .map(std::mem::take)
-            .unwrap_or_default()
+        self.recorded.as_mut().map(mem::take).unwrap_or_default()
     }
 
     /// How many frames were not drawn so far because every target was still in use.
@@ -1364,7 +1371,7 @@ impl Pipeline {
         let wake = release(&self.in_flight);
         let now = Instant::now();
         if self.in_flight.release_at().is_some() && wake > now {
-            std::thread::sleep(wake - now);
+            thread::sleep(wake - now);
         }
         Ok(self.take_finished())
     }
@@ -1383,11 +1390,11 @@ impl Pipeline {
         }
         if unfinished == 1 {
             let timeout = until.map(|until| until.saturating_duration_since(Instant::now()));
-            return match self.device.poll(wgpu::PollType::Wait {
+            return match self.device.poll(PollType::Wait {
                 submission_index: None,
                 timeout,
             }) {
-                Ok(_) | Err(wgpu::PollError::Timeout) => Ok(()),
+                Ok(_) | Err(PollError::Timeout) => Ok(()),
                 Err(e) => Err(anyhow!("GPU poll failed: {e:?}")),
             };
         }
@@ -1398,14 +1405,14 @@ impl Pipeline {
                 return Ok(());
             }
             let step = until.map_or(WAIT_STEP, |until| WAIT_STEP.min(until - now));
-            std::thread::sleep(step);
+            thread::sleep(step);
         }
     }
 
     /// Run the callbacks of the work the GPU has finished, without waiting.
     fn poll(&self) -> Result<()> {
         self.device
-            .poll(wgpu::PollType::Poll)
+            .poll(PollType::Poll)
             .map(|_| ())
             .map_err(|e| anyhow!("GPU poll failed: {e:?}"))
     }
@@ -1447,7 +1454,7 @@ impl Pipeline {
             return;
         }
         // Everything: see `wait_for_oldest` for why not their own submissions.
-        let waited = self.device.poll(wgpu::PollType::Wait {
+        let waited = self.device.poll(PollType::Wait {
             submission_index: None,
             timeout: Some(FINISH_WAIT),
         });
@@ -1456,7 +1463,7 @@ impl Pipeline {
             Ok(_) => drop(frames),
             Err(e) => {
                 warn!("Letting go of frames the GPU has not finished: {e:?}");
-                std::mem::forget(frames);
+                mem::forget(frames);
             }
         }
     }
@@ -1882,6 +1889,21 @@ fn start_overlay(transitions: &mut Transitions, plan: Plan, scene: &Scene, time:
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use image::RgbaImage;
+    use image::imageops;
+    use log::Level as LogLevel;
+    use log::LevelFilter;
+    use std::env;
+    use std::fs;
+    use std::path as std_path;
+    use std::process as std_process;
+    use std::sync as std_sync;
+    use std::thread;
+    use time::Instant as TimeInstant;
+    use wgpu::PollType;
+    use wgpu::TextureDimension;
+    use wgpu::TextureFormat;
+    use wgpu::TextureUsages;
     impl Pipeline {
         /// Show the scene in the folder `dir`, waiting until it is built. The render loop builds
         /// scenes on another thread instead (see [`Pipeline::scene_build_dir`]); tests wait.
@@ -1903,8 +1925,8 @@ pub(crate) mod tests {
 
     /// Pipelines build the default scene, and the driver loses the device (an unexplained
     /// error) when several do so at once, so the tests that make one take turns.
-    pub(crate) fn serial() -> std::sync::MutexGuard<'static, ()> {
-        static TURN: std::sync::Mutex<()> = Mutex::new(());
+    pub(crate) fn serial() -> std_sync::MutexGuard<'static, ()> {
+        static TURN: std_sync::Mutex<()> = Mutex::new(());
         TURN.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -1947,7 +1969,7 @@ pub(crate) mod tests {
         let finish_gpu_work = |pipeline: &Pipeline| {
             pipeline
                 .device
-                .poll(wgpu::PollType::Wait {
+                .poll(PollType::Wait {
                     submission_index: None,
                     timeout: Some(Duration::from_secs(5)),
                 })
@@ -1998,7 +2020,7 @@ pub(crate) mod tests {
                 frame = Some(mapped);
                 break;
             }
-            std::thread::sleep(Duration::from_millis(10));
+            thread::sleep(Duration::from_millis(10));
         }
         let frame = frame.expect("no frame came out");
         assert!(frame.bytes().iter().any(|&b| b != 0), "the frame is black");
@@ -2025,10 +2047,7 @@ pub(crate) mod tests {
             return;
         };
         let build = pipeline.scene_build_builtin("Growth").unwrap();
-        let scene = std::thread::spawn(move || build.run())
-            .join()
-            .unwrap()
-            .unwrap();
+        let scene = thread::spawn(move || build.run()).join().unwrap().unwrap();
         assert_eq!(scene.output_size(), (64, 32));
         // The output changes while the scene is being built.
         pipeline.resize(96, 48).unwrap();
@@ -2037,7 +2056,7 @@ pub(crate) mod tests {
         assert_eq!(pipeline.scene.output_size(), (96, 48));
         pipeline.render(0.0).unwrap();
 
-        let missing = std::env::temp_dir().join("rune-no-such-scene-folder");
+        let missing = env::temp_dir().join("rune-no-such-scene-folder");
         let error = pipeline.scene_build_dir(&missing).run().err().unwrap();
         assert!(format!("{error:#}").starts_with("Scene "), "{error:#}");
         assert_eq!(pipeline.preset_name(), "Growth");
@@ -2047,17 +2066,17 @@ pub(crate) mod tests {
     /// A scene folder drawing one plain colour (`value`, linear, all three channels), with no
     /// post-processing, so that a pixel is the sRGB of it. (It has a parameter because a scene
     /// without any makes an empty buffer, which the GPU reports as an error.)
-    fn plain_scene(name: &str, value: f32) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("rune-pipeline-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+    fn plain_scene(name: &str, value: f32) -> std_path::PathBuf {
+        let dir = env::temp_dir().join(format!("rune-pipeline-{name}-{}", std_process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
         let manifest = format!(
             "format = 1\nname = \"{name}\"\nlicense = \"MPL-2.0\"\n[[param]]\nid = \"unused\"\ndefault = 0.0\n[[pass]]\nshader = \"a.wgsl\"\ntarget = \"out\"\n[post]\ntonemap = \"none\"\ngrain = 0.0\nchromatic = 0.0\nvignette = 0.0\nbloom = {{ intensity = 0.0 }}\n"
         );
-        std::fs::write(dir.join("scene.toml"), manifest).unwrap();
+        fs::write(dir.join("scene.toml"), manifest).unwrap();
         let shader =
             format!("fn shade(px: Pixel) -> vec4f {{\n  return vec4f(vec3f({value}), 1.0);\n}}\n");
-        std::fs::write(dir.join("a.wgsl"), shader).unwrap();
+        fs::write(dir.join("a.wgsl"), shader).unwrap();
         dir
     }
 
@@ -2077,7 +2096,7 @@ pub(crate) mod tests {
                 let (w, h) = pipeline.size();
                 let at = (h as usize / 2) * frame.stride() + (w as usize / 2) * 4;
                 let mut rgb: [u8; 3] = frame.bytes()[at..at + 3].try_into().unwrap();
-                if pipeline.format == wgpu::TextureFormat::Bgra8Unorm {
+                if pipeline.format == TextureFormat::Bgra8Unorm {
                     rgb.swap(0, 2);
                 }
                 Some(rgb)
@@ -2087,7 +2106,7 @@ pub(crate) mod tests {
             // Finish the frame, so that at most one comes out per call and none is passed over.
             pipeline
                 .device
-                .poll(wgpu::PollType::Wait {
+                .poll(PollType::Wait {
                     submission_index: None,
                     timeout: None,
                 })
@@ -2213,14 +2232,14 @@ pub(crate) mod tests {
 
     /// A scene of one grey that is the input `shade`, which follows the music's `meter` (4 with
     /// no chart: half the range of 0 to 8).
-    fn bound_scene(name: &str) -> std::path::PathBuf {
+    fn bound_scene(name: &str) -> std_path::PathBuf {
         let dir = plain_scene(name, 0.0);
-        let manifest = std::fs::read_to_string(dir.join("scene.toml")).unwrap();
+        let manifest = fs::read_to_string(dir.join("scene.toml")).unwrap();
         let manifest = format!(
             "{manifest}[[input]]\nid = \"shade\"\n[[bind]]\ntarget = \"shade\"\nsource = \"meter\"\nhow = \"follow\"\nwhen = {{ from = [0, 8] }}\n"
         );
-        std::fs::write(dir.join("scene.toml"), manifest).unwrap();
-        std::fs::write(
+        fs::write(dir.join("scene.toml"), manifest).unwrap();
+        fs::write(
             dir.join("a.wgsl"),
             "fn shade(px: Pixel) -> vec4f {\n  return vec4f(vec3f(input.shade), 1.0);\n}\n",
         )
@@ -2261,7 +2280,7 @@ pub(crate) mod tests {
 
     /// A cover of one colour, for the band of a cut-in.
     fn solid_cover(rgb: [u8; 3]) -> Arc<Cell> {
-        Arc::new(Cell::new(Some(&image::RgbaImage::from_pixel(
+        Arc::new(Cell::new(Some(&RgbaImage::from_pixel(
             8,
             8,
             image::Rgba([rgb[0], rgb[1], rgb[2], 255]),
@@ -2278,7 +2297,7 @@ pub(crate) mod tests {
             let rendered = pipeline.render(time).unwrap();
             pipeline
                 .device
-                .poll(wgpu::PollType::Wait {
+                .poll(PollType::Wait {
                     submission_index: None,
                     timeout: None,
                 })
@@ -2385,11 +2404,11 @@ pub(crate) mod tests {
     #[ignore = "writes images, run by hand"]
     fn dump_cutin_frames() {
         let _turn = serial();
-        let dir = std::env::var_os("CUTIN_FRAMES")
+        let dir = env::var_os("CUTIN_FRAMES")
             .map(PathBuf::from)
-            .unwrap_or_else(std::env::temp_dir);
+            .unwrap_or_else(env::temp_dir);
         let (w, h) = (1280u32, 720u32);
-        let cover = image::RgbaImage::from_fn(256, 256, |x, y| {
+        let cover = RgbaImage::from_fn(256, 256, |x, y| {
             let (fx, fy) = (x as f32 / 255.0, y as f32 / 255.0);
             let ring = ((fx - 0.5).hypot(fy - 0.5) * 18.0).sin() * 0.5 + 0.5;
             image::Rgba([
@@ -2471,7 +2490,7 @@ pub(crate) mod tests {
                 };
                 pipeline
                     .device
-                    .poll(wgpu::PollType::Wait {
+                    .poll(PollType::Wait {
                         submission_index: None,
                         timeout: None,
                     })
@@ -2496,15 +2515,15 @@ pub(crate) mod tests {
             let (tw, th) = (w / 2, h / 2);
             let columns = 6;
             let rows = times.len().div_ceil(columns) as u32;
-            let mut sheet = image::RgbaImage::new(tw * columns as u32, th * rows);
+            let mut sheet = RgbaImage::new(tw * columns as u32, th * rows);
             for (i, rgba) in frames.into_iter().take(times.len()).enumerate() {
-                let tile = image::imageops::resize(
-                    &image::RgbaImage::from_raw(w, h, rgba).unwrap(),
+                let tile = imageops::resize(
+                    &RgbaImage::from_raw(w, h, rgba).unwrap(),
                     tw,
                     th,
                     FilterType::Triangle,
                 );
-                image::imageops::replace(
+                imageops::replace(
                     &mut sheet,
                     &tile,
                     i64::from(tw) * (i % columns) as i64,
@@ -2525,9 +2544,9 @@ pub(crate) mod tests {
     #[ignore = "writes images, run by hand"]
     fn dump_glitch_and_mosaic_frames() {
         let _turn = serial();
-        let dir = std::env::var_os("FX_FRAMES")
+        let dir = env::var_os("FX_FRAMES")
             .map(PathBuf::from)
-            .unwrap_or_else(std::env::temp_dir);
+            .unwrap_or_else(env::temp_dir);
         let (w, h) = (1280u32, 720u32);
         let beat: f64 = 0.5;
         let frame = 1.0 / 60.0;
@@ -2610,7 +2629,7 @@ pub(crate) mod tests {
                 };
                 pipeline
                     .device
-                    .poll(wgpu::PollType::Wait {
+                    .poll(PollType::Wait {
                         submission_index: None,
                         timeout: None,
                     })
@@ -2641,16 +2660,16 @@ pub(crate) mod tests {
             }
             assert!(frames.len() >= times.len(), "frames did not come out");
             let folder = dir.join(label);
-            std::fs::create_dir_all(&folder).unwrap();
+            fs::create_dir_all(&folder).unwrap();
             let (tw, th) = (w / 4, h / 4);
             let columns = 6;
             let rows = times.len().div_ceil(columns) as u32;
-            let mut sheet = image::RgbaImage::new(tw * columns as u32, th * rows);
+            let mut sheet = RgbaImage::new(tw * columns as u32, th * rows);
             for (i, rgba) in frames.into_iter().take(times.len()).enumerate() {
-                let full = image::RgbaImage::from_raw(w, h, rgba).unwrap();
+                let full = RgbaImage::from_raw(w, h, rgba).unwrap();
                 full.save(folder.join(format!("{i:02}.png"))).unwrap();
-                let tile = image::imageops::resize(&full, tw, th, FilterType::Triangle);
-                image::imageops::replace(
+                let tile = imageops::resize(&full, tw, th, FilterType::Triangle);
+                imageops::replace(
                     &mut sheet,
                     &tile,
                     i64::from(tw) * (i % columns) as i64,
@@ -2683,15 +2702,15 @@ pub(crate) mod tests {
             },
             mip_level_count: 1,
             sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
+            dimension: TextureDimension::D2,
             format: pipeline.format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
         let view = output.create_view(&Default::default());
         let wait = |device: &wgpu::Device| {
             device
-                .poll(wgpu::PollType::Wait {
+                .poll(PollType::Wait {
                     submission_index: None,
                     timeout: None,
                 })
@@ -2754,7 +2773,7 @@ pub(crate) mod tests {
                         None,
                     );
                 }
-                let started = time::Instant::now();
+                let started = TimeInstant::now();
                 pipeline.queue.submit([encoder.finish()]);
                 wait(&pipeline.device);
                 started.elapsed()
@@ -2778,7 +2797,7 @@ pub(crate) mod tests {
         let Some(mut pipeline) = test_pipeline() else {
             return;
         };
-        let cover = image::RgbaImage::from_pixel(64, 64, image::Rgba([200, 60, 90, 255]));
+        let cover = RgbaImage::from_pixel(64, 64, image::Rgba([200, 60, 90, 255]));
         pipeline.set_playing_cover(Some(Arc::new(Cell::new(Some(&cover)))));
         let size = (1920, 1080);
         let output = pipeline.device.create_texture(&wgpu::TextureDescriptor {
@@ -2790,15 +2809,15 @@ pub(crate) mod tests {
             },
             mip_level_count: 1,
             sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
+            dimension: TextureDimension::D2,
             format: pipeline.format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
         let view = output.create_view(&Default::default());
         let wait = |device: &wgpu::Device| {
             device
-                .poll(wgpu::PollType::Wait {
+                .poll(PollType::Wait {
                     submission_index: None,
                     timeout: None,
                 })
@@ -2836,7 +2855,7 @@ pub(crate) mod tests {
                         None,
                     );
                 }
-                let started = time::Instant::now();
+                let started = TimeInstant::now();
                 pipeline.queue.submit([encoder.finish()]);
                 wait(&pipeline.device);
                 started.elapsed()
@@ -2852,13 +2871,13 @@ pub(crate) mod tests {
     }
 
     /// A scene of one colour with two shots, which lets `cut` dress its cuts.
-    fn dressed_scene(name: &str, value: f32, cut: &str) -> std::path::PathBuf {
+    fn dressed_scene(name: &str, value: f32, cut: &str) -> std_path::PathBuf {
         let dir = plain_scene(name, value);
-        let manifest = std::fs::read_to_string(dir.join("scene.toml")).unwrap();
+        let manifest = fs::read_to_string(dir.join("scene.toml")).unwrap();
         let manifest = format!(
             "{manifest}[effects]\ntransitions = [\"{cut}\"]\n[[shot]]\nsize = \"wide\"\n[[shot]]\nsize = \"close\"\n"
         );
-        std::fs::write(dir.join("scene.toml"), manifest).unwrap();
+        fs::write(dir.join("scene.toml"), manifest).unwrap();
         dir
     }
 
@@ -3067,12 +3086,12 @@ pub(crate) mod tests {
             return;
         };
         let dir = plain_scene("punch", 0.2);
-        let mut manifest = std::fs::read_to_string(dir.join("scene.toml")).unwrap();
+        let mut manifest = fs::read_to_string(dir.join("scene.toml")).unwrap();
         manifest.push_str("[[shot]]\nsize = \"wide\"\n[[shot]]\nsize = \"close\"\n");
         for size in ["medium", "close", "detail", "top"] {
             manifest.push_str(&format!("[[burst]]\nsize = \"{size}\"\n"));
         }
-        std::fs::write(dir.join("scene.toml"), manifest).unwrap();
+        fs::write(dir.join("scene.toml"), manifest).unwrap();
         let scene = pipeline.scene_build_dir(&dir).run().unwrap();
         pipeline.install(scene).unwrap();
         // The dithering moves a byte up or down.
@@ -3248,11 +3267,11 @@ pub(crate) mod tests {
     }
 
     /// The lines logged at info level while the tests run.
-    struct Lines(std::sync::Mutex<Vec<String>>);
+    struct Lines(std_sync::Mutex<Vec<String>>);
 
     impl log::Log for Lines {
         fn enabled(&self, metadata: &log::Metadata) -> bool {
-            metadata.level() <= log::Level::Info
+            metadata.level() <= LogLevel::Info
         }
 
         fn log(&self, record: &log::Record) {
@@ -3294,14 +3313,14 @@ pub(crate) mod tests {
             return;
         };
         if log::set_logger(&LINES).is_ok() {
-            log::set_max_level(log::LevelFilter::Info);
+            log::set_max_level(LevelFilter::Info);
         }
         pipeline.load_builtin_scene("Growth").unwrap();
         pipeline.set_target_fps(1000);
         pipeline.report = Report::new(1.0);
         let started = Instant::now();
         let mut levels = Vec::new();
-        let undone = |lines: &std::sync::Mutex<Vec<String>>| {
+        let undone = |lines: &std_sync::Mutex<Vec<String>>| {
             lines
                 .lock()
                 .unwrap()
@@ -3315,13 +3334,13 @@ pub(crate) mod tests {
                 eprintln!("{:.2} s: {level:?}", started.elapsed().as_secs_f64());
                 levels.push(level);
             }
-            std::thread::sleep(Duration::from_millis(4));
+            thread::sleep(Duration::from_millis(4));
         }
         // One more second for a line with the frame rate.
         let last = Instant::now();
         while last.elapsed().as_secs_f64() < 1.2 {
             pipeline.render(started.elapsed().as_secs_f64()).unwrap();
-            std::thread::sleep(Duration::from_millis(4));
+            thread::sleep(Duration::from_millis(4));
         }
         let lines: Vec<String> = LINES
             .0
@@ -3373,8 +3392,13 @@ pub(crate) mod tests {
 /// ```
 #[cfg(test)]
 mod probe {
+    use image::RgbaImage;
+    use std::env;
     use std::fmt::Write as _;
+    use std::fs;
     use std::path::PathBuf;
+    use wgpu::PollType;
+    use wgpu::TextureFormat;
 
     use super::*;
     use crate::scene::argb_to_linear;
@@ -3391,7 +3415,7 @@ mod probe {
     const FRAMES: &str = "120,600,1500,2100,2700,4000";
 
     fn env_or(name: &str, default: &str) -> String {
-        std::env::var(name).unwrap_or_else(|_| default.to_string())
+        env::var(name).unwrap_or_else(|_| default.to_string())
     }
 
     fn levels(default: &str) -> Vec<Level> {
@@ -3421,8 +3445,8 @@ mod probe {
     }
 
     fn out_dir() -> Option<PathBuf> {
-        let dir = PathBuf::from(std::env::var("PROBE_OUT").ok()?);
-        std::fs::create_dir_all(&dir).expect("PROBE_OUT can be made");
+        let dir = PathBuf::from(env::var("PROBE_OUT").ok()?);
+        fs::create_dir_all(&dir).expect("PROBE_OUT can be made");
         Some(dir)
     }
 
@@ -3449,7 +3473,7 @@ mod probe {
 
     fn pipeline() -> Pipeline {
         // PROBE_SIZE=<width>x<height> in place of the reference phone's.
-        let size = std::env::var("PROBE_SIZE").ok().map_or(SIZE, |s| {
+        let size = env::var("PROBE_SIZE").ok().map_or(SIZE, |s| {
             let (w, h) = s.split_once('x').expect("PROBE_SIZE is WxH");
             (w.parse().unwrap(), h.parse().unwrap())
         });
@@ -3510,7 +3534,7 @@ mod probe {
             let at = y * frame.stride();
             pixels.extend_from_slice(&frame.bytes()[at..at + row]);
         }
-        if FORMAT == wgpu::TextureFormat::Bgra8Unorm {
+        if FORMAT == TextureFormat::Bgra8Unorm {
             for px in pixels.as_chunks_mut::<4>().0 {
                 px.swap(0, 2);
             }
@@ -3550,10 +3574,7 @@ mod probe {
                     wall + Duration::from_secs_f64(f64::from(i) / FPS),
                 )
                 .unwrap();
-            pipeline
-                .device
-                .poll(wgpu::PollType::wait_indefinitely())
-                .unwrap();
+            pipeline.device.poll(PollType::wait_indefinitely()).unwrap();
             let times = pipeline.take_frame_times();
             if i == 0 {
                 continue;
@@ -3571,7 +3592,7 @@ mod probe {
     }
 
     fn save_png(path: &Path, pixels: Vec<u8>, (width, height): (u32, u32)) {
-        image::RgbaImage::from_raw(width, height, pixels)
+        RgbaImage::from_raw(width, height, pixels)
             .expect("the size matches")
             .save(path)
             .unwrap();
@@ -3607,8 +3628,7 @@ mod probe {
                 let least = &mut least[k];
                 // With PROBE_HOLD=<shot index>, the director holds that shot, cut to again every
                 // PROBE_HOLD_EVERY frames (default 60).
-                let hold: Option<u32> =
-                    std::env::var("PROBE_HOLD").ok().map(|s| s.parse().unwrap());
+                let hold: Option<u32> = env::var("PROBE_HOLD").ok().map(|s| s.parse().unwrap());
                 let every: u32 = env_or("PROBE_HOLD_EVERY", "60").parse().unwrap();
                 let before = |pipeline: &mut Pipeline, i: u32| {
                     if let Some(index) = hold
@@ -4075,7 +4095,7 @@ mod probe {
         let size = pipeline.size();
         // With PROBE_HOLD=<shot index>, the director cuts to that shot and holds it, again every
         // PROBE_HOLD_EVERY frames (default 60), each time a new cut (a new shot.seed).
-        let hold: Option<u32> = std::env::var("PROBE_HOLD").ok().map(|s| s.parse().unwrap());
+        let hold: Option<u32> = env::var("PROBE_HOLD").ok().map(|s| s.parse().unwrap());
         let every: u32 = env_or("PROBE_HOLD_EVERY", "60").parse().unwrap();
         for scene in env_or("PROBE", "Growth").split(',') {
             for level in levels("1:1") {
@@ -4113,7 +4133,7 @@ mod probe {
     #[ignore = "a probe, run by hand"]
     fn probe_scene_compare() {
         let a = env_or("PROBE", "Growth");
-        let b = std::env::var("PROBE_B").expect("PROBE_B names the scene to compare with");
+        let b = env::var("PROBE_B").expect("PROBE_B names the scene to compare with");
         let frames = frame_numbers();
         let last = *frames.last().unwrap();
         let mut pipeline = pipeline();

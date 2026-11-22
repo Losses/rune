@@ -7,12 +7,17 @@ use axum::{
     response::{IntoResponse, Response},
     routing::post,
 };
+use reqwest::StatusCode as ReqwestStatusCode;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::marker::PhantomData;
+use std::ops;
 use std::{future::Future, pin::Pin};
 use std::{sync::Arc, time::Duration};
+use sync::Coordinator;
+use sync::SessionAdvance;
 use sync::SyncModel;
 use sync::protocol as p;
+use tokio::time as tokio_time;
 use uuid::Uuid;
 
 // Core page/fragment/admission limits still apply inside these envelope bounds.
@@ -428,7 +433,7 @@ impl<M: SyncModel> MetadataPeer<M> {
                 required: bytes.len() as u64,
             });
         }
-        tokio::time::timeout(TIMEOUT, async {
+        tokio_time::timeout(TIMEOUT, async {
             let mut response = self
                 .client
                 .post(format!("{}/sync/metadata", self.base))
@@ -445,10 +450,10 @@ impl<M: SyncModel> MetadataPeer<M> {
                 return Err(p::SyncError::LogicalLimit);
             }
             let status = response.status();
-            if status == reqwest::StatusCode::UNAUTHORIZED {
+            if status == ReqwestStatusCode::UNAUTHORIZED {
                 return Err(p::SyncError::Unauthorized);
             }
-            if status == reqwest::StatusCode::FORBIDDEN {
+            if status == ReqwestStatusCode::FORBIDDEN {
                 return Err(p::SyncError::Forbidden);
             }
             let mut body = Vec::new();
@@ -463,7 +468,7 @@ impl<M: SyncModel> MetadataPeer<M> {
                 body.extend_from_slice(&bytes);
             }
             if !status.is_success() {
-                if status == reqwest::StatusCode::NOT_FOUND
+                if status == ReqwestStatusCode::NOT_FOUND
                     && serde_json::from_slice::<serde_json::Value>(&body)
                         .is_ok_and(|value| value["error"] == "library_not_served")
                 {
@@ -858,8 +863,8 @@ pub struct BidirectionalSession<M: SyncModel> {
 impl<M: SyncModel> BidirectionalSession<M> {
     pub fn new(scope: p::Scope<M>, limits: sync::SessionLimits) -> p::Result<Self> {
         Ok(Self {
-            pull: sync::Coordinator::new(scope.clone(), limits)?,
-            push: sync::Coordinator::new(scope, limits)?,
+            pull: Coordinator::new(scope.clone(), limits)?,
+            push: Coordinator::new(scope, limits)?,
             pulled: None,
             pushed: None,
         })
@@ -905,10 +910,10 @@ impl<M: SyncModel> BidirectionalSession<M> {
                 .advance(local, local, local, remote, remote)
                 .await?
             {
-                sync::SessionAdvance::Complete(progress) => self.pulled = Some(progress),
-                sync::SessionAdvance::BudgetExhausted => return Ok(false),
-                sync::SessionAdvance::Incomplete => (),
-                sync::SessionAdvance::Cancelled => {
+                SessionAdvance::Complete(progress) => self.pulled = Some(progress),
+                SessionAdvance::BudgetExhausted => return Ok(false),
+                SessionAdvance::Incomplete => (),
+                SessionAdvance::Cancelled => {
                     return Err(p::SyncError::Transport("metadata session cancelled".into()));
                 }
             }
@@ -919,10 +924,10 @@ impl<M: SyncModel> BidirectionalSession<M> {
                 .advance(remote, remote, remote, local, local)
                 .await?
             {
-                sync::SessionAdvance::Complete(progress) => self.pushed = Some(progress),
-                sync::SessionAdvance::BudgetExhausted => return Ok(false),
-                sync::SessionAdvance::Incomplete => (),
-                sync::SessionAdvance::Cancelled => {
+                SessionAdvance::Complete(progress) => self.pushed = Some(progress),
+                SessionAdvance::BudgetExhausted => return Ok(false),
+                SessionAdvance::Incomplete => (),
+                SessionAdvance::Cancelled => {
                     return Err(p::SyncError::Transport("metadata session cancelled".into()));
                 }
             }
@@ -940,10 +945,10 @@ pub async fn fetch_bounded(
     client: &reqwest::Client,
     url: &str,
     expected: u64,
-    deadline: tokio::time::Instant,
+    deadline: tokio_time::Instant,
 ) -> anyhow::Result<Vec<u8>> {
     use anyhow::ensure;
-    tokio::time::timeout_at(deadline, async {
+    tokio_time::timeout_at(deadline, async {
         let mut response = client.get(url).send().await?.error_for_status()?;
         if let Some(length) = response.content_length() {
             ensure!(length == expected, "response size mismatch");
@@ -986,7 +991,7 @@ where
     P: FnOnce(Option<Uuid>) -> PF,
     PF: Future<Output = anyhow::Result<(Vec<(Uuid, T)>, Option<Uuid>, bool)>>,
     F: FnMut(Uuid, T) -> FF,
-    FF: Future<Output = anyhow::Result<std::ops::ControlFlow<()>>>,
+    FF: Future<Output = anyhow::Result<ops::ControlFlow<()>>>,
 {
     if cursor.complete {
         return Ok(());
@@ -1098,7 +1103,11 @@ mod traversal_tests {
 mod metadata_tests {
     use super::*;
     use p::{ReceiveStore, SnapshotSource, SyncStore};
+    use reqwest::Client;
+    use std::mem;
+    use sync::causal;
     use tokio::net::TcpListener;
+    use tokio::task;
 
     #[derive(Clone, Debug, PartialEq, Eq)]
     struct Model;
@@ -1171,14 +1180,14 @@ mod metadata_tests {
             },
         }
     }
-    async fn serve(router: Router) -> (MetadataPeer<Model>, tokio::task::JoinHandle<()>) {
+    async fn serve(router: Router) -> (MetadataPeer<Model>, task::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let task = tokio::spawn(async move {
             axum::serve(listener, router).await.unwrap();
         });
         (
-            MetadataPeer::new(format!("http://{address}"), reqwest::Client::new()),
+            MetadataPeer::new(format!("http://{address}"), Client::new()),
             task,
         )
     }
@@ -1223,10 +1232,7 @@ mod metadata_tests {
             );
             let (peer, task) = serve(router).await;
             let result = p::SyncPeer::identity(&peer).await.unwrap_err();
-            assert_eq!(
-                std::mem::discriminant(&result),
-                std::mem::discriminant(&expected)
-            );
+            assert_eq!(mem::discriminant(&result), mem::discriminant(&expected));
             task.abort();
             let _ = task.await;
         }
@@ -1306,7 +1312,7 @@ mod metadata_tests {
         .unwrap();
         let context =
             p::causal_context(&p::decode_context_remote(&fragment.bytes).unwrap()).unwrap();
-        assert!(context.contains(sync::causal::Dot {
+        assert!(context.contains(causal::Dot {
             writer: Uuid::from_u128(102),
             counter: 1
         }));

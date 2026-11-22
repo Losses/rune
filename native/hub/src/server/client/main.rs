@@ -1,3 +1,4 @@
+use anyhow::Error;
 use rustyline::error::ReadlineError;
 pub mod api;
 pub mod cli;
@@ -34,6 +35,7 @@ use cli::{Cli, DiscoveryCmd, RemoteCmd, ReplCommand};
 use connection::WSConnection;
 use editor::{EditorConfig, create_editor};
 use fs::VirtualFS;
+use hub::messages::TrustedServerCertificate;
 use hub::server::api::{add_trusted_server, edit_trusted_hosts, remove_trusted_device};
 use utils::{
     AppState, get_fingerprint_by_index, print_certificate_table, print_device_details,
@@ -48,7 +50,7 @@ async fn trust_discovered_server(
 ) -> Result<()> {
     add_trusted_server(
         validator,
-        Some(&hub::messages::TrustedServerCertificate { fingerprint, hosts }),
+        Some(&TrustedServerCertificate { fingerprint, hosts }),
     )
     .await
 }
@@ -224,7 +226,7 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<()> {
                             dev.api_port.unwrap_or(DEFAULT_DEVICE_PORT),
                         )
                         .map(|address| address.to_string())
-                        .map_err(anyhow::Error::from)
+                        .map_err(Error::from)
                     })
                     .collect::<Result<Vec<_>>>()?,
             };
@@ -317,7 +319,7 @@ fn setup_logging() -> Result<()> {
 }
 
 fn validate_and_format_url(input: &str) -> Result<String> {
-    let address: DeviceAddress = input.parse().map_err(anyhow::Error::msg)?;
+    let address: DeviceAddress = input.parse().map_err(Error::msg)?;
     Ok(address.url(DeviceScheme::Wss, "/ws")?.to_string())
 }
 

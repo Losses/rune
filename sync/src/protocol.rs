@@ -1,6 +1,11 @@
 //! Neutral synchronization core.
+use serde::Serialize;
 use serde::de;
 use serde::ser::Error;
+use std::cmp;
+use std::error;
+use std::fmt;
+use std::result;
 mod codec;
 mod coordinator;
 mod memory;
@@ -25,7 +30,7 @@ use std::{
 };
 pub use uuid::Uuid;
 pub type Digest = [u8; 32];
-pub type Result<T> = std::result::Result<T, SyncError>;
+pub type Result<T> = result::Result<T, SyncError>;
 pub type BoxFuture<'a, T, E = SyncError> =
     Pin<Box<dyn Future<Output = StdResult<T, E>> + Send + 'a>>;
 pub const MAX_NUMBER: u64 = i64::MAX as u64;
@@ -100,7 +105,7 @@ pub enum SyncError {
 fn serialize_collection<M: SyncModel, S: serde::Serializer>(
     value: &M::Collection,
     serializer: S,
-) -> std::result::Result<S::Ok, S::Error> {
+) -> result::Result<S::Ok, S::Error> {
     let tag = M::collection_tag(value);
     if tag.is_empty()
         || tag.len() > MAX_TAG_BYTES
@@ -113,7 +118,7 @@ fn serialize_collection<M: SyncModel, S: serde::Serializer>(
 }
 fn deserialize_collection<'de, M: SyncModel, D: serde::Deserializer<'de>>(
     deserializer: D,
-) -> std::result::Result<M::Collection, D::Error> {
+) -> result::Result<M::Collection, D::Error> {
     let tag = <String as serde::Deserialize>::deserialize(deserializer)?;
     if tag.is_empty() || tag.len() > MAX_TAG_BYTES {
         return Err(de::Error::custom("invalid collection tag"));
@@ -128,7 +133,7 @@ fn deserialize_collection<'de, M: SyncModel, D: serde::Deserializer<'de>>(
 fn serialize_collections<M: SyncModel, S: serde::Serializer>(
     values: &BTreeSet<M::Collection>,
     serializer: S,
-) -> std::result::Result<S::Ok, S::Error> {
+) -> result::Result<S::Ok, S::Error> {
     if values.is_empty() || values.len() > MAX_COLLECTIONS {
         return Err(Error::custom("invalid collection scope"));
     }
@@ -142,11 +147,11 @@ fn serialize_collections<M: SyncModel, S: serde::Serializer>(
     {
         return Err(Error::custom("invalid collection registry"));
     }
-    serde::Serialize::serialize(&tags, serializer)
+    Serialize::serialize(&tags, serializer)
 }
 fn deserialize_collections<'de, M: SyncModel, D: serde::Deserializer<'de>>(
     deserializer: D,
-) -> std::result::Result<BTreeSet<M::Collection>, D::Error> {
+) -> result::Result<BTreeSet<M::Collection>, D::Error> {
     let tags = <Vec<String> as serde::Deserialize>::deserialize(deserializer)?;
     if tags.is_empty() || tags.len() > MAX_COLLECTIONS || tags.windows(2).any(|p| p[0] >= p[1]) {
         return Err(de::Error::custom("invalid collection scope order"));
@@ -169,10 +174,11 @@ fn deserialize_collections<'de, M: SyncModel, D: serde::Deserializer<'de>>(
 mod bytes_serde {
     use serde::de;
     use serde::ser::Error;
+    use std::result;
     pub fn serialize<S: serde::Serializer>(
         bytes: &[u8],
         serializer: S,
-    ) -> std::result::Result<S::Ok, S::Error> {
+    ) -> result::Result<S::Ok, S::Error> {
         let mut out = String::with_capacity(bytes.len().saturating_mul(2));
         use std::fmt::Write;
         for b in bytes {
@@ -182,7 +188,7 @@ mod bytes_serde {
     }
     pub fn deserialize<'de, D: serde::Deserializer<'de>>(
         deserializer: D,
-    ) -> std::result::Result<Vec<u8>, D::Error> {
+    ) -> result::Result<Vec<u8>, D::Error> {
         let s = <String as serde::Deserialize>::deserialize(deserializer)?;
         if s.len() % 2 != 0
             || !s
@@ -200,17 +206,18 @@ mod bytes_serde {
 /// Serializes a digest as canonical lowercase hex, for `#[serde(with = "digest_serde")]`.
 pub mod digest_serde {
     use serde::de::Error;
+    use std::result;
     /// Writes the digest as 64 lowercase hex digits.
     pub fn serialize<S: serde::Serializer>(
         value: &super::Digest,
         serializer: S,
-    ) -> std::result::Result<S::Ok, S::Error> {
+    ) -> result::Result<S::Ok, S::Error> {
         super::bytes_serde::serialize(value, serializer)
     }
     /// Reads a digest written by `serialize`; other hex, or another length, is an error.
     pub fn deserialize<'de, D: serde::Deserializer<'de>>(
         deserializer: D,
-    ) -> std::result::Result<super::Digest, D::Error> {
+    ) -> result::Result<super::Digest, D::Error> {
         let value = super::bytes_serde::deserialize(deserializer)?;
         value
             .try_into()
@@ -226,7 +233,7 @@ pub trait SyncModel: Clone + Debug + PartialEq + Eq + Send + Sync + 'static {
         + PartialEq
         + Eq
         + serde::Serialize
-        + serde::de::DeserializeOwned
+        + de::DeserializeOwned
         + Send
         + Sync
         + 'static;
@@ -275,7 +282,7 @@ pub struct ObjectKey<M: SyncModel> {
     pub id: Uuid,
 }
 impl<M: SyncModel> Ord for ObjectKey<M> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
         M::collection_tag(&self.collection)
             .as_bytes()
             .cmp(M::collection_tag(&other.collection).as_bytes())
@@ -283,7 +290,7 @@ impl<M: SyncModel> Ord for ObjectKey<M> {
     }
 }
 impl<M: SyncModel> PartialOrd for ObjectKey<M> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
@@ -386,14 +393,14 @@ pub struct CandidateCursor<M: SyncModel> {
     pub dot: Dot,
 }
 impl<M: SyncModel> Ord for CandidateCursor<M> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
         self.key
             .cmp(&other.key)
             .then_with(|| self.dot.cmp(&other.dot))
     }
 }
 impl<M: SyncModel> PartialOrd for CandidateCursor<M> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
@@ -949,12 +956,12 @@ pub trait SnapshotSink<M: SyncModel>: Send + Sync {
     fn promote_step(&self, session: Uuid, limits: ApplyLimits) -> BoxFuture<'_, PromoteProgress>;
     fn complete_reconciliation(&self, session: Uuid) -> BoxFuture<'_, ReceiveProgress>;
 }
-impl std::fmt::Display for SyncError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for SyncError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self:?}")
     }
 }
-impl std::error::Error for SyncError {}
+impl error::Error for SyncError {}
 
 mod journal;
 pub use journal::*;

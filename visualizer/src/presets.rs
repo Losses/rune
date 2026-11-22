@@ -7,6 +7,10 @@ use std::path::{Path, PathBuf};
 use crate::scene::{SceneInputs, Source};
 use anyhow::{Context, Result, bail};
 use rand::Rng;
+use std::error;
+use std::fs;
+use std::mem;
+use std::ptr;
 
 /// Inputs the current source can provide.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -32,7 +36,7 @@ impl fmt::Display for PresetLoadError {
     }
 }
 
-impl std::error::Error for PresetLoadError {}
+impl error::Error for PresetLoadError {}
 
 /// Where a scene is: a folder, or the program (a built-in scene, by name). The app's cover wall
 /// takes part in the choice like a scene, but the app draws it: the visualizer draws nothing while
@@ -63,8 +67,8 @@ impl Location {
     }
 }
 
-impl std::fmt::Display for Location {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for Location {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Folder(path) => path.display().fmt(f),
             Self::Builtin(name) => write!(f, "{}{name}", Self::BUILTIN_PREFIX),
@@ -151,7 +155,7 @@ fn collect(dir: &Path, entries: &mut Vec<Entry>) -> Result<()> {
     let mut found = Vec::new();
     let mut pending = vec![dir.to_path_buf()];
     while let Some(current) = pending.pop() {
-        let read = std::fs::read_dir(&current)
+        let read = fs::read_dir(&current)
             .with_context(|| format!("Failed to read {}", current.display()))?;
         for entry in read {
             let entry = entry?;
@@ -235,7 +239,7 @@ impl PresetList {
             return;
         }
         self.cover_wall = cover_wall;
-        let folders = std::mem::take(&mut self.entries)
+        let folders = mem::take(&mut self.entries)
             .into_iter()
             .filter(|e| matches!(e.preset.location, Location::Folder(_)))
             .collect();
@@ -342,7 +346,7 @@ impl PresetList {
             .map_or(0, |index| index + 1);
         (0..ordered.len())
             .map(|step| ordered[(start + step) % ordered.len()])
-            .find(|entry| choices.iter().any(|c| std::ptr::eq(*c, *entry)))
+            .find(|entry| choices.iter().any(|c| ptr::eq(*c, *entry)))
             .map(|entry| entry.preset.clone())
     }
 
@@ -520,6 +524,10 @@ impl PresetList {
 
 #[cfg(test)]
 mod tests {
+    use std::env;
+    use std::fs;
+    use std::process as std_process;
+    use std::slice;
     impl PresetList {
         /// The number of scenes that come from folders.
         pub fn folder_len(&self) -> usize {
@@ -607,13 +615,13 @@ mod tests {
 
     /// A scene folder `name` under `root`: an empty `scene.toml` is enough to be found.
     fn scene(root: &Path, name: &str) {
-        std::fs::create_dir_all(root.join(name)).unwrap();
-        std::fs::write(root.join(name).join("scene.toml"), "").unwrap();
+        fs::create_dir_all(root.join(name)).unwrap();
+        fs::write(root.join(name).join("scene.toml"), "").unwrap();
     }
 
     #[test]
     fn scan_is_recursive_but_skips_hidden_and_symlinked_folders() {
-        let dir = std::env::temp_dir().join(format!("rune-presets-{}", std::process::id()));
+        let dir = env::temp_dir().join(format!("rune-presets-{}", std_process::id()));
         for name in [
             "b",
             "a",
@@ -623,8 +631,8 @@ mod tests {
         ] {
             scene(&dir, name);
         }
-        std::fs::write(dir.join("ignored.milk"), "").unwrap();
-        std::fs::write(dir.join("Fractal/also.milk"), "").unwrap();
+        fs::write(dir.join("ignored.milk"), "").unwrap();
+        fs::write(dir.join("Fractal/also.milk"), "").unwrap();
         let mut list = PresetList::default();
         list.set_inputs(VisualizerInputs::Full);
         #[cfg(unix)]
@@ -633,7 +641,7 @@ mod tests {
             symlink(dir.join("Fractal"), dir.join("link")).unwrap();
         }
         // `inner` is inside a scene: it is not scanned.
-        assert_eq!(list.scan_all(std::slice::from_ref(&dir)).0, 3);
+        assert_eq!(list.scan_all(slice::from_ref(&dir)).0, 3);
         let mut rng = rng();
         let mut names: Vec<String> = (0..50)
             .map(|_| list.random(&mut rng).unwrap().name)
@@ -641,12 +649,12 @@ mod tests {
         names.sort();
         names.dedup();
         assert_eq!(names, ["a", "b", "deep"]);
-        std::fs::remove_dir_all(&dir).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     fn scan_all_combines_folders_once_per_scene_and_skips_unreadable_ones() {
-        let root = std::env::temp_dir().join(format!("rune-presets-many-{}", std::process::id()));
+        let root = env::temp_dir().join(format!("rune-presets-many-{}", std_process::id()));
         let (one, two) = (root.join("one"), root.join("one/two"));
         let other = root.join("other");
         for name in ["one/a", "one/two/b", "other/c"] {
@@ -659,7 +667,7 @@ mod tests {
         assert_eq!((count, errors.len()), (3, 1));
         assert_eq!(list.scan_all(&[]).0, 0);
         assert_eq!(list.len(), 0);
-        std::fs::remove_dir_all(&root).unwrap();
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
@@ -671,12 +679,12 @@ mod tests {
 
     #[test]
     fn infos_are_sorted_by_group_then_name_ignoring_case() {
-        let dir = std::env::temp_dir().join(format!("rune-presets-infos-{}", std::process::id()));
+        let dir = env::temp_dir().join(format!("rune-presets-infos-{}", std_process::id()));
         for name in ["b/z", "b/Y", "A/q", "root"] {
             scene(&dir, name);
         }
         let mut list = PresetList::default();
-        list.scan_all(std::slice::from_ref(&dir));
+        list.scan_all(slice::from_ref(&dir));
         let root = dir.file_name().unwrap().to_string_lossy().into_owned();
         let got: Vec<(String, String)> = list
             .infos()
@@ -692,7 +700,7 @@ mod tests {
         ];
         want.sort_by_key(|(g, n)| (g.to_lowercase(), n.to_lowercase()));
         assert_eq!(got, want);
-        std::fs::remove_dir_all(&dir).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -704,11 +712,11 @@ mod tests {
         list.set_inputs(VisualizerInputs::Full);
         // Before any scan the built-in scenes are there.
         assert_eq!((list.len(), list.folder_len()), (2, 0));
-        let dir = std::env::temp_dir().join(format!("rune-presets-builtin-{}", std::process::id()));
+        let dir = env::temp_dir().join(format!("rune-presets-builtin-{}", std_process::id()));
         for name in ["Beta", "Gamma"] {
             scene(&dir, name);
         }
-        assert_eq!(list.scan_all(std::slice::from_ref(&dir)).0, 4);
+        assert_eq!(list.scan_all(slice::from_ref(&dir)).0, 4);
         assert_eq!(list.folder_len(), 2);
         let infos = list.infos();
         // The folder's Beta does not replace the built-in one: both are listed.
@@ -744,7 +752,7 @@ mod tests {
         // Without the folder only the built-in scenes are left.
         assert_eq!(list.scan_all(&[]).0, 2);
         assert_eq!(list.folder_len(), 0);
-        std::fs::remove_dir_all(&dir).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

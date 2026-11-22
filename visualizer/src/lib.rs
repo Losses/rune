@@ -52,10 +52,14 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use anyhow::Error;
 use anyhow::{Context, Result, bail};
 use fsio::FsIo;
 use log::{debug, error, info, warn};
 use rtrb::Consumer;
+use std::env;
+#[cfg(target_os = "windows")]
+use std::ffi;
 
 pub use bind::{Level, RuntimeBindings, Used};
 
@@ -182,7 +186,7 @@ impl Frame {
     /// The NT handle of the shared texture, if the frame is in one. It stays valid while the frame
     /// is held; the receiver opens its own reference and must not close the handle.
     #[cfg(target_os = "windows")]
-    pub fn shared_handle(&self) -> Option<*mut std::ffi::c_void> {
+    pub fn shared_handle(&self) -> Option<*mut ffi::c_void> {
         match &self.data {
             FrameData::Shared(texture) => Some(texture.handle()),
             FrameData::Mapped(_) => None,
@@ -495,7 +499,7 @@ impl Visualizer {
                 next_frame_id: AtomicU64::new(1),
                 // `RUNE_VISUALIZER_READBACK=1` picks the readback path, to compare the two.
                 prefer_readback: AtomicBool::new(
-                    std::env::var_os("RUNE_VISUALIZER_READBACK").is_some_and(|v| v == "1"),
+                    env::var_os("RUNE_VISUALIZER_READBACK").is_some_and(|v| v == "1"),
                 ),
                 // Until the player says otherwise, draw.
                 playing: AtomicBool::new(true),
@@ -897,7 +901,7 @@ impl Visualizer {
                 state.atlas = atlas;
                 state.version += 1;
             })
-            .map_err(anyhow::Error::from)?;
+            .map_err(Error::from)?;
 
         let cover_job = self
             .shared
@@ -916,7 +920,7 @@ impl Visualizer {
                 state.cell = Some(cell);
                 state.version += 1;
             })
-            .map_err(anyhow::Error::from)?;
+            .map_err(Error::from)?;
         Ok(())
     }
 
@@ -2264,6 +2268,10 @@ fn publish(shared: &Shared, width: u32, height: u32, data: FrameData) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
+    use std::fs;
+    use std::process as std_process;
+    use std::slice;
 
     fn feed_item(track: &str) -> ChartItem {
         ChartItem::LibraryTrack {
@@ -2430,11 +2438,10 @@ mod tests {
         visualizer.set_inputs(VisualizerInputs::SpectrumOnly);
         assert_eq!(visualizer.status().inputs, VisualizerInputs::None);
 
-        let root =
-            std::env::temp_dir().join(format!("rune-visualizer-inputs-{}", std::process::id()));
+        let root = env::temp_dir().join(format!("rune-visualizer-inputs-{}", std_process::id()));
         let scene = root.join("spectrum-only");
-        std::fs::create_dir_all(&scene).unwrap();
-        std::fs::write(
+        fs::create_dir_all(&scene).unwrap();
+        fs::write(
             scene.join("scene.toml"),
             r#"format = 1
 name = "Spectrum Only"
@@ -2448,9 +2455,7 @@ target = "out"
         )
         .unwrap();
 
-        visualizer
-            .set_preset_dirs(std::slice::from_ref(&root))
-            .unwrap();
+        visualizer.set_preset_dirs(slice::from_ref(&root)).unwrap();
         assert_eq!(visualizer.status().inputs, VisualizerInputs::SpectrumOnly);
 
         let mut library = lock(&visualizer.library);
@@ -2468,7 +2473,7 @@ target = "out"
             &Location::Builtin("Armillary".into()),
             VisualizerInputs::SpectrumOnly
         ));
-        std::fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

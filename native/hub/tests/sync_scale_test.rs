@@ -1,4 +1,5 @@
 use anyhow::Result;
+use axum::middleware;
 use axum::{
     body::{Body, to_bytes},
     extract::Request,
@@ -10,7 +11,12 @@ use database::sync::model::{Collection, ObjectKey, Payload};
 use database::test_fixtures::causal_library as support;
 use http_request::sync::router;
 use hub::server::sync::client::sync_library;
+use reqwest::Client;
 use sea_orm::{EntityTrait, PaginatorTrait, Set, TransactionTrait};
+use std::collections;
+use std::env;
+use std::fs;
+use std::sync as std_sync;
 use std::{
     env::consts::{ARCH, OS},
     sync::{
@@ -28,7 +34,7 @@ struct Traffic {
     bytes: AtomicUsize,
     pages: AtomicUsize,
     blobs: AtomicUsize,
-    operations: std::sync::Mutex<std::collections::BTreeMap<String, usize>>,
+    operations: std_sync::Mutex<collections::BTreeMap<String, usize>>,
 }
 impl Traffic {
     fn reset(&self) {
@@ -41,7 +47,7 @@ impl Traffic {
 #[tokio::test]
 #[ignore = "manual 10,000-track initial and idle HTTP measurement"]
 async fn metadata_initial_incremental_and_idle_rounds() -> Result<()> {
-    let count: i32 = std::env::var("SYNC_HTTP_TRACKS")
+    let count: i32 = env::var("SYNC_HTTP_TRACKS")
         .ok()
         .map(|v| v.parse())
         .transpose()?
@@ -98,7 +104,7 @@ async fn metadata_initial_incremental_and_idle_rounds() -> Result<()> {
     );
     let traffic = Arc::new(Traffic::default());
     let observed = traffic.clone();
-    let app = router(source.peer.clone()).layer(axum::middleware::from_fn(
+    let app = router(source.peer.clone()).layer(middleware::from_fn(
         move |request: Request, next: Next| {
             let traffic = observed.clone();
             async move {
@@ -140,7 +146,7 @@ async fn metadata_initial_incremental_and_idle_rounds() -> Result<()> {
     let server = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
-    let client = reqwest::Client::new();
+    let client = Client::new();
     let synchronize = || sync_library(target.db.clone(), actor, &base, client.clone());
     let initial = Instant::now();
     synchronize().await?;
@@ -225,7 +231,7 @@ async fn metadata_initial_incremental_and_idle_rounds() -> Result<()> {
 }
 
 fn peak_rss_kib() -> Option<u64> {
-    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    let status = fs::read_to_string("/proc/self/status").ok()?;
     status.lines().find_map(|line| {
         line.strip_prefix("VmHWM:")
             .and_then(|value| value.split_whitespace().next()?.parse().ok())

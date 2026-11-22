@@ -9,6 +9,10 @@ use sea_orm::{
     ConnectionTrait, Database, TransactionTrait,
     sea_query::{Alias, Expr, Query},
 };
+use std::env;
+use std::fs;
+use sync_orm::causal_gc;
+use sync_orm::causal_leases;
 use sync_orm::causal_schema;
 
 #[tokio::test]
@@ -99,7 +103,7 @@ async fn durable_build_pin_is_visible_to_an_independent_connection() -> Result<(
         revoke_expired_on,
     };
     use uuid::Uuid;
-    let path = std::env::temp_dir().join(format!("sync-orm-pin-{}.sqlite", Uuid::new_v4()));
+    let path = env::temp_dir().join(format!("sync-orm-pin-{}.sqlite", Uuid::new_v4()));
     let url = format!("sqlite://{}?mode=rwc", path.display());
     let a = Database::connect(&url).await?;
     causal_schema::install_fresh(&a).await?;
@@ -149,7 +153,7 @@ async fn durable_build_pin_is_visible_to_an_independent_connection() -> Result<(
     let tx = a.begin().await?;
     let built = create_build_on(
         &tx,
-        sync_orm::causal_leases::BuildLeaseRequest {
+        causal_leases::BuildLeaseRequest {
             namespace,
             id,
             scope: vec![1],
@@ -175,7 +179,7 @@ async fn durable_build_pin_is_visible_to_an_independent_connection() -> Result<(
     assert!(
         create_build_on(
             &tx,
-            sync_orm::causal_leases::BuildLeaseRequest {
+            causal_leases::BuildLeaseRequest {
                 namespace,
                 id: Uuid::new_v4(),
                 scope: vec![1],
@@ -236,7 +240,7 @@ async fn durable_build_pin_is_visible_to_an_independent_connection() -> Result<(
     let ready = ready_on(&tx, namespace, id, 13).await?;
     assert_eq!(minimum_pins_on(&tx, namespace).await?, Some((8, 5)));
     assert_eq!(ready.retained_root, Some(root.to_vec()));
-    assert!(!sync_orm::causal_gc::collect_one_on(&tx, namespace, root, 10, 10).await?);
+    assert!(!causal_gc::collect_one_on(&tx, namespace, root, 10, 10).await?);
     assert!(publish_on(&tx, namespace, id, vec![8], 13).await.is_err());
     assert!(ready_on(&tx, namespace, id, 100).await.is_err());
     tx.rollback().await?;
@@ -246,10 +250,10 @@ async fn durable_build_pin_is_visible_to_an_independent_connection() -> Result<(
     tx.commit().await?;
     let tx = b.begin().await?;
     assert!(ready_on(&tx, namespace, id, 14).await.is_err());
-    assert!(sync_orm::causal_gc::collect_one_on(&tx, namespace, root, 10, 10).await?);
+    assert!(causal_gc::collect_one_on(&tx, namespace, root, 10, 10).await?);
     tx.commit().await?;
     a.close().await?;
     b.close().await?;
-    std::fs::remove_file(path)?;
+    fs::remove_file(path)?;
     Ok(())
 }

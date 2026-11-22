@@ -1,15 +1,14 @@
 use anyhow::Result;
 use database::sync::{model::*, references};
 use database::test_fixtures::causal_library as support;
+use migration::catalog_identity;
+use migration::catalog_identity::ParentKind;
 use uuid::Uuid;
 
 #[tokio::test]
 async fn reference_pages_release_reads_and_observe_parent_arrival() -> Result<()> {
     let library = support::SqlLibrary::new(Uuid::new_v4(), Uuid::new_v4()).await?;
-    let album = migration::catalog_identity::parent(
-        migration::catalog_identity::ParentKind::Album,
-        "Late album",
-    );
+    let album = catalog_identity::parent(ParentKind::Album, "Late album");
     for id in 1..=3 {
         let track = Uuid::from_u128(id);
         let mut value = support::track();

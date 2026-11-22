@@ -2,6 +2,15 @@ use bytemuck::{Pod, Zeroable};
 use futures::channel::oneshot;
 use num_complex::{Complex, Complex32};
 use rustfft::FftNum;
+use std::mem;
+use wgpu::BufferUsages;
+use wgpu::Features;
+use wgpu::Instance;
+use wgpu::Limits;
+use wgpu::Maintain;
+use wgpu::MapMode;
+use wgpu::MemoryHints;
+use wgpu::RequestAdapterOptions;
 use wgpu::{ComputePipeline, Device, Queue};
 
 pub(crate) const FFT_WINDOW_SIZE: usize = 1024;
@@ -18,10 +27,10 @@ pub struct FFTCompute {
 
 impl FFTCompute {
     pub async fn new(len: usize) -> Self {
-        let instance = wgpu::Instance::default();
+        let instance = Instance::default();
 
         let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions::default())
+            .request_adapter(&RequestAdapterOptions::default())
             .await
             .unwrap();
 
@@ -29,9 +38,9 @@ impl FFTCompute {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::downlevel_defaults(),
-                    memory_hints: wgpu::MemoryHints::MemoryUsage,
+                    required_features: Features::empty(),
+                    required_limits: Limits::downlevel_defaults(),
+                    memory_hints: MemoryHints::MemoryUsage,
                 },
                 None,
             )
@@ -50,21 +59,19 @@ impl FFTCompute {
         });
 
         let n: usize = len;
-        let buffer_size = (n * std::mem::size_of::<Complex32>()) as wgpu::BufferAddress;
+        let buffer_size = (n * mem::size_of::<Complex32>()) as wgpu::BufferAddress;
 
         let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Output Buffer"),
             size: buffer_size,
-            usage: wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_DST
-                | wgpu::BufferUsages::COPY_SRC,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
 
         let result_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Result Buffer"),
             size: buffer_size,
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
@@ -99,7 +106,7 @@ impl FFTCompute {
             n >= FFT_WINDOW_SIZE && n.is_multiple_of(FFT_WINDOW_SIZE),
             "Input must contain one or more complete 1024-sample FFT windows"
         );
-        let input_size = std::mem::size_of_val(data) as wgpu::BufferAddress;
+        let input_size = mem::size_of_val(data) as wgpu::BufferAddress;
         assert!(
             input_size <= self.buffer_size,
             "Input data too large for buffer"
@@ -130,11 +137,11 @@ impl FFTCompute {
 
         let buffer_slice = self.result_buffer.slice(..input_size);
         let (tx, rx) = oneshot::channel();
-        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+        buffer_slice.map_async(MapMode::Read, move |result| {
             tx.send(result).unwrap();
         });
 
-        self.device.poll(wgpu::Maintain::Wait);
+        self.device.poll(Maintain::Wait);
 
         rx.await.unwrap().unwrap();
 

@@ -1,3 +1,4 @@
+use std::cmp;
 pub struct Ring<T: Clone + Default> {
     pub buf: Vec<T>,
     pub index: usize,
@@ -29,7 +30,7 @@ impl<T: Clone + Default> Ring<T> {
         let mut remaining = values;
         while !remaining.is_empty() {
             let space_left = self.buf.len() - self.index;
-            let n = std::cmp::min(space_left, remaining.len());
+            let n = cmp::min(space_left, remaining.len());
 
             // Copy the slice
             self.buf[self.index..self.index + n].clone_from_slice(&remaining[..n]);
@@ -45,7 +46,7 @@ impl<T: Clone + Default> Ring<T> {
 
         while !remaining.is_empty() {
             let available = self.buf.len() - offset;
-            let n = std::cmp::min(available, remaining.len());
+            let n = cmp::min(available, remaining.len());
 
             remaining[..n].clone_from_slice(&self.buf[offset..offset + n]);
 

@@ -18,6 +18,11 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, Instant};
+use wgpu::BufferUsages;
+use wgpu::Features;
+use wgpu::MapMode;
+use wgpu::PollType;
+use wgpu::QueryType;
 
 const FREE: u8 = 0;
 /// Written into by a frame on its way.
@@ -70,7 +75,7 @@ pub struct GpuTimer {
 
 impl GpuTimer {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
-        if !device.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
+        if !device.features().contains(Features::TIMESTAMP_QUERY) {
             return Self {
                 measure: Measure::Wall(None),
                 done: Vec::new(),
@@ -88,11 +93,11 @@ impl GpuTimer {
             .map(|_| Slot {
                 set: device.create_query_set(&wgpu::QuerySetDescriptor {
                     label: Some("visualizer frame time"),
-                    ty: wgpu::QueryType::Timestamp,
+                    ty: QueryType::Timestamp,
                     count: 2,
                 }),
-                resolve: buffer(wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC),
-                buffer: buffer(wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST),
+                resolve: buffer(BufferUsages::QUERY_RESOLVE | BufferUsages::COPY_SRC),
+                buffer: buffer(BufferUsages::MAP_READ | BufferUsages::COPY_DST),
                 state: Arc::new(AtomicU8::new(FREE)),
                 discard: false,
             })
@@ -155,7 +160,7 @@ impl GpuTimer {
         let Some(started) = started.take() else {
             return;
         };
-        let waited = device.poll(wgpu::PollType::Wait {
+        let waited = device.poll(PollType::Wait {
             submission_index: None,
             timeout: Some(WAIT),
         });
@@ -186,7 +191,7 @@ impl GpuTimer {
             return;
         };
         // Runs the callbacks of finished frames and mappings without blocking.
-        if device.poll(wgpu::PollType::Poll).is_err() {
+        if device.poll(PollType::Poll).is_err() {
             return;
         }
         let mut encoder = None;
@@ -200,7 +205,7 @@ impl GpuTimer {
                     encoder.copy_buffer_to_buffer(&slot.resolve, 0, &slot.buffer, 0, SIZE);
                     slot.state.store(PENDING, Ordering::Release);
                     let state = Arc::clone(&slot.state);
-                    encoder.map_buffer_on_submit(&slot.buffer, wgpu::MapMode::Read, .., move |r| {
+                    encoder.map_buffer_on_submit(&slot.buffer, MapMode::Read, .., move |r| {
                         state.store(if r.is_ok() { MAPPED } else { FAILED }, Ordering::Release);
                     });
                 }

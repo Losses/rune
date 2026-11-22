@@ -7,6 +7,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use log::{info, warn};
+use sea_orm::sqlx;
 use sea_orm::{
     Database, SqlxSqliteConnector,
     sqlx::{
@@ -14,6 +15,10 @@ use sea_orm::{
         sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteLockingMode, SqliteSynchronous},
     },
 };
+#[cfg(windows)]
+use std::path as std_path;
+use sync_orm::causal_store;
+use tokio::fs;
 use uuid::Uuid;
 #[cfg(windows)]
 use windows::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_HIDDEN, SetFileAttributesW};
@@ -113,7 +118,7 @@ pub fn detect_storage_mode(fsio: &FsIo, rune_dir: &Path) -> Result<StorageMode> 
 }
 
 #[cfg(windows)]
-fn set_hidden_attribute(path: &std::path::Path) -> Result<()> {
+fn set_hidden_attribute(path: &std_path::Path) -> Result<()> {
     use std::os::windows::ffi::OsStrExt;
     let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
 
@@ -199,7 +204,7 @@ async fn set_delete_mode(path: &Path, exclusive: bool) -> Result<()> {
         options = options.locking_mode(SqliteLockingMode::Exclusive);
     }
     let mut connection = options.connect().await?;
-    let mode: String = sea_orm::sqlx::query_scalar("PRAGMA journal_mode=DELETE")
+    let mode: String = sqlx::query_scalar("PRAGMA journal_mode=DELETE")
         .fetch_one(&mut connection)
         .await?;
     connection.close().await?;
@@ -213,16 +218,16 @@ async fn set_delete_mode(path: &Path, exclusive: bool) -> Result<()> {
 /// Read and rewrite the header's `user_version` through the WAL. Reading maps the
 /// `-shm` index and writing appends to `-wal`, which is what fails on filesystems
 /// without shared-memory support. It changes neither the schema nor any data.
-async fn probe_wal(connection: &mut sea_orm::sqlx::SqliteConnection) -> Result<()> {
-    let version: i64 = sea_orm::sqlx::query_scalar("PRAGMA user_version")
+async fn probe_wal(connection: &mut sqlx::SqliteConnection) -> Result<()> {
+    let version: i64 = sqlx::query_scalar("PRAGMA user_version")
         .fetch_one(&mut *connection)
         .await?;
-    sea_orm::sqlx::query(sea_orm::sqlx::AssertSqlSafe(format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "PRAGMA user_version = {version}"
     )))
     .execute(&mut *connection)
     .await?;
-    let reread: i64 = sea_orm::sqlx::query_scalar("PRAGMA user_version")
+    let reread: i64 = sqlx::query_scalar("PRAGMA user_version")
         .fetch_one(&mut *connection)
         .await?;
     anyhow::ensure!(
@@ -248,7 +253,7 @@ async fn configure_journal_mode(
             .connect()
             .await
             .map_err(|error| WalFallbackReason::CouldNotOpen(format!("{error:#}")))?;
-        let mode: String = sea_orm::sqlx::query_scalar("PRAGMA journal_mode=WAL")
+        let mode: String = sqlx::query_scalar("PRAGMA journal_mode=WAL")
             .fetch_one(&mut connection)
             .await
             .map_err(|error| WalFallbackReason::CouldNotEnable(format!("{error:#}")))?;
@@ -340,9 +345,9 @@ async fn connect_main_db_from_storage_info(
         let db_node = fsio.ensure_file(&db_file).await?;
         fsio.canonicalize_path(&db_node.path)?
     } else {
-        tokio::fs::create_dir_all(&storage_info.db_dir).await?;
-        if !tokio::fs::try_exists(&db_file).await? {
-            tokio::fs::write(&db_file, b"").await?;
+        fs::create_dir_all(&storage_info.db_dir).await?;
+        if !fs::try_exists(&db_file).await? {
+            fs::write(&db_file, b"").await?;
         }
         db_file
     };
@@ -390,7 +395,7 @@ pub async fn initialize_db(conn: &sea_orm::DatabaseConnection, node_id: &str) ->
     let _ = migration::initialize_node_id(node_id.to_string());
 
     migration::up_with_actor(conn, Some(node_id), None).await?;
-    if sync_orm::causal_store::list_namespace_ids_on(conn, 1)
+    if causal_store::list_namespace_ids_on(conn, 1)
         .await?
         .is_empty()
     {
@@ -410,7 +415,9 @@ pub async fn connect_fake_main_db() -> Result<MainDbConnection> {
 #[cfg(test)]
 mod journal_mode_tests {
     use super::*;
+    use sea_orm::sqlx;
     use sea_orm::{ConnectionTrait, DbBackend, Statement};
+    use std::fs;
     use tempfile::TempDir;
 
     async fn mode(db: &MainDbConnection) -> Result<String> {
@@ -475,14 +482,14 @@ mod journal_mode_tests {
         let dir = TempDir::new()?;
         let root = dir.path().join("library");
         let rune_dir = root.join(".rune");
-        std::fs::create_dir_all(&rune_dir)?;
+        fs::create_dir_all(&rune_dir)?;
         let file = rune_dir.join(".0.db");
         let mut existing = SqliteConnectOptions::new()
             .filename(&file)
             .create_if_missing(true)
             .connect()
             .await?;
-        sea_orm::sqlx::query_scalar::<_, String>("PRAGMA journal_mode=WAL")
+        sqlx::query_scalar::<_, String>("PRAGMA journal_mode=WAL")
             .fetch_one(&mut existing)
             .await?;
         existing.close().await?;
@@ -603,9 +610,9 @@ pub async fn connect_recommendation_db_redirected(
     main_db: &MainDbConnection,
 ) -> Result<RecommendationDbConnection> {
     for legacy_path in [db_dir.join(".analysis"), db_dir.join(".analysis.db")] {
-        match tokio::fs::symlink_metadata(&legacy_path).await {
-            Ok(metadata) if metadata.is_dir() => tokio::fs::remove_dir_all(&legacy_path).await?,
-            Ok(_) => tokio::fs::remove_file(&legacy_path).await?,
+        match fs::symlink_metadata(&legacy_path).await {
+            Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(&legacy_path).await?,
+            Ok(_) => fs::remove_file(&legacy_path).await?,
             Err(error) if error.kind() == ErrorKind::NotFound => continue,
             Err(error) => return Err(error.into()),
         }
@@ -626,15 +633,15 @@ async fn remove_legacy_recommendation_db(
     legacy_path: &Path,
 ) -> Result<()> {
     if db_uses_local_fs(&storage_info.db_dir) {
-        let metadata = match tokio::fs::symlink_metadata(legacy_path).await {
+        let metadata = match fs::symlink_metadata(legacy_path).await {
             Ok(metadata) => metadata,
             Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
             Err(e) => return Err(e.into()),
         };
         if metadata.is_dir() {
-            tokio::fs::remove_dir_all(legacy_path).await?;
+            fs::remove_dir_all(legacy_path).await?;
         } else {
-            tokio::fs::remove_file(legacy_path).await?;
+            fs::remove_file(legacy_path).await?;
         }
     } else {
         if !fsio.exists(legacy_path)? {

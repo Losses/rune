@@ -1,6 +1,8 @@
 //! Export an immutable share base from a leased local snapshot.
 use crate::causal_capabilities::CausalEndpoint;
 use anyhow::{Context, Result, ensure};
+use flate2::Compression;
+use flate2::write::GzEncoder;
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -405,7 +407,7 @@ fn prefix_range<M: p::SyncModel>(
 
 fn gzip(bytes: &[u8]) -> Result<Vec<u8>> {
     use std::io::Write;
-    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
     encoder
         .write_all(bytes)
         .context("compressing context fragment")?;

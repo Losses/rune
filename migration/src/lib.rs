@@ -1,4 +1,6 @@
 use once_cell::sync::OnceCell;
+use sea_orm_migration::sea_orm as sea_orm_migration_sea_orm;
+use std::future;
 pub mod catalog_identity;
 pub use sea_orm_migration::prelude::*;
 
@@ -56,14 +58,14 @@ tokio::task_local! {
 
 /// Run a migration invocation with the actor that owns legacy statistics.
 pub async fn up_with_actor(
-    db: &sea_orm_migration::sea_orm::DatabaseConnection,
+    db: &sea_orm_migration_sea_orm::DatabaseConnection,
     actor: Option<&str>,
     steps: Option<u32>,
-) -> Result<(), sea_orm_migration::sea_orm::DbErr> {
+) -> Result<(), sea_orm_migration_sea_orm::DbErr> {
     with_migration_actor(actor, Migrator::up(db, steps)).await
 }
 
-async fn with_migration_actor<F: std::future::Future>(actor: Option<&str>, future: F) -> F::Output {
+async fn with_migration_actor<F: future::Future>(actor: Option<&str>, future: F) -> F::Output {
     MIGRATION_ACTOR
         .scope(actor.map(str::to_owned), future)
         .await

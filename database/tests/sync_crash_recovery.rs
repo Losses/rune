@@ -1,6 +1,8 @@
 #![cfg(feature = "sync-crash-probe")]
 use anyhow::{Context, Result, ensure};
 use async_trait::async_trait;
+use database::connection;
+use database::sync as database_sync;
 use database::test_fixtures::causal_library as support;
 use database::{
     entities::{media_file_likes, media_file_stats, media_files},
@@ -12,8 +14,11 @@ use sea_orm::{
     PaginatorTrait, Statement, TransactionTrait,
     sea_query::{Alias, Query},
 };
+use std::env;
+use std::fs;
 use std::fs::OpenOptions;
 use std::path::PathBuf;
+use std::thread;
 use std::{
     path::Path,
     process::{Command, Stdio},
@@ -22,6 +27,7 @@ use std::{
 };
 use support::fixtures;
 use sync::{self as p, ReceiveStore};
+use sync_orm::causal_progress;
 use sync_orm::{
     causal_capabilities::{CausalEndpoint, TransactionProjection},
     registry::{ProjectionBudget, RegistryProjection},
@@ -40,7 +46,7 @@ async fn scalar(db: &DatabaseConnection, sql: &str, name: &str) -> Result<String
         .or_else(|_| row.try_get::<i64>("", name).map(|v| v.to_string()))?)
 }
 async fn connect(root: &Path, node: Uuid) -> Result<DatabaseConnection> {
-    database::connection::connect_main_db(
+    connection::connect_main_db(
         &FsIo::new(),
         root.to_str().context("non-UTF-8 root")?,
         None,
@@ -96,7 +102,7 @@ async fn fixture(root: &Path) -> Result<(String, Uuid, Uuid, ChangePage)> {
     };
     let target_identity = target.identity().await?;
     let tx = db.begin().await?;
-    sync_orm::causal_progress::initialize_checkpoint_on(
+    causal_progress::initialize_checkpoint_on(
         &tx,
         &target_identity,
         &p::CheckpointKey {
@@ -110,7 +116,7 @@ async fn fixture(root: &Path) -> Result<(String, Uuid, Uuid, ChangePage)> {
     )
     .await?;
     tx.commit().await?;
-    std::fs::write(
+    fs::write(
         root.join("completion.json"),
         serde_json::to_vec(&completed_at(&db).await?)?,
     )?;
@@ -170,18 +176,18 @@ async fn fixture(root: &Path) -> Result<(String, Uuid, Uuid, ChangePage)> {
     };
     assert!(page.done);
     assert_eq!(page.links.len(), 3);
-    std::fs::write(root.join("page.json"), serde_json::to_vec(&page)?)?;
-    std::fs::write(root.join("expected.json"), serde_json::to_vec(&expected)?)?;
+    fs::write(root.join("page.json"), serde_json::to_vec(&page)?)?;
+    fs::write(root.join("expected.json"), serde_json::to_vec(&expected)?)?;
     drop(target);
     db.close().await?;
     Ok((url, library, node, page))
 }
 fn stop(stage: &str) {
-    if std::env::var("RUNE_SYNC_FAULT_STAGE").ok().as_deref() == Some(stage) {
-        let marker = std::env::var_os("RUNE_SYNC_FAULT_MARKER").expect("missing fault marker");
-        std::fs::write(marker, stage).expect("fault marker write failed");
+    if env::var("RUNE_SYNC_FAULT_STAGE").ok().as_deref() == Some(stage) {
+        let marker = env::var_os("RUNE_SYNC_FAULT_MARKER").expect("missing fault marker");
+        fs::write(marker, stage).expect("fault marker write failed");
         loop {
-            std::thread::park();
+            thread::park();
         }
     }
 }
@@ -204,11 +210,10 @@ impl TransactionProjection<RuneModel> for PausingProjection {
 #[tokio::test]
 #[ignore = "subprocess entry point"]
 async fn crash_probe_child() -> Result<()> {
-    let root =
-        PathBuf::from(std::env::var_os("RUNE_SYNC_CRASH_ROOT").context("missing child root")?);
-    let library: Uuid = std::env::var("RUNE_SYNC_CRASH_LIBRARY")?.parse()?;
-    let node: Uuid = std::env::var("RUNE_SYNC_CRASH_NODE")?.parse()?;
-    let page: ChangePage = serde_json::from_slice(&std::fs::read(root.join("page.json"))?)?;
+    let root = PathBuf::from(env::var_os("RUNE_SYNC_CRASH_ROOT").context("missing child root")?);
+    let library: Uuid = env::var("RUNE_SYNC_CRASH_LIBRARY")?.parse()?;
+    let node: Uuid = env::var("RUNE_SYNC_CRASH_NODE")?.parse()?;
+    let page: ChangePage = serde_json::from_slice(&fs::read(root.join("page.json"))?)?;
     let db = connect(&root, node).await?;
     let store = fixtures::open_library(db, node, Some(library)).await?;
     let endpoint = CausalEndpoint::with_projection(
@@ -221,14 +226,14 @@ async fn crash_probe_child() -> Result<()> {
         )?)),
     );
     endpoint
-        .apply_page(&page, database::sync::session_limits().apply)
+        .apply_page(&page, database_sync::session_limits().apply)
         .await?;
     stop("page_after_commit");
     anyhow::bail!("crash probe returned without being killed")
 }
 fn kill_at(root: &Path, url: &str, library: Uuid, node: Uuid, phase: &str) -> Result<()> {
     let marker = root.join("blocked");
-    let mut child = Command::new(std::env::current_exe()?)
+    let mut child = Command::new(env::current_exe()?)
         .args(["--ignored", "--exact", "crash_probe_child", "--nocapture"])
         .env("RUNE_SYNC_CRASH_ROOT", root)
         .env("RUNE_SYNC_CRASH_URL", url)
@@ -252,7 +257,7 @@ fn kill_at(root: &Path, url: &str, library: Uuid, node: Uuid, phase: &str) -> Re
             child.wait()?;
             anyhow::bail!("child timed out before fault point");
         }
-        std::thread::yield_now();
+        thread::yield_now();
     }
     child.kill()?;
     ensure!(!child.wait()?.success(), "child survived termination");
@@ -294,8 +299,7 @@ async fn inspect(
         media_file_stats::Entity::find().count(&db).await?,
         u64::from(committed)
     );
-    let before: Option<String> =
-        serde_json::from_slice(&std::fs::read(root.join("completion.json"))?)?;
+    let before: Option<String> = serde_json::from_slice(&fs::read(root.join("completion.json"))?)?;
     if !committed {
         assert_eq!(
             completed_at(&db).await?,
@@ -309,15 +313,14 @@ async fn inspect(
             "completed batch retained the old timestamp"
         );
     }
-    let expected: Vec<Record> =
-        serde_json::from_slice(&std::fs::read(root.join("expected.json"))?)?;
+    let expected: Vec<Record> = serde_json::from_slice(&fs::read(root.join("expected.json"))?)?;
     for record in &expected {
         assert_eq!(
             store.get(&record.key).await?,
             committed.then(|| record.clone())
         );
     }
-    let limits = database::sync::session_limits().apply;
+    let limits = database_sync::session_limits().apply;
     endpoint.apply_page(page, limits).await?;
     let settled = store.head().await?;
     endpoint.apply_page(page, limits).await?;
@@ -388,29 +391,27 @@ async fn damaged_pending_journal_recovers_without_partial_page() -> Result<()> {
 #[tokio::test]
 #[ignore = "storage-fault fixture setup"]
 async fn crash_probe_setup() -> Result<()> {
-    let root =
-        PathBuf::from(std::env::var_os("RUNE_SYNC_CRASH_ROOT").context("missing fixture root")?);
-    std::fs::create_dir_all(&root)?;
+    let root = PathBuf::from(env::var_os("RUNE_SYNC_CRASH_ROOT").context("missing fixture root")?);
+    fs::create_dir_all(&root)?;
     let (url, library, node, _) = fixture(&root).await?;
     let manifest = serde_json::json!({"url":url,"library":library,"node":node,"database":root.join(".rune/.0.db")});
-    std::fs::write(root.join("manifest.json"), serde_json::to_vec(&manifest)?)?;
+    fs::write(root.join("manifest.json"), serde_json::to_vec(&manifest)?)?;
     Ok(())
 }
 #[tokio::test]
 #[ignore = "storage-fault fixture verification"]
 async fn crash_probe_verify() -> Result<()> {
-    let root =
-        PathBuf::from(std::env::var_os("RUNE_SYNC_CRASH_ROOT").context("missing fixture root")?);
+    let root = PathBuf::from(env::var_os("RUNE_SYNC_CRASH_ROOT").context("missing fixture root")?);
     let manifest: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(root.join("manifest.json"))?)?;
+        serde_json::from_slice(&fs::read(root.join("manifest.json"))?)?;
     let url = manifest["url"].as_str().context("missing URL")?;
     let library: Uuid = manifest["library"]
         .as_str()
         .context("missing library")?
         .parse()?;
     let node: Uuid = manifest["node"].as_str().context("missing node")?.parse()?;
-    let page: ChangePage = serde_json::from_slice(&std::fs::read(root.join("page.json"))?)?;
-    let committed = match std::env::var("RUNE_SYNC_EXPECT_COMMITTED")?.as_str() {
+    let page: ChangePage = serde_json::from_slice(&fs::read(root.join("page.json"))?)?;
+    let committed = match env::var("RUNE_SYNC_EXPECT_COMMITTED")?.as_str() {
         "true" => true,
         "false" => false,
         "auto" => {

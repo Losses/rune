@@ -13,6 +13,7 @@
 use super::level::Level;
 use crate::moments::{self, Strength};
 use crate::scene::MusicValues;
+use std::fmt;
 
 /// The loudness (0 to 1, against the song's own range with a chart, the live level without one)
 /// from which the music counts as fully heard for `audible`: quieter than that it is fading or
@@ -54,8 +55,8 @@ struct Frame {
     cut: bool,
 }
 
-impl std::fmt::Debug for Source {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for Source {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Source({})", self.name)
     }
 }
@@ -353,6 +354,7 @@ pub fn names() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ptr;
 
     fn read(name: &str, music: &MusicValues) -> Reading {
         find(name).unwrap().read(music)
@@ -361,7 +363,7 @@ mod tests {
     #[test]
     fn names_are_unique_and_every_one_is_found() {
         for (i, source) in SOURCES.iter().enumerate() {
-            assert!(find(source.name).is_some_and(|f| std::ptr::eq(f, source)));
+            assert!(find(source.name).is_some_and(|f| ptr::eq(f, source)));
             assert!(SOURCES[..i].iter().all(|other| other.name != source.name));
             assert!(!source.about.is_empty());
         }

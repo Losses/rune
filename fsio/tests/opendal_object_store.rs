@@ -1,3 +1,4 @@
+use fsio::self_test;
 use fsio::{OpenDalConfig, OpenDalObjectStore};
 use sync::share::{ConditionalGet, ObjectStore, ObjectTag, StoreError};
 
@@ -75,7 +76,7 @@ fn s3_config(server: &S3Fixture) -> OpenDalConfig {
 async fn webdav_probe_and_tag_roundtrip() {
     let server = WebDavFixture::start(Vec::new()).await.unwrap();
     let store = OpenDalObjectStore::new(webdav_config(&server)).unwrap();
-    let caps = fsio::self_test::probe_share_object_store(&store, "devices/test.generation")
+    let caps = self_test::probe_share_object_store(&store, "devices/test.generation")
         .await
         .unwrap();
     assert!(caps.write_probe);
@@ -109,7 +110,7 @@ async fn webdav_probe_finds_no_conditional_get_where_every_tag_is_answered_not_m
     let server = WebDavFixture::start(Vec::new()).await.unwrap();
     server.answer_not_modified_for_every_tag();
     let store = OpenDalObjectStore::new(webdav_config(&server)).unwrap();
-    let caps = fsio::self_test::probe_share_object_store(&store, "devices/test.generation")
+    let caps = self_test::probe_share_object_store(&store, "devices/test.generation")
         .await
         .unwrap();
     assert!(caps.write_probe);
@@ -134,7 +135,7 @@ async fn webdav_listing_returns_objects_without_collection_entries() {
 async fn s3_probe_and_tag_roundtrip() {
     let server = S3Fixture::start(Vec::new()).await.unwrap();
     let store = OpenDalObjectStore::new(s3_config(&server)).unwrap();
-    let caps = fsio::self_test::probe_share_object_store(&store, "devices/test.generation")
+    let caps = self_test::probe_share_object_store(&store, "devices/test.generation")
         .await
         .unwrap();
     assert!(caps.write_probe);
@@ -197,7 +198,7 @@ async fn s3_fixture_models_conflicts_paginated_listing_and_latest_overwrite() {
 async fn webdav_probe_reports_no_conditional_write_capabilities() {
     let server = WebDavFixture::start(Vec::new()).await.unwrap();
     let store = OpenDalObjectStore::new(webdav_config(&server)).unwrap();
-    let caps = fsio::self_test::probe_share_object_store(&store, "devices/test.generation")
+    let caps = self_test::probe_share_object_store(&store, "devices/test.generation")
         .await
         .unwrap();
     assert!(caps.write_probe);
@@ -212,7 +213,7 @@ async fn failed_roundtrip_probe_disables_the_share_store() {
     server.reject_reads();
     let store = OpenDalObjectStore::new(webdav_config(&server)).unwrap();
     assert!(
-        fsio::self_test::probe_share_object_store(&store, "devices/test.generation")
+        self_test::probe_share_object_store(&store, "devices/test.generation")
             .await
             .is_err()
     );

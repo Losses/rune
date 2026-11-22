@@ -24,6 +24,8 @@ use realfft::{RealFftPlanner, RealToComplex, num_complex::Complex};
 
 use crate::ndimage::{maximum_filter1d, median_filter1d};
 use crate::np::{geomspace, hanning, pairwise_sum, round_half_even};
+use std::array;
+use std::ops;
 
 /// Sample rate the analysis runs at.
 pub const SR: usize = 22050;
@@ -491,8 +493,8 @@ impl Hpss {
 
 /// The bins of each timbre band, as ranges (the bands are runs of bins): `band_of` says which
 /// band each bin is in.
-pub(crate) fn band_ranges(band_of: &[Option<usize>]) -> [std::ops::Range<usize>; TIMBRE_BANDS] {
-    std::array::from_fn(|k| {
+pub(crate) fn band_ranges(band_of: &[Option<usize>]) -> [ops::Range<usize>; TIMBRE_BANDS] {
+    array::from_fn(|k| {
         let first = band_of.iter().position(|&b| b == Some(k));
         let last = band_of.iter().rposition(|&b| b == Some(k));
         first.zip(last).map_or(0..0, |(a, b)| a..b + 1)
@@ -506,7 +508,7 @@ pub(crate) fn band_ranges(band_of: &[Option<usize>]) -> [std::ops::Range<usize>;
 pub(crate) fn power_sums(
     row: &[f32],
     f: &[f64],
-    bands: &[std::ops::Range<usize>; TIMBRE_BANDS],
+    bands: &[ops::Range<usize>; TIMBRE_BANDS],
 ) -> (f32, f64, [f32; TIMBRE_BANDS]) {
     let pw: Vec<f32> = row.iter().map(|&v| v * v).collect();
     let weighted: Vec<f64> = pw
@@ -514,7 +516,7 @@ pub(crate) fn power_sums(
         .zip(f)
         .map(|(&p, &hz)| f64::from(p) * hz)
         .collect();
-    let in_band = std::array::from_fn(|k| pairwise_sum(&pw[bands[k].clone()]));
+    let in_band = array::from_fn(|k| pairwise_sum(&pw[bands[k].clone()]));
     (pairwise_sum(&pw), pairwise_sum(&weighted), in_band)
 }
 
@@ -533,7 +535,7 @@ struct ChromaTimbreStage {
     f: Vec<f64>,
     /// The pitch class of the bins that vote, MIDI number mod 12.
     pitch_class: Vec<Option<usize>>,
-    bands: [std::ops::Range<usize>; TIMBRE_BANDS],
+    bands: [ops::Range<usize>; TIMBRE_BANDS],
     dct: Vec<Vec<f64>>,
     out: ChromaTimbre,
 }
@@ -598,7 +600,7 @@ impl ChromaTimbreStage {
             .chroma
             .push(chroma.map(|v| (v / norm as f32) as f64));
         let log_bands = bands.map(|v| (v + TIMBRE_FLOOR).ln());
-        self.out.timbre.push(std::array::from_fn(|j| {
+        self.out.timbre.push(array::from_fn(|j| {
             log_bands
                 .iter()
                 .zip(&self.dct[j])

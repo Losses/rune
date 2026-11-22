@@ -1,3 +1,4 @@
+use anyhow::Error;
 use anyhow::Result;
 use fsio::FsIo;
 use log::info;
@@ -39,7 +40,7 @@ impl Signal for TestLibraryInitializedRequest {
         info!("Testing the library path: {media_library_path}");
 
         let state = check_library_state(&fsio, &media_library_path).map_err(|error| {
-            anyhow::Error::from(ExpectedRequestError::Unavailable {
+            Error::from(ExpectedRequestError::Unavailable {
                 what: "library folder",
             })
             .context(error)
@@ -56,12 +57,14 @@ impl Signal for TestLibraryInitializedRequest {
 #[cfg(test)]
 mod tests {
     use anyhow::{Context, Result};
+    use std::fs;
+    use std::path as std_path;
 
     use crate::Signal;
     use crate::messages::{RequestErrorKind, TestLibraryInitializedRequest};
     use crate::request_error::classify;
 
-    fn request(path: &std::path::Path) -> Result<TestLibraryInitializedRequest> {
+    fn request(path: &std_path::Path) -> Result<TestLibraryInitializedRequest> {
         Ok(TestLibraryInitializedRequest {
             path: path.to_str().context("library path")?.to_owned(),
             call_id: None,
@@ -83,8 +86,8 @@ mod tests {
     #[tokio::test]
     async fn an_unreadable_library_folder_is_refused_as_unavailable() -> Result<()> {
         let dir = tempfile::tempdir()?;
-        std::fs::create_dir(dir.path().join(".rune"))?;
-        std::fs::write(dir.path().join(".rune/.redirect"), "not-a-uuid")?;
+        fs::create_dir(dir.path().join(".rune"))?;
+        fs::write(dir.path().join(".rune/.redirect"), "not-a-uuid")?;
         let request = request(dir.path())?;
         let error = match request.handle((), None, &request).await {
             Ok(_) => anyhow::bail!("a broken redirect must not answer a library state"),

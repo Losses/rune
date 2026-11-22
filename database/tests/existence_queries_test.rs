@@ -10,6 +10,7 @@ use database::{
 use fsio::FsIo;
 use metadata::describe::describe_file;
 use sea_orm::{ConnectionTrait, Database, EntityTrait};
+use uuid::Uuid;
 
 #[tokio::test]
 async fn existence_queries_preserve_filters_duplicates_and_errors() -> Result<()> {
@@ -17,8 +18,8 @@ async fn existence_queries_preserve_filters_duplicates_and_errors() -> Result<()
     initialize_db(&db, "existence-test").await?;
     let fs = FsIo::new();
     let root = fs.canonicalize(&fixtures::asset_directory())?.path;
-    let actor = uuid::Uuid::new_v4();
-    let store = fixtures::open_library(db.clone(), actor, Some(uuid::Uuid::new_v4())).await?;
+    let actor = Uuid::new_v4();
+    let store = fixtures::open_library(db.clone(), actor, Some(Uuid::new_v4())).await?;
     let node = fs.canonicalize(&root.join("startup_0.ogg"))?;
     let mut descriptions = vec![Some(describe_file(&fs, &node, &Some(root))?)];
     sync_file_descriptions(

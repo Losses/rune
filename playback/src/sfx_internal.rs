@@ -144,6 +144,8 @@ mod tests {
     use super::*;
     use rodio::Source;
     use rodio::source::SineWave;
+    use tokio::task;
+    use tokio::time as tokio_time;
 
     // Advances the player's timer through several finished-output checks.
     async fn run_briefly(
@@ -157,11 +159,11 @@ mod tests {
             for _ in 0..3 {
                 assert!(!commands_sender.is_closed());
                 tokio::select! {
-                    _ = tokio::time::advance(FINISHED_CHECK) => {},
+                    _ = tokio_time::advance(FINISHED_CHECK) => {},
                     result = &mut run => panic!("SFX player stopped unexpectedly: {result:?}"),
                 }
                 tokio::select! {
-                    _ = tokio::task::yield_now() => {},
+                    _ = task::yield_now() => {},
                     result = &mut run => panic!("SFX player stopped unexpectedly: {result:?}"),
                 }
             }

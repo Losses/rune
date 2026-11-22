@@ -11,10 +11,12 @@ use crate::{
 };
 use anyhow::{Result, ensure};
 use async_trait::async_trait;
+use chrono::Utc;
 use sea_orm::{
     ConnectionTrait, DatabaseTransaction, ExprTrait, TransactionTrait,
     sea_query::{Alias, Expr, Func, Query},
 };
+use std::cmp;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -22,6 +24,7 @@ use sync::causal::Context;
 use sync::causal::Dot;
 use sync::protocol::{self as p, BoxFuture};
 use tokio::sync::{Mutex, MutexGuard};
+use tokio::task;
 use uuid::Uuid;
 
 /// The application projects accepted changes using this exact transaction.
@@ -66,15 +69,20 @@ fn error(error: anyhow::Error) -> p::SyncError {
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Error;
     use sea_orm::{
         ConnectionTrait, SqlxSqliteConnector,
         sqlx::{SqlitePool, sqlite::SqliteConnectOptions},
     };
+    use std::env;
+    use std::fs;
     use std::time::Duration;
+    use sync::SyncError;
+    use uuid::Uuid;
 
     #[tokio::test]
     async fn sqlite_busy_db_error_converts_to_typed_sync_error() {
-        let path = std::env::temp_dir().join(format!("sync-busy-{}.db", uuid::Uuid::new_v4()));
+        let path = env::temp_dir().join(format!("sync-busy-{}.db", Uuid::new_v4()));
         let lock_pool = SqlitePool::connect_with(
             SqliteConnectOptions::new()
                 .filename(&path)
@@ -100,17 +108,14 @@ mod tests {
             .execute_unprepared("INSERT INTO writes VALUES (1)")
             .await
             .unwrap_err();
-        assert_eq!(
-            super::error(anyhow::Error::new(db_error)),
-            sync::SyncError::StorageBusy
-        );
+        assert_eq!(super::error(Error::new(db_error)), SyncError::StorageBusy);
         drop(lock);
         drop(under_test);
-        let _ = std::fs::remove_file(path);
+        let _ = fs::remove_file(path);
     }
 }
 fn now() -> u64 {
-    std::cmp::max(chrono::Utc::now().timestamp_millis(), 0) as u64
+    cmp::max(Utc::now().timestamp_millis(), 0) as u64
 }
 fn source_work(mut limits: p::WorkLimits) -> p::Result<p::WorkLimits> {
     if limits.max_requests == 0
@@ -128,8 +133,8 @@ fn source_work(mut limits: p::WorkLimits) -> p::Result<p::WorkLimits> {
     }
     // A pass budget is an upper bound. Each durable continuation can consume
     // a smaller unit without rejecting a caller's larger valid allowance.
-    limits.max_rows_scanned = std::cmp::min(limits.max_rows_scanned, 1024);
-    limits.max_bytes = std::cmp::min(limits.max_bytes, p::DEFAULT_LOGICAL_BYTES);
+    limits.max_rows_scanned = cmp::min(limits.max_rows_scanned, 1024);
+    limits.max_bytes = cmp::min(limits.max_bytes, p::DEFAULT_LOGICAL_BYTES);
     Ok(limits)
 }
 
@@ -147,7 +152,7 @@ impl SourceRequestBudget {
             rows: limits.max_rows_scanned,
             bytes: limits.max_bytes,
             mutations: limits.max_mutations,
-            transactions: std::cmp::min(limits.max_requests, 64),
+            transactions: cmp::min(limits.max_requests, 64),
         }
     }
     fn has_work(&self) -> bool {
@@ -420,7 +425,7 @@ impl<M: p::SyncModel> CausalEndpoint<M> {
                             committed = Some(cursor);
                         }
                     }
-                    tokio::task::yield_now().await;
+                    task::yield_now().await;
                 }
             }
             .await;
@@ -1086,7 +1091,7 @@ impl<M: p::SyncModel> p::SnapshotSink<M> for CausalEndpoint<M> {
                         lower: range.lower,
                         upper: range.upper,
                         after: None,
-                        max_items: std::cmp::min(limits.max_mutations, 1024) as usize,
+                        max_items: cmp::min(limits.max_mutations, 1024) as usize,
                         max_bytes: 4 * 1024 * 1024,
                     },
                 )

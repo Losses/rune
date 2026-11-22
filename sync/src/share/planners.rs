@@ -4,6 +4,8 @@ use crate::protocol::{
     Event, MAX_NUMBER, StoreIdentity, SyncModel, event_digest, initial_anchor, next_anchor,
 };
 use std::collections::{BTreeMap, BTreeSet};
+use std::error;
+use std::fmt;
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -11,15 +13,15 @@ pub enum PlannerError {
     Invalid(String),
 }
 
-impl std::fmt::Display for PlannerError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for PlannerError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Invalid(message) => write!(formatter, "share planning failed: {message}"),
         }
     }
 }
 
-impl std::error::Error for PlannerError {}
+impl error::Error for PlannerError {}
 
 impl From<String> for PlannerError {
     fn from(value: String) -> Self {

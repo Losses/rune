@@ -8,7 +8,9 @@ use crate::{
     request_error::ExpectedRequestError,
     utils::{GlobalParams, ParamsExtractor},
 };
+use anyhow::Error;
 use sha2::{Digest, Sha256};
+use std::env;
 
 #[cfg(target_os = "windows")]
 pub async fn check_store_license() -> Result<Option<(String, bool, bool)>> {
@@ -103,7 +105,7 @@ impl Signal for RegisterLicenseRequest {
         let path = &dart_signal.path;
 
         let file_content = read_file_content(path).await.map_err(|error| {
-            anyhow::Error::from(ExpectedRequestError::Unavailable {
+            Error::from(ExpectedRequestError::Unavailable {
                 what: "license file",
             })
             .context(error)
@@ -160,7 +162,7 @@ impl Signal for ValidateLicenseRequest {
         let mut is_pro = false;
         let mut is_store_mode = false;
 
-        let args: Vec<String> = std::env::args().collect();
+        let args: Vec<String> = env::args().collect();
         let pro_via_args = args.contains(&"--pro".to_string());
         let store_via_args = args.contains(&"--store".to_string());
 
@@ -207,12 +209,14 @@ impl Signal for ValidateLicenseRequest {
 #[cfg(test)]
 mod tests {
     use anyhow::{Result, bail};
+    use std::fs;
+    use std::path as std_path;
 
     use crate::Signal;
     use crate::messages::{RegisterLicenseRequest, RequestErrorKind, RequestFailureCause};
     use crate::request_error::{classify, request_failure_cause};
 
-    async fn register(path: &std::path::Path) -> Result<anyhow::Error> {
+    async fn register(path: &std_path::Path) -> Result<anyhow::Error> {
         let request = RegisterLicenseRequest {
             path: path.to_string_lossy().into_owned(),
             call_id: None,
@@ -227,7 +231,7 @@ mod tests {
     async fn an_invalid_key_is_refused_with_its_own_cause() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let key = dir.path().join("not-a-key.flac");
-        std::fs::write(&key, b"not a license")?;
+        fs::write(&key, b"not a license")?;
         let error = register(&key).await?;
         assert_eq!(classify(&error), RequestErrorKind::InvalidInput);
         assert_eq!(

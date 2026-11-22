@@ -37,6 +37,13 @@ use ::metadata::{
 };
 
 use super::utils::DatabaseExecutor;
+use blake3::Hasher;
+use sea_orm::Condition;
+use sea_orm::DbErr;
+use sea_orm::RuntimeErr;
+use std::collections;
+use std::io;
+use tokio::task;
 
 #[derive(Debug, Clone)]
 pub struct FileMetadata {
@@ -61,7 +68,7 @@ pub fn read_metadata(fsio: &FsIo, fs_node: &FsNode) -> Result<FileMetadata> {
 pub async fn get_existing_files_modified(
     main_db: &DatabaseConnection,
     file_keys: Vec<(String, String)>, // (directory, file_name)
-) -> Result<std::collections::HashMap<(String, String), Option<String>>> {
+) -> Result<collections::HashMap<(String, String), Option<String>>> {
     if file_keys.is_empty() {
         return Ok(HashMap::new());
     }
@@ -71,11 +78,11 @@ pub async fn get_existing_files_modified(
     let mut result = HashMap::new();
 
     for chunk in file_keys.chunks(chunk_size) {
-        let mut conditions = sea_orm::Condition::any();
+        let mut conditions = Condition::any();
 
         for (directory, file_name) in chunk {
             conditions = conditions.add(
-                sea_orm::Condition::all()
+                Condition::all()
                     .add(media_files::Column::Directory.eq(directory.clone()))
                     .add(media_files::Column::FileName.eq(file_name.clone())),
             );
@@ -102,7 +109,7 @@ pub async fn get_existing_files_modified(
 /// Returns (files_to_process, skipped_count)
 pub fn filter_modified_files(
     descriptions: Vec<Option<FileDescription>>,
-    existing_change_tokens: &std::collections::HashMap<(String, String), Option<String>>,
+    existing_change_tokens: &collections::HashMap<(String, String), Option<String>>,
 ) -> (Vec<Option<FileDescription>>, usize) {
     let mut filtered = Vec::new();
     let mut skipped_count = 0;
@@ -148,9 +155,9 @@ pub(crate) fn is_fatal_scan_error(error: &anyhow::Error) -> bool {
         .chain()
         .filter_map(|cause| cause.downcast_ref::<sea_orm::DbErr>())
         .any(|db| match db {
-            sea_orm::DbErr::Custom(_) => false,
-            sea_orm::DbErr::Exec(sea_orm::RuntimeErr::SqlxError(error))
-            | sea_orm::DbErr::Query(sea_orm::RuntimeErr::SqlxError(error)) => match error.deref() {
+            DbErr::Custom(_) => false,
+            DbErr::Exec(RuntimeErr::SqlxError(error))
+            | DbErr::Query(RuntimeErr::SqlxError(error)) => match error.deref() {
                 Error::Database(error) => !error
                     .code()
                     .and_then(|code| code.parse::<i32>().ok())
@@ -240,11 +247,11 @@ async fn sync_file_descriptions_inner(
             let fs = fsio.clone();
             let mut prepared = description.clone();
             let old_hash = existing.as_ref().and_then(|file| file.content_hash.clone());
-            let prepared = tokio::task::spawn_blocking(move || -> Result<_> {
+            let prepared = task::spawn_blocking(move || -> Result<_> {
                 prepared.get_crc(&fs)?;
                 let mut stream = fs.open(&prepared.raw_node.path, OpenMode::Read)?;
-                let mut hasher = blake3::Hasher::new();
-                let size = std::io::copy(&mut stream, &mut hasher)?;
+                let mut hasher = Hasher::new();
+                let size = io::copy(&mut stream, &mut hasher)?;
                 let size = i64::try_from(size).context("File size exceeds supported range")?;
                 let digest = hasher.finalize().to_hex().to_string();
                 let metadata = if !force && old_hash.as_ref() == Some(&digest) {
@@ -715,7 +722,7 @@ async fn clean_up_database(
         .count();
     let fsio_for_missing = fsio.clone();
     let root_for_missing = root_path.to_path_buf();
-    let missing: Vec<_> = tokio::task::spawn_blocking(move || {
+    let missing: Vec<_> = task::spawn_blocking(move || {
         files
             .into_iter()
             .filter(|file| {
@@ -818,7 +825,7 @@ pub async fn scan_audio_file(
     let fsio_for_describe = fsio.clone();
     let path_for_describe = path.to_path_buf();
     let root_for_describe = lib_path.to_path_buf();
-    let description = tokio::task::spawn_blocking(move || {
+    let description = task::spawn_blocking(move || {
         let node = fsio_for_describe.canonicalize(&path_for_describe)?;
         // A local file may have been reached through another spelling of the
         // root (for example an 8.3 path). Keep already-matching backend paths.
@@ -869,8 +876,7 @@ where
     // A failed walk reports none of the paths it skipped, so cleanup waits for a
     // later scan, as it does when the walk skips paths.
     let mut scanner =
-        tokio::task::spawn_blocking(move || AudioScanner::new(&fsio_for_scan, &root_for_scan))
-            .await??;
+        task::spawn_blocking(move || AudioScanner::new(&fsio_for_scan, &root_for_scan)).await??;
 
     for path in scanner.skipped() {
         let detail = format!("Skipped {path:?}: its path is not valid Unicode");
@@ -925,7 +931,7 @@ where
         for file in files.clone() {
             let fsio_for_describe = fsio.clone();
             let root_for_describe = lib_path.to_path_buf();
-            let description = tokio::task::spawn_blocking(move || {
+            let description = task::spawn_blocking(move || {
                 describe_file(&fsio_for_describe, &file, &Some(root_for_describe))
             })
             .await?;

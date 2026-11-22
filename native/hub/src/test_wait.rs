@@ -1,6 +1,7 @@
 use std::{future::Future, time::Duration};
 
 use anyhow::{Context, Result};
+use tokio::time as tokio_time;
 
 pub(crate) const TEST_DEADLINE: Duration = Duration::from_secs(60);
 
@@ -9,12 +10,12 @@ where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<Option<T>>>,
 {
-    tokio::time::timeout(TEST_DEADLINE, async {
+    tokio_time::timeout(TEST_DEADLINE, async {
         loop {
             if let Some(value) = probe().await? {
                 return Ok(value);
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            tokio_time::sleep(Duration::from_millis(10)).await;
         }
     })
     .await

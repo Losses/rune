@@ -3,7 +3,12 @@ use axum::{Router, routing::get};
 use database::actions::file::{blob_path, hash_file};
 use database::sync::model::BlobRef;
 use fsio::FsIo;
+use futures::stream;
 use hub::server::sync::blobs::download_blob;
+use metadata::reader;
+use reqwest::Client;
+use std::fs;
+use std::io;
 use std::io::Error;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -33,7 +38,7 @@ async fn verifies_audio_and_recovers_after_corrupt_or_interrupted_transfer() {
     };
     let dir = tempfile::tempdir().unwrap();
     let fs = FsIo::new();
-    let client = reqwest::Client::new();
+    let client = Client::new();
     let final_path = blob_path(&fs, dir.path(), &expected.digest, "ogg").unwrap();
     let mut corrupt = fixture.as_ref().clone();
     corrupt[0] ^= 1;
@@ -61,8 +66,8 @@ async fn verifies_audio_and_recovers_after_corrupt_or_interrupted_transfer() {
         get(move || {
             let first = first.clone();
             async move {
-                let chunks = futures::stream::iter(vec![
-                    Ok::<_, std::io::Error>(first),
+                let chunks = stream::iter(vec![
+                    Ok::<_, io::Error>(first),
                     Err(Error::other("interrupted")),
                 ]);
                 Body::from_stream(chunks)
@@ -91,8 +96,8 @@ async fn verifies_audio_and_recovers_after_corrupt_or_interrupted_transfer() {
         .await
         .unwrap();
     assert_eq!(hash_file(&fs, &path).unwrap(), expected);
-    assert_eq!(std::fs::read(&path).unwrap(), *fixture);
+    assert_eq!(fs::read(&path).unwrap(), *fixture);
     let node = fs.canonicalize(&path).unwrap();
-    metadata::reader::get_metadata(&fs, &node, None).unwrap();
+    reader::get_metadata(&fs, &node, None).unwrap();
     task.abort();
 }

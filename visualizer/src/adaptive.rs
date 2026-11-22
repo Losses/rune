@@ -18,6 +18,7 @@
 //!   resolution), and is judged the same way: a raise that leaves the frame rate under the target
 //!   is undone and doubles the time raising waits.
 
+use std::mem;
 /// The lowest resolution factor, against the scene's own scale.
 pub const MIN_FACTOR: f32 = 0.5;
 /// Resolution factors come in steps of this, from [`MIN_FACTOR`] to 1.
@@ -223,7 +224,7 @@ impl Controller {
         if now < self.settle_until {
             return None;
         }
-        let pending = std::mem::take(&mut self.pending);
+        let pending = mem::take(&mut self.pending);
         let w = self.window.get_or_insert_with(|| Window {
             first: now,
             ..Window::default()

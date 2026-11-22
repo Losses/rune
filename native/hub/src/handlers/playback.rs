@@ -43,6 +43,10 @@ use crate::{
         require_library, resolved_start,
     },
 };
+use anyhow::Error;
+use futures::future;
+use std::slice;
+use tokio::time as tokio_time;
 
 async fn apply_player_command(
     player: &Arc<Mutex<dyn Playable>>,
@@ -51,7 +55,7 @@ async fn apply_player_command(
     let completion = { player.lock().await.command_with_completion(command) };
     completion
         .await
-        .map_err(|error| anyhow::Error::new(player_command_error(error)))?;
+        .map_err(|error| Error::new(player_command_error(error)))?;
     Ok(())
 }
 
@@ -97,7 +101,7 @@ pub async fn playing_items_from_requests(
         .iter()
         .cloned()
         .map(|request| async move { playing_item_from_request(request, None).await })
-        .collect::<futures::future::JoinAll<_>>()
+        .collect::<future::JoinAll<_>>()
         .await
         .into_iter()
         .collect()
@@ -109,7 +113,7 @@ async fn resolve_open_subsonic_tracks(
 ) -> Result<Vec<PlayingItem>> {
     let mut resolved = Vec::with_capacity(requests.len());
     for request in requests {
-        resolved.extend(playing_items_from_requests(std::slice::from_ref(request), None).await?);
+        resolved.extend(playing_items_from_requests(slice::from_ref(request), None).await?);
     }
     Ok(resolved)
 }
@@ -505,7 +509,7 @@ impl Signal for SwitchRequest {
             completion
                 .context("Switch command completion was not created")?
                 .await
-                .map_err(|error| anyhow::Error::new(player_command_error(error)))?;
+                .map_err(|error| Error::new(player_command_error(error)))?;
         }
         record_skip_item(&node, previous_item).await?;
 
@@ -913,7 +917,7 @@ impl Signal for LoadResolvedItemsRequest {
                 if let Some(completion) = completion {
                     completion
                         .await
-                        .map_err(|error| anyhow::Error::new(player_command_error(error)))?;
+                        .map_err(|error| Error::new(player_command_error(error)))?;
                 }
                 return Ok(Some(LoadResolvedItemsResponse {
                     call_id: None,
@@ -933,7 +937,7 @@ impl Signal for LoadResolvedItemsRequest {
                             .acquire_for_request(*library_id)
                             .await
                             .map_err(|error| {
-                                anyhow::Error::new(ExpectedRequestError::Unavailable {
+                                Error::new(ExpectedRequestError::Unavailable {
                                     what: "resolved library item",
                                 })
                                 .context(error)
@@ -963,7 +967,7 @@ impl Signal for LoadResolvedItemsRequest {
                     .acquire_for_request(library_id)
                     .await
                     .map_err(|error| {
-                        anyhow::Error::new(ExpectedRequestError::Unavailable {
+                        Error::new(ExpectedRequestError::Unavailable {
                             what: "resolved library item",
                         })
                         .context(error)
@@ -1034,7 +1038,7 @@ impl Signal for LoadResolvedItemsRequest {
             if let Some(completion) = completion {
                 completion
                     .await
-                    .map_err(|error| anyhow::Error::new(player_command_error(error)))?;
+                    .map_err(|error| Error::new(player_command_error(error)))?;
             }
         }
         Ok(Some(LoadResolvedItemsResponse {
@@ -1160,12 +1164,12 @@ async fn apply_resolved_items_load(
             };
             Ok(LibraryItem {
                 library_id: Uuid::parse_str(library_id).map_err(|error| {
-                    anyhow::Error::new(ExpectedRequestError::invalid_input(format!(
+                    Error::new(ExpectedRequestError::invalid_input(format!(
                         "Invalid cast library id: {error}"
                     )))
                 })?,
                 file_uuid: Uuid::parse_str(track).map_err(|error| {
-                    anyhow::Error::new(ExpectedRequestError::invalid_input(format!(
+                    Error::new(ExpectedRequestError::invalid_input(format!(
                         "Invalid cast file uuid: {error}"
                     )))
                 })?,
@@ -1196,7 +1200,7 @@ async fn apply_resolved_items_load(
             .acquire_for_request(library_id)
             .await
             .map_err(|error| {
-                anyhow::Error::new(ExpectedRequestError::Unavailable {
+                Error::new(ExpectedRequestError::Unavailable {
                     what: "cast library",
                 })
                 .context(error)
@@ -1329,7 +1333,7 @@ async fn apply_resolved_items_load(
         if let Some(completion) = completion {
             completion
                 .await
-                .map_err(|error| anyhow::Error::new(player_command_error(error)))?;
+                .map_err(|error| Error::new(player_command_error(error)))?;
         }
     }
     Ok((result, handoff_item))
@@ -1641,11 +1645,11 @@ pub(crate) fn session_snapshot_from_status(
                 })
             }
             PlayingItem::LibraryTrack { .. } => {
-                Err(anyhow::Error::new(ExpectedRequestError::Unavailable {
+                Err(Error::new(ExpectedRequestError::Unavailable {
                     what: "handing off files outside a library",
                 }))
             }
-            _ => Err(anyhow::Error::new(ExpectedRequestError::Unavailable {
+            _ => Err(Error::new(ExpectedRequestError::Unavailable {
                 what: "handing off files outside a library",
             })),
         })
@@ -1874,9 +1878,10 @@ async fn pause_handoff_source(
         // The player answers after the commands already sent, such as a Play pressed just before
         // the handoff, and counts a track that is loading to play as playing.
         let paused = { session.player.lock().await.pause_reporting() };
-        let was_playing = paused.await.map_err(|_| {
-            anyhow::Error::new(player_command_error(PlayerCommandError::ThreadUnavailable))
-        })? == PausedPlayback::Playing;
+        let was_playing = paused
+            .await
+            .map_err(|_| Error::new(player_command_error(PlayerCommandError::ThreadUnavailable)))?
+            == PausedPlayback::Playing;
         let snapshot = match session_snapshot(node, &session).await {
             Ok(snapshot) => snapshot,
             Err(error) => {
@@ -2077,7 +2082,7 @@ async fn wait_for_handoff_start(
     expected_position: f64,
     expected_state: PlaybackState,
 ) -> Result<()> {
-    tokio::time::timeout(HANDOFF_START_TIMEOUT, async {
+    tokio_time::timeout(HANDOFF_START_TIMEOUT, async {
         loop {
             let event = match events.recv().await {
                 Ok(event) => event,
@@ -2120,7 +2125,7 @@ async fn wait_for_handoff_start(
     })
     .await
     .map_err(|_| {
-        anyhow::Error::new(ExpectedRequestError::Unavailable {
+        Error::new(ExpectedRequestError::Unavailable {
             what: "handoff playback start",
         })
         .context(format!(
@@ -2137,6 +2142,7 @@ fn same_handoff_item(left: &PlayingItemRef, right: &PlayingItemRef) -> bool {
 mod handoff_confirmation_tests {
     use super::*;
     use std::time::Instant;
+    use tokio::time as tokio_time;
 
     #[tokio::test]
     async fn slow_handoff_playback_confirmation_completes_when_status_arrives() -> Result<()> {
@@ -2148,7 +2154,7 @@ mod handoff_confirmation_tests {
         let delayed_sender = sender.clone();
         let delayed_item = expected_item.clone();
         tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio_time::sleep(Duration::from_millis(100)).await;
             let _ = delayed_sender.send(HandoffPlaybackEvent {
                 link: target_link,
                 report: HandoffPlaybackReport::Status(Box::new(playing_status(delayed_item, 42.0))),

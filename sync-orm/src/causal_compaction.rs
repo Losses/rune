@@ -5,6 +5,7 @@ use sea_orm::{
     ConnectionTrait, DatabaseTransaction, ExprTrait,
     sea_query::{Alias, Condition, Expr, Order, Query},
 };
+use std::cmp;
 use sync::protocol::SyncModel;
 use uuid::Uuid;
 
@@ -117,8 +118,8 @@ pub async fn maintenance_step_on<M: SyncModel>(
         return Ok(FloorStep::CaughtUp);
     }
     let pins = minimum_pins_on(tx, ns).await?;
-    let cap = std::cmp::min(
-        pins.map_or(head, |(_, pin)| std::cmp::min(pin, head)),
+    let cap = cmp::min(
+        pins.map_or(head, |(_, pin)| cmp::min(pin, head)),
         floor.saturating_add(i64::try_from(max_events)?),
     );
     if cap <= floor {
@@ -216,7 +217,7 @@ pub async fn reclaim_rows_step_on(tx: &DatabaseTransaction, ns: Uuid, limit: u64
     let state: i64 = meta.try_get_by_index(0)?;
     let below = minimum_pins_on(tx, ns)
         .await?
-        .map_or(state, |(pin, _)| std::cmp::min(pin, state));
+        .map_or(state, |(pin, _)| cmp::min(pin, state));
     let mut removed = crate::causal_observed::reclaim_step_on(tx, ns, below, limit).await?;
     if removed == limit {
         return Ok(removed);

@@ -10,6 +10,7 @@ use crate::{
     entities::{media_files, mixes, sync_download_jobs, sync_download_rules},
 };
 use anyhow::{Result, ensure};
+use chrono::Duration;
 use chrono::{DateTime, SecondsFormat, Utc};
 use fsio::{FileIoError, FsIo};
 use sea_orm::sea_query::Expr;
@@ -400,8 +401,8 @@ pub async fn record_download_failure(
     };
     let attempts = job.attempts.saturating_add(1).max(1);
     let delay = (5_i64 << attempts.min(6)).min(300);
-    let retry = (Utc::now() + chrono::Duration::seconds(delay))
-        .to_rfc3339_opts(SecondsFormat::Millis, true);
+    let retry =
+        (Utc::now() + Duration::seconds(delay)).to_rfc3339_opts(SecondsFormat::Millis, true);
     sync_download_jobs::Entity::update_many()
         .col_expr(sync_download_jobs::Column::State, Expr::value("pending"))
         .col_expr(sync_download_jobs::Column::Attempts, Expr::value(attempts))

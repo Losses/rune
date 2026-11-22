@@ -7,6 +7,9 @@ use sea_orm::{
     sea_query::{Alias, ColumnDef, Expr, OnConflict, Query, Table},
 };
 use serde::{Deserialize, Serialize};
+use std::cmp;
+use std::fmt;
+use std::result;
 use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet, btree_map::Entry},
@@ -171,11 +174,12 @@ mod object_key_map {
     use super::ObjectKey;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
     use std::collections::BTreeMap;
+    use std::result;
 
     pub fn serialize<S, V>(
         objects: &BTreeMap<ObjectKey, V>,
         serializer: S,
-    ) -> std::result::Result<S::Ok, S::Error>
+    ) -> result::Result<S::Ok, S::Error>
     where
         S: Serializer,
         V: Serialize,
@@ -185,7 +189,7 @@ mod object_key_map {
 
     pub fn deserialize<'de, D, V>(
         deserializer: D,
-    ) -> std::result::Result<BTreeMap<ObjectKey, V>, D::Error>
+    ) -> result::Result<BTreeMap<ObjectKey, V>, D::Error>
     where
         D: Deserializer<'de>,
         V: Deserialize<'de>,
@@ -383,7 +387,7 @@ pub enum SharePullError {
     Cancelled,
 }
 
-pub type SharePullResult<T> = std::result::Result<T, SharePullError>;
+pub type SharePullResult<T> = result::Result<T, SharePullError>;
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum SharePushError {
@@ -403,7 +407,7 @@ pub enum SharePushError {
     Failed(String),
 }
 
-pub type SharePushResult<T> = std::result::Result<T, SharePushError>;
+pub type SharePushResult<T> = result::Result<T, SharePushError>;
 
 pub struct PublishJournalRequest<'a, M: SyncModel> {
     pub db: &'a DatabaseConnection,
@@ -1561,7 +1565,7 @@ pub async fn pull<M: SyncModel>(
     }
 
     let mut peers = newest.into_values().collect::<Vec<_>>();
-    peers.sort_by_key(|(_, head)| std::cmp::Reverse(head.head.seq));
+    peers.sort_by_key(|(_, head)| cmp::Reverse(head.head.seq));
     let candidates = base_candidates(&peers)?;
     record_library_binding(db, library_id).await?;
     let mut local_state = load_or_create_state(
@@ -1569,7 +1573,7 @@ pub async fn pull<M: SyncModel>(
         local_identity.replica,
         library_id,
         cache_path.clone(),
-        chrono::Utc::now().timestamp_millis(),
+        Utc::now().timestamp_millis(),
     )
     .await
     .map_err(internal_error)?;
@@ -1583,7 +1587,7 @@ pub async fn pull<M: SyncModel>(
     {
         local_state.rotate_generation();
     }
-    let now_ms = chrono::Utc::now().timestamp_millis();
+    let now_ms = Utc::now().timestamp_millis();
     for (key, tag) in observed_tags {
         local_state.observe_tag(key, tag, now_ms);
     }
@@ -2411,7 +2415,7 @@ async fn choose_live_base<M: SyncModel>(
             .ok_or_else(|| SharePullError::Invalid("base coverage sum overflows".into()))?;
         ordered.push((candidate, coverage));
     }
-    ordered.sort_by_key(|(_, coverage)| std::cmp::Reverse(*coverage));
+    ordered.sort_by_key(|(_, coverage)| cmp::Reverse(*coverage));
     for (candidate, _) in ordered {
         let key = base_key(&candidate.owner_prefix.to_string(), &candidate.base_id)
             .map_err(|error| SharePullError::Invalid(error.to_string()))?;
@@ -2556,7 +2560,7 @@ fn store_error(error: StoreError) -> SharePullError {
         other => SharePullError::Store(format!("{other:?}")),
     }
 }
-fn internal_error(error: impl std::fmt::Display) -> SharePullError {
+fn internal_error(error: impl fmt::Display) -> SharePullError {
     SharePullError::Store(error.to_string())
 }
 
@@ -2566,8 +2570,15 @@ mod tests {
     use crate::sync::model::RuneModel;
     use migration::{Migrator, MigratorTrait};
     use sea_orm::Database;
+    use std::sync as std_sync;
+    use std::sync::Mutex as StdMutex;
+    use std::time as std_time;
     use std::time::Duration;
+    use std::time::Instant;
+    use sync::protocol;
     use sync::share::{ConditionalGet, MemoryObjectStore, ObjectValue, StoreOperation};
+    use tokio::sync as tokio_sync;
+    use tokio::sync::Notify;
 
     #[tokio::test]
     async fn bound_library_removed_reports_changed_without_recreating() -> Result<()> {
@@ -2743,21 +2754,21 @@ mod tests {
     /// the device read library.json back.
     struct DeviceStoreView {
         store: Arc<MemoryObjectStore>,
-        held_upload: Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>,
-        upload_landed: std::sync::Mutex<Option<std::time::Instant>>,
-        read_back_after: std::sync::Mutex<Option<Duration>>,
+        held_upload: Option<(Arc<tokio_sync::Notify>, Arc<tokio_sync::Notify>)>,
+        upload_landed: std_sync::Mutex<Option<std_time::Instant>>,
+        read_back_after: std_sync::Mutex<Option<Duration>>,
     }
 
     impl DeviceStoreView {
         fn new(
             store: Arc<MemoryObjectStore>,
-            held_upload: Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>,
+            held_upload: Option<(Arc<tokio_sync::Notify>, Arc<tokio_sync::Notify>)>,
         ) -> Self {
             Self {
                 store,
                 held_upload,
-                upload_landed: std::sync::Mutex::new(None),
-                read_back_after: std::sync::Mutex::new(None),
+                upload_landed: StdMutex::new(None),
+                read_back_after: StdMutex::new(None),
             }
         }
 
@@ -2767,10 +2778,7 @@ mod tests {
     }
 
     impl ObjectStore for DeviceStoreView {
-        fn get<'a>(
-            &'a self,
-            key: &'a str,
-        ) -> sync::protocol::BoxFuture<'a, ObjectValue, StoreError> {
+        fn get<'a>(&'a self, key: &'a str) -> protocol::BoxFuture<'a, ObjectValue, StoreError> {
             Box::pin(async move {
                 if key == library_key()
                     && let Some(landed) = *self.upload_landed.lock().unwrap()
@@ -2788,7 +2796,7 @@ mod tests {
             &'a self,
             key: &'a str,
             tag: &'a ObjectTag,
-        ) -> sync::protocol::BoxFuture<'a, ConditionalGet, StoreError> {
+        ) -> protocol::BoxFuture<'a, ConditionalGet, StoreError> {
             self.store.get_if_none_match(key, tag)
         }
 
@@ -2796,7 +2804,7 @@ mod tests {
             &'a self,
             key: &'a str,
             bytes: &'a [u8],
-        ) -> sync::protocol::BoxFuture<'a, ObjectTag, StoreError> {
+        ) -> protocol::BoxFuture<'a, ObjectTag, StoreError> {
             Box::pin(async move {
                 if key != library_key() {
                     return self.store.put(key, bytes).await;
@@ -2806,7 +2814,7 @@ mod tests {
                     lands.notified().await;
                 }
                 let tag = self.store.put(key, bytes).await;
-                *self.upload_landed.lock().unwrap() = Some(std::time::Instant::now());
+                *self.upload_landed.lock().unwrap() = Some(Instant::now());
                 tag
             })
         }
@@ -2815,7 +2823,7 @@ mod tests {
             &'a self,
             key: &'a str,
             bytes: &'a [u8],
-        ) -> sync::protocol::BoxFuture<'a, ObjectTag, StoreError> {
+        ) -> protocol::BoxFuture<'a, ObjectTag, StoreError> {
             self.store.create(key, bytes)
         }
 
@@ -2824,18 +2832,18 @@ mod tests {
             key: &'a str,
             tag: &'a ObjectTag,
             bytes: &'a [u8],
-        ) -> sync::protocol::BoxFuture<'a, ObjectTag, StoreError> {
+        ) -> protocol::BoxFuture<'a, ObjectTag, StoreError> {
             self.store.put_if_match(key, tag, bytes)
         }
 
-        fn delete<'a>(&'a self, key: &'a str) -> sync::protocol::BoxFuture<'a, (), StoreError> {
+        fn delete<'a>(&'a self, key: &'a str) -> protocol::BoxFuture<'a, (), StoreError> {
             self.store.delete(key)
         }
 
         fn list_prefix<'a>(
             &'a self,
             prefix: &'a str,
-        ) -> sync::protocol::BoxFuture<'a, Vec<String>, StoreError> {
+        ) -> protocol::BoxFuture<'a, Vec<String>, StoreError> {
             self.store.list_prefix(prefix)
         }
     }
@@ -2850,8 +2858,8 @@ mod tests {
         Migrator::up(&second_db, None).await?;
         let first_library = Uuid::new_v4();
         let second_library = Uuid::new_v4();
-        let started = Arc::new(tokio::sync::Notify::new());
-        let lands = Arc::new(tokio::sync::Notify::new());
+        let started = Arc::new(Notify::new());
+        let lands = Arc::new(Notify::new());
         let first_view = DeviceStoreView::new(store.clone(), None);
         let second_view = Arc::new(DeviceStoreView::new(
             store.clone(),

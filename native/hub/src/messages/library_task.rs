@@ -1,5 +1,6 @@
 use rinf::{RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 #[derive(Deserialize, Serialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum LibraryTaskKind {
@@ -14,8 +15,8 @@ pub enum ScanTaskPhase {
     ScanCoverArts,
 }
 
-impl std::fmt::Display for LibraryTaskKind {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for LibraryTaskKind {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::Scan => "scan",
             Self::Analyze => "analysis",

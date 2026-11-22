@@ -7,10 +7,20 @@ use sea_orm::{
     sea_query::{Alias, ColumnDef, Expr, Order, Query, Table},
 };
 use serde::{Deserialize, Serialize};
+use std::collections;
+use std::env;
+use std::fs;
+use std::result;
 use sync::causal::Context;
 use sync::causal::Dot;
 use sync::protocol::{self, ObjectKey, Observed, SyncModel};
+use sync_orm::causal_candidates;
+use sync_orm::causal_compaction;
 use sync_orm::causal_compaction::FloorStep;
+use sync_orm::causal_leases;
+use sync_orm::causal_observed;
+use sync_orm::causal_snapshot;
+use sync_orm::causal_source;
 use sync_orm::{
     causal_progress, causal_schema,
     causal_store::{CausalReplica, JournalOrigin},
@@ -443,7 +453,7 @@ async fn ten_reopens_author_with_one_writer_context() -> Result<()> {
     let writers = rows
         .into_iter()
         .map(|row| row.try_get_by_index::<Vec<u8>>(0))
-        .collect::<std::result::Result<std::collections::BTreeSet<_>, _>>()?;
+        .collect::<result::Result<collections::BTreeSet<_>, _>>()?;
     assert_eq!(writers.len(), 1);
     Ok(())
 }
@@ -615,9 +625,8 @@ async fn clean_counter_below_stored_dot_is_ignored() -> Result<()> {
 #[tokio::test]
 async fn copied_database_rotates_on_file_token_change_and_both_continue() -> Result<()> {
     let original_path =
-        std::env::temp_dir().join(format!("sync-writer-original-{}.sqlite", Uuid::new_v4()));
-    let copy_path =
-        std::env::temp_dir().join(format!("sync-writer-copy-{}.sqlite", Uuid::new_v4()));
+        env::temp_dir().join(format!("sync-writer-original-{}.sqlite", Uuid::new_v4()));
+    let copy_path = env::temp_dir().join(format!("sync-writer-copy-{}.sqlite", Uuid::new_v4()));
     let original_url = format!("sqlite://{}?mode=rwc", original_path.display());
     let copy_url = format!("sqlite://{}?mode=rwc", copy_path.display());
     let original_db = Database::connect(&original_url).await?;
@@ -636,7 +645,7 @@ async fn copied_database_rotates_on_file_token_change_and_both_continue() -> Res
     let original_incarnation = created.writer_incarnation();
     drop(created);
     original_db.close().await?;
-    std::fs::copy(&original_path, &copy_path)?;
+    fs::copy(&original_path, &copy_path)?;
     let original_db = Database::connect(&original_url).await?;
     let copy_db = Database::connect(&copy_url).await?;
     let original = CausalReplica::<Notes>::open_with_file_token(
@@ -675,8 +684,8 @@ async fn copied_database_rotates_on_file_token_change_and_both_continue() -> Res
     }
     original_db.close().await?;
     copy_db.close().await?;
-    let _ = std::fs::remove_file(original_path);
-    let _ = std::fs::remove_file(copy_path);
+    let _ = fs::remove_file(original_path);
+    let _ = fs::remove_file(copy_path);
     Ok(())
 }
 
@@ -950,7 +959,7 @@ async fn suppressed_late_protected_candidate_cannot_create_empty_state() -> Resu
     };
     let tx = db.begin().await?;
     store.lock(&tx).await?;
-    sync_orm::causal_observed::insert_on(
+    causal_observed::insert_on(
         &tx,
         ns,
         b"notes",
@@ -1468,7 +1477,7 @@ async fn observed_context_is_collection_wide_and_suppresses_late_candidates() ->
             .0
     );
     assert!(
-        sync_orm::causal_observed::contains_on(
+        causal_observed::contains_on(
             &tx,
             ns,
             b"notes",
@@ -1541,9 +1550,9 @@ async fn bounded_floor_compaction_preserves_context_and_respects_a_pin() -> Resu
     tx.commit().await?;
     let pin = Uuid::new_v4();
     let tx = db.begin().await?;
-    sync_orm::causal_leases::create_build_on(
+    causal_leases::create_build_on(
         &tx,
-        sync_orm::causal_leases::BuildLeaseRequest {
+        causal_leases::BuildLeaseRequest {
             namespace: ns,
             id: pin,
             scope: vec![1],
@@ -1562,36 +1571,33 @@ async fn bounded_floor_compaction_preserves_context_and_respects_a_pin() -> Resu
     tx.commit().await?;
     let tx = db.begin().await?;
     assert!(
-        sync_orm::causal_compaction::compact_on::<Notes>(&tx, ns, 2, 1024, 1024 * 1024)
+        causal_compaction::compact_on::<Notes>(&tx, ns, 2, 1024, 1024 * 1024)
             .await
             .is_err()
     );
     tx.rollback().await?;
     let tx = db.begin().await?;
-    sync_orm::causal_leases::revoke_on(&tx, ns, pin).await?;
+    causal_leases::revoke_on(&tx, ns, pin).await?;
     tx.commit().await?;
     let tx = db.begin().await?;
     let step =
-        sync_orm::causal_compaction::maintenance_step_on::<Notes>(&tx, ns, 1, 1024, 1024 * 1024)
-            .await?;
+        causal_compaction::maintenance_step_on::<Notes>(&tx, ns, 1, 1024, 1024 * 1024).await?;
     assert_eq!(step, FloorStep::Advanced { state_seq: 1 });
     tx.commit().await?;
     let tx = db.begin().await?;
     let step =
-        sync_orm::causal_compaction::maintenance_step_on::<Notes>(&tx, ns, 1, 1024, 1024 * 1024)
-            .await?;
+        causal_compaction::maintenance_step_on::<Notes>(&tx, ns, 1, 1024, 1024 * 1024).await?;
     assert_eq!(step, FloorStep::Advanced { state_seq: 2 });
     tx.commit().await?;
     let tx = db.begin().await?;
     assert_eq!(
-        sync_orm::causal_compaction::maintenance_step_on::<Notes>(&tx, ns, 1, 1024, 1024 * 1024)
-            .await?,
+        causal_compaction::maintenance_step_on::<Notes>(&tx, ns, 1, 1024, 1024 * 1024).await?,
         FloorStep::CaughtUp
     );
     tx.commit().await?;
     let tx = db.begin().await?;
-    sync_orm::causal_compaction::prune_history_step_on(&tx, ns, 1024).await?;
-    sync_orm::causal_compaction::reclaim_rows_step_on(&tx, ns, 1024).await?;
+    causal_compaction::prune_history_step_on(&tx, ns, 1024).await?;
+    causal_compaction::reclaim_rows_step_on(&tx, ns, 1024).await?;
     tx.commit().await?;
     let journal = Query::select()
         .expr(Expr::val(1))
@@ -1624,7 +1630,7 @@ async fn bounded_floor_compaction_preserves_context_and_respects_a_pin() -> Resu
 #[tokio::test]
 async fn bounded_source_snapshot_pins_empty_and_older_state() -> Result<()> {
     use sync::protocol::{Scope, WorkLimits};
-    let path = std::env::temp_dir().join(format!("causal-view-{}.sqlite", Uuid::new_v4()));
+    let path = env::temp_dir().join(format!("causal-view-{}.sqlite", Uuid::new_v4()));
     let url = format!("sqlite://{}?mode=rwc", path.display());
     let a = Database::connect(&url).await?;
     causal_schema::install_fresh(&a).await?;
@@ -1643,15 +1649,9 @@ async fn bounded_source_snapshot_pins_empty_and_older_state() -> Result<()> {
     };
     let tx = a.begin().await?;
     let identity = store.identity_on(&tx).await?;
-    let empty = sync_orm::causal_snapshot::open_bounded_on(
-        &tx,
-        identity.clone(),
-        scope.clone(),
-        10,
-        100,
-        limits,
-    )
-    .await?;
+    let empty =
+        causal_snapshot::open_bounded_on(&tx, identity.clone(), scope.clone(), 10, 100, limits)
+            .await?;
     assert_eq!(empty.head.sequence, 0);
     assert_eq!(empty.roots[0].candidate_count, 0);
     tx.commit().await?;
@@ -1666,8 +1666,7 @@ async fn bounded_source_snapshot_pins_empty_and_older_state() -> Result<()> {
     tx.commit().await?;
     let tx = a.begin().await?;
     let identity = store.identity_on(&tx).await?;
-    let snapshot =
-        sync_orm::causal_snapshot::open_bounded_on(&tx, identity, scope, 20, 100, limits).await?;
+    let snapshot = causal_snapshot::open_bounded_on(&tx, identity, scope, 20, 100, limits).await?;
     assert_eq!(snapshot.head.sequence, 1);
     assert_eq!(snapshot.roots[0].candidate_count, 1);
     tx.commit().await?;
@@ -1677,9 +1676,9 @@ async fn bounded_source_snapshot_pins_empty_and_older_state() -> Result<()> {
         .await?;
     tx.commit().await?;
     let tx = b.begin().await?;
-    let lease = sync_orm::causal_leases::ready_on(&tx, ns, snapshot.snapshot_id, 21).await?;
+    let lease = causal_leases::ready_on(&tx, ns, snapshot.snapshot_id, 21).await?;
     assert_eq!(lease.state_seq, 1);
-    let summary = sync_orm::causal_source::summary_ready_on::<Notes>(
+    let summary = causal_source::summary_ready_on::<Notes>(
         &tx,
         ns,
         snapshot.snapshot_id,
@@ -1690,23 +1689,18 @@ async fn bounded_source_snapshot_pins_empty_and_older_state() -> Result<()> {
     assert_eq!(summary, snapshot.roots[0]);
     let mut missing_range = snapshot.roots[0].range.clone();
     missing_range.lower = Some(Uuid::from_u128(1));
-    let error = sync_orm::causal_source::summary_ready_on::<Notes>(
-        &tx,
-        ns,
-        snapshot.snapshot_id,
-        &missing_range,
-        21,
-    )
-    .await
-    .unwrap_err();
+    let error =
+        causal_source::summary_ready_on::<Notes>(&tx, ns, snapshot.snapshot_id, &missing_range, 21)
+            .await
+            .unwrap_err();
     assert!(matches!(
         error.downcast_ref::<protocol::SyncError>(),
         Some(protocol::SyncError::StaleWork)
     ));
 
-    let old = sync_orm::causal_candidates::page_on(
+    let old = causal_candidates::page_on(
         &tx,
-        sync_orm::causal_candidates::CandidatePageRequest {
+        causal_candidates::CandidatePageRequest {
             namespace: ns,
             collection: b"notes",
             state_seq: lease.state_seq,
@@ -1724,7 +1718,7 @@ async fn bounded_source_snapshot_pins_empty_and_older_state() -> Result<()> {
             .text,
         "old"
     );
-    let leaf = sync_orm::causal_snapshot::leaf_on::<Notes>(
+    let leaf = causal_snapshot::leaf_on::<Notes>(
         &tx,
         ns,
         snapshot.snapshot_id,
@@ -1740,7 +1734,7 @@ async fn bounded_source_snapshot_pins_empty_and_older_state() -> Result<()> {
     assert!(leaf.done);
     assert_eq!(leaf.candidates[0].payload.text, "old");
     let context = &snapshot.contexts[0].context;
-    let fragment = sync_orm::causal_snapshot::fragment_on::<Notes>(
+    let fragment = causal_snapshot::fragment_on::<Notes>(
         &tx,
         ns,
         snapshot.snapshot_id,
@@ -1755,7 +1749,7 @@ async fn bounded_source_snapshot_pins_empty_and_older_state() -> Result<()> {
         context.digest
     );
     assert!(
-        sync_orm::causal_snapshot::fragment_on::<Notes>(
+        causal_snapshot::fragment_on::<Notes>(
             &tx,
             ns,
             snapshot.snapshot_id,
@@ -1768,7 +1762,7 @@ async fn bounded_source_snapshot_pins_empty_and_older_state() -> Result<()> {
         .is_err()
     );
     assert!(
-        sync_orm::causal_snapshot::leaf_on::<Notes>(
+        causal_snapshot::leaf_on::<Notes>(
             &tx,
             ns,
             snapshot.snapshot_id,
@@ -1787,6 +1781,6 @@ async fn bounded_source_snapshot_pins_empty_and_older_state() -> Result<()> {
     drop(store);
     a.close().await?;
     b.close().await?;
-    std::fs::remove_file(path)?;
+    fs::remove_file(path)?;
     Ok(())
 }

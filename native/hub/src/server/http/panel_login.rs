@@ -7,6 +7,7 @@ use serde::Deserialize;
 use crate::server::ServerManager;
 
 use super::register::AppError;
+use tokio::fs;
 
 #[derive(Deserialize)]
 pub struct LoginRequest {
@@ -34,7 +35,7 @@ pub async fn login_handler(
         ));
     }
 
-    let stored_hash = tokio::fs::read_to_string(&password_path)
+    let stored_hash = fs::read_to_string(&password_path)
         .await
         .map_err(|_| AppError::Internal("Failed to read password hash".into()))?;
 

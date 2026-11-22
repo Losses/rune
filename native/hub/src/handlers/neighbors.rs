@@ -45,6 +45,11 @@ use ::discovery::{
 
 use crate::utils::{GlobalParams, ParamsExtractor};
 use crate::{Session, Signal, messages::*};
+use discovery::protocol;
+use reqwest::Client;
+use reqwest::StatusCode;
+use std::net;
+use std::result;
 
 pub(crate) async fn select_pinned_pair_host(
     hosts: Vec<String>,
@@ -66,7 +71,7 @@ pub(crate) async fn select_pinned_pair_host(
                 .url(DeviceScheme::Https, "/")
                 .map(|url| url.to_string())
         })
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+        .collect::<result::Result<Vec<_>, _>>()?;
     match select_best_host(
         urls.clone(),
         Arc::new(tls_config(validator.clone(), fingerprint)),
@@ -136,8 +141,7 @@ impl Signal for StartBroadcastRequest {
             )
             .await
             .map_err(|error| {
-                if let Some(running) =
-                    error.downcast_ref::<discovery::protocol::AnnouncementsAlreadyRunning>()
+                if let Some(running) = error.downcast_ref::<protocol::AnnouncementsAlreadyRunning>()
                 {
                     ExpectedRequestError::BroadcastAlreadyRunning {
                         indefinite: running.indefinite,
@@ -345,7 +349,7 @@ impl Signal for StartServerRequest {
         request: &Self,
     ) -> impl Future<Output = Result<Option<Self::Response>>> + Send {
         async move {
-            let ip: std::net::IpAddr = request.interface.parse().map_err(|e| {
+            let ip: net::IpAddr = request.interface.parse().map_err(|e| {
                 ExpectedRequestError::invalid_input(format!(
                     "Invalid interface address '{}': {}",
                     request.interface, e
@@ -590,7 +594,7 @@ impl Signal for ServerAvailabilityTestRequest {
                     .and_then(|address| address.url(DeviceScheme::Https, "/"))
                     .map(|url| url.to_string())
             })
-            .collect::<std::result::Result<Vec<_>, _>>()
+            .collect::<result::Result<Vec<_>, _>>()
         {
             Ok(urls) => urls,
             Err(_) => {
@@ -1006,7 +1010,7 @@ pub(crate) async fn authorized_get(
     let config_path = Path::new(config_path);
     let alias = get_or_generate_alias(config_path).await?;
     let (fingerprint, _, private_key) = generate_or_load_certificates(config_path, &alias).await?;
-    let client = reqwest::Client::builder()
+    let client = Client::builder()
         .use_preconfigured_tls(tls_config(validator, &server_fingerprint))
         .redirect(Policy::none())
         .build()?;
@@ -1021,7 +1025,7 @@ pub(crate) async fn authorized_get(
     )
     .await?;
     let response = client.get(url.clone()).bearer_auth(&token).send().await?;
-    if response.status() != reqwest::StatusCode::UNAUTHORIZED {
+    if response.status() != StatusCode::UNAUTHORIZED {
         return Ok(response);
     }
     sync_tokens.invalidate(&server_fingerprint, &base);
@@ -1172,12 +1176,10 @@ impl Signal for FetchRemoteFileRequest {
 fn remote_file_status(status: reqwest::StatusCode) -> Result<()> {
     let error = match status {
         status if status.is_success() => return Ok(()),
-        reqwest::StatusCode::NOT_FOUND => anyhow::Error::new(ExpectedError::NotFound {
+        StatusCode::NOT_FOUND => anyhow::Error::new(ExpectedError::NotFound {
             what: "remote file",
         }),
-        reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN => {
-            anyhow::Error::new(Denial::Untrusted)
-        }
+        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => anyhow::Error::new(Denial::Untrusted),
         _ => anyhow::Error::new(ExpectedRequestError::Unavailable {
             what: "remote file",
         }),

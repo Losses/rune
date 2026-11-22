@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 use crate::connection::StorageMode;
 use crate::credentials::{CredentialRef, CredentialStore, CredentialStoreError};
+use anyhow::Error;
 
 static REGISTRY_WRITE: Mutex<()> = Mutex::const_new(());
 
@@ -737,7 +738,7 @@ impl LibraryRegistry {
     }
     pub fn record(&self, record_id: LibraryRecordId) -> Result<&LibraryRecord> {
         if let Some((_, invalid)) = self.invalid.iter().find(|(id, _)| *id == record_id) {
-            return Err(anyhow::Error::new(*invalid));
+            return Err(Error::new(*invalid));
         }
         self.libraries
             .iter()
@@ -818,7 +819,7 @@ impl LibraryRegistry {
             || registry.invalid_records != before_invalid_records
             || registry.last_open_record != before_last_open_record
         {
-            registry.validate().map_err(anyhow::Error::new)?;
+            registry.validate().map_err(Error::new)?;
             for record in &registry.libraries {
                 let changed =
                     before.iter().find(|old| old.record_id == record.record_id) != Some(record);
@@ -830,7 +831,7 @@ impl LibraryRegistry {
                             .any(|invalid| invalid.library_id == Some(id))
                     })
                 {
-                    return Err(anyhow::Error::new(InvalidRecord::DuplicateLibraryId));
+                    return Err(Error::new(InvalidRecord::DuplicateLibraryId));
                 }
             }
             registry.save()?;
@@ -971,7 +972,7 @@ impl LibraryRegistry {
 
     // Callers hold REGISTRY_WRITE across load, modification and atomic replacement.
     fn save(&self) -> Result<()> {
-        self.validate().map_err(anyhow::Error::new)?;
+        self.validate().map_err(Error::new)?;
         let dir = self
             .path
             .parent()
@@ -1175,13 +1176,13 @@ pub async fn resolve_library(
         catalog,
         background_sync,
     };
-    record.validate().map_err(anyhow::Error::new)?;
+    record.validate().map_err(Error::new)?;
     if registry
         .invalid_records
         .iter()
         .any(|invalid| invalid.library_id == Some(id))
     {
-        return Err(anyhow::Error::new(InvalidRecord::DuplicateLibraryId));
+        return Err(Error::new(InvalidRecord::DuplicateLibraryId));
     }
     registry.libraries.retain(|entry| {
         let collision = entry.catalog_library_id() != Some(id)
@@ -1196,7 +1197,7 @@ pub async fn resolve_library(
         entry.catalog_library_id() != Some(id) && !collision
     });
     registry.libraries.push(record.clone());
-    registry.validate().map_err(anyhow::Error::new)?;
+    registry.validate().map_err(Error::new)?;
     registry.save()?;
     Ok(record)
 }
@@ -1230,7 +1231,7 @@ pub async fn create_replica(
         .iter()
         .any(|record| record.library_id == Some(library_id))
     {
-        return Err(anyhow::Error::new(InvalidRecord::DuplicateLibraryId));
+        return Err(Error::new(InvalidRecord::DuplicateLibraryId));
     }
     let root = replica_root(config_dir, library_id);
     let rune_dir = root.join(".rune");
@@ -1279,9 +1280,9 @@ pub async fn create_replica(
         catalog: CatalogPlacement::ConfigReplica,
         background_sync: true,
     };
-    record.validate().map_err(anyhow::Error::new)?;
+    record.validate().map_err(Error::new)?;
     registry.libraries.push(record.clone());
-    registry.validate().map_err(anyhow::Error::new)?;
+    registry.validate().map_err(Error::new)?;
     if let Err(error) = registry.save() {
         registry.libraries.pop();
         return Err(error);

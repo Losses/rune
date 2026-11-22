@@ -9,6 +9,7 @@ use symphonia::core::{
 use ::analysis::utils::audio_metadata_reader::get_codec_information;
 
 use crate::reader::push_tags;
+use symphonia::default as symphonia_default;
 
 pub async fn get_metadata_and_codec_from_stream(
     source: Box<dyn MediaSource>,
@@ -21,7 +22,7 @@ pub async fn get_metadata_and_codec_from_stream(
     let meta_opts: MetadataOptions = Default::default();
     let fmt_opts: FormatOptions = Default::default();
 
-    let probed = symphonia::default::get_probe()
+    let probed = symphonia_default::get_probe()
         .format(&hint, mss, &fmt_opts, &meta_opts)
         .context("Failed to probe media source")?;
 

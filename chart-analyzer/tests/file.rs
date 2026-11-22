@@ -8,6 +8,10 @@ use std::time::{Duration, Instant};
 
 use chart_analyzer::{Chart, analyze_file, decode::Cancelled};
 use fsio::FsIo;
+use std::env;
+use std::fs;
+use std::process as std_process;
+use std::thread;
 
 const RATE: u32 = 22050;
 
@@ -33,8 +37,8 @@ fn write_wav<const N: usize>(
     format: u16,
     samples: impl ExactSizeIterator<Item = [u8; N]>,
 ) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("chart_analyzer_{name}_{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = env::temp_dir().join(format!("chart_analyzer_{name}_{}", std_process::id()));
+    fs::create_dir_all(&dir).unwrap();
     let path = dir.join("clicks.wav");
     let len = samples.len() as u32;
     let sample_bytes = N as u16;
@@ -64,12 +68,12 @@ fn write_wav<const N: usize>(
     for s in samples {
         bytes.extend_from_slice(&s);
     }
-    std::fs::write(&path, bytes).unwrap();
+    fs::write(&path, bytes).unwrap();
     path
 }
 
 fn remove(path: &Path) {
-    std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    fs::remove_dir_all(path.parent().unwrap()).ok();
 }
 
 #[test]
@@ -100,9 +104,9 @@ fn a_cancelled_analysis_stops_early() {
     // And while it runs.
     let flag = AtomicBool::new(false);
     let started = Instant::now();
-    let error = std::thread::scope(|scope| {
+    let error = thread::scope(|scope| {
         let job = scope.spawn(|| analyze_file(&fsio, &path, &flag));
-        std::thread::sleep(Duration::from_millis(100));
+        thread::sleep(Duration::from_millis(100));
         flag.store(true, Ordering::Relaxed);
         job.join().unwrap().unwrap_err()
     });

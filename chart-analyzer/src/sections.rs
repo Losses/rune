@@ -360,6 +360,7 @@ pub fn phrase_starts(stack: &[Feature], ctimes: &[f64], loud01: &[f64]) -> Vec<[
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::array;
 
     #[test]
     fn linspace_has_exact_ends() {
@@ -410,7 +411,7 @@ mod tests {
         // novelty(X, 4) of 14 rows that change at the 8th, numpy's values
         let x: Vec<Feature> = (0..14)
             .map(|i| {
-                std::array::from_fn(|j| {
+                array::from_fn(|j| {
                     (0.5 * i as f64 * (j + 1) as f64 + j as f64).sin()
                         + if i >= 7 && j % 3 == 0 { 3.0 } else { 0.0 }
                 })

@@ -658,6 +658,9 @@ mod scan_task_tests {
     use database::actions::metadata::{MissingHostFilePolicy, ScanOptions, scan_audio_library};
     use database::library_registry::{LibraryRegistry, create_replica};
     use sea_orm::ConnectionTrait;
+    use std::fs;
+    use std::sync as std_sync;
+    use tempfile::TempDir;
     use tokio::{
         sync::{Notify, mpsc::unbounded_channel, oneshot},
         time::timeout,
@@ -665,7 +668,7 @@ mod scan_task_tests {
     use uuid::Uuid;
 
     async fn open_test_library() -> Result<(tempfile::TempDir, String, LibraryHandle)> {
-        let config = tempfile::TempDir::new()?;
+        let config = TempDir::new()?;
         let id = Uuid::new_v4();
         let mut registry = LibraryRegistry::load(config.path())?;
         create_replica(config.path(), &mut registry, id, "Replica", "owner").await?;
@@ -681,7 +684,7 @@ mod scan_task_tests {
         let (config, node_id, library) = open_test_library().await?;
         let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg");
         for name in names {
-            std::fs::copy(&source, Path::new(&library.media_root).join(name))?;
+            fs::copy(&source, Path::new(&library.media_root).join(name))?;
         }
         let store = library.library_sync.record_store();
         scan_audio_library(
@@ -704,7 +707,7 @@ mod scan_task_tests {
 
     #[derive(Default)]
     struct Capture {
-        states: std::sync::Mutex<Vec<LibraryTaskState>>,
+        states: std_sync::Mutex<Vec<LibraryTaskState>>,
         changed: Notify,
     }
 
@@ -819,7 +822,7 @@ mod scan_task_tests {
 
         let (_config, _node_id, library) =
             open_test_library_with_audio_files(&["bad.ogg", "good.ogg"]).await?;
-        std::fs::write(
+        fs::write(
             Path::new(&library.media_root).join("bad.ogg"),
             b"not an audio file",
         )?;
@@ -1052,7 +1055,7 @@ mod scan_task_tests {
     async fn scan_lifecycle_scanning_an_open_replica_scans_its_folder() -> Result<()> {
         let (_config, node_id, library) = open_test_library().await?;
         let audio = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg");
-        std::fs::copy(audio, Path::new(&library.media_root).join("track.ogg"))?;
+        fs::copy(audio, Path::new(&library.media_root).join("track.ogg"))?;
         let record_id = library.descriptor.record_id.0.to_string();
         let owner = Arc::new(StdMutex::new(LibraryTaskOwner::default()));
         let capture = Arc::new(Capture::default());
@@ -1126,7 +1129,7 @@ mod scan_task_tests {
         let library = pool
             .acquire_ui(record.catalog_library_id().unwrap())
             .await?;
-        std::fs::rename(media, config.path().join("offline"))?;
+        fs::rename(media, config.path().join("offline"))?;
         let capture = Arc::new(Capture::default());
         let request = ScanAudioLibraryRequest {
             call_id: None,
@@ -1159,7 +1162,7 @@ mod scan_task_tests {
     async fn a_scan_reports_its_phases_and_ends_in_the_phase_it_reached() -> Result<()> {
         let (_config, node_id, library) = open_test_library().await?;
         let audio = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg");
-        std::fs::copy(audio, Path::new(&library.media_root).join("track.ogg"))?;
+        fs::copy(audio, Path::new(&library.media_root).join("track.ogg"))?;
         let capture = Arc::new(Capture::default());
         let request = ScanAudioLibraryRequest {
             call_id: None,

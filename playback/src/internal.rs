@@ -38,6 +38,12 @@ use crate::strategies::{
     ShuffleStrategy, UpdateReason,
 };
 use crate::stream_utils::create_stream_with_authorizer;
+use std::fmt;
+use std::io;
+use std::mem;
+use std::result;
+use tokio::task;
+use tokio::time as tokio_time;
 
 const SOURCE_START_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -45,7 +51,7 @@ async fn bound_source_start<T>(
     limit: Duration,
     source: impl Future<Output = Result<T>>,
 ) -> Result<T> {
-    match tokio::time::timeout(limit, source).await {
+    match tokio_time::timeout(limit, source).await {
         Ok(result) => result,
         Err(_) => Err(anyhow!(RemoteAudioError::unreachable(Error::new(
             ErrorKind::TimedOut,
@@ -60,9 +66,9 @@ async fn probe_decoder<R>(
     known_len: Option<u64>,
 ) -> Result<RuneDecoder<R>>
 where
-    R: std::io::Read + std::io::Seek + Send + Sync + 'static,
+    R: io::Read + io::Seek + Send + Sync + 'static,
 {
-    tokio::task::spawn_blocking(move || {
+    task::spawn_blocking(move || {
         RuneDecoder::new_with_length(reader, extension.as_deref(), known_len)
     })
     .await
@@ -72,7 +78,7 @@ where
 async fn open_local_source(fsio: Arc<FsIo>, path: PathBuf) -> Result<AnySource> {
     let remote = fsio.storage() == StorageLocation::Remote;
     let open_path = path.clone();
-    let stream = tokio::task::spawn_blocking(move || fsio.open(&open_path, OpenMode::Read))
+    let stream = task::spawn_blocking(move || fsio.open(&open_path, OpenMode::Read))
         .await
         .context("audio file open task failed")?
         .map_err(|error| {
@@ -136,7 +142,7 @@ struct FailureTrackingFile {
 }
 
 impl FailureTrackingFile {
-    fn record(&self, error: &std::io::Error) {
+    fn record(&self, error: &io::Error) {
         let reason = match error.kind() {
             ErrorKind::PermissionDenied => UnavailableReason::AccessRevoked,
             ErrorKind::NotFound => UnavailableReason::SourceUnreachable,
@@ -148,8 +154,8 @@ impl FailureTrackingFile {
     }
 }
 
-impl std::io::Read for FailureTrackingFile {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+impl io::Read for FailureTrackingFile {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let result = self.inner.read(buf);
         if let Err(error) = &result {
             self.record(error);
@@ -158,8 +164,8 @@ impl std::io::Read for FailureTrackingFile {
     }
 }
 
-impl std::io::Seek for FailureTrackingFile {
-    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+impl io::Seek for FailureTrackingFile {
+    fn seek(&mut self, pos: io::SeekFrom) -> io::Result<u64> {
         let result = self.inner.seek(pos);
         if let Err(error) = &result {
             self.record(error);
@@ -168,12 +174,12 @@ impl std::io::Seek for FailureTrackingFile {
     }
 }
 
-impl std::io::Write for FailureTrackingFile {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+impl io::Write for FailureTrackingFile {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.inner.write(buf)
     }
 
-    fn flush(&mut self) -> std::io::Result<()> {
+    fn flush(&mut self) -> io::Result<()> {
         self.inner.flush()
     }
 }
@@ -271,7 +277,7 @@ async fn open_subsonic_stream(
 }
 
 impl Debug for AnySource {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             AnySource::Local(_, _) => f.debug_struct("AnySource::Local").finish(),
             AnySource::Online(_, _) => f.debug_struct("AnySource::Online").finish(),
@@ -368,7 +374,7 @@ pub enum PlaybackMode {
 pub enum PlayerCommand {
     WithCompletion {
         command: Box<PlayerCommand>,
-        response: oneshot::Sender<std::result::Result<(), PlayerCommandError>>,
+        response: oneshot::Sender<result::Result<(), PlayerCommandError>>,
     },
     Restore {
         tracks: Vec<(PlayingItem, PlaybackSource)>,
@@ -570,7 +576,7 @@ struct PendingLoad {
 
 #[derive(Debug)]
 struct CommandCompletion {
-    response: oneshot::Sender<std::result::Result<(), PlayerCommandError>>,
+    response: oneshot::Sender<result::Result<(), PlayerCommandError>>,
     requires_playing: bool,
 }
 
@@ -1372,18 +1378,18 @@ impl PlayerInternal {
         Ok(())
     }
 
-    fn complete_current(&mut self, result: std::result::Result<(), PlayerCommandError>) {
+    fn complete_current(&mut self, result: result::Result<(), PlayerCommandError>) {
         if let Some(completion) = self.current_completion.take() {
             let _ = completion.response.send(result);
         }
     }
 
-    fn complete_load_completions(&mut self, result: std::result::Result<(), PlayerCommandError>) {
-        Self::complete_completions(std::mem::take(&mut self.active_load_completions), result);
+    fn complete_load_completions(&mut self, result: result::Result<(), PlayerCommandError>) {
+        Self::complete_completions(mem::take(&mut self.active_load_completions), result);
     }
 
     fn complete_ready_loads(&mut self) {
-        let completions = std::mem::take(&mut self.active_load_completions);
+        let completions = mem::take(&mut self.active_load_completions);
         for completion in completions {
             let result = if completion.requires_playing {
                 Err(PlayerCommandError::Superseded)
@@ -1395,7 +1401,7 @@ impl PlayerInternal {
     }
 
     fn complete_output_failure(&mut self) {
-        let completions = std::mem::take(&mut self.active_load_completions);
+        let completions = mem::take(&mut self.active_load_completions);
         for completion in completions {
             let result = if completion.requires_playing {
                 Err(PlayerCommandError::OutputUnavailable)
@@ -1408,7 +1414,7 @@ impl PlayerInternal {
 
     fn complete_completions(
         completions: Vec<CommandCompletion>,
-        result: std::result::Result<(), PlayerCommandError>,
+        result: result::Result<(), PlayerCommandError>,
     ) {
         for completion in completions {
             let _ = completion.response.send(result);
@@ -1741,7 +1747,7 @@ impl PlayerInternal {
                 }
             }
             OutputEvent::InterruptionEnded { resume } => {
-                if std::mem::take(&mut self.resume_after_interruption) && resume {
+                if mem::take(&mut self.resume_after_interruption) && resume {
                     self.play()?;
                 }
             }
@@ -2621,9 +2627,15 @@ mod stream_open_tests {
     use crate::player::{AudioRequest, LibraryPlaybackSource, RemoteAudioSource};
     use futures::future::BoxFuture;
     use std::collections::{HashMap, HashSet};
+    use std::env;
+    use std::fs;
+    use std::future;
+    use std::io;
     use std::io::{Read, Seek, SeekFrom};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc::{Receiver, channel};
+    use tokio::task;
+    use tokio::time as tokio_time;
     const TEST_DEADLINE: Duration = Duration::from_secs(60);
     use tokio::runtime::Handle;
 
@@ -2637,7 +2649,7 @@ mod stream_open_tests {
             .total_duration()
             .context("decoded duration missing")?;
         anyhow::ensure!(duration > Duration::from_secs(1));
-        let samples = tokio::task::spawn_blocking(move || -> Result<usize> {
+        let samples = task::spawn_blocking(move || -> Result<usize> {
             let mut source = source;
             source
                 .try_seek(duration.saturating_sub(Duration::from_millis(500)))
@@ -2657,7 +2669,7 @@ mod stream_open_tests {
     async fn opendal_track_decodes_seeks_and_finishes_on_current_thread() -> Result<()> {
         use fsio::{OpenDalConfig, test_fixtures::WebDavFixture};
 
-        tokio::time::timeout(TEST_DEADLINE, async {
+        tokio_time::timeout(TEST_DEADLINE, async {
             let asset = include_bytes!("../../assets/startup_0.ogg").to_vec();
             let fixture = WebDavFixture::start(vec![("startup_0.ogg".into(), asset)]).await?;
             let fsio = opendal_fsio(OpenDalConfig::WebDav {
@@ -2679,7 +2691,7 @@ mod stream_open_tests {
     async fn opendal_s3_track_decodes_seeks_and_finishes_on_current_thread() -> Result<()> {
         use fsio::{OpenDalConfig, test_fixtures::S3Fixture};
 
-        tokio::time::timeout(TEST_DEADLINE, async {
+        tokio_time::timeout(TEST_DEADLINE, async {
             let fixture = S3Fixture::start(vec![(
                 "startup_0.ogg".into(),
                 include_bytes!("../../assets/startup_0.ogg").to_vec(),
@@ -2719,7 +2731,7 @@ mod stream_open_tests {
     async fn rejected_opendal_credentials_are_a_typed_source_failure() -> Result<()> {
         use fsio::{OpenDalConfig, test_fixtures::WebDavFixture};
 
-        tokio::time::timeout(TEST_DEADLINE, async {
+        tokio_time::timeout(TEST_DEADLINE, async {
             let fixture = WebDavFixture::start(vec![(
                 "startup_0.ogg".into(),
                 include_bytes!("../../assets/startup_0.ogg").to_vec(),
@@ -2784,7 +2796,7 @@ mod stream_open_tests {
     #[tokio::test]
     async fn source_start_timeout_uses_unavailable_network_reason() {
         let error = bound_source_start(Duration::from_millis(1), async {
-            std::future::pending::<Result<()>>().await
+            future::pending::<Result<()>>().await
         })
         .await
         .expect_err("a source that never starts must time out");
@@ -2801,7 +2813,7 @@ mod stream_open_tests {
     }
 
     impl Read for StalledReader {
-        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
             if !self.released.swap(true, Ordering::SeqCst) {
                 self.release.lock().unwrap().recv().unwrap();
             }
@@ -2811,7 +2823,7 @@ mod stream_open_tests {
     }
 
     impl Seek for StalledReader {
-        fn seek(&mut self, _: SeekFrom) -> std::io::Result<u64> {
+        fn seek(&mut self, _: SeekFrom) -> io::Result<u64> {
             Ok(0)
         }
     }
@@ -2826,7 +2838,7 @@ mod stream_open_tests {
             released: Arc::new(AtomicBool::new(false)),
             probe_finished: probe_finished.clone(),
         };
-        let result = tokio::time::timeout(
+        let result = tokio_time::timeout(
             TEST_DEADLINE,
             bound_source_start(
                 Duration::from_millis(25),
@@ -2843,7 +2855,7 @@ mod stream_open_tests {
             UnavailableReason::SourceUnreachable
         );
         release_sender.send(()).unwrap();
-        tokio::time::timeout(TEST_DEADLINE, probe_finished.notified()).await?;
+        tokio_time::timeout(TEST_DEADLINE, probe_finished.notified()).await?;
         Ok(())
     }
 
@@ -2946,7 +2958,7 @@ mod stream_open_tests {
         blocked_ids: &[i32],
         samples: u32,
     ) -> (Arc<DelayedResolver>, PathBuf) {
-        let wav_path = std::env::temp_dir().join(format!("playback-{}.wav", Uuid::new_v4()));
+        let wav_path = env::temp_dir().join(format!("playback-{}.wav", Uuid::new_v4()));
         let data_len = samples * 2;
         let mut wav = Vec::with_capacity(44 + data_len as usize);
         wav.extend_from_slice(b"RIFF");
@@ -2962,7 +2974,7 @@ mod stream_open_tests {
         wav.extend_from_slice(b"data");
         wav.extend_from_slice(&data_len.to_le_bytes());
         wav.resize(wav.len() + data_len as usize, 0);
-        std::fs::write(&wav_path, wav).unwrap();
+        fs::write(&wav_path, wav).unwrap();
         let resolver = Arc::new(DelayedResolver {
             ids,
             started,
@@ -3008,7 +3020,7 @@ mod stream_open_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     commands_sender.send(PlayerCommand::AddToPlaylist {
@@ -3027,23 +3039,23 @@ mod stream_open_tests {
                         mode: AddMode::AppendToEnd,
                     })?;
                     commands_sender.send(PlayerCommand::Switch(0))?;
-                    tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                    tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                     commands_sender.send(PlayerCommand::Switch(2))?;
                     release.notify_one();
 
-                    tokio::time::timeout(TEST_DEADLINE, async {
+                    tokio_time::timeout(TEST_DEADLINE, async {
                         loop {
                             if ids.lock().unwrap().len() >= 2 {
                                 break;
                             }
-                            tokio::task::yield_now().await;
+                            task::yield_now().await;
                         }
                     })
                     .await?;
                     assert_eq!(&*ids.lock().unwrap(), &[1, 3]);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -3080,7 +3092,7 @@ mod stream_open_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let track = |file_uuid: Uuid| {
@@ -3097,7 +3109,7 @@ mod stream_open_tests {
                         mode: AddMode::AppendToEnd,
                     })?;
                     commands_sender.send(PlayerCommand::Switch(0))?;
-                    tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                    tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                     commands_sender.send(PlayerCommand::ClearPlaylist)?;
                     commands_sender.send(PlayerCommand::AddToPlaylist {
                         tracks: vec![track(file_uuids[1]), track(file_uuids[2])],
@@ -3105,12 +3117,12 @@ mod stream_open_tests {
                     })?;
                     commands_sender.send(PlayerCommand::Switch(0))?;
                     commands_sender.send(PlayerCommand::Play)?;
-                    tokio::time::timeout(TEST_DEADLINE, async {
+                    tokio_time::timeout(TEST_DEADLINE, async {
                         loop {
                             if ids.lock().unwrap().len() >= 2 {
                                 break;
                             }
-                            tokio::task::yield_now().await;
+                            task::yield_now().await;
                         }
                     })
                     .await?;
@@ -3121,7 +3133,7 @@ mod stream_open_tests {
                         library_id,
                         track: file_uuids[1].to_string(),
                     };
-                    tokio::time::timeout(TEST_DEADLINE, async {
+                    tokio_time::timeout(TEST_DEADLINE, async {
                         loop {
                             if let Some(PlayerEvent::Playing { item, .. }) = events.recv().await
                                 && item == expected
@@ -3134,7 +3146,7 @@ mod stream_open_tests {
                     assert_eq!(&*ids.lock().unwrap(), &[1, 2]);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -3166,7 +3178,7 @@ mod stream_open_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let expected = PlayingItem::LibraryTrack {
@@ -3178,11 +3190,11 @@ mod stream_open_tests {
                         mode: AddMode::AppendToEnd,
                     })?;
                     commands_sender.send(PlayerCommand::Switch(0))?;
-                    tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                    tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                     commands_sender.send(PlayerCommand::Stop)?;
                     release.notify_one();
                     commands_sender.send(PlayerCommand::SetVolume(0.5))?;
-                    tokio::time::timeout(TEST_DEADLINE, async {
+                    tokio_time::timeout(TEST_DEADLINE, async {
                         loop {
                             match events.recv().await {
                                 Some(PlayerEvent::VolumeUpdate(_)) => break,
@@ -3192,7 +3204,7 @@ mod stream_open_tests {
                         }
                     })
                     .await?;
-                    tokio::time::sleep(Duration::from_millis(250)).await;
+                    tokio_time::sleep(Duration::from_millis(250)).await;
                     while let Ok(event) = events.try_recv() {
                         assert!(!matches!(
                             event,
@@ -3202,7 +3214,7 @@ mod stream_open_tests {
                     }
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -3222,6 +3234,13 @@ mod playback_state_tests {
     use crate::output_stream::FakeSuspend;
     use crate::player::PlaylistLoad;
     use rodio::StreamError;
+    use rodio::cpal;
+    use std::any;
+    use std::fs;
+    use std::result;
+    use std::thread;
+    use tokio::task;
+    use tokio::time as tokio_time;
 
     /// The outputs of these tests: fake ones that stop when suspended, as on iOS. They count how
     /// often the player opens, stops and starts an output again, and fail as many of the next
@@ -3238,8 +3257,8 @@ mod playback_state_tests {
     impl Outputs for TestOutputs {
         fn open(
             &self,
-            _: Arc<dyn Fn(rodio::cpal::StreamError) + Send + Sync>,
-        ) -> std::result::Result<(RuneOutputStream, RuneOutputStreamHandle), StreamError> {
+            _: Arc<dyn Fn(cpal::StreamError) + Send + Sync>,
+        ) -> result::Result<(RuneOutputStream, RuneOutputStreamHandle), StreamError> {
             self.opens.fetch_add(1, Ordering::SeqCst);
             if self
                 .failing_opens
@@ -3251,10 +3270,7 @@ mod playback_state_tests {
             RuneOutputStream::fake(FakeSuspend::Stops)
         }
 
-        fn suspend(
-            &self,
-            stream: &RuneOutputStream,
-        ) -> std::result::Result<(), rodio::cpal::PauseStreamError> {
+        fn suspend(&self, stream: &RuneOutputStream) -> result::Result<(), cpal::PauseStreamError> {
             let stopped = stream.suspend();
             if stream.is_suspended() {
                 self.suspends.fetch_add(1, Ordering::SeqCst);
@@ -3278,7 +3294,7 @@ mod playback_state_tests {
     impl PlayerInternal {
         /// The outputs this player was made with.
         fn test_outputs(&self) -> &TestOutputs {
-            (&*self.outputs as &dyn std::any::Any)
+            (&*self.outputs as &dyn any::Any)
                 .downcast_ref()
                 .expect("the player of these tests has test outputs")
         }
@@ -3344,7 +3360,7 @@ mod playback_state_tests {
     fn completed_command(
         commands_sender: &mpsc::UnboundedSender<PlayerCommand>,
         command: PlayerCommand,
-    ) -> oneshot::Receiver<std::result::Result<(), PlayerCommandError>> {
+    ) -> oneshot::Receiver<result::Result<(), PlayerCommandError>> {
         let (response, receiver) = oneshot::channel();
         commands_sender
             .send(PlayerCommand::WithCompletion {
@@ -3426,7 +3442,7 @@ mod playback_state_tests {
     async fn next_track_state(
         events: &mut mpsc::UnboundedReceiver<PlayerEvent>,
     ) -> Result<PlayerEvent> {
-        tokio::time::timeout(TEST_DEADLINE, async {
+        tokio_time::timeout(TEST_DEADLINE, async {
             loop {
                 match events.recv().await {
                     Some(
@@ -3489,7 +3505,7 @@ mod playback_state_tests {
 
     // Waits for the next progress report of a loaded track and returns its position.
     async fn next_progress(events: &mut mpsc::UnboundedReceiver<PlayerEvent>) -> Result<Duration> {
-        tokio::time::timeout(TEST_DEADLINE, async {
+        tokio_time::timeout(TEST_DEADLINE, async {
             loop {
                 match events.recv().await {
                     Some(PlayerEvent::Progress {
@@ -3518,9 +3534,9 @@ mod playback_state_tests {
     }
 
     async fn wait_for_output_reopen(suspends: &AtomicUsize, resumes: &AtomicUsize) -> Result<()> {
-        tokio::time::timeout(TEST_DEADLINE, async {
+        tokio_time::timeout(TEST_DEADLINE, async {
             while suspends.load(Ordering::SeqCst) == 0 || resumes.load(Ordering::SeqCst) == 0 {
-                tokio::task::yield_now().await;
+                task::yield_now().await;
             }
         })
         .await?;
@@ -3570,7 +3586,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let original = library_tracks(library_id, &file_uuids[..5]);
@@ -3610,7 +3626,7 @@ mod playback_state_tests {
                     );
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -3626,7 +3642,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     commands_sender.send(PlayerCommand::AddToPlaylist {
@@ -3652,7 +3668,7 @@ mod playback_state_tests {
                     );
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -3666,7 +3682,7 @@ mod playback_state_tests {
         events: &mut mpsc::UnboundedReceiver<PlayerEvent>,
     ) -> Result<()> {
         commands_sender.send(PlayerCommand::SetVolume(0.5))?;
-        tokio::time::timeout(TEST_DEADLINE, async {
+        tokio_time::timeout(TEST_DEADLINE, async {
             loop {
                 match events.recv().await {
                     Some(PlayerEvent::VolumeUpdate(_)) => break,
@@ -3677,7 +3693,7 @@ mod playback_state_tests {
             }
         })
         .await?;
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        tokio_time::sleep(Duration::from_millis(150)).await;
         while let Ok(event) = events.try_recv() {
             assert!(!matches!(event, PlayerEvent::Playing { .. }), "{event:?}");
         }
@@ -3700,13 +3716,13 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let expected = library_item(library_id, file_uuids[0]);
                     commands_sender.send(add_library_tracks(library_id, &file_uuids))?;
                     commands_sender.send(PlayerCommand::Switch(0))?;
-                    tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                    tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                     commands_sender.send(PlayerCommand::Pause)?;
                     release.notify_one();
 
@@ -3727,7 +3743,7 @@ mod playback_state_tests {
                     );
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -3753,13 +3769,13 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let expected = library_item(library_id, file_uuids[1]);
                     commands_sender.send(add_library_tracks(library_id, &file_uuids))?;
                     commands_sender.send(PlayerCommand::Switch(0))?;
-                    tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                    tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                     commands_sender.send(PlayerCommand::Switch(1))?;
                     commands_sender.send(PlayerCommand::Pause)?;
                     release.notify_one();
@@ -3773,7 +3789,7 @@ mod playback_state_tests {
                     assert_eq!(&*ids.lock().unwrap(), &[1, 2]);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -3799,7 +3815,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let current = library_item(library_id, file_uuids[0]);
@@ -3809,7 +3825,7 @@ mod playback_state_tests {
                     expect_playing(&mut events, &current).await?;
 
                     commands_sender.send(PlayerCommand::Switch(1))?;
-                    tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                    tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                     commands_sender.send(PlayerCommand::Pause)?;
                     let event = next_track_state(&mut events).await?;
                     assert!(
@@ -3826,7 +3842,7 @@ mod playback_state_tests {
                     assert_nothing_plays(&commands_sender, &mut events).await?;
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -3852,13 +3868,13 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let expected = library_item(library_id, file_uuids[1]);
                     commands_sender.send(add_library_tracks(library_id, &file_uuids))?;
                     commands_sender.send(PlayerCommand::Switch(1))?;
-                    tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                    tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                     commands_sender.send(PlayerCommand::Pause)?;
                     commands_sender.send(PlayerCommand::Play)?;
                     release.notify_one();
@@ -3871,7 +3887,7 @@ mod playback_state_tests {
                     assert_eq!(&*ids.lock().unwrap(), &[2]);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -3897,14 +3913,14 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let expected = library_item(library_id, file_uuids[1]);
                     commands_sender.send(add_library_tracks(library_id, &file_uuids))?;
                     commands_sender.send(PlayerCommand::Switch(1))?;
                     commands_sender.send(PlayerCommand::Play)?;
-                    tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                    tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                     release.notify_one();
 
                     let event = next_track_state(&mut events).await?;
@@ -3915,7 +3931,7 @@ mod playback_state_tests {
                     assert_eq!(&*ids.lock().unwrap(), &[2]);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -3940,13 +3956,13 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let expected = library_item(library_id, file_uuids[0]);
                     commands_sender.send(add_library_tracks(library_id, &file_uuids))?;
                     commands_sender.send(PlayerCommand::Switch(0))?;
-                    tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                    tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                     release.notify_one();
 
                     let event = next_track_state(&mut events).await?;
@@ -3956,7 +3972,7 @@ mod playback_state_tests {
                     );
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -3983,7 +3999,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let current = library_item(library_id, file_uuids[0]);
@@ -3994,7 +4010,7 @@ mod playback_state_tests {
 
                     // The old track plays on while the chosen one loads, and runs out first.
                     commands_sender.send(PlayerCommand::Switch(2))?;
-                    tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                    tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                     commands_sender.send(PlayerCommand::Seek(4.9))?;
                     progress_at_or_after(&mut events, Duration::from_secs(5)).await?;
                     release.notify_one();
@@ -4007,7 +4023,7 @@ mod playback_state_tests {
                     assert_eq!(&*ids.lock().unwrap(), &[1, 3]);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4033,18 +4049,18 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let first = library_item(library_id, file_uuids[0]);
                     let second = library_item(library_id, file_uuids[1]);
                     commands_sender.send(add_library_tracks(library_id, &file_uuids))?;
                     commands_sender.send(PlayerCommand::Switch(0))?;
-                    tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                    tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                     release.notify_one();
 
                     let mut ends = 0;
-                    tokio::time::timeout(TEST_DEADLINE, async {
+                    tokio_time::timeout(TEST_DEADLINE, async {
                         loop {
                             match events.recv().await {
                                 Some(PlayerEvent::EndOfTrack { item, .. }) if item == first => {
@@ -4062,7 +4078,7 @@ mod playback_state_tests {
                     assert_eq!(&*ids.lock().unwrap(), &[1, 2]);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4088,7 +4104,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let expected = library_item(library_id, file_uuids[1]);
@@ -4098,7 +4114,7 @@ mod playback_state_tests {
                         position: Duration::from_secs(1),
                         mode: PlaybackMode::Sequential,
                     })?;
-                    tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                    tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                     commands_sender.send(PlayerCommand::Load { index: 1 })?;
                     release.notify_one();
 
@@ -4110,7 +4126,7 @@ mod playback_state_tests {
                     );
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4136,13 +4152,13 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let expected = library_item(library_id, file_uuids[1]);
                     commands_sender.send(add_library_tracks(library_id, &file_uuids[..1]))?;
                     commands_sender.send(PlayerCommand::Switch(0))?;
-                    tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                    tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                     commands_sender.send(PlayerCommand::Restore {
                         tracks: library_tracks(library_id, &file_uuids[1..]),
                         index: Some(1),
@@ -4159,7 +4175,7 @@ mod playback_state_tests {
                     assert_about(position_of(&event), Duration::from_secs(1));
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4177,7 +4193,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let track = start_playing(&commands_sender, &mut events, file_uuid).await?;
                     commands_sender.send(PlayerCommand::Output(OutputEvent::Interrupted))?;
@@ -4193,7 +4209,7 @@ mod playback_state_tests {
                     assert_eq!(resumes.load(Ordering::SeqCst), 1);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4210,7 +4226,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let track = start_playing(&commands_sender, &mut events, file_uuid).await?;
                     commands_sender.send(PlayerCommand::Output(OutputEvent::Interrupted))?;
@@ -4226,7 +4242,7 @@ mod playback_state_tests {
                     assert_eq!(opens.load(Ordering::SeqCst), 1);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4244,7 +4260,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let track = start_playing(&commands_sender, &mut events, file_uuid).await?;
                     commands_sender.send(PlayerCommand::Pause)?;
@@ -4262,7 +4278,7 @@ mod playback_state_tests {
                     assert_eq!(resumes.load(Ordering::SeqCst), 1);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4279,7 +4295,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let track = start_playing(&commands_sender, &mut events, file_uuid).await?;
                     commands_sender.send(PlayerCommand::Output(OutputEvent::DeviceLost))?;
@@ -4297,7 +4313,7 @@ mod playback_state_tests {
                     assert_eq!(opens.load(Ordering::SeqCst), 2);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4324,13 +4340,13 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let track = library_item(library_id, file_uuids[0]);
                     commands_sender.send(add_library_tracks(library_id, &file_uuids))?;
                     commands_sender.send(PlayerCommand::Switch(0))?;
-                    tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                    tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                     commands_sender.send(PlayerCommand::Output(OutputEvent::DeviceLost))?;
                     release.notify_one();
 
@@ -4350,7 +4366,7 @@ mod playback_state_tests {
                     assert_eq!(opens.load(Ordering::SeqCst), 1);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4367,7 +4383,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let track = start_playing(&commands_sender, &mut events, file_uuid).await?;
                     let playing_at = next_progress(&mut events).await?;
@@ -4376,7 +4392,7 @@ mod playback_state_tests {
                     assert_eq!(opens.load(Ordering::SeqCst), 2);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4393,7 +4409,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let track = start_playing(&commands_sender, &mut events, file_uuid).await?;
                     commands_sender.send(PlayerCommand::Pause)?;
@@ -4407,7 +4423,7 @@ mod playback_state_tests {
                     assert_eq!(opens.load(Ordering::SeqCst), 2);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4423,14 +4439,14 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let track = start_playing(&commands_sender, &mut events, file_uuid).await?;
                     commands_sender.send(PlayerCommand::Pause)?;
                     expect_paused(&mut events, &track).await?;
 
                     // Ten progress ticks pass while nothing moves.
-                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    tokio_time::sleep(Duration::from_secs(1)).await;
                     let mut reports = 0;
                     while let Ok(event) = events.try_recv() {
                         if matches!(event, PlayerEvent::Progress { .. }) {
@@ -4448,7 +4464,7 @@ mod playback_state_tests {
                     assert_about(next_progress(&mut events).await?, Duration::from_secs(2));
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4466,7 +4482,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let track = start_playing(&commands_sender, &mut events, file_uuid).await?;
                     let playing_at = next_progress(&mut events).await?;
@@ -4477,7 +4493,7 @@ mod playback_state_tests {
 
                     // The player still answers, and reports no progress without an output.
                     commands_sender.send(PlayerCommand::SetVolume(0.5))?;
-                    tokio::time::timeout(TEST_DEADLINE, async {
+                    tokio_time::timeout(TEST_DEADLINE, async {
                         loop {
                             match events.recv().await {
                                 Some(PlayerEvent::VolumeUpdate(_)) => break,
@@ -4487,7 +4503,7 @@ mod playback_state_tests {
                         }
                     })
                     .await?;
-                    tokio::time::sleep(Duration::from_millis(250)).await;
+                    tokio_time::sleep(Duration::from_millis(250)).await;
                     while let Ok(event) = events.try_recv() {
                         assert!(!matches!(event, PlayerEvent::Progress { .. }), "{event:?}");
                     }
@@ -4497,7 +4513,7 @@ mod playback_state_tests {
                     assert_eq!(opens.load(Ordering::SeqCst), 3);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4515,7 +4531,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let track = start_playing(&commands_sender, &mut events, file_uuid).await?;
                     let playing_at = next_progress(&mut events).await?;
@@ -4524,7 +4540,7 @@ mod playback_state_tests {
                     stream_errors.send("the device is no longer available".into())?;
                     let paused_at = expect_paused(&mut events, &track).await?;
                     assert_about(paused_at, playing_at);
-                    tokio::time::sleep(Duration::from_millis(150)).await;
+                    tokio_time::sleep(Duration::from_millis(150)).await;
                     while let Ok(event) = events.try_recv() {
                         assert!(
                             !matches!(
@@ -4541,7 +4557,7 @@ mod playback_state_tests {
                     assert_eq!(opens.load(Ordering::SeqCst), 2);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4558,7 +4574,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let track = start_playing(&commands_sender, &mut events, file_uuid).await?;
                     commands_sender.send(PlayerCommand::Output(OutputEvent::DeviceLost))?;
@@ -4577,7 +4593,7 @@ mod playback_state_tests {
                     assert_eq!(opens.load(Ordering::SeqCst), 2);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4594,7 +4610,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let track = start_playing(&commands_sender, &mut events, file_uuid).await?;
                     commands_sender.send(PlayerCommand::Output(OutputEvent::Interrupted))?;
@@ -4615,7 +4631,7 @@ mod playback_state_tests {
                     assert_eq!(opens.load(Ordering::SeqCst), 1);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4634,7 +4650,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let track = start_playing(&commands_sender, &mut events, file_uuid).await?;
                     commands_sender.send(PlayerCommand::Output(OutputEvent::Interrupted))?;
@@ -4649,7 +4665,7 @@ mod playback_state_tests {
                     assert_eq!(opens.load(Ordering::SeqCst), 2);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4675,7 +4691,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let current = library_item(library_id, file_uuids[0]);
@@ -4686,7 +4702,7 @@ mod playback_state_tests {
 
                     // The old track plays on while the next one loads paused.
                     commands_sender.send(PlayerCommand::Load { index: 1 })?;
-                    tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                    tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                     commands_sender.send(PlayerCommand::Output(OutputEvent::Interrupted))?;
                     expect_paused(&mut events, &current).await?;
 
@@ -4700,7 +4716,7 @@ mod playback_state_tests {
                     assert_nothing_plays(&commands_sender, &mut events).await?;
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4717,7 +4733,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let track = library_item(library_id, file_uuid);
@@ -4740,7 +4756,7 @@ mod playback_state_tests {
                     assert_eq!(opens.load(Ordering::SeqCst), 1);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4757,7 +4773,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let track = start_playing(&commands_sender, &mut events, file_uuid).await?;
                     commands_sender.send(PlayerCommand::Output(OutputEvent::Interrupted))?;
@@ -4778,7 +4794,7 @@ mod playback_state_tests {
                     assert_nothing_plays(&commands_sender, &mut events).await?;
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4794,7 +4810,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let first = library_item(library_id, file_uuids[0]);
@@ -4816,7 +4832,7 @@ mod playback_state_tests {
                     assert_nothing_plays(&commands_sender, &mut events).await?;
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4860,7 +4876,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let track = library_item(library_id, file_uuid);
@@ -4886,7 +4902,7 @@ mod playback_state_tests {
                     assert_eq!(opens.load(Ordering::SeqCst), 1);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4902,7 +4918,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let track = library_item(library_id, file_uuid);
@@ -4938,7 +4954,7 @@ mod playback_state_tests {
                     assert_eq!(pause_reporting()?.await?, PausedPlayback::NotPlaying);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4955,7 +4971,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let track = library_item(library_id, file_uuid);
@@ -4982,7 +4998,7 @@ mod playback_state_tests {
                     assert_eq!(opens.load(Ordering::SeqCst), 1);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -4998,7 +5014,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let track = library_item(library_id, file_uuid);
@@ -5016,7 +5032,7 @@ mod playback_state_tests {
                     assert_about(next_progress(&mut events).await?, Duration::from_secs(2));
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -5033,7 +5049,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     commands_sender.send(restore(
@@ -5053,7 +5069,7 @@ mod playback_state_tests {
                     assert_eq!(opens.load(Ordering::SeqCst), 1);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -5069,7 +5085,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let track = library_item(library_id, file_uuids[1]);
@@ -5086,7 +5102,7 @@ mod playback_state_tests {
                     assert_about(expect_playing(&mut events, &track).await?, Duration::ZERO);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -5107,11 +5123,11 @@ mod playback_state_tests {
         let local = LocalSet::new();
         let internal = local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move {
+                let runner = task::spawn_local(async move {
                     internal.run().await?;
                     Ok::<_, anyhow::Error>(internal)
                 });
-                tokio::time::timeout(TEST_DEADLINE, async {
+                tokio_time::timeout(TEST_DEADLINE, async {
                     loop {
                         match events.recv().await {
                             Some(PlayerEvent::VolumeUpdate(_)) => break,
@@ -5130,7 +5146,7 @@ mod playback_state_tests {
         let mut internal = internal;
         internal.set_mix_with_others(false)?;
         assert!(!internal.mix_with_others);
-        let _ = std::fs::remove_file(wav_path);
+        let _ = fs::remove_file(wav_path);
         Ok(())
     }
 
@@ -5144,7 +5160,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     start_playing(&commands_sender, &mut events, file_uuid).await?;
                     commands_sender.send(PlayerCommand::SetMixWithOthers(true))?;
@@ -5161,7 +5177,7 @@ mod playback_state_tests {
                     assert_eq!(opens.load(Ordering::SeqCst), 1);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -5191,7 +5207,7 @@ mod playback_state_tests {
             result = script => result?,
         }
         assert_eq!(internal.sink.as_ref().map(Sink::volume), Some(0.25));
-        let _ = std::fs::remove_file(wav_path);
+        let _ = fs::remove_file(wav_path);
         Ok(())
     }
 
@@ -5205,7 +5221,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let track = start_playing(&commands_sender, &mut events, file_uuid).await?;
                     assert_eq!(suspends.load(Ordering::SeqCst), 0);
@@ -5226,7 +5242,7 @@ mod playback_state_tests {
                     assert!(later >= paused_at + Duration::from_millis(300), "{later:?}");
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -5241,7 +5257,7 @@ mod playback_state_tests {
         // The player runs on a thread of its own, so that a seek that waits on a stopped output
         // fails the test on a timeout instead of hanging it.
         let (setup_sender, setup) = channel();
-        std::thread::spawn(move || {
+        thread::spawn(move || {
             let (mut internal, commands_sender, events, wav_path) = long_track_engine(&[file_uuid]);
             let hooks = (
                 internal.cancellation_token.clone(),
@@ -5282,7 +5298,7 @@ mod playback_state_tests {
         assert_eq!(opens.load(Ordering::SeqCst), 1);
 
         cancel.cancel();
-        let _ = std::fs::remove_file(wav_path);
+        let _ = fs::remove_file(wav_path);
         Ok(())
     }
 
@@ -5296,7 +5312,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let track = start_playing(&commands_sender, &mut events, file_uuid).await?;
                     commands_sender.send(PlayerCommand::Pause)?;
@@ -5309,7 +5325,7 @@ mod playback_state_tests {
                     assert_eq!(opens.load(Ordering::SeqCst), 2);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -5338,7 +5354,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let current = library_item(library_id, file_uuids[0]);
@@ -5349,7 +5365,7 @@ mod playback_state_tests {
 
                     // The old track keeps its output while the new one loads.
                     commands_sender.send(PlayerCommand::Switch(1))?;
-                    tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                    tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                     commands_sender.send(PlayerCommand::Pause)?;
                     expect_paused(&mut events, &current).await?;
                     assert_eq!(suspends.load(Ordering::SeqCst), 1);
@@ -5362,7 +5378,7 @@ mod playback_state_tests {
                     assert_eq!(opens.load(Ordering::SeqCst), 2);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -5390,7 +5406,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let current = library_item(library_id, file_uuids[0]);
@@ -5400,7 +5416,7 @@ mod playback_state_tests {
                     expect_playing(&mut events, &current).await?;
 
                     commands_sender.send(PlayerCommand::Switch(1))?;
-                    tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                    tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                     commands_sender.send(PlayerCommand::Pause)?;
                     expect_paused(&mut events, &current).await?;
                     failing_resumes.store(1, Ordering::SeqCst);
@@ -5412,7 +5428,7 @@ mod playback_state_tests {
                     assert_eq!(opens.load(Ordering::SeqCst), 2);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -5429,18 +5445,18 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     start_playing(&commands_sender, &mut events, file_uuid).await?;
                     commands_sender.send(PlayerCommand::Stop)?;
-                    tokio::time::timeout(TEST_DEADLINE, async {
+                    tokio_time::timeout(TEST_DEADLINE, async {
                         while !matches!(events.recv().await, Some(PlayerEvent::Stopped) | None) {}
                     })
                     .await?;
                     assert_eq!(suspends.load(Ordering::SeqCst), 1);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -5506,18 +5522,18 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 let library_id = Uuid::new_v4();
                 commands_sender.send(add_library_tracks(library_id, &[file_uuid]))?;
                 let play = completed_command(&commands_sender, PlayerCommand::Play);
                 assert_eq!(
-                    tokio::time::timeout(TEST_DEADLINE, play).await??,
+                    tokio_time::timeout(TEST_DEADLINE, play).await??,
                     Err(PlayerCommandError::OutputUnavailable)
                 );
                 let pause = completed_command(&commands_sender, PlayerCommand::Pause);
-                assert_eq!(tokio::time::timeout(TEST_DEADLINE, pause).await??, Ok(()));
+                assert_eq!(tokio_time::timeout(TEST_DEADLINE, pause).await??, Ok(()));
                 runner.abort();
-                let _ = std::fs::remove_file(wav_path);
+                let _ = fs::remove_file(wav_path);
                 Ok::<(), anyhow::Error>(())
             })
             .await?;
@@ -5535,7 +5551,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 let library_id = Uuid::new_v4();
                 let edit = PlaylistEdit {
                     tracks: library_tracks(library_id, &[file_uuid]),
@@ -5547,11 +5563,11 @@ mod playback_state_tests {
                 let completion =
                     completed_command(&commands_sender, PlayerCommand::EditPlaylist(edit));
                 assert_eq!(
-                    tokio::time::timeout(TEST_DEADLINE, completion).await??,
+                    tokio_time::timeout(TEST_DEADLINE, completion).await??,
                     Err(PlayerCommandError::OutputUnavailable)
                 );
                 runner.abort();
-                let _ = std::fs::remove_file(wav_path);
+                let _ = fs::remove_file(wav_path);
                 Ok::<(), anyhow::Error>(())
             })
             .await?;
@@ -5570,19 +5586,19 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 let library_id = Uuid::new_v4();
                 commands_sender.send(add_library_tracks(library_id, &file_uuids))?;
                 let play = completed_command(&commands_sender, PlayerCommand::Play);
-                tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                 let pause = completed_command(&commands_sender, PlayerCommand::Pause);
-                assert_eq!(tokio::time::timeout(TEST_DEADLINE, pause).await??, Ok(()));
+                assert_eq!(tokio_time::timeout(TEST_DEADLINE, pause).await??, Ok(()));
                 assert_eq!(
-                    tokio::time::timeout(TEST_DEADLINE, play).await??,
+                    tokio_time::timeout(TEST_DEADLINE, play).await??,
                     Err(PlayerCommandError::SourceUnavailable)
                 );
                 runner.abort();
-                let _ = std::fs::remove_file(wav_path);
+                let _ = fs::remove_file(wav_path);
                 Ok::<(), anyhow::Error>(())
             })
             .await?;
@@ -5601,20 +5617,20 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 let library_id = Uuid::new_v4();
                 commands_sender.send(add_library_tracks(library_id, &file_uuids))?;
                 let play = completed_command(&commands_sender, PlayerCommand::Play);
-                tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                 let seek = completed_command(&commands_sender, PlayerCommand::Seek(3.0));
                 assert_eq!(
-                    tokio::time::timeout(TEST_DEADLINE, seek).await??,
+                    tokio_time::timeout(TEST_DEADLINE, seek).await??,
                     Err(PlayerCommandError::CannotApply)
                 );
                 release.notify_one();
-                assert_eq!(tokio::time::timeout(TEST_DEADLINE, play).await??, Ok(()));
+                assert_eq!(tokio_time::timeout(TEST_DEADLINE, play).await??, Ok(()));
                 runner.abort();
-                let _ = std::fs::remove_file(wav_path);
+                let _ = fs::remove_file(wav_path);
                 Ok::<(), anyhow::Error>(())
             })
             .await?;
@@ -5633,24 +5649,21 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 let library_id = Uuid::new_v4();
                 commands_sender.send(add_library_tracks(library_id, &file_uuids))?;
                 let old_load =
                     completed_command(&commands_sender, PlayerCommand::Load { index: 0 });
-                tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                 let new_load =
                     completed_command(&commands_sender, PlayerCommand::Load { index: 1 });
                 assert_eq!(
-                    tokio::time::timeout(TEST_DEADLINE, old_load).await??,
+                    tokio_time::timeout(TEST_DEADLINE, old_load).await??,
                     Err(PlayerCommandError::Superseded)
                 );
                 release.notify_one();
-                assert_eq!(
-                    tokio::time::timeout(TEST_DEADLINE, new_load).await??,
-                    Ok(())
-                );
-                tokio::time::timeout(TEST_DEADLINE, async {
+                assert_eq!(tokio_time::timeout(TEST_DEADLINE, new_load).await??, Ok(()));
+                tokio_time::timeout(TEST_DEADLINE, async {
                     while !matches!(
                         events.recv().await,
                         Some(PlayerEvent::Loaded { index: 1, .. })
@@ -5658,7 +5671,7 @@ mod playback_state_tests {
                 })
                 .await?;
                 runner.abort();
-                let _ = std::fs::remove_file(wav_path);
+                let _ = fs::remove_file(wav_path);
                 Ok::<(), anyhow::Error>(())
             })
             .await?;
@@ -5693,7 +5706,7 @@ mod playback_state_tests {
             "{event:?}"
         );
         assert_about(position_of(&event), Duration::from_secs(1));
-        let _ = std::fs::remove_file(wav_path);
+        let _ = fs::remove_file(wav_path);
         Ok(())
     }
 
@@ -5708,9 +5721,9 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 commands_sender.send(add_library_tracks(library_id, &file_uuids))?;
-                tokio::time::timeout(TEST_DEADLINE, async {
+                tokio_time::timeout(TEST_DEADLINE, async {
                     while !matches!(events.recv().await, Some(PlayerEvent::PlaylistUpdated(_))) {}
                 })
                 .await?;
@@ -5727,7 +5740,7 @@ mod playback_state_tests {
                 );
 
                 runner.abort();
-                let _ = std::fs::remove_file(wav_path);
+                let _ = fs::remove_file(wav_path);
                 Ok::<(), anyhow::Error>(())
             })
             .await?;
@@ -5766,7 +5779,7 @@ mod playback_state_tests {
             } else {
                 None
             };
-            let _ = std::fs::remove_file(wav_path);
+            let _ = fs::remove_file(wav_path);
             assert_eq!(
                 (cursor, successor),
                 (
@@ -5812,7 +5825,7 @@ mod playback_state_tests {
                 })?;
                 tokio::select! {
                     result = internal.run() => bail!("the player stopped before the edit: {result:?}"),
-                    result = tokio::time::timeout(TEST_DEADLINE, async {
+                    result = tokio_time::timeout(TEST_DEADLINE, async {
                         while !matches!(events.recv().await, Some(PlayerEvent::PlaylistUpdated(ref items)) if items.is_empty()) {}
                     }) => { result?; }
                 }
@@ -5824,11 +5837,11 @@ mod playback_state_tests {
                 let local = LocalSet::new();
                 local
                     .run_until(async move {
-                        let runner = tokio::task::spawn_local(async move { internal.run().await });
+                        let runner = task::spawn_local(async move { internal.run().await });
                         for command in [PlayerCommand::Next, PlayerCommand::Previous] {
                             let completion = completed_command(&sender, command);
                             assert_eq!(
-                                tokio::time::timeout(TEST_DEADLINE, completion).await??,
+                                tokio_time::timeout(TEST_DEADLINE, completion).await??,
                                 Ok(())
                             );
                             assert!(!runner.is_finished(), "clear={clear} paused={paused}");
@@ -5846,7 +5859,7 @@ mod playback_state_tests {
                         Ok::<(), anyhow::Error>(())
                     })
                     .await?;
-                let _ = std::fs::remove_file(path);
+                let _ = fs::remove_file(path);
             }
         }
         Ok(())
@@ -5884,7 +5897,7 @@ mod playback_state_tests {
             assert_eq!(completion.await?, Ok(()));
             player.next()?;
             let successor = run_until_track_state(&mut player, &mut events).await?;
-            let _ = std::fs::remove_file(wav_path);
+            let _ = fs::remove_file(wav_path);
             assert!(
                 matches!(successor, PlayerEvent::Playing { index: 2, ref item, .. }
                 if *item == library_item(library, c)),
@@ -5918,7 +5931,7 @@ mod playback_state_tests {
         let cursor = player.current_playlist_index();
         player.next()?;
         let event = run_until_track_state(&mut player, &mut events).await?;
-        let _ = std::fs::remove_file(wav_path);
+        let _ = fs::remove_file(wav_path);
         assert_eq!(cursor, Some(1));
         assert!(
             matches!(event, PlayerEvent::Playing { index: 2, ref item, .. }
@@ -5949,7 +5962,7 @@ mod playback_state_tests {
             player.load(Some(1), true, true)?;
             player.add_to_playlist(library_tracks(library, &ids[5..]), AddMode::PlayNext);
             let event = run_until_track_state(&mut player, &mut events).await?;
-            let _ = std::fs::remove_file(wav_path);
+            let _ = fs::remove_file(wav_path);
             let PlayerEvent::Playing { index, item, .. } = event else {
                 bail!("unexpected event for queued={queued}: {event:?}");
             };
@@ -5975,7 +5988,7 @@ mod playback_state_tests {
         let current_position = player.current_playlist_index();
         player.next()?;
         let event = run_until_track_state(&mut player, &mut events).await?;
-        let _ = std::fs::remove_file(wav_path);
+        let _ = fs::remove_file(wav_path);
         assert_eq!(current_position, Some(1), "{event:?}");
         assert!(
             matches!(&event, PlayerEvent::Loaded { index: 0, item, .. }
@@ -6017,7 +6030,7 @@ mod playback_state_tests {
             _ => bail!("unexpected queued={queued} event: {event:?}"),
         };
         assert_eq!(
-            tokio::time::timeout(TEST_DEADLINE, completion).await??,
+            tokio_time::timeout(TEST_DEADLINE, completion).await??,
             Ok(())
         );
         assert_about(position, restore);
@@ -6029,7 +6042,7 @@ mod playback_state_tests {
 
         player.next()?;
         let next = run_until_track_state(&mut player, &mut events).await?;
-        let _ = std::fs::remove_file(wav_path);
+        let _ = fs::remove_file(wav_path);
         assert!(
             matches!(&next, PlayerEvent::Playing { index: 2, item, .. }
                 if *item == library_item(library, ids[1])),
@@ -6069,7 +6082,7 @@ mod playback_state_tests {
         let position = player.current_playlist_index();
         player.next()?;
         let next = run_until_track_state(&mut player, &mut events).await?;
-        let _ = std::fs::remove_file(wav_path);
+        let _ = fs::remove_file(wav_path);
 
         assert_eq!(position, Some(1), "{next:?}");
         assert!(
@@ -6110,7 +6123,7 @@ mod playback_state_tests {
         );
 
         player.remove_from_playlist(2)?;
-        let _ = std::fs::remove_file(wav_path);
+        let _ = fs::remove_file(wav_path);
         assert_eq!(player.current_playlist_index(), Some(0));
         assert_eq!(player.current_track_index, Some(2));
         Ok(())
@@ -6128,7 +6141,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let track = library_item(library_id, file_uuids[2]);
@@ -6150,7 +6163,7 @@ mod playback_state_tests {
                     assert_about(position_of(&event), paused_at);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -6166,7 +6179,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let track = library_item(library_id, file_uuids[1]);
@@ -6178,7 +6191,7 @@ mod playback_state_tests {
 
                     commands_sender.send(PlayerCommand::RemoveFromPlaylist { index: 1 })?;
                     commands_sender.send(PlayerCommand::Play)?;
-                    tokio::time::timeout(TEST_DEADLINE, async {
+                    tokio_time::timeout(TEST_DEADLINE, async {
                         loop {
                             match events.recv().await {
                                 Some(PlayerEvent::Stopped) => return Ok(()),
@@ -6195,7 +6208,7 @@ mod playback_state_tests {
                     assert_nothing_plays(&commands_sender, &mut events).await?;
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -6216,7 +6229,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let track = library_item(library_id, file_uuid);
@@ -6232,7 +6245,7 @@ mod playback_state_tests {
                     assert_eq!(opens.load(Ordering::SeqCst), 2);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -6258,13 +6271,13 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let track = library_item(library_id, file_uuids[0]);
                     commands_sender.send(add_library_tracks(library_id, &file_uuids))?;
                     commands_sender.send(PlayerCommand::Switch(0))?;
-                    tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                    tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                     release.notify_one();
                     expect_playing(&mut events, &track).await?;
                     commands_sender.send(PlayerCommand::Output(OutputEvent::DeviceLost))?;
@@ -6272,7 +6285,7 @@ mod playback_state_tests {
 
                     // Play loads the track again for a new output, and the resolver holds it.
                     commands_sender.send(PlayerCommand::Play)?;
-                    tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                    tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                     commands_sender.send(PlayerCommand::Seek(3.0))?;
                     release.notify_one();
                     assert_about(
@@ -6281,7 +6294,7 @@ mod playback_state_tests {
                     );
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -6309,7 +6322,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let current = library_item(library_id, file_uuids[0]);
@@ -6321,7 +6334,7 @@ mod playback_state_tests {
                     // The old track keeps its output while the new one loads. The session only
                     // changes while no output runs, and the old track plays on afterwards.
                     commands_sender.send(PlayerCommand::Switch(1))?;
-                    tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                    tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                     commands_sender.send(PlayerCommand::SetMixWithOthers(true))?;
                     wait_for_output_reopen(&suspends, &resumes).await?;
                     let before = next_progress(&mut events).await?;
@@ -6336,7 +6349,7 @@ mod playback_state_tests {
                     expect_playing(&mut events, &expected).await?;
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -6361,7 +6374,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let track = start_playing(&commands_sender, &mut events, file_uuid).await?;
                     commands_sender.send(PlayerCommand::Seek(-3.0))?;
@@ -6370,7 +6383,7 @@ mod playback_state_tests {
                     // A seek to no place is dropped, and the player still answers.
                     commands_sender.send(PlayerCommand::Seek(f64::NAN))?;
                     commands_sender.send(PlayerCommand::SetVolume(0.5))?;
-                    tokio::time::timeout(TEST_DEADLINE, async {
+                    tokio_time::timeout(TEST_DEADLINE, async {
                         loop {
                             match events.recv().await {
                                 Some(PlayerEvent::VolumeUpdate(_)) => return Ok(()),
@@ -6383,7 +6396,7 @@ mod playback_state_tests {
                     .await??;
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -6409,7 +6422,7 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let track = library_item(library_id, file_uuids[1]);
@@ -6431,7 +6444,7 @@ mod playback_state_tests {
                     }
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await
@@ -6468,13 +6481,13 @@ mod playback_state_tests {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                let runner = task::spawn_local(async move { internal.run().await });
                 async {
                     let library_id = Uuid::new_v4();
                     let track = library_item(library_id, file_uuids[1]);
                     commands_sender.send(add_library_tracks(library_id, &file_uuids))?;
                     commands_sender.send(PlayerCommand::Switch(0))?;
-                    tokio::time::timeout(TEST_DEADLINE, started.notified()).await?;
+                    tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
                     commands_sender.send(load_at_position(1, 2.0, play))?;
                     release.notify_one();
 
@@ -6487,7 +6500,7 @@ mod playback_state_tests {
                     assert_eq!(&*ids.lock().unwrap(), &[1, 2]);
 
                     runner.abort();
-                    let _ = std::fs::remove_file(wav_path);
+                    let _ = fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await

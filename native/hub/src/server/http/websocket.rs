@@ -36,6 +36,8 @@ use discovery::protocol_version::{
     compatibility,
 };
 use discovery::server::{User, UserStatus};
+use std::future;
+use tokio::time as tokio_time;
 
 async fn capabilities_for_peer(
     node: &NodeContext,
@@ -406,7 +408,7 @@ pub async fn handle_socket(
     let controller_cancelled = async {
         match &controller_cancel {
             Some(cancel) => cancel.cancelled().await,
-            None => std::future::pending().await,
+            None => future::pending().await,
         }
     };
     let (close, drain_peer) = tokio::select! {
@@ -446,7 +448,7 @@ pub async fn handle_socket(
                     }
                 }
             };
-            let _ = tokio::time::timeout(Duration::from_secs(1), drain).await;
+            let _ = tokio_time::timeout(Duration::from_secs(1), drain).await;
         }
     }
     drop(tx);
@@ -458,7 +460,7 @@ pub async fn handle_socket(
 }
 
 async fn wait_for_send_task(mut send_task: JoinHandle<()>) {
-    match tokio::time::timeout(Duration::from_secs(1), &mut send_task).await {
+    match tokio_time::timeout(Duration::from_secs(1), &mut send_task).await {
         Ok(Ok(())) => {}
         Ok(Err(error)) if !error.is_cancelled() => {
             warn!("WebSocket send task failed during shutdown: {error}");
@@ -489,6 +491,7 @@ fn remote_failure(request: String, error: &anyhow::Error) -> RemoteRequestFailed
 #[cfg(test)]
 mod failure_tests {
     use super::{FailedCall, remote_failure, wait_for_send_task};
+    use std::future;
     use std::time::Duration;
     use tokio::time::timeout;
 
@@ -505,7 +508,7 @@ mod failure_tests {
 
     #[tokio::test]
     async fn stalled_send_task_is_cancelled_during_shutdown() {
-        let send_task = tokio::spawn(std::future::pending());
+        let send_task = tokio::spawn(future::pending());
         timeout(Duration::from_secs(3), wait_for_send_task(send_task))
             .await
             .expect("send task shutdown must be bounded");

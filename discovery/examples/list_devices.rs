@@ -26,6 +26,7 @@ use tokio::time::sleep;
 use uuid::Uuid;
 
 use discovery::protocol::DiscoveryService;
+use discovery::protocol_version;
 use discovery::utils::{DeviceInfo, DeviceType};
 
 #[derive(Parser, Debug)]
@@ -134,7 +135,7 @@ async fn main() -> anyhow::Result<()> {
         device_type: Some(DeviceType::Headless),
         fingerprint,
         api_port,
-        protocol_version: Some(discovery::protocol_version::PROTOCOL_VERSION),
+        protocol_version: Some(protocol_version::PROTOCOL_VERSION),
         capabilities: None,
     };
 

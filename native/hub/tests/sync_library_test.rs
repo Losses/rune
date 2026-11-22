@@ -31,6 +31,7 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, Database, EntityTrait, IntoActiveModel,
     ModelTrait, QueryFilter, Set, TransactionTrait, sea_query::Expr,
 };
+use std::fs;
 use std::sync::Arc;
 use support::fixtures;
 use sync::{CheckpointKey, ReceiveStore, SyncStore};
@@ -38,7 +39,7 @@ use uuid::Uuid;
 
 async fn setup() -> Result<(sea_orm::DatabaseConnection, tempfile::TempDir)> {
     let root = tempfile::tempdir()?;
-    std::fs::write(root.path().join("song.ogg"), b"shared bytes")?;
+    fs::write(root.path().join("song.ogg"), b"shared bytes")?;
     let options = fixtures::single_connection_options();
     let db = Database::connect(options).await?;
     fixtures::migrate(&db, Uuid::new_v4()).await?;
@@ -272,7 +273,7 @@ async fn pending_track_dependencies_project_after_scanning() -> Result<()> {
     assert!(get_liked(&db2, marker).await?);
     let (track, blob, _) = catalog_track(&db2, marker).await?.unwrap();
     let target = prepare_download(&db2, &FsIo::new(), root2.path(), track, &blob, "ogg").await?;
-    std::fs::copy(root2.path().join("song.ogg"), &target)?;
+    fs::copy(root2.path().join("song.ogg"), &target)?;
     attach_download(
         &db2,
         &b.record_store(),
@@ -303,7 +304,7 @@ async fn albums_and_relationships_project_after_track_arrival() -> Result<()> {
     let marker = marker(&db2).await?;
     let (track, blob, _) = catalog_track(&db2, marker).await?.unwrap();
     let target = prepare_download(&db2, &FsIo::new(), root2.path(), track, &blob, "ogg").await?;
-    std::fs::copy(root2.path().join("song.ogg"), &target)?;
+    fs::copy(root2.path().join("song.ogg"), &target)?;
     attach_download(
         &db2,
         &b.record_store(),
@@ -459,7 +460,7 @@ async fn failed_business_projection_rolls_back_records_and_progress() -> Result<
 async fn separate_identical_files_keep_independent_likes() -> Result<()> {
     let (db, root) = setup().await?;
     file(&db, 10).await?;
-    std::fs::write(root.path().join("second.ogg"), b"shared bytes")?;
+    fs::write(root.path().join("second.ogg"), b"shared bytes")?;
     support::local_file(&db, 20, Uuid::new_v4(), "second.ogg").await?;
     parent(&db, Collection::Albums, 41, "First", "Artist").await?;
     parent(&db, Collection::Albums, 42, "Second", "Artist").await?;
@@ -541,7 +542,7 @@ async fn attaching_changed_content_keeps_playlist_and_identity() -> Result<()> {
     let file = media_files::Entity::find_by_id(10).one(&db).await?.unwrap();
     let track: Uuid = file.source_uuid.parse()?;
     let original = root.path().join("updated.ogg");
-    std::fs::write(&original, b"new bytes")?;
+    fs::write(&original, b"new bytes")?;
     let blob = hash_file(&fs, &original)?;
     store
         .write_local(
@@ -553,7 +554,7 @@ async fn attaching_changed_content_keeps_playlist_and_identity() -> Result<()> {
         )
         .await?;
     let path = prepare_download(&db, &fs, root.path(), track, &blob, "ogg").await?;
-    std::fs::copy(&original, &path)?;
+    fs::copy(&original, &path)?;
     db.execute_unprepared("CREATE TRIGGER reject_attach BEFORE UPDATE ON media_files WHEN OLD.id=10 BEGIN SELECT RAISE(ABORT,'injected attachment failure'); END").await?;
     assert!(
         attach_download(
@@ -625,7 +626,7 @@ async fn changed_content_sync_preserves_track_identity_and_playlist() -> Result<
     add_item_to_playlist(&db1, &a.record_store(), list.id, 10, None).await?;
     transfer(&a, &b).await?;
     let updated = root1.path().join("updated.ogg");
-    std::fs::write(&updated, b"new changed bytes")?;
+    fs::write(&updated, b"new changed bytes")?;
     let blob = hash_file(&fs, &updated)?;
     a.write_local(
         ObjectKey {
@@ -643,7 +644,7 @@ async fn changed_content_sync_preserves_track_identity_and_playlist() -> Result<
             .contains(&77)
     );
     let path = prepare_download(&db2, &fs, root2.path(), track, &blob, "ogg").await?;
-    std::fs::copy(&updated, &path)?;
+    fs::copy(&updated, &path)?;
     attach_download(
         &db2,
         &b.record_store(),
@@ -677,8 +678,8 @@ async fn attachment_keeps_player_references_across_scans() -> Result<()> {
     use database::actions::{file::get_media_files, metadata::scan_audio_library};
     let root = tempfile::tempdir()?;
     let fixtures = fixtures::asset_directory();
-    let original = std::fs::read(fixtures.join("startup_0.ogg"))?;
-    std::fs::write(root.path().join("original.ogg"), &original)?;
+    let original = fs::read(fixtures.join("startup_0.ogg"))?;
+    fs::write(root.path().join("original.ogg"), &original)?;
     let options = fixtures::single_connection_options();
     let db = Database::connect(options).await?;
     let node = Uuid::new_v4();
@@ -739,7 +740,7 @@ async fn attachment_keeps_player_references_across_scans() -> Result<()> {
         )
         .await?;
     let path = prepare_download(&db, &fs, root.path(), track, &blob, "ogg").await?;
-    std::fs::copy(updated, &path)?;
+    fs::copy(updated, &path)?;
     attach_download(
         &db,
         &store.record_store(),
@@ -768,7 +769,7 @@ async fn attachment_keeps_player_references_across_scans() -> Result<()> {
         .await?;
         assert!(get_liked(&db, old.id).await?);
         assert_eq!(resolve_local_id(&db, old.id).await?, Some(old.id));
-        assert_eq!(std::fs::read(root.path().join("original.ogg"))?, original);
+        assert_eq!(fs::read(root.path().join("original.ogg"))?, original);
     }
     let search = search_for(
         &db,
@@ -840,7 +841,7 @@ async fn metadata_only_tracks_are_browsable_and_materialize_in_place() -> Result
     .await?;
     assert!(catalog_track(&db2, id).await?.is_some());
     let path = prepare_download(&db2, &fs, root2.path(), track, &blob, "ogg").await?;
-    std::fs::copy(root2.path().join("song.ogg"), &path)?;
+    fs::copy(root2.path().join("song.ogg"), &path)?;
     attach_download(
         &db2,
         &b.record_store(),
@@ -977,7 +978,7 @@ async fn cache_cleanup_keeps_distinct_catalog_ids_and_references() -> Result<()>
     use database::actions::file::get_media_files_count;
     let (db, root) = setup().await?;
     file(&db, 10).await?;
-    std::fs::write(root.path().join("second.ogg"), b"shared bytes")?;
+    fs::write(root.path().join("second.ogg"), b"shared bytes")?;
     support::local_file(&db, 20, Uuid::new_v4(), "second.ogg").await?;
     let fs = Arc::new(FsIo::new());
     let node = Uuid::new_v4();
@@ -991,7 +992,7 @@ async fn cache_cleanup_keeps_distinct_catalog_ids_and_references() -> Result<()>
     .await?;
     add_item_to_playlist(&db, &store.record_store(), playlist.id, 10, None).await?;
     store.head().await?;
-    std::fs::remove_file(root.path().join("song.ogg"))?;
+    fs::remove_file(root.path().join("song.ogg"))?;
     fixtures::cleanup_scan(
         &fs,
         &db,
@@ -1003,7 +1004,7 @@ async fn cache_cleanup_keeps_distinct_catalog_ids_and_references() -> Result<()>
     .await?;
     assert_eq!(get_media_files_count(&db).await?, 2);
     assert_eq!(i64::from(entry_file(&db).await?), i64::from(10));
-    std::fs::remove_file(root.path().join("second.ogg"))?;
+    fs::remove_file(root.path().join("second.ogg"))?;
     fixtures::cleanup_scan(
         &fs,
         &db,
@@ -1234,7 +1235,7 @@ async fn streaming_lookup_uses_verified_signature_and_rechecks_changes() -> Resu
         cached_blob_path(&db, &FsIo::new(), root.path(), &blob.digest).await?,
         Some(root.path().join("song.ogg"))
     );
-    std::fs::write(root.path().join("song.ogg"), b"different bytes")?;
+    fs::write(root.path().join("song.ogg"), b"different bytes")?;
     media_files::Entity::update_many()
         .col_expr(media_files::Column::LastModified, Expr::value("changed"))
         .filter(media_files::Column::Id.eq(10))
@@ -1391,7 +1392,7 @@ async fn attached_track_id_remains_stable_after_database_reopen() -> Result<()> 
         "sqlite://{}?mode=rwc",
         root.path().join("library.sqlite").display()
     );
-    std::fs::write(root.path().join("song.ogg"), b"old bytes")?;
+    fs::write(root.path().join("song.ogg"), b"old bytes")?;
     let db = Database::connect(&url).await?;
     fixtures::migrate(&db, Uuid::new_v4()).await?;
     file(&db, 10).await?;
@@ -1403,7 +1404,7 @@ async fn attached_track_id_remains_stable_after_database_reopen() -> Result<()> 
     let track_id = track_uuid(&db, 10).await?;
     let track: Uuid = track_id.parse()?;
     let path = root.path().join("updated.ogg");
-    std::fs::write(&path, b"updated bytes")?;
+    fs::write(&path, b"updated bytes")?;
     let blob = hash_file(&fs, &path)?;
     store
         .write_local(
@@ -1415,7 +1416,7 @@ async fn attached_track_id_remains_stable_after_database_reopen() -> Result<()> 
         )
         .await?;
     let destination = prepare_download(&db, &fs, root.path(), track, &blob, "ogg").await?;
-    std::fs::copy(&path, &destination)?;
+    fs::copy(&path, &destination)?;
     let path = destination;
     attach_download(
         &db,

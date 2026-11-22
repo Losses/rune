@@ -139,10 +139,7 @@ impl ScrobblingClient for ListenBrainzClient {
         payload.insert("track_metadata".to_string(), track_metadata);
 
         let mut body = HashMap::new();
-        body.insert(
-            "listen_type",
-            serde_json::Value::String("playing_now".to_string()),
-        );
+        body.insert("listen_type", Value::String("playing_now".to_string()));
         body.insert("payload", Value::Array(vec![Value::Object(payload)]));
 
         self.post_request("1/submit-listens", &body).await

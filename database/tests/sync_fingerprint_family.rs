@@ -13,15 +13,18 @@ use database::{
     },
 };
 use fsio::{FsIo, failing_read::OneFailingRead};
+use migration::catalog_identity;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
     PaginatorTrait, QueryFilter, QueryOrder, Set, TransactionTrait, sea_query::Expr,
 };
+use std::fs;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
 use support::fixtures;
+use sync_orm::causal_progress;
 use sync_orm::row_policy::BinaryValue;
 use tag_editor::music_brainz::fingerprint::calc_fingerprint;
 use uuid::Uuid;
@@ -62,7 +65,7 @@ async fn fingerprint_source_change_and_failed_journal_leave_no_assignment() -> R
             .is_none()
     );
     assert_eq!(
-        sync_orm::causal_progress::head_on(&db, store.namespace())
+        causal_progress::head_on(&db, store.namespace())
             .await?
             .sequence,
         0
@@ -86,7 +89,7 @@ async fn fingerprint_source_change_and_failed_journal_leave_no_assignment() -> R
         .is_err()
     );
     assert_eq!(
-        sync_orm::causal_progress::head_on(&db, store.namespace())
+        causal_progress::head_on(&db, store.namespace())
             .await?
             .sequence,
         0
@@ -113,16 +116,11 @@ async fn fingerprint_source_change_and_failed_journal_leave_no_assignment() -> R
     assert_eq!(row.fingerprint, vec![1, 2, 3, 4]);
     assert_eq!(
         row.source_uuid,
-        migration::catalog_identity::fingerprint(
-            file_id,
-            Some("chromaprint"),
-            Some("default"),
-            Some(1)
-        )
-        .to_string()
+        catalog_identity::fingerprint(file_id, Some("chromaprint"), Some("default"), Some(1))
+            .to_string()
     );
     assert_eq!(
-        sync_orm::causal_progress::head_on(&db, store.namespace())
+        causal_progress::head_on(&db, store.namespace())
             .await?
             .sequence,
         1
@@ -198,7 +196,7 @@ async fn a_read_error_while_decoding_stores_no_fingerprint() -> Result<()> {
     .await?;
     let track = root.path().join("a.ogg");
     let (full, _) = calc_fingerprint(&FsIo::new(), &track, &Configuration::default())?;
-    let authored = sync_orm::causal_progress::head_on(&db, store.namespace())
+    let authored = causal_progress::head_on(&db, store.namespace())
         .await?
         .sequence;
 
@@ -240,7 +238,7 @@ async fn a_read_error_while_decoding_stores_no_fingerprint() -> Result<()> {
         );
     }
     assert_eq!(
-        sync_orm::causal_progress::head_on(&db, store.namespace())
+        causal_progress::head_on(&db, store.namespace())
             .await?
             .sequence,
         authored,
@@ -269,7 +267,7 @@ async fn a_read_error_while_decoding_stores_no_fingerprint() -> Result<()> {
             .collect::<Vec<_>>()
     );
     assert!(
-        sync_orm::causal_progress::head_on(&db, store.namespace())
+        causal_progress::head_on(&db, store.namespace())
             .await?
             .sequence
             > authored
@@ -318,7 +316,7 @@ async fn author_zero_similarity(
     let configuration = default_similarity_configuration();
     let key = ObjectKey {
         collection: Collection::Similarities,
-        id: migration::catalog_identity::similarity(
+        id: catalog_identity::similarity(
             first_uuid,
             second_uuid,
             Some("chromaprint-match"),
@@ -397,7 +395,7 @@ async fn zero_similarity_removes_the_synced_row() -> Result<()> {
         score,
     };
     assign_computed_similarity(&db, &store, &first, &second, computation(0.5)).await?;
-    let sequence_after_match = sync_orm::causal_progress::head_on(&db, store.namespace())
+    let sequence_after_match = causal_progress::head_on(&db, store.namespace())
         .await?
         .sequence;
     assert_eq!(
@@ -414,14 +412,14 @@ async fn zero_similarity_removes_the_synced_row() -> Result<()> {
             .is_empty()
     );
     assert_eq!(
-        sync_orm::causal_progress::head_on(&db, store.namespace())
+        causal_progress::head_on(&db, store.namespace())
             .await?
             .sequence,
         sequence_after_match + 1
     );
     let key = ObjectKey {
         collection: Collection::Similarities,
-        id: migration::catalog_identity::similarity(
+        id: catalog_identity::similarity(
             first_uuid,
             second_uuid,
             Some("chromaprint-match"),
@@ -447,7 +445,7 @@ async fn missing_zero_score_pairs_preserve_zero_threshold_duplicate_marks() -> R
     let third_uuid = third.source_uuid.parse()?;
     let key = ObjectKey {
         collection: Collection::Similarities,
-        id: migration::catalog_identity::similarity(
+        id: catalog_identity::similarity(
             first_uuid,
             third_uuid,
             Some("chromaprint-match"),
@@ -515,12 +513,7 @@ async fn independent_configurations_coexist_in_primary_rows() -> Result<()> {
         store.lock(&tx).await?;
         let key = ObjectKey {
             collection: Collection::Fingerprints,
-            id: migration::catalog_identity::fingerprint(
-                first,
-                Some("algo"),
-                Some(config),
-                Some(1),
-            ),
+            id: catalog_identity::fingerprint(first, Some("algo"), Some(config), Some(1)),
         };
         let record = store
             .author_on(
@@ -541,13 +534,7 @@ async fn independent_configurations_coexist_in_primary_rows() -> Result<()> {
         bindings::apply(&tx, &record.key, record.value.as_ref()).await?;
         let key = ObjectKey {
             collection: Collection::Similarities,
-            id: migration::catalog_identity::similarity(
-                first,
-                second,
-                Some("algo"),
-                Some(config),
-                Some(1),
-            ),
+            id: catalog_identity::similarity(first, second, Some("algo"), Some(config), Some(1)),
         };
         let record = store
             .author_on(
@@ -579,7 +566,7 @@ async fn independent_configurations_coexist_in_primary_rows() -> Result<()> {
         2
     );
     assert_eq!(
-        sync_orm::causal_progress::head_on(&db, store.namespace())
+        causal_progress::head_on(&db, store.namespace())
             .await?
             .sequence,
         4
@@ -621,7 +608,7 @@ async fn legacy_fingerprint_does_not_block_supported_assignment() -> Result<()> 
     let db = fixtures::memory_database(node).await?;
     let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
     let file_id = Uuid::new_v4();
-    let legacy = migration::catalog_identity::fingerprint(file_id, None, None, None);
+    let legacy = catalog_identity::fingerprint(file_id, None, None, None);
     support::local_file(&db, 1, file_id, "a").await?;
     media_file_fingerprint::Entity::insert(media_file_fingerprint::ActiveModel {
         track_uuid: Set(file_id.to_string()),
@@ -706,7 +693,7 @@ async fn duplicate_filter_uses_supported_current_identity_once() -> Result<()> {
         .col_expr(media_files::Column::ContentSize, Expr::value(5))
         .exec(&db)
         .await?;
-    let legacy = migration::catalog_identity::fingerprint(first, None, None, None);
+    let legacy = catalog_identity::fingerprint(first, None, None, None);
     media_file_fingerprint::Entity::insert(media_file_fingerprint::ActiveModel {
         track_uuid: Set(first.to_string()),
         fingerprint: Set(vec![1, 2, 3, 4]),
@@ -786,9 +773,7 @@ async fn recommendations_exclude_verified_duplicates_only() -> Result<()> {
         track_uuid: Set(legacy_file.to_string()),
         fingerprint: Set(vec![1, 2, 3, 4]),
         is_duplicated: Set(1),
-        source_uuid: Set(
-            migration::catalog_identity::fingerprint(legacy_file, None, None, None).to_string(),
-        ),
+        source_uuid: Set(catalog_identity::fingerprint(legacy_file, None, None, None).to_string()),
         ..Default::default()
     })
     .exec(&db)
@@ -866,12 +851,12 @@ async fn attach_download_accepts_symlinked_root() -> Result<()> {
         .await?;
     let dir = tempfile::tempdir()?;
     let actual = dir.path().join("actual");
-    std::fs::create_dir(&actual)?;
+    fs::create_dir(&actual)?;
     let root = dir.path().join("link");
     symlink(&actual, &root)?;
     let fs = FsIo::new();
     let path = prepare_download(&db, &fs, &root, id, &blob, "ogg").await?;
-    std::fs::write(&path, data)?;
+    fs::write(&path, data)?;
     attach_download(&db, &store, &fs, &root, id, &blob, &path).await?;
     let row = media_files::Entity::find_by_id(1).one(&db).await?.unwrap();
     assert!(row.local_available);
@@ -915,12 +900,7 @@ async fn oversized_fingerprint_is_local_only() -> Result<()> {
     let tx = db.begin().await?;
     let key = ObjectKey {
         collection: Collection::Fingerprints,
-        id: migration::catalog_identity::fingerprint(
-            file_id,
-            Some("chromaprint"),
-            Some("default"),
-            Some(1),
-        ),
+        id: catalog_identity::fingerprint(file_id, Some("chromaprint"), Some("default"), Some(1)),
     };
     assert!(store.get_on(&tx, &key).await?.is_none());
     tx.rollback().await?;
@@ -983,7 +963,7 @@ async fn import_existing_skips_oversized_fingerprint() -> Result<()> {
         support::local_file(&db, n, id, "file").await?;
         let key = ObjectKey {
             collection: Collection::Fingerprints,
-            id: migration::catalog_identity::fingerprint(id, None, None, None),
+            id: catalog_identity::fingerprint(id, None, None, None),
         };
         media_file_fingerprint::Entity::insert(media_file_fingerprint::ActiveModel {
             track_uuid: Set(id.to_string()),

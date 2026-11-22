@@ -104,6 +104,7 @@ impl RealTimeFFT {
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
+    use tokio::time as tokio_time;
 
     use super::*;
 
@@ -112,7 +113,7 @@ mod tests {
     async fn next_spectrum(fft: &RealTimeFFT, samples: Vec<i16>) -> Vec<f32> {
         let receiver = fft.subscribe();
         fft.add_data(samples);
-        tokio::time::timeout(DEADLINE, receiver.recv())
+        tokio_time::timeout(DEADLINE, receiver.recv())
             .await
             .expect("no spectrum arrived")
             .expect("spectrum channel closed")

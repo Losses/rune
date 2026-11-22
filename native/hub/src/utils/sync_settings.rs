@@ -1,8 +1,10 @@
 use anyhow::{Context, Result};
 use database::actions::metadata::MissingHostFilePolicy;
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -23,7 +25,7 @@ impl Default for SyncSettings {
 impl SyncSettings {
     pub fn load(config_path: &Path) -> Self {
         let path = config_path.join("sync_settings.json");
-        match std::fs::read(&path) {
+        match fs::read(&path) {
             Ok(bytes) => match serde_json::from_slice(&bytes) {
                 Ok(settings) => settings,
                 Err(error) => {
@@ -41,10 +43,10 @@ impl SyncSettings {
     }
     pub fn save(&self, config_path: &Path) -> Result<()> {
         let path = config_path.join("sync_settings.json");
-        let temp = config_path.join(format!(".sync_settings.{}.tmp", uuid::Uuid::new_v4()));
-        std::fs::write(&temp, serde_json::to_vec(self)?).context("write sync settings")?;
-        if let Err(error) = std::fs::rename(&temp, &path) {
-            let _ = std::fs::remove_file(&temp);
+        let temp = config_path.join(format!(".sync_settings.{}.tmp", Uuid::new_v4()));
+        fs::write(&temp, serde_json::to_vec(self)?).context("write sync settings")?;
+        if let Err(error) = fs::rename(&temp, &path) {
+            let _ = fs::remove_file(&temp);
             return Err(error).context("replace sync settings");
         }
         Ok(())
@@ -54,11 +56,12 @@ impl SyncSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     #[test]
     fn defaults_and_atomic_round_trip() -> Result<()> {
         let dir = tempfile::tempdir()?;
         assert!(SyncSettings::load(dir.path()).listen);
-        std::fs::write(dir.path().join("sync_settings.json"), b"{\"listen\":false}")?;
+        fs::write(dir.path().join("sync_settings.json"), b"{\"listen\":false}")?;
         let partial = SyncSettings::load(dir.path());
         assert!(!partial.listen);
         assert_eq!(
@@ -76,7 +79,7 @@ mod tests {
             loaded.missing_host_file,
             MissingHostFilePolicy::KeepAsRemote
         );
-        std::fs::write(dir.path().join("sync_settings.json"), b"invalid")?;
+        fs::write(dir.path().join("sync_settings.json"), b"invalid")?;
         assert!(SyncSettings::load(dir.path()).listen);
         Ok(())
     }

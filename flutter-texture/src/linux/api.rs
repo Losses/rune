@@ -13,6 +13,7 @@ use std::sync::OnceLock;
 use log::error;
 
 use crate::{Result, TextureError};
+use std::mem;
 
 /// `GType`.
 pub(crate) type GType = usize;
@@ -213,12 +214,13 @@ pub(crate) fn lookup_optional<F: Copy>(name: &CStr) -> Option<F> {
 pub(crate) unsafe fn function<F: Copy>(address: *mut c_void) -> F {
     const { assert!(size_of::<F>() == size_of::<*mut c_void>()) };
     // SAFETY: a function pointer of the size of `F`, which the caller says is its signature.
-    unsafe { std::mem::transmute_copy::<*mut c_void, F>(&address) }
+    unsafe { mem::transmute_copy::<*mut c_void, F>(&address) }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::mem;
 
     #[test]
     fn layouts_match_glib() {
@@ -226,10 +228,10 @@ mod tests {
         #[cfg(target_pointer_width = "64")]
         {
             assert_eq!(size_of::<ObjectClass>(), 136);
-            assert_eq!(std::mem::offset_of!(ObjectClass, dispose), 40);
-            assert_eq!(std::mem::offset_of!(ObjectClass, finalize), 48);
+            assert_eq!(mem::offset_of!(ObjectClass, dispose), 40);
+            assert_eq!(mem::offset_of!(ObjectClass, finalize), 48);
             assert_eq!(size_of::<TypeInfo>(), 72);
-            assert_eq!(std::mem::offset_of!(TypeInfo, instance_size), 48);
+            assert_eq!(mem::offset_of!(TypeInfo, instance_size), 48);
             assert_eq!(size_of::<TypeQuery>(), 24);
         }
     }

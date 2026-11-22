@@ -22,6 +22,7 @@ use crate::{
     utils::{GlobalParams, ParamsExtractor, require_library, subsonic_binding_for_playback},
 };
 use ::database::library_registry::{LibraryRecordId, LibraryRegistry, ProtocolAdapter};
+use uuid::Uuid;
 
 type LikedParams = (Arc<NodeContext>, Arc<LibraryPool>, Option<LibraryHandle>);
 
@@ -40,7 +41,7 @@ async fn item_subsonic_binding(
     let PlayingItemRef::LibraryTrack { library_id, .. } = item else {
         return Ok(None);
     };
-    let library_id = uuid::Uuid::parse_str(library_id).map_err(|error| {
+    let library_id = Uuid::parse_str(library_id).map_err(|error| {
         ExpectedRequestError::invalid_input(format!("Invalid library id: {error}"))
     })?;
     let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
@@ -62,7 +63,7 @@ async fn item_library(pool: &Arc<LibraryPool>, item: &PlayingItemRef) -> Result<
     let PlayingItemRef::LibraryTrack { library_id, .. } = item else {
         anyhow::bail!("Liked state requires a library track");
     };
-    let library_id = uuid::Uuid::parse_str(library_id).map_err(|error| {
+    let library_id = Uuid::parse_str(library_id).map_err(|error| {
         ExpectedRequestError::invalid_input(format!("Invalid library id: {error}"))
     })?;
     pool.acquire_for_request(library_id).await
@@ -110,7 +111,7 @@ impl Signal for SetLikedRequest {
                 )
                 .into());
             }
-            let file_uuid = uuid::Uuid::parse_str(&track).map_err(|error| {
+            let file_uuid = Uuid::parse_str(&track).map_err(|error| {
                 ExpectedRequestError::invalid_input(format!("Invalid track id: {error}"))
             })?;
             if library.descriptor.access_level() == Some(LibraryAccess::Read) {
@@ -184,7 +185,7 @@ impl Signal for GetLikedRequest {
             let response = match parsed_item {
                 PlayingItem::LibraryTrack { library_id, track }
                     if library_id == library.library_id
-                        && let Ok(file_uuid) = uuid::Uuid::parse_str(&track) =>
+                        && let Ok(file_uuid) = Uuid::parse_str(&track) =>
                 {
                     let Some(file_id) = file_ids_by_uuid(&library.main_db, &[file_uuid])
                         .await?

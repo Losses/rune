@@ -20,6 +20,7 @@ use std::{
     sync::MutexGuard,
     time::SystemTime,
 };
+use tokio::task;
 use uuid::Uuid;
 
 const CACHE_LIMIT_BYTES: u64 = 128 * 1024 * 1024;
@@ -284,7 +285,7 @@ impl<M: SyncModel> SharePeer<M> {
         // the async workers.
         let cached = {
             let (directory, digest) = (self.cache_dir.clone(), digest.to_owned());
-            tokio::task::spawn_blocking(move || cache_read(&directory, &digest))
+            task::spawn_blocking(move || cache_read(&directory, &digest))
                 .await
                 .map_err(|error| SyncError::Storage(error.to_string()))?
         };
@@ -300,7 +301,7 @@ impl<M: SyncModel> SharePeer<M> {
         let decoded = decode_content(digest, &object.bytes)
             .map_err(|_| SyncError::SnapshotSourceUnavailable)?;
         let (directory, digest, bytes) = (self.cache_dir.clone(), digest.to_owned(), object.bytes);
-        tokio::task::spawn_blocking(move || cache_write(&directory, &digest, &bytes))
+        task::spawn_blocking(move || cache_write(&directory, &digest, &bytes))
             .await
             .map_err(|error| SyncError::Storage(error.to_string()))??;
         Ok(decoded)

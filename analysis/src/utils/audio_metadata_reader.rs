@@ -15,6 +15,7 @@ use anyhow::{Context, Result};
 
 use ::fsio::{FsIo, OpenMode};
 use ::fsio_media_source::FsioMediaSource;
+use symphonia::default as symphonia_default;
 
 pub fn get_format(fsio: &FsIo, file_path: &str) -> Result<Box<dyn FormatReader>> {
     // Open the media source.
@@ -42,7 +43,7 @@ pub fn get_format(fsio: &FsIo, file_path: &str) -> Result<Box<dyn FormatReader>>
     let fmt_opts: FormatOptions = Default::default();
 
     // Probe the media source.
-    let probed = symphonia::default::get_probe()
+    let probed = symphonia_default::get_probe()
         .format(&hint, mss, &fmt_opts, &meta_opts)
         .with_context(|| "unsupported format")?;
 

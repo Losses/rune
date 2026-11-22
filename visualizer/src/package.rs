@@ -7,6 +7,9 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context, Result, anyhow, bail};
+use std::ffi;
+use std::process as std_process;
+use zip::ZipArchive;
 
 /// The file name extension of a packed scene.
 pub const EXTENSION: &str = "runescene";
@@ -35,7 +38,7 @@ pub fn import(file: &Path, dir: &Path) -> Result<PathBuf> {
         .with_context(|| format!("{} has no name to give the scene", file.display()))?;
     let mut archive = File::open(file)
         .map_err(anyhow::Error::from)
-        .and_then(|f| zip::ZipArchive::new(f).map_err(anyhow::Error::from))
+        .and_then(|f| ZipArchive::new(f).map_err(anyhow::Error::from))
         .with_context(|| format!("{} is not a scene file", file.display()))?;
 
     if archive.len() > MAX_ENTRIES {
@@ -63,7 +66,7 @@ pub fn import(file: &Path, dir: &Path) -> Result<PathBuf> {
     // moved into place only when complete.
     let unique = format!(
         "{}-{}",
-        std::process::id(),
+        std_process::id(),
         IMPORTS.fetch_add(1, Ordering::Relaxed)
     );
     let staging = dir.join(format!(".import-{name}-{unique}"));
@@ -108,7 +111,7 @@ pub fn import(file: &Path, dir: &Path) -> Result<PathBuf> {
 /// folder above it, or a link to a folder elsewhere, is refused.
 pub fn remove(path: &Path, dir: &Path) -> Result<()> {
     let refused = || anyhow!("{} is not an imported scene", path.display());
-    let hidden = |name: &std::ffi::OsStr| name.to_string_lossy().starts_with('.');
+    let hidden = |name: &ffi::OsStr| name.to_string_lossy().starts_with('.');
     match path.components().next_back() {
         Some(Component::Normal(name)) if !hidden(name) => {}
         _ => return Err(refused()),
@@ -180,6 +183,9 @@ fn unpack(
 
 #[cfg(test)]
 mod tests {
+    use std::env;
+    use std::process as std_process;
+    use zip::ZipWriter;
 
     use std::io::Write;
     #[cfg(unix)]
@@ -189,7 +195,7 @@ mod tests {
     use super::*;
 
     fn temp(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("rune-package-{name}-{}", std::process::id()));
+        let dir = env::temp_dir().join(format!("rune-package-{name}-{}", std_process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -197,7 +203,7 @@ mod tests {
 
     /// A zip at `path` with these (name, contents) entries.
     fn zip_with(path: &Path, entries: &[(&str, &str)]) {
-        let mut writer = zip::ZipWriter::new(File::create(path).unwrap());
+        let mut writer = ZipWriter::new(File::create(path).unwrap());
         for (name, contents) in entries {
             writer
                 .start_file(*name, SimpleFileOptions::default())
@@ -362,7 +368,7 @@ mod tests {
         let base = temp("entries");
         let scenes = base.join("scenes");
         let path = base.join("Many.runescene");
-        let mut writer = zip::ZipWriter::new(File::create(&path).unwrap());
+        let mut writer = ZipWriter::new(File::create(&path).unwrap());
         let options = SimpleFileOptions::default();
         writer.start_file("scene.toml", options).unwrap();
         for i in 0..MAX_ENTRIES {

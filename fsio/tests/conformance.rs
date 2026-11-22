@@ -1,9 +1,12 @@
 use std::io::{ErrorKind, Read, Write};
 use std::path::Path;
 
+use fsio::self_test;
 use fsio::{FileIoError, FsIo, OpenMode, StorageLocation};
+use std::fs;
+use std::path as std_path;
 
-fn std_fsio_in(temp: &tempfile::TempDir) -> (FsIo, std::path::PathBuf) {
+fn std_fsio_in(temp: &tempfile::TempDir) -> (FsIo, std_path::PathBuf) {
     (FsIo::new(), temp.path().to_path_buf())
 }
 
@@ -171,9 +174,9 @@ async fn std_walk_dir_errors_on_a_root_it_cannot_read() {
     let locked = root.join("locked");
     fsio.create_dir_all(&locked).unwrap();
     fsio.write(&locked.join("track.ogg"), b"1").await.unwrap();
-    std::fs::set_permissions(&locked, Permissions::from_mode(0o000)).unwrap();
+    fs::set_permissions(&locked, Permissions::from_mode(0o000)).unwrap();
     let walk = fsio.walk_dir(&locked, false);
-    std::fs::set_permissions(&locked, Permissions::from_mode(0o755)).unwrap();
+    fs::set_permissions(&locked, Permissions::from_mode(0o755)).unwrap();
 
     assert!(
         matches!(&walk, Err(FileIoError::Io(error)) if error.kind() == ErrorKind::PermissionDenied),
@@ -389,7 +392,7 @@ async fn std_fs_self_test_all_layers() {
     fsio.write(&root.join("probe.txt"), b"probe").await.unwrap();
 
     let mut progress = Vec::new();
-    let results = fsio::self_test::run_fs_self_test(&fsio, &root, |r| {
+    let results = self_test::run_fs_self_test(&fsio, &root, |r| {
         progress.push(r.clone());
     })
     .await;

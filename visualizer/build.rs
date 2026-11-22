@@ -2,12 +2,14 @@
 //! of every scene folder, in a sorted order so that the build does not depend on the file
 //! system. Hidden files and folders (caches, `.gitignore`) and a scene's `tools/` are left out.
 
+use std::env;
 use std::fmt::Write as _;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 /// The files below `dir` as (path relative to the scene, absolute path), sorted.
 fn files(dir: &Path, prefix: &str, out: &mut Vec<(String, PathBuf)>) {
-    let mut entries: Vec<_> = std::fs::read_dir(dir)
+    let mut entries: Vec<_> = fs::read_dir(dir)
         .unwrap_or_else(|e| panic!("Failed to read {}: {e}", dir.display()))
         .map(|entry| entry.expect("Failed to read a directory entry"))
         .collect();
@@ -30,8 +32,8 @@ fn files(dir: &Path, prefix: &str, out: &mut Vec<(String, PathBuf)>) {
 
 fn main() {
     println!("cargo:rerun-if-changed=scenes");
-    let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("scenes");
-    let mut folders: Vec<_> = std::fs::read_dir(&root)
+    let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("scenes");
+    let mut folders: Vec<_> = fs::read_dir(&root)
         .expect("Failed to read scenes/")
         .map(|entry| entry.expect("Failed to read a directory entry").path())
         .filter(|path| path.join("scene.toml").is_file())
@@ -55,6 +57,6 @@ fn main() {
         code.push_str("    ]),\n");
     }
     code.push_str("];\n");
-    let out = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("builtin_scenes.rs");
-    std::fs::write(out, code).expect("Failed to write the table of scenes");
+    let out = PathBuf::from(env::var("OUT_DIR").unwrap()).join("builtin_scenes.rs");
+    fs::write(out, code).expect("Failed to write the table of scenes");
 }

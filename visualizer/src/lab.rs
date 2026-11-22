@@ -14,6 +14,8 @@ use std::sync::Arc;
 use crate::bind::{Bindings, Level, SOURCES, find};
 use crate::inspect::Inspect;
 use crate::scene::{Bind, FallbackDecl, InputDecl, LabRow, MusicValues, Param, STEP, mix_seed};
+use std::iter;
+use std::mem;
 
 /// Buckets of song time in a second.
 pub const RATE: u32 = 20;
@@ -218,12 +220,13 @@ fn plannable_inputs(scene: &LabScene) -> Vec<bool> {
                 Some(FallbackDecl::Word(word)) => Some(word.as_str()),
                 _ => None,
             };
-            let reads_live = std::iter::once(bind.source.as_str())
-                .chain(fallback)
-                .any(|read| match read.strip_prefix("input:") {
-                    Some(id) => slot(id).is_some_and(|input| !plannable_input[input]),
-                    None => !plannable(read),
-                });
+            let reads_live =
+                iter::once(bind.source.as_str())
+                    .chain(fallback)
+                    .any(|read| match read.strip_prefix("input:") {
+                        Some(id) => slot(id).is_some_and(|input| !plannable_input[input]),
+                        None => !plannable(read),
+                    });
             if reads_live {
                 plannable_input[target] = false;
                 changed = true;
@@ -310,7 +313,7 @@ impl LabColumns {
                     Some(FallbackDecl::Word(word)) if find(word).is_some() => Some(word),
                     _ => None,
                 };
-                for read in std::iter::once(&bind.source).chain(fallback) {
+                for read in iter::once(&bind.source).chain(fallback) {
                     if !sources.contains(&read.as_str()) {
                         sources.push(read);
                     }
@@ -390,7 +393,7 @@ impl Folder {
     fn take(&mut self) -> Option<(u32, Vec<f32>)> {
         let bucket = self.open.take()?;
         let fresh = vec![f32::NAN; self.kinds.len()];
-        Some((bucket, std::mem::replace(&mut self.values, fresh)))
+        Some((bucket, mem::replace(&mut self.values, fresh)))
     }
 }
 

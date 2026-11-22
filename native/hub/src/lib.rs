@@ -1,6 +1,9 @@
 #![recursion_limit = "256"]
 
+use chrono::Local;
 use fmt::time::ChronoLocal;
+use std::env;
+use tracing_appender::rolling;
 pub mod access_policy;
 mod apple_bridge;
 pub mod flutter_bridge;
@@ -92,7 +95,7 @@ async fn main() {
         panic!("{e:#?}");
     };
 
-    let args: Vec<String> = std::env::args().collect();
+    let args: Vec<String> = env::args().collect();
     let enable_log = args.contains(&"--enable-log".to_string());
 
     let scrobbler = ScrobblingManager::new(10, Duration::new(5, 0));
@@ -100,9 +103,9 @@ async fn main() {
 
     let _guard = if enable_log {
         let file_filter = EnvFilter::new("debug");
-        let now = chrono::Local::now();
+        let now = Local::now();
         let file_name = format!("{}.rune.log", now.format("%Y-%m-%d_%H-%M-%S"));
-        let file_appender = tracing_appender::rolling::never(".", file_name);
+        let file_appender = rolling::never(".", file_name);
         let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
         tracing_subscriber::fmt()

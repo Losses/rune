@@ -57,6 +57,8 @@ pub fn short(value: f32) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use toml::Table;
+    use toml::Value;
 
     #[test]
     fn values_are_written_inline_and_read_back() {
@@ -69,8 +71,8 @@ mod tests {
             "{ curve = \"out\", every = [8, 4, 2], scale = true, smooth = 1.0 }"
         );
         let back: toml::Table = toml::from_str(&format!("when = {text}")).unwrap();
-        assert_eq!(back["when"], toml::Value::Table(table));
-        assert_eq!(when_text(&toml::Table::new()), "{}");
+        assert_eq!(back["when"], Value::Table(table));
+        assert_eq!(when_text(&Table::new()), "{}");
     }
 
     #[test]

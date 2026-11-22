@@ -15,6 +15,7 @@ use rustyline_derive::{Completer, Helper, Validator};
 use tokio::sync::RwLock;
 
 use crate::fs::VirtualFS;
+use rustyline::highlight;
 
 #[derive(Helper, Completer, Validator)]
 pub struct DIYHinter {
@@ -144,7 +145,7 @@ impl Highlighter for DIYHinter {
         self.highlighter.highlight(line, pos)
     }
 
-    fn highlight_char(&self, line: &str, pos: usize, kind: rustyline::highlight::CmdKind) -> bool {
+    fn highlight_char(&self, line: &str, pos: usize, kind: highlight::CmdKind) -> bool {
         self.highlighter.highlight_char(line, pos, kind)
     }
 }

@@ -1,8 +1,12 @@
 //! Exact observed-remove state for one caller-selected namespace and collection.
 //!
 //! It does not implement paging, persistence, writer fencing, or forgotten-dot provenance.
+use anyhow::Error;
 use anyhow::{Result, ensure};
 use std::collections::{BTreeMap, BTreeSet};
+use std::error;
+use std::fmt;
+use std::mem;
 use std::ops::Bound;
 use uuid::Uuid;
 
@@ -14,8 +18,8 @@ pub enum CausalError {
     LogicalLimit(&'static str),
     Invalid(String),
 }
-impl std::fmt::Display for CausalError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for CausalError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ConflictingDot => f.write_str("conflicting live dot"),
             Self::ClockExhausted => f.write_str("dot counter exhausted"),
@@ -24,7 +28,7 @@ impl std::fmt::Display for CausalError {
         }
     }
 }
-impl std::error::Error for CausalError {}
+impl error::Error for CausalError {}
 
 /// Counters are limited to the signed database-compatible range.
 pub const MAX_DOT_COUNTER: u64 = i64::MAX as u64;
@@ -173,7 +177,7 @@ impl Context {
             return Ok(true);
         }
         let before = clock.clone();
-        let mut all = std::mem::take(&mut clock.intervals);
+        let mut all = mem::take(&mut clock.intervals);
         all.push((lo, hi));
         all.sort_unstable();
         for (a, b) in all {
@@ -499,7 +503,7 @@ impl<K: Ord + Clone, V: Clone + Eq, R: Clone + Ord + Eq> CausalMap<K, V, R> {
             ensure!(seen.insert(*dot), "duplicate removed dot");
             for (live_key, values) in &self.live {
                 if live_key != &key && values.contains_key(dot) {
-                    return Err(anyhow::Error::new(CausalError::ConflictingDot)
+                    return Err(Error::new(CausalError::ConflictingDot)
                         .context("removed dot belongs to another live key"));
                 }
             }

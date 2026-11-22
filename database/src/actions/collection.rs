@@ -5,6 +5,8 @@ use async_trait::async_trait;
 use thiserror::Error;
 
 use crate::connection::MainDbConnection;
+use std::error;
+use std::marker;
 
 #[derive(Debug, Clone)]
 pub enum ParseCollectionTypeError {
@@ -17,7 +19,7 @@ impl fmt::Display for ParseCollectionTypeError {
     }
 }
 
-impl std::error::Error for ParseCollectionTypeError {}
+impl error::Error for ParseCollectionTypeError {}
 
 #[derive(Eq, Hash, PartialEq, Clone, Debug)]
 pub enum CollectionQueryType {
@@ -142,17 +144,17 @@ pub trait CollectionQuery: Send + Sync + 'static {
         group_titles: Vec<String>,
     ) -> Result<Vec<(String, Vec<(Self, HashSet<i32>)>)>>
     where
-        Self: std::marker::Sized;
+        Self: marker::Sized;
     async fn get_by_ids(main_db: &MainDbConnection, ids: &[i32]) -> Result<Vec<Self>>
     where
-        Self: std::marker::Sized;
+        Self: marker::Sized;
     async fn list(
         main_db: &MainDbConnection,
         limit: u64,
         mode: CollectionQueryListMode,
     ) -> Result<Vec<Self>>
     where
-        Self: std::marker::Sized;
+        Self: marker::Sized;
     fn id(&self) -> i32;
     fn name(&self) -> &str;
     fn readonly(&self) -> bool;

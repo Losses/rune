@@ -20,6 +20,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
+use tokio::sync as tokio_sync;
 
 #[derive(Clone)]
 pub struct DownloadParams {
@@ -120,13 +121,13 @@ impl Signal for RemoveDownloadRuleRequest {
 }
 
 impl ParamsExtractor for crate::messages::GetSyncSettingsRequest {
-    type Params = Arc<tokio::sync::RwLock<SyncSettings>>;
+    type Params = Arc<tokio_sync::RwLock<SyncSettings>>;
     fn extract_params(&self, params: &GlobalParams) -> Self::Params {
         params.sync_settings.clone()
     }
 }
 impl Signal for crate::messages::GetSyncSettingsRequest {
-    type Params = Arc<tokio::sync::RwLock<SyncSettings>>;
+    type Params = Arc<tokio_sync::RwLock<SyncSettings>>;
     type Response = crate::messages::GetSyncSettingsResponse;
     async fn handle(
         &self,
@@ -145,7 +146,7 @@ impl Signal for crate::messages::GetSyncSettingsRequest {
 }
 impl ParamsExtractor for crate::messages::SetSyncSettingsRequest {
     type Params = (
-        Arc<tokio::sync::RwLock<SyncSettings>>,
+        Arc<tokio_sync::RwLock<SyncSettings>>,
         Arc<String>,
         Option<Arc<crate::server::ServerManager>>,
         RunMode,
@@ -161,7 +162,7 @@ impl ParamsExtractor for crate::messages::SetSyncSettingsRequest {
 }
 impl Signal for crate::messages::SetSyncSettingsRequest {
     type Params = (
-        Arc<tokio::sync::RwLock<SyncSettings>>,
+        Arc<tokio_sync::RwLock<SyncSettings>>,
         Arc<String>,
         Option<Arc<crate::server::ServerManager>>,
         RunMode,

@@ -7,6 +7,7 @@ use axum::{
     response::IntoResponse,
     routing::get,
 };
+use reqwest::Client;
 use std::sync::{Arc, Mutex};
 use subsonic::{SubsonicClient, SubsonicCredentials};
 
@@ -26,7 +27,7 @@ async fn client() -> (SubsonicClient, StateData, support::TestServer) {
             user: "alice".into(),
             password: "secret".into(),
         },
-        reqwest::Client::new(),
+        Client::new(),
     );
     (client, calls, server)
 }

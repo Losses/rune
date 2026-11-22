@@ -6,13 +6,14 @@ use database::{
 };
 use fsio::FsIo;
 use sea_orm::{Database, EntityTrait};
+use std::fs;
 use std::sync::Arc;
 use uuid::Uuid;
 
 async fn exercise_duplicate(played: bool) -> Result<()> {
     let root = tempfile::tempdir()?;
     let fixture = fixtures::audio_fixture();
-    std::fs::copy(&fixture, root.path().join("first.ogg"))?;
+    fs::copy(&fixture, root.path().join("first.ogg"))?;
     let db = Database::connect("sqlite::memory:").await?;
     let node = Uuid::new_v4();
     fixtures::migrate(&db, node).await?;
@@ -31,7 +32,7 @@ async fn exercise_duplicate(played: bool) -> Result<()> {
     store.head().await?;
     assert!(get_liked(&db, first.id).await?);
 
-    std::fs::copy(&fixture, root.path().join("second.ogg"))?;
+    fs::copy(&fixture, root.path().join("second.ogg"))?;
     fixtures::scan_library(
         &fs,
         &db,

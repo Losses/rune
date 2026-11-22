@@ -1,4 +1,14 @@
+use anyhow::Error;
 use database::sync::LibrarySyncStore;
+use fsio::ObjectStoreCapabilities;
+use reqwest::Client;
+use std::cmp;
+use std::fmt;
+use std::fs;
+use std::result;
+use std::sync as std_sync;
+use tokio::task;
+use tokio::time as tokio_time;
 use tokio::{
     runtime::Handle,
     time::{Duration, timeout},
@@ -153,7 +163,7 @@ pub struct GlobalParams {
     pub sync_settings: Arc<RwLock<sync_settings::SyncSettings>>,
     pub node_id: Arc<String>,
     pub main_token: Arc<CancellationToken>,
-    pub library_tasks: Arc<std::sync::Mutex<LibraryTaskOwner>>,
+    pub library_tasks: Arc<std_sync::Mutex<LibraryTaskOwner>>,
     pub player: Arc<Mutex<dyn Playable>>,
     pub sfx_player: Arc<Mutex<SfxPlayer>>,
     pub scrobbler: Arc<Mutex<dyn ScrobblingServiceManager>>,
@@ -185,18 +195,17 @@ pub async fn initialize_library_replica(
 ) -> Result<LibrarySyncStore> {
     let device_id = Uuid::parse_str(device_id)?;
     let token_dir = config_dir.join("causal-writer-identities");
-    std::fs::create_dir_all(&token_dir).context("Create causal writer identity directory")?;
+    fs::create_dir_all(&token_dir).context("Create causal writer identity directory")?;
     let token_path = token_dir.join(format!("{library_id}.token"));
-    let file_token = match std::fs::read_to_string(&token_path) {
+    let file_token = match fs::read_to_string(&token_path) {
         Ok(value) => Uuid::parse_str(value.trim()).context("Read causal writer identity")?,
         Err(error) if error.kind() == ErrorKind::NotFound => {
             let token = Uuid::new_v4();
             let temporary = token_dir.join(format!("{library_id}.{}.tmp", Uuid::new_v4()));
-            std::fs::write(&temporary, token.to_string())
-                .context("Write causal writer identity")?;
-            std::fs::rename(&temporary, &token_path).context("Install causal writer identity")?;
+            fs::write(&temporary, token.to_string()).context("Write causal writer identity")?;
+            fs::rename(&temporary, &token_path).context("Install causal writer identity")?;
             Uuid::parse_str(
-                std::fs::read_to_string(&token_path)
+                fs::read_to_string(&token_path)
                     .context("Read installed causal writer identity")?
                     .trim(),
             )?
@@ -215,7 +224,7 @@ pub async fn initialize_library_replica(
 }
 
 impl Debug for GlobalParams {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("GlobalParams")
             .field("library_id", &self.library_id)
             .finish()
@@ -957,7 +966,7 @@ pub(crate) async fn detect_opendal_share_data(
         let prefix = format!("devices/{}.1", Uuid::new_v4());
         store.probe(&prefix).await
     } else {
-        Ok(fsio::ObjectStoreCapabilities::default())
+        Ok(ObjectStoreCapabilities::default())
     };
     classify_opendal_share_data(library, probe)
 }
@@ -1063,7 +1072,7 @@ pub(crate) async fn register_opendal_library_on_node(
     let is_webdav = matches!(&request.service, OpenDalLibraryService::WebDav { .. });
     let fs_config = config.clone();
     let handle = Handle::current();
-    let probe = tokio::task::spawn_blocking(move || {
+    let probe = task::spawn_blocking(move || {
         catch_unwind(AssertUnwindSafe(|| -> Result<usize, FileIoError> {
             let fsio = FsIo::new_opendal(fs_config, handle)?;
             let nodes = fsio.walk_dir(Path::new(""), false)?.nodes;
@@ -1363,9 +1372,9 @@ pub(crate) async fn register_opendal_library_on_node(
 /// A failed library registration of `kind`; the detail goes to the logs.
 fn registration_failure(
     kind: RegisterLibraryFailureKind,
-    detail: impl std::fmt::Display + Send + Sync + 'static,
+    detail: impl fmt::Display + Send + Sync + 'static,
 ) -> anyhow::Error {
-    anyhow::Error::new(ExpectedRequestError::LibraryRegistrationFailed { kind }).context(detail)
+    Error::new(ExpectedRequestError::LibraryRegistrationFailed { kind }).context(detail)
 }
 
 async fn register_local_library(
@@ -1517,7 +1526,7 @@ pub(crate) async fn register_subsonic_library_on_node(
             ));
         }
     };
-    let http = match reqwest::Client::builder()
+    let http = match Client::builder()
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(5))
         .build()
@@ -1538,7 +1547,7 @@ pub(crate) async fn register_subsonic_library_on_node(
         },
         http,
     );
-    let probe = match tokio::time::timeout(Duration::from_secs(5), client.probe()).await {
+    let probe = match tokio_time::timeout(Duration::from_secs(5), client.probe()).await {
         Err(_) => {
             return Err(registration_failure(
                 RegisterLibraryFailureKind::SubsonicUnreachable,
@@ -1698,7 +1707,7 @@ pub(crate) async fn replace_subsonic_credential_on_node(
         Ok(endpoint) => endpoint,
         Err(()) => return Err(credential_failure(Kind::InvalidRecord)),
     };
-    let http = match reqwest::Client::builder()
+    let http = match Client::builder()
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(5))
         .build()
@@ -1847,8 +1856,7 @@ async fn open_library_by_record(
 
 /// A library that could not be opened, of `kind`; the error goes to the logs.
 fn open_failure(kind: OpenLibraryFailureKind, error: anyhow::Error) -> anyhow::Error {
-    anyhow::Error::new(ExpectedRequestError::LibraryOpenFailed { kind })
-        .context(format!("{error:#}"))
+    Error::new(ExpectedRequestError::LibraryOpenFailed { kind }).context(format!("{error:#}"))
 }
 
 pub(crate) async fn open_library_by_record_on_node(
@@ -2000,7 +2008,7 @@ async fn open_subsonic_record(
         .credentials
         .get(credential_ref)
         .await
-        .map_err(|error| (OpenLibraryFailureKind::Storage, anyhow::Error::new(error)))?;
+        .map_err(|error| (OpenLibraryFailureKind::Storage, Error::new(error)))?;
     let password = String::from_utf8(credential.secret.as_bytes().to_vec())
         .map_err(|error| (OpenLibraryFailureKind::Storage, error.into()))?;
     let endpoint = Url::parse(endpoint)
@@ -2011,7 +2019,7 @@ async fn open_subsonic_record(
             user: credential.username,
             password,
         },
-        reqwest::Client::builder()
+        Client::builder()
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(10))
             .build()
@@ -2087,42 +2095,42 @@ pub(crate) async fn subsonic_binding_for_playback(
     let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
     let record = registry
         .record(LibraryRecordId(library_id))
-        .map_err(|_| anyhow::Error::new(RemoteAudioError::LibraryUnavailable))?;
+        .map_err(|_| Error::new(RemoteAudioError::LibraryUnavailable))?;
     let ProtocolAdapter::SubsonicTranslate {
         endpoint,
         credential,
         mode,
     } = &record.protocol
     else {
-        return Err(anyhow::Error::new(RemoteAudioError::LibraryUnavailable));
+        return Err(Error::new(RemoteAudioError::LibraryUnavailable));
     };
     let credential = node
         .credentials
         .get(*credential)
         .await
-        .map_err(|_| anyhow::Error::new(RemoteAudioError::CredentialsRejected))?;
+        .map_err(|_| Error::new(RemoteAudioError::CredentialsRejected))?;
     let password = String::from_utf8(credential.secret.as_bytes().to_vec())
-        .map_err(|_| anyhow::Error::new(RemoteAudioError::CredentialsRejected))?;
-    let endpoint = Url::parse(endpoint)
-        .map_err(|_| anyhow::Error::new(RemoteAudioError::LibraryUnavailable))?;
+        .map_err(|_| Error::new(RemoteAudioError::CredentialsRejected))?;
+    let endpoint =
+        Url::parse(endpoint).map_err(|_| Error::new(RemoteAudioError::LibraryUnavailable))?;
     let client = SubsonicClient::new(
         endpoint,
         SubsonicCredentials::Password {
             user: credential.username,
             password,
         },
-        reqwest::Client::builder()
+        Client::builder()
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(10))
             .build()
-            .map_err(|_| anyhow::Error::new(RemoteAudioError::LibraryUnavailable))?,
+            .map_err(|_| Error::new(RemoteAudioError::LibraryUnavailable))?,
     );
-    let probe = tokio::time::timeout(Duration::from_secs(10), client.probe())
+    let probe = tokio_time::timeout(Duration::from_secs(10), client.probe())
         .await
-        .map_err(|_| anyhow::Error::new(RemoteAudioError::unreachable("Subsonic server timeout")))?
+        .map_err(|_| Error::new(RemoteAudioError::unreachable("Subsonic server timeout")))?
         .map_err(|error| match error {
             SubsonicError::Transport(_) | SubsonicError::HttpStatus(_) => {
-                anyhow::Error::new(RemoteAudioError::unreachable("Subsonic server unreachable"))
+                Error::new(RemoteAudioError::unreachable("Subsonic server unreachable"))
             }
             SubsonicError::Server {
                 kind:
@@ -2130,8 +2138,8 @@ pub(crate) async fn subsonic_binding_for_playback(
                     | SubsonicServerError::NotAuthorized
                     | SubsonicServerError::InvalidApiKey,
                 ..
-            } => anyhow::Error::new(RemoteAudioError::CredentialsRejected),
-            _ => anyhow::Error::new(RemoteAudioError::LibraryUnavailable),
+            } => Error::new(RemoteAudioError::CredentialsRejected),
+            _ => Error::new(RemoteAudioError::LibraryUnavailable),
         })?;
     Ok(Arc::new(SubsonicBinding::new(
         client,
@@ -2221,7 +2229,7 @@ async fn open_catalog_record(
     library_id: Uuid,
     path: Option<&str>,
     scrobbler: Arc<Mutex<ScrobblingManager>>,
-) -> std::result::Result<u64, (OpenLibraryFailureKind, anyhow::Error)> {
+) -> result::Result<u64, (OpenLibraryFailureKind, anyhow::Error)> {
     if let Some(path) = path {
         #[cfg(not(target_os = "android"))]
         let fsio = FsIo::new();
@@ -2377,7 +2385,7 @@ pub fn determine_batch_size(workload_factor: f32) -> usize {
     let min_batch_size = 1;
     let max_batch_size = 1000;
 
-    std::cmp::min(std::cmp::max(batch_size, min_batch_size), max_batch_size)
+    cmp::min(cmp::max(batch_size, min_batch_size), max_batch_size)
 }
 
 pub fn process_cover_art_path(
@@ -2433,7 +2441,7 @@ pub async fn parse_media_files(
             let path = Path::new(lib_path.as_ref())
                 .join(&file.directory)
                 .join(&file.file_name);
-            tokio::task::spawn_blocking(move || fsio.canonicalize_path(&path))
+            task::spawn_blocking(move || fsio.canonicalize_path(&path))
                 .await
                 .context("media path task failed")?
         };
@@ -2511,7 +2519,7 @@ pub async fn files_to_playback_request<P: AsRef<Path>>(
     let fsio_for_paths = fsio.clone();
     let root = lib_path.as_ref().to_path_buf();
     let files_for_paths = files.to_vec();
-    let local_paths = tokio::task::spawn_blocking(move || {
+    let local_paths = task::spawn_blocking(move || {
         files_for_paths
             .iter()
             .map(|file| match file.file_id {
@@ -2746,10 +2754,11 @@ mod local_open_failure_tests {
     use super::local_open_failure;
     use crate::{library_pool::MediaFolderMissing, messages::OpenLibraryFailureKind};
     use anyhow::Context;
+    use anyhow::Error;
 
     #[test]
     fn a_missing_folder_is_told_apart_from_other_storage_failures() {
-        let missing = anyhow::Error::new(MediaFolderMissing("/music".into()));
+        let missing = Error::new(MediaFolderMissing("/music".into()));
         assert_eq!(
             local_open_failure(&missing),
             OpenLibraryFailureKind::MediaFolderMissing
@@ -2772,6 +2781,7 @@ mod local_open_failure_tests {
 mod cover_art_url_tests {
     use super::process_cover_art_path;
     use crate::Session;
+    use url::Url;
     use uuid::Uuid;
 
     #[test]
@@ -2781,7 +2791,7 @@ mod cover_art_url_tests {
         let remote_session = Session {
             public_key: "key".to_string(),
             fingerprint: "fingerprint".to_string(),
-            base_url: url::Url::parse("https://peer.example").unwrap(),
+            base_url: Url::parse("https://peer.example").unwrap(),
         };
 
         assert_eq!(process_cover_art_path(path, library_id, None), path);

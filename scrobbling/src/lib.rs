@@ -10,6 +10,8 @@ use async_trait::async_trait;
 use reqwest::{Client, Response};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::error;
+use std::fmt;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LastFmApiCredentialField {
@@ -26,8 +28,8 @@ pub enum ScrobblingAuthFailure {
     Other { detail: String },
 }
 
-impl std::fmt::Display for ScrobblingAuthFailure {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ScrobblingAuthFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::CredentialsRejected { detail }
             | Self::ServiceUnreachable { detail }
@@ -43,7 +45,7 @@ impl std::fmt::Display for ScrobblingAuthFailure {
     }
 }
 
-impl std::error::Error for ScrobblingAuthFailure {}
+impl error::Error for ScrobblingAuthFailure {}
 
 #[derive(Debug, Deserialize)]
 struct AuthResponse {

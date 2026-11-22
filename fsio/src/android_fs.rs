@@ -10,6 +10,7 @@ use ndk_saf::{from_tree_url, open_content_url, AndroidFile, AndroidFileOps};
 use rusqlite::{params, Connection};
 
 use super::{DirWalk, FileIo, FileIoError, FileStream, FsNode, OpenMode, StorageLocation};
+use std::time as std_time;
 
 pub(crate) struct AndroidFsIo {
     db: Arc<Mutex<Connection>>,
@@ -665,7 +666,7 @@ impl FileIo for AndroidFsIo {
         let modified = file
             .metadata()?
             .modified()?
-            .duration_since(std::time::UNIX_EPOCH)
+            .duration_since(std_time::UNIX_EPOCH)
             .unwrap_or_default();
         Ok(modified.as_secs())
     }

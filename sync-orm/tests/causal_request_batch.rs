@@ -1,7 +1,11 @@
 use anyhow::{Context, Result, ensure};
+use sea_orm::DatabaseBackend;
+use sea_orm::Statement;
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::env;
+use std::fs;
 use sync::protocol::{self as p, SnapshotSource, SyncStore};
 use sync_orm::{causal_capabilities::CausalEndpoint, causal_schema, causal_store::CausalReplica};
 use uuid::Uuid;
@@ -134,7 +138,7 @@ async fn wide_budget_completes_with_fewer_requests_and_same_snapshot() -> Result
 
 #[tokio::test]
 async fn lost_reply_reopen_concurrent_retry_and_cancel_preserve_admitted_view() -> Result<()> {
-    let path = std::env::temp_dir().join(format!("rune-request-batch-{}.sqlite", Uuid::new_v4()));
+    let path = env::temp_dir().join(format!("rune-request-batch-{}.sqlite", Uuid::new_v4()));
     let url = format!("sqlite://{}?mode=rwc", path.display());
     let db = Database::connect(&url).await?;
     let (endpoint, namespace, actor) = setup(db.clone()).await?;
@@ -201,7 +205,7 @@ async fn lost_reply_reopen_concurrent_retry_and_cancel_preserve_admitted_view() 
     drop(other);
     drop(endpoint);
     drop(reopened);
-    std::fs::remove_file(path).context("remove temporary database")?;
+    fs::remove_file(path).context("remove temporary database")?;
     Ok(())
 }
 
@@ -223,8 +227,8 @@ async fn storage_error_after_committed_prefix_is_reported_and_retryable() -> Res
     let mut faulted = false;
     for _ in 0..1000 {
         let before: i64 = db
-            .query_one_raw(sea_orm::Statement::from_string(
-                sea_orm::DatabaseBackend::Sqlite,
+            .query_one_raw(Statement::from_string(
+                DatabaseBackend::Sqlite,
                 "SELECT committed FROM request_batch_fault".to_owned(),
             ))
             .await?
@@ -249,8 +253,8 @@ async fn storage_error_after_committed_prefix_is_reported_and_retryable() -> Res
                     "{error:?}"
                 );
                 let after: i64 = db
-                    .query_one_raw(sea_orm::Statement::from_string(
-                        sea_orm::DatabaseBackend::Sqlite,
+                    .query_one_raw(Statement::from_string(
+                        DatabaseBackend::Sqlite,
                         "SELECT committed FROM request_batch_fault".to_owned(),
                     ))
                     .await?
