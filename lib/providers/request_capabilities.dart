@@ -48,6 +48,10 @@ class RequestCapabilitiesProvider extends ChangeNotifier {
       _snapshot?.setLikedRequest ?? const RequestCapabilityAvailable();
   RequestCapability get setDownloadRuleRequest =>
       _snapshot?.setDownloadRuleRequest ?? const RequestCapabilityAvailable();
+  RequestCapability get fetchAllMixesRequest =>
+      _snapshot?.fetchAllMixesRequest ?? const RequestCapabilityAvailable();
+  RequestCapability get addItemToMixRequest =>
+      _snapshot?.addItemToMixRequest ?? const RequestCapabilityAvailable();
 
   void _update(RequestCapabilities snapshot) {
     _snapshot = snapshot;
