@@ -13,6 +13,7 @@ use crate::messages::{LibrarySyncStatusUpdated, ShareSyncFailure};
 use crate::utils::GlobalParams;
 use crate::utils::subsonic_binding_for_playback;
 use crate::{library_pool::LibraryHandle, node::NodeContext};
+use anyhow::Error;
 use anyhow::{Context, Result, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use database::actions::file::{ManagedAudioVerifier, file_ids_by_uuid, materialized_path};
@@ -27,23 +28,37 @@ use database::sync::model::RuneModel;
 use database::sync::share::{ShareCapabilities, SharePullError, SharePushError};
 use database::sync::{LibrarySyncStore, replica::PendingShareChange};
 use discovery::access_policy::{AccessPolicy, PeerIdentity};
+use discovery::client;
 use discovery::endpoint::{DeviceAddress, DeviceScheme, device_url};
 use discovery::server::UserStatus;
+use discovery::ssl;
 use fsio::{OpenDalConfig, OpenDalObjectStore};
+use futures::future;
 use futures::future::BoxFuture;
 use futures::future::{AbortHandle, Abortable, Aborted};
+use http_request::sync as http_request_sync;
 use http_request::sync::PageCursor;
+use playback::player;
 use playback::player::{
     LibraryPlaybackSource, LibraryTrackKey, PlaybackSourceResolver, RemoteAudioError,
     RemoteAudioSource, SubsonicItem,
 };
 use rand::rngs::OsRng;
+use reqwest::Client;
+use reqwest::StatusCode as ReqwestStatusCode;
+use reqwest::header;
 use reqwest::header::HeaderMap;
 use reqwest::redirect::Policy;
 use rsa::{Pss, RsaPrivateKey, pkcs8::DecodePrivateKey};
+use rustls::ClientConfig;
+use rustls::Error as RustlsError;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::pki_types;
+use serde::de;
 use sha2::{Digest, Sha256};
+use std::future as std_future;
 use std::path::PathBuf;
+use std::result;
 use std::time as std_time;
 use std::{
     collections::{HashMap, HashSet, hash_map::Entry},
@@ -56,12 +71,16 @@ use std::{
     time::Duration,
 };
 use sync::SyncPeer;
+use sync::protocol;
 use sync::protocol::SyncError;
 use sync::share::{ObjectStore, StoreError};
+use tokio::sync as tokio_sync;
 use tokio::sync::broadcast::error::RecvError;
+use tokio::task;
 use tokio::time as tokio_time;
 use tokio::time::{Instant, MissedTickBehavior};
 use tokio::{sync::Mutex, task::JoinSet};
+use tokio_util::sync as tokio_util_sync;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -107,7 +126,7 @@ trait ShareStoreFactory: Send + Sync {
         record: &'a LibraryRecord,
         prefix: &'a str,
         credentials: &'a CredentialStore,
-    ) -> futures::future::BoxFuture<'a, Result<ShareStoreSession, ShareSyncFailure>>;
+    ) -> future::BoxFuture<'a, Result<ShareStoreSession, ShareSyncFailure>>;
 }
 
 struct OpenDalShareStoreFactory;
@@ -118,7 +137,7 @@ impl ShareStoreFactory for OpenDalShareStoreFactory {
         record: &'a LibraryRecord,
         prefix: &'a str,
         credentials: &'a CredentialStore,
-    ) -> futures::future::BoxFuture<'a, Result<ShareStoreSession, ShareSyncFailure>> {
+    ) -> future::BoxFuture<'a, Result<ShareStoreSession, ShareSyncFailure>> {
         Box::pin(async move {
             let config = match record.fs.as_slice() {
                 [
@@ -356,7 +375,7 @@ pub(super) struct PeerEndpoint {
 }
 
 pub(crate) async fn trusted_fingerprint(
-    validator: &discovery::client::CertValidator,
+    validator: &client::CertValidator,
     host: &str,
     port: u16,
 ) -> Result<String> {
@@ -430,8 +449,8 @@ struct PeerSession {
     library: Option<LibraryHandle>,
     client: Option<(String, reqwest::Client)>,
     identity: Option<(uuid::Uuid, uuid::Uuid, uuid::Uuid)>,
-    artwork_cursor: http_request::sync::PageCursor,
-    last_used: std::time::Instant,
+    artwork_cursor: http_request_sync::PageCursor,
+    last_used: std_time::Instant,
     advertised_level: Option<SyncLevel>,
     push_forbidden: bool,
     direction: SessionDirection,
@@ -512,7 +531,7 @@ async fn run_share_worker(
     let mut sessions = HashMap::<Uuid, ShareStoreSession>::new();
     let mut retry = HashMap::<Uuid, (Duration, Instant)>::new();
     let mut schedules = HashMap::<Uuid, ShareSchedule>::new();
-    let mut interval = tokio::time::interval(timers.tick);
+    let mut interval = tokio_time::interval(timers.tick);
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
         tokio::select! {
@@ -743,9 +762,9 @@ async fn eligible_libraries(global: &NodeContext) -> Option<Vec<Uuid>> {
     }
 }
 
-async fn maintain_metadata(global: Weak<NodeContext>, cancel: tokio_util::sync::CancellationToken) {
+async fn maintain_metadata(global: Weak<NodeContext>, cancel: tokio_util_sync::CancellationToken) {
     let mut maintenance = HashMap::<Uuid, Maintenance>::new();
-    let mut interval = tokio::time::interval(Duration::from_secs(5));
+    let mut interval = tokio_time::interval(Duration::from_secs(5));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
         tokio::select! { _ = cancel.cancelled() => return, _ = interval.tick() => () }
@@ -783,7 +802,7 @@ async fn maintain_metadata(global: Weak<NodeContext>, cancel: tokio_util::sync::
                     log::warn!("Local metadata cleanup failed: {error:#}");
                     break;
                 }
-                tokio::task::yield_now().await;
+                task::yield_now().await;
             }
         }
     }
@@ -810,10 +829,10 @@ async fn pass_notification(
 async fn verify_managed_audio(
     global: Weak<NodeContext>,
     notify: Arc<dyn Fn() + Send + Sync>,
-    cancel: tokio_util::sync::CancellationToken,
+    cancel: tokio_util_sync::CancellationToken,
 ) {
     let mut verifiers = HashMap::<Uuid, ManagedAudioVerifier>::new();
-    let mut interval = tokio::time::interval(Duration::from_secs(1));
+    let mut interval = tokio_time::interval(Duration::from_secs(1));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
         tokio::select! { _ = cancel.cancelled() => return, _ = interval.tick() => {} }
@@ -857,8 +876,8 @@ async fn verify_managed_audio(
 
 async fn join_workers<M, A>(metadata: M, audio: A)
 where
-    M: std::future::Future<Output = ()>,
-    A: std::future::Future<Output = ()>,
+    M: std_future::Future<Output = ()>,
+    A: std_future::Future<Output = ()>,
 {
     tokio::join!(metadata, audio);
 }
@@ -867,7 +886,7 @@ async fn run_loop(
     global: Weak<NodeContext>,
     notify: Arc<dyn Fn() + Send + Sync>,
     credentials: LocalCredentials,
-    cancel: tokio_util::sync::CancellationToken,
+    cancel: tokio_util_sync::CancellationToken,
     metadata: bool,
     locks: ReplicaLocks,
 ) {
@@ -955,7 +974,7 @@ async fn run_loop(
                         };
                         let operation = sync_one(&global, &library, &notify, &endpoint, options);
                         if metadata {
-                            tokio::time::timeout(Duration::from_secs(60), operation).await.map_err(|_| anyhow::anyhow!("peer operation timed out"))?
+                            tokio_time::timeout(Duration::from_secs(60), operation).await.map_err(|_| anyhow::anyhow!("peer operation timed out"))?
                         } else {
                             operation.await
                         }
@@ -1016,7 +1035,7 @@ async fn schedule_peers<P, Q, D, DF, W, WF, K, C, CF>(
     work: W,
     key: K,
     limit: usize,
-    cancel: tokio_util::sync::CancellationToken,
+    cancel: tokio_util_sync::CancellationToken,
     cleanup: C,
 ) where
     D: Fn() -> DF,
@@ -1033,7 +1052,7 @@ async fn schedule_peers<P, Q, D, DF, W, WF, K, C, CF>(
     let mut running = HashMap::<Q, AbortHandle>::new();
     // Discovery and cleanup may await locks held by an in-flight peer pass.
     let mut tasks: JoinSet<PeerTaskResult<Q>> = JoinSet::new();
-    let mut tick = tokio::time::interval(Duration::from_secs(1));
+    let mut tick = tokio_time::interval(Duration::from_secs(1));
     tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut next_due = None;
     loop {
@@ -1043,7 +1062,7 @@ async fn schedule_peers<P, Q, D, DF, W, WF, K, C, CF>(
                 return;
             },
             _ = tick.tick() => {},
-            _ = async { match next_due { Some(deadline) => tokio::time::sleep_until(deadline).await, None => std::future::pending().await } } => {},
+            _ = async { match next_due { Some(deadline) => tokio_time::sleep_until(deadline).await, None => std_future::pending().await } } => {},
             Some(result) = tasks.join_next(), if !tasks.is_empty() => {
                 let (key, result) = match result {
                     Ok(result) => result,
@@ -1237,7 +1256,7 @@ struct PassOptions<'a> {
     credentials: &'a LocalCredentials,
     metadata: bool,
     locks: &'a ReplicaLocks,
-    cancel: &'a tokio_util::sync::CancellationToken,
+    cancel: &'a tokio_util_sync::CancellationToken,
     download_progress: &'a mut DownloadProgress,
 }
 
@@ -1364,7 +1383,7 @@ async fn sync_one(
             )
             .await?;
             let base = library_base(&base, local.namespace);
-            let peer = http_request::sync::MetadataPeer::<RuneModel>::new(&base, client);
+            let peer = http_request_sync::MetadataPeer::<RuneModel>::new(&base, client);
             let result = async {
                 let remote = peer.identity().await?;
                 ensure!(
@@ -1413,11 +1432,11 @@ async fn sync_one(
 fn metadata_unauthorized(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| {
         cause
-            .downcast_ref::<sync::protocol::SyncError>()
+            .downcast_ref::<protocol::SyncError>()
             .is_some_and(|error| matches!(error, SyncError::Unauthorized))
             || cause
                 .downcast_ref::<reqwest::Error>()
-                .is_some_and(|error| error.status() == Some(reqwest::StatusCode::UNAUTHORIZED))
+                .is_some_and(|error| error.status() == Some(ReqwestStatusCode::UNAUTHORIZED))
     })
 }
 
@@ -1426,7 +1445,7 @@ struct MetadataTarget<'a> {
     fingerprint: &'a str,
     may_receive: bool,
     may_send: bool,
-    cancel: &'a tokio_util::sync::CancellationToken,
+    cancel: &'a tokio_util_sync::CancellationToken,
 }
 
 async fn metadata_pass(
@@ -1544,7 +1563,7 @@ async fn metadata_pass(
     }
 
     let base = library_base(base, local.namespace);
-    let peer = http_request::sync::MetadataPeer::<RuneModel>::new(&base, client.clone());
+    let peer = http_request_sync::MetadataPeer::<RuneModel>::new(&base, client.clone());
     let remote = peer.identity().await?;
     ensure!(
         local.namespace == remote.namespace,
@@ -1644,7 +1663,7 @@ pub(super) async fn authenticated_client(
     );
     let tls = tls_config(validator, fingerprint);
     let base = peer_base(host, peer_port)?;
-    let client = reqwest::Client::builder()
+    let client = Client::builder()
         .use_preconfigured_tls(tls)
         .connect_timeout(Duration::from_secs(10))
         .read_timeout(Duration::from_secs(30))
@@ -1660,12 +1679,9 @@ pub(super) async fn authenticated_client(
     )
     .await?;
     let mut headers = HeaderMap::new();
-    headers.insert(
-        reqwest::header::AUTHORIZATION,
-        format!("Bearer {token}").parse()?,
-    );
+    headers.insert(header::AUTHORIZATION, format!("Bearer {token}").parse()?);
     let validator = global.cert_validator.read().await.clone();
-    let client = reqwest::Client::builder()
+    let client = Client::builder()
         .use_preconfigured_tls(tls_config(validator, fingerprint))
         .default_headers(headers)
         .connect_timeout(Duration::from_secs(10))
@@ -1692,7 +1708,7 @@ where
     let (base, client) =
         authenticated_client(global, own, private_key, fingerprint, host, peer_port).await?;
     let response = request(&base, &client).send().await?;
-    if response.status() != reqwest::StatusCode::UNAUTHORIZED {
+    if response.status() != ReqwestStatusCode::UNAUTHORIZED {
         return Ok(response);
     }
 
@@ -1741,7 +1757,7 @@ pub(crate) fn invalidate_sync_token(
 
 /// The base URL of a peer's HTTPS server, bracketing IPv6 hosts.
 pub(crate) fn peer_base(host: &str, port: u16) -> Result<String> {
-    let url = device_url(host, port, DeviceScheme::Https, "/").map_err(anyhow::Error::msg)?;
+    let url = device_url(host, port, DeviceScheme::Https, "/").map_err(Error::msg)?;
     Ok(url.as_str().trim_end_matches('/').to_owned())
 }
 
@@ -1800,7 +1816,7 @@ fn is_too_many_requests(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| {
         cause
             .downcast_ref::<reqwest::Error>()
-            .is_some_and(|error| error.status() == Some(reqwest::StatusCode::TOO_MANY_REQUESTS))
+            .is_some_and(|error| error.status() == Some(ReqwestStatusCode::TOO_MANY_REQUESTS))
     })
 }
 
@@ -1809,7 +1825,7 @@ fn is_authentication_denied(error: &anyhow::Error) -> bool {
         cause.downcast_ref::<reqwest::Error>().is_some_and(|error| {
             matches!(
                 error.status(),
-                Some(reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN)
+                Some(ReqwestStatusCode::UNAUTHORIZED | ReqwestStatusCode::FORBIDDEN)
             )
         })
     })
@@ -1829,8 +1845,8 @@ pub(super) struct RenewableAudio {
     pub url: String,
     pub access_url: String,
     pub size: u64,
-    pub client: Arc<tokio::sync::Mutex<AudioCredentials>>,
-    pub cancel: tokio_util::sync::CancellationToken,
+    pub client: Arc<tokio_sync::Mutex<AudioCredentials>>,
+    pub cancel: tokio_util_sync::CancellationToken,
 }
 
 impl RenewableAudio {
@@ -1874,9 +1890,9 @@ impl RenewableAudio {
         };
         let response = if matches!(
             response.status(),
-            reqwest::StatusCode::UNAUTHORIZED
-                | reqwest::StatusCode::FORBIDDEN
-                | reqwest::StatusCode::NOT_FOUND
+            ReqwestStatusCode::UNAUTHORIZED
+                | ReqwestStatusCode::FORBIDDEN
+                | ReqwestStatusCode::NOT_FOUND
         ) {
             self.refresh_if_current(generation).await?;
             let client = self.client.lock().await.client.clone();
@@ -1889,14 +1905,14 @@ impl RenewableAudio {
         };
         if matches!(
             response.status(),
-            reqwest::StatusCode::UNAUTHORIZED
-                | reqwest::StatusCode::FORBIDDEN
-                | reqwest::StatusCode::NOT_FOUND
+            ReqwestStatusCode::UNAUTHORIZED
+                | ReqwestStatusCode::FORBIDDEN
+                | ReqwestStatusCode::NOT_FOUND
         ) {
             self.cancel.cancel();
             anyhow::bail!(RemoteAudioError::AccessRevoked);
         }
-        if response.status() != reqwest::StatusCode::OK {
+        if response.status() != ReqwestStatusCode::OK {
             anyhow::bail!(RemoteAudioError::unreachable(format!(
                 "unexpected status {}",
                 response.status()
@@ -1965,7 +1981,7 @@ impl RenewableAudio {
             let mut request = client.get(&self.url);
             if let Some((start, end)) = range {
                 request = request.header(
-                    reqwest::header::RANGE,
+                    header::RANGE,
                     format!(
                         "bytes={start}-{}",
                         end.map(|v| v.to_string()).unwrap_or_default()
@@ -1977,9 +1993,9 @@ impl RenewableAudio {
         let response = tokio::select! { _ = self.cancel.cancelled() => anyhow::bail!(RemoteAudioError::AccessRevoked), result = send(client.clone()) => result.map_err(RemoteAudioError::unreachable)? };
         let response = if matches!(
             response.status(),
-            reqwest::StatusCode::UNAUTHORIZED
-                | reqwest::StatusCode::FORBIDDEN
-                | reqwest::StatusCode::NOT_FOUND
+            ReqwestStatusCode::UNAUTHORIZED
+                | ReqwestStatusCode::FORBIDDEN
+                | ReqwestStatusCode::NOT_FOUND
         ) {
             let renewed = {
                 let mut credentials = tokio::select! {
@@ -1997,9 +2013,9 @@ impl RenewableAudio {
         };
         if matches!(
             response.status(),
-            reqwest::StatusCode::UNAUTHORIZED
-                | reqwest::StatusCode::FORBIDDEN
-                | reqwest::StatusCode::NOT_FOUND
+            ReqwestStatusCode::UNAUTHORIZED
+                | ReqwestStatusCode::FORBIDDEN
+                | ReqwestStatusCode::NOT_FOUND
         ) {
             self.cancel.cancel();
             anyhow::bail!(RemoteAudioError::AccessRevoked);
@@ -2018,7 +2034,7 @@ fn validate_audio_response(
         ensure!(start < size, "audio range starts beyond content");
         let last = end.unwrap_or(size - 1).min(size - 1);
         ensure!(last >= start, "invalid audio range");
-        if response.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+        if response.status() != ReqwestStatusCode::PARTIAL_CONTENT {
             anyhow::bail!(RemoteAudioError::unreachable(format!(
                 "unexpected status {}",
                 response.status()
@@ -2027,7 +2043,7 @@ fn validate_audio_response(
         let expected = format!("bytes {start}-{last}/{size}");
         if response
             .headers()
-            .get(reqwest::header::CONTENT_RANGE)
+            .get(header::CONTENT_RANGE)
             .and_then(|h| h.to_str().ok())
             != Some(expected.as_str())
         {
@@ -2037,7 +2053,7 @@ fn validate_audio_response(
         }
         last - start + 1
     } else {
-        if response.status() != reqwest::StatusCode::OK {
+        if response.status() != ReqwestStatusCode::OK {
             anyhow::bail!(RemoteAudioError::unreachable(format!(
                 "unexpected status {}",
                 response.status()
@@ -2051,11 +2067,11 @@ fn validate_audio_response(
     Ok(())
 }
 
-impl playback::player::AudioRequest for RenewableAudio {
+impl player::AudioRequest for RenewableAudio {
     fn get(
         &self,
         range: Option<(u64, Option<u64>)>,
-    ) -> futures::future::BoxFuture<'static, Result<reqwest::Response>> {
+    ) -> future::BoxFuture<'static, Result<reqwest::Response>> {
         let this = self.clone();
         Box::pin(async move { this.request(range).await })
     }
@@ -2063,6 +2079,13 @@ impl playback::player::AudioRequest for RenewableAudio {
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Error;
+    use axum::Router;
+    use axum::routing;
+    use http_request::sync as http_request_sync;
+    use reqwest::Client;
+    use std::future;
+    use tokio::time as tokio_time_2;
 
     use super::*;
     use crate::test_wait::TEST_DEADLINE;
@@ -2266,7 +2289,7 @@ mod tests {
                         async move {
                             if peer == "first" {
                                 started.notify_one();
-                                std::future::pending::<()>().await;
+                                future::pending::<()>().await;
                             }
                             second.notify_one();
                             (peer, Duration::from_secs(30), false)
@@ -2282,7 +2305,7 @@ mod tests {
         });
         started.notified().await;
         available.store(true, Ordering::SeqCst);
-        let result = tokio::time::timeout(TEST_DEADLINE, second.notified()).await;
+        let result = tokio_time_2::timeout(TEST_DEADLINE, second.notified()).await;
         cancel.cancel();
         worker.await.unwrap();
         assert!(
@@ -2293,16 +2316,16 @@ mod tests {
 
     #[tokio::test]
     async fn metadata_unauthorized_is_distinct_from_other_failures() {
-        let app = axum::Router::new().route(
+        let app = Router::new().route(
             "/sync/metadata",
-            axum::routing::post(|| async { StatusCode::UNAUTHORIZED }),
+            routing::post(|| async { StatusCode::UNAUTHORIZED }),
         );
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let client = reqwest::Client::builder().no_proxy().build().unwrap();
-        let peer = http_request::sync::MetadataPeer::<RuneModel>::new(&base, client);
-        let error = anyhow::Error::new(peer.identity().await.unwrap_err());
+        let client = Client::builder().no_proxy().build().unwrap();
+        let peer = http_request_sync::MetadataPeer::<RuneModel>::new(&base, client);
+        let error = Error::new(peer.identity().await.unwrap_err());
         assert!(metadata_unauthorized(&error), "{error:#}");
         assert!(!metadata_unauthorized(&anyhow::anyhow!("network failure")));
         server.abort();
@@ -2367,7 +2390,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let client = Client::builder().no_proxy().build().unwrap();
         for (path, should_accept) in [
             ("/wrong-status", false),
             ("/wrong-range", false),
@@ -2420,14 +2443,14 @@ mod tests {
         };
         let workers = tokio::spawn(join_workers(metadata, audio));
         assert_eq!(
-            tokio::time::timeout(TEST_DEADLINE, done_rx)
+            tokio_time_2::timeout(TEST_DEADLINE, done_rx)
                 .await
                 .unwrap()
                 .unwrap(),
             *b"ok"
         );
         cancel.cancel();
-        tokio::time::timeout(TEST_DEADLINE, workers)
+        tokio_time_2::timeout(TEST_DEADLINE, workers)
             .await
             .unwrap()
             .unwrap();
@@ -2443,7 +2466,7 @@ mod tests {
     }
 }
 
-async fn bounded_json<T: serde::de::DeserializeOwned>(response: reqwest::Response) -> Result<T> {
+async fn bounded_json<T: de::DeserializeOwned>(response: reqwest::Response) -> Result<T> {
     let mut response = response.error_for_status()?;
     let mut bytes = Vec::new();
     while let Some(chunk) = response.chunk().await? {
@@ -2458,24 +2481,24 @@ async fn bounded_json<T: serde::de::DeserializeOwned>(response: reqwest::Respons
 
 #[derive(Debug)]
 struct PinnedPeer {
-    validator: Arc<discovery::client::CertValidator>,
+    validator: Arc<client::CertValidator>,
     fingerprint: String,
 }
 impl ServerCertVerifier for PinnedPeer {
     fn verify_server_cert(
         &self,
-        cert: &rustls::pki_types::CertificateDer<'_>,
-        intermediates: &[rustls::pki_types::CertificateDer<'_>],
-        name: &rustls::pki_types::ServerName<'_>,
+        cert: &pki_types::CertificateDer<'_>,
+        intermediates: &[pki_types::CertificateDer<'_>],
+        name: &pki_types::ServerName<'_>,
         ocsp: &[u8],
-        now: rustls::pki_types::UnixTime,
-    ) -> std::result::Result<ServerCertVerified, rustls::Error> {
+        now: pki_types::UnixTime,
+    ) -> result::Result<ServerCertVerified, rustls::Error> {
         let (_, parsed) = x509_parser::parse_x509_certificate(cert.as_ref())
-            .map_err(|_| rustls::Error::General("invalid peer certificate".into()))?;
-        let actual = discovery::ssl::calculate_base85_fingerprint(parsed.public_key().raw)
-            .map_err(|_| rustls::Error::General("invalid peer key".into()))?;
+            .map_err(|_| RustlsError::General("invalid peer certificate".into()))?;
+        let actual = ssl::calculate_base85_fingerprint(parsed.public_key().raw)
+            .map_err(|_| RustlsError::General("invalid peer key".into()))?;
         if actual != self.fingerprint {
-            return Err(rustls::Error::General("peer fingerprint mismatch".into()));
+            return Err(RustlsError::General("peer fingerprint mismatch".into()));
         }
         let _ = (intermediates, name, ocsp, now);
         Ok(ServerCertVerified::assertion())
@@ -2483,18 +2506,18 @@ impl ServerCertVerifier for PinnedPeer {
     fn verify_tls12_signature(
         &self,
         message: &[u8],
-        cert: &rustls::pki_types::CertificateDer<'_>,
+        cert: &pki_types::CertificateDer<'_>,
         signature: &rustls::DigitallySignedStruct,
-    ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
+    ) -> result::Result<HandshakeSignatureValid, rustls::Error> {
         self.validator
             .verify_tls12_signature(message, cert, signature)
     }
     fn verify_tls13_signature(
         &self,
         message: &[u8],
-        cert: &rustls::pki_types::CertificateDer<'_>,
+        cert: &pki_types::CertificateDer<'_>,
         signature: &rustls::DigitallySignedStruct,
-    ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
+    ) -> result::Result<HandshakeSignatureValid, rustls::Error> {
         self.validator
             .verify_tls13_signature(message, cert, signature)
     }
@@ -2503,10 +2526,10 @@ impl ServerCertVerifier for PinnedPeer {
     }
 }
 pub(crate) fn tls_config(
-    validator: discovery::client::CertValidator,
+    validator: client::CertValidator,
     fingerprint: &str,
 ) -> rustls::ClientConfig {
-    rustls::ClientConfig::builder()
+    ClientConfig::builder()
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(PinnedPeer {
             validator: Arc::new(validator),
@@ -2531,7 +2554,7 @@ impl PlaybackSourceResolver for PairedAudioResolver {
             let record = registry
                 .record(LibraryRecordId(library_id))
                 .or_else(|_| registry.catalog(library_id))
-                .map_err(|_| anyhow::Error::new(RemoteAudioError::LibraryUnavailable))?;
+                .map_err(|_| Error::new(RemoteAudioError::LibraryUnavailable))?;
             if matches!(&record.protocol, ProtocolAdapter::SubsonicTranslate { .. }) {
                 Ok(LibraryTrackKey::Subsonic(track))
             } else {

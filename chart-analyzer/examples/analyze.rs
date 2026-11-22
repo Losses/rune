@@ -15,6 +15,8 @@ use std::time::Instant;
 use anyhow::{Context, Result, bail};
 use chart_analyzer::{back::back, decode::decode_with, front::FrontBuilder, np::round_to};
 use fsio::FsIo;
+use std::env;
+use std::fs;
 
 /// Feeds the samples of a raw `.f32` file to `front`, a piece at a time.
 fn read_raw(path: &Path, front: &mut FrontBuilder) -> Result<()> {
@@ -45,7 +47,7 @@ fn read_raw(path: &Path, front: &mut FrontBuilder) -> Result<()> {
 fn main() -> Result<()> {
     let mut files = vec![];
     let mut out = PathBuf::from("out");
-    let mut args = std::env::args().skip(1);
+    let mut args = env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
             "--out" => out = args.next().context("--out needs a directory")?.into(),
@@ -55,7 +57,7 @@ fn main() -> Result<()> {
     if files.is_empty() {
         bail!("usage: analyze FILE... --out DIR");
     }
-    std::fs::create_dir_all(&out)?;
+    fs::create_dir_all(&out)?;
     let fsio = FsIo::new();
     for file in files {
         let stem = file
@@ -87,7 +89,7 @@ fn main() -> Result<()> {
             .display()
             .to_string();
         chart.analysis_seconds = round_to(decode_s + analysis_s, 2);
-        std::fs::write(
+        fs::write(
             out.join(format!("{stem}.json")),
             serde_json::to_vec(&chart)?,
         )?;

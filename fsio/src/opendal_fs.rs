@@ -13,6 +13,9 @@ use rustls::{ClientConfig, RootCertStore};
 use tokio::runtime::Handle;
 
 use crate::{DirWalk, FileIo, FileIoError, FileStream, FsNode, OpenMode, StorageLocation};
+use reqwest::Client;
+use std::io;
+use tokio::task;
 
 /// Credentials and location for a read-only OpenDAL filesystem.
 #[derive(Clone)]
@@ -90,7 +93,7 @@ impl OpenDalFsIo {
             let tls_config = ClientConfig::builder()
                 .with_root_certificates(roots)
                 .with_no_client_auth();
-            reqwest::Client::builder()
+            Client::builder()
                 .tls_backend_preconfigured(tls_config)
                 // Per-read inactivity, not a total limit: a large listing may take longer.
                 .connect_timeout(Duration::from_secs(10))
@@ -355,7 +358,7 @@ struct RemoteFile {
 }
 
 impl Read for RemoteFile {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if buf.is_empty() || self.position >= self.length {
             return Ok(0);
         }
@@ -384,27 +387,24 @@ impl Read for RemoteFile {
     }
 }
 impl Seek for RemoteFile {
-    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         let next = match pos {
             SeekFrom::Start(offset) => offset as i128,
             SeekFrom::Current(offset) => self.position as i128 + offset as i128,
             SeekFrom::End(offset) => self.length as i128 + offset as i128,
         };
         if next < 0 || next > u64::MAX as i128 {
-            return Err(IoError::new(
-                std::io::ErrorKind::InvalidInput,
-                "invalid seek",
-            ));
+            return Err(IoError::new(IoErrorKind::InvalidInput, "invalid seek"));
         }
         self.position = next as u64;
         Ok(self.position)
     }
 }
 impl Write for RemoteFile {
-    fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+    fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
         Err(IoError::new(IoErrorKind::Unsupported, "read-only"))
     }
-    fn flush(&mut self) -> std::io::Result<()> {
+    fn flush(&mut self) -> io::Result<()> {
         Ok(())
     }
 }
@@ -452,7 +452,7 @@ impl FileIo for OpenDalFsIo {
     ) -> Result<Box<dyn FileStream>, FileIoError> {
         let this = self.clone();
         let path = path.to_path_buf();
-        tokio::task::spawn_blocking(move || this.open(&path, open_mode))
+        task::spawn_blocking(move || this.open(&path, open_mode))
             .await
             .map_err(|_| remote_error("open"))?
     }
@@ -480,7 +480,7 @@ impl FileIo for OpenDalFsIo {
     async fn read_dir(&self, path: &Path) -> Result<Vec<FsNode>, FileIoError> {
         let this = self.clone();
         let path = path.to_path_buf();
-        tokio::task::spawn_blocking(move || {
+        task::spawn_blocking(move || {
             let key = this.key(&path)?;
             this.list_one(&key)
         })
@@ -523,7 +523,7 @@ impl FileIo for OpenDalFsIo {
     async fn is_file(&self, path: &Path) -> Result<bool, FileIoError> {
         let this = self.clone();
         let path = path.to_path_buf();
-        tokio::task::spawn_blocking(move || {
+        task::spawn_blocking(move || {
             let key = this.key(&path)?;
             this.metadata_node(&key, PathBuf::from(&key), String::new())
                 .map(|node| node.is_file)
@@ -534,7 +534,7 @@ impl FileIo for OpenDalFsIo {
     async fn is_dir(&self, path: &Path) -> Result<bool, FileIoError> {
         let this = self.clone();
         let path = path.to_path_buf();
-        tokio::task::spawn_blocking(move || {
+        task::spawn_blocking(move || {
             let key = this.key(&path)?;
             this.metadata_node(&key, PathBuf::from(&key), String::new())
                 .map(|node| node.is_dir)
@@ -586,14 +586,14 @@ impl FileIo for OpenDalFsIo {
     async fn ensure_file(&self, path: &Path) -> Result<FsNode, FileIoError> {
         let this = self.clone();
         let path = path.to_path_buf();
-        tokio::task::spawn_blocking(move || this.canonicalize(&path))
+        task::spawn_blocking(move || this.canonicalize(&path))
             .await
             .map_err(|_| remote_error("stat"))?
     }
     async fn ensure_directory(&self, path: &Path) -> Result<FsNode, FileIoError> {
         let this = self.clone();
         let path = path.to_path_buf();
-        tokio::task::spawn_blocking(move || this.canonicalize(&path))
+        task::spawn_blocking(move || this.canonicalize(&path))
             .await
             .map_err(|_| remote_error("stat"))?
     }

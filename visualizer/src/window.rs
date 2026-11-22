@@ -10,6 +10,13 @@ use anyhow::{Context, Result, anyhow, bail};
 use log::{info, warn};
 
 use crate::pipeline::FORMAT;
+use wgpu::CompositeAlphaMode;
+use wgpu::CurrentSurfaceTexture;
+use wgpu::PresentMode;
+use wgpu::SurfaceColorSpace;
+use wgpu::SurfaceTarget;
+use wgpu::TextureFormat;
+use wgpu::TextureUsages;
 
 /// A native window to present frames into (Android: a Flutter texture's `ANativeWindow`). wgpu
 /// holds it as long as the surface made from it, and lets go of it after the surface.
@@ -34,7 +41,7 @@ pub(crate) fn create_surface(
 ) -> Result<wgpu::Surface<'static>> {
     // wgpu-hal's Vulkan backend panics when the driver cannot make the surface.
     catch_unwind(AssertUnwindSafe(|| {
-        instance.create_surface(wgpu::SurfaceTarget::DisplayAndWindow(window))
+        instance.create_surface(SurfaceTarget::DisplayAndWindow(window))
     }))
     .map_err(|_| anyhow!("Vulkan could not make a surface of the window"))?
     .context("Failed to make a surface of the window")
@@ -64,20 +71,20 @@ impl WindowSurface {
         let format = choose_format(&caps.formats).context("The window takes no frames")?;
         // Mailbox replaces a frame the window has not taken yet, so the render thread keeps its
         // own pace; Fifo, which every window has, waits for the window instead.
-        let present_mode = if caps.present_modes.contains(&wgpu::PresentMode::Mailbox) {
-            wgpu::PresentMode::Mailbox
+        let present_mode = if caps.present_modes.contains(&PresentMode::Mailbox) {
+            PresentMode::Mailbox
         } else {
-            wgpu::PresentMode::Fifo
+            PresentMode::Fifo
         };
-        let alpha_mode = if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::Opaque) {
-            wgpu::CompositeAlphaMode::Opaque
+        let alpha_mode = if caps.alpha_modes.contains(&CompositeAlphaMode::Opaque) {
+            CompositeAlphaMode::Opaque
         } else {
-            wgpu::CompositeAlphaMode::Auto
+            CompositeAlphaMode::Auto
         };
         let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: TextureUsages::RENDER_ATTACHMENT,
             format,
-            color_space: wgpu::SurfaceColorSpace::Auto,
+            color_space: SurfaceColorSpace::Auto,
             width,
             height,
             desired_maximum_frame_latency: 2,
@@ -179,16 +186,14 @@ impl WindowSurface {
 
     fn acquire(surface: &wgpu::Surface) -> Next {
         match surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(image) => Next::Image(image),
+            CurrentSurfaceTexture::Success(image) => Next::Image(image),
             // Still shows right, only less efficiently; a resize configures the swapchain again.
-            wgpu::CurrentSurfaceTexture::Suboptimal(image) => Next::Image(image),
-            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
-                Next::Reconfigure
-            }
+            CurrentSurfaceTexture::Suboptimal(image) => Next::Image(image),
+            CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Lost => Next::Reconfigure,
             // A validation error went to the device's error handler (the status).
-            wgpu::CurrentSurfaceTexture::Timeout
-            | wgpu::CurrentSurfaceTexture::Occluded
-            | wgpu::CurrentSurfaceTexture::Validation => Next::Skip,
+            CurrentSurfaceTexture::Timeout
+            | CurrentSurfaceTexture::Occluded
+            | CurrentSurfaceTexture::Validation => Next::Skip,
         }
     }
 }
@@ -197,7 +202,7 @@ impl WindowSurface {
 /// the first: scenes write the bytes they mean, so a format that encodes sRGB would show them
 /// too bright.
 fn choose_format(formats: &[wgpu::TextureFormat]) -> Option<wgpu::TextureFormat> {
-    [FORMAT, wgpu::TextureFormat::Bgra8Unorm]
+    [FORMAT, TextureFormat::Bgra8Unorm]
         .into_iter()
         .find(|format| formats.contains(format))
         .or_else(|| formats.iter().copied().find(|format| !format.is_srgb()))

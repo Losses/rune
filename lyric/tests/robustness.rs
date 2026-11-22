@@ -6,9 +6,10 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use lyric::{lrc::parse_lrc, srt::parse_srt, ttml::parse_ttml, types::LyricFile, vtt::parse_vtt};
+use std::env;
 
 fn rounds() -> usize {
-    std::env::var("LYRIC_ROBUSTNESS_ROUNDS")
+    env::var("LYRIC_ROBUSTNESS_ROUNDS")
         .ok()
         .and_then(|x| x.parse().ok())
         .unwrap_or(5_000)

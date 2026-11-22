@@ -118,7 +118,9 @@ pub(crate) use ios::MediaControls;
 #[cfg(target_os = "ios")]
 mod ios {
     use std::cell::RefCell;
+    use std::fs;
     use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::ptr;
     use std::ptr::NonNull;
     use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
     use std::thread;
@@ -477,7 +479,7 @@ mod ios {
         /// The artwork object for `image`, made by the first write that shows it.
         fn artwork(&mut self, image: Retained<UIImage>) -> Retained<MPMediaItemArtwork> {
             if let Some((shown, artwork)) = &self.artwork
-                && std::ptr::eq(Retained::as_ptr(shown), Retained::as_ptr(&image))
+                && ptr::eq(Retained::as_ptr(shown), Retained::as_ptr(&image))
             {
                 return artwork.clone();
             }
@@ -533,7 +535,7 @@ mod ios {
 
     /// The image in the file at `path`, or none if the file cannot be read as an image.
     fn image(path: &str) -> Option<Retained<UIImage>> {
-        let bytes = match std::fs::read(path) {
+        let bytes = match fs::read(path) {
             Ok(bytes) => bytes,
             Err(e) => {
                 warn!("Failed to read the Now Playing artwork {path:?}: {e}");

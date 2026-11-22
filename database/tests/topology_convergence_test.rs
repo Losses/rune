@@ -3,9 +3,11 @@ use anyhow::{Context, Result, ensure};
 use database::actions::mixes::executable_queries_on;
 use database::test_fixtures::causal_library as support;
 use database::{entities::*, sync::model::*};
+use migration::catalog_identity;
 use migration::catalog_identity::ParentKind;
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder};
 use std::collections::{BTreeMap, BTreeSet};
+use std::env;
 use std::time::Instant;
 use support::{Peer, SqlLibrary, exchange, key, playlist};
 use sync::{Candidate, ReceiveProgress};
@@ -92,7 +94,7 @@ async fn converge(peers: &[Peer], links: &[(usize, usize)], expected: &Expected)
         }
         let agrees = matches(peers, expected).await?;
         let after = heads(peers).await?;
-        if std::env::var_os("RUNE_SYNC_TRACE").is_some() {
+        if env::var_os("RUNE_SYNC_TRACE").is_some() {
             eprintln!(
                 "convergence round={round} candidates_agree={agrees} heads={:?}",
                 after.iter().map(|v| v.sequence).collect::<Vec<_>>()
@@ -123,7 +125,7 @@ async fn scenario(peers: &[Peer], shape: usize, seed: u64) -> Result<()> {
         exchange(&peers[i], &peers[i + 1]).await?;
     }
     let track = id(88);
-    let album = migration::catalog_identity::parent(ParentKind::Album, "Parent album");
+    let album = catalog_identity::parent(ParentKind::Album, "Parent album");
     author(
         &peers[0],
         &mut expected,

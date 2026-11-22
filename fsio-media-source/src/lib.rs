@@ -8,6 +8,8 @@ use symphonia::default::codecs::{
 use symphonia::core::io::MediaSource;
 
 use fsio::FileStream;
+use once_cell::sync as once_cell_sync;
+use std::io;
 
 pub struct FsioMediaSource {
     stream: Box<dyn FileStream>,
@@ -25,13 +27,13 @@ impl FsioMediaSource {
 }
 
 impl Read for FsioMediaSource {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.stream.read(buf)
     }
 }
 
 impl Seek for FsioMediaSource {
-    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         self.stream.seek(pos)
     }
 }
@@ -79,18 +81,18 @@ impl<T: Read + Seek + Send + Sync> MediaSource for ReadSeekSource<T> {
 }
 
 impl<T: Read + Seek + Send + Sync> Read for ReadSeekSource<T> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.inner.read(buf)
     }
 }
 
 impl<T: Read + Seek + Send + Sync> Seek for ReadSeekSource<T> {
-    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         self.inner.seek(pos)
     }
 }
 
-static REGISTRY: once_cell::sync::Lazy<CodecRegistry> = Lazy::new(|| {
+static REGISTRY: once_cell_sync::Lazy<CodecRegistry> = Lazy::new(|| {
     let mut registry = CodecRegistry::new();
     register_enabled_codecs(&mut registry);
     registry
@@ -137,6 +139,7 @@ mod tests {
     use symphonia::core::io::MediaSourceStream;
     use symphonia::core::meta::MetadataOptions;
     use symphonia::core::probe::Hint;
+    use symphonia::default as symphonia_default;
 
     #[test]
     fn test_registry_contains_adapters() {
@@ -198,7 +201,7 @@ mod tests {
         let mut hint = Hint::new();
         hint.with_extension("opus");
 
-        let mut probed = symphonia::default::get_probe()
+        let mut probed = symphonia_default::get_probe()
             .format(
                 &hint,
                 mss,
@@ -249,7 +252,7 @@ mod tests {
         let mut hint = Hint::new();
         hint.with_extension("m4a");
 
-        let mut probed = symphonia::default::get_probe()
+        let mut probed = symphonia_default::get_probe()
             .format(
                 &hint,
                 mss,

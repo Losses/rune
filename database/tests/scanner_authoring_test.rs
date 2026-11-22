@@ -14,6 +14,11 @@ use database::{
 use fsio::FsIo;
 use metadata::describe::describe_file;
 use sea_orm::{ConnectionTrait, Database, EntityTrait, PaginatorTrait};
+use std::fs;
+use std::fs::File;
+use std::time as std_time;
+use std::time::Duration;
+use sync_orm::causal_progress;
 use uuid::Uuid;
 
 #[tokio::test]
@@ -21,9 +26,9 @@ async fn single_file_scan_uses_the_resolved_library_root() -> Result<()> {
     let temp = tempfile::tempdir()?;
     let root = temp.path().join("Music");
     let album = root.join("Album");
-    std::fs::create_dir_all(&album)?;
+    fs::create_dir_all(&album)?;
     let track = album.join("song.ogg");
-    std::fs::copy(fixtures::audio_fixture(), &track)?;
+    fs::copy(fixtures::audio_fixture(), &track)?;
     // Unlike an 8.3 alias, this alternate spelling exists on every filesystem.
     let alias = album.join("..");
     let node = Uuid::new_v4();
@@ -36,7 +41,7 @@ async fn single_file_scan_uses_the_resolved_library_root() -> Result<()> {
     assert_eq!(row.file_name, "song.ogg");
 
     let outside = temp.path().join("outside.ogg");
-    std::fs::copy(&track, &outside)?;
+    fs::copy(&track, &outside)?;
     assert!(
         scan_audio_file(&fs, &db, &node.to_string(), &alias, &outside, &store)
             .await
@@ -80,7 +85,7 @@ async fn journal_failure_rolls_back_scanned_file() -> Result<()> {
     .await?;
     assert_eq!(media_files::Entity::find().count(&db).await?, 1);
     assert_eq!(
-        sync_orm::causal_progress::head_on(&db, store.namespace())
+        causal_progress::head_on(&db, store.namespace())
             .await?
             .sequence,
         1
@@ -97,7 +102,7 @@ async fn journal_failure_rolls_back_scanned_file() -> Result<()> {
     db.execute_unprepared("DROP TRIGGER reject_album_journal")
         .await?;
     index_audio_library(&db, &node.to_string(), 50, None, &store).await?;
-    let indexed_count = sync_orm::causal_progress::head_on(&db, store.namespace())
+    let indexed_count = causal_progress::head_on(&db, store.namespace())
         .await?
         .sequence;
     assert!(indexed_count >= 3);
@@ -126,7 +131,7 @@ async fn journal_failure_rolls_back_scanned_file() -> Result<()> {
         genres_before
     );
     assert_eq!(
-        sync_orm::causal_progress::head_on(&db, store.namespace())
+        causal_progress::head_on(&db, store.namespace())
             .await?
             .sequence,
         indexed_count,
@@ -296,7 +301,7 @@ async fn untitled_track_is_searchable_after_authoring() -> Result<()> {
     let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("unusualfallback.ogg");
-    std::fs::copy(fixtures::audio_fixture(), &path)?;
+    fs::copy(fixtures::audio_fixture(), &path)?;
     let id = scan_audio_file(
         &FsIo::new(),
         &db,
@@ -336,7 +341,7 @@ async fn ordinary_scan_retries_failed_album_indexing() -> Result<()> {
     use database::actions::metadata::{MissingHostFilePolicy, ScanOptions, scan_audio_library};
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("song.ogg");
-    std::fs::copy(fixtures::audio_fixture(), &path)?;
+    fs::copy(fixtures::audio_fixture(), &path)?;
     let node = Uuid::new_v4();
     let db = fixtures::memory_database(node).await?;
     let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
@@ -364,13 +369,11 @@ async fn ordinary_scan_retries_failed_album_indexing() -> Result<()> {
     for expected_album in ["First album", ""] {
         if expected_album.is_empty() {
             db.execute_unprepared("DROP TRIGGER initial_album").await?;
-            std::fs::copy(fixtures::audio_fixture_at(1), &path)?;
-            std::fs::File::options()
+            fs::copy(fixtures::audio_fixture_at(1), &path)?;
+            File::options()
                 .write(true)
                 .open(&path)?
-                .set_modified(
-                    std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000),
-                )?;
+                .set_modified(std_time::UNIX_EPOCH + Duration::from_secs(1_700_000_000))?;
         }
         db.execute_unprepared("CREATE TRIGGER reject_album BEFORE INSERT ON albums BEGIN SELECT RAISE(ABORT, 'album failure'); END").await?;
         assert_eq!(scan().await?, 0);
@@ -398,12 +401,12 @@ async fn ordinary_scan_retries_failed_album_indexing() -> Result<()> {
                 .await?
                 .is_some()
         );
-        let head = sync_orm::causal_progress::head_on(&db, store.namespace())
+        let head = causal_progress::head_on(&db, store.namespace())
             .await?
             .sequence;
         assert_eq!(scan().await?, 0);
         assert_eq!(
-            sync_orm::causal_progress::head_on(&db, store.namespace())
+            causal_progress::head_on(&db, store.namespace())
                 .await?
                 .sequence,
             head

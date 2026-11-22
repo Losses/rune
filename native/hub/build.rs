@@ -1,5 +1,6 @@
 use anyhow::Result;
 use std::env;
+use std::fs;
 use std::path::Path;
 use std::process::Command;
 #[cfg(target_os = "macos")]
@@ -23,7 +24,7 @@ fn main() -> Result<()> {
     emit_git_commit();
     emit_app_version()?;
 
-    let target = std::env::var("TARGET").unwrap();
+    let target = env::var("TARGET").unwrap();
 
     if target.contains("darwin") {
         #[cfg(target_os = "macos")]
@@ -38,7 +39,7 @@ fn main() -> Result<()> {
 fn emit_app_version() -> Result<()> {
     let manifest = Path::new(&env::var("CARGO_MANIFEST_DIR")?).join("../../pubspec.yaml");
     println!("cargo:rerun-if-changed={}", manifest.display());
-    let text = std::fs::read_to_string(&manifest)?;
+    let text = fs::read_to_string(&manifest)?;
     let version = text
         .lines()
         .find_map(|line| line.strip_prefix("version:"))

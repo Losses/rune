@@ -3,6 +3,8 @@ use super::memory_core::MemoryCore;
 use super::receiver::ReceiverLedger;
 use super::*;
 use crate::causal::Context;
+use chrono::Utc;
+use std::collections;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Mutex, MutexGuard};
 
@@ -15,7 +17,7 @@ struct State<M: SyncModel> {
     accepted_anchors: Vec<(CheckpointKey, ReceiveProgress)>,
     receiver: ReceiverLedger<M>,
     snapshots: Vec<Snapshot<M>>,
-    retired_requests: std::collections::BTreeMap<Uuid, u64>,
+    retired_requests: collections::BTreeMap<Uuid, u64>,
     summaries: Vec<SummaryWork<M>>,
     builds: Vec<SnapshotBuild<M>>,
     splits: Vec<SplitWork<M>>,
@@ -193,7 +195,7 @@ impl<M: SyncModel> MemorySyncStore<M> {
             .state
             .lock()
             .map_err(|_| SyncError::Storage("memory store lock poisoned".into()))?;
-        let now = chrono::Utc::now().timestamp_millis().max(0) as u64;
+        let now = Utc::now().timestamp_millis().max(0) as u64;
         let expired_requests: Vec<_> = state
             .snapshots
             .iter()
@@ -219,7 +221,7 @@ impl<M: SyncModel> MemorySyncStore<M> {
         state
             .snapshots
             .retain(|view| view.descriptor.expires_unix_ms > now);
-        let snapshot_ids: std::collections::BTreeSet<_> = state
+        let snapshot_ids: collections::BTreeSet<_> = state
             .snapshots
             .iter()
             .map(|view| view.descriptor.snapshot_id)
@@ -558,7 +560,7 @@ impl<M: SyncModel> ReceiveStore<M> for MemorySyncStore<M> {
                     return Err(SyncError::RetryAt(checkpoint));
                 }
             }
-            let deadline = (chrono::Utc::now().timestamp_millis().max(0) as u64)
+            let deadline = (Utc::now().timestamp_millis().max(0) as u64)
                 .checked_add(DEFAULT_SNAPSHOT_TTL_MS)
                 .ok_or(SyncError::ClockExhausted)?;
             state
@@ -651,7 +653,7 @@ impl<M: SyncModel> ReceiveStore<M> for MemorySyncStore<M> {
                 s.descriptors.retain(|(id, _)| !ids.contains(id));
                 s.stage_deadlines.retain(|(id, _)| !ids.contains(id));
             }
-            let deadline = (chrono::Utc::now().timestamp_millis().max(0) as u64)
+            let deadline = (Utc::now().timestamp_millis().max(0) as u64)
                 .checked_add(DEFAULT_SNAPSHOT_TTL_MS)
                 .ok_or(SyncError::ClockExhausted)?;
             s.receiver
@@ -1002,7 +1004,7 @@ fn validate_work(l: WorkLimits) -> Result<()> {
     Ok(())
 }
 fn view_mut<M: SyncModel>(state: &mut State<M>, id: Uuid) -> Result<&mut Snapshot<M>> {
-    let now = chrono::Utc::now().timestamp_millis().max(0) as u64;
+    let now = Utc::now().timestamp_millis().max(0) as u64;
     let view = state
         .snapshots
         .iter_mut()
@@ -1035,7 +1037,7 @@ impl<M: SyncModel> SnapshotSource<M> for MemorySyncStore<M> {
                 remember_retired(
                     &mut state,
                     request_id,
-                    chrono::Utc::now().timestamp_millis().max(0) as u64,
+                    Utc::now().timestamp_millis().max(0) as u64,
                 );
             }
             Ok(())
@@ -1053,7 +1055,7 @@ impl<M: SyncModel> SnapshotSource<M> for MemorySyncStore<M> {
                 remember_retired(
                     &mut s,
                     request_id,
-                    chrono::Utc::now().timestamp_millis().max(0) as u64,
+                    Utc::now().timestamp_millis().max(0) as u64,
                 );
             }
             let before = s.snapshots.len();
@@ -1088,7 +1090,7 @@ impl<M: SyncModel> SnapshotSource<M> for MemorySyncStore<M> {
                 remember_retired(
                     &mut s,
                     request_id,
-                    chrono::Utc::now().timestamp_millis().max(0) as u64,
+                    Utc::now().timestamp_millis().max(0) as u64,
                 );
             }
             s.summaries.retain(|work| work.snapshot != build.snapshot);
@@ -1183,7 +1185,7 @@ impl<M: SyncModel> SnapshotSource<M> for MemorySyncStore<M> {
                     return Err(SyncError::StageQuota);
                 }
                 let snapshot = Uuid::new_v4();
-                let now = chrono::Utc::now().timestamp_millis().max(0) as u64;
+                let now = Utc::now().timestamp_millis().max(0) as u64;
                 let descriptor = SnapshotDescriptor {
                     source: s.core.identity.clone(),
                     scope: scope.clone(),
@@ -1697,7 +1699,7 @@ impl<M: SyncModel> SnapshotSink<M> for MemorySyncStore<M> {
             if view_mut(&mut state, local.snapshot_id)?.descriptor != local {
                 return Err(SyncError::Invalid("local snapshot mismatch".into()));
             }
-            let now = chrono::Utc::now().timestamp_millis().max(0) as u64;
+            let now = Utc::now().timestamp_millis().max(0) as u64;
             state
                 .receiver
                 .begin_reconciliation(request_id, remote, local, now)
@@ -2168,6 +2170,7 @@ fn advance_split<M: SyncModel>(
 
 #[cfg(test)]
 mod tests {
+    use sync::Arc;
 
     use super::super::coordinator;
     use super::super::coordinator::SessionLimits;
@@ -2762,7 +2765,7 @@ mod tests {
             scope_id: scope_id(&remote.scope).unwrap(),
         };
         set_checkpoint(&mut d.lock().unwrap().checkpoints, key_id, initial);
-        let b = sync::Arc::new(b);
+        let b = Arc::new(b);
         let peer = StorePeer(b.clone());
         let limits = SessionLimits {
             pages,
@@ -2868,8 +2871,8 @@ mod tests {
     #[tokio::test]
     async fn coordinator_completes_first_contact_and_tail() {
         use super::super::coordinator::{Coordinator, SessionAdvance, SessionLimits};
-        let a = sync::Arc::new(store(2));
-        let b = sync::Arc::new(store(3));
+        let a = Arc::new(store(2));
+        let b = Arc::new(store(3));
         let key = ObjectKey {
             collection: Collection::Notes,
             id: Uuid::from_u128(42),
@@ -2932,8 +2935,8 @@ mod tests {
     }
     #[tokio::test]
     async fn adopted_genesis_makes_coordinator_pull_continuous() {
-        let source = sync::Arc::new(store(12));
-        let receiver = sync::Arc::new(store(13));
+        let source = Arc::new(store(12));
+        let receiver = Arc::new(store(13));
         source
             .write_local(key(12), Some(Value { n: 12 }))
             .await
@@ -2965,9 +2968,9 @@ mod tests {
 
     #[tokio::test]
     async fn reconciliation_covers_adopted_for_another_source_pull_continuously() {
-        let base = sync::Arc::new(store(22));
-        let second = sync::Arc::new(store(23));
-        let receiver = sync::Arc::new(store(24));
+        let base = Arc::new(store(22));
+        let second = Arc::new(store(23));
+        let receiver = Arc::new(store(24));
         base.write_local(key(22), Some(Value { n: 22 }))
             .await
             .unwrap();
@@ -3198,8 +3201,8 @@ mod tests {
     #[tokio::test]
     async fn coordinator_subdivides_large_differing_root() {
         use super::super::coordinator::{Coordinator, SessionAdvance, SessionLimits};
-        let a = sync::Arc::new(store(2));
-        let b = sync::Arc::new(store(3));
+        let a = Arc::new(store(2));
+        let b = Arc::new(store(3));
         for n in 1..=130 {
             a.write_local(
                 ObjectKey {
@@ -3319,8 +3322,8 @@ mod tests {
     #[tokio::test]
     async fn coordinator_receives_fragmented_journal_event() {
         use super::super::coordinator::{Coordinator, SessionAdvance, SessionLimits};
-        let a = sync::Arc::new(big_store(2));
-        let b = sync::Arc::new(big_store(3));
+        let a = Arc::new(big_store(2));
+        let b = Arc::new(big_store(3));
         let peer = StorePeer(a.clone());
         let scope = Scope {
             collections: [Collection::Notes].into_iter().collect(),
@@ -3741,8 +3744,8 @@ mod tests {
     #[tokio::test]
     async fn coordinator_splits_two_keys_for_single_projection_limit() {
         use super::super::coordinator::{Coordinator, SessionAdvance, SessionLimits};
-        let a = sync::Arc::new(store(2));
-        let b = sync::Arc::new(store(3));
+        let a = Arc::new(store(2));
+        let b = Arc::new(store(3));
         for n in 1..=2 {
             a.write_local(
                 ObjectKey {
@@ -3849,8 +3852,8 @@ mod tests {
     #[tokio::test]
     async fn coordinator_yields_and_resumes_at_pass_limits() {
         use super::super::coordinator::{Coordinator, SessionAdvance, SessionLimits};
-        let a = sync::Arc::new(store(2));
-        let b = sync::Arc::new(store(3));
+        let a = Arc::new(store(2));
+        let b = Arc::new(store(3));
         let key = ObjectKey {
             collection: Collection::Notes,
             id: Uuid::from_u128(33),
@@ -4082,8 +4085,8 @@ mod tests {
     #[tokio::test]
     async fn coordinator_abort_releases_opened_source_and_preserves_state() {
         use super::super::coordinator::{Coordinator, SessionAdvance, SessionLimits};
-        let a = sync::Arc::new(store(2));
-        let b = sync::Arc::new(store(3));
+        let a = Arc::new(store(2));
+        let b = Arc::new(store(3));
         let peer = StorePeer(a.clone());
         let limits = SessionLimits {
             pages: PageLimits {
@@ -4147,8 +4150,8 @@ mod tests {
     #[tokio::test]
     async fn concurrent_candidates_at_one_key_use_one_projection_item() {
         use super::super::coordinator::{Coordinator, SessionAdvance, SessionLimits};
-        let a = sync::Arc::new(store(2));
-        let b = sync::Arc::new(store(3));
+        let a = Arc::new(store(2));
+        let b = Arc::new(store(3));
         let c = store(4);
         let key = ObjectKey {
             collection: Collection::Notes,
@@ -4231,8 +4234,8 @@ mod tests {
     #[tokio::test]
     async fn journal_work_limit_falls_back_to_complete_comparison() {
         use super::super::coordinator::{Coordinator, SessionAdvance, SessionLimits};
-        let a = sync::Arc::new(store(2));
-        let b = sync::Arc::new(store(3));
+        let a = Arc::new(store(2));
+        let b = Arc::new(store(3));
         let scope = Scope {
             collections: [Collection::Notes].into_iter().collect(),
         };
@@ -4306,8 +4309,8 @@ mod tests {
     #[tokio::test]
     async fn coordinator_preserves_storage_errors_without_reconciliation_fallback() {
         use super::super::coordinator::{Coordinator, SessionAdvance, SessionLimits};
-        let a = sync::Arc::new(store(2));
-        let b = sync::Arc::new(store(3));
+        let a = Arc::new(store(2));
+        let b = Arc::new(store(3));
         let scope = Scope {
             collections: [Collection::Notes].into_iter().collect(),
         };

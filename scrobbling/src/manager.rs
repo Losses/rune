@@ -10,6 +10,7 @@ use crate::{
     LastFmApiCredentialField, ScrobblingAuthFailure, ScrobblingClient, ScrobblingTrack,
     last_fm::LastFmClient, libre_fm::LibreFmClient, listen_brainz::ListenBrainzClient,
 };
+use anyhow::Error;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ScrobblingService {
@@ -421,7 +422,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
                     if attempts >= self.max_retries || !enable_retry {
                         self.is_authenticating = false;
                         self.send_login_status().await;
-                        return Err(anyhow::Error::new(failure));
+                        return Err(Error::new(failure));
                     }
                     sleep(self.retry_delay).await;
                 }

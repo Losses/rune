@@ -1,7 +1,9 @@
 use super::access::{forbidden, guarded_response};
 use crate::access_policy::Action;
+use axum::Router;
 use axum::body::to_bytes;
 use discovery::access_policy::PeerIdentity;
+use http_request::sync as http_request_sync;
 use http_request::sync::metadata_requires_write;
 pub mod blobs;
 pub mod client;
@@ -31,12 +33,12 @@ pub fn library_router(
     library: http::SharedLibrary,
     notify: Arc<dyn Fn() + Send + Sync>,
 ) -> axum::Router {
-    http_request::sync::router_with_provider::<RuneModel>(Arc::new(move || {
+    http_request_sync::router_with_provider::<RuneModel>(Arc::new(move || {
         let library = library.clone();
         let notify = notify.clone();
         Box::pin(async move {
             Arc::new(library.0.read().await.endpoint().with_notification(notify))
-                as Arc<dyn http_request::sync::MetadataStore<RuneModel>>
+                as Arc<dyn http_request_sync::MetadataStore<RuneModel>>
         })
     }))
 }
@@ -49,7 +51,7 @@ struct PoolService {
 }
 
 pub(super) fn pool_router(global: Arc<NodeContext>, node_id: Uuid) -> axum::Router {
-    axum::Router::new()
+    Router::new()
         .fallback(serve_library)
         .with_state(PoolService {
             pool: global.library_pool.clone(),

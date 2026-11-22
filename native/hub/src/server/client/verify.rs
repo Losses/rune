@@ -13,10 +13,12 @@ use ::discovery::{
 };
 
 use discovery::endpoint::{DeviceAddress, DeviceScheme};
+use futures::stream;
 use hub::server::{
     api::{fetch_device_info, register_device},
     generate_or_load_certificates, get_or_generate_alias,
 };
+use tokio::time as tokio_time;
 
 #[derive(Debug)]
 enum VerificationResult {
@@ -47,7 +49,7 @@ async fn verify_single_host(host: String, expected_fp: String) -> (String, Verif
     info!("Connecting to {url}");
 
     let result =
-        match tokio::time::timeout(Duration::from_secs(5), fetch_server_certificate(&url)).await {
+        match tokio_time::timeout(Duration::from_secs(5), fetch_server_certificate(&url)).await {
             Ok(Ok(cert)) => {
                 if cert.fingerprint == expected_fp {
                     VerificationResult::Match
@@ -72,7 +74,7 @@ pub async fn verify_servers(expected_fingerprint: &str, hosts: Vec<String>) -> R
     let mut mismatch = 0;
     let mut errors = 0;
 
-    let results = futures::stream::iter(tasks)
+    let results = stream::iter(tasks)
         .buffer_unordered(10)
         .collect::<Vec<_>>()
         .await;

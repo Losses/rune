@@ -10,6 +10,7 @@ use crate::test_wait::{TEST_DEADLINE, wait_until};
 use crate::utils::{
     Broadcaster, RinfRustSignal, detect_opendal_share_data, register_opendal_library_on_node,
 };
+use chrono::Utc;
 use database::connection::RecommendationDbConnection;
 use database::credentials::{Credential, CredentialRef, CredentialStore, Secret};
 use database::library_registry::{CatalogPlacement, FsAdapter, LibraryRecordId, ProtocolAdapter};
@@ -17,12 +18,19 @@ use database::sync::LibrarySyncStore;
 use database::sync::model::{Collection, ObjectKey, RuneModel};
 use database::sync::share::{BaseCutRequest, ShareWriter, cut_base};
 use database::sync::share::{load_or_create_state, save_state};
+use fsio::FsIo;
 use fsio::test_fixtures::{S3Fixture, WebDavFixture};
 use fsio::{OpenDalConfig, OpenDalObjectStore};
 use futures::future::try_join_all;
+use rcgen::CertificateParams;
+use rcgen::KeyPair;
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
+use std::env;
+use std::fs;
+use std::path as std_path;
 use std::path::PathBuf;
+use std::sync as std_sync;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -35,8 +43,11 @@ use sync::share::{
     RETIREMENT_MS, StoreError, StoreOperation, base_key, decode_head, encode_library, library_key,
 };
 use tokio::sync::{Barrier, Notify};
+use tokio::task;
+use tokio::time as tokio_time;
 use tokio::time::Instant;
 use uuid::Uuid;
+use visualizer::Visualizer;
 
 #[path = "share_worker_tests/support.rs"]
 mod support;
@@ -149,7 +160,7 @@ async fn sync_pass(
     library_id: Uuid,
     session: &ShareStoreSession,
 ) -> Result<(), ShareSyncFailure> {
-    let cache = std::env::temp_dir().join(format!("hub-share-{}", Uuid::new_v4()));
+    let cache = env::temp_dir().join(format!("hub-share-{}", Uuid::new_v4()));
     share_sync_pass(
         library,
         library_id,
@@ -167,7 +178,7 @@ async fn detailed_sync_pass(
     library_id: Uuid,
     session: &ShareStoreSession,
 ) -> Result<()> {
-    let cache = std::env::temp_dir().join(format!("hub-share-{}", Uuid::new_v4()));
+    let cache = env::temp_dir().join(format!("hub-share-{}", Uuid::new_v4()));
     library
         .pull_share(
             session.store.clone(),
@@ -325,8 +336,8 @@ async fn hubs_on_share(namespace: Uuid, count: usize) -> Vec<support::SqlLibrary
 
 #[derive(Default)]
 struct QuietBroadcaster {
-    messages: std::sync::Mutex<Vec<String>>,
-    share_statuses: std::sync::Mutex<Vec<Option<ShareSyncFailure>>>,
+    messages: std_sync::Mutex<Vec<String>>,
+    share_statuses: std_sync::Mutex<Vec<Option<ShareSyncFailure>>>,
     successful_share_passes: AtomicUsize,
     successful_share_pass: Notify,
 }
@@ -370,7 +381,7 @@ struct WorkerHub {
     broadcaster: Arc<QuietBroadcaster>,
     handle: Option<LibraryHandle>,
     cancel: CancellationToken,
-    task: Option<tokio::task::JoinHandle<()>>,
+    task: Option<task::JoinHandle<()>>,
     factory: Arc<dyn ShareStoreFactory>,
     timers: ShareWorkerTimers,
 }
@@ -434,13 +445,12 @@ impl WorkerHub {
 /// A node generates an RSA device certificate on first start, which takes seconds in a
 /// debug build, and the share worker never uses it. Starting from an elliptic-curve
 /// identity written beforehand, made in milliseconds, avoids that wait.
-fn write_quick_identity(directory: &std::path::Path) -> Result<()> {
-    let key = rcgen::KeyPair::generate()?;
-    let certificate =
-        rcgen::CertificateParams::new(vec!["share-test".to_owned()])?.self_signed(&key)?;
-    std::fs::write(directory.join("cid"), "R-share-test")?;
-    std::fs::write(directory.join("certificate.pem"), certificate.pem())?;
-    std::fs::write(directory.join("private_key.pem"), key.serialize_pem())?;
+fn write_quick_identity(directory: &std_path::Path) -> Result<()> {
+    let key = KeyPair::generate()?;
+    let certificate = CertificateParams::new(vec!["share-test".to_owned()])?.self_signed(&key)?;
+    fs::write(directory.join("cid"), "R-share-test")?;
+    fs::write(directory.join("certificate.pem"), certificate.pem())?;
+    fs::write(directory.join("private_key.pem"), key.serialize_pem())?;
     Ok(())
 }
 
@@ -462,10 +472,10 @@ async fn register_worker_library(
         broadcaster.clone(),
         false,
         RunMode::App,
-        Arc::new(::visualizer::Visualizer::new()),
+        Arc::new(Visualizer::new()),
     )
     .await?;
-    std::fs::write(
+    fs::write(
         directory.path().join("libraries.json"),
         serde_json::to_vec(&json!({
             "version": 3,
@@ -479,7 +489,7 @@ async fn register_worker_library(
         main_db: Arc::new(library.db.clone()),
         library_sync: library.sync_store.clone(),
         recommend_db: Arc::new(RecommendationDbConnection::new()),
-        fsio: Arc::new(fsio::FsIo::new()),
+        fsio: Arc::new(FsIo::new()),
         media_root: library.root.path().to_string_lossy().into_owned(),
         descriptor: record,
     };
@@ -1035,10 +1045,10 @@ async fn share_worker_skips_redirected_catalog_before_opening_a_store() -> Resul
         broadcaster,
         false,
         RunMode::App,
-        Arc::new(::visualizer::Visualizer::new()),
+        Arc::new(Visualizer::new()),
     )
     .await?;
-    std::fs::write(
+    fs::write(
         directory.path().join("libraries.json"),
         serde_json::to_vec(&json!({
             "version": 3,
@@ -1053,7 +1063,7 @@ async fn share_worker_skips_redirected_catalog_before_opening_a_store() -> Resul
             main_db: Arc::new(library.db.clone()),
             library_sync: library.sync_store.clone(),
             recommend_db: Arc::new(RecommendationDbConnection::new()),
-            fsio: Arc::new(fsio::FsIo::new()),
+            fsio: Arc::new(FsIo::new()),
             media_root: library.root.path().to_string_lossy().into_owned(),
             descriptor: record,
         };
@@ -1441,7 +1451,7 @@ async fn sh15_crash_after_segment_put_recovers_without_a_gap_or_duplicate() -> R
         );
         let local_push = crash_started.elapsed();
         let crash_wait_started = Instant::now();
-        if tokio::time::timeout(TEST_DEADLINE, crash_store.wait_for_head_failure())
+        if tokio_time::timeout(TEST_DEADLINE, crash_store.wait_for_head_failure())
             .await
             .is_err()
         {
@@ -1587,7 +1597,7 @@ async fn sh15_new_device_catches_up_from_a_shared_base_on_webdav_and_s3() -> Res
             base_identity.replica,
             namespace,
             base_owner.root.path().join("share-cache"),
-            chrono::Utc::now().timestamp_millis(),
+            Utc::now().timestamp_millis(),
         )
         .await?;
         let base_endpoint = base_owner.sync_store.endpoint();
@@ -1773,7 +1783,7 @@ async fn sh15_reader_recovers_from_another_live_base_after_floor_base_delete() -
             first_identity.replica,
             namespace,
             first.root.path().join("share-cache"),
-            chrono::Utc::now().timestamp_millis(),
+            Utc::now().timestamp_millis(),
         )
         .await?;
         let endpoint = first.sync_store.endpoint();
@@ -1823,7 +1833,7 @@ async fn sh15_clone_restore_and_double_restore_use_new_generations() -> Result<(
             identity.replica,
             namespace,
             cache_path,
-            chrono::Utc::now().timestamp_millis(),
+            Utc::now().timestamp_millis(),
         )
         .await?;
         let backup = state.clone();
@@ -1846,7 +1856,7 @@ async fn sh15_clone_restore_and_double_restore_use_new_generations() -> Result<(
             identity.replica,
             namespace,
             library.root.path().join("share-cache"),
-            chrono::Utc::now().timestamp_millis(),
+            Utc::now().timestamp_millis(),
         )
         .await?;
         active_state.generation = Uuid::new_v4();
@@ -1866,7 +1876,7 @@ async fn sh15_clone_restore_and_double_restore_use_new_generations() -> Result<(
             identity.replica,
             namespace,
             restored.root.path().join("share-cache"),
-            chrono::Utc::now().timestamp_millis(),
+            Utc::now().timestamp_millis(),
         )
         .await?;
         assert_ne!(rotated.generation, previous_generation);
@@ -1881,7 +1891,7 @@ async fn sh15_clone_restore_and_double_restore_use_new_generations() -> Result<(
             identity.replica,
             namespace,
             restored.root.path().join("share-cache"),
-            chrono::Utc::now().timestamp_millis(),
+            Utc::now().timestamp_millis(),
         )
         .await?;
         assert_ne!(restored_again.generation, previous_generation);
@@ -2037,7 +2047,7 @@ async fn sh15_new_base_reuses_every_unchanged_chunk() -> Result<()> {
             identity.replica,
             namespace,
             library.root.path().join("share-cache"),
-            chrono::Utc::now().timestamp_millis(),
+            Utc::now().timestamp_millis(),
         )
         .await?;
         let endpoint = library.sync_store.endpoint();
@@ -2201,7 +2211,7 @@ async fn sh15_retired_device_return_uses_a_fresh_generation() -> Result<()> {
             .context("invalid returning device head key")?
             .to_owned();
         let returning_prefix = returning_prefix.parse::<DevicePrefix>()?;
-        let now_ms = chrono::Utc::now().timestamp_millis();
+        let now_ms = Utc::now().timestamp_millis();
         let mut first_state = load_or_create_state(
             &first.db,
             first_identity.replica,
@@ -2271,7 +2281,7 @@ async fn sh15_retired_device_return_uses_a_fresh_generation() -> Result<()> {
             returning_identity.replica,
             namespace,
             returning.root.path().join("share-cache"),
-            chrono::Utc::now().timestamp_millis(),
+            Utc::now().timestamp_millis(),
         )
         .await?;
         assert_ne!(state.generation, old_generation);
@@ -2321,7 +2331,7 @@ async fn node_without_libraries(directory: &tempfile::TempDir) -> Result<Arc<Nod
         Arc::new(QuietBroadcaster::default()),
         false,
         RunMode::App,
-        Arc::new(::visualizer::Visualizer::new()),
+        Arc::new(Visualizer::new()),
     )
     .await
 }
@@ -2443,7 +2453,7 @@ async fn cancellation_drops_an_in_flight_share_pass() -> Result<()> {
         partial_write_bytes: None,
     });
     let session = memory_session(&store).await;
-    let cache = std::env::temp_dir().join(format!("hub-share-{}", Uuid::new_v4()));
+    let cache = env::temp_dir().join(format!("hub-share-{}", Uuid::new_v4()));
     let cancel = CancellationToken::new();
     let library_sync = library.sync_store.clone();
     let session = session.clone();
@@ -2499,6 +2509,10 @@ mod revocation_tests {
     use super::*;
     use discovery::server::UserStatus;
     use discovery::utils::DeviceType;
+    use tokio::task;
+    use tokio::time as tokio_time;
+    use tokio::time::Instant;
+    use visualizer::Visualizer;
 
     /// A node with `fingerprint` approved and `host` its trusted host.
     async fn node_with_trusted_peer(
@@ -2514,7 +2528,7 @@ mod revocation_tests {
             Arc::new(QuietBroadcaster::default()),
             false,
             RunMode::App,
-            Arc::new(::visualizer::Visualizer::new()),
+            Arc::new(Visualizer::new()),
         )
         .await?;
         {
@@ -2542,17 +2556,13 @@ mod revocation_tests {
     }
 
     /// Starts the watcher, and checks it keeps waiting while nothing changes.
-    async fn watch(
-        node: &Arc<NodeContext>,
-        fingerprint: &str,
-        host: &str,
-    ) -> tokio::task::JoinHandle<()> {
+    async fn watch(node: &Arc<NodeContext>, fingerprint: &str, host: &str) -> task::JoinHandle<()> {
         let weak = Arc::downgrade(node);
         let (fingerprint, host) = (fingerprint.to_owned(), host.to_owned());
         let watcher =
             tokio::spawn(async move { wait_for_revocation(weak, &fingerprint, &host).await });
         for _ in 0..20 {
-            tokio::task::yield_now().await;
+            task::yield_now().await;
         }
         assert!(!watcher.is_finished(), "an approved peer is not revoked");
         watcher
@@ -2560,8 +2570,8 @@ mod revocation_tests {
 
     /// With the clock stopped from here on, only a change can end the watcher before a second of
     /// the clock has passed: a timer would need it to move.
-    async fn ends_within_a_tick(watcher: &tokio::task::JoinHandle<()>) -> Result<()> {
-        let started = tokio::time::Instant::now();
+    async fn ends_within_a_tick(watcher: &task::JoinHandle<()>) -> Result<()> {
+        let started = Instant::now();
         wait_until("the watcher to end", || async {
             Ok(watcher.is_finished().then_some(()))
         })
@@ -2579,7 +2589,7 @@ mod revocation_tests {
         let directory = tempfile::tempdir()?;
         let node = node_with_trusted_peer(&directory, "peer-a", "127.0.0.1:1").await?;
         let watcher = watch(&node, "peer-a", "127.0.0.1:1").await;
-        tokio::time::pause();
+        tokio_time::pause();
 
         node.permission_manager
             .read()
@@ -2597,7 +2607,7 @@ mod revocation_tests {
         let directory = tempfile::tempdir()?;
         let node = node_with_trusted_peer(&directory, "peer-b", "127.0.0.1:2").await?;
         let watcher = watch(&node, "peer-b", "127.0.0.1:2").await;
-        tokio::time::pause();
+        tokio_time::pause();
 
         node.cert_validator
             .read()
@@ -2615,7 +2625,7 @@ mod revocation_tests {
         let directory = tempfile::tempdir()?;
         let node = node_with_trusted_peer(&directory, "peer-c", "127.0.0.1:4").await?;
         let watcher = watch(&node, "peer-c", "127.0.0.1:4").await;
-        tokio::time::pause();
+        tokio_time::pause();
 
         node.shutdown().await?;
         drop(node);

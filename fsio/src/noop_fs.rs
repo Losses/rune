@@ -6,6 +6,7 @@ use std::{
 use async_trait::async_trait;
 
 use crate::{DirWalk, FileIo, FileIoError, FileStream, FsNode, OpenMode, StorageLocation};
+use std::io;
 
 pub struct NoOpFsIo;
 
@@ -40,23 +41,23 @@ impl Default for NoOpStream {
 }
 
 impl Read for NoOpStream {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.cursor.read(buf)
     }
 }
 
 impl Write for NoOpStream {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.cursor.write(buf)
     }
 
-    fn flush(&mut self) -> std::io::Result<()> {
+    fn flush(&mut self) -> io::Result<()> {
         self.cursor.flush()
     }
 }
 
 impl Seek for NoOpStream {
-    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+    fn seek(&mut self, pos: io::SeekFrom) -> io::Result<u64> {
         self.cursor.seek(pos)
     }
 }

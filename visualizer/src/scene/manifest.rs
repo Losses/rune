@@ -7,6 +7,8 @@ use std::path::{Component, Path};
 
 use anyhow::{Context, Result, bail, ensure};
 use serde::Deserialize;
+use toml::Value as TomlValue;
+use wgpu::TextureFormat;
 
 /// The newest format this runtime reads.
 pub const FORMAT: u32 = 1;
@@ -574,17 +576,17 @@ impl Param {
     pub fn value(&self) -> Result<Value> {
         let id = &self.id;
         Ok(match (self.kind, &self.default) {
-            (ParamKind::Float, toml::Value::Float(v)) => Value::Float(*v as f32),
-            (ParamKind::Float, toml::Value::Integer(v)) => Value::Float(*v as f32),
-            (ParamKind::Int, toml::Value::Integer(v)) => {
+            (ParamKind::Float, TomlValue::Float(v)) => Value::Float(*v as f32),
+            (ParamKind::Float, TomlValue::Integer(v)) => Value::Float(*v as f32),
+            (ParamKind::Int, TomlValue::Integer(v)) => {
                 Value::Int(i32::try_from(*v).with_context(|| format!("{id}: out of range"))?)
             }
-            (ParamKind::Bool, toml::Value::Boolean(v)) => Value::Uint(u32::from(*v)),
-            (ParamKind::Choice, toml::Value::Integer(v)) => {
+            (ParamKind::Bool, TomlValue::Boolean(v)) => Value::Uint(u32::from(*v)),
+            (ParamKind::Choice, TomlValue::Integer(v)) => {
                 let index = usize::try_from(*v).ok().filter(|i| *i < self.options.len());
                 Value::Uint(index.with_context(|| format!("{id}: no option {v}"))? as u32)
             }
-            (ParamKind::Color, toml::Value::String(v)) => Value::Color(parse_color(v)?),
+            (ParamKind::Color, TomlValue::String(v)) => Value::Color(parse_color(v)?),
             (kind, value) => bail!("{id}: {value} is not a {kind:?} value"),
         })
     }
@@ -632,11 +634,11 @@ pub enum Format {
 impl Format {
     pub fn wgpu(self) -> wgpu::TextureFormat {
         match self {
-            Self::Rgba16float => wgpu::TextureFormat::Rgba16Float,
-            Self::Rgba32float => wgpu::TextureFormat::Rgba32Float,
-            Self::Rgba8unorm => wgpu::TextureFormat::Rgba8Unorm,
-            Self::R16float => wgpu::TextureFormat::R16Float,
-            Self::Rg16float => wgpu::TextureFormat::Rg16Float,
+            Self::Rgba16float => TextureFormat::Rgba16Float,
+            Self::Rgba32float => TextureFormat::Rgba32Float,
+            Self::Rgba8unorm => TextureFormat::Rgba8Unorm,
+            Self::R16float => TextureFormat::R16Float,
+            Self::Rg16float => TextureFormat::Rg16Float,
         }
     }
 
@@ -780,7 +782,7 @@ impl Manifest {
         // with a word about types), so they are looked for by name.
         let table = text.parse::<toml::Table>()?;
         ensure!(
-            !table.get("effects").is_some_and(toml::Value::is_array),
+            !table.get("effects").is_some_and(TomlValue::is_array),
             "the top-level effects = [...] list was removed: declare an [effects] table instead, \
              transitions = [...] for the switch into the scene and the cuts of its camera, \
              lens = [...] for the effects over the picture"
@@ -1044,7 +1046,7 @@ impl Manifest {
         let mut copy = self.clone();
         copy.binds.clear();
         for param in &mut copy.params {
-            param.default = toml::Value::Boolean(false);
+            param.default = TomlValue::Boolean(false);
         }
         copy
     }

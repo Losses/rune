@@ -11,6 +11,7 @@ use crate::{
     lrc::parse_lrc, srt::parse_srt, ttml::parse_ttml, types::LyricFile, utils::strip_bom,
     vtt::parse_vtt,
 };
+use std::str;
 
 type ParseFn = fn(&str) -> Result<LyricFile>;
 
@@ -43,7 +44,7 @@ pub fn parse_audio_lyrics(path: PathBuf) -> Option<Result<LyricFile>> {
 
 /// UTF-8 first, then whatever encoding the bytes look like (GBK, Big5, Shift-JIS, ...).
 fn decode_text(bytes: &[u8]) -> Cow<'_, str> {
-    if let Ok(text) = std::str::from_utf8(bytes) {
+    if let Ok(text) = str::from_utf8(bytes) {
         return Cow::Borrowed(strip_bom(text));
     }
 
@@ -80,6 +81,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
+    use std::process as std_process;
 
     #[test]
     fn test_decode_text_legacy_encodings_and_bom() {
@@ -107,7 +110,7 @@ mod tests {
 
     #[test]
     fn test_sidecar_falls_through_to_next_extension() {
-        let dir = std::env::temp_dir().join(format!("lyric-test-{}", std::process::id()));
+        let dir = env::temp_dir().join(format!("lyric-test-{}", std_process::id()));
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("song.ttml"), "not xml").unwrap();
         let (gbk, _, _) = encoding_rs::GBK.encode("[00:01.00]我们的歌曲在这里唱给你听");

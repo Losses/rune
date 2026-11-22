@@ -6,6 +6,14 @@ use std::sync::{Arc, Mutex, MutexGuard, atomic::AtomicU32};
 use std::time::{Duration, Instant};
 
 use rtrb::{Producer, RingBuffer};
+use std::array;
+use std::env;
+use std::fs;
+use std::mem;
+use std::path as std_path;
+use std::process as std_process;
+use std::thread;
+use visualizer::Transport;
 use visualizer::{
     Frame, LabCommand, Location, PcmInput, RUNTIME_TOML, Visualizer, VisualizerInputs,
 };
@@ -14,20 +22,20 @@ const SAMPLE_RATE: u32 = 48_000;
 
 /// A copy of the built-in scene under the name `name`, in a folder of its own that the test
 /// removes afterwards.
-fn copied_scene(name: &str) -> std::path::PathBuf {
+fn copied_scene(name: &str) -> std_path::PathBuf {
     let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("scenes/armillary");
-    let dir = std::env::temp_dir()
-        .join(format!("rune-visualizer-{name}-{}", std::process::id()))
+    let dir = env::temp_dir()
+        .join(format!("rune-visualizer-{name}-{}", std_process::id()))
         .join(name);
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    for file in std::fs::read_dir(from).unwrap() {
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    for file in fs::read_dir(from).unwrap() {
         let file = file.unwrap().path();
-        let mut text = std::fs::read_to_string(&file).unwrap();
+        let mut text = fs::read_to_string(&file).unwrap();
         if file.file_name().unwrap() == "scene.toml" {
             text = text.replacen("name = \"Armillary\"", &format!("name = \"{name}\""), 1);
         }
-        std::fs::write(dir.join(file.file_name().unwrap()), text).unwrap();
+        fs::write(dir.join(file.file_name().unwrap()), text).unwrap();
     }
     dir
 }
@@ -104,7 +112,7 @@ fn start_with(width: u32, height: u32, readback: bool) -> Option<(Visualizer, Fe
             return None;
         }
         assert!(Instant::now() < deadline, "no frame within 30 s");
-        std::thread::sleep(Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(10));
     }
     Some((visualizer, feeder))
 }
@@ -142,7 +150,7 @@ fn collect(visualizer: &Visualizer, feeder: &mut Feeder, count: usize) -> (Vec<C
         {
             frames.push(Captured::new(&frame));
         }
-        std::thread::sleep(Duration::from_millis(2));
+        thread::sleep(Duration::from_millis(2));
     }
     let fps = (frames.last().unwrap().id - frames[0].id) as f64 / started.elapsed().as_secs_f64();
     (frames, fps)
@@ -156,7 +164,7 @@ fn wait_for_frame_after(visualizer: &Visualizer, feeder: &mut Feeder, id: u64) {
             "frame stopped after source change"
         );
         feeder.pump();
-        std::thread::sleep(Duration::from_millis(2));
+        thread::sleep(Duration::from_millis(2));
     }
 }
 
@@ -199,7 +207,7 @@ fn default_and_loaded_scenes_render_changing_frames() {
     );
     // macOS renders straight into IOSurface-backed pixel buffers.
     #[cfg(target_vendor = "apple")]
-    assert_eq!(status.transport, Some(visualizer::Transport::IoSurface));
+    assert_eq!(status.transport, Some(Transport::IoSurface));
 
     let (frames, fps) = collect(&visualizer, &mut feeder, 60);
     check_frames(&frames, 640, 360);
@@ -223,7 +231,7 @@ fn default_and_loaded_scenes_render_changing_frames() {
     assert!(input.is_some());
     assert!(visualizer.latest_frame().is_none());
     assert!(!visualizer.status().running);
-    let _ = std::fs::remove_dir_all(dir.parent().unwrap());
+    let _ = fs::remove_dir_all(dir.parent().unwrap());
 }
 
 #[test]
@@ -233,10 +241,7 @@ fn readback_renders_changing_frames() {
         let Some((visualizer, mut feeder)) = start_with(width, height, true) else {
             return;
         };
-        assert_eq!(
-            visualizer.status().transport,
-            Some(visualizer::Transport::Readback)
-        );
+        assert_eq!(visualizer.status().transport, Some(Transport::Readback));
         let (frames, fps) = collect(&visualizer, &mut feeder, 60);
         check_frames(&frames, width, height);
         let latest = visualizer.latest_frame().unwrap();
@@ -268,7 +273,7 @@ fn frame_listener_hears_every_frame() {
     })));
     collect(&visualizer, &mut feeder, 10);
     visualizer.set_frame_listener(None);
-    let heard = std::mem::take(&mut *heard.lock().unwrap());
+    let heard = mem::take(&mut *heard.lock().unwrap());
     assert!(heard.len() >= 9, "heard {} frames", heard.len());
     for pair in heard.windows(2) {
         assert_eq!(pair[1].0, pair[0].0 + 1, "a frame was not heard");
@@ -292,17 +297,14 @@ fn transport_listener_hears_the_fall_back_to_readback() {
     let before = visualizer.status().transport.unwrap();
     visualizer.fall_back_to_readback();
     collect(&visualizer, &mut feeder, 5);
-    let heard = std::mem::take(&mut *heard.lock().unwrap());
-    if before == visualizer::Transport::Readback {
+    let heard = mem::take(&mut *heard.lock().unwrap());
+    if before == Transport::Readback {
         // Nothing to fall back from on this machine.
         assert!(heard.is_empty());
     } else {
-        assert_eq!(heard, [visualizer::Transport::Readback]);
+        assert_eq!(heard, [Transport::Readback]);
     }
-    assert_eq!(
-        visualizer.status().transport,
-        Some(visualizer::Transport::Readback)
-    );
+    assert_eq!(visualizer.status().transport, Some(Transport::Readback));
     visualizer.stop();
 }
 
@@ -314,9 +316,9 @@ fn paused_music_holds_the_picture() {
     collect(&visualizer, &mut feeder, 10);
     visualizer.set_playing(false);
     // At most a frame in flight and one still frame, then nothing new.
-    std::thread::sleep(Duration::from_millis(300));
+    thread::sleep(Duration::from_millis(300));
     let held = visualizer.latest_frame().unwrap().id;
-    std::thread::sleep(Duration::from_millis(500));
+    thread::sleep(Duration::from_millis(500));
     assert_eq!(
         visualizer.latest_frame().unwrap().id,
         held,
@@ -335,9 +337,9 @@ fn hidden_window_holds_the_picture() {
     };
     collect(&visualizer, &mut feeder, 10);
     visualizer.set_visible(false);
-    std::thread::sleep(Duration::from_millis(300));
+    thread::sleep(Duration::from_millis(300));
     let held = visualizer.latest_frame().unwrap().id;
-    std::thread::sleep(Duration::from_millis(500));
+    thread::sleep(Duration::from_millis(500));
     assert_eq!(
         visualizer.latest_frame().unwrap().id,
         held,
@@ -360,7 +362,7 @@ fn missing_scene_keeps_running_and_reports_the_error() {
     let deadline = Instant::now() + Duration::from_secs(10);
     while visualizer.status().last_error.is_none() {
         assert!(Instant::now() < deadline, "no error reported");
-        std::thread::sleep(Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(10));
     }
     let status = visualizer.status();
     assert!(status.running);
@@ -415,7 +417,7 @@ fn no_folders_show_the_default_scene() {
         let deadline = Instant::now() + Duration::from_secs(5);
         while visualizer.status().preset_name != name && Instant::now() < deadline {
             feeder.pump();
-            std::thread::sleep(Duration::from_millis(5));
+            thread::sleep(Duration::from_millis(5));
         }
         assert_eq!(visualizer.status().preset_name, name);
     };
@@ -428,7 +430,7 @@ fn no_folders_show_the_default_scene() {
     wait_for(&mut feeder, visualizer::DEFAULT_PRESET_NAME);
     visualizer.random_preset().unwrap();
     visualizer.stop();
-    let _ = std::fs::remove_dir_all(root);
+    let _ = fs::remove_dir_all(root);
 }
 
 #[test]
@@ -443,7 +445,7 @@ fn saving_the_scene_on_screen_reloads_it() {
         let deadline = Instant::now() + Duration::from_secs(5);
         while !done() && Instant::now() < deadline {
             feeder.pump();
-            std::thread::sleep(Duration::from_millis(10));
+            thread::sleep(Duration::from_millis(10));
         }
         assert!(done(), "{:?}", visualizer.status());
     };
@@ -452,15 +454,15 @@ fn saving_the_scene_on_screen_reloads_it() {
     // A broken save shows its error; fixing it clears the error. Both go through the watcher,
     // nothing else loads the files.
     let shader = dir.join("view.wgsl");
-    let good = std::fs::read_to_string(&shader).unwrap();
-    std::fs::write(&shader, "this is not wgsl").unwrap();
+    let good = fs::read_to_string(&shader).unwrap();
+    fs::write(&shader, "this is not wgsl").unwrap();
     wait(&mut feeder, &|| visualizer.status().last_error.is_some());
     // Not the very text the scene still has: only a change makes it look again.
-    std::fs::write(&shader, format!("{good}\n// fixed\n")).unwrap();
+    fs::write(&shader, format!("{good}\n// fixed\n")).unwrap();
     wait(&mut feeder, &|| visualizer.status().last_error.is_none());
 
     visualizer.stop();
-    let _ = std::fs::remove_dir_all(dir.parent().unwrap());
+    let _ = fs::remove_dir_all(dir.parent().unwrap());
 }
 
 /// Every built-in scene loads and draws, on the readback path.
@@ -487,7 +489,7 @@ fn every_builtin_scene_renders() {
                 visualizer.status().last_error
             );
             feeder.pump();
-            std::thread::sleep(Duration::from_millis(5));
+            thread::sleep(Duration::from_millis(5));
         }
         let (frames, fps) = collect(&visualizer, &mut feeder, 40);
         let status = visualizer.status();
@@ -506,9 +508,9 @@ fn band_edges_render_with_and_without_softening() {
         return;
     };
     let name = "band-edges";
-    let dir = std::env::temp_dir().join(format!("rune-visualizer-{name}-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(
+    let dir = env::temp_dir().join(format!("rune-visualizer-{name}-{}", std_process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(
         dir.join("scene.toml"),
         r#"
 format = 1
@@ -528,7 +530,7 @@ target = "out"
 "#,
     )
     .unwrap();
-    std::fs::write(
+    fs::write(
         dir.join("band.wgsl"),
         r#"
 fn shade(px: Pixel) -> vec4f {
@@ -563,11 +565,11 @@ fn shade(px: Pixel) -> vec4f {
         }
     };
     visualizer.stop();
-    std::fs::remove_dir_all(dir).unwrap();
+    fs::remove_dir_all(dir).unwrap();
 
     for (aa, y) in [(0.25, 24), (0.0, 8)] {
         let samples = [0.125, 0.25, 0.375, 0.625, 0.75, 0.875];
-        let pixels: [u8; 6] = std::array::from_fn(|i| frame.pixels[(y * 128 + i * 16 + 8) * 4]);
+        let pixels: [u8; 6] = array::from_fn(|i| frame.pixels[(y * 128 + i * 16 + 8) * 4]);
         println!("aa={aa}: {pixels:?} (white means the value matched)");
         for (x, pixel) in samples.into_iter().zip(pixels) {
             assert!(pixel >= 250, "band value at x={x}, aa={aa} was incorrect");
@@ -589,7 +591,7 @@ fn cadence_source(visualizer: &Visualizer, feeder: &mut Feeder) -> String {
             return row.source.clone();
         }
         assert!(Instant::now() < deadline, "no runtime bindings inspected");
-        std::thread::sleep(Duration::from_millis(5));
+        thread::sleep(Duration::from_millis(5));
     }
 }
 
@@ -614,7 +616,7 @@ fn the_runtime_bindings_are_replaced_whole_and_a_wrong_text_keeps_the_old() {
     let deadline = Instant::now() + Duration::from_secs(10);
     while cadence_source(&visualizer, &mut feeder) != "drive" {
         assert!(Instant::now() < deadline, "the bindings were not replaced");
-        std::thread::sleep(Duration::from_millis(5));
+        thread::sleep(Duration::from_millis(5));
     }
     assert_eq!(visualizer.status().last_error, None);
 
@@ -628,7 +630,7 @@ fn the_runtime_bindings_are_replaced_whole_and_a_wrong_text_keeps_the_old() {
             break error;
         }
         assert!(Instant::now() < deadline, "no error reported");
-        std::thread::sleep(Duration::from_millis(5));
+        thread::sleep(Duration::from_millis(5));
     };
     assert!(
         error.contains("director.cadence") && error.contains("loudness"),
@@ -654,25 +656,25 @@ fn inspected(
             return inspect;
         }
         assert!(Instant::now() < deadline, "{what}");
-        std::thread::sleep(Duration::from_millis(5));
+        thread::sleep(Duration::from_millis(5));
     }
 }
 
 /// A scene folder of one plain pass that declares the inputs of [`LAB_INPUTS`] and no others
 /// (every built-in scene declares inputs of its own now, so the lab's cannot be added to one of
 /// them). Its shader reads none of them, so they may all be taken out again.
-fn input_scene(name: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir()
-        .join(format!("rune-visualizer-{name}-{}", std::process::id()))
+fn input_scene(name: &str) -> std_path::PathBuf {
+    let dir = env::temp_dir()
+        .join(format!("rune-visualizer-{name}-{}", std_process::id()))
         .join(name);
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
     let manifest = format!(
         "format = 1\nname = \"{name}\"\nlicense = \"MPL-2.0\"\n[[param]]\nid = \"unused\"\ndefault = 0.0\n[[pass]]\nshader = \"a.wgsl\"\ntarget = \"out\"\n{LAB_INPUTS}"
     );
-    std::fs::write(dir.join("scene.toml"), manifest).unwrap();
+    fs::write(dir.join("scene.toml"), manifest).unwrap();
     let shader = "fn shade(px: Pixel) -> vec4f {\n  return vec4f(vec3f(0.1), 1.0);\n}\n";
-    std::fs::write(dir.join("a.wgsl"), shader).unwrap();
+    fs::write(dir.join("a.wgsl"), shader).unwrap();
     dir
 }
 
@@ -750,7 +752,7 @@ fn a_lab_replaces_the_bindings_of_the_scene_on_screen_and_inspects_what_it_has()
     let until = Instant::now() + Duration::from_millis(1500);
     while Instant::now() < until {
         feeder.pump();
-        std::thread::sleep(Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(10));
     }
     assert_eq!(visualizer.inspect().unwrap().bindings.len(), 2);
 
@@ -767,7 +769,7 @@ fn a_lab_replaces_the_bindings_of_the_scene_on_screen_and_inspects_what_it_has()
             break error;
         }
         assert!(Instant::now() < deadline, "no error reported");
-        std::thread::sleep(Duration::from_millis(5));
+        thread::sleep(Duration::from_millis(5));
     };
     assert!(
         error.contains("surge") && error.contains("loudness"),
@@ -789,5 +791,5 @@ fn a_lab_replaces_the_bindings_of_the_scene_on_screen_and_inspects_what_it_has()
     );
     assert_eq!(seen.scene, "lab-binds");
     visualizer.stop();
-    let _ = std::fs::remove_dir_all(dir.parent().unwrap());
+    let _ = fs::remove_dir_all(dir.parent().unwrap());
 }

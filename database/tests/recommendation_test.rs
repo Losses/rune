@@ -14,6 +14,7 @@ use ::fsio::FsIo;
 use anyhow::Result;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection, EntityTrait, QueryOrder, Statement};
+use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
@@ -117,8 +118,8 @@ async fn connect_loads_vectors_and_deletes_the_legacy_file() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let lib_path = dir.path().to_str().unwrap();
     let legacy = dir.path().join(".rune").join(".analysis.db");
-    std::fs::create_dir_all(legacy.parent().unwrap())?;
-    std::fs::write(&legacy, b"lmdb")?;
+    fs::create_dir_all(legacy.parent().unwrap())?;
+    fs::write(&legacy, b"lmdb")?;
 
     let fsio = FsIo::new();
     let recommend_db = connect_recommendation_db(&fsio, lib_path, None, &db).await?;
@@ -145,13 +146,13 @@ async fn connect_does_not_fail_when_the_legacy_file_cannot_be_deleted() -> Resul
     let dir = tempfile::tempdir()?;
     let lib_path = dir.path().to_str().unwrap();
     let rune_dir = dir.path().join(".rune");
-    std::fs::create_dir_all(&rune_dir)?;
-    std::fs::write(rune_dir.join(".analysis.db"), b"lmdb")?;
+    fs::create_dir_all(&rune_dir)?;
+    fs::write(rune_dir.join(".analysis.db"), b"lmdb")?;
     // A read-only directory does not allow deleting its entries.
-    std::fs::set_permissions(&rune_dir, Permissions::from_mode(0o555))?;
+    fs::set_permissions(&rune_dir, Permissions::from_mode(0o555))?;
 
     let result = connect_recommendation_db(&FsIo::new(), lib_path, None, &db).await;
-    std::fs::set_permissions(&rune_dir, Permissions::from_mode(0o755))?;
+    fs::set_permissions(&rune_dir, Permissions::from_mode(0o755))?;
 
     let recommend_db = result?;
     assert_eq!(
@@ -168,12 +169,12 @@ async fn connect_deletes_the_legacy_directory_and_keeps_other_files() -> Result<
     let lib_path = dir.path().to_str().unwrap();
     let rune_dir = dir.path().join(".rune");
     let legacy_dir = rune_dir.join(".analysis");
-    std::fs::create_dir_all(legacy_dir.join("nested"))?;
-    std::fs::write(legacy_dir.join("data.mdb"), b"lmdb")?;
-    std::fs::write(legacy_dir.join("nested").join("lock.mdb"), b"lock")?;
-    std::fs::write(rune_dir.join(".analysis.db"), b"lmdb")?;
+    fs::create_dir_all(legacy_dir.join("nested"))?;
+    fs::write(legacy_dir.join("data.mdb"), b"lmdb")?;
+    fs::write(legacy_dir.join("nested").join("lock.mdb"), b"lock")?;
+    fs::write(rune_dir.join(".analysis.db"), b"lmdb")?;
     for keep in [".0.db", ".android-fs.db", ".analysis.backup", "analysis"] {
-        std::fs::write(rune_dir.join(keep), b"keep")?;
+        fs::write(rune_dir.join(keep), b"keep")?;
     }
 
     connect_recommendation_db(&FsIo::new(), lib_path, None, &db).await?;
@@ -181,7 +182,7 @@ async fn connect_deletes_the_legacy_directory_and_keeps_other_files() -> Result<
     assert!(!legacy_dir.exists());
     assert!(!rune_dir.join(".analysis.db").exists());
     for keep in [".0.db", ".android-fs.db", ".analysis.backup", "analysis"] {
-        assert_eq!(std::fs::read(rune_dir.join(keep))?, b"keep", "{keep}");
+        assert_eq!(fs::read(rune_dir.join(keep))?, b"keep", "{keep}");
     }
     Ok(())
 }
@@ -198,22 +199,22 @@ async fn connect_works_in_redirected_storage() -> Result<()> {
     let db_path = storage.path().to_str().unwrap();
     let uuid = "0b1c3a4e-5f60-4d7a-8b9c-0d1e2f3a4b5c";
     let rune_dir = lib.path().join(".rune");
-    std::fs::create_dir_all(&rune_dir)?;
-    std::fs::write(rune_dir.join(".redirect"), uuid)?;
+    fs::create_dir_all(&rune_dir)?;
+    fs::write(rune_dir.join(".redirect"), uuid)?;
     let db_dir = storage.path().join(uuid);
-    std::fs::create_dir_all(db_dir.join(".analysis"))?;
-    std::fs::write(db_dir.join(".analysis").join("data.mdb"), b"lmdb")?;
-    std::fs::write(db_dir.join(".analysis.db"), b"lmdb")?;
-    std::fs::write(db_dir.join(".0.db"), b"keep")?;
+    fs::create_dir_all(db_dir.join(".analysis"))?;
+    fs::write(db_dir.join(".analysis").join("data.mdb"), b"lmdb")?;
+    fs::write(db_dir.join(".analysis.db"), b"lmdb")?;
+    fs::write(db_dir.join(".0.db"), b"keep")?;
     // The library's own .rune directory is not touched in this mode.
-    std::fs::write(rune_dir.join(".analysis.db"), b"other")?;
+    fs::write(rune_dir.join(".analysis.db"), b"other")?;
 
     let recommend_db =
         connect_recommendation_db(&FsIo::new(), lib_path, Some(db_path), &db).await?;
 
     assert!(!db_dir.join(".analysis").exists());
     assert!(!db_dir.join(".analysis.db").exists());
-    assert_eq!(std::fs::read(db_dir.join(".0.db"))?, b"keep");
+    assert_eq!(fs::read(db_dir.join(".0.db"))?, b"keep");
     assert!(rune_dir.join(".analysis.db").exists());
     assert_eq!(
         get_recommendation_by_parameter(&recommend_db, point(0.0, 0.0), 5)?,

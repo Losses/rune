@@ -35,6 +35,8 @@ use playback::{
 };
 use sea_orm::sea_query::Expr;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter};
+use std::fs;
+use tokio::time as tokio_time;
 use tokio::{runtime::Handle, task::spawn_blocking, time::timeout};
 use uuid::Uuid;
 
@@ -210,9 +212,9 @@ async fn assert_large_audio_playback_and_analysis(
     );
     player.load(0);
     player.play();
-    tokio::time::timeout(Duration::from_secs(10), async {
+    tokio_time::timeout(Duration::from_secs(10), async {
         while player.get_status().state != PlaybackState::Playing {
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            tokio_time::sleep(Duration::from_millis(10)).await;
         }
     })
     .await
@@ -291,7 +293,7 @@ async fn scanned_database(fs: &FsIo, root: &Path, actor: Uuid) -> Result<Databas
 #[tokio::test]
 async fn webdav_analysis_matches_local_and_never_writes_to_the_share() -> Result<()> {
     timeout(DEADLINE, async {
-        let bytes = std::fs::read(fixtures::audio_fixture())?;
+        let bytes = fs::read(fixtures::audio_fixture())?;
         let server = WebDavFixture::start(vec![("track.ogg".into(), bytes)]).await?;
         let remote_fs = Arc::new(FsIo::new_opendal(
             webdav_config(&server),
@@ -300,7 +302,7 @@ async fn webdav_analysis_matches_local_and_never_writes_to_the_share() -> Result
         let remote_db = scanned_database(&remote_fs, Path::new(""), Uuid::from_u128(0x201)).await?;
 
         let local_root = tempfile::tempdir()?;
-        std::fs::copy(
+        fs::copy(
             fixtures::audio_fixture(),
             local_root.path().join("track.ogg"),
         )?;
@@ -356,7 +358,7 @@ async fn webdav_analysis_matches_local_and_never_writes_to_the_share() -> Result
 async fn rejected_webdav_read_is_a_typed_per_file_failure_and_does_not_stop_analysis() -> Result<()>
 {
     timeout(DEADLINE, async {
-        let bytes = std::fs::read(fixtures::audio_fixture())?;
+        let bytes = fs::read(fixtures::audio_fixture())?;
         let server = WebDavFixture::start(vec![
             ("first.ogg".into(), bytes.clone()),
             ("second.ogg".into(), bytes),
@@ -428,7 +430,7 @@ async fn rejected_webdav_read_is_a_typed_per_file_failure_and_does_not_stop_anal
 #[tokio::test]
 async fn playback_and_analysis_can_read_the_same_webdav_library_concurrently() -> Result<()> {
     timeout(DEADLINE, async {
-        let bytes = std::fs::read(fixtures::audio_fixture())?;
+        let bytes = fs::read(fixtures::audio_fixture())?;
         let server = WebDavFixture::start(vec![("track.ogg".into(), bytes)]).await?;
         let fs = Arc::new(FsIo::new_opendal(
             webdav_config(&server),
@@ -449,12 +451,12 @@ async fn playback_and_analysis_can_read_the_same_webdav_library_concurrently() -
         player.play();
 
         let player_for_status = &player;
-        tokio::time::timeout(Duration::from_secs(10), async {
+        tokio_time::timeout(Duration::from_secs(10), async {
             loop {
                 if player_for_status.get_status().state == PlaybackState::Playing {
                     break;
                 }
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                tokio_time::sleep(Duration::from_millis(10)).await;
             }
         })
         .await
@@ -500,7 +502,7 @@ async fn playback_and_analysis_can_read_the_same_webdav_library_concurrently() -
 #[tokio::test]
 async fn paged_audio_library_scan_is_complete_on_both_backends() -> Result<()> {
     timeout(Duration::from_secs(120), async {
-        let audio = std::fs::read(fixtures::audio_fixture())?;
+        let audio = fs::read(fixtures::audio_fixture())?;
         let files = (0..11)
             .map(|index| (format!("track-{index:02}.ogg"), audio.clone()))
             .collect::<Vec<_>>();
@@ -556,7 +558,7 @@ async fn large_audio_is_played_seeked_and_analyzed_by_both_backends() -> Result<
 #[tokio::test]
 async fn object_store_scan_uses_etag_and_skips_unchanged_content() -> Result<()> {
     timeout(DEADLINE, async {
-        let bytes = std::fs::read(fixtures::audio_fixture())?;
+        let bytes = fs::read(fixtures::audio_fixture())?;
         let webdav = WebDavFixture::start(vec![("track.ogg".into(), bytes.clone())]).await?;
         let s3 = S3Fixture::start(vec![("track.ogg".into(), bytes.clone())]).await?;
         let mut changed = bytes.clone();
@@ -592,7 +594,7 @@ async fn object_store_scan_uses_etag_and_skips_unchanged_content() -> Result<()>
 
 #[tokio::test]
 async fn last_modified_mix_sort_uses_opendal_modification_times() -> Result<()> {
-    let audio = std::fs::read(fixtures::audio_fixture())?;
+    let audio = fs::read(fixtures::audio_fixture())?;
     let webdav = WebDavFixture::start(vec![
         ("later.ogg".into(), audio.clone()),
         ("earlier.ogg".into(), audio),
@@ -644,7 +646,7 @@ async fn last_modified_mix_sort_uses_opendal_modification_times() -> Result<()> 
 
 #[tokio::test]
 async fn webdav_file_without_stored_change_token_is_processed_on_each_scan() -> Result<()> {
-    let bytes = std::fs::read(fixtures::audio_fixture())?;
+    let bytes = fs::read(fixtures::audio_fixture())?;
     let webdav = WebDavFixture::start(vec![("track.ogg".into(), bytes)]).await?;
     let fs = FsIo::new_opendal(webdav_config(&webdav), Handle::current())?;
     let actor = Uuid::from_u128(0x216);
@@ -688,7 +690,7 @@ async fn webdav_file_without_stored_change_token_is_processed_on_each_scan() -> 
 
 #[tokio::test]
 async fn object_store_reporting_no_change_signal_stores_no_token_and_rescans() -> Result<()> {
-    let bytes = std::fs::read(fixtures::audio_fixture())?;
+    let bytes = fs::read(fixtures::audio_fixture())?;
     let server =
         S3Fixture::start_without_object_metadata(vec![("track.ogg".into(), bytes)]).await?;
     let fs = FsIo::new_opendal(s3_config(&server), Handle::current())?;
@@ -728,7 +730,7 @@ async fn object_store_reporting_no_change_signal_stores_no_token_and_rescans() -
 async fn read_only_services() -> Result<(WebDavFixture, S3Fixture)> {
     let files = vec![(
         "startup_0.ogg".to_owned(),
-        std::fs::read(fixtures::audio_fixture())?,
+        fs::read(fixtures::audio_fixture())?,
     )];
     Ok((
         WebDavFixture::start_read_only(files.clone()).await?,

@@ -1,6 +1,8 @@
 use anyhow::Result;
 use axum::body::Body;
+use axum::extract;
 use axum::http::Response;
+use axum::middleware;
 use database::actions::mixes::mix_playback_mode;
 use database::sync::model::*;
 use database::test_fixtures::fixtures;
@@ -28,9 +30,13 @@ use hub::server::sync::{
     http::{BlobContext, SharedLibrary, blob_router},
     library_router,
 };
+use metadata::cover_art;
+use migration::catalog_identity;
 use migration::catalog_identity::ParentKind;
 use playback::PlaybackMode;
+use reqwest::Client;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use std::fs;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -48,7 +54,7 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
     let fsio = Arc::new(FsIo::new());
     for index in 0..2 {
         let fixture = fixtures::audio_fixture_at(index);
-        std::fs::copy(
+        fs::copy(
             fixture,
             source_root.path().join(format!("source{index}.ogg")),
         )?;
@@ -70,10 +76,8 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
             1
         };
         let file_id: Uuid = file.source_uuid.parse()?;
-        let artist_id =
-            migration::catalog_identity::parent(ParentKind::Artist, &format!("Artist {index}"));
-        let album_id =
-            migration::catalog_identity::parent(ParentKind::Album, &format!("Album {index}"));
+        let artist_id = catalog_identity::parent(ParentKind::Artist, &format!("Artist {index}"));
+        let album_id = catalog_identity::parent(ParentKind::Album, &format!("Album {index}"));
         RuneModel::project(
             &source_db,
             &ObjectKey {
@@ -102,8 +106,7 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
             .filter(media_file_artists::Column::TrackUuid.eq(file.source_uuid.clone()))
             .exec(&source_db)
             .await?;
-        let membership =
-            migration::catalog_identity::membership(file_id, ParentKind::Artist, artist_id);
+        let membership = catalog_identity::membership(file_id, ParentKind::Artist, artist_id);
         RuneModel::project(
             &source_db,
             &ObjectKey {
@@ -171,12 +174,12 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
 
     let art_body = b"verified artwork body";
     let digest = blake3::hash(art_body).to_hex().to_string();
-    let art_id = migration::catalog_identity::artwork(&digest);
+    let art_id = catalog_identity::artwork(&digest);
     assign_inspected(
         &source_db,
         &store.record_store(),
         first,
-        Some(metadata::cover_art::CoverArt {
+        Some(cover_art::CoverArt {
             crc: "legacy-crc".into(),
             data: art_body.to_vec(),
             primary_color: 42,
@@ -218,8 +221,8 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
             upload_lock: Arc::new(Mutex::new(())),
             notify: Arc::new(|| {}),
         }))
-        .layer(axum::middleware::from_fn(
-            move |request: axum::extract::Request, next: axum::middleware::Next| {
+        .layer(middleware::from_fn(
+            move |request: extract::Request, next: middleware::Next| {
                 let counter = counter.clone();
                 let corrupt_art_handler = corrupt_art_handler.clone();
                 async move {
@@ -251,7 +254,7 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
         if kind == "track" {
             corrupt_art.store(true, Ordering::SeqCst);
         }
-        let first_report = sync_library(db.clone(), node, &url, reqwest::Client::new()).await?;
+        let first_report = sync_library(db.clone(), node, &url, Client::new()).await?;
         if kind == "track" {
             assert!(
                 first_report.artwork_pending > 0,
@@ -270,14 +273,14 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
                     .is_empty()
             );
             corrupt_art.store(false, Ordering::SeqCst);
-            sync_library(db.clone(), node, &url, reqwest::Client::new()).await?;
+            sync_library(db.clone(), node, &url, Client::new()).await?;
         }
         assert_eq!(
             transfers.load(Ordering::SeqCst),
             before,
             "metadata must not even probe audio"
         );
-        assert_eq!(std::fs::read_dir(root.path())?.count(), 0);
+        assert_eq!(fs::read_dir(root.path())?.count(), 0);
         let catalog = media_files::Entity::find().all(&db).await?;
         assert_eq!(catalog.len(), 2);
         let local = fixtures::open_library(db.clone(), node, None).await?;
@@ -338,14 +341,14 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
         };
         set_download_rule(&db, queries.clone(), mix.as_ref().map(|m| m.id), true).await?;
         // Saving a mix is an intentional metadata edit, separate from downloading it.
-        sync_library(db.clone(), node, &url, reqwest::Client::new()).await?;
+        sync_library(db.clone(), node, &url, Client::new()).await?;
         let fetched = download_requested_audio(
             db.clone(),
             &recommendation,
             fsio.clone(),
             root.path().into(),
             node,
-            &MetadataPeer::new(&url, reqwest::Client::new()),
+            &MetadataPeer::new(&url, Client::new()),
             Arc::new(|| {}),
         )
         .await?;
@@ -358,12 +361,12 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
         let materialized = media_files::Entity::find_by_id(id).one(&db).await?.unwrap();
         let expected = fixtures::audio_fixture();
         assert_eq!(
-            std::fs::read(
+            fs::read(
                 root.path()
                     .join(&materialized.directory)
                     .join(&materialized.file_name)
             )?,
-            std::fs::read(expected)?
+            fs::read(expected)?
         );
         assert_eq!(
             media_files::Entity::find().all(&db).await?.len(),
@@ -373,14 +376,14 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
         get_parsed_file_by_id(&db, id).await?;
         assert!(get_liked(&db, id).await?);
         let head = store.head().await?;
-        sync_library(db.clone(), node, &url, reqwest::Client::new()).await?;
+        sync_library(db.clone(), node, &url, Client::new()).await?;
         let again = download_requested_audio(
             db.clone(),
             &recommendation,
             fsio.clone(),
             root.path().into(),
             node,
-            &MetadataPeer::new(&url, reqwest::Client::new()),
+            &MetadataPeer::new(&url, Client::new()),
             Arc::new(|| {}),
         )
         .await?;
@@ -409,7 +412,7 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
                 fsio.clone(),
                 root.path().into(),
                 node,
-                &MetadataPeer::new(&url, reqwest::Client::new()),
+                &MetadataPeer::new(&url, Client::new()),
                 Arc::new(|| {}),
             )
             .await?;

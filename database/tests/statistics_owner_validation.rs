@@ -1,4 +1,5 @@
 use anyhow::Result;
+use database::sync as database_sync;
 use database::test_fixtures::causal_library as support;
 use database::{
     actions::stats::increase_played_through, entities::media_file_stats, sync::model::*,
@@ -6,6 +7,7 @@ use database::{
 use sea_orm::{EntityTrait, TransactionTrait};
 use support::{SqlLibrary, exchange, key};
 use sync::{self as p, SyncModel, SyncStore};
+use sync_orm::causal_progress;
 use uuid::Uuid;
 
 // A peer can construct bytes without enforcing Rune's ownership rule.
@@ -96,7 +98,7 @@ async fn statistics_owner_is_checked_and_relays_preserve_the_author() -> Result<
     };
     let b_identity = b.sync_store.identity().await?;
     let tx = b.db.begin().await?;
-    sync_orm::causal_progress::initialize_checkpoint_on(
+    causal_progress::initialize_checkpoint_on(
         &tx,
         &b_identity,
         &checkpoint,
@@ -141,7 +143,7 @@ async fn statistics_owner_is_checked_and_relays_preserve_the_author() -> Result<
     };
     let error = b
         .peer
-        .apply_page(&page, database::sync::session_limits().apply)
+        .apply_page(&page, database_sync::session_limits().apply)
         .await
         .unwrap_err();
     assert!(

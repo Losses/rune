@@ -1,4 +1,5 @@
 //! Resumable bidirectional metadata sessions for an authenticated paired peer.
+use anyhow::Error;
 use anyhow::{Result, ensure};
 pub use database::actions::cover_art::fetch_missing;
 use database::sync::{LibrarySyncStore, model::RuneModel};
@@ -8,7 +9,10 @@ use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 use std::time::Duration;
 use std::{future::Future, pin::Pin};
+use sync::SyncError;
 use sync::{SyncModel, SyncPeer};
+use tokio::task;
+use tokio::time as tokio_time;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -79,7 +83,7 @@ impl LibrarySession {
                         SessionDirection::Pull => session.pull_only(*endpoint, *remote).await,
                         SessionDirection::Push => session.push_only(*endpoint, *remote).await,
                     }
-                    .map_err(anyhow::Error::new)
+                    .map_err(Error::new)
                 })
             },
         )
@@ -114,19 +118,19 @@ where
             Err(error)
                 if error
                     .downcast_ref::<sync::SyncError>()
-                    .is_some_and(|error| *error == sync::SyncError::StorageBusy)
+                    .is_some_and(|error| *error == SyncError::StorageBusy)
                     && attempt < 4 =>
             {
                 tokio::select! {
-                    _ = cancel.cancelled() => return Err(sync::SyncError::Cancelled.into()),
-                    _ = tokio::time::sleep(delay) => {}
+                    _ = cancel.cancelled() => return Err(SyncError::Cancelled.into()),
+                    _ = tokio_time::sleep(delay) => {}
                 }
                 delay = (delay * 2).min(Duration::from_millis(800));
             }
             Err(error) => return Err(error),
         }
     }
-    Err(sync::SyncError::StorageBusy.into())
+    Err(SyncError::StorageBusy.into())
 }
 
 pub async fn sync_library(
@@ -154,7 +158,7 @@ pub async fn sync_library_with_notify(
     );
     let mut session = LibrarySession::new(local.clone())?;
     while !session.advance(&remote, notify.clone()).await? {
-        tokio::task::yield_now().await;
+        task::yield_now().await;
     }
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut cursor = PageCursor::default();
@@ -183,6 +187,7 @@ pub async fn sync_library_with_notify(
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Error;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::retry_storage_busy;
@@ -196,7 +201,7 @@ mod tests {
         let result = retry_storage_busy(&cancel, &mut calls, |calls| {
             Box::pin(async move {
                 if calls.fetch_add(1, Ordering::SeqCst) < 2 {
-                    Err(anyhow::Error::new(SyncError::StorageBusy))
+                    Err(Error::new(SyncError::StorageBusy))
                 } else {
                     Ok("complete")
                 }
@@ -216,7 +221,7 @@ mod tests {
         let error = retry_storage_busy(&cancel, &mut calls, |calls| {
             Box::pin(async move {
                 calls.fetch_add(1, Ordering::SeqCst);
-                Err::<(), _>(anyhow::Error::new(SyncError::StorageBusy))
+                Err::<(), _>(Error::new(SyncError::StorageBusy))
             })
         })
         .await

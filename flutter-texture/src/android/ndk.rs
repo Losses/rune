@@ -1,5 +1,6 @@
 //! The parts of libandroid used here: `<android/looper.h>` and `<android/native_window_jni.h>`.
 
+use jni::sys;
 use std::ffi::{c_int, c_void};
 
 /// `ALooper`, opaque.
@@ -43,8 +44,8 @@ unsafe extern "C" {
     /// The native window of an `android.view.Surface`, acquired (released with
     /// `ANativeWindow_release`), or null.
     pub(crate) fn ANativeWindow_fromSurface(
-        env: *mut jni::sys::JNIEnv,
-        surface: jni::sys::jobject,
+        env: *mut sys::JNIEnv,
+        surface: sys::jobject,
     ) -> *mut ANativeWindow;
     pub(crate) fn ANativeWindow_release(window: *mut ANativeWindow);
 }

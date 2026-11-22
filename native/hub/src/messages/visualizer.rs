@@ -1,5 +1,6 @@
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
+use visualizer::Transport;
 use visualizer::{ColumnGroup, ColumnKind, ColumnPlan, ShotSize, Strength, Tier};
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
@@ -345,11 +346,11 @@ pub enum VisualizerTransport {
 impl From<visualizer::Transport> for VisualizerTransport {
     fn from(value: visualizer::Transport) -> Self {
         match value {
-            visualizer::Transport::Readback => Self::Readback,
-            visualizer::Transport::IoSurface => Self::IoSurface,
-            visualizer::Transport::DxgiShared => Self::DxgiShared,
-            visualizer::Transport::VulkanShared => Self::VulkanShared,
-            visualizer::Transport::Surface => Self::Surface,
+            Transport::Readback => Self::Readback,
+            Transport::IoSurface => Self::IoSurface,
+            Transport::DxgiShared => Self::DxgiShared,
+            Transport::VulkanShared => Self::VulkanShared,
+            Transport::Surface => Self::Surface,
         }
     }
 }

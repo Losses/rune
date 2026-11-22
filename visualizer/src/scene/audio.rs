@@ -7,6 +7,7 @@ use std::sync::Arc;
 use realfft::{RealFftPlanner, RealToComplex};
 
 use super::inputs::Levels;
+use realfft::num_complex as realfft_num_complex;
 
 /// Spectrum columns: 30 Hz to 16 kHz on a log scale.
 pub const SPECTRUM_WIDTH: usize = 256;
@@ -47,7 +48,7 @@ struct FeelMeter {
     since: f32,
     fft: Arc<dyn RealToComplex<f32>>,
     input: Vec<f32>,
-    output: Vec<realfft::num_complex::Complex<f32>>,
+    output: Vec<realfft_num_complex::Complex<f32>>,
     now: f32,
     song: f32,
     /// The weighted sum of the measures since the song began, and their weight.
@@ -168,7 +169,7 @@ pub struct Analyzer {
     fft: Arc<dyn RealToComplex<f32>>,
     window: Vec<f32>,
     input: Vec<f32>,
-    output: Vec<realfft::num_complex::Complex<f32>>,
+    output: Vec<realfft_num_complex::Complex<f32>>,
     /// Row-major, row 0 the newest.
     pub spectrum: Vec<f32>,
     pub waveform: Vec<[f32; 2]>,

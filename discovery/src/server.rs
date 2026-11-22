@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::persistent::{PersistenceError, PersistentDataManager};
 use crate::utils::DeviceType;
+use std::collections;
 
 /// Defines the status of a user within the permission system.
 ///
@@ -197,7 +198,7 @@ impl PermissionManager {
                     .keys()
                     .chain(next.users.keys())
                     .cloned()
-                    .collect::<std::collections::HashSet<_>>();
+                    .collect::<collections::HashSet<_>>();
                 let mut status_changed = false;
                 for fingerprint in fingerprints {
                     let old_status = known.get(&fingerprint).map(|user| &user.status);
@@ -565,8 +566,13 @@ impl PermissionManager {
 mod change_tests {
     use super::{PermissionError, PermissionManager, UserStatus};
     use crate::utils::DeviceType;
+    use std::env;
+    use std::error;
+    use std::fs;
+    use std::process as std_process;
     use std::sync::{Arc, Mutex};
     use tokio::time::{Duration, timeout};
+    use uuid::Uuid;
     const TEST_DEADLINE: Duration = Duration::from_secs(60);
     use tokio_util::sync::CancellationToken;
 
@@ -619,10 +625,9 @@ mod change_tests {
     }
 
     #[tokio::test]
-    async fn separate_managers_merge_updates_to_the_same_file()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let dir =
-            std::env::temp_dir().join(format!("permission-manager-merge-{}", uuid::Uuid::new_v4()));
+    async fn separate_managers_merge_updates_to_the_same_file() -> Result<(), Box<dyn error::Error>>
+    {
+        let dir = env::temp_dir().join(format!("permission-manager-merge-{}", Uuid::new_v4()));
         let first = PermissionManager::new(&dir)?;
         let second = PermissionManager::new(&dir)?;
 
@@ -642,17 +647,14 @@ mod change_tests {
                 .await
                 .is_some()
         );
-        std::fs::remove_dir_all(dir)?;
+        fs::remove_dir_all(dir)?;
         Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn concurrent_updates_and_watcher_reloads_do_not_deadlock()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let dir = std::env::temp_dir().join(format!(
-            "permission-manager-concurrent-{}",
-            uuid::Uuid::new_v4()
-        ));
+    -> Result<(), Box<dyn error::Error>> {
+        let dir = env::temp_dir().join(format!("permission-manager-concurrent-{}", Uuid::new_v4()));
         let first = Arc::new(PermissionManager::new(&dir)?);
         let second = Arc::new(PermissionManager::new(&dir)?);
         let writers = [first.clone(), second.clone()].map(|manager| {
@@ -668,20 +670,19 @@ mod change_tests {
             for writer in writers {
                 writer.await??;
             }
-            Ok::<_, Box<dyn std::error::Error>>(())
+            Ok::<_, Box<dyn error::Error>>(())
         })
         .await??;
         let latest = PermissionManager::new(&dir)?;
         assert_eq!(latest.list_users().await.len(), 80);
-        std::fs::remove_dir_all(dir)?;
+        fs::remove_dir_all(dir)?;
         Ok(())
     }
 
     #[tokio::test]
-    async fn generation_tracks_mutations_not_reads() -> Result<(), Box<dyn std::error::Error>> {
-        let dir =
-            std::env::temp_dir().join(format!("permission-generation-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+    async fn generation_tracks_mutations_not_reads() -> Result<(), Box<dyn error::Error>> {
+        let dir = env::temp_dir().join(format!("permission-generation-{}", std_process::id()));
+        let _ = fs::remove_dir_all(&dir);
         let manager = PermissionManager::new(&dir)?;
         manager
             .add_user(
@@ -703,15 +704,15 @@ mod change_tests {
         assert_eq!(*changes.borrow_and_update(), initial + 1);
         manager.remove_user("fingerprint").await?;
         assert_eq!(*changes.borrow_and_update(), initial + 2);
-        std::fs::remove_dir_all(dir)?;
+        fs::remove_dir_all(dir)?;
         Ok(())
     }
 
     #[tokio::test]
     async fn existing_fingerprint_with_another_key_is_a_conflict()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let dir = std::env::temp_dir().join(format!("permission-conflict-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+    -> Result<(), Box<dyn error::Error>> {
+        let dir = env::temp_dir().join(format!("permission-conflict-{}", std_process::id()));
+        let _ = fs::remove_dir_all(&dir);
         let manager = PermissionManager::new(&dir)?;
         manager
             .add_user(
@@ -745,16 +746,14 @@ mod change_tests {
             )
             .await;
         assert!(duplicate.is_ok());
-        std::fs::remove_dir_all(dir)?;
+        fs::remove_dir_all(dir)?;
         Ok(())
     }
 
     #[tokio::test]
-    async fn file_reload_notifies_once_and_runs_trust_hook()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let dir =
-            std::env::temp_dir().join(format!("permission-file-reload-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+    async fn file_reload_notifies_once_and_runs_trust_hook() -> Result<(), Box<dyn error::Error>> {
+        let dir = env::temp_dir().join(format!("permission-file-reload-{}", std_process::id()));
+        let _ = fs::remove_dir_all(&dir);
         let mut manager = PermissionManager::new(&dir)?;
         manager
             .add_user(
@@ -795,21 +794,19 @@ mod change_tests {
             *hook_calls.lock().unwrap(),
             vec![("fingerprint".to_owned(), Some(UserStatus::Blocked))]
         );
-        std::fs::remove_dir_all(dir)?;
+        fs::remove_dir_all(dir)?;
         Ok(())
     }
 
     #[tokio::test]
     async fn approved_and_blocked_requests_survive_later_registrations()
-    -> Result<(), Box<dyn std::error::Error>> {
+    -> Result<(), Box<dyn error::Error>> {
         for (label, status) in [
             ("approved", UserStatus::Approved),
             ("blocked", UserStatus::Blocked),
         ] {
-            let dir = std::env::temp_dir().join(format!(
-                "permission-decided-{label}-{}",
-                uuid::Uuid::new_v4()
-            ));
+            let dir =
+                env::temp_dir().join(format!("permission-decided-{label}-{}", Uuid::new_v4()));
             let mut manager = PermissionManager::new(&dir)?;
             let changes = record_trust_changes(&mut manager);
 
@@ -868,18 +865,15 @@ mod change_tests {
                 vec![("victim".to_owned(), Some(status.clone()))],
                 "{label} request produced an unexpected trust change"
             );
-            std::fs::remove_dir_all(dir)?;
+            fs::remove_dir_all(dir)?;
         }
         Ok(())
     }
 
     #[tokio::test]
     async fn pending_requests_stay_bounded_and_release_decided_entries()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let dir = std::env::temp_dir().join(format!(
-            "permission-pending-bounded-{}",
-            uuid::Uuid::new_v4()
-        ));
+    -> Result<(), Box<dyn error::Error>> {
+        let dir = env::temp_dir().join(format!("permission-pending-bounded-{}", Uuid::new_v4()));
         let mut manager = PermissionManager::new(&dir)?;
         let changes = record_trust_changes(&mut manager);
 
@@ -957,17 +951,14 @@ mod change_tests {
                 ("three".to_owned(), None),
             ]
         );
-        std::fs::remove_dir_all(dir)?;
+        fs::remove_dir_all(dir)?;
         Ok(())
     }
 
     #[tokio::test]
     async fn externally_approved_request_is_not_evicted_from_the_queue()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let dir = std::env::temp_dir().join(format!(
-            "permission-external-decision-{}",
-            uuid::Uuid::new_v4()
-        ));
+    -> Result<(), Box<dyn error::Error>> {
+        let dir = env::temp_dir().join(format!("permission-external-decision-{}", Uuid::new_v4()));
         let mut manager = PermissionManager::new(&dir)?;
         let changes = record_trust_changes(&mut manager);
         add_user_from(&manager, "victim", "127.0.0.1").await?;
@@ -1008,7 +999,7 @@ mod change_tests {
                 .all(|(fingerprint, status)| fingerprint != "victim" || status.is_some()),
             "evicting a decided request reported a trust removal"
         );
-        std::fs::remove_dir_all(dir)?;
+        fs::remove_dir_all(dir)?;
         Ok(())
     }
 }

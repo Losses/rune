@@ -7,6 +7,27 @@ use wgpu::util::DeviceExt;
 use super::lens::{LENS_SIZE, LensFrame};
 use super::manifest::Tonemap;
 use super::wgsl;
+use wgpu::BindingResource;
+use wgpu::BindingType;
+use wgpu::BlendComponent;
+use wgpu::BlendFactor;
+use wgpu::BlendOperation;
+use wgpu::BufferBindingType;
+use wgpu::BufferUsages;
+use wgpu::Color;
+use wgpu::ColorWrites;
+use wgpu::FilterMode;
+use wgpu::LoadOp;
+use wgpu::SamplerBindingType;
+use wgpu::ShaderSource;
+use wgpu::ShaderStages;
+use wgpu::StoreOp;
+use wgpu::TextureDimension;
+use wgpu::TextureFormat;
+use wgpu::TextureSampleType;
+use wgpu::TextureUsages;
+use wgpu::TextureViewDimension;
+use wgpu::util;
 
 const SHADER: &str = include_str!("post.wgsl");
 /// Bloom levels at most; each half the size of the one before, the first half the internal size.
@@ -62,7 +83,7 @@ struct FlareTargets {
     flare: (wgpu::Texture, wgpu::TextureView),
 }
 
-const BLOOM_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+const BLOOM_FORMAT: wgpu::TextureFormat = TextureFormat::Rgba16Float;
 /// The streaks' pyramid ends at this width or below, and has at most this many levels.
 const STREAK_MIN_WIDTH: u32 = 4;
 const STREAK_MAX_LEVELS: usize = 7;
@@ -94,7 +115,7 @@ impl Post {
         };
         let uniform = |binding, ty| wgpu::BindGroupLayoutEntry {
             binding,
-            visibility: wgpu::ShaderStages::FRAGMENT,
+            visibility: ShaderStages::FRAGMENT,
             ty,
             count: None,
         };
@@ -103,24 +124,24 @@ impl Post {
             entries: &[
                 uniform(
                     0,
-                    wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
                 ),
                 uniform(
                     1,
-                    wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
+                    BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
                 ),
                 uniform(
                     2,
-                    wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
+                    BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
@@ -130,9 +151,9 @@ impl Post {
         let texture = |binding| {
             uniform(
                 binding,
-                wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    view_dimension: wgpu::TextureViewDimension::D2,
+                BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2,
                     multisampled: false,
                 },
             )
@@ -141,10 +162,7 @@ impl Post {
             label: Some("scene post textures"),
             entries: &[
                 texture(0),
-                uniform(
-                    1,
-                    wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                ),
+                uniform(1, BindingType::Sampler(SamplerBindingType::Filtering)),
                 texture(2),
                 texture(3),
                 texture(4),
@@ -158,10 +176,10 @@ impl Post {
         // Zeros until the first frame writes it: no effect on.
         let lens = DeviceExt::create_buffer_init(
             device,
-            &wgpu::util::BufferInitDescriptor {
+            &util::BufferInitDescriptor {
                 label: Some("scene lens"),
                 contents: &[0; LENS_SIZE as usize],
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             },
         );
         let globals = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -184,8 +202,8 @@ impl Post {
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("scene post"),
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
+            mag_filter: FilterMode::Linear,
+            min_filter: FilterMode::Linear,
             ..Default::default()
         });
         let count = levels_for(size.0, size.1);
@@ -241,11 +259,11 @@ impl Post {
         let mut entries = vec![
             wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::TextureView(source),
+                resource: BindingResource::TextureView(source),
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: wgpu::BindingResource::Sampler(&self.sampler),
+                resource: BindingResource::Sampler(&self.sampler),
             },
         ];
         entries.extend(
@@ -253,7 +271,7 @@ impl Post {
                 .zip(extra)
                 .map(|(binding, view)| wgpu::BindGroupEntry {
                     binding,
-                    resource: wgpu::BindingResource::TextureView(view),
+                    resource: BindingResource::TextureView(view),
                 }),
         );
         device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -280,11 +298,11 @@ impl Post {
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: if clear {
-                        wgpu::LoadOp::Clear(wgpu::Color::BLACK)
+                        LoadOp::Clear(Color::BLACK)
                     } else {
-                        wgpu::LoadOp::Load
+                        LoadOp::Load
                     },
-                    store: wgpu::StoreOp::Store,
+                    store: StoreOp::Store,
                 },
             })],
             depth_stencil_attachment: None,
@@ -396,9 +414,9 @@ fn levels(
             },
             mip_level_count: 1,
             sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
+            dimension: TextureDimension::D2,
             format: BLOOM_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
         let view = texture.create_view(&Default::default());
@@ -453,9 +471,9 @@ fn lens_target(
         },
         mip_level_count: 1,
         sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
+        dimension: TextureDimension::D2,
         format: BLOOM_FORMAT,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
         view_formats: &[],
     });
     let view = texture.create_view(&Default::default());
@@ -477,7 +495,7 @@ fn pipelines(
     );
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("scene post"),
-        source: wgpu::ShaderSource::Wgsl(source.into()),
+        source: ShaderSource::Wgsl(source.into()),
     });
     let pipeline = |entry: &str, format, blend| {
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -496,7 +514,7 @@ fn pipelines(
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend,
-                    write_mask: wgpu::ColorWrites::ALL,
+                    write_mask: ColorWrites::ALL,
                 })],
             }),
             primitive: Default::default(),
@@ -508,11 +526,11 @@ fn pipelines(
     };
     let add = Some(wgpu::BlendState {
         color: wgpu::BlendComponent {
-            src_factor: wgpu::BlendFactor::One,
-            dst_factor: wgpu::BlendFactor::One,
-            operation: wgpu::BlendOperation::Add,
+            src_factor: BlendFactor::One,
+            dst_factor: BlendFactor::One,
+            operation: BlendOperation::Add,
         },
-        alpha: wgpu::BlendComponent::REPLACE,
+        alpha: BlendComponent::REPLACE,
     });
     Pipelines {
         first_down: pipeline("first_down", BLOOM_FORMAT, None),

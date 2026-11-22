@@ -14,13 +14,14 @@ use log::{info, warn};
 
 use crate::builtin;
 use crate::pipeline::Pipeline;
+use std::env;
 
 /// Seconds at the start of a phase that do not count.
 const WARM_UP: f64 = 1.0;
 
 /// The seconds per scene asked for in the environment, if any.
 pub fn seconds_from_env() -> Option<f64> {
-    parse_seconds(std::env::var("RUNE_VISUALIZER_BENCH").ok().as_deref())
+    parse_seconds(env::var("RUNE_VISUALIZER_BENCH").ok().as_deref())
 }
 
 /// `value` as a number of seconds, if it is a positive one.
@@ -120,9 +121,7 @@ impl Bench {
             phase_seconds: seconds / 2.0,
             scenes: only(
                 builtin::scenes().into_iter().map(|s| s.name),
-                std::env::var("RUNE_VISUALIZER_BENCH_SCENES")
-                    .ok()
-                    .as_deref(),
+                env::var("RUNE_VISUALIZER_BENCH_SCENES").ok().as_deref(),
             ),
             scene: 0,
             phase: Phase::Full,

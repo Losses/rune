@@ -5,6 +5,7 @@
 //! Self-contained regressions run normally; the real-library probe is opt-in.
 
 use anyhow::{Context, Result};
+use chrono::DateTime;
 use database::actions::metadata::MissingHostFilePolicy;
 use database::test_fixtures::fixtures;
 use database::{
@@ -15,23 +16,28 @@ use database::{
     connection::connect_main_db,
     entities::media_files,
 };
+use env_logger::Builder;
+use env_logger::Env;
 use fsio::FsIo;
 use sea_orm::sea_query::Expr;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter};
+use std::env;
+use std::fs;
+use std::path as std_path;
 use std::{path::PathBuf, sync::Arc, time::Instant};
+use sync_orm::causal_progress;
+use uuid::Uuid;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires RUNE_SCAN_ROOT; reads real audio, writes only a temporary database"]
 async fn scan_real_library() -> Result<()> {
-    let _ = env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("database=info,metadata=warn"),
-    )
-    .try_init();
-    let root = PathBuf::from(std::env::var("RUNE_SCAN_ROOT").context("set RUNE_SCAN_ROOT")?)
-        .canonicalize()?;
+    let _ = Builder::from_env(Env::default().default_filter_or("database=info,metadata=warn"))
+        .try_init();
+    let root =
+        PathBuf::from(env::var("RUNE_SCAN_ROOT").context("set RUNE_SCAN_ROOT")?).canonicalize()?;
     let temp = tempfile::tempdir()?;
     let fs = Arc::new(FsIo::new());
-    let node = uuid::Uuid::new_v4();
+    let node = Uuid::new_v4();
     let start = Instant::now();
     eprintln!(
         "DIAG root={} database={}",
@@ -76,10 +82,10 @@ async fn scan_real_library() -> Result<()> {
         result?;
         // Optional counterfactual: change only this disposable database's mtime
         // encoding to the format currently expected by the cover scanner.
-        if pass == 2 && std::env::var_os("RUNE_SCAN_NORMALIZE_MTIME").is_some() {
+        if pass == 2 && env::var_os("RUNE_SCAN_NORMALIZE_MTIME").is_some() {
             for file in media_files::Entity::find().all(&db).await? {
                 if let Ok(seconds) = file.last_modified.parse::<i64>() {
-                    let timestamp = chrono::DateTime::from_timestamp(seconds, 0)
+                    let timestamp = DateTime::from_timestamp(seconds, 0)
                         .context("mtime outside chrono range")?
                         .to_rfc3339();
                     media_files::Entity::update_many()
@@ -124,7 +130,7 @@ async fn scan_real_library() -> Result<()> {
     Ok(())
 }
 
-fn write_tagged_wav(path: &std::path::Path, title: &str) -> Result<()> {
+fn write_tagged_wav(path: &std_path::Path, title: &str) -> Result<()> {
     fn chunk(output: &mut Vec<u8>, id: &[u8; 4], value: &[u8]) {
         output.extend(id);
         output.extend((value.len() as u32).to_le_bytes());
@@ -151,7 +157,7 @@ fn write_tagged_wav(path: &std::path::Path, title: &str) -> Result<()> {
     let mut file = b"RIFF".to_vec();
     file.extend((body.len() as u32).to_le_bytes());
     file.extend(body);
-    std::fs::write(path, file)?;
+    fs::write(path, file)?;
     Ok(())
 }
 
@@ -159,9 +165,9 @@ fn write_tagged_wav(path: &std::path::Path, title: &str) -> Result<()> {
 async fn unchanged_cover_scan_does_not_reinspect() -> Result<()> {
     let temp = tempfile::tempdir()?;
     let root = temp.path();
-    std::fs::create_dir(root.join("with-cover"))?;
-    std::fs::create_dir(root.join("without-cover"))?;
-    std::fs::copy(
+    fs::create_dir(root.join("with-cover"))?;
+    fs::create_dir(root.join("without-cover"))?;
+    fs::copy(
         concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../assets/available_app_store.png"
@@ -171,7 +177,7 @@ async fn unchanged_cover_scan_does_not_reinspect() -> Result<()> {
     write_tagged_wav(&root.join("with-cover/track.wav"), "with cover")?;
     write_tagged_wav(&root.join("without-cover/track.wav"), "without cover")?;
     let fs = Arc::new(FsIo::new());
-    let node = uuid::Uuid::new_v4();
+    let node = Uuid::new_v4();
     let db = connect_main_db(&fs, root.to_str().unwrap(), None, &node.to_string()).await?;
     let library = fixtures::open_library(db.clone(), node, None).await?;
     let store = library.record_store();
@@ -199,13 +205,13 @@ async fn unchanged_cover_scan_does_not_reinspect() -> Result<()> {
             .iter()
             .all(|file| file.cover_art_checked_at.is_some())
     );
-    let head = sync_orm::causal_progress::head_on(&db, store.namespace()).await?;
+    let head = causal_progress::head_on(&db, store.namespace()).await?;
     scan_cover_arts(fs, &db, root, 16, |_, _| {}, None, &store).await?;
     let after = media_files::Entity::find().all(&db).await?;
     assert_eq!(before, after);
     assert_eq!(
         head,
-        sync_orm::causal_progress::head_on(&db, store.namespace()).await?
+        causal_progress::head_on(&db, store.namespace()).await?
     );
     db.close().await?;
     Ok(())
@@ -221,8 +227,8 @@ async fn rejected_artwork_assignment_does_not_stop_other_files_and_retries() -> 
         ("rejected", "available_app_store.png"),
         ("healthy", "available_ms_store.png"),
     ] {
-        std::fs::create_dir(root.join(directory))?;
-        std::fs::copy(
+        fs::create_dir(root.join(directory))?;
+        fs::copy(
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("../assets")
                 .join(image),
@@ -230,11 +236,11 @@ async fn rejected_artwork_assignment_does_not_stop_other_files_and_retries() -> 
         )?;
         write_tagged_wav(&root.join(directory).join("track.wav"), directory)?;
     }
-    let rejected_hash = blake3::hash(&std::fs::read(root.join("rejected/cover.png"))?)
+    let rejected_hash = blake3::hash(&fs::read(root.join("rejected/cover.png"))?)
         .to_hex()
         .to_string();
     let fs = Arc::new(FsIo::new());
-    let node = uuid::Uuid::new_v4();
+    let node = Uuid::new_v4();
     let db = connect_main_db(&fs, root.to_str().unwrap(), None, &node.to_string()).await?;
     let library = fixtures::open_library(db.clone(), node, None).await?;
     let store = library.record_store();
@@ -320,7 +326,7 @@ async fn oversized_tag_does_not_abort_library_scan() -> Result<()> {
         write_tagged_wav(&root.join(name), &title)?;
     }
     let fs = FsIo::new();
-    let node = uuid::Uuid::new_v4();
+    let node = Uuid::new_v4();
     let db = connect_main_db(&fs, root.to_str().unwrap(), None, &node.to_string()).await?;
     let library = fixtures::open_library(db.clone(), node, None).await?;
     let progress = AtomicUsize::new(0);
@@ -378,10 +384,10 @@ async fn paths_that_are_not_unicode_are_skipped_and_reported() -> Result<()> {
     let track = root.join(non_unicode_name("track-", ".wav"));
     write_tagged_wav(&track, "skipped track")?;
     let folder = root.join(non_unicode_name("folder-", ""));
-    std::fs::create_dir(&folder)?;
+    fs::create_dir(&folder)?;
     write_tagged_wav(&folder.join("track.wav"), "skipped folder")?;
     let fs = FsIo::new();
-    let node = uuid::Uuid::new_v4();
+    let node = Uuid::new_v4();
     let db = connect_main_db(&fs, root.to_str().unwrap(), None, &node.to_string()).await?;
     let library = fixtures::open_library(db.clone(), node, None).await?;
     let store = library.record_store();
@@ -433,10 +439,10 @@ async fn folder_renamed_to_a_non_unicode_name_keeps_its_tracks() -> Result<()> {
     let temp = tempfile::tempdir()?;
     let root = temp.path();
     let album = root.join("album");
-    std::fs::create_dir(&album)?;
+    fs::create_dir(&album)?;
     write_tagged_wav(&album.join("track.wav"), "renamed folder")?;
     let fs = FsIo::new();
-    let node = uuid::Uuid::new_v4();
+    let node = Uuid::new_v4();
     let db = connect_main_db(&fs, root.to_str().unwrap(), None, &node.to_string()).await?;
     let library = fixtures::open_library(db.clone(), node, None).await?;
     let store = library.record_store();
@@ -455,7 +461,7 @@ async fn folder_renamed_to_a_non_unicode_name_keeps_its_tracks() -> Result<()> {
     assert_eq!(rows(&db).await?, [(track.id, true)]);
 
     let renamed = root.join(non_unicode_name("album-", ""));
-    std::fs::rename(&album, &renamed)?;
+    fs::rename(&album, &renamed)?;
     scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
     assert_eq!(
         rows(&db).await?,
@@ -463,7 +469,7 @@ async fn folder_renamed_to_a_non_unicode_name_keeps_its_tracks() -> Result<()> {
         "a scan that skipped a folder must leave its tracks alone"
     );
 
-    std::fs::rename(&renamed, &album)?;
+    fs::rename(&renamed, &album)?;
     scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
     assert_eq!(rows(&db).await?, [(track.id, true)]);
     db.close().await?;
@@ -493,7 +499,7 @@ async fn removal_waits_for_a_walk_that_skips_nothing() -> Result<()> {
     write_tagged_wav(&root.join("deleted.wav"), "deleted")?;
     write_tagged_wav(&root.join("kept.wav"), "kept")?;
     let fs = FsIo::new();
-    let node = uuid::Uuid::new_v4();
+    let node = Uuid::new_v4();
     let db = connect_main_db(&fs, root.to_str().unwrap(), None, &node.to_string()).await?;
     let library = fixtures::open_library(db.clone(), node, None).await?;
     let store = library.record_store();
@@ -507,13 +513,13 @@ async fn removal_waits_for_a_walk_that_skips_nothing() -> Result<()> {
     scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
     assert_eq!(names(&db).await?, ["deleted.wav", "kept.wav"]);
 
-    std::fs::remove_file(root.join("deleted.wav"))?;
+    fs::remove_file(root.join("deleted.wav"))?;
     let stray = root.join(non_unicode_name("stray-", ".txt"));
-    std::fs::write(&stray, b"")?;
+    fs::write(&stray, b"")?;
     scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
     assert_eq!(names(&db).await?, ["deleted.wav", "kept.wav"]);
 
-    std::fs::remove_file(&stray)?;
+    fs::remove_file(&stray)?;
     scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
     assert_eq!(
         names(&db).await?,
@@ -538,10 +544,10 @@ async fn failed_walk_keeps_tracks_below_a_skipped_folder() -> Result<()> {
     let temp = tempfile::tempdir()?;
     let root = temp.path();
     let album = root.join("album");
-    std::fs::create_dir(&album)?;
+    fs::create_dir(&album)?;
     write_tagged_wav(&album.join("track.wav"), "renamed folder")?;
     let fs = FsIo::new();
-    let node = uuid::Uuid::new_v4();
+    let node = Uuid::new_v4();
     let actor = node.to_string();
     let db = connect_main_db(&fs, root.to_str().unwrap(), None, &actor).await?;
     let library = fixtures::open_library(db.clone(), node, None).await?;
@@ -561,15 +567,15 @@ async fn failed_walk_keeps_tracks_below_a_skipped_folder() -> Result<()> {
     let indexed = media_files::Entity::find().all(&db).await?;
     assert_eq!(indexed.len(), 1);
 
-    std::fs::rename(&album, root.join(non_unicode_name("album-", "")))?;
+    fs::rename(&album, root.join(non_unicode_name("album-", "")))?;
     // The walk lists a folder without search permission, but cannot read the
     // metadata of its entries, so it fails.
     let blocked = root.join("blocked");
-    std::fs::create_dir(&blocked)?;
-    std::fs::write(blocked.join("unreadable"), b"")?;
-    std::fs::set_permissions(&blocked, Permissions::from_mode(0o444))?;
+    fs::create_dir(&blocked)?;
+    fs::write(blocked.join("unreadable"), b"")?;
+    fs::set_permissions(&blocked, Permissions::from_mode(0o444))?;
     let failed = scan().await;
-    std::fs::set_permissions(&blocked, Permissions::from_mode(0o755))?;
+    fs::set_permissions(&blocked, Permissions::from_mode(0o755))?;
 
     assert!(
         failed.is_err(),

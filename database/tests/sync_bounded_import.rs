@@ -7,11 +7,13 @@ use database::{
     sync::{accepted::AcceptedState, model::*},
 };
 use migration::{Migrator, MigratorTrait};
+use rust_decimal::Decimal;
 use sea_orm::{
     ColumnTrait, ConnectionTrait, Database, EntityTrait, PaginatorTrait, QueryFilter, Set,
     TransactionTrait, sea_query::Expr,
 };
 use support::{SqlLibrary, key, playlist};
+use sync_orm::causal_progress;
 use uuid::Uuid;
 
 async fn seed(local: &SqlLibrary, invalid: bool) -> Result<()> {
@@ -31,7 +33,7 @@ async fn seed(local: &SqlLibrary, invalid: bool) -> Result<()> {
             file_hash: Set(format!("hash{number}")),
             last_modified: Set("old".into()),
             sample_rate: Set(44100),
-            duration: Set(rust_decimal::Decimal::ONE),
+            duration: Set(Decimal::ONE),
             source_uuid: Set(identity),
             ..Default::default()
         })
@@ -41,7 +43,7 @@ async fn seed(local: &SqlLibrary, invalid: bool) -> Result<()> {
     Ok(())
 }
 async fn initialized(local: &SqlLibrary) -> Result<bool> {
-    sync_orm::causal_progress::initialization_complete_on(
+    causal_progress::initialization_complete_on(
         &local.db,
         local.sync_store.record_store().namespace(),
     )

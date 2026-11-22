@@ -17,6 +17,7 @@ use log::{debug, error, info};
 use tokio::task;
 use uuid::Uuid;
 
+use fsio::FsIo;
 use playback::{
     player::{Playable, PlaybackSourceResolver, Player, PlayingItem, RemoteAudioSource},
     strategies::AddMode,
@@ -55,7 +56,7 @@ async fn play_files(
     file_ids: Vec<i32>,
     library_id: &str,
 ) {
-    let fsio = Arc::new(fsio::FsIo::new());
+    let fsio = Arc::new(FsIo::new());
     let player = Player::new(fsio.clone(), None);
     player.set_source_resolver(Arc::new(LocalSourceResolver {
         db: main_db.clone(),

@@ -8,8 +8,10 @@ use database::{
 use fsio::FsIo;
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{Database, EntityTrait};
+use std::fs;
 use std::sync::Arc;
 use support::fixtures;
+use sync::protocol;
 use sync::protocol::SyncError;
 use uuid::Uuid;
 
@@ -20,7 +22,7 @@ async fn new_node_opening_portable_library_can_publish_existing_state() -> Resul
     let url = format!("sqlite://{}", database_path.display());
     let fixture = fixtures::audio_fixture();
     let audio = root.path().join("source.ogg");
-    std::fs::copy(fixture, &audio)?;
+    fs::copy(fixture, &audio)?;
     let node_a = Uuid::new_v4();
     let db = fixtures::disk_database(&database_path, node_a).await?;
     let node_b = Uuid::new_v4();
@@ -125,7 +127,7 @@ async fn copied_library_with_distinct_actors_is_rejected_as_same_replica() -> Re
     let initial = fixtures::open_library(db.clone(), actor_a, Some(namespace)).await?;
     let fsio = FsIo::new();
     let audio = root.path().join("source.ogg");
-    std::fs::copy(fixtures::audio_fixture(), &audio)?;
+    fs::copy(fixtures::audio_fixture(), &audio)?;
     let file = scan_audio_file(
         &fsio,
         &db,
@@ -146,7 +148,7 @@ async fn copied_library_with_distinct_actors_is_rejected_as_same_replica() -> Re
         .await?;
     drop(initial);
     db.close().await?;
-    std::fs::copy(&a_path, &b_path)?;
+    fs::copy(&a_path, &b_path)?;
     let a_db = Database::connect(&a_url).await?;
     let b_db = Database::connect(&b_url).await?;
     let a = fixtures::open_library(a_db.clone(), actor_a, Some(namespace)).await?;
@@ -190,7 +192,7 @@ async fn copied_library_with_distinct_actors_is_rejected_as_same_replica() -> Re
         .unwrap_err();
     assert!(
         matches!(
-            error.downcast_ref::<sync::protocol::SyncError>(),
+            error.downcast_ref::<protocol::SyncError>(),
             Some(SyncError::IncompatibleModel)
         ),
         "unexpected rejection: {error:#}"

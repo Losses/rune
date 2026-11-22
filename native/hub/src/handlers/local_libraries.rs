@@ -318,6 +318,7 @@ mod tests {
         library_registry::{LibraryRecord, create_replica, resolve_library},
     };
     use fsio::FsIo;
+    use visualizer::Visualizer;
 
     async fn list(config: &Arc<String>) -> Result<Vec<LocalLibrary>> {
         let request = ListLocalLibrariesRequest { call_id: None };
@@ -367,7 +368,7 @@ mod tests {
             Arc::new(LocalGuiBroadcaster),
             false,
             RunMode::App,
-            Arc::new(::visualizer::Visualizer::new()),
+            Arc::new(Visualizer::new()),
         )
         .await?;
         assert!(list(&config).await?.is_empty());

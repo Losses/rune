@@ -2,7 +2,10 @@
 //! This model assumes truthful file/directory syncs and atomic namespace operations;
 //! it explores bounded losses, reordering and torn pending writes, not arbitrary damage.
 use anyhow::{Context, Result, bail, ensure};
+use blake3::Hasher;
 use serde_json::{Value, json};
+use std::env;
+use std::process as std_process;
 use std::{
     cell::RefCell,
     collections::{BTreeMap, HashSet},
@@ -291,7 +294,7 @@ fn model_checks() -> Result<()> {
     );
     Ok(())
 }
-fn wait(mut child: std::process::Child, limit: Duration) -> Result<std::process::Output> {
+fn wait(mut child: std_process::Child, limit: Duration) -> Result<std_process::Output> {
     let start = Instant::now();
     loop {
         if child.try_wait()?.is_some() {
@@ -339,7 +342,7 @@ fn copy_tree(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 fn binary() -> Result<PathBuf> {
-    let output = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+    let output = Command::new(env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
         .args([
             "test",
             "-p",
@@ -378,7 +381,7 @@ fn capture(binary: &Path, root: &Path) -> Result<(PathBuf, Value, Vec<Event>, St
     copy_tree(&seed, &baseline)?;
     let shim = root.join("storage_trace.so");
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/storage_trace.rs");
-    let output = Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
+    let output = Command::new(env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
         .args([
             "--crate-type",
             "cdylib",
@@ -531,7 +534,7 @@ pub fn run() -> Result<()> {
                 } else {
                     "auto"
                 };
-                let mut hash = blake3::Hasher::new();
+                let mut hash = Hasher::new();
                 hash.update(expected.as_bytes());
                 for (kind, data) in &image {
                     hash.update(&[*kind]);

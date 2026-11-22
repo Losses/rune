@@ -2,8 +2,10 @@ use std::fmt;
 
 use discovery::endpoint::{EndpointUrl, HttpTransport};
 use rand::RngCore;
+use reqwest::header;
 use reqwest::{Client, StatusCode};
 use serde::Deserialize;
+use serde_json::Value;
 use thiserror::Error;
 use url::Url;
 
@@ -669,7 +671,7 @@ impl SubsonicClient {
                 Some(end) => format!("bytes={start}-{end}"),
                 None => format!("bytes={start}-"),
             };
-            request = request.header(reqwest::header::RANGE, value);
+            request = request.header(header::RANGE, value);
         }
         let response = request.send().await.map_err(|_| StreamError::Unreachable)?;
         let status = response.status();
@@ -687,7 +689,7 @@ impl SubsonicClient {
         }
         if response
             .headers()
-            .get(reqwest::header::CONTENT_TYPE)
+            .get(header::CONTENT_TYPE)
             .and_then(|value| value.to_str().ok())
             .is_some_and(|value| value.contains("json"))
         {
@@ -845,7 +847,7 @@ impl SubsonicClient {
         if envelope.response.status != "ok" {
             return Err(SubsonicError::Malformed("unknown response status".into()));
         }
-        serde_json::from_value(serde_json::Value::Object(envelope.response.data)).map_err(|error| {
+        serde_json::from_value(Value::Object(envelope.response.data)).map_err(|error| {
             SubsonicError::Malformed(self.redact_secrets(&query, &error.to_string()))
         })
     }

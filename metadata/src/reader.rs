@@ -8,6 +8,7 @@ use symphonia::core::probe::{Hint, ProbeResult};
 
 use ::fsio::{FsIo, FsNode, OpenMode};
 use ::fsio_media_source::FsioMediaSource;
+use symphonia::default as symphonia_default;
 
 fn create_standard_tag_key_maps() -> (
     HashMap<StandardTagKey, &'static str>,
@@ -233,7 +234,7 @@ fn probe_audio_file(fsio: &FsIo, file_path: &Path) -> Result<ProbeResult> {
     let meta_opts: MetadataOptions = Default::default();
 
     // Probe the media source.
-    let probed = symphonia::default::get_probe()
+    let probed = symphonia_default::get_probe()
         .format(&hint, mss, &fmt_opts, &meta_opts)
         .map_err(|e| anyhow::anyhow!("Failed to probe file {:?}: {e}", file_path))?;
 

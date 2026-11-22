@@ -6,11 +6,13 @@ use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
 use fsio::FsIo;
+use std::env;
+use std::fs;
 use visualizer::Chart;
 
 fn main() -> anyhow::Result<()> {
-    let mut args = std::env::args().skip(1);
-    let audio = std::fs::canonicalize(args.next().expect("audio path"))?;
+    let mut args = env::args().skip(1);
+    let audio = fs::canonicalize(args.next().expect("audio path"))?;
     let start = Instant::now();
     let analysis = chart_analyzer::analyze_file(&FsIo::new(), &audio, &AtomicBool::new(false))?;
     println!("{}: analysed in {:.2?}", audio.display(), start.elapsed());

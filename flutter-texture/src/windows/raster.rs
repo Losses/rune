@@ -24,6 +24,7 @@ use log::error;
 
 use super::api::{GpuSurfaceDescriptor, PIXEL_FORMAT_RGBA8888, PixelBuffer};
 use crate::{Frame, FrameSource, PixelFormat, TextureError, lock};
+use std::ptr;
 
 /// The texture of [`crate::Kind::Dxgi`].
 pub(super) struct Gpu {
@@ -50,14 +51,14 @@ impl Gpu {
                 held: None,
                 descriptor: GpuSurfaceDescriptor {
                     struct_size: size_of::<GpuSurfaceDescriptor>(),
-                    handle: std::ptr::null_mut(),
+                    handle: ptr::null_mut(),
                     width: 0,
                     height: 0,
                     visible_width: 0,
                     visible_height: 0,
                     format: PIXEL_FORMAT_RGBA8888,
                     release_callback: None,
-                    release_context: std::ptr::null_mut(),
+                    release_context: ptr::null_mut(),
                 },
             }),
         }
@@ -91,9 +92,9 @@ impl Gpu {
             }
         }
         let descriptor = if state.held.is_some() {
-            std::ptr::from_ref(&state.descriptor)
+            ptr::from_ref(&state.descriptor)
         } else {
-            std::ptr::null()
+            ptr::null()
         };
         drop(state);
         // Outside the lock: the producer's frame may do work when it goes.
@@ -122,7 +123,7 @@ pub(super) unsafe extern "C" fn gpu_surface(
     let gpu = unsafe { &*user_data.cast::<Gpu>() };
     catch_unwind(AssertUnwindSafe(|| gpu.describe())).unwrap_or_else(|_| {
         error!("Flutter texture: the GPU surface callback panicked");
-        std::ptr::null()
+        ptr::null()
     })
 }
 
@@ -154,10 +155,10 @@ impl Pixels {
     /// callback. Null if there is no frame to show.
     fn copy(&self) -> *const PixelBuffer {
         let Some(acquired) = self.source.acquire() else {
-            return std::ptr::null();
+            return ptr::null();
         };
         let Frame::Pixels(pixels) = &acquired.frame else {
-            return std::ptr::null();
+            return ptr::null();
         };
         match Self::hold(pixels, acquired.keep) {
             Ok(held) => {
@@ -166,7 +167,7 @@ impl Pixels {
                 // SAFETY: just made; the engine owns it from here, until it calls `release_held`.
                 unsafe {
                     (*held).buffer.release_context = held.cast();
-                    std::ptr::addr_of!((*held).buffer)
+                    ptr::addr_of!((*held).buffer)
                 }
             }
             Err(e) => {
@@ -174,7 +175,7 @@ impl Pixels {
                     error!("Flutter texture: {e}");
                     self.source.failed(e);
                 }
-                std::ptr::null()
+                ptr::null()
             }
         }
     }
@@ -193,11 +194,11 @@ impl Pixels {
             .ok_or_else(|| TextureError::Frame("the pixels are empty".into()))?;
         let mut held = Box::new(Held {
             buffer: PixelBuffer {
-                buffer: std::ptr::null(),
+                buffer: ptr::null(),
                 width: pixels.width() as usize,
                 height: pixels.height() as usize,
                 release_callback: Some(release_held),
-                release_context: std::ptr::null_mut(),
+                release_context: ptr::null_mut(),
             },
             _packed: Vec::new(),
             _keep: None,
@@ -229,7 +230,7 @@ pub(super) unsafe extern "C" fn pixel_buffer(
     let texture = unsafe { &*user_data.cast::<Pixels>() };
     catch_unwind(AssertUnwindSafe(|| texture.copy())).unwrap_or_else(|_| {
         error!("Flutter texture: the pixel buffer callback panicked");
-        std::ptr::null()
+        ptr::null()
     })
 }
 
@@ -249,6 +250,8 @@ unsafe extern "C" fn release_held(context: *mut c_void) {
 
 #[cfg(test)]
 mod tests {
+    use std::array;
+    use std::slice;
     use std::sync::atomic;
     use std::sync::atomic::AtomicU64;
     use std::sync::atomic::AtomicUsize;
@@ -319,7 +322,7 @@ mod tests {
             id: AtomicU64::new(0),
             padded,
             dxgi,
-            rows: std::array::from_fn(|i| i as u8),
+            rows: array::from_fn(|i| i as u8),
             held: Arc::default(),
             failures: Mutex::default(),
         })
@@ -410,7 +413,7 @@ mod tests {
         assert_eq!(source.held.load(Ordering::Relaxed), 0);
         // SAFETY: the buffer is the one just handed out, released once below.
         unsafe {
-            let rows = std::slice::from_raw_parts((*buffer).buffer, 16);
+            let rows = slice::from_raw_parts((*buffer).buffer, 16);
             assert_eq!(
                 rows,
                 [0, 1, 2, 3, 4, 5, 6, 7, 12, 13, 14, 15, 16, 17, 18, 19]

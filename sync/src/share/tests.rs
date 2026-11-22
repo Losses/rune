@@ -11,6 +11,10 @@ use crate::protocol::{
 };
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::fs;
+use std::path as std_path;
+use std::thread;
 use std::{
     collections::BTreeMap,
     env,
@@ -19,6 +23,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+use tokio::fs::OpenOptions as TokioOpenOptions;
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -242,7 +247,7 @@ async fn bucketed_base_peer_fixture(count: u64, boundaries: &[u128]) -> PeerFixt
             .map(serde_json::to_value)
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
-        let canonical_candidates = serde_json::to_vec(&serde_json::Value::Array(values)).unwrap();
+        let canonical_candidates = serde_json::to_vec(&Value::Array(values)).unwrap();
         let (chunk_name, chunk_bytes) = encode_chunk(canonical_candidates).unwrap();
         fixture
             .objects
@@ -547,7 +552,7 @@ async fn reading_a_cached_share_object_leaves_the_runtime_free() {
 
     // Opening a named pipe for reading and writing never waits, and releases whoever waits
     // on its other end.
-    fn release(pipe: &std::path::Path) {
+    fn release(pipe: &std_path::Path) {
         let _ = OpenOptions::new().read(true).write(true).open(pipe);
     }
 
@@ -563,13 +568,13 @@ async fn reading_a_cached_share_object_leaves_the_runtime_free() {
     advance_to_complete(&peer, &fresh_receiver()).await;
 
     let mut pipes = Vec::new();
-    for entry in std::fs::read_dir(&cache).unwrap() {
+    for entry in fs::read_dir(&cache).unwrap() {
         let path = entry.unwrap().path();
         if path.extension().and_then(|extension| extension.to_str()) != Some("gz") {
             continue;
         }
-        let bytes = std::fs::read(&path).unwrap();
-        std::fs::remove_file(&path).unwrap();
+        let bytes = fs::read(&path).unwrap();
+        fs::remove_file(&path).unwrap();
         assert!(
             Command::new("mkfifo")
                 .arg(&path)
@@ -592,13 +597,13 @@ async fn reading_a_cached_share_object_leaves_the_runtime_free() {
                 .map(|(path, _)| path.clone())
                 .collect::<Vec<_>>(),
         );
-        std::thread::spawn(move || {
+        thread::spawn(move || {
             if done_rx.recv_timeout(Duration::from_secs(30)) == Err(mpsc::RecvTimeoutError::Timeout)
             {
                 stalled.store(true, Ordering::SeqCst);
                 while done_rx.try_recv() == Err(mpsc::TryRecvError::Empty) {
                     paths.iter().for_each(|path| release(path));
-                    std::thread::yield_now();
+                    thread::yield_now();
                 }
             }
         })
@@ -611,8 +616,7 @@ async fn reading_a_cached_share_object_leaves_the_runtime_free() {
             tokio::spawn(async move {
                 use tokio::io::AsyncWriteExt;
                 while !finished.load(Ordering::SeqCst) {
-                    let Ok(mut pipe) = tokio::fs::OpenOptions::new().write(true).open(&path).await
-                    else {
+                    let Ok(mut pipe) = TokioOpenOptions::new().write(true).open(&path).await else {
                         break;
                     };
                     let _ = pipe.write_all(&bytes).await;
@@ -1110,7 +1114,7 @@ async fn share_range_work_loads_one_chunk_per_step() {
     };
     // Each step starts without cached chunks, so every chunk it loads is read from the store.
     let start_step = || {
-        let _ = std::fs::remove_dir_all(&cache);
+        let _ = fs::remove_dir_all(&cache);
         chunks
             .iter()
             .map(|key| fixture.objects.get_count(key))

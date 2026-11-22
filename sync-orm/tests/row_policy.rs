@@ -1,9 +1,13 @@
 #[path = "support/fixtures.rs"]
 mod fixtures;
 
+use blake3::Hasher;
+use sea_orm::DbErr;
 use sea_orm::sea_query as sea_orm_sea_query;
 use sea_orm::{ConnectionTrait, Database, EntityTrait, Schema, TransactionTrait, sea_query::Expr};
+use sync::protocol;
 use sync::protocol::{ObjectKey, SyncModel};
+use sync_orm::row_policy;
 use uuid::Uuid;
 
 #[tokio::test]
@@ -47,7 +51,7 @@ async fn metadata_reads_do_not_evaluate_unselected_local_columns() -> anyhow::Re
         &tx,
         &Collection::Folder,
         None,
-        sync_orm::row_policy::ScanLimits {
+        row_policy::ScanLimits {
             max_records: 128,
             max_rows: 2,
             max_bytes: 256,
@@ -70,13 +74,11 @@ sync_orm::owned_list_mapping! { pub struct OrderedClause, OrderedClauseMap for c
     limits: { position => (0, 2), label => (0, 128) },
 } }
 fn derive_folder_search(
-    _: &sync_orm::row_policy::RowView<folders::Entity>,
+    _: &row_policy::RowView<folders::Entity>,
     value: Option<&ComposedFolder>,
 ) -> Result<Vec<SearchDoc>, sea_orm::DbErr> {
     if value.is_some_and(|value| value.label == "fail-effect") {
-        return Err(sea_orm::DbErr::Custom(
-            "injected derived-effect failure".into(),
-        ));
+        return Err(DbErr::Custom("injected derived-effect failure".into()));
     }
     Ok(value
         .into_iter()
@@ -104,14 +106,14 @@ sync_orm::row_policies! { pub Composed, ComposedCollection, ComposedPayload {
                 local_reads: [folders::Column::Local],
                 lists: { clauses: OrderedClause => {
                     entity: clauses::Entity, mapping: OrderedClauseMap,
-                    owner: |row: &sync_orm::row_policy::RowView<folders::Entity>| -> Result<_, sea_orm::DbErr> { Ok(vec![row.read::<String>(folders::Column::Uuid)?.into()]) }
+                    owner: |row: &row_policy::RowView<folders::Entity>| -> Result<_, sea_orm::DbErr> { Ok(vec![row.read::<String>(folders::Column::Uuid)?.into()]) }
                 } },
                 effects: { search => {
                     entity: search_docs::Entity, mapping: SearchMap,
-                    owner: |row: &sync_orm::row_policy::RowView<folders::Entity>| -> Result<_, sea_orm::DbErr> { Ok(vec![row.read::<i32>(folders::Column::Id)?.to_string().into()]) },
+                    owner: |row: &row_policy::RowView<folders::Entity>| -> Result<_, sea_orm::DbErr> { Ok(vec![row.read::<i32>(folders::Column::Id)?.to_string().into()]) },
                     derive: derive_folder_search
                 } },
-                local_updates: |before: Option<&sync_orm::row_policy::RowView<folders::Entity>>, value: &ComposedFolder| -> Result<_, sea_orm::DbErr> {
+                local_updates: |before: Option<&row_policy::RowView<folders::Entity>>, value: &ComposedFolder| -> Result<_, sea_orm::DbErr> {
                     let local = match before {
                         Some(row) if row.read::<String>(folders::Column::Label)? == value.label => row.read::<String>(folders::Column::Local)?,
                         _ => String::new(),
@@ -249,7 +251,7 @@ async fn registered_lists_and_effects_share_encoding_projection_scan_and_rollbac
         &tx,
         &ComposedCollection::Folder,
         None,
-        sync_orm::row_policy::ScanLimits {
+        row_policy::ScanLimits {
             max_records: 128,
             max_rows: 10,
             max_bytes: 4096,
@@ -384,7 +386,7 @@ mod associations {
     impl ActiveModelBehavior for ActiveModel {}
 }
 fn association_identity(item: &Association) -> Result<Uuid, sea_orm::DbErr> {
-    let mut hasher = blake3::Hasher::new();
+    let mut hasher = Hasher::new();
     hasher.update(item.left.as_bytes());
     hasher.update(item.right.as_bytes());
     let mut bytes = [0_u8; 16];
@@ -432,7 +434,7 @@ async fn source_projection_uses_shared_mapping_and_transaction() {
         collection: Collection::Owned,
         id,
     };
-    let revision = sync::protocol::Revision {
+    let revision = protocol::Revision {
         actor: Uuid::new_v4(),
         counter: 1,
     };
@@ -447,7 +449,7 @@ async fn source_projection_uses_shared_mapping_and_transaction() {
         Catalog::validate_revision(
             &key,
             &Some(Payload::Owned(Owned { owner: id })),
-            &sync::protocol::Revision {
+            &protocol::Revision {
                 actor: id,
                 counter: 1
             }
@@ -636,7 +638,7 @@ async fn causal_selected_survivor_and_source_rollback() -> anyhow::Result<()> {
     projection
         .apply(
             &tx,
-            &sync::protocol::ProjectionBatch {
+            &protocol::ProjectionBatch {
                 changes: vec![first.projection],
                 causal_changes: 1,
                 pending: 0,
@@ -658,7 +660,7 @@ async fn causal_selected_survivor_and_source_rollback() -> anyhow::Result<()> {
         max_reads: 0,
         max_mutations: 0,
     })?;
-    let batch = sync::protocol::ProjectionBatch {
+    let batch = protocol::ProjectionBatch {
         changes: vec![second.projection.clone()],
         causal_changes: 1,
         pending: 0,
@@ -668,7 +670,7 @@ async fn causal_selected_survivor_and_source_rollback() -> anyhow::Result<()> {
     projection
         .apply(
             &tx,
-            &sync::protocol::ProjectionBatch {
+            &protocol::ProjectionBatch {
                 changes: vec![second.projection],
                 causal_changes: 1,
                 pending: 0,
@@ -1535,7 +1537,7 @@ sync_orm::derived_effect_mapping! { pub struct NoteSearchDoc, NoteSearchMap for 
     fields: { text: String => search_docs::Column::Text }, defaults: {},
 } }
 fn derive_note_search(
-    _: &sync_orm::row_policy::RowView<notes::Entity>,
+    _: &row_policy::RowView<notes::Entity>,
     value: Option<&SharedNote>,
 ) -> Result<Vec<NoteSearchDoc>, sea_orm::DbErr> {
     Ok(value
@@ -1551,7 +1553,7 @@ sync_orm::row_mapping! { pub struct SharedNote, SharedNoteMap for notes::Entity 
     defaults: { notes::Column::Local => "" },
     effects: { search => {
         entity: search_docs::Entity, mapping: NoteSearchMap,
-        owner: |row: &sync_orm::row_policy::RowView<notes::Entity>| -> Result<_, sea_orm::DbErr> { Ok(vec![row.read::<i32>(notes::Column::Id)?.to_string().into()]) },
+        owner: |row: &row_policy::RowView<notes::Entity>| -> Result<_, sea_orm::DbErr> { Ok(vec![row.read::<i32>(notes::Column::Id)?.to_string().into()]) },
         derive: derive_note_search
     } },
 } }
@@ -1637,7 +1639,7 @@ async fn scan_canonicalizes_uppercase_uuid() -> anyhow::Result<()> {
         &tx,
         &Collection::Folder,
         None,
-        sync_orm::row_policy::ScanLimits {
+        row_policy::ScanLimits {
             max_records: 128,
             max_rows: 2,
             max_bytes: 4096,
@@ -1688,7 +1690,7 @@ async fn scan_canonicalizes_uuid_references() -> anyhow::Result<()> {
         &tx,
         &Collection::Association,
         None,
-        sync_orm::row_policy::ScanLimits {
+        row_policy::ScanLimits {
             max_records: 128,
             max_rows: 2,
             max_bytes: 4096,

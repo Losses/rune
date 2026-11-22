@@ -1,9 +1,10 @@
 use tokio::net::TcpListener;
+use tokio::task;
 use url::Url;
 
 pub struct TestServer {
     pub url: Url,
-    task: tokio::task::JoinHandle<()>,
+    task: task::JoinHandle<()>,
 }
 
 impl Drop for TestServer {

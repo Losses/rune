@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::messages::PlaybackMode as WirePlaybackMode;
+use serde_json::Value;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -195,7 +196,7 @@ impl SessionState {
                     serde_json::from_slice(&bytes).context("Read player session")?;
                 let version = value
                     .get("version")
-                    .and_then(serde_json::Value::as_u64)
+                    .and_then(Value::as_u64)
                     .unwrap_or_default();
                 if version == 6 {
                     return serde_json::from_value(value).context("Read player session v6");
@@ -265,6 +266,8 @@ mod tests {
     use playback::player::{
         HandoffBlockId, InterruptedItem, PlayingItem, QueueEntry, SubsonicItem,
     };
+    use std::fs;
+    use std::slice;
 
     #[test]
     fn the_stored_playback_mode_is_read_back_as_written() {
@@ -315,14 +318,13 @@ mod tests {
             "position": 1,
             "mode": 0,
         });
-        std::fs::write(&path, serde_json::to_vec(&unsupported).unwrap()).unwrap();
+        fs::write(&path, serde_json::to_vec(&unsupported).unwrap()).unwrap();
 
         let state = SessionState::read(&path).unwrap();
 
         assert!(state.queue_entries().is_empty());
         assert_eq!(state.queue_revision, 0);
-        let saved: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let saved: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
         assert_eq!(saved["version"], 6);
     }
 
@@ -342,7 +344,7 @@ mod tests {
             item: item.clone(),
             block: Some(id),
         };
-        state.update_queue(std::slice::from_ref(&entry));
+        state.update_queue(slice::from_ref(&entry));
         assert_eq!(state.handoff_blocks.len(), 1);
         state.update_queue(&[QueueEntry { item, block: None }]);
         assert!(state.handoff_blocks.is_empty());

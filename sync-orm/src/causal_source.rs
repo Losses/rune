@@ -4,11 +4,13 @@
 //! in the primary retained candidate relation and are never copied into a source table.
 use crate::causal_leases::{create_build_locked_on, lock_on};
 use anyhow::{Result, ensure};
+use blake3::Hasher;
 use sea_orm::{
     ConnectionTrait, DatabaseTransaction, ExprTrait, FromQueryResult,
     sea_query::{Alias, Condition, Expr, Func, Order, Query},
 };
 use serde::{Deserialize, Serialize};
+use std::cmp;
 use std::collections::BTreeMap;
 use sync::protocol::{self, KeyRange, SyncModel, WorkLimits};
 use uuid::Uuid;
@@ -305,8 +307,8 @@ async fn scan_candidate_batch_on<M: SyncModel>(
         }
         // Limit the OR expression as well as row and byte work. Header rows
         // are charged even when a later byte bound or callback discards them.
-        let max_headers = std::cmp::min(
-            std::cmp::min(remaining_rows / 2, remaining_bytes / 225),
+        let max_headers = cmp::min(
+            cmp::min(remaining_rows / 2, remaining_bytes / 225),
             crate::causal_candidates::MAX_HEADER_BATCH as u64,
         );
         let headers = crate::causal_candidates::header_batch_on(
@@ -437,7 +439,7 @@ struct ReadySummary<M: SyncModel> {
 }
 fn summary_work_id<M: SyncModel>(snapshot: Uuid, range: &KeyRange<M>) -> Result<Uuid> {
     let encoded = serde_json::to_vec(range)?;
-    let mut hash = blake3::Hasher::new();
+    let mut hash = Hasher::new();
     hash.update(b"sync.source.summary.work.v1\0");
     hash.update(snapshot.as_bytes());
     hash.update(&encoded);
@@ -571,9 +573,9 @@ async fn scan_candidate_headers_on<M: SyncModel>(
         }
     }
     while used.rows < limits.max_rows_scanned && limits.max_bytes - used.bytes >= HEADER_BYTES {
-        let capacity = std::cmp::min(
+        let capacity = cmp::min(
             crate::causal_candidates::MAX_HEADER_BATCH as u64,
-            std::cmp::min(
+            cmp::min(
                 limits.max_rows_scanned - used.rows,
                 (limits.max_bytes - used.bytes) / HEADER_BYTES,
             ),
@@ -741,6 +743,8 @@ mod tests {
     use super::*;
     use crate::{causal_schema, causal_store::CausalReplica};
     use sea_orm::{Database, TransactionTrait};
+    use std::env;
+    use std::fs;
     use sync::protocol::{ObjectKey, Observed};
 
     #[derive(Clone, Debug, PartialEq, Eq)]
@@ -2158,7 +2162,7 @@ mod tests {
 
     #[tokio::test]
     async fn ready_generation_is_pinned_across_connections_until_revoked() -> Result<()> {
-        let path = std::env::temp_dir().join(format!("observed-pin-{}.sqlite", Uuid::new_v4()));
+        let path = env::temp_dir().join(format!("observed-pin-{}.sqlite", Uuid::new_v4()));
         let url = format!("sqlite://{}?mode=rwc", path.display());
         let a = Database::connect(&url).await?;
         causal_schema::install_fresh(&a).await?;
@@ -2248,7 +2252,7 @@ mod tests {
         drop(replica);
         a.close().await?;
         b.close().await?;
-        std::fs::remove_file(path)?;
+        fs::remove_file(path)?;
         Ok(())
     }
     #[tokio::test]
@@ -3155,7 +3159,7 @@ struct ReadySplit<M: SyncModel> {
 }
 fn split_work_id<M: SyncModel>(snapshot: Uuid, range: &KeyRange<M>) -> Result<Uuid> {
     let encoded = serde_json::to_vec(range)?;
-    let mut hash = blake3::Hasher::new();
+    let mut hash = Hasher::new();
     hash.update(b"sync.source.split.work.v1\0");
     hash.update(snapshot.as_bytes());
     hash.update(&encoded);
@@ -3579,7 +3583,7 @@ async fn advance_snapshot_step_on<M: SyncModel>(
     };
     match state.phase {
         SnapshotPhase::Context => {
-            let capacity = std::cmp::min(limits.max_rows_scanned, data.max_bytes / 128);
+            let capacity = cmp::min(limits.max_rows_scanned, data.max_bytes / 128);
             ensure!(
                 capacity > 0,
                 SyncError::LimitTooSmall {

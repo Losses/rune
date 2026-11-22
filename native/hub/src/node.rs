@@ -1,4 +1,5 @@
 mod reconnect;
+use anyhow::Error as AnyhowError;
 pub(crate) use reconnect::ReconnectConfig;
 use reconnect::ReconnectTask;
 #[cfg(test)]
@@ -83,18 +84,17 @@ fn renderer_connection_error(error: RemoteConnectError) -> anyhow::Error {
     let detail = format!("Renderer connection failed: {error:?}");
     match error {
         RemoteConnectError::UntrustedEndpoint | RemoteConnectError::NotAuthorized => {
-            anyhow::Error::new(Denial::Untrusted).context(detail)
+            AnyhowError::new(Denial::Untrusted).context(detail)
         }
         RemoteConnectError::Unreachable | RemoteConnectError::Protocol(_) => {
-            anyhow::Error::new(ExpectedRequestError::Unavailable { what: "renderer" })
-                .context(detail)
+            AnyhowError::new(ExpectedRequestError::Unavailable { what: "renderer" }).context(detail)
         }
         RemoteConnectError::PeerNeedsUpdate {
             local,
             peer,
             update_peer,
             peer_alias,
-        } => anyhow::Error::new(ExpectedRequestError::PeerNeedsUpdate {
+        } => AnyhowError::new(ExpectedRequestError::PeerNeedsUpdate {
             update_side: if update_peer {
                 ProtocolUpdateSide::Peer
             } else {
@@ -208,7 +208,7 @@ async fn depart_local_player(
     };
     completion
         .await
-        .map_err(|error| anyhow::Error::new(player_command_error(error)))
+        .map_err(|error| AnyhowError::new(player_command_error(error)))
         .context("Pause local player when another player becomes current")
 }
 
@@ -724,7 +724,7 @@ impl NodeContext {
             .await
             .contains_key(fingerprint)
         {
-            return Err(anyhow::Error::new(ExpectedError::NotFound {
+            return Err(AnyhowError::new(ExpectedError::NotFound {
                 what: "renderer",
             }));
         }
@@ -1668,8 +1668,10 @@ pub async fn shutdown_node() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::path as std_path;
     use std::sync::Arc;
     use std::sync::Mutex as StdMutex;
+    use visualizer::Visualizer as VisualizerVisualizer;
 
     use discovery::{server::UserStatus, utils::DeviceType};
     use tokio::{
@@ -1707,7 +1709,7 @@ mod tests {
             Arc::new(Quiet(Some(tx))),
             false,
             RunMode::App,
-            Arc::new(::visualizer::Visualizer::new()),
+            Arc::new(VisualizerVisualizer::new()),
         )
         .await?;
         let manager = node.permission_manager.read().await;
@@ -1794,7 +1796,7 @@ mod tests {
             answers.lock().unwrap().push(answer);
         };
 
-        let request = |path: &std::path::Path, call_id| InitializeNodeRequest {
+        let request = |path: &std_path::Path, call_id| InitializeNodeRequest {
             config_path: path.to_string_lossy().into_owned(),
             call_id: Some(call_id),
         };

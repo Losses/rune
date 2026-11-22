@@ -46,6 +46,9 @@ use crate::rpc::{RequestTranslationFuture, Slot, UnsupportedReason};
 use crate::subsonic_binding::{SubsonicBinding, SubsonicIdKind};
 use crate::utils::{RESOLVED_TRACK_LIMIT, resolved_start};
 use database::actions::mixes::QueryOperator;
+use reqwest::StatusCode as ReqwestStatusCode;
+use std::future;
+use std::result;
 use uuid::Uuid;
 
 fn subsonic_track_id(binding: &SubsonicBinding, item: Option<&PlayingItemRef>) -> Result<String> {
@@ -1164,7 +1167,7 @@ fn jukebox_error(error: SubsonicError, request: &'static str) -> anyhow::Error {
             what: "Subsonic jukebox",
         }
         .into(),
-        SubsonicError::HttpStatus(status) if status == reqwest::StatusCode::UNAUTHORIZED => {
+        SubsonicError::HttpStatus(status) if status == ReqwestStatusCode::UNAUTHORIZED => {
             ExpectedRequestError::SubsonicNotAuthorized.into()
         }
         SubsonicError::HttpStatus(_) => ExpectedRequestError::Unavailable {
@@ -1823,7 +1826,7 @@ fn parse_detail_query(queries: &[MixQuery], request: &'static str) -> Result<Det
     let Ok(operators) = queries
         .iter()
         .map(|query| QueryOperator::parse(&query.operator, &query.parameter))
-        .collect::<std::result::Result<Vec<_>, _>>()
+        .collect::<result::Result<Vec<_>, _>>()
     else {
         return Err(unsupported_detail_query(request).into());
     };
@@ -1961,7 +1964,7 @@ async fn cache_covers(binding: &SubsonicBinding, songs: &[SubsonicSong]) -> Hash
         })
         // The cover cache downloads four covers at a time, so waiting on more only queues them.
         .buffer_unordered(4)
-        .filter_map(std::future::ready)
+        .filter_map(future::ready)
         .collect()
         .await
 }
@@ -2339,6 +2342,11 @@ subsonic_requests! {
 
 #[cfg(test)]
 mod tests {
+    use playback::player;
+    use reqwest::Client;
+    use serde_json::Map;
+    use std::fs;
+    use std::iter;
     use std::{
         collections::{HashMap, HashSet},
         net::SocketAddr,
@@ -2348,6 +2356,11 @@ mod tests {
         },
         time::Duration,
     };
+    use tokio::sync as tokio_sync;
+    use tokio::time as tokio_time;
+    use url::Url;
+    use url::form_urlencoded;
+    use visualizer::Visualizer;
 
     use axum::{
         Router,
@@ -2425,7 +2438,7 @@ mod tests {
         random_song_sizes: Arc<Mutex<Vec<String>>>,
         no_random_songs: Arc<AtomicUsize>,
         // `error-cover` is answered only while this is not write-locked.
-        error_cover_gate: Arc<tokio::sync::RwLock<()>>,
+        error_cover_gate: Arc<tokio_sync::RwLock<()>>,
     }
 
     type MockPlaylistCalls = Arc<Mutex<Vec<(String, Vec<(String, String)>)>>>;
@@ -2513,12 +2526,12 @@ mod tests {
         });
         let url = format!("http://{address}");
         let client = SubsonicClient::new(
-            url::Url::parse(&url).unwrap(),
+            Url::parse(&url).unwrap(),
             SubsonicCredentials::Password {
                 user: "alice".into(),
                 password: "cover-secret-password".into(),
             },
-            reqwest::Client::new(),
+            Client::new(),
         );
         let broadcasts = Arc::new(AtomicUsize::new(0));
         let binding = SubsonicBinding::new(
@@ -2539,7 +2552,7 @@ mod tests {
             Uuid::new_v4(),
             mode == SubsonicOpenMode::PlayOnThisDevice,
             Arc::new(CountingBroadcaster(Arc::clone(&broadcasts))),
-            Arc::new(::visualizer::Visualizer::new()),
+            Arc::new(Visualizer::new()),
         );
         (
             binding,
@@ -2562,7 +2575,7 @@ mod tests {
         let params = raw_query
             .as_deref()
             .map(|query| {
-                url::form_urlencoded::parse(query.as_bytes())
+                form_urlencoded::parse(query.as_bytes())
                     .map(|(key, value)| (key.into_owned(), value.into_owned()))
                     .collect::<Vec<_>>()
             })
@@ -2825,7 +2838,7 @@ mod tests {
                     .and_then(|value| value.parse::<usize>().ok())
                     .unwrap_or_default()
                     .min(state.song_page_cap.load(Ordering::SeqCst));
-                let mut search = serde_json::Map::new();
+                let mut search = Map::new();
                 if query
                     .get("songCount")
                     .and_then(|value| value.parse::<u32>().ok())
@@ -2906,7 +2919,7 @@ mod tests {
     }
 
     async fn wait_for_covers(binding: &SubsonicBinding, cover_ids: &[&str]) {
-        tokio::time::timeout(Duration::from_secs(2), async {
+        tokio_time::timeout(Duration::from_secs(2), async {
             loop {
                 if cover_ids
                     .iter()
@@ -2914,7 +2927,7 @@ mod tests {
                 {
                     break;
                 }
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                tokio_time::sleep(Duration::from_millis(10)).await;
             }
         })
         .await
@@ -4207,7 +4220,7 @@ mod tests {
             assert_eq!(response.cover_art_map.len(), 2, "{queries:?}");
             for file in &response.files {
                 let cover = &response.cover_art_map[&file.id];
-                assert_eq!(std::fs::read(cover).unwrap(), b"image-cover-a", "{cover}");
+                assert_eq!(fs::read(cover).unwrap(), b"image-cover-a", "{cover}");
             }
         }
         assert_eq!(
@@ -4234,7 +4247,7 @@ mod tests {
         };
         // `cover-a` is cached while `error-cover` is held, then removed as eviction would.
         wait_for_covers(&binding, &["cover-a"]).await;
-        std::fs::remove_file(binding.covers.path_for("cover-a")).unwrap();
+        fs::remove_file(binding.covers.path_for("cover-a")).unwrap();
         drop(held);
 
         let response = query.await.unwrap().unwrap().unwrap();
@@ -4276,10 +4289,7 @@ mod tests {
             random_seed: Some(7),
             ..mix_request(&[("lib::random", "40"), ("filter::with_cover_art", "true")])
         };
-        let requests = cases
-            .into_iter()
-            .map(mix_request)
-            .chain(std::iter::once(seeded));
+        let requests = cases.into_iter().map(mix_request).chain(iter::once(seeded));
         for request in requests {
             let queries = &request.queries;
             let error = mix_query_request(&binding, &request)
@@ -4446,7 +4456,7 @@ mod tests {
             mock_subsonic_mode(&root, false, SubsonicOpenMode::PlayOnThisDevice).await;
         server._task.abort();
 
-        tokio::time::timeout(
+        tokio_time::timeout(
             Duration::from_secs(1),
             binding.report_track_started_at("song-42", 1_700_000_123_456),
         )
@@ -4896,7 +4906,7 @@ mod tests {
         let root = TempDir::new().unwrap();
         let (binding, server) = mock_subsonic(&root, true).await;
         let mut request = subsonic_load(binding.library_id, "unused", PlaylistOperateMode::Replace);
-        request.items[0] = PlayingItemRef::from(playback::player::LibraryItem {
+        request.items[0] = PlayingItemRef::from(player::LibraryItem {
             library_id: Uuid::new_v4(),
             file_uuid: Uuid::new_v4(),
         });
@@ -4956,19 +4966,19 @@ mod tests {
         let (binding, server) = mock_subsonic(&root, true).await;
         let binding = Arc::new(binding);
         binding.start_jukebox_polling();
-        tokio::time::timeout(Duration::from_secs(4), async {
+        tokio_time::timeout(Duration::from_secs(4), async {
             while server.broadcasts.load(Ordering::SeqCst) < 2 {
-                tokio::time::sleep(Duration::from_millis(20)).await;
+                tokio_time::sleep(Duration::from_millis(20)).await;
             }
         })
         .await
         .unwrap();
-        tokio::time::sleep(Duration::from_millis(3100)).await;
+        tokio_time::sleep(Duration::from_millis(3100)).await;
         assert_eq!(server.broadcasts.load(Ordering::SeqCst), 2);
         server.state.jukebox.lock().unwrap().playing = true;
-        tokio::time::timeout(Duration::from_secs(4), async {
+        tokio_time::timeout(Duration::from_secs(4), async {
             while server.broadcasts.load(Ordering::SeqCst) < 4 {
-                tokio::time::sleep(Duration::from_millis(20)).await;
+                tokio_time::sleep(Duration::from_millis(20)).await;
             }
         })
         .await
@@ -4982,7 +4992,7 @@ mod tests {
             .unwrap()
             .entries
             .push(mock_song("after-close"));
-        tokio::time::sleep(Duration::from_millis(3200)).await;
+        tokio_time::sleep(Duration::from_millis(3200)).await;
         assert_eq!(server.broadcasts.load(Ordering::SeqCst), stopped_count);
     }
 

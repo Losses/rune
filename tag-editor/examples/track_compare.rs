@@ -8,6 +8,7 @@ use ::fsio::FsIo;
 use ::tag_editor::music_brainz::fingerprint::{
     calc_fingerprint, calculate_similarity_score, get_track_duration_in_secs,
 };
+use rusty_chromaprint::Configuration;
 
 #[derive(Parser, Debug)]
 #[command(version, about = "Audio fingerprint comparison tool", long_about = None)]
@@ -23,7 +24,7 @@ fn main() -> anyhow::Result<()> {
     let args = CliArgs::parse();
 
     // Initialize Chromaprint configuration with default parameters
-    let config = rusty_chromaprint::Configuration::default();
+    let config = Configuration::default();
     let fsio = FsIo::new();
 
     // Process first file

@@ -23,6 +23,8 @@ use super::api::{self, Api};
 use super::logic::{self, Garbage, Imported, Rows};
 use crate::thread::MainContext;
 use crate::{DeviceUuids, PixelFormat, Pixels, VulkanImage};
+use std::env;
+use std::ptr;
 
 type GLenum = u32;
 type GLuint = u32;
@@ -455,7 +457,7 @@ impl Gl {
                 return Err("OpenGL cannot import a semaphore".into());
             }
             let layout = GL_LAYOUT_SHADER_READ_ONLY_EXT;
-            (ext.wait_semaphore)(semaphore, 0, std::ptr::null(), 1, &texture, &layout);
+            (ext.wait_semaphore)(semaphore, 0, ptr::null(), 1, &texture, &layout);
             if self.error() != GL_NO_ERROR {
                 (ext.delete_semaphores)(1, &semaphore);
                 return Err("OpenGL cannot wait for a semaphore".into());
@@ -519,7 +521,7 @@ impl Gl {
                     0,
                     GL_RGBA,
                     GL_UNSIGNED_BYTE,
-                    std::ptr::null(),
+                    ptr::null(),
                 );
                 current.size = (width, height);
             }
@@ -690,7 +692,7 @@ fn flutter_display(api: &Api, egl: &Egl) -> Option<EGLDisplay> {
             (_, Some((get_type, native))) if is(get_type) => (EGL_PLATFORM_X11_EXT, native),
             _ => return None,
         };
-        let display = get_platform_display(platform, native(display), std::ptr::null());
+        let display = get_platform_display(platform, native(display), ptr::null());
         (!display.is_null()).then_some(display)
     }
 }
@@ -699,7 +701,7 @@ fn flutter_display(api: &Api, egl: &Egl) -> Option<EGLDisplay> {
 /// requested, no surface), if it imports Vulkan memory and semaphores from file descriptors and
 /// runs on one GPU. Restores whatever context this thread had current.
 pub(super) fn probe(api: &Api, _context: MainContext) -> Option<DeviceUuids> {
-    if std::env::var_os("FLUTTER_LINUX_RENDERER").is_some_and(|renderer| renderer == "software") {
+    if env::var_os("FLUTTER_LINUX_RENDERER").is_some_and(|renderer| renderer == "software") {
         info!("Flutter texture: Flutter renders in software; frames are read back");
         return None;
     }
@@ -715,7 +717,7 @@ pub(super) fn probe(api: &Api, _context: MainContext) -> Option<DeviceUuids> {
     // here is destroyed, and the one current before is made current again.
     unsafe {
         let Some(display) = flutter_display(api, egl).filter(|&display| {
-            (egl.initialize)(display, std::ptr::null_mut(), std::ptr::null_mut()) == EGL_TRUE
+            (egl.initialize)(display, ptr::null_mut(), ptr::null_mut()) == EGL_TRUE
         }) else {
             info!("Flutter texture: no EGL display; frames are read back");
             return None;
@@ -730,9 +732,9 @@ pub(super) fn probe(api: &Api, _context: MainContext) -> Option<DeviceUuids> {
         (egl.bind_api)(EGL_OPENGL_ES_API);
         let config_attributes = [EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT, EGL_NONE];
         let context_attributes = [EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE];
-        let mut config = std::ptr::null_mut();
+        let mut config = ptr::null_mut();
         let mut configs = 0;
-        let mut context = std::ptr::null_mut();
+        let mut context = ptr::null_mut();
         if (egl.choose_config)(
             display,
             config_attributes.as_ptr(),
@@ -745,11 +747,11 @@ pub(super) fn probe(api: &Api, _context: MainContext) -> Option<DeviceUuids> {
             context = (egl.create_context)(
                 display,
                 config,
-                std::ptr::null_mut(),
+                ptr::null_mut(),
                 context_attributes.as_ptr(),
             );
         }
-        let none = std::ptr::null_mut();
+        let none = ptr::null_mut();
         let mut uuids = None;
         // Without a surface, as the engine does (EGL_KHR_surfaceless_context).
         if !context.is_null() && (egl.make_current)(display, none, none, context) == EGL_TRUE {

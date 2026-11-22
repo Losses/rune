@@ -15,6 +15,7 @@ use discovery::{
 };
 
 use crate::server::ServerState;
+use axum::body;
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterRequest {
@@ -106,7 +107,7 @@ struct ErrorResponse {
 }
 
 impl IntoResponse for AppError {
-    fn into_response(self) -> Response<axum::body::Body> {
+    fn into_response(self) -> Response<body::Body> {
         let (status, code, message) = match self {
             AppError::Permission(PermissionError::FingerprintConflict) => (
                 StatusCode::CONFLICT,

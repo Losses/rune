@@ -7,7 +7,9 @@ use anyhow::Result;
 use fsio::FsIo;
 use http_request::sync::MetadataPeer;
 use migration::{Migrator, MigratorTrait, initialize_node_id};
+use reqwest::Client;
 use sea_orm::{ConnectOptions, Database, DatabaseConnection};
+use std::fs;
 use std::{
     fs::File,
     path::{Path, PathBuf},
@@ -27,7 +29,7 @@ pub fn audio_fixture_at(index: usize) -> PathBuf {
 }
 
 pub fn unreachable_peer() -> MetadataPeer<RuneModel> {
-    MetadataPeer::new("http://127.0.0.1:1", reqwest::Client::new())
+    MetadataPeer::new("http://127.0.0.1:1", Client::new())
 }
 
 pub async fn migrate(db: &DatabaseConnection, actor: Uuid) -> Result<()> {
@@ -85,7 +87,7 @@ pub async fn scan_audio_fixtures(
 ) -> Result<()> {
     let source = audio_fixture();
     for name in names {
-        std::fs::copy(&source, root.join(name))?;
+        fs::copy(&source, root.join(name))?;
     }
     scan_library(fs, db, actor, root, store).await?;
     Ok(())

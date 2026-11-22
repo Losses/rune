@@ -4,6 +4,7 @@ use crate::protocol::{
 };
 use crate::share::{base_key, chunk_key, segment_key};
 use std::collections::{BTreeMap, BTreeSet};
+use std::slice;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 enum Collection {
@@ -690,7 +691,7 @@ fn gc_obeys_ack_retention_pins_and_rechecks_retirement() {
         active_acks: &acks,
         in_progress: &pins,
         chunks: &chunks,
-        retirements: std::slice::from_ref(&retired),
+        retirements: slice::from_ref(&retired),
     })
     .unwrap();
     assert_eq!(
@@ -737,7 +738,7 @@ fn gc_obeys_ack_retention_pins_and_rechecks_retirement() {
         active_acks: &no_acks,
         in_progress: &pins,
         chunks: &chunks,
-        retirements: std::slice::from_ref(&retired),
+        retirements: slice::from_ref(&retired),
     })
     .unwrap();
     assert!(

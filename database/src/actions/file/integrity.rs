@@ -2,12 +2,14 @@
 use super::{access::materialized_path, content::MANAGED_AUDIO_DIRECTORY};
 use crate::entities::media_files;
 use anyhow::{Result, ensure};
+use blake3::Hasher;
 use fsio::{FileStream, FsIo, OpenMode};
 use sea_orm::{
     ColumnTrait, Condition, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
     sea_query::Expr,
 };
 use std::{io::Read, path::Path};
+use tokio::task;
 
 struct Pending {
     row: media_files::Model,
@@ -102,7 +104,7 @@ impl ManagedAudioVerifier {
                     self.pending = Some(Pending {
                         row,
                         input,
-                        hash: blake3::Hasher::new(),
+                        hash: Hasher::new(),
                         bytes: 0,
                     })
                 }
@@ -156,7 +158,7 @@ impl ManagedAudioVerifier {
                 self.pending = None;
                 break;
             }
-            tokio::task::yield_now().await;
+            task::yield_now().await;
         }
         Ok(result)
     }

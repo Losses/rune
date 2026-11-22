@@ -7,7 +7,7 @@ use playback::{
     controller::{MediaControlManager, get_default_cover_art_path},
 };
 use scrobbling::ScrobblingTrack;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios", test))]
 use std::path;
 #[cfg(any(target_os = "ios", test))]
 use std::path::Path;
@@ -16,6 +16,8 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::Mutex;
+#[cfg(any(target_os = "macos", test))]
+use url::Url;
 
 pub fn metadata_summary_to_scrobbling_track(
     metadata: &PlayingItemMetadataSummary,
@@ -89,19 +91,19 @@ pub(crate) async fn update_media_controls_metadata(
 // Souvlaki's macOS backend passes this value to NSURL URLWithString. A plain
 // filesystem path is not a URL, particularly when it contains URL delimiters.
 #[cfg(any(target_os = "macos", test))]
-fn macos_cover_file_url(path: &std::path::Path) -> Option<String> {
+fn macos_cover_file_url(path: &path::Path) -> Option<String> {
     if !path.is_absolute() || !path.is_file() {
         return None;
     }
-    url::Url::from_file_path(path).ok().map(Into::into)
+    Url::from_file_path(path).ok().map(Into::into)
 }
 
 // On iOS this value is read as a plain filesystem path, so a cover that is
 // relative or gone is replaced by the default cover. Linux and Windows pass
 // the path through unchecked, and macOS shows no cover in that case.
 #[cfg(any(target_os = "ios", test))]
-fn ios_cover_path(path: Option<&str>, default: &std::path::Path) -> Option<String> {
-    let usable = |path: &std::path::Path| path.is_absolute() && path.is_file();
+fn ios_cover_path(path: Option<&str>, default: &path::Path) -> Option<String> {
+    let usable = |path: &path::Path| path.is_absolute() && path.is_file();
     path.map(Path::new)
         .filter(|path| usable(path))
         .or(Some(default).filter(|path| usable(path)))
@@ -142,32 +144,37 @@ pub(crate) async fn update_media_controls_progress(
 #[cfg(test)]
 mod cover_file_url_tests {
     use super::{ios_cover_path, macos_cover_file_url};
+    use std::env;
+    use std::fs;
     use std::path::Path;
+    use std::process as std_process;
+    use std::time as std_time;
     use std::time::SystemTime;
+    use url::Url;
 
     #[test]
     fn macos_cover_url_encodes_and_round_trips_local_path() {
-        let dir = std::env::temp_dir().join(format!(
+        let dir = env::temp_dir().join(format!(
             "rune-cover-url-{}-{}",
-            std::process::id(),
+            std_process::id(),
             SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
+                .duration_since(std_time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos()
         ));
-        std::fs::create_dir(&dir).unwrap();
+        fs::create_dir(&dir).unwrap();
         let path = dir.join("album # \u{4f60}\u{597d}.png");
-        std::fs::write(&path, b"test fixture").unwrap();
+        fs::write(&path, b"test fixture").unwrap();
         let url = macos_cover_file_url(&path).unwrap();
         assert!(url.starts_with("file://"));
         assert!(url.contains("%20") && url.contains("%23"));
-        assert_eq!(url::Url::parse(&url).unwrap().to_file_path().unwrap(), path);
-        std::fs::remove_dir_all(dir).unwrap();
+        assert_eq!(Url::parse(&url).unwrap().to_file_path().unwrap(), path);
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
     fn macos_cover_url_rejects_missing_relative_and_directory_paths() {
-        let dir = std::env::temp_dir();
+        let dir = env::temp_dir();
         assert!(macos_cover_file_url(Path::new("")).is_none());
         assert!(macos_cover_file_url(Path::new("relative.png")).is_none());
         assert!(macos_cover_file_url(&dir.join("rune-cover-url-nonexistent-53a246.png")).is_none());
@@ -179,8 +186,8 @@ mod cover_file_url_tests {
         let dir = tempfile::tempdir().unwrap();
         let cover = dir.path().join("cover.jpg");
         let default = dir.path().join("default.png");
-        std::fs::write(&cover, b"test fixture").unwrap();
-        std::fs::write(&default, b"test fixture").unwrap();
+        fs::write(&cover, b"test fixture").unwrap();
+        fs::write(&default, b"test fixture").unwrap();
         assert_eq!(
             ios_cover_path(cover.to_str(), &default),
             cover.to_str().map(String::from)
@@ -191,7 +198,7 @@ mod cover_file_url_tests {
     fn ios_cover_path_falls_back_to_default() {
         let dir = tempfile::tempdir().unwrap();
         let default = dir.path().join("default.png");
-        std::fs::write(&default, b"test fixture").unwrap();
+        fs::write(&default, b"test fixture").unwrap();
         let expected = default.to_str().map(String::from);
         let missing = dir.path().join("missing.jpg");
         assert_eq!(

@@ -72,6 +72,16 @@ use crate::{
         },
     },
 };
+use anyhow::Error;
+use http_request::sync as http_request_sync;
+use playback::player;
+use reqwest::StatusCode;
+use std::future;
+use std::mem;
+use std::pin;
+use tokio::fs as tokio_fs;
+use tokio::time as tokio_time;
+use uuid::Uuid;
 
 /// Asks the serving peer once per `interval` whether this device still has access to a remote
 /// audio track, and ends playback only when the peer says the access was revoked. A peer that
@@ -82,18 +92,18 @@ use crate::{
 async fn run_access_probe<Check, Fut>(
     interval: Duration,
     mut check: Check,
-    cancel: &tokio_util::sync::CancellationToken,
+    cancel: &tokio_util_sync::CancellationToken,
     failure_reason: &StdMutex<Option<UnavailableReason>>,
 ) where
     Check: FnMut() -> Fut,
-    Fut: std::future::Future<Output = Result<()>>,
+    Fut: future::Future<Output = Result<()>>,
 {
     let mut unreachable = false;
     loop {
-        tokio::time::sleep(interval).await;
+        tokio_time::sleep(interval).await;
         match check().await {
             Ok(()) => {
-                if std::mem::take(&mut unreachable) {
+                if mem::take(&mut unreachable) {
                     info!("Audio peer answers access checks again");
                 }
             }
@@ -109,7 +119,7 @@ async fn run_access_probe<Check, Fut>(
                     log::debug!("Audio library access revoked: {error:#}");
                     return;
                 }
-                if std::mem::replace(&mut unreachable, true) {
+                if mem::replace(&mut unreachable, true) {
                     log::debug!("Audio library access check failed: {error:#}");
                 } else {
                     log::warn!("Audio peer stopped answering access checks: {error:#}");
@@ -121,7 +131,7 @@ async fn run_access_probe<Check, Fut>(
 
 fn coalesce_worker_notify(
     notify: Arc<dyn Fn() + Send + Sync>,
-    cancel: tokio_util::sync::CancellationToken,
+    cancel: tokio_util_sync::CancellationToken,
 ) -> Arc<dyn Fn() + Send + Sync> {
     let (sender, mut receiver) = unbounded_channel();
     let worker_cancel = cancel.clone();
@@ -139,7 +149,7 @@ fn coalesce_worker_notify(
             tokio::select! {
                 biased;
                 _ = worker_cancel.cancelled() => return,
-                _ = tokio::time::sleep_until(deadline) => {},
+                _ = tokio_time::sleep_until(deadline) => {},
             }
             while let Ok(event) = receiver.try_recv() {
                 if event >= deadline {
@@ -188,11 +198,11 @@ pub struct ServerManager {
     is_running: AtomicBool,
     sync_only: AtomicBool,
     shutdown_handle: Mutex<Option<Handle>>,
-    sync_cancel: Mutex<Option<tokio_util::sync::CancellationToken>>,
+    sync_cancel: Mutex<Option<tokio_util_sync::CancellationToken>>,
     sync_handle: Mutex<Option<JoinHandle<()>>>,
     stream_handles: Mutex<Vec<JoinHandle<()>>>,
     sync_auth: Mutex<Option<SyncAuth>>,
-    watch_cancel: Mutex<Option<tokio_util::sync::CancellationToken>>,
+    watch_cancel: Mutex<Option<tokio_util_sync::CancellationToken>>,
     watch_handle: Mutex<Option<JoinHandle<()>>>,
     certificate: String,
     private_key: String,
@@ -288,7 +298,7 @@ impl ServerManager {
         self: Arc<Self>,
         addr: SocketAddr,
         discovery_params: DiscoveryParams,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send>> {
+    ) -> pin::Pin<Box<dyn future::Future<Output = Result<()>> + Send>> {
         Box::pin(async move { self.start_inner(addr, discovery_params, true).await })
     }
     async fn start_inner(
@@ -354,7 +364,7 @@ impl ServerManager {
                 config: governor_conf.into(),
             });
 
-        let node_id = uuid::Uuid::parse_str(&node.node_id)?;
+        let node_id = Uuid::parse_str(&node.node_id)?;
         let (_, fingerprint) = parse_certificate(&self.certificate)?;
         let auth = {
             let mut sync_auth = self.sync_auth.lock().await;
@@ -539,9 +549,9 @@ impl ServerManager {
         if let Some(handle) = handle.take()
             && let Err(error) = handle.await
         {
-            first_error = Some(anyhow::Error::from(error));
+            first_error = Some(Error::from(error));
         }
-        let streams = std::mem::take(&mut *self.stream_handles.lock().await);
+        let streams = mem::take(&mut *self.stream_handles.lock().await);
         for handle in streams {
             // A watcher whose task was already cancelled has nothing left to stop.
             if let Err(error) = handle.await
@@ -570,7 +580,7 @@ impl ServerManager {
             && let Err(error) = handle.await
         {
             log::error!("Watch task failed during shutdown: {error}");
-            first_error = Some(anyhow::Error::from(error));
+            first_error = Some(Error::from(error));
         }
         if let Some(handle) = self.shutdown_handle.lock().await.as_ref() {
             handle.graceful_shutdown(Some(Duration::from_secs(5)));
@@ -601,7 +611,7 @@ impl ServerManager {
         library: &LibraryHandle,
         lifetime: tokio_util_sync::CancellationToken,
         id: i32,
-    ) -> Result<playback::player::RemoteAudioSource> {
+    ) -> Result<player::RemoteAudioSource> {
         let node = self.node()?;
         let (track_id, blob, extension) = catalog_track(&library.main_db, id)
             .await?
@@ -643,7 +653,7 @@ impl ServerManager {
                     .await?;
                     let base = super::sync::library_base(&base, library_id);
                     let peer =
-                        http_request::sync::MetadataPeer::<RuneModel>::new(&base, client.clone());
+                        http_request_sync::MetadataPeer::<RuneModel>::new(&base, client.clone());
                     use sync::SyncPeer;
                     anyhow::ensure!(
                         peer.identity().await?.namespace == library_id,
@@ -651,7 +661,7 @@ impl ServerManager {
                     );
                     let url = format!("{base}/sync/blobs/{}", blob.digest);
                     let access_url = format!("{url}?track_id={track_id}");
-                    if matches!(response.status(), reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN | reqwest::StatusCode::NOT_FOUND) {
+                    if matches!(response.status(), StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN | StatusCode::NOT_FOUND) {
                         lifetime.cancel();
                         anyhow::bail!(RemoteAudioError::AccessRevoked);
                     }
@@ -702,7 +712,7 @@ impl ServerManager {
                         }
                     });
                     stream_handles.push(watcher);
-                    Ok::<_, anyhow::Error>(playback::player::RemoteAudioSource {
+                    Ok::<_, anyhow::Error>(player::RemoteAudioSource {
                         request,
                         url,
                         extension: extension.clone(),
@@ -772,13 +782,13 @@ pub async fn get_or_generate_alias(config_path: &Path) -> Result<String> {
 
     let certificate_id_path = config_path.join("cid");
     if certificate_id_path.exists() {
-        tokio::fs::read_to_string(&certificate_id_path)
+        tokio_fs::read_to_string(&certificate_id_path)
             .await
             .map(|s| s.trim().to_string())
             .context("Failed to read cid file")
     } else {
         let certificate_id = generate_random_alias();
-        tokio::fs::write(&certificate_id_path, &certificate_id)
+        tokio_fs::write(&certificate_id_path, &certificate_id)
             .await
             .context("Failed to save cid file")?;
         Ok(certificate_id)
@@ -790,7 +800,7 @@ pub async fn update_alias(config_path: &Path, new_alias: &str) -> Result<()> {
 
     let certificate_id_path = config_path.join("cid");
 
-    tokio::fs::write(&certificate_id_path, new_alias)
+    tokio_fs::write(&certificate_id_path, new_alias)
         .await
         .context("Failed to write cid file")?;
 
@@ -813,10 +823,10 @@ pub async fn generate_or_load_certificates<P: AsRef<Path>>(
     let key_path = config_path.join("private_key.pem");
 
     if cert_path.exists() && key_path.exists() {
-        let cert = tokio::fs::read_to_string(&cert_path)
+        let cert = tokio_fs::read_to_string(&cert_path)
             .await
             .context("Failed to read certificate")?;
-        let private_key = tokio::fs::read_to_string(&key_path)
+        let private_key = tokio_fs::read_to_string(&key_path)
             .await
             .context("Failed to read private key")?;
 
@@ -825,10 +835,10 @@ pub async fn generate_or_load_certificates<P: AsRef<Path>>(
     } else {
         let cert = generate_self_signed_cert(certificate_id, "Rune Player", "NET", 3650)?;
 
-        tokio::fs::write(&cert_path, &cert.certificate)
+        tokio_fs::write(&cert_path, &cert.certificate)
             .await
             .context("Failed to save certificate")?;
-        tokio::fs::write(&key_path, &cert.private_key)
+        tokio_fs::write(&key_path, &cert.private_key)
             .await
             .context("Failed to save private key")?;
 
@@ -873,7 +883,7 @@ pub async fn update_root_password<P: AsRef<Path>>(config_path: P, password: &str
 
     let hash = bcrypt::hash(password, bcrypt::DEFAULT_COST).context("Failed to hash password")?;
 
-    tokio::fs::write(&password_path, &hash)
+    tokio_fs::write(&password_path, &hash)
         .await
         .context("Failed to write password hash")?;
 
@@ -893,13 +903,30 @@ mod lifecycle_tests {
     use crate::server::WebSocketService;
     use crate::utils::{ParamsExtractor, register_local_library_on_node};
     use ::discovery::client::CertValidator;
+    use anyhow::Error;
+    use discovery::capabilities;
+    use discovery::endpoint;
+    use discovery::protocol_version;
+    use discovery::utils;
+    use metadata::cover_art;
+    use migration::catalog_identity;
     use migration::catalog_identity::{ParentKind, parent};
     use playback::decoder::RuneDecoder;
     use playback::stream_utils::{ManagedStream, create_stream_with_authorizer};
+    use reqwest::Client;
+    use reqwest::StatusCode;
+    use reqwest::header;
+    use std::fs;
+    use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::net::TcpListener;
     use std::path::Path;
+    use tokio::net::TcpSocket;
+    use tokio::task;
+    use tokio::time as tokio_time;
     use tracing_subscriber::filter::LevelFilter;
+    use url::Url;
+    use visualizer::Visualizer;
 
     #[tokio::test(start_paused = true)]
     async fn access_probe_keeps_buffered_audio_through_unreachable_peer_and_stops_on_revocation() {
@@ -936,7 +963,7 @@ mod lifecycle_tests {
             &cancel,
             &reason,
         );
-        tokio::time::timeout(Duration::from_secs(60), probe)
+        tokio_time::timeout(Duration::from_secs(60), probe)
             .await
             .expect("the probe must stop after the revocation");
         assert!(cancel.is_cancelled());
@@ -967,14 +994,14 @@ mod lifecycle_tests {
         );
         for _ in 0..100 {
             notify();
-            tokio::time::advance(Duration::from_millis(1)).await;
+            tokio_time::advance(Duration::from_millis(1)).await;
         }
-        tokio::time::advance(Duration::from_millis(500)).await;
-        tokio::task::yield_now().await;
+        tokio_time::advance(Duration::from_millis(500)).await;
+        task::yield_now().await;
         assert_eq!(count.load(Ordering::SeqCst), 1);
         notify();
-        tokio::time::advance(Duration::from_millis(500)).await;
-        tokio::task::yield_now().await;
+        tokio_time::advance(Duration::from_millis(500)).await;
+        task::yield_now().await;
         assert_eq!(count.load(Ordering::SeqCst), 2);
         cancel.cancel();
     }
@@ -1007,7 +1034,7 @@ mod lifecycle_tests {
     use playback::sfx_player::SfxPlayer;
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
     use std::future::Future;
-    use std::{fs, ops::Deref, sync::OnceLock, thread};
+    use std::{ops::Deref, sync::OnceLock, thread};
     use tokio::net::TcpStream;
     use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
     use tokio_util::sync::CancellationToken;
@@ -1117,7 +1144,7 @@ mod lifecycle_tests {
         // The test thread carries the test's name, so interleaved --nocapture output stays attributable.
         let test = thread::current().name().unwrap_or("?").to_owned();
         eprintln!("test step started: {test}: {name}");
-        match tokio::time::timeout(limit, future).await {
+        match tokio_time::timeout(limit, future).await {
             Ok(result) => {
                 eprintln!("test step finished: {test}: {name}");
                 result
@@ -1131,7 +1158,7 @@ mod lifecycle_tests {
         limit: Duration,
         future: impl Future<Output = Result<T>>,
     ) -> Result<T> {
-        tokio::time::timeout(limit, future)
+        tokio_time::timeout(limit, future)
             .await
             .with_context(|| format!("peer step timed out: {name}"))?
     }
@@ -1143,9 +1170,7 @@ mod lifecycle_tests {
         max_idle_per_host: Option<usize>,
     ) -> Result<reqwest::Client> {
         let tls = Arc::new(params.cert_validator.read().await.clone()).into_client_config();
-        let mut builder = reqwest::Client::builder()
-            .use_preconfigured_tls(tls)
-            .no_proxy();
+        let mut builder = Client::builder().use_preconfigured_tls(tls).no_proxy();
         if let Some(max_idle) = max_idle_per_host {
             builder = builder.pool_max_idle_per_host(max_idle);
         }
@@ -1258,7 +1283,7 @@ mod lifecycle_tests {
             run_mode,
             reconnect_config,
             wrap_player,
-            Arc::new(::visualizer::Visualizer::new()),
+            Arc::new(Visualizer::new()),
         )
         .await?;
         fixture_from_library(node_context, library).await
@@ -1302,7 +1327,7 @@ mod lifecycle_tests {
             Arc::new(Quiet),
             false,
             RunMode::App,
-            Arc::new(::visualizer::Visualizer::new()),
+            Arc::new(Visualizer::new()),
         )
         .await?;
         let library = node
@@ -1462,7 +1487,7 @@ mod lifecycle_tests {
         Ok(())
     }
 
-    async fn info(manager: &Fixture) -> Result<discovery::utils::DeviceInfo> {
+    async fn info(manager: &Fixture) -> Result<utils::DeviceInfo> {
         manager.global_params.node.device_info().await
     }
 
@@ -1820,7 +1845,7 @@ mod lifecycle_tests {
     /// as a multicast datagram would.
     async fn announce_peer(
         receiver: &Fixture,
-        info: &discovery::utils::DeviceInfo,
+        info: &utils::DeviceInfo,
         addr: SocketAddr,
     ) -> Result<()> {
         let announcement = serde_json::json!({
@@ -1852,7 +1877,7 @@ mod lifecycle_tests {
         let body: serde_json::Value = response.json().await?;
 
         assert!(body.get("active_library_id").is_none());
-        let capabilities: discovery::capabilities::Capabilities =
+        let capabilities: capabilities::Capabilities =
             serde_json::from_value(body["capabilities"].clone())?;
         assert_eq!(capabilities, Capabilities::rune_native());
         Ok(())
@@ -1905,7 +1930,7 @@ mod lifecycle_tests {
             .json(&serde_json::json!({ "libraryIds": [] }))
             .send()
             .await?;
-        assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN);
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
         server.global_params.node.shutdown().await?;
         peer.global_params.node.shutdown().await?;
         Ok(())
@@ -2051,7 +2076,7 @@ mod lifecycle_tests {
         )
         .await?;
         let root = owner_dir.path().join("removable-owned");
-        std::fs::create_dir_all(&root)?;
+        fs::create_dir_all(&root)?;
         let registered = register_local_library_on_node(
             &RegisterLocalLibraryRequest {
                 call_id: None,
@@ -2343,7 +2368,7 @@ mod lifecycle_tests {
     }
 
     async fn paired_full(a: &Fixture, b: &Fixture) -> Result<SocketAddr> {
-        paired_full_with_protocol_version(a, b, discovery::protocol_version::PROTOCOL_VERSION).await
+        paired_full_with_protocol_version(a, b, protocol_version::PROTOCOL_VERSION).await
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -2373,7 +2398,7 @@ mod lifecycle_tests {
     async fn paired_full_with_protocol_version(
         a: &Fixture,
         b: &Fixture,
-        protocol_version: discovery::protocol_version::ProtocolVersion,
+        protocol_version: protocol_version::ProtocolVersion,
     ) -> Result<SocketAddr> {
         let a_fingerprint = info(a).await?.fingerprint;
         let b_fingerprint = info(b).await?.fingerprint;
@@ -2537,7 +2562,7 @@ mod lifecycle_tests {
                 .into(),
             ))
             .await?;
-        tokio::time::timeout(TEST_DEADLINE, async {
+        tokio_time::timeout(TEST_DEADLINE, async {
             loop {
                 let frame = socket.next().await.context("socket closed")??;
                 let Message::Binary(bytes) = frame else {
@@ -2625,7 +2650,7 @@ mod lifecycle_tests {
             ))
             .await?;
 
-        tokio::time::timeout(TEST_DEADLINE, first_entered.notified())
+        tokio_time::timeout(TEST_DEADLINE, first_entered.notified())
             .await
             .context("first handler did not enter")?;
         assert!(
@@ -2636,7 +2661,7 @@ mod lifecycle_tests {
         );
 
         release_first.notify_one();
-        tokio::time::timeout(TEST_DEADLINE, second_entered.notified())
+        tokio_time::timeout(TEST_DEADLINE, second_entered.notified())
             .await
             .context("second handler did not enter after the first completed")?;
 
@@ -2687,7 +2712,7 @@ mod lifecycle_tests {
             )
             .await?;
             let access = || client.get(format!("{base}/access")).bearer_auth(&token);
-            assert_eq!(access().send().await?.status(), reqwest::StatusCode::OK);
+            assert_eq!(access().send().await?.status(), StatusCode::OK);
             let mut socket = connect_remote(
                 "127.0.0.1",
                 addr.port(),
@@ -2709,11 +2734,11 @@ mod lifecycle_tests {
                     .change_user_status(&fingerprint, UserStatus::Blocked)
                     .await?;
                 // The file watcher publishes this change after running the trust hooks.
-                tokio::time::timeout(TEST_DEADLINE, changes.changed())
+                tokio_time::timeout(TEST_DEADLINE, changes.changed())
                     .await
                     .context("file-driven client block was not applied")??;
             }
-            tokio::time::timeout(TEST_DEADLINE, async {
+            tokio_time::timeout(TEST_DEADLINE, async {
                 loop {
                     match socket
                         .next()
@@ -2767,10 +2792,7 @@ mod lifecycle_tests {
                     .await?;
             }
             // Approval is restored, so denial proves the old token was purged.
-            assert_eq!(
-                access().send().await?.status(),
-                reqwest::StatusCode::UNAUTHORIZED
-            );
+            assert_eq!(access().send().await?.status(), StatusCode::UNAUTHORIZED);
         }
         let mut socket = connect_remote(
             "127.0.0.1",
@@ -2781,11 +2803,11 @@ mod lifecycle_tests {
         )
         .await?;
         let close_frame = tokio::spawn(async move {
-            tokio::time::timeout(TEST_DEADLINE, socket.next())
+            tokio_time::timeout(TEST_DEADLINE, socket.next())
                 .await
                 .context("server-stop close frame timed out")?
                 .context("socket closed without a server-stop close frame")?
-                .map_err(anyhow::Error::new)
+                .map_err(Error::new)
                 .context("reading the server-stop close frame")
         });
         a.stop()
@@ -2837,7 +2859,7 @@ mod lifecycle_tests {
         use anyhow::Context;
         use futures::StreamExt;
 
-        tokio::time::timeout(TEST_DEADLINE, async {
+        tokio_time::timeout(TEST_DEADLINE, async {
             loop {
                 let frame = socket.next().await.context("socket closed")??;
                 let (response_name, payload, response_id) =
@@ -2909,7 +2931,7 @@ mod lifecycle_tests {
             &library.main_db,
             &library.library_sync.record_store(),
             &track,
-            Some(metadata::cover_art::CoverArt {
+            Some(cover_art::CoverArt {
                 crc: String::new(),
                 data: cover.to_vec(),
                 primary_color: 42,
@@ -3001,7 +3023,7 @@ mod lifecycle_tests {
             .await?;
         let cover_bytes = b"cover bytes for the port test".to_vec();
         let digest = blake3::hash(&cover_bytes).to_hex().to_string();
-        let cover_uuid = migration::catalog_identity::artwork(&digest).to_string();
+        let cover_uuid = catalog_identity::artwork(&digest).to_string();
         media_cover_art::ActiveModel {
             id: sea_orm::NotSet,
             file_hash: Set(String::new()),
@@ -3021,7 +3043,7 @@ mod lifecycle_tests {
         let addr = paired_full(&renderer, &controller).await?;
         assert_ne!(
             addr.port(),
-            discovery::endpoint::DEFAULT_DEVICE_PORT,
+            endpoint::DEFAULT_DEVICE_PORT,
             "the test must run on a port other than the default"
         );
         let validator = controller.global_params.cert_validator.read().await.clone();
@@ -3163,7 +3185,7 @@ mod lifecycle_tests {
         let peer_session = Session {
             fingerprint: user.fingerprint,
             public_key: user.public_key,
-            base_url: url::Url::parse("https://127.0.0.2:7863/").unwrap(),
+            base_url: Url::parse("https://127.0.0.2:7863/").unwrap(),
         };
         renderer.global_params.node.access_policy.set(
             &controller_fingerprint,
@@ -3589,7 +3611,7 @@ mod lifecycle_tests {
                     .into(),
                 ))
                 .await?;
-            let frame = tokio::time::timeout(TEST_DEADLINE, socket.next())
+            let frame = tokio_time::timeout(TEST_DEADLINE, socket.next())
                 .await?
                 .context("socket closed")??;
             let (name, payload, response_id) =
@@ -3622,14 +3644,14 @@ mod lifecycle_tests {
         // helper checks the very next frame, so an invalid fetch response cannot be discarded.
         count(&mut socket, library_id).await?;
         assert!(
-            tokio::time::timeout(Duration::from_millis(500), socket.next())
+            tokio_time::timeout(Duration::from_millis(500), socket.next())
                 .await
                 .is_err()
         );
 
         let name = format!("{}.txt", Uuid::new_v4());
         let bytes = b"remote file contents";
-        std::fs::write(first.path().join(&name), bytes)?;
+        fs::write(first.path().join(&name), bytes)?;
         let url = Url::parse(&format!(
             "https://127.0.0.1:{}/files/library/{name}",
             addr.port()
@@ -3643,7 +3665,7 @@ mod lifecycle_tests {
             url,
         )
         .await?;
-        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.bytes().await?.as_ref(), bytes);
         for (url, kind) in [
             (
@@ -3682,7 +3704,7 @@ mod lifecycle_tests {
             .await
             .is_err()
         );
-        let frame = tokio::time::timeout(TEST_DEADLINE, socket.next())
+        let frame = tokio_time::timeout(TEST_DEADLINE, socket.next())
             .await?
             .context("revocation close frame missing")??;
         assert!(
@@ -3710,8 +3732,8 @@ mod lifecycle_tests {
 
         let spaced = b"file named with a space";
         let escaped = b"file named with a literal percent escape";
-        std::fs::write(first.path().join("a b.txt"), spaced)?;
-        std::fs::write(first.path().join("a%20b.txt"), escaped)?;
+        fs::write(first.path().join("a b.txt"), spaced)?;
+        fs::write(first.path().join("a%20b.txt"), escaped)?;
 
         for (encoded, expected) in [("a%20b.txt", spaced.as_slice()), ("a%2520b.txt", escaped)] {
             let url = Url::parse(&format!(
@@ -3727,7 +3749,7 @@ mod lifecycle_tests {
                 url,
             )
             .await?;
-            assert_eq!(response.status(), reqwest::StatusCode::OK, "{encoded}");
+            assert_eq!(response.status(), StatusCode::OK, "{encoded}");
             assert_eq!(response.bytes().await?.as_ref(), expected, "{encoded}");
         }
 
@@ -3744,9 +3766,9 @@ mod lifecycle_tests {
             url,
         )
         .await?;
-        assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN);
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
-        std::fs::create_dir(first.path().join("albums"))?;
+        fs::create_dir(first.path().join("albums"))?;
         let url = Url::parse(&format!(
             "https://127.0.0.1:{}/files/library/albums",
             addr.port()
@@ -3760,7 +3782,7 @@ mod lifecycle_tests {
             url,
         )
         .await?;
-        assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
         a.stop().await?;
         a.global_params.node.token.cancel();
@@ -3789,19 +3811,19 @@ mod lifecycle_tests {
         let wrong = Uuid::new_v4();
         let url = format!("{base}/libraries/{wrong}/sync/metadata");
         let response = client.post(&url).json(&operation).send().await?;
-        assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
         assert_eq!(
             response.json::<serde_json::Value>().await?,
             serde_json::json!({"error": "library_not_served"})
         );
-        let unauthenticated = reqwest::Client::builder()
+        let unauthenticated = Client::builder()
             .use_preconfigured_tls(
                 Arc::new(b.global_params.cert_validator.read().await.clone()).into_client_config(),
             )
             .build()?;
         assert_eq!(
             unauthenticated.post(&url).send().await?.status(),
-            reqwest::StatusCode::UNAUTHORIZED
+            StatusCode::UNAUTHORIZED
         );
         let served = a.global_params.library_id.unwrap();
         let response = client
@@ -3809,7 +3831,7 @@ mod lifecycle_tests {
             .json(&operation)
             .send()
             .await?;
-        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::OK);
         let body: serde_json::Value = response.json().await?;
         assert_eq!(body["Ok"]["namespace"], served.to_string());
         a.stop().await?;
@@ -3854,7 +3876,7 @@ mod lifecycle_tests {
         b.stop_worker().await?;
         for _ in 0..3 {
             // Repeated forced passes still respect the challenge endpoint's rate limit.
-            tokio::time::timeout(TEST_DEADLINE, tokio::time::sleep(Duration::from_secs(1))).await?;
+            tokio_time::timeout(TEST_DEADLINE, tokio_time::sleep(Duration::from_secs(1))).await?;
             for (local, remote, addr) in [(&a, &b, b_addr), (&b, &a, a_addr)] {
                 let endpoint = PeerEndpoint {
                     fingerprint: info(remote).await?.fingerprint,
@@ -3970,7 +3992,7 @@ mod lifecycle_tests {
         let url = format!("https://{address}/libraries");
         assert_eq!(
             stale_client.get(&url).send().await?.status(),
-            reqwest::StatusCode::UNAUTHORIZED
+            StatusCode::UNAUTHORIZED
         );
         sync_worker::invalidate_sync_token(
             &client.global_params.node,
@@ -4000,7 +4022,7 @@ mod lifecycle_tests {
         fingerprint: &str,
     ) -> Result<ListPeerLibrariesResponse> {
         // Forced passes and listings share the challenge endpoint's rate limit.
-        tokio::time::timeout(TEST_DEADLINE, tokio::time::sleep(Duration::from_secs(1))).await?;
+        tokio_time::timeout(TEST_DEADLINE, tokio_time::sleep(Duration::from_secs(1))).await?;
         let request = ListPeerLibrariesRequest {
             call_id: None,
             fingerprint: fingerprint.to_owned(),
@@ -4119,7 +4141,7 @@ mod lifecycle_tests {
         anyhow::ensure!(catalog_ids.len() == 2);
         anyhow::ensure!(held_ids.iter().all(|id| catalog_ids.contains(id)));
         let source = first.path().join("source.ogg");
-        std::fs::copy(
+        fs::copy(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg"),
             &source,
         )?;
@@ -4150,7 +4172,7 @@ mod lifecycle_tests {
                 kind: LibraryOpenErrorKind::RemoteUntrusted
             })
         );
-        let unauthed = reqwest::Client::builder()
+        let unauthed = Client::builder()
             .use_preconfigured_tls(sync_worker::tls_config(
                 b.global_params.cert_validator.read().await.clone(),
                 &fingerprint,
@@ -4162,7 +4184,7 @@ mod lifecycle_tests {
                 .send()
                 .await?
                 .status(),
-            reqwest::StatusCode::UNAUTHORIZED
+            StatusCode::UNAUTHORIZED
         );
         let listed = request_peer_libraries(&b, &fingerprint).await?;
         let libraries = listed.libraries;
@@ -4186,7 +4208,7 @@ mod lifecycle_tests {
         };
         let session = TestPeerSession::default();
         for _ in 0..3 {
-            tokio::time::timeout(TEST_DEADLINE, tokio::time::sleep(Duration::from_secs(1))).await?;
+            tokio_time::timeout(TEST_DEADLINE, tokio_time::sleep(Duration::from_secs(1))).await?;
             if session
                 .pass(
                     replica.global_params.clone(),
@@ -4247,10 +4269,10 @@ mod lifecycle_tests {
             Some(fingerprint.as_str())
         );
         let registry_path = first.path().join("libraries.json");
-        let saved = std::fs::read(&registry_path)?;
-        std::fs::write(&registry_path, b"invalid registry")?;
+        let saved = fs::read(&registry_path)?;
+        fs::write(&registry_path, b"invalid registry")?;
         let malformed = refused_peer_libraries(&replica, &fingerprint).await?;
-        std::fs::write(&registry_path, saved)?;
+        fs::write(&registry_path, saved)?;
         assert_eq!(
             malformed,
             Some(RequestFailureCause::RemoteOpenFailed {
@@ -4306,7 +4328,7 @@ mod lifecycle_tests {
         let library = manager.global_params.library_pool.acquire(id).await?;
         let root = Path::new(&library.media_root);
         let source = root.join(name);
-        std::fs::copy(
+        fs::copy(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg"),
             &source,
         )?;
@@ -4486,7 +4508,7 @@ mod lifecycle_tests {
             Arc::new(WebSocketService::new()),
             false,
             RunMode::App,
-            Arc::new(::visualizer::Visualizer::new()),
+            Arc::new(Visualizer::new()),
         )
         .await?;
         let library = node
@@ -4543,8 +4565,7 @@ mod lifecycle_tests {
         assert_eq!(name, "PlaybackStatus");
         let status: PlaybackStatus = rinf::deserialize(&payload)?;
         assert_eq!(status.progress_seconds, 12.0);
-        let unexpected_frame =
-            tokio::time::timeout(Duration::from_millis(200), socket.next()).await;
+        let unexpected_frame = tokio_time::timeout(Duration::from_millis(200), socket.next()).await;
         assert!(
             unexpected_frame.is_err(),
             "controller received a disallowed frame"
@@ -4738,7 +4759,7 @@ mod lifecycle_tests {
                 .send()
                 .await?
                 .status(),
-            reqwest::StatusCode::OK
+            StatusCode::OK
         );
         let bytes = client
             .get(&blob_url)
@@ -4756,7 +4777,7 @@ mod lifecycle_tests {
             .json(&serde_json::json!({"operation": "identity"}))
             .send()
             .await?;
-        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response.json::<serde_json::Value>().await?["Ok"]["namespace"],
             a_ui.to_string()
@@ -4767,7 +4788,7 @@ mod lifecycle_tests {
             client.post(format!("{base}/sync/metadata")).send().await?,
             client.get(&blob_url).send().await?,
         ] {
-            assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
             assert_eq!(
                 response.json::<serde_json::Value>().await?["error"],
                 "library_not_served"
@@ -4779,7 +4800,7 @@ mod lifecycle_tests {
         drop(replica);
         // Leave the worker running across a complete normal retry interval.
         let later = scan_held_track(&a, library_id, "second.ogg").await?;
-        tokio::time::timeout(TEST_DEADLINE, tokio::time::sleep(Duration::from_secs(32))).await?;
+        tokio_time::timeout(TEST_DEADLINE, tokio_time::sleep(Duration::from_secs(32))).await?;
         let replica = b.global_params.library_pool.acquire(library_id).await?;
         assert!(
             media_files::Entity::find()
@@ -4836,7 +4857,7 @@ mod lifecycle_tests {
         let b_info = peer_step("read second peer identity", info(&b)).await?;
         peer_step("pair library peers", pair(&a, &b)).await?;
         peer_step("pair library peers in reverse", pair(&b, &a)).await?;
-        std::fs::copy(
+        fs::copy(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg"),
             second.path().join("source.ogg"),
         )?;
@@ -4922,7 +4943,7 @@ mod lifecycle_tests {
             .context("first sync listener address")?;
         // A bound socket that has not called listen refuses connections and
         // keeps another fixture from claiming the offline peer's port.
-        let offline_socket = tokio::net::TcpSocket::new_v4()?;
+        let offline_socket = TcpSocket::new_v4()?;
         offline_socket.bind(([127, 0, 0, 1], 0).into())?;
         let offline_addr = offline_socket.local_addr()?;
         peer_step(
@@ -4935,7 +4956,7 @@ mod lifecycle_tests {
                 .await
                 .expect_err("offline peer unexpectedly accepted a connection")
                 .kind(),
-            std::io::ErrorKind::ConnectionRefused
+            ErrorKind::ConnectionRefused
         );
         peer_step(
             "start second sync listener",
@@ -5047,7 +5068,7 @@ mod lifecycle_tests {
                 .status())
         })
         .await?;
-        assert_eq!(unauthorized_metadata, reqwest::StatusCode::UNAUTHORIZED);
+        assert_eq!(unauthorized_metadata, StatusCode::UNAUTHORIZED);
         let unauthorized_file = peer_step("unauthorized file request", async {
             Ok(pinned
                 .get(format!("{base}/files/anything"))
@@ -5056,7 +5077,7 @@ mod lifecycle_tests {
                 .status())
         })
         .await?;
-        assert_eq!(unauthorized_file, reqwest::StatusCode::UNAUTHORIZED);
+        assert_eq!(unauthorized_file, StatusCode::UNAUTHORIZED);
         let remote_id = wait_until(
             "background sync to transfer album and track metadata",
             || async {
@@ -5136,17 +5157,14 @@ mod lifecycle_tests {
             }
         })
         .await?;
-        let expected = std::fs::read(second.path().join("source.ogg"))?;
+        let expected = fs::read(second.path().join("source.ogg"))?;
         let source_path = source
             .url
             .strip_prefix(&format!("https://127.0.0.1:{}", b_addr.port()))
             .context("remote audio URL did not use the announced loopback address")?;
         let full_bytes = peer_step("full audio GET", async {
             let full = source.request.get(None).await?;
-            anyhow::ensure!(
-                full.status() == reqwest::StatusCode::OK,
-                "full audio GET status"
-            );
+            anyhow::ensure!(full.status() == StatusCode::OK, "full audio GET status");
             Ok(full.bytes().await?)
         })
         .await?;
@@ -5186,7 +5204,7 @@ mod lifecycle_tests {
             peer_step("first concurrent renewed ranged audio GET", async {
                 let response = source.request.get(Some((0, Some(15)))).await?;
                 anyhow::ensure!(
-                    response.status() == reqwest::StatusCode::PARTIAL_CONTENT,
+                    response.status() == StatusCode::PARTIAL_CONTENT,
                     "ranged audio GET status"
                 );
                 Ok(response.bytes().await?)
@@ -5194,7 +5212,7 @@ mod lifecycle_tests {
             peer_step("second concurrent renewed ranged audio GET", async {
                 let response = source.request.get(Some((16, Some(31)))).await?;
                 anyhow::ensure!(
-                    response.status() == reqwest::StatusCode::PARTIAL_CONTENT,
+                    response.status() == StatusCode::PARTIAL_CONTENT,
                     "ranged audio GET status"
                 );
                 Ok(response.bytes().await?)
@@ -5227,7 +5245,7 @@ mod lifecycle_tests {
         let expected_tail = expected[expected.len() - 12..].to_vec();
         let _cancel_stream_on_timeout = stream_cancel.clone().drop_guard();
         let decoded = peer_step("stream seek and decode", async move {
-            tokio::task::spawn_blocking(move || -> Result<bool> {
+            task::spawn_blocking(move || -> Result<bool> {
                 use std::io::{Read, Seek, SeekFrom};
                 let mut stream = stream;
                 let mut tail = [0u8; 12];
@@ -5260,7 +5278,7 @@ mod lifecycle_tests {
         })
         .await?;
         assert!(denied.is_err());
-        tokio::time::timeout(TEST_DEADLINE, stream_cancel.cancelled())
+        tokio_time::timeout(TEST_DEADLINE, stream_cancel.cancelled())
             .await
             .context("revocation did not cancel the remote stream")?;
         peer_step("stop paired workers", async {
@@ -5290,12 +5308,12 @@ mod lifecycle_tests {
                 |base, client| {
                     client
                         .get(format!("{base}{source_path}"))
-                        .header(reqwest::header::RANGE, "bytes=-12")
+                        .header(header::RANGE, "bytes=-12")
                 },
             )
             .await?;
             anyhow::ensure!(
-                suffix.status() == reqwest::StatusCode::PARTIAL_CONTENT,
+                suffix.status() == StatusCode::PARTIAL_CONTENT,
                 "suffix audio GET status"
             );
             Ok(suffix.bytes().await?)
@@ -5313,18 +5331,15 @@ mod lifecycle_tests {
                 |base, client| {
                     client
                         .get(format!("{base}{source_path}"))
-                        .header(reqwest::header::RANGE, format!("bytes={}-", expected.len()))
+                        .header(header::RANGE, format!("bytes={}-", expected.len()))
                 },
             )
             .await
         })
         .await?;
-        assert_eq!(invalid.status(), reqwest::StatusCode::RANGE_NOT_SATISFIABLE);
+        assert_eq!(invalid.status(), StatusCode::RANGE_NOT_SATISFIABLE);
         assert_eq!(
-            invalid
-                .headers()
-                .get(reqwest::header::CONTENT_RANGE)
-                .unwrap(),
+            invalid.headers().get(header::CONTENT_RANGE).unwrap(),
             format!("bytes */{}", expected.len()).as_str()
         );
         assert!(
@@ -5353,9 +5368,9 @@ mod lifecycle_tests {
         .await?;
         // Pool-backed data routes are available on the sync listener.
         for (path, status) in [
-            ("/files/anything", reqwest::StatusCode::BAD_REQUEST),
-            ("/ws", reqwest::StatusCode::NOT_FOUND),
-            ("/panel/users", reqwest::StatusCode::NOT_FOUND),
+            ("/files/anything", StatusCode::BAD_REQUEST),
+            ("/ws", StatusCode::NOT_FOUND),
+            ("/panel/users", StatusCode::NOT_FOUND),
         ] {
             let actual = peer_step("sync-only listener route", async {
                 Ok(authorized
@@ -5416,20 +5431,12 @@ mod lifecycle_tests {
                 Ok(request(&pinned).send().await?.status())
             })
             .await?;
-            assert_eq!(
-                anonymous_status,
-                reqwest::StatusCode::UNAUTHORIZED,
-                "{path}"
-            );
+            assert_eq!(anonymous_status, StatusCode::UNAUTHORIZED, "{path}");
             let authorized_status = peer_step("authorized full-listener request", async {
                 Ok(request(&full_authorized).send().await?.status())
             })
             .await?;
-            assert_ne!(
-                authorized_status,
-                reqwest::StatusCode::UNAUTHORIZED,
-                "{path}"
-            );
+            assert_ne!(authorized_status, StatusCode::UNAUTHORIZED, "{path}");
         }
         let query = urlencoding::encode(&b_info.fingerprint);
         let anonymous_ws_status = peer_step("anonymous websocket request", async {
@@ -5444,7 +5451,7 @@ mod lifecycle_tests {
                 .status())
         })
         .await?;
-        assert_eq!(anonymous_ws_status, reqwest::StatusCode::UNAUTHORIZED);
+        assert_eq!(anonymous_ws_status, StatusCode::UNAUTHORIZED);
         let full = peer_step("panel login route", async {
             Ok(pinned
                 .post(format!("{base}/panel/auth/login"))
@@ -5453,7 +5460,7 @@ mod lifecycle_tests {
                 .status())
         })
         .await?;
-        assert_ne!(full, reqwest::StatusCode::NOT_FOUND);
+        assert_ne!(full, StatusCode::NOT_FOUND);
         peer_step("stop full listener", a.stop()).await?;
         peer_step(
             "restart sync listener",
@@ -5493,7 +5500,7 @@ mod lifecycle_tests {
                 .status())
         })
         .await?;
-        assert_eq!(restarted_status, reqwest::StatusCode::UNAUTHORIZED);
+        assert_eq!(restarted_status, StatusCode::UNAUTHORIZED);
         b.global_params.node.token.cancel();
         let rebound = wait_until("cancelled listener to release its port", || async {
             Ok(TcpListener::bind(b_addr).ok())
@@ -5518,7 +5525,7 @@ mod lifecycle_tests {
         let manager = fixture(root.path()).await?;
         let params = &manager.global_params;
         let fixture_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets");
-        std::fs::copy(
+        fs::copy(
             fixture_dir.join("startup_0.ogg"),
             root.path().join("old.ogg"),
         )?;
@@ -5638,7 +5645,7 @@ mod lifecycle_tests {
             "ogg",
         )
         .await?;
-        std::fs::copy(fixture_dir.join("startup_1.ogg"), &updated_path)?;
+        fs::copy(fixture_dir.join("startup_1.ogg"), &updated_path)?;
         let scan_error = scan_audio_file(
             &params.test_library().fsio,
             &params.test_library().main_db,

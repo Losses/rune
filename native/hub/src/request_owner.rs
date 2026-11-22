@@ -27,6 +27,7 @@ use crate::{
     utils::{GlobalParams, ParamsExtractor},
     visualizer::RANDOM_COVERS,
 };
+use uuid::Uuid;
 
 /// The implementation currently connected to the UI as its library.
 #[derive(Clone)]
@@ -172,7 +173,7 @@ impl Implementation {
         let Self::Subsonic(_) = self.execution_implementation() else {
             if let PlayingItem::LibraryTrack { track, .. } = item {
                 let file_uuid =
-                    uuid::Uuid::parse_str(track).context("Invalid Rune library track UUID")?;
+                    Uuid::parse_str(track).context("Invalid Rune library track UUID")?;
                 let ids = file_ids_by_uuid(&library.main_db, &[file_uuid]).await?;
                 let id = ids
                     .get(&file_uuid)

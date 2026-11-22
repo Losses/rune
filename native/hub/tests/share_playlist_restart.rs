@@ -5,6 +5,7 @@ use axum::{
     middleware::{self, Next},
     response::Response,
 };
+use database::sync as database_sync;
 use database::{
     actions::playlists,
     sync::{
@@ -15,11 +16,13 @@ use database::{
 };
 use fsio::{OpenDalConfig, OpenDalObjectStore, test_fixtures::WebDavFixture};
 use http_request::sync::{MetadataPeer, router};
+use reqwest::Client;
 use sea_orm::{Database, DatabaseConnection};
 use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+use tokio::time as tokio_time;
 use tokio::{
     net::TcpListener,
     sync::{Notify, oneshot},
@@ -148,8 +151,7 @@ async fn restart_after(boundary: RestartAfter) -> Result<()> {
             .await
     });
     {
-        let sink =
-            MetadataPeer::<RuneModel>::new(format!("http://{address}"), reqwest::Client::new());
+        let sink = MetadataPeer::<RuneModel>::new(format!("http://{address}"), Client::new());
         let endpoint = receiver.sync_store.endpoint();
         let mut primary = Box::pin(pull(SharePullRequest {
             db: &receiver.db,
@@ -159,7 +161,7 @@ async fn restart_after(boundary: RestartAfter) -> Result<()> {
             store: store.clone(),
             library_id: namespace,
             scope: fixtures::scope(),
-            limits: database::sync::session_limits(),
+            limits: database_sync::session_limits(),
             cache_path: cache.clone(),
             capabilities: Default::default(),
         }));
@@ -217,7 +219,7 @@ async fn restart_after(boundary: RestartAfter) -> Result<()> {
 
 #[tokio::test]
 async fn completed_pull_keeps_deleted_playlist_absent_after_restart() -> Result<()> {
-    tokio::time::timeout(
+    tokio_time::timeout(
         Duration::from_secs(120),
         restart_after(RestartAfter::CompletedPull),
     )
@@ -226,7 +228,7 @@ async fn completed_pull_keeps_deleted_playlist_absent_after_restart() -> Result<
 
 #[tokio::test]
 async fn interrupted_pull_keeps_deleted_playlist_absent_after_restart_and_retry() -> Result<()> {
-    tokio::time::timeout(
+    tokio_time::timeout(
         Duration::from_secs(120),
         restart_after(RestartAfter::StaleDelivery),
     )

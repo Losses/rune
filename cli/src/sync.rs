@@ -7,6 +7,7 @@ use http_request::sync::{BidirectionalSession, MetadataPeer};
 use sea_orm::DatabaseConnection;
 use std::time::Duration;
 use sync::{SyncModel, SyncPeer};
+use tokio::task;
 use tokio::time::Instant;
 use uuid::Uuid;
 
@@ -41,7 +42,7 @@ pub async fn sync_library(
     let mut session = BidirectionalSession::new(scope, session_limits())?;
     let endpoint = local.endpoint();
     while !session.advance(&endpoint, &remote).await? {
-        tokio::task::yield_now().await;
+        task::yield_now().await;
     }
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut cursor = PageCursor::default();

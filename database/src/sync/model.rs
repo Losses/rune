@@ -3,6 +3,8 @@
 use crate::actions::file::validate_digest;
 use crate::entities::*;
 use migration::catalog_identity::{self, ParentKind};
+use rust_decimal::Decimal;
+use sea_orm::sea_query;
 use sea_orm::{ColumnTrait, Condition, DbErr, Value, sea_query::Expr};
 use serde::{Deserialize, Serialize};
 use sync_orm::row_policy::{BinaryValue, FieldCodec, RowView};
@@ -42,7 +44,7 @@ impl From<DurationValue> for String {
 }
 impl FieldCodec for DurationValue {
     fn from_column(value: Value) -> Result<Self, DbErr> {
-        let decimal = <rust_decimal::Decimal as sea_orm::sea_query::ValueType>::try_from(value)
+        let decimal = <rust_decimal::Decimal as sea_query::ValueType>::try_from(value)
             .map_err(|error| DbErr::Custom(error.to_string()))?;
         if decimal.is_sign_negative() {
             return Err(DbErr::Custom("negative duration".into()));
@@ -53,7 +55,7 @@ impl FieldCodec for DurationValue {
         self.0.into()
     }
     fn sample() -> Value {
-        rust_decimal::Decimal::ZERO.into()
+        Decimal::ZERO.into()
     }
 }
 
@@ -63,7 +65,7 @@ impl FieldCodec for DurationValue {
 pub struct ScoreValue(pub u32);
 impl FieldCodec for ScoreValue {
     fn from_column(value: Value) -> Result<Self, DbErr> {
-        let score = <f32 as sea_orm::sea_query::ValueType>::try_from(value)
+        let score = <f32 as sea_query::ValueType>::try_from(value)
             .map_err(|error| DbErr::Custom(error.to_string()))?;
         let value = Self(if score == 0.0 { 0 } else { score.to_bits() });
         value.validate()?;

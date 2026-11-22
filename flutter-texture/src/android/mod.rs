@@ -32,6 +32,7 @@ use raw_window_handle::{
 
 use crate::thread::{self, MainThread};
 use crate::{DeviceUuids, FrameNotifier, FrameSource, Kind, PlatformHandle, Result, TextureError};
+use jni::errors;
 
 /// `TextureRegistry.createSurfaceProducer()`, which makes a producer with the manual surface
 /// lifecycle: the engine never asks for the surface back, so no callback is needed.
@@ -92,7 +93,7 @@ impl Registry {
 fn jni_calls<T>(
     env: &mut JNIEnv,
     what: &str,
-    calls: impl FnOnce(&mut JNIEnv) -> jni::errors::Result<T>,
+    calls: impl FnOnce(&mut JNIEnv) -> errors::Result<T>,
 ) -> Result<T> {
     let result = env.with_local_frame(8, calls);
     if env.exception_check().unwrap_or(false) {

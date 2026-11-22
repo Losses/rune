@@ -1,6 +1,7 @@
 use requests::NamedLibraries;
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
+use std::collections;
 
 #[derive(Clone, Serialize, Deserialize, SignalPiece)]
 pub struct Playlist {
@@ -186,7 +187,7 @@ pub struct FetchPlaylistOccurrencesResponse {
     pub request_id: String,
     pub entries: Vec<PlaylistOccurrence>,
     pub next: Option<PlaylistOccurrenceCursor>,
-    pub cover_art_map: std::collections::HashMap<i32, String>,
+    pub cover_art_map: collections::HashMap<i32, String>,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

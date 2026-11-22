@@ -1,5 +1,7 @@
 //! Generate protocol dispatch from a single collection registration.
 
+use std::marker;
+use sync::protocol;
 use sync::protocol::SyncError;
 /// Register typed row mappings and generate protocol validation and projection.
 #[macro_export]
@@ -208,7 +210,7 @@ macro_rules! row_policies {
 
 /// A generated registry can project a selected value on the caller's transaction.
 #[async_trait::async_trait]
-pub trait PolicyRegistry: sync::protocol::SyncModel {
+pub trait PolicyRegistry: protocol::SyncModel {
     fn validate_registry() -> Result<(), sea_orm::DbErr>;
     fn authoring_owner(value: &Self::Payload) -> Option<uuid::Uuid>;
     fn projection_ceiling(collection: &Self::Collection) -> crate::owned_list::ListBudget;
@@ -220,11 +222,11 @@ pub trait PolicyRegistry: sync::protocol::SyncModel {
     ) -> anyhow::Result<crate::row_policy::ScanPage<Self::Payload>>;
     async fn encode_selected_on(
         tx: &sea_orm::DatabaseTransaction,
-        key: &sync::protocol::ObjectKey<Self>,
+        key: &protocol::ObjectKey<Self>,
     ) -> anyhow::Result<Option<Self::Payload>>;
     async fn project_selected_on(
         tx: &sea_orm::DatabaseTransaction,
-        key: &sync::protocol::ObjectKey<Self>,
+        key: &protocol::ObjectKey<Self>,
         value: Option<&Self::Payload>,
     ) -> anyhow::Result<()>;
 }
@@ -239,14 +241,14 @@ pub struct ProjectionBudget {
 /// Connect a generated registry to the transactional causal endpoint.
 pub struct RegistryProjection<M> {
     budget: ProjectionBudget,
-    marker: std::marker::PhantomData<fn() -> M>,
+    marker: marker::PhantomData<fn() -> M>,
 }
 impl<M: PolicyRegistry> RegistryProjection<M> {
     pub fn new(budget: ProjectionBudget) -> Result<Self, sea_orm::DbErr> {
         M::validate_registry()?;
         Ok(Self {
             budget,
-            marker: std::marker::PhantomData,
+            marker: marker::PhantomData,
         })
     }
 }
@@ -254,10 +256,7 @@ impl<M: PolicyRegistry> RegistryProjection<M> {
 impl<M: PolicyRegistry> crate::causal_capabilities::TransactionProjection<M>
     for RegistryProjection<M>
 {
-    fn mutation_ceiling(
-        &self,
-        changes: &sync::protocol::ProjectionBatch<M>,
-    ) -> anyhow::Result<u64> {
+    fn mutation_ceiling(&self, changes: &protocol::ProjectionBatch<M>) -> anyhow::Result<u64> {
         let mut reads = 0u64;
         let mut mutations = 0u64;
         for change in &changes.changes {
@@ -277,7 +276,7 @@ impl<M: PolicyRegistry> crate::causal_capabilities::TransactionProjection<M>
     async fn apply(
         &self,
         tx: &sea_orm::DatabaseTransaction,
-        changes: &sync::protocol::ProjectionBatch<M>,
+        changes: &protocol::ProjectionBatch<M>,
     ) -> anyhow::Result<()> {
         self.mutation_ceiling(changes)?;
         for change in &changes.changes {
@@ -297,8 +296,8 @@ impl<M: PolicyRegistry> crate::causal_capabilities::TransactionProjection<M>
 pub async fn author_source_on<M: PolicyRegistry>(
     tx: &sea_orm::DatabaseTransaction,
     store: &crate::causal_store::CausalReplica<M>,
-    key: sync::protocol::ObjectKey<M>,
-    observed: sync::protocol::Observed,
+    key: protocol::ObjectKey<M>,
+    observed: protocol::Observed,
 ) -> anyhow::Result<crate::causal_store::CommandResult<M>> {
     let payload = M::encode_selected_on(tx, &key)
         .await?

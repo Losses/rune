@@ -2,8 +2,11 @@
 mod fixtures;
 
 use anyhow::{Context, Result, ensure};
+use chrono::Utc;
+use flate2::read::GzDecoder;
 use sea_orm::sea_query::Condition;
 use sea_orm::sea_query::Func;
+use std::env;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -20,6 +23,11 @@ use sync::share::{
     decode_chunk,
 };
 use sync_orm::base_exporter::{BaseExportOptions, canonical_manifest, export_base};
+use sync_orm::causal_compaction;
+use sync_orm::causal_leases;
+use sync_orm::causal_manifests;
+use sync_orm::causal_observed;
+use sync_orm::causal_snapshot;
 use sync_orm::maintenance::Maintenance;
 
 struct CompactAfterHistory<'a> {
@@ -48,7 +56,7 @@ impl p::SyncPeer<Notes> for CompactAfterHistory<'_> {
             if self.compact_next.swap(false, Ordering::SeqCst) {
                 let compact: Result<()> = async {
                     let tx = self.db.begin().await?;
-                    sync_orm::causal_compaction::maintenance_step_on::<Notes>(
+                    causal_compaction::maintenance_step_on::<Notes>(
                         &tx,
                         self.namespace,
                         64,
@@ -476,7 +484,7 @@ async fn removed_prefix_without_live_candidates_survives_relay() -> Result<()> {
     );
     let tx = db.begin().await?;
     assert!(
-        sync_orm::causal_observed::contains_on(
+        causal_observed::contains_on(
             &tx,
             namespace,
             b"notes",
@@ -517,10 +525,10 @@ async fn preexisting_context_manifest_is_indexed_when_accepted() -> Result<()> {
     };
     let body = p::canonical_context(&context)?;
     let (manifest, fragments) =
-        sync_orm::causal_manifests::fragment_body(p::ManifestKind::Context, &body, 1, 1024 * 1024)?;
+        causal_manifests::fragment_body(p::ManifestKind::Context, &body, 1, 1024 * 1024)?;
     let tx = db.begin().await?;
     // Valid immutable dependencies may arrive before any assertion uses them.
-    sync_orm::causal_manifests::publish_on(
+    causal_manifests::publish_on(
         &tx,
         namespace,
         &manifest,
@@ -536,8 +544,7 @@ async fn preexisting_context_manifest_is_indexed_when_accepted() -> Result<()> {
     synchronize(&source, &target).await?;
     let tx = db.begin().await?;
     assert!(
-        sync_orm::causal_observed::contains_on(&tx, namespace, b"notes", Dot::new(writer, 1)?)
-            .await?,
+        causal_observed::contains_on(&tx, namespace, b"notes", Dot::new(writer, 1)?).await?,
         "accepted observation is absent from the interval index"
     );
     tx.commit().await?;
@@ -683,7 +690,7 @@ async fn relay_graph_stability_survives_first_contact_between_leaves() -> Result
         let tx = db.begin().await?;
         let mut missing = Vec::new();
         for (writer_index, peer) in peers.iter().take(7).enumerate() {
-            if !sync_orm::causal_observed::contains_on(
+            if !causal_observed::contains_on(
                 &tx,
                 namespace,
                 b"notes",
@@ -1367,11 +1374,11 @@ async fn committed_range_survives_receiver_restart_before_completion() -> Result
     };
     let local_identity = endpoint.identity().await?;
     let tx = db.begin().await?;
-    let local = sync_orm::causal_snapshot::open_bounded_on(
+    let local = causal_snapshot::open_bounded_on(
         &tx,
         local_identity,
         scope.clone(),
-        chrono::Utc::now().timestamp_millis(),
+        Utc::now().timestamp_millis(),
         600000,
         work,
     )
@@ -1492,9 +1499,9 @@ async fn floor_respects_pins_and_commits_atomically() -> Result<()> {
         .await?;
     let pin = Uuid::new_v4();
     let tx = db.begin().await?;
-    sync_orm::causal_leases::create_build_on(
+    causal_leases::create_build_on(
         &tx,
-        sync_orm::causal_leases::BuildLeaseRequest {
+        causal_leases::BuildLeaseRequest {
             namespace: ns,
             id: pin,
             scope: vec![1],
@@ -1518,7 +1525,7 @@ async fn floor_respects_pins_and_commits_atomically() -> Result<()> {
         maintenance_step_on::<Notes>(&tx, ns, 64, 64, 65536).await?,
         FloorStep::Pinned
     );
-    sync_orm::causal_leases::revoke_on(&tx, ns, pin).await?;
+    causal_leases::revoke_on(&tx, ns, pin).await?;
     tx.commit().await?;
     db.execute_unprepared("CREATE TRIGGER reject_floor BEFORE UPDATE OF history_floor ON sync_meta WHEN NEW.history_floor != OLD.history_floor BEGIN SELECT RAISE(ABORT, 'floor fault'); END").await?;
     let tx = db.begin().await?;
@@ -1726,7 +1733,7 @@ async fn maintenance_recovers_abandoned_and_competing_builds_without_reviving_re
     }
     let expected_head = source.head().await?;
     let identity = source.identity().await?;
-    let mut now = chrono::Utc::now().timestamp_millis();
+    let mut now = Utc::now().timestamp_millis();
     let mut first = Maintenance::default();
     first.advance::<Notes>(&db, identity.clone(), now).await?;
     first.advance::<Notes>(&db, identity.clone(), now).await?;
@@ -2445,7 +2452,7 @@ async fn expired_sql_snapshot_recovers_after_partial_reconciliation() -> Result<
         .commit_complete_range(session, children[0].clone(), apply)
         .await?;
     assert!(!coverage.complete);
-    let now = chrono::Utc::now().timestamp_millis() + p::DEFAULT_SNAPSHOT_TTL_MS as i64 + 1;
+    let now = Utc::now().timestamp_millis() + p::DEFAULT_SNAPSHOT_TTL_MS as i64 + 1;
     let mut maintenance = Maintenance::default();
     for _ in 0..100 {
         maintenance
@@ -2749,7 +2756,7 @@ async fn base_export_round_trips_chunks_deduplicates_and_excludes_local_state() 
             continue;
         }
         let mut decoded = Vec::new();
-        flate2::read::GzDecoder::new(&object.bytes[..]).read_to_end(&mut decoded)?;
+        GzDecoder::new(&object.bytes[..]).read_to_end(&mut decoded)?;
         assert_eq!(blake3::hash(&decoded).to_hex().as_str(), object.name);
         assert!(!String::from_utf8_lossy(&decoded).contains("fixture-device-credential"));
     }
@@ -2819,7 +2826,7 @@ async fn base_export_round_trips_chunks_deduplicates_and_excludes_local_state() 
             object.bytes.clone()
         } else {
             let mut decoded = Vec::new();
-            flate2::read::GzDecoder::new(&object.bytes[..]).read_to_end(&mut decoded)?;
+            GzDecoder::new(&object.bytes[..]).read_to_end(&mut decoded)?;
             decoded
         };
         assert!(!String::from_utf8_lossy(&content).contains("fixture-device-credential"));
@@ -2954,7 +2961,7 @@ async fn exported_base_round_trips_through_share_peer() -> Result<()> {
         store,
         namespace,
         prefix,
-        std::env::temp_dir().join(format!("share-export-{}", Uuid::new_v4())),
+        env::temp_dir().join(format!("share-export-{}", Uuid::new_v4())),
     )?;
     assert!(matches!(
         peer.open_snapshot(

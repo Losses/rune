@@ -26,6 +26,8 @@ use super::api::{
 use super::gl::{self, Gl, PixelTexture};
 use super::logic::{self, Garbage, Imported};
 use crate::{Acquired, Frame, FrameSource, Pixels, TextureError, VulkanImage, lock};
+use std::mem;
+use std::ptr;
 
 /// What textures left for a populate to delete.
 static GARBAGE: Mutex<Garbage> = Mutex::new(Garbage {
@@ -42,7 +44,7 @@ struct TextureType {
 
 static TEXTURE_TYPE: OnceLock<Result<TextureType, String>> = OnceLock::new();
 /// `FlTextureGLClass`, for chaining up; set by `class_init`.
-static PARENT_CLASS: AtomicPtr<ObjectClass> = AtomicPtr::new(std::ptr::null_mut());
+static PARENT_CLASS: AtomicPtr<ObjectClass> = AtomicPtr::new(ptr::null_mut());
 
 /// The subclass of `FlTextureGL`, registered on first use. Its instances are the parent's plus a
 /// pointer; its class is the parent's (`FlTextureGLClass`) with our functions.
@@ -51,7 +53,7 @@ fn texture_type(api: &'static Api) -> Result<&'static TextureType, String> {
         .get_or_init(|| {
             let mut query = TypeQuery {
                 type_: 0,
-                type_name: std::ptr::null(),
+                type_name: ptr::null(),
                 class_size: 0,
                 instance_size: 0,
             };
@@ -78,11 +80,11 @@ fn texture_type(api: &'static Api) -> Result<&'static TextureType, String> {
                 base_finalize: None,
                 class_init: Some(class_init),
                 class_finalize: None,
-                class_data: std::ptr::null(),
+                class_data: ptr::null(),
                 instance_size,
                 n_preallocs: 0,
                 instance_init: None,
-                value_table: std::ptr::null(),
+                value_table: ptr::null(),
             };
             // SAFETY: a valid type info with functions that live for the program; the name is
             // NUL-terminated. Instances are zero-filled, so the pointer starts null.
@@ -159,7 +161,7 @@ pub(super) fn new_object(api: &'static Api, raster: Arc<Raster>) -> Result<Gpoin
     let texture_type = texture_type(api)?;
     // SAFETY: a registered instantiatable type, no properties.
     let object = unsafe {
-        (api.object_new_with_properties)(texture_type.gtype, 0, std::ptr::null(), std::ptr::null())
+        (api.object_new_with_properties)(texture_type.gtype, 0, ptr::null(), ptr::null())
     };
     if object.is_null() {
         return Err("GObject did not make a texture".into());
@@ -206,7 +208,7 @@ unsafe extern "C" fn finalize(object: Gpointer) {
         // SAFETY: as the caller guarantees; the pointer is the `Arc` from `new_object`, taken back
         // once.
         unsafe {
-            let raster = slot(object).replace(std::ptr::null());
+            let raster = slot(object).replace(ptr::null());
             if !raster.is_null() {
                 drop(Arc::from_raw(raster));
             }
@@ -334,7 +336,7 @@ impl Raster {
     fn populate(&self) -> Result<Output, String> {
         let gl = gl::gl()?;
         // Only here is Flutter's context current.
-        let garbage = std::mem::take(&mut *lock(&GARBAGE));
+        let garbage = mem::take(&mut *lock(&GARBAGE));
         gl.delete(garbage);
 
         // Frames given back once the lock is released: the producer's may do work when they go.
@@ -405,7 +407,7 @@ impl Raster {
         };
 
         // The wait for the previous frame was issued long ago.
-        gl.delete_semaphore(std::mem::replace(&mut state.semaphore, semaphore));
+        gl.delete_semaphore(mem::replace(&mut state.semaphore, semaphore));
         let previous = state.shown.replace(Shown {
             frame_id: id,
             texture,
@@ -446,7 +448,7 @@ impl Raster {
         let texture = match gl.upload(&mut state.pixels, pixels) {
             Ok(texture) => texture,
             Err(e) => {
-                if !std::mem::replace(&mut state.pixels_failing, true) {
+                if !mem::replace(&mut state.pixels_failing, true) {
                     error!("Flutter texture: {e}");
                     self.source.failed(TextureError::Frame(e));
                 }
@@ -472,7 +474,7 @@ impl Raster {
             [previous_image, None],
         ));
         if previous_image.is_some() {
-            gl.delete_semaphore(std::mem::take(&mut state.semaphore));
+            gl.delete_semaphore(mem::take(&mut state.semaphore));
         }
     }
 
@@ -480,7 +482,7 @@ impl Raster {
     /// populate. Called once the texture is unregistered, and when it is disposed.
     pub(super) fn retire(&self) {
         let mut state = lock(&self.state);
-        if std::mem::replace(&mut state.retired, true) {
+        if mem::replace(&mut state.retired, true) {
             return;
         }
         {
@@ -490,9 +492,7 @@ impl Raster {
                 garbage.textures.push(pixels.name);
             }
             if state.semaphore != 0 {
-                garbage
-                    .semaphores
-                    .push(std::mem::take(&mut state.semaphore));
+                garbage.semaphores.push(mem::take(&mut state.semaphore));
             }
         }
         let shown = state.shown.take();
@@ -525,6 +525,7 @@ fn import(state: &mut State, gl: &Gl, image: &VulkanImage) -> Result<(u32, u32),
 
 #[cfg(test)]
 mod tests {
+    use std::mem;
     use std::sync::atomic::AtomicUsize;
 
     use super::*;
@@ -572,12 +573,12 @@ mod tests {
                 keep: Some(Box::new(Held(Arc::clone(&dropped)))),
             });
         }
-        drop(std::mem::take(&mut *lock(&GARBAGE)));
+        drop(mem::take(&mut *lock(&GARBAGE)));
 
         raster.retire();
         assert_eq!(dropped.load(Ordering::Relaxed), 1);
         assert_eq!(
-            std::mem::take(&mut *lock(&GARBAGE)),
+            mem::take(&mut *lock(&GARBAGE)),
             Garbage {
                 textures: vec![11, 20],
                 memory_objects: vec![10],

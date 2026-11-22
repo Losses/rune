@@ -38,6 +38,14 @@ use ::visualizer::{DeviceUuids, PcmInput, Transport};
 
 use crate::messages::VisualizerTextureResponse;
 use crate::visualizer::VISUALIZER;
+use flutter_texture::PlatformHandle;
+#[cfg(target_os = "windows")]
+use std::env;
+use std::ffi;
+use std::mem;
+#[cfg(target_os = "android")]
+use std::panic;
+use visualizer::SharedFrame;
 
 /// Whether the visualizer is shown through `flutter_texture` here (else not at all).
 const TEXTURE_LAYER: bool = cfg!(any(
@@ -57,16 +65,16 @@ const TEXTURE_LAYER: bool = cfg!(any(
 /// be the `FlEngine*` (`fl_view_get_engine`), called on the GTK main thread.
 #[cfg(any(target_vendor = "apple", target_os = "windows", target_os = "linux"))]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn rune_flutter_attach(registry: *mut std::ffi::c_void) -> bool {
+pub unsafe extern "C" fn rune_flutter_attach(registry: *mut ffi::c_void) -> bool {
     let Some(registry) = NonNull::new(registry) else {
         return false;
     };
     #[cfg(target_vendor = "apple")]
-    let handle = flutter_texture::PlatformHandle::TextureRegistry(registry);
+    let handle = PlatformHandle::TextureRegistry(registry);
     #[cfg(target_os = "windows")]
-    let handle = flutter_texture::PlatformHandle::PluginRegistrar(registry);
+    let handle = PlatformHandle::PluginRegistrar(registry);
     #[cfg(target_os = "linux")]
-    let handle = flutter_texture::PlatformHandle::FlEngine(registry);
+    let handle = PlatformHandle::FlEngine(registry);
     // SAFETY: the caller guarantees the object the handle stands for.
     match unsafe { flutter_texture::attach(handle) } {
         Ok(()) => true,
@@ -88,17 +96,17 @@ pub unsafe extern "C" fn rune_flutter_attach(registry: *mut std::ffi::c_void) ->
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 pub unsafe extern "system" fn Java_ci_not_rune_MainActivity_attachFlutter(
-    env: *mut std::ffi::c_void,
-    _activity: *mut std::ffi::c_void,
-    registry: *mut std::ffi::c_void,
+    env: *mut ffi::c_void,
+    _activity: *mut ffi::c_void,
+    registry: *mut ffi::c_void,
 ) -> u8 {
     let (Some(env), Some(registry)) = (NonNull::new(env), NonNull::new(registry)) else {
         return 0;
     };
-    let handle = flutter_texture::PlatformHandle::JniTextureRegistry { env, registry };
+    let handle = PlatformHandle::JniTextureRegistry { env, registry };
     // A panic must not unwind into the JVM.
     // SAFETY: the JVM passes this thread's `JNIEnv` and the registry the activity hands over.
-    match std::panic::catch_unwind(|| unsafe { flutter_texture::attach(handle) }) {
+    match panic::catch_unwind(|| unsafe { flutter_texture::attach(handle) }) {
         Ok(Ok(())) => 1,
         Ok(Err(e)) => {
             error!("Failed to attach the Flutter texture registry: {e}");
@@ -124,8 +132,8 @@ pub async fn prepare_visualizer(width: u32, height: u32) {
     if TEXTURE_LAYER {
         #[cfg(target_os = "windows")]
         {
-            let readback = std::env::var_os("RUNE_VISUALIZER_READBACK");
-            let shared = std::env::var_os("RUNE_WINDOWS_DXGI_SHARED");
+            let readback = env::var_os("RUNE_VISUALIZER_READBACK");
+            let shared = env::var_os("RUNE_WINDOWS_DXGI_SHARED");
             // Registration can succeed even when Flutter later fails to import
             // the shared surface. Prefer pixels until that path is verified.
             let prefer_readback = readback.as_deref().is_some_and(|value| value == "1")
@@ -302,11 +310,11 @@ impl SharedImage {
 #[cfg(target_os = "linux")]
 impl flutter_texture::VulkanFds for SharedImage {
     fn export_memory(&self) -> Result<OwnedFd, String> {
-        self.export(::visualizer::SharedFrame::export_memory)
+        self.export(SharedFrame::export_memory)
     }
 
     fn export_semaphore(&self) -> Result<OwnedFd, String> {
-        self.export(::visualizer::SharedFrame::export_semaphore)
+        self.export(SharedFrame::export_semaphore)
     }
 }
 
@@ -438,11 +446,12 @@ pub async fn texture_shown(texture_id: i64) {
         let current = textures.current.as_ref().map(|(_, texture)| texture.id());
         // The current texture shown: every earlier one can go, also any that were replaced before
         // Dart showed them.
-        let (retired, kept) = std::mem::take(&mut textures.retiring)
-            .into_iter()
-            .partition(|(replacement, _)| {
-                current == Some(texture_id) || *replacement == texture_id
-            });
+        let (retired, kept) =
+            mem::take(&mut textures.retiring)
+                .into_iter()
+                .partition(|(replacement, _)| {
+                    current == Some(texture_id) || *replacement == texture_id
+                });
         textures.retiring = kept;
         retired
     };
@@ -460,7 +469,7 @@ pub async fn stop_visualizer() -> Option<PcmInput> {
     // The window of a texture whose visualizer did not start.
     #[cfg(target_os = "android")]
     VISUALIZER.set_window(None);
-    let textures = std::mem::take(&mut *TEXTURES.lock().await);
+    let textures = mem::take(&mut *TEXTURES.lock().await);
     for texture in textures
         .current
         .into_iter()

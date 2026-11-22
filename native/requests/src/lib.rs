@@ -1,6 +1,8 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use std::collections::HashSet;
+use syn::Data;
+use syn::Error;
 
 #[derive(Clone, Copy, PartialEq)]
 enum RequestScope {
@@ -1996,7 +1998,7 @@ pub fn derive_named_libraries(input: TokenStream) -> TokenStream {
     let name = &input.ident;
     let named_libraries = quote! { crate::rpc::NamedLibraries };
     let (field_types, visit) = match &input.data {
-        syn::Data::Struct(data) => {
+        Data::Struct(data) => {
             let members = data.fields.members();
             (
                 data.fields
@@ -2006,7 +2008,7 @@ pub fn derive_named_libraries(input: TokenStream) -> TokenStream {
                 quote! { #(#named_libraries::visit_libraries(&self.#members, visit);)* },
             )
         }
-        syn::Data::Enum(data) => {
+        Data::Enum(data) => {
             let arms = data.variants.iter().map(|variant| {
                 let ident = &variant.ident;
                 let members = variant.fields.members();
@@ -2027,8 +2029,8 @@ pub fn derive_named_libraries(input: TokenStream) -> TokenStream {
                 quote! { match self { #(#arms)* } },
             )
         }
-        syn::Data::Union(_) => {
-            return syn::Error::new_spanned(name, "NamedLibraries cannot be derived for a union")
+        Data::Union(_) => {
+            return Error::new_spanned(name, "NamedLibraries cannot be derived for a union")
                 .to_compile_error()
                 .into();
         }

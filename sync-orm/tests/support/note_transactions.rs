@@ -1,4 +1,5 @@
 use anyhow::Result;
+use sea_orm::Schema;
 use sea_orm::{
     ConnectionTrait, DatabaseConnection, EntityTrait, ExprTrait, PaginatorTrait, Set,
     TransactionTrait,
@@ -6,6 +7,7 @@ use sea_orm::{
 };
 use std::sync::Arc;
 use sync::{self as p, ReceiveStore, SyncStore};
+use sync_orm::causal_progress;
 use sync_orm::{
     OrmReplica,
     causal_capabilities::CausalEndpoint,
@@ -102,11 +104,8 @@ async fn page(
 
 pub async fn verify(a: DatabaseConnection, b: DatabaseConnection) -> Result<()> {
     for db in [&a, &b] {
-        db.execute(
-            &sea_orm::Schema::new(db.get_database_backend())
-                .create_table_from_entity(notes::Entity),
-        )
-        .await?;
+        db.execute(&Schema::new(db.get_database_backend()).create_table_from_entity(notes::Entity))
+            .await?;
     }
     let namespace = Uuid::new_v4();
     let source = OrmReplica::<Notes>::create_empty(a.clone(), namespace, Uuid::new_v4()).await?;
@@ -135,14 +134,7 @@ pub async fn verify(a: DatabaseConnection, b: DatabaseConnection) -> Result<()> 
     let after = source.head().await?;
     let target_id = target.identity().await?;
     let tx = b.begin().await?;
-    sync_orm::causal_progress::initialize_checkpoint_on(
-        &tx,
-        &target_id,
-        &checkpoint,
-        &scope,
-        &after,
-    )
-    .await?;
+    causal_progress::initialize_checkpoint_on(&tx, &target_id, &checkpoint, &scope, &after).await?;
     tx.commit().await?;
     let tx = a.begin().await?;
     source.store().author_on(&tx, key(4), note("hello")).await?;

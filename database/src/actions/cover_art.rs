@@ -24,6 +24,15 @@ use ::metadata::cover_art::{CoverArt, extract_cover_art_binary, get_primary_colo
 use uuid::Uuid;
 
 use crate::entities::{media_cover_art, media_files};
+use chrono::DateTime;
+use chrono::Utc;
+use http_request::sync as http_request_sync;
+use metadata::cover_art;
+use migration::catalog_identity;
+use std::collections;
+use sync_orm::causal_store;
+use tokio::task;
+use tokio::time as tokio_time;
 
 pub async fn get_magic_cover_art(
     main_db: &DatabaseConnection,
@@ -95,7 +104,7 @@ fn bake_cover_art_by_cover_arts(
             continue;
         }
         let digest = blake3::hash(&cover_art.binary).to_hex().to_string();
-        if migration::catalog_identity::artwork(&digest).to_string() != cover_art.source_uuid
+        if catalog_identity::artwork(&digest).to_string() != cover_art.source_uuid
             || cover_art.content_hash.as_deref() != Some(digest.as_str())
             || cover_art.content_size != Some(cover_art.binary.len() as i64)
         {
@@ -131,7 +140,7 @@ pub async fn bake_cover_art_by_media_files(
     main_db: &DatabaseConnection,
     files: Vec<media_files::Model>,
 ) -> Result<HashMap<i32, String>> {
-    let ids: std::collections::BTreeSet<_> = files
+    let ids: collections::BTreeSet<_> = files
         .iter()
         .filter_map(|file| file.cover_art_uuid.as_deref())
         .collect();
@@ -253,17 +262,13 @@ where
                     }),
                     _ => None,
                 };
-                let inspected = tokio::task::spawn_blocking(move || {
+                let inspected = task::spawn_blocking(move || {
                     if let Some(expected) = &expected
                         && hash_file(&fs, &path).ok().as_ref() != Some(expected)
                     {
                         return None;
                     }
-                    let art = metadata::cover_art::extract_cover_art_binary_checked(
-                        &fs,
-                        Some(&root),
-                        &path,
-                    );
+                    let art = cover_art::extract_cover_art_binary_checked(&fs, Some(&root), &path);
                     if let Some(expected) = &expected
                         && hash_file(&fs, &path).ok().as_ref() != Some(expected)
                     {
@@ -307,15 +312,15 @@ fn artwork_inspection_is_current(file: &media_files::Model) -> bool {
 }
 
 fn inspection_timestamp_is_current(modified: &str, checked: Option<&str>) -> bool {
-    let Some(checked) = checked.and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()) else {
+    let Some(checked) = checked.and_then(|s| DateTime::parse_from_rfc3339(s).ok()) else {
         return false;
     };
     let modified = modified
         .parse::<i64>()
         .ok()
-        .and_then(|seconds| chrono::DateTime::from_timestamp(seconds, 0))
+        .and_then(|seconds| DateTime::from_timestamp(seconds, 0))
         .or_else(|| {
-            chrono::DateTime::parse_from_rfc3339(modified)
+            DateTime::parse_from_rfc3339(modified)
                 .ok()
                 .map(|v| v.to_utc())
         });
@@ -458,12 +463,15 @@ pub async fn get_primary_color_by_cover_art_id(
 mod identity_tests {
     use super::*;
     use crate::sync::SeaOrmSyncStore;
+    use migration::catalog_identity;
     use migration::{Migrator, MigratorTrait};
     use sea_orm::{Database, EntityTrait, Set};
+    use std::fs;
+    use uuid::Uuid;
 
     #[tokio::test]
     async fn matching_crc_does_not_merge_distinct_bodies() -> anyhow::Result<()> {
-        let node = uuid::Uuid::new_v4();
+        let node = Uuid::new_v4();
         let _ = migration::initialize_node_id(node.to_string());
         let db = Database::connect("sqlite::memory:").await?;
         Migrator::up(&db, None).await?;
@@ -517,8 +525,8 @@ mod identity_tests {
             .collect::<Vec<_>>();
         let baked = bake_cover_art_by_cover_art_ids(&FsIo::new(), &db, ids.clone()).await?;
         assert_ne!(baked[&ids[0]], baked[&ids[1]]);
-        assert_eq!(std::fs::read(&baked[&ids[0]])?, vec![1, 2, 3]);
-        assert_eq!(std::fs::read(&baked[&ids[1]])?, vec![4, 5, 6]);
+        assert_eq!(fs::read(&baked[&ids[0]])?, vec![1, 2, 3]);
+        assert_eq!(fs::read(&baked[&ids[1]])?, vec![4, 5, 6]);
         for file in files {
             let art = media_cover_art::Entity::find()
                 .filter(media_cover_art::Column::SourceUuid.eq(file.cover_art_uuid.unwrap()))
@@ -528,7 +536,7 @@ mod identity_tests {
             let digest = blake3::hash(&art.binary).to_hex().to_string();
             assert_eq!(
                 art.source_uuid,
-                migration::catalog_identity::artwork(&digest).to_string()
+                catalog_identity::artwork(&digest).to_string()
             );
         }
         Ok(())
@@ -556,7 +564,7 @@ pub fn verify_body(id: Uuid, digest: &str, size: u64, body: &[u8]) -> Result<()>
         "artwork digest mismatch"
     );
     ensure!(
-        migration::catalog_identity::artwork(digest) == id,
+        catalog_identity::artwork(digest) == id,
         "artwork identity mismatch"
     );
     Ok(())
@@ -565,11 +573,12 @@ pub fn verify_body(id: Uuid, digest: &str, size: u64, body: &[u8]) -> Result<()>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use migration::catalog_identity;
     #[test]
     fn rejects_wrong_size_digest_and_identity() {
         let body = b"artwork bytes";
         let digest = blake3::hash(body).to_hex().to_string();
-        let id = migration::catalog_identity::artwork(&digest);
+        let id = catalog_identity::artwork(&digest);
         assert!(verify_body(id, &digest, body.len() as u64, body).is_ok());
         assert!(verify_body(id, &digest, body.len() as u64 + 1, body).is_err());
         assert!(verify_body(id, &digest, body.len() as u64, b"corrupt data!").is_err());
@@ -653,7 +662,7 @@ pub async fn assign_inspected(
     db: &sea_orm::DatabaseConnection,
     store: &crate::sync::SeaOrmSyncStore,
     observed: &media_files::Model,
-    art: Option<metadata::cover_art::CoverArt>,
+    art: Option<cover_art::CoverArt>,
 ) -> Result<()> {
     use crate::entities::media_files;
     use crate::sync::model::{Collection, ObjectKey, author_source_on};
@@ -677,7 +686,7 @@ pub async fn assign_inspected(
     );
     let artwork_id = if let Some(art) = art {
         let digest = blake3::hash(&art.data).to_hex().to_string();
-        let id = migration::catalog_identity::artwork(&digest);
+        let id = catalog_identity::artwork(&digest);
         let size = art.data.len() as u64;
         attach_body(&tx, id, &digest, size, art.data, Some(art.primary_color)).await?;
         let key = ObjectKey {
@@ -696,7 +705,7 @@ pub async fn assign_inspected(
         )
         .col_expr(
             media_files::Column::CoverArtCheckedAt,
-            Expr::value(Some(chrono::Utc::now().to_rfc3339())),
+            Expr::value(Some(Utc::now().to_rfc3339())),
         )
         .filter(media_files::Column::Id.eq(current.id))
         .exec(&tx)
@@ -781,7 +790,7 @@ pub async fn artwork_candidates(
     db: &DatabaseConnection,
     store: &crate::sync::SeaOrmSyncStore,
     cursor: Option<Uuid>,
-) -> Result<sync_orm::causal_store::ProjectedPage<RuneModel>> {
+) -> Result<causal_store::ProjectedPage<RuneModel>> {
     use sea_orm::TransactionTrait;
     let tx = db.begin().await?;
     let page = crate_sync_accepted::AcceptedState::new(&tx, store)
@@ -805,6 +814,7 @@ mod received_body_tests {
         LibrarySyncStore,
         model::{Artwork, Collection, ObjectKey, Payload},
     };
+    use migration::catalog_identity;
     use sea_orm::{Database, sea_query::Expr};
 
     #[tokio::test]
@@ -815,7 +825,7 @@ mod received_body_tests {
         let library = LibrarySyncStore::open(db.clone(), actor, None).await?;
         let bytes = b"verified artwork bytes".to_vec();
         let digest = blake3::hash(&bytes).to_hex().to_string();
-        let id = migration::catalog_identity::artwork(&digest);
+        let id = catalog_identity::artwork(&digest);
         let key = ObjectKey {
             collection: Collection::Artworks,
             id,
@@ -885,8 +895,8 @@ pub async fn fetch_missing(
     store: &SeaOrmSyncStore,
     server: &str,
     client: &reqwest::Client,
-    cursor: &mut http_request::sync::PageCursor,
-    deadline: tokio::time::Instant,
+    cursor: &mut http_request_sync::PageCursor,
+    deadline: tokio_time::Instant,
 ) -> Result<(usize, usize)> {
     use crate::sync::model::Payload;
     use std::ops::ControlFlow;
@@ -895,7 +905,7 @@ pub async fn fetch_missing(
     use tokio::time::Instant;
     let attached = AtomicUsize::new(0);
     let pending = AtomicUsize::new(0);
-    http_request::sync::visit_page(
+    http_request_sync::visit_page(
         cursor,
         |cursor| async move {
             let page = artwork_candidates(db, store, cursor).await?;
@@ -921,11 +931,11 @@ pub async fn fetch_missing(
                     return Ok(ControlFlow::Continue(()));
                 }
                 let limit = deadline.min(Instant::now() + Duration::from_secs(1));
-                let result = tokio::time::timeout_at(limit, async {
+                let result = tokio_time::timeout_at(limit, async {
                     let body = artwork.body()?;
                     let url = format!("{}/sync/artworks/{id}", server.trim_end_matches('/'));
                     let bytes =
-                        http_request::sync::fetch_bounded(client, &url, body.size, limit).await?;
+                        http_request_sync::fetch_bounded(client, &url, body.size, limit).await?;
                     attach_received_body(db, store, id, &artwork, bytes).await?;
                     Ok::<_, anyhow::Error>(())
                 })

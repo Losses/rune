@@ -2,12 +2,14 @@ mod source;
 
 use crate::actions::file::hash_file;
 use crate::sync::model::{BlobRef, MAX_PORTABLE_FINGERPRINT_BYTES};
+use migration::catalog_identity;
 pub use source::{
     ComputedFingerprint, ComputedSimilarity, SourceStatus, assign_computed_fingerprint,
     assign_computed_similarity, assign_duplicate_mark, current_fingerprint,
     default_similarity_configuration, fingerprint_status, similarity_status,
     unavailable_fingerprints, unavailable_similarities,
 };
+use tokio::task;
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -260,7 +262,7 @@ where
             let path = root.to_path_buf();
             let observed = file.clone();
             let token = cancel.clone();
-            let result = tokio::task::spawn_blocking(move || {
+            let result = task::spawn_blocking(move || {
                 compute_single_fingerprint(
                     fs.as_ref(),
                     &path,
@@ -538,7 +540,7 @@ where
             let file_id = Uuid::parse_str(&row.track_uuid)?;
             let id = Uuid::parse_str(&row.source_uuid)?;
             anyhow::ensure!(
-                id == migration::catalog_identity::fingerprint(
+                id == catalog_identity::fingerprint(
                     file_id,
                     row.algorithm.as_deref(),
                     row.configuration.as_deref(),

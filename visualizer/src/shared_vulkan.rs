@@ -37,9 +37,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context, Result, bail};
 use ash::{khr, vk};
+use hal::api;
+use hal::vulkan;
 use wgpu::hal;
 
 use crate::DeviceUuids;
+use wgpu::Backends;
+use wgpu::Features;
+use wgpu::TextureDimension;
+use wgpu::TextureUsages;
+use wgpu::TextureUses;
 
 /// Published frames that stay referenced here after a newer one replaced them, so that an image
 /// is drawn into again only a few frames after Flutter let go of it: its compositor may still
@@ -66,12 +73,12 @@ static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 /// The Vulkan adapter whose device and driver UUIDs are `uuids`, if there is one: the GPU and
 /// driver Flutter's OpenGL context runs on, the only ones whose memory it can import.
 pub fn adapter_with_uuids(instance: &wgpu::Instance, uuids: &DeviceUuids) -> Option<wgpu::Adapter> {
-    pollster::block_on(instance.enumerate_adapters(wgpu::Backends::VULKAN))
+    pollster::block_on(instance.enumerate_adapters(Backends::VULKAN))
         .into_iter()
         .find(|adapter| {
             // SAFETY: only reads the adapter's properties; the guard is dropped before wgpu
             // uses the adapter again.
-            let Some(hal_adapter) = (unsafe { adapter.as_hal::<hal::api::Vulkan>() }) else {
+            let Some(hal_adapter) = (unsafe { adapter.as_hal::<api::Vulkan>() }) else {
                 return false;
             };
             adapter_uuids(&hal_adapter).as_ref() == Some(uuids)
@@ -80,7 +87,7 @@ pub fn adapter_with_uuids(instance: &wgpu::Instance, uuids: &DeviceUuids) -> Opt
 
 /// The device and driver UUIDs of an adapter (`VkPhysicalDeviceIDProperties`), if the instance
 /// and the device have Vulkan 1.1, which sharing needs anyway.
-fn adapter_uuids(adapter: &hal::vulkan::Adapter) -> Option<DeviceUuids> {
+fn adapter_uuids(adapter: &vulkan::Adapter) -> Option<DeviceUuids> {
     let instance = adapter.shared_instance();
     if instance.instance_api_version() < vk::API_VERSION_1_1
         || adapter
@@ -112,12 +119,12 @@ fn adapter_uuids(adapter: &hal::vulkan::Adapter) -> Option<DeviceUuids> {
 pub fn request_device(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wgpu::Queue)> {
     let desc = wgpu::DeviceDescriptor {
         // For the GPU time of a frame (see `crate::gpu_time`), where there are timestamps.
-        required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
+        required_features: adapter.features() & Features::TIMESTAMP_QUERY,
         ..Default::default()
     };
     let open = {
         // SAFETY: the guard is dropped before wgpu uses the adapter again.
-        let hal_adapter = unsafe { adapter.as_hal::<hal::api::Vulkan>() }
+        let hal_adapter = unsafe { adapter.as_hal::<api::Vulkan>() }
             .context("The GPU adapter does not run on Vulkan")?;
         let capabilities = hal_adapter.physical_device_capabilities();
         if capabilities.properties().api_version < vk::API_VERSION_1_1 {
@@ -140,7 +147,7 @@ pub fn request_device(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wgpu::Qu
                 &desc.required_limits,
                 &desc.memory_hints,
                 Some(Box::new(
-                    |args: hal::vulkan::CreateDeviceCallbackArgs<'_, '_, '_>| {
+                    |args: vulkan::CreateDeviceCallbackArgs<'_, '_, '_>| {
                         args.extensions.push(khr::external_semaphore_fd::NAME);
                     },
                 )),
@@ -296,7 +303,7 @@ impl SharedTargets {
     pub fn new(device: &wgpu::Device, width: u32, height: u32) -> Result<Self> {
         let (vulkan, usage, memory_types) = {
             // SAFETY: the guard is dropped before wgpu is used again.
-            let hal_device = unsafe { device.as_hal::<hal::api::Vulkan>() }
+            let hal_device = unsafe { device.as_hal::<api::Vulkan>() }
                 .context("The GPU device does not run on Vulkan")?;
             for extension in [
                 khr::external_memory_fd::NAME,
@@ -450,7 +457,7 @@ impl SharedTargets {
 
         {
             // SAFETY: the guard is dropped before wgpu is used again.
-            let hal_queue = unsafe { queue.as_hal::<hal::api::Vulkan>() }
+            let hal_queue = unsafe { queue.as_hal::<api::Vulkan>() }
                 .context("The GPU queue does not run on Vulkan")?;
             // The next submission signals it, after all of its command buffers.
             hal_queue.add_signal_semaphore(next.semaphore.raw, None);
@@ -458,7 +465,7 @@ impl SharedTargets {
         queue.submit(acquire.into_iter().chain([encoder.finish(), release]));
         let submitted = {
             // SAFETY: as above.
-            let hal_queue = unsafe { queue.as_hal::<hal::api::Vulkan>() }
+            let hal_queue = unsafe { queue.as_hal::<api::Vulkan>() }
                 .context("The GPU queue does not run on Vulkan")?;
             // Still pending if wgpu refused the submission; it must not go to a later one.
             !hal_queue.remove_signal_semaphore(next.semaphore.raw)
@@ -522,7 +529,7 @@ impl SharedTargets {
         };
         let hal_texture = {
             // SAFETY: the guard is dropped before wgpu is used again.
-            let Some(hal_device) = (unsafe { device.as_hal::<hal::api::Vulkan>() }) else {
+            let Some(hal_device) = (unsafe { device.as_hal::<api::Vulkan>() }) else {
                 // SAFETY: both were just created and nothing uses them.
                 unsafe {
                     raw_device.destroy_image(raw, None);
@@ -543,9 +550,9 @@ impl SharedTargets {
                         size,
                         mip_level_count: 1,
                         sample_count: 1,
-                        dimension: wgpu::TextureDimension::D2,
+                        dimension: TextureDimension::D2,
                         format: crate::pipeline::FORMAT,
-                        usage: wgpu::TextureUses::COLOR_TARGET | wgpu::TextureUses::RESOURCE,
+                        usage: TextureUses::COLOR_TARGET | TextureUses::RESOURCE,
                         memory_flags: hal::MemoryFlags::empty(),
                         view_formats: Vec::new(),
                     },
@@ -557,20 +564,19 @@ impl SharedTargets {
         // SAFETY: `hal_texture` was made on this device from an image matching the descriptor
         // below, in the undefined layout that `UNINITIALIZED` stands for.
         let texture = unsafe {
-            device.create_texture_from_hal::<hal::api::Vulkan>(
+            device.create_texture_from_hal::<api::Vulkan>(
                 hal_texture,
                 &wgpu::TextureDescriptor {
                     label: Some("visualizer shared target"),
                     size,
                     mip_level_count: 1,
                     sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
+                    dimension: TextureDimension::D2,
                     format: crate::pipeline::FORMAT,
-                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
                     view_formats: &[],
                 },
-                wgpu::TextureUses::UNINITIALIZED,
+                TextureUses::UNINITIALIZED,
             )
         };
         Ok(SharedImage(Arc::new(Image {
@@ -727,7 +733,7 @@ fn barrier(
     // barrier names an image of this device, whose owner and layout it keeps consistent with
     // what wgpu's own barriers assume (see the module documentation).
     let recorded = unsafe {
-        encoder.as_hal_mut::<hal::api::Vulkan, _, _>(|encoder| {
+        encoder.as_hal_mut::<api::Vulkan, _, _>(|encoder| {
             encoder.map(|encoder| {
                 raw_device.cmd_pipeline_barrier(
                     encoder.raw_handle(),
@@ -748,6 +754,13 @@ fn barrier(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::iter;
+    use wgpu::Color;
+    use wgpu::Instance;
+    use wgpu::LoadOp;
+    use wgpu::PollType;
+    use wgpu::RequestAdapterOptions;
+    use wgpu::StoreOp;
 
     /// A frame drawn into the next image with a clear and finished by the GPU, or `None` if the
     /// pool is full.
@@ -765,8 +778,8 @@ mod tests {
                         depth_slice: None,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::RED),
-                            store: wgpu::StoreOp::Store,
+                            load: LoadOp::Clear(Color::RED),
+                            store: StoreOp::Store,
                         },
                     })],
                     ..Default::default()
@@ -774,7 +787,7 @@ mod tests {
             })
             .unwrap()
             .expect("wgpu refused the submission");
-        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        device.poll(PollType::wait_indefinitely()).unwrap();
         targets.keep(&frame);
         Some(frame)
     }
@@ -783,9 +796,9 @@ mod tests {
     /// semaphore, and are skipped once every image is held.
     #[test]
     fn frames_avoid_held_images_and_export() {
-        let instance = wgpu::Instance::default();
+        let instance = Instance::default();
         let Ok(adapter) =
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            pollster::block_on(instance.request_adapter(&RequestAdapterOptions::default()))
         else {
             eprintln!("SKIPPED: no GPU adapter");
             return;
@@ -813,7 +826,7 @@ mod tests {
             }
         }
 
-        let held: Vec<SharedFrame> = std::iter::from_fn(|| draw(&mut targets, &device, &queue))
+        let held: Vec<SharedFrame> = iter::from_fn(|| draw(&mut targets, &device, &queue))
             .take(MAX_IMAGES + 1)
             .collect();
         assert!(held.len() <= MAX_IMAGES);

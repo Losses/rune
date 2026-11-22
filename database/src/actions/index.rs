@@ -17,6 +17,10 @@ use crate::entities::{
 };
 
 use super::metadata::{MetadataSummary, get_metadata_summary_by_file_ids};
+use metadata::artist;
+use metadata::genre;
+use std::collections;
+use std::mem;
 
 /// Indexes media files by processing their metadata and updating database records for artists, albums, and genres.
 ///
@@ -172,9 +176,8 @@ async fn process_artists(
         !cancel_token.is_some_and(|token| token.is_cancelled()),
         "operation cancelled"
     );
-    let names: std::collections::BTreeSet<_> = metadata::artist::split_artists(&summary.artist)
-        .into_iter()
-        .collect();
+    let names: collections::BTreeSet<_> =
+        artist::split_artists(&summary.artist).into_iter().collect();
     anyhow::ensure!(names.len() <= 128, "too many artists for a single track");
     let file_id: Uuid = summary.file_uuid.parse()?;
     let mut desired = HashMap::new();
@@ -333,9 +336,7 @@ async fn process_genres(
         !cancel_token.is_some_and(|token| token.is_cancelled()),
         "operation cancelled"
     );
-    let names: std::collections::BTreeSet<_> = metadata::genre::split_genres(&summary.genre)
-        .into_iter()
-        .collect();
+    let names: collections::BTreeSet<_> = genre::split_genres(&summary.genre).into_iter().collect();
     anyhow::ensure!(names.len() <= 128, "too many genres for a single track");
     let file_id: Uuid = summary.file_uuid.parse()?;
     let mut desired = HashMap::new();
@@ -543,6 +544,6 @@ async fn process_batch(
     cancel_token: Option<&CancellationToken>,
     store: &crate::sync::SeaOrmSyncStore,
 ) -> Result<()> {
-    let batch = std::mem::take(file_ids);
+    let batch = mem::take(file_ids);
     index_media_files(db, node_id, batch, cancel_token, store).await
 }

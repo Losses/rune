@@ -11,7 +11,9 @@ use axum::{
     response::IntoResponse,
     routing::get,
 };
+use reqwest::Client;
 use subsonic::{SubsonicClient, SubsonicCredentials};
+use tokio::time as tokio_time;
 mod support;
 
 type Requests = Arc<Mutex<Vec<HashMap<String, String>>>>;
@@ -30,10 +32,10 @@ async fn scrobble_sends_track_time_submission_and_authentication() {
             user: "alice".into(),
             password: "secret-password".into(),
         },
-        reqwest::Client::new(),
+        Client::new(),
     );
 
-    tokio::time::timeout(TEST_DEADLINE, client.scrobble("song-42", None, false))
+    tokio_time::timeout(TEST_DEADLINE, client.scrobble("song-42", None, false))
         .await
         .expect("request timed out")
         .unwrap();

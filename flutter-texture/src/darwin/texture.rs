@@ -16,6 +16,8 @@ use objc2_core_video::CVPixelBuffer;
 
 use super::pixels::Pool;
 use crate::{Frame, FrameSource, lock};
+use std::mem;
+use std::ptr;
 
 /// What the raster thread works with.
 pub(super) struct Raster {
@@ -50,10 +52,10 @@ define_class!(
                 // A raw pointer return is passed through as it is (no autorelease), so the
                 // reference goes to the engine.
                 Ok(Some(buffer)) => CFRetained::into_raw(buffer).as_ptr(),
-                Ok(None) => std::ptr::null_mut(),
+                Ok(None) => ptr::null_mut(),
                 Err(_) => {
                     error!("Flutter texture: copyPixelBuffer panicked");
-                    std::ptr::null_mut()
+                    ptr::null_mut()
                 }
             }
         }
@@ -105,7 +107,7 @@ impl Raster {
                     state.failing = false;
                 }
                 Err(e) => {
-                    if !std::mem::replace(&mut state.failing, true) {
+                    if !mem::replace(&mut state.failing, true) {
                         error!("Flutter texture: {e}");
                         self.source.failed(e);
                     }

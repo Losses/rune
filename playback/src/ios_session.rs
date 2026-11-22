@@ -85,6 +85,7 @@ pub(crate) use ios::{Observers, activate, configure, deactivate, observe};
 
 #[cfg(target_os = "ios")]
 mod ios {
+    use objc2_avf_audio::AVAudioSessionInterruptionReason;
     use std::ptr::NonNull;
 
     use block2::RcBlock;
@@ -131,7 +132,7 @@ mod ios {
     #[allow(deprecated)]
     const _: () = assert!(
         INTERRUPTION_REASON_APP_WAS_SUSPENDED
-            == objc2_avf_audio::AVAudioSessionInterruptionReason::AppWasSuspended.0
+            == AVAudioSessionInterruptionReason::AppWasSuspended.0
     );
 
     /// Gives the session the playback category, as Rune only plays. The category sends music to

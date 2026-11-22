@@ -5,6 +5,7 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, IdenStatic,
     QueryFilter, QueryOrder, QuerySelect, QueryTrait, Value, sea_query::Expr,
 };
+use std::iter;
 use std::{
     collections::{BTreeMap, BTreeSet},
     marker::PhantomData,
@@ -151,7 +152,7 @@ impl<E: EntityTrait, M: OwnedListMapping<E>> OwnedListPolicy<E, M> {
         for column in M::owners()
             .into_iter()
             .chain(M::constants().into_iter().map(|(c, _)| c))
-            .chain(std::iter::once(M::key_column()))
+            .chain(iter::once(M::key_column()))
             .chain(M::fields())
             .chain(M::defaults().into_iter().map(|(c, _)| c))
         {
@@ -323,7 +324,7 @@ impl<E: EntityTrait, M: OwnedListMapping<E>> OwnedListPolicy<E, M> {
                     .into_iter()
                     .zip(owner.iter().cloned())
                     .chain(M::constants())
-                    .chain(std::iter::once((M::key_column(), key.clone().into())))
+                    .chain(iter::once((M::key_column(), key.clone().into())))
                     .chain(M::defaults())
                 {
                     active.try_set(column, value)?;

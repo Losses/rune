@@ -6,6 +6,7 @@ use sea_orm::{
     ConnectionTrait, TransactionTrait,
     sea_query::{Alias, Query},
 };
+use sync_orm::causal_candidates;
 use sync_orm::causal_candidates::page_on;
 use uuid::Uuid;
 
@@ -60,7 +61,7 @@ async fn candidate_lifetimes_reconstruct_old_positions_with_keyset_pages() -> Re
     let tx = db.begin().await?;
     let old = page_on(
         &tx,
-        sync_orm::causal_candidates::CandidatePageRequest {
+        causal_candidates::CandidatePageRequest {
             namespace: ns,
             collection: b"notes",
             state_seq: 2,
@@ -77,7 +78,7 @@ async fn candidate_lifetimes_reconstruct_old_positions_with_keyset_pages() -> Re
     assert_eq!(old.rows[0].counter, 1);
     let first = page_on(
         &tx,
-        sync_orm::causal_candidates::CandidatePageRequest {
+        causal_candidates::CandidatePageRequest {
             namespace: ns,
             collection: b"notes",
             state_seq: 4,
@@ -93,7 +94,7 @@ async fn candidate_lifetimes_reconstruct_old_positions_with_keyset_pages() -> Re
     assert_eq!(first.rows[0].counter, 2);
     let last = page_on(
         &tx,
-        sync_orm::causal_candidates::CandidatePageRequest {
+        causal_candidates::CandidatePageRequest {
             namespace: ns,
             collection: b"notes",
             state_seq: 4,
@@ -110,7 +111,7 @@ async fn candidate_lifetimes_reconstruct_old_positions_with_keyset_pages() -> Re
     assert!(
         page_on(
             &tx,
-            sync_orm::causal_candidates::CandidatePageRequest {
+            causal_candidates::CandidatePageRequest {
                 namespace: ns,
                 collection: b"notes",
                 state_seq: 4,

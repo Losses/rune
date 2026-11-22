@@ -8,6 +8,7 @@ use axum::{
     middleware::{self, Next},
     response::{IntoResponse, Response},
 };
+use database::sync as database_sync;
 use database::test_fixtures::fixtures;
 use database::{
     actions::{file::get_media_files, mixes, playlists, stats},
@@ -17,6 +18,8 @@ use database::{
 use http_request::sync::{MetadataPeer, MetadataStore, router};
 use migration::{Migrator, MigratorTrait};
 use playback::PlaybackMode;
+use reqwest::Client;
+use sea_orm::ConnectOptions;
 use sea_orm::{ColumnTrait, Database, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use std::time::Duration;
 use std::{
@@ -26,10 +29,14 @@ use std::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
+use sync::SyncError;
 use sync::{Coordinator, SessionAdvance, SyncModel, SyncPeer};
 use tokio::net::TcpListener;
+use tokio::sync as tokio_sync;
 use tokio::sync::Barrier;
 use tokio::sync::Notify;
+use tokio::task;
+use tokio::time as tokio_time;
 use uuid::Uuid;
 
 struct Replica {
@@ -38,14 +45,14 @@ struct Replica {
     actor: Uuid,
     url: String,
     client: reqwest::Client,
-    server: tokio::task::JoinHandle<()>,
+    server: task::JoinHandle<()>,
     lose_reply: Arc<AtomicBool>,
     lost: Arc<AtomicUsize>,
     retry: Arc<AtomicBool>,
     gate: Arc<AtomicBool>,
     gate_head: Arc<AtomicBool>,
-    entered: Arc<tokio::sync::Notify>,
-    release: Arc<tokio::sync::Notify>,
+    entered: Arc<tokio_sync::Notify>,
+    release: Arc<tokio_sync::Notify>,
     _directory: tempfile::TempDir,
 }
 impl Drop for Replica {
@@ -61,8 +68,8 @@ struct Fault {
     retry: Arc<AtomicBool>,
     gate: Arc<AtomicBool>,
     gate_head: Arc<AtomicBool>,
-    entered: Arc<tokio::sync::Notify>,
-    release: Arc<tokio::sync::Notify>,
+    entered: Arc<tokio_sync::Notify>,
+    release: Arc<tokio_sync::Notify>,
 }
 async fn lose_first_page(State(fault): State<Fault>, request: Request, next: Next) -> Response {
     let (parts, body) = request.into_parts();
@@ -103,7 +110,7 @@ impl Replica {
             "sqlite://{}?mode=rwc",
             directory.path().join("library.db").display()
         );
-        let mut options = sea_orm::ConnectOptions::new(url);
+        let mut options = ConnectOptions::new(url);
         options
             .max_connections(pool_size)
             .min_connections(pool_size)
@@ -143,7 +150,7 @@ impl Replica {
             library,
             actor,
             url,
-            client: reqwest::Client::new(),
+            client: Client::new(),
             server,
             lose_reply,
             lost,
@@ -177,7 +184,7 @@ fn coordinator() -> Result<Coordinator<RuneModel>> {
     let scope = sync::Scope {
         collections: RuneModel::collections().into_iter().collect(),
     };
-    let mut limits = database::sync::session_limits();
+    let mut limits = database_sync::session_limits();
     limits.pages.max_scanned = 3;
     limits.apply.max_projection_items = 3;
     limits.work.max_requests = 8;
@@ -201,9 +208,7 @@ async fn step(
         }
         Ok(SessionAdvance::Incomplete) => Ok(false),
         Ok(SessionAdvance::Cancelled) => anyhow::bail!("unexpected cancellation"),
-        Err(sync::SyncError::Transport(_)) if source.retry.swap(false, Ordering::SeqCst) => {
-            Ok(false)
-        }
+        Err(SyncError::Transport(_)) if source.retry.swap(false, Ordering::SeqCst) => Ok(false),
         Err(error) => Err(error.into()),
     }
 }
@@ -267,7 +272,7 @@ async fn heads(replicas: &[Replica]) -> Result<Vec<sync::ReceiveProgress>> {
 
 #[tokio::test]
 async fn business_mutations_during_partitioned_http_sessions_converge() -> Result<()> {
-    tokio::time::timeout(Duration::from_secs(600), business_scenario())
+    tokio_time::timeout(Duration::from_secs(600), business_scenario())
         .await
         .context("business scenario exceeded its deadline")?
 }
@@ -332,7 +337,7 @@ async fn business_scenario() -> Result<()> {
     );
     a.gate.store(true, Ordering::SeqCst);
     a.lose_reply.store(true, Ordering::SeqCst);
-    let kept = tokio::time::timeout(Duration::from_secs(90), async {
+    let kept = tokio_time::timeout(Duration::from_secs(90), async {
     let mut kept = None;
     for _ in 0..20000 {
         let mut request = Box::pin(step(&mut in_flight, a, b));
@@ -618,7 +623,7 @@ async fn business_scenario() -> Result<()> {
 
 #[tokio::test]
 async fn repeated_partitioned_commands_preserve_unseen_edit_and_pagination() -> Result<()> {
-    tokio::time::timeout(Duration::from_secs(600), repeated_scenario())
+    tokio_time::timeout(Duration::from_secs(600), repeated_scenario())
         .await
         .context("repeated scenario exceeded its deadline")?
 }
@@ -834,7 +839,7 @@ async fn repeated_scenario() -> Result<()> {
 
 #[tokio::test]
 async fn concurrent_actions_and_http_while_writer_is_held() -> Result<()> {
-    tokio::time::timeout(Duration::from_secs(180), concurrent_scenario())
+    tokio_time::timeout(Duration::from_secs(180), concurrent_scenario())
         .await
         .context("concurrent scenario exceeded its deadline")?
 }
@@ -889,7 +894,7 @@ async fn concurrent_scenario() -> Result<()> {
     a.gate_head.store(true, Ordering::SeqCst);
     let peer = a.peer();
     let head_request = tokio::spawn(async move { peer.head().await });
-    tokio::time::timeout(Duration::from_secs(10), a.entered.notified())
+    tokio_time::timeout(Duration::from_secs(10), a.entered.notified())
         .await
         .context("metadata request did not reach source")?;
     assert!(!head_request.is_finished());
@@ -921,10 +926,10 @@ async fn concurrent_scenario() -> Result<()> {
             playlists::update_playlist(&db, &store, id, Some("after lock".into()), None).await
         })
     };
-    tokio::time::timeout(Duration::from_secs(10), barrier.wait())
+    tokio_time::timeout(Duration::from_secs(10), barrier.wait())
         .await
         .context("business actions did not start")?;
-    tokio::time::timeout(Duration::from_secs(10), async {
+    tokio_time::timeout(Duration::from_secs(10), async {
         tokio::join!(stats_started.notified(), playlist_started.notified());
     })
     .await
@@ -951,13 +956,13 @@ async fn concurrent_scenario() -> Result<()> {
     );
     tx.rollback().await?;
     a.release.notify_one();
-    tokio::time::timeout(Duration::from_secs(20), head_request)
+    tokio_time::timeout(Duration::from_secs(20), head_request)
         .await
         .context("metadata request did not finish")???;
-    tokio::time::timeout(Duration::from_secs(20), stats_action)
+    tokio_time::timeout(Duration::from_secs(20), stats_action)
         .await
         .context("statistics action did not finish")???;
-    tokio::time::timeout(Duration::from_secs(20), playlist_action)
+    tokio_time::timeout(Duration::from_secs(20), playlist_action)
         .await
         .context("playlist action did not finish")???;
     assert_eq!(a.playlist(playlist_uuid).await?.unwrap().name, "after lock");

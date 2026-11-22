@@ -8,6 +8,7 @@ pub mod sync;
 mod sync_auth;
 pub(crate) mod sync_worker;
 pub use sync_worker::PairedAudioResolver;
+use tokio_util::sync as tokio_util_sync;
 pub mod utils;
 
 pub use manager::{
@@ -59,7 +60,7 @@ pub struct ServerState {
     pub node: Weak<NodeContext>,
     pub app_state: Arc<AppState>,
     pub websocket_service: Arc<WebSocketService>,
-    pub session_cancel: tokio_util::sync::CancellationToken,
+    pub session_cancel: tokio_util_sync::CancellationToken,
     pub discovery_device_info: Arc<RwLock<DeviceInfo>>,
     pub permission_manager: Arc<RwLock<PermissionManager>>,
     pub device_scanner: Arc<DiscoveryService>,
@@ -197,6 +198,7 @@ mod tests {
     use std::sync::Arc;
     use tempfile::TempDir;
     use tokio::time::{Duration, timeout};
+    use visualizer::Visualizer;
 
     async fn test_node() -> (TempDir, Arc<NodeContext>) {
         let dir = tempfile::tempdir().unwrap();
@@ -208,7 +210,7 @@ mod tests {
             Arc::new(WebSocketService::new()),
             false,
             RunMode::App,
-            Arc::new(::visualizer::Visualizer::new()),
+            Arc::new(Visualizer::new()),
         )
         .await
         .unwrap();

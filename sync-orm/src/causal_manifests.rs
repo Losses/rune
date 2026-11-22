@@ -5,7 +5,9 @@ use sea_orm::{
     ConnectionTrait, DatabaseTransaction, ExprTrait,
     sea_query::{Alias, Condition, Expr, Func, Order, Query},
 };
+use std::cmp;
 use std::collections::BTreeSet;
+use sync::protocol;
 use sync::protocol::SyncError;
 use sync::protocol::{
     Digest, Fragment, MAX_FRAGMENTS, MAX_LOGICAL_BYTES, MAX_LOGICAL_ITEMS, ManifestKind,
@@ -63,7 +65,7 @@ where
                 && fragment.ordinal as usize == ordinal
                 && fragment.offset == body.len() as u64
                 && !fragment.bytes.is_empty()
-                && fragment.bytes.len() as u64 <= sync::protocol::MAX_PAGE_BYTES
+                && fragment.bytes.len() as u64 <= protocol::MAX_PAGE_BYTES
                 && fragment_digest(fragment)? == fragment.digest,
             "invalid manifest fragment"
         );
@@ -251,7 +253,7 @@ pub fn fragment_body(
             && body.len() as u64 <= MAX_LOGICAL_BYTES
             && item_count <= MAX_LOGICAL_ITEMS
             && fragment_bytes > 0
-            && fragment_bytes as u64 <= sync::protocol::MAX_PAGE_BYTES,
+            && fragment_bytes as u64 <= protocol::MAX_PAGE_BYTES,
         "invalid manifest body limits"
     );
     let count = body.len().div_ceil(fragment_bytes);
@@ -371,7 +373,7 @@ pub async fn read_on(
         // A single fragment must span the already validated manifest length.
         // Filter by that exact length before asking the driver for its body.
         ensure!(
-            manifest.encoded_bytes <= sync::protocol::MAX_PAGE_BYTES,
+            manifest.encoded_bytes <= protocol::MAX_PAGE_BYTES,
             "invalid fragment extent"
         );
         let query = Query::select()
@@ -420,7 +422,7 @@ pub async fn read_on(
         const HEADER_BATCH: u32 = 96;
         let mut ordinal = 0_u32;
         while ordinal < manifest.fragment_count {
-            let count = std::cmp::min(HEADER_BATCH, manifest.fragment_count - ordinal);
+            let count = cmp::min(HEADER_BATCH, manifest.fragment_count - ordinal);
             let query = Query::select()
                 .columns(["ordinal", "offset"].map(Alias::new))
                 .expr_as(
@@ -457,13 +459,13 @@ pub async fn read_on(
                         && row_offset == offset
                         && digest_size == 32
                         && size > 0
-                        && size <= sync::protocol::MAX_PAGE_BYTES
+                        && size <= protocol::MAX_PAGE_BYTES
                         && offset
                             .checked_add(size)
                             .is_some_and(|end| end <= manifest.encoded_bytes),
                     "invalid fragment extent"
                 );
-                if !headers.is_empty() && batch_bytes + size > sync::protocol::MAX_PAGE_BYTES {
+                if !headers.is_empty() && batch_bytes + size > protocol::MAX_PAGE_BYTES {
                     break;
                 }
                 offset += size;
@@ -540,12 +542,13 @@ pub async fn read_on(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sync::protocol;
     #[test]
     fn fragment_body_uses_canonical_balanced_bounds() -> Result<()> {
         let (manifest, fragments) = fragment_body(ManifestKind::Context, b"0123456789", 0, 6)?;
         assert_eq!(fragments.len(), 2);
         for fragment in &fragments {
-            let (start, end) = sync::protocol::fragment_bounds(&manifest, fragment.ordinal)?;
+            let (start, end) = protocol::fragment_bounds(&manifest, fragment.ordinal)?;
             assert_eq!(
                 (
                     fragment.offset,

@@ -15,6 +15,7 @@ use symphonia::core::{
 };
 
 use crate::crc::media_crc32;
+use symphonia::default as symphonia_default;
 
 pub struct CoverArt {
     pub crc: String,
@@ -118,7 +119,7 @@ pub async fn extract_cover_art_from_stream(
     let meta_opts: MetadataOptions = Default::default();
     let fmt_opts: FormatOptions = Default::default();
 
-    let probed = symphonia::default::get_probe()
+    let probed = symphonia_default::get_probe()
         .format(&hint, mss, &fmt_opts, &meta_opts)
         .context("Failed to probe media source")?;
 
@@ -239,10 +240,12 @@ fn process_external_cover(fsio: &FsIo, cover_path: &Path) -> Result<CoverArt> {
 #[cfg(test)]
 mod inspection_tests {
     use super::*;
+    use std::env;
+    use std::process as std_process;
     #[test]
     fn missing_or_unreadable_audio_is_an_error_not_confirmed_absence() {
         let fs = FsIo::new();
-        let missing = std::env::temp_dir().join(format!("rune-missing-art-{}", std::process::id()));
+        let missing = env::temp_dir().join(format!("rune-missing-art-{}", std_process::id()));
         assert!(extract_cover_art_binary_checked(&fs, missing.parent(), &missing).is_err());
     }
 }

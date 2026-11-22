@@ -13,14 +13,16 @@
 use std::io::{Read, Write};
 
 use anyhow::{Context, Result};
+use std::env;
+use std::io;
 use visualizer::BeatTracker;
 
 /// Frames of video a second; the tracker is fed the samples of one frame at a time.
 const FRAMES_PER_SECOND: u32 = 60;
 
 fn main() -> Result<()> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    run(&args, std::io::stdin().lock(), std::io::stdout().lock())
+    let args: Vec<String> = env::args().skip(1).collect();
+    run(&args, io::stdin().lock(), io::stdout().lock())
 }
 
 fn run(args: &[String], mut input: impl Read, mut output: impl Write) -> Result<()> {

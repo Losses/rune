@@ -6,6 +6,7 @@ use crate::sync::model::{
 };
 use crate::sync::{SeaOrmSyncStore, bindings::apply};
 use anyhow::{Result, ensure};
+use migration::catalog_identity;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, DatabaseTransaction, EntityTrait, QueryFilter, Set,
 };
@@ -51,7 +52,7 @@ pub async fn assign_computed_fingerprint(
     store.lock(&tx).await?;
     let file = checked_file(&tx, observed).await?;
     let file_id = file.source_uuid.parse()?;
-    let id = migration::catalog_identity::fingerprint(
+    let id = catalog_identity::fingerprint(
         file_id,
         Some(&algorithm),
         Some(&configuration),
@@ -165,7 +166,7 @@ pub async fn assign_computed_similarity(
         tx.commit().await?;
         return Ok(());
     }
-    let id = migration::catalog_identity::similarity(
+    let id = catalog_identity::similarity(
         first_file_id,
         second_file_id,
         Some(&algorithm),
@@ -273,7 +274,7 @@ pub fn fingerprint_status(
     let Ok(file_id) = file.source_uuid.parse() else {
         return SourceStatus::Changed;
     };
-    let expected = migration::catalog_identity::fingerprint(
+    let expected = catalog_identity::fingerprint(
         file_id,
         row.algorithm.as_deref(),
         row.configuration.as_deref(),
@@ -308,7 +309,7 @@ pub async fn current_fingerprint<C: sea_orm::ConnectionTrait>(
     file: &media_files::Model,
 ) -> Result<Option<media_file_fingerprint::Model>> {
     let file_id: uuid::Uuid = file.source_uuid.parse()?;
-    let id = migration::catalog_identity::fingerprint(
+    let id = catalog_identity::fingerprint(
         file_id,
         Some("chromaprint"),
         Some("rusty-chromaprint-0.3.0/default"),
@@ -351,7 +352,7 @@ pub async fn assign_duplicate_mark(
         "fingerprint is unavailable"
     );
     let uuid = file.source_uuid.parse()?;
-    let id = migration::catalog_identity::fingerprint(
+    let id = catalog_identity::fingerprint(
         uuid,
         row.algorithm.as_deref(),
         row.configuration.as_deref(),
@@ -431,7 +432,7 @@ pub fn similarity_status(
     else {
         return SourceStatus::Changed;
     };
-    let expected = migration::catalog_identity::similarity(
+    let expected = catalog_identity::similarity(
         first_id,
         second_id,
         row.algorithm.as_deref(),

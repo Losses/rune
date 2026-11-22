@@ -12,6 +12,8 @@ use objc2_core_video::{
 };
 
 use crate::{PixelFormat, Pixels, Result, TextureError};
+use std::ptr;
+use std::slice;
 
 /// `kCVPixelFormatType_32BGRA` buffers of one size.
 pub(super) struct Pool {
@@ -44,7 +46,7 @@ impl Pool {
                 CFBoolean::new(true),
             ],
         );
-        let mut pool: *mut CVPixelBufferPool = std::ptr::null_mut();
+        let mut pool: *mut CVPixelBufferPool = ptr::null_mut();
         // SAFETY: a valid dictionary and an out pointer to a local.
         let status = unsafe {
             CVPixelBufferPool::create(
@@ -87,7 +89,7 @@ impl Pool {
         }
         let pool = slot.as_ref().expect("made above");
 
-        let mut raw: *mut CVPixelBuffer = std::ptr::null_mut();
+        let mut raw: *mut CVPixelBuffer = ptr::null_mut();
         // SAFETY: a valid pool and an out pointer to a local.
         let status = unsafe {
             CVPixelBufferPool::create_pixel_buffer(None, &pool.pool, NonNull::from(&mut raw))
@@ -113,7 +115,7 @@ impl Pool {
             let len = stride * (height as usize - 1) + width as usize * 4;
             // SAFETY: the buffer is locked and has `height` rows of `stride` bytes, the first
             // `width * 4` of each being pixels.
-            let target = unsafe { std::slice::from_raw_parts_mut(base, len) };
+            let target = unsafe { slice::from_raw_parts_mut(base, len) };
             copy_rows(source, pixels.stride(), target, stride, pixels);
             true
         };
@@ -157,6 +159,7 @@ fn frame_error(message: impl Into<String>) -> TextureError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ptr;
 
     #[test]
     fn rows_are_copied_as_bgra() {
@@ -201,7 +204,7 @@ mod tests {
         assert_eq!(slot.as_ref().map(|pool| pool.width), Some(2));
 
         // SAFETY: a null pointer is never read.
-        let empty = unsafe { Pixels::new(std::ptr::null(), 2, 2, 16, PixelFormat::Bgra8) };
+        let empty = unsafe { Pixels::new(ptr::null(), 2, 2, 16, PixelFormat::Bgra8) };
         assert!(Pool::copy(&mut slot, &empty).is_err());
     }
 }

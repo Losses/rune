@@ -1120,6 +1120,7 @@ impl Director {
 
 #[cfg(test)]
 mod tests {
+    use std::collections;
     /// A section whose energy is below this is quiet.
     pub const QUIET_BELOW: f32 = 0.35;
     /// A section whose energy is above this is high.
@@ -1851,7 +1852,7 @@ mod tests {
             }
         }
         // And the choice varies with the label.
-        let picks: std::collections::HashSet<usize> = (0..30)
+        let picks: collections::HashSet<usize> = (0..30)
             .map(|label| a.pick(Why::Next(Tier::Normal), label as f32, 1, Some(4)))
             .collect();
         assert!(picks.len() >= 3);

@@ -20,6 +20,11 @@ use crate::{
     utils::{Broadcaster, GlobalParams, ParamsExtractor, require_library},
     visualizer::{VISUALIZER, provide_covers},
 };
+use std::path as std_path;
+use std::result;
+use tokio::sync as tokio_sync;
+use tokio::task;
+use visualizer::package;
 
 fn message_inputs(inputs: EngineInputs) -> VisualizerInputs {
     match inputs {
@@ -476,7 +481,7 @@ impl Signal for ImportVisualizerSceneRequest {
         let imported = {
             let (file, dir) = (file.clone(), dir.clone());
             // A panic in the task is an answer too: the request must not end in a crash response.
-            tokio::task::spawn_blocking(move || ::visualizer::package::import(&file, &dir))
+            task::spawn_blocking(move || package::import(&file, &dir))
                 .await
                 .unwrap_or_else(|e| Err(anyhow::anyhow!("The import stopped unexpectedly: {e}")))
         };
@@ -525,7 +530,7 @@ impl Signal for RemoveVisualizerSceneRequest {
         let removed = {
             let (path, dir) = (path.clone(), dir.clone());
             // A panic in the task is an answer too: the request must not end in a crash response.
-            tokio::task::spawn_blocking(move || ::visualizer::package::remove(&path, &dir))
+            task::spawn_blocking(move || package::remove(&path, &dir))
                 .await
                 .unwrap_or_else(|e| Err(anyhow::anyhow!("The removal stopped unexpectedly: {e}")))
         };
@@ -548,7 +553,7 @@ impl Signal for RemoveVisualizerSceneRequest {
 }
 
 /// List the scenes of `dir` again after a scene came or went, and tell the app.
-fn rescan(dir: &std::path::Path, broadcaster: &dyn Broadcaster) {
+fn rescan(dir: &std_path::Path, broadcaster: &dyn Broadcaster) {
     if let Err(e) = VISUALIZER.set_preset_dirs(&[dir.to_path_buf()]) {
         VISUALIZER.report_error("scan_scenes", format!("{e:#}"));
     }
@@ -606,7 +611,7 @@ impl Signal for SetVisualizerLogRequest {
 }
 
 /// What [`visualizer::probe_gpu`] found, once: the GPU does not change while the app runs.
-static GPU: tokio::sync::OnceCell<std::result::Result<String, String>> = OnceCell::const_new();
+static GPU: tokio_sync::OnceCell<result::Result<String, String>> = OnceCell::const_new();
 
 impl ParamsExtractor for VisualizerSupportRequest {
     type Params = ();
@@ -626,7 +631,7 @@ impl Signal for VisualizerSupportRequest {
     ) -> Result<Option<Self::Response>> {
         let gpu = GPU
             .get_or_init(|| async {
-                let probed = tokio::task::spawn_blocking(::visualizer::probe_gpu).await;
+                let probed = task::spawn_blocking(::visualizer::probe_gpu).await;
                 let gpu = match probed {
                     Ok(Ok(adapter)) => Ok(adapter),
                     Ok(Err(e)) => Err(format!("{e:#}")),
@@ -985,6 +990,8 @@ impl Signal for VisualizerPlanRequest {
 
 #[cfg(test)]
 mod tests {
+    use std::sync as std_sync;
+    use visualizer::Status;
     use visualizer::Transport;
     use visualizer::{ColumnGroup, ColumnKind, ColumnPlan, ShotSize, Strength, Tier};
 
@@ -999,7 +1006,7 @@ mod tests {
     use super::{VISUALIZER, VisualizerStatusRequest, message_runtime_status, message_support};
 
     #[derive(Default)]
-    struct Capture(std::sync::Mutex<Vec<VisualizerScenesChanged>>);
+    struct Capture(std_sync::Mutex<Vec<VisualizerScenesChanged>>);
 
     impl Broadcaster for Capture {
         fn broadcast(&self, message: &dyn crate::utils::RinfRustSignal) {
@@ -1134,7 +1141,7 @@ mod tests {
             );
         }
         assert_eq!(
-            message_runtime_status(&visualizer::Status::default()),
+            message_runtime_status(&Status::default()),
             VisualizerRuntimeStatus::NotRunningYet
         );
     }

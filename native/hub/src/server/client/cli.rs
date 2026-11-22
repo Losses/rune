@@ -1,4 +1,7 @@
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
+use hub::messages::PlaybackMode as RemotePlaybackMode;
+use std::iter;
+use std::str;
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
@@ -10,7 +13,7 @@ pub enum PlaybackMode {
     NoChange,
 }
 
-impl std::str::FromStr for PlaybackMode {
+impl str::FromStr for PlaybackMode {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -27,12 +30,12 @@ impl std::str::FromStr for PlaybackMode {
 
 impl PlaybackMode {
     /// The mode to ask for, or `None` to keep the player's current one.
-    pub fn requested(&self) -> Option<hub::messages::PlaybackMode> {
+    pub fn requested(&self) -> Option<RemotePlaybackMode> {
         match self {
-            PlaybackMode::Sequential => Some(hub::messages::PlaybackMode::Sequential),
-            PlaybackMode::RepeatOne => Some(hub::messages::PlaybackMode::RepeatOne),
-            PlaybackMode::RepeatAll => Some(hub::messages::PlaybackMode::RepeatAll),
-            PlaybackMode::Shuffle => Some(hub::messages::PlaybackMode::Shuffle),
+            PlaybackMode::Sequential => Some(RemotePlaybackMode::Sequential),
+            PlaybackMode::RepeatOne => Some(RemotePlaybackMode::RepeatOne),
+            PlaybackMode::RepeatAll => Some(RemotePlaybackMode::RepeatAll),
+            PlaybackMode::Shuffle => Some(RemotePlaybackMode::Shuffle),
             PlaybackMode::NoChange => None,
         }
     }
@@ -45,7 +48,7 @@ pub enum OperateMode {
     Replace,
 }
 
-impl std::str::FromStr for OperateMode {
+impl str::FromStr for OperateMode {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -141,7 +144,7 @@ pub enum ReplCommand {
 
 impl ReplCommand {
     pub fn parse(input: &str) -> Result<Self, clap::Error> {
-        let input_vec: Vec<String> = std::iter::once("".to_string())
+        let input_vec: Vec<String> = iter::once("".to_string())
             .chain(shlex::split(input).unwrap_or_default())
             .collect();
 
@@ -250,7 +253,7 @@ mod tests {
 
     #[test]
     fn no_change_asks_for_no_mode_and_each_other_name_for_its_own() {
-        use hub::messages::PlaybackMode as Wire;
+        use super::RemotePlaybackMode as Wire;
         let parsed = |name: &str| name.parse::<PlaybackMode>().unwrap().requested();
         assert_eq!(parsed("nochange"), None);
         assert_eq!(parsed("sequential"), Some(Wire::Sequential));

@@ -8,8 +8,14 @@ use std::time::Duration;
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Serialize, de::DeserializeOwned};
+use std::fs;
+use std::thread;
 use thiserror::Error;
+use tokio::fs as tokio_fs;
 use tokio::sync::{RwLock, RwLockReadGuard, broadcast};
+use tokio::task;
+use toml::de;
+use toml::ser;
 
 /// Represents errors that can occur during persistent data management.
 ///
@@ -24,20 +30,17 @@ pub enum PersistenceError {
     /// It includes the underlying `std::io::Error` and a context string to provide more
     /// information about where the error occurred.
     #[error("File I/O error while {context}: {source}")]
-    Io {
-        source: std::io::Error,
-        context: String,
-    },
+    Io { source: io::Error, context: String },
     /// Represents errors during TOML serialization.
     ///
     /// This error variant occurs when converting data into a TOML format string fails.
     #[error("Serialization error")]
-    Serialization(#[from] toml::ser::Error),
+    Serialization(#[from] ser::Error),
     /// Represents errors during TOML deserialization.
     ///
     /// This error variant occurs when parsing a TOML format string back into data fails.
     #[error("Deserialization error")]
-    Deserialization(#[from] toml::de::Error),
+    Deserialization(#[from] de::Error),
     /// Represents errors from the filesystem watcher.
     ///
     /// This error variant is used when the filesystem watcher encounters an issue, such as
@@ -94,7 +97,7 @@ fn lock_persistent_file(path: &Path) -> Result<File, PersistenceError> {
 
 async fn lock_persistent_file_async(path: &Path) -> Result<File, PersistenceError> {
     let path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || lock_persistent_file(&path))
+    task::spawn_blocking(move || lock_persistent_file(&path))
         .await
         .map_err(|error| PersistenceError::Io {
             source: io::Error::other(error),
@@ -133,7 +136,7 @@ where
 
         // Ensure parent directory exists
         if let Some(parent) = file_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| PersistenceError::Io {
+            fs::create_dir_all(parent).map_err(|e| PersistenceError::Io {
                 source: e,
                 context: format!("creating parent directory {}", parent.display()),
             })?;
@@ -141,16 +144,15 @@ where
 
         // Initialize data from file or create new
         let initial_data = if file_path.exists() {
-            let content =
-                std::fs::read_to_string(&file_path).map_err(|e| PersistenceError::Io {
-                    source: e,
-                    context: format!("reading file {}", file_path.display()),
-                })?;
+            let content = fs::read_to_string(&file_path).map_err(|e| PersistenceError::Io {
+                source: e,
+                context: format!("reading file {}", file_path.display()),
+            })?;
             toml::from_str(&content)?
         } else {
             let default_data = T::default();
             let content = toml::to_string(&default_data)?;
-            std::fs::write(&file_path, &content).map_err(|e| PersistenceError::Io {
+            fs::write(&file_path, &content).map_err(|e| PersistenceError::Io {
                 source: e,
                 context: format!("writing to file {}", file_path.display()),
             })?;
@@ -204,12 +206,12 @@ where
         let tx_clone = self.change_tx.clone();
         let external_tx_clone = self.external_change_tx.clone();
 
-        std::thread::spawn(move || {
+        thread::spawn(move || {
             for event in rx {
                 match event {
                     Ok(event) if matches!(event.kind, EventKind::Modify(_)) => {
                         if event.paths.iter().any(|p| p == &path_clone) {
-                            std::thread::sleep(Duration::from_millis(100)); // Debounce to avoid reacting to partial saves
+                            thread::sleep(Duration::from_millis(100)); // Debounce to avoid reacting to partial saves
                             // Same order as `update`: data lock, then file lock. The
                             // opposite order deadlocks against a concurrent update.
                             let mut data = data_clone.blocking_write();
@@ -220,7 +222,7 @@ where
                                     continue;
                                 }
                             };
-                            match std::fs::read_to_string(&path_clone) {
+                            match fs::read_to_string(&path_clone) {
                                 Ok(content) => {
                                     if let Ok(new_data) = toml::from_str::<T>(&content) {
                                         *data = new_data.clone();
@@ -299,7 +301,7 @@ where
             })?;
 
         // Write serialized content to file
-        std::fs::write(&self.file_path, &content).map_err(|e| PersistenceError::Io {
+        fs::write(&self.file_path, &content).map_err(|e| PersistenceError::Io {
             source: e,
             context: format!("writing to file {}", self.file_path.display()),
         })?;
@@ -369,7 +371,7 @@ where
             .await
             .map_err(E::from)?;
         // Another manager on the same file may have written since our last load.
-        let current_data = match tokio::fs::read_to_string(&self.file_path).await {
+        let current_data = match tokio_fs::read_to_string(&self.file_path).await {
             Ok(content) => toml::from_str(&content)
                 .map_err(|error| E::from(PersistenceError::Deserialization(error)))?,
             Err(source) if source.kind() == ErrorKind::NotFound => (*data).clone(),

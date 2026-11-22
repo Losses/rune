@@ -8,6 +8,7 @@ use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
 };
+use tokio::task;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AudioAvailability {
@@ -75,7 +76,7 @@ pub async fn materialized_path<C: ConnectionTrait>(
     };
     let fsio = fsio.clone();
     let root = root.to_path_buf();
-    tokio::task::spawn_blocking(move || row_path(&fsio, &root, &row)).await?
+    task::spawn_blocking(move || row_path(&fsio, &root, &row)).await?
 }
 
 pub async fn audio_availability<C: ConnectionTrait>(
@@ -98,7 +99,7 @@ pub async fn audio_availability<C: ConnectionTrait>(
         .collect();
     let fsio = fsio.clone();
     let root = root.to_path_buf();
-    tokio::task::spawn_blocking(move || {
+    task::spawn_blocking(move || {
         rows.into_iter()
             .map(|row| {
                 let state = if row_path(&fsio, &root, &row)?.is_some() {

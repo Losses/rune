@@ -7,7 +7,9 @@ use sea_orm::{
     ConnectionTrait, DatabaseTransaction, DbErr, ExprTrait, FromQueryResult,
     sea_query::{Alias, Expr, Func, Query},
 };
+use std::cmp;
 use std::time::{SystemTime, UNIX_EPOCH};
+use sync::protocol;
 use sync::protocol::SyncError;
 use uuid::Uuid;
 
@@ -432,10 +434,7 @@ pub async fn minimum_pins_on(
     Ok(match (lease, cursor) {
         (None, None) => None,
         (Some(pin), None) | (None, Some(pin)) => Some(pin),
-        (Some(left), Some(right)) => Some((
-            std::cmp::min(left.0, right.0),
-            std::cmp::min(left.1, right.1),
-        )),
+        (Some(left), Some(right)) => Some((cmp::min(left.0, right.0), cmp::min(left.1, right.1))),
     })
 }
 pub(crate) async fn minimum_pins_except_on(
@@ -533,7 +532,7 @@ pub(crate) async fn checkpoint_bounded_on(
     max_bytes: u64,
 ) -> Result<(), DbErr> {
     if max_bytes == 0
-        || max_bytes > sync::protocol::MAX_LOGICAL_BYTES
+        || max_bytes > protocol::MAX_LOGICAL_BYTES
         || next.is_empty()
         || next.len() as u64 > max_bytes
     {

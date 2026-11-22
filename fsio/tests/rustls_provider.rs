@@ -1,4 +1,5 @@
+use rustls::ClientConfig;
 #[test]
 fn rustls_has_an_unambiguous_default_provider() {
-    let _builder = rustls::ClientConfig::builder();
+    let _builder = ClientConfig::builder();
 }

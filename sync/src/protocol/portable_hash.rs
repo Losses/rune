@@ -1,7 +1,11 @@
 //! Portable, versioned checkpoints for unkeyed BLAKE3's public chunk tree.
 //! The on-disk representation is independent of the crate's in-memory structs.
 use super::{Digest, MAX_NUMBER, Result, SyncError};
+use blake3::Hash;
+use blake3::guts;
+use blake3::guts::ChunkState;
 use serde::de::Error;
+use std::result;
 const CHUNK: usize = 1024;
 const MAGIC: &[u8; 4] = b"B3P1";
 #[derive(Clone, Debug, Default)]
@@ -11,17 +15,12 @@ pub struct PortableHasher {
     stack: Vec<Digest>,
 }
 impl serde::Serialize for PortableHasher {
-    fn serialize<S: serde::Serializer>(
-        &self,
-        serializer: S,
-    ) -> std::result::Result<S::Ok, S::Error> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> result::Result<S::Ok, S::Error> {
         super::bytes_serde::serialize(&self.checkpoint(), serializer)
     }
 }
 impl<'de> serde::Deserialize<'de> for PortableHasher {
-    fn deserialize<D: serde::Deserializer<'de>>(
-        deserializer: D,
-    ) -> std::result::Result<Self, D::Error> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> result::Result<Self, D::Error> {
         let bytes = super::bytes_serde::deserialize(deserializer)?;
         Self::from_checkpoint(&bytes).map_err(Error::custom)
     }
@@ -50,7 +49,7 @@ impl PortableHasher {
         }
         while !input.is_empty() {
             if self.pending.len() == CHUNK {
-                let cv = blake3::guts::ChunkState::new(self.chunks)
+                let cv = ChunkState::new(self.chunks)
                     .update(&self.pending)
                     .finalize(false);
                 self.chunks += 1;
@@ -61,7 +60,7 @@ impl PortableHasher {
                         .stack
                         .pop()
                         .ok_or(SyncError::Invalid("invalid hash stack".into()))?;
-                    value = blake3::guts::parent_cv(&blake3::Hash::from_bytes(left), &value, false);
+                    value = guts::parent_cv(&Hash::from_bytes(left), &value, false);
                     n >>= 1;
                 }
                 self.stack.push(*value.as_bytes());
@@ -74,14 +73,14 @@ impl PortableHasher {
         Ok(())
     }
     pub fn finish(&self) -> Digest {
-        let mut chunk = blake3::guts::ChunkState::new(self.chunks);
+        let mut chunk = ChunkState::new(self.chunks);
         chunk.update(&self.pending);
         if self.stack.is_empty() {
             return *chunk.finalize(true).as_bytes();
         }
         let mut value = chunk.finalize(false);
         for (i, left) in self.stack.iter().enumerate().rev() {
-            value = blake3::guts::parent_cv(&blake3::Hash::from_bytes(*left), &value, i == 0);
+            value = guts::parent_cv(&Hash::from_bytes(*left), &value, i == 0);
         }
         *value.as_bytes()
     }

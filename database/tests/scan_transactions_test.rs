@@ -13,9 +13,11 @@ use sea_orm::sea_query::Alias;
 use sea_orm::sea_query::Expr;
 use sea_orm::sea_query::Query;
 use sea_orm::{ConnectionTrait, Database, DbBackend, EntityTrait, PaginatorTrait, Statement};
+use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 #[tokio::test]
 async fn failed_metadata_insert_rolls_back_file() -> Result<()> {
@@ -23,8 +25,8 @@ async fn failed_metadata_insert_rolls_back_file() -> Result<()> {
     initialize_db(&db, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").await?;
     let store = SeaOrmSyncStore::create_empty(
         db.clone(),
-        uuid::Uuid::from_u128(2),
-        uuid::Uuid::parse_str("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")?,
+        Uuid::from_u128(2),
+        Uuid::parse_str("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")?,
     )
     .await?;
     db.execute_raw(Statement::from_string(DbBackend::Sqlite,
@@ -86,8 +88,8 @@ async fn failed_file_does_not_rollback_neighbors_or_stop_the_batch() -> Result<(
     initialize_db(&db, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").await?;
     let store = SeaOrmSyncStore::create_empty(
         db.clone(),
-        uuid::Uuid::from_u128(2),
-        uuid::Uuid::parse_str("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")?,
+        Uuid::from_u128(2),
+        Uuid::parse_str("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")?,
     )
     .await?;
     db.execute_raw(Statement::from_string(DbBackend::Sqlite,
@@ -98,7 +100,7 @@ async fn failed_file_does_not_rollback_neighbors_or_stop_the_batch() -> Result<(
     let mut descriptions = Vec::new();
     for name in ["before.ogg", "bad.ogg", "after.ogg"] {
         let path = dir.path().join(name);
-        std::fs::copy(&source, &path)?;
+        fs::copy(&source, &path)?;
         descriptions.push(Some(describe_file(
             &fs,
             &fs.canonicalize(&path)?,
@@ -240,7 +242,7 @@ async fn cover_timestamps_preserve_shared_and_absent_cover_behavior_across_chunk
     ] {
         db.execute_raw(Statement::from_sql_and_values(DbBackend::Sqlite,
             "INSERT INTO media_files (id,file_name,directory,extension,file_hash,last_modified,sample_rate,duration,cover_art_uuid,source_uuid,cover_art_checked_at) VALUES (?,?,'','ogg','abc','123',44100,10,?,?,?)",
-            [id.into(), format!("{id}.ogg").into(), cover_id.clone().into(), uuid::Uuid::from_u128(id as u128).to_string().into(), cover_id.map(|_| "2020-01-01T00:00:00Z".to_owned()).into()])).await?;
+            [id.into(), format!("{id}.ogg").into(), cover_id.clone().into(), Uuid::from_u128(id as u128).to_string().into(), cover_id.map(|_| "2020-01-01T00:00:00Z".to_owned()).into()])).await?;
     }
     let mut ids = vec![1; 500];
     ids.extend([2, 3, 999]);

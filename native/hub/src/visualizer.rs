@@ -18,6 +18,9 @@ use ::playback::player::PlayingItem;
 pub use ::visualizer::ChartItem;
 use anyhow::Result;
 use log::warn;
+use std::path as std_path;
+use tokio::fs;
+use tokio::runtime;
 use visualizer::Visualizer;
 
 /// The app's visualizer, which its window shows. The app's node writes it through its
@@ -63,7 +66,7 @@ impl NodeVisualizer {
 
 /// What finding the covers for scenes needs.
 struct CoverSource {
-    runtime: tokio::runtime::Handle,
+    runtime: runtime::Handle,
     fsio: Arc<FsIo>,
     main_db: Arc<MainDbConnection>,
     recommend_db: Arc<RecommendationDbConnection>,
@@ -266,13 +269,13 @@ pub async fn feed_cover_bytes(
     Ok((playing, random))
 }
 
-async fn read_cover_bytes(path: Option<&std::path::Path>) -> Result<Option<Vec<u8>>> {
+async fn read_cover_bytes(path: Option<&std_path::Path>) -> Result<Option<Vec<u8>>> {
     let Some(path) = path else {
         return Ok(None);
     };
-    let metadata = tokio::fs::metadata(path).await?;
+    let metadata = fs::metadata(path).await?;
     if usize::try_from(metadata.len()).unwrap_or(usize::MAX) > MAX_FEED_COVER_BYTES {
         return Ok(None);
     }
-    Ok(Some(tokio::fs::read(path).await?))
+    Ok(Some(fs::read(path).await?))
 }

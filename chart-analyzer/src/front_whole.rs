@@ -10,6 +10,7 @@ use crate::front::{
 use crate::ndimage::{maximum_filter1d, median_filter1d};
 use crate::np::{geomspace, hanning, pairwise_sum, round_half_even};
 use realfft::RealFftPlanner;
+use std::array;
 use std::f64::consts::PI;
 
 /// A magnitude spectrogram, `frames` rows of `bins` values.
@@ -221,7 +222,7 @@ pub fn chroma_timbre(c: &Spectrogram) -> ChromaTimbre {
         let norm = (norm as f32 + EPS32) as f64;
         out.chroma.push(chroma.map(|v| (v / norm as f32) as f64));
         let log_bands = bands.map(|v| (v + TIMBRE_FLOOR).ln());
-        out.timbre.push(std::array::from_fn(|j| {
+        out.timbre.push(array::from_fn(|j| {
             log_bands
                 .iter()
                 .zip(&dct[j])

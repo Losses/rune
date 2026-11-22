@@ -62,6 +62,7 @@ pub fn find(name: &str) -> Option<Builtin> {
 mod tests {
     use super::*;
     use crate::pipeline::DEFAULT_PRESET_NAME;
+    use std::str;
 
     #[test]
     fn every_scene_folder_is_a_scene_with_its_files() {
@@ -188,7 +189,7 @@ mod tests {
         let mut misses = Vec::new();
         for (dir, files) in SCENES {
             for (path, bytes) in files.iter().filter(|(path, _)| path.ends_with(".wgsl")) {
-                let source = std::str::from_utf8(bytes).unwrap();
+                let source = str::from_utf8(bytes).unwrap();
                 for (line, field) in music_fields(source) {
                     if let Some((_, instead)) = REPLACED.iter().find(|(name, _)| *name == field) {
                         misses.push(format!(
@@ -209,7 +210,7 @@ mod tests {
         let mut reads = Vec::new();
         for (dir, files) in SCENES {
             for (path, bytes) in files.iter().filter(|(path, _)| path.ends_with(".wgsl")) {
-                let source = std::str::from_utf8(bytes).unwrap();
+                let source = str::from_utf8(bytes).unwrap();
                 for (line, field) in music_fields(source) {
                     reads.push(format!("{dir}/{path}:{line}: music.{field}"));
                 }

@@ -12,6 +12,7 @@ use crate::api::{
 };
 use crate::fs::VirtualEntry;
 use crate::utils::AppState;
+use std::cmp;
 
 pub async fn handle_ls(state: Arc<AppState>, long: bool) -> Result<bool> {
     let mut fs = state.fs.write().await;
@@ -57,7 +58,7 @@ fn print_entries_grid(entries: Vec<VirtualEntry>) {
 
     let max_width = entry_displays.iter().map(|(_, w)| *w).max().unwrap_or(0);
     let column_width = max_width + column_spacing;
-    let cols = std::cmp::max(1, term_width / column_width);
+    let cols = cmp::max(1, term_width / column_width);
 
     let mut current_col = 0;
     for (display, width) in entry_displays {

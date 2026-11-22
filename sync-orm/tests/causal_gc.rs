@@ -3,13 +3,17 @@ use sea_orm::{
     ConnectionTrait, Database, TransactionTrait,
     sea_query::{Alias, Expr, Query},
 };
+use std::env;
+use std::fs;
+use sync_orm::causal_gc;
 use sync_orm::causal_gc::IncrementalReclaim;
+use sync_orm::causal_leases;
 use sync_orm::{causal_gc::collect_one_on, causal_schema};
 use uuid::Uuid;
 
 #[tokio::test]
 async fn graph_reclamation_respects_roots_edges_and_budgets() -> Result<()> {
-    let path = std::env::temp_dir().join(format!("rune-gc-{}.sqlite", Uuid::new_v4()));
+    let path = env::temp_dir().join(format!("rune-gc-{}.sqlite", Uuid::new_v4()));
     let url = format!("sqlite://{}?mode=rwc", path.display());
     let db = Database::connect(&url).await?;
     causal_schema::install_fresh(&db).await?;
@@ -97,9 +101,9 @@ async fn graph_reclamation_respects_roots_edges_and_budgets() -> Result<()> {
     db.execute(&edge).await?;
     let root_lease = Uuid::new_v4();
     let tx = db.begin().await?;
-    sync_orm::causal_leases::create_build_on(
+    causal_leases::create_build_on(
         &tx,
-        sync_orm::causal_leases::BuildLeaseRequest {
+        causal_leases::BuildLeaseRequest {
             namespace: n,
             id: root_lease,
             scope: vec![1],
@@ -110,28 +114,28 @@ async fn graph_reclamation_respects_roots_edges_and_budgets() -> Result<()> {
         },
     )
     .await?;
-    sync_orm::causal_leases::pin_root_on(&tx, n, root_lease, [1; 32], 1).await?;
+    causal_leases::pin_root_on(&tx, n, root_lease, [1; 32], 1).await?;
     tx.commit().await?;
     let tx = db.begin().await?;
     assert!(!collect_one_on(&tx, n, [1; 32], 10, 10).await?);
     assert!(!collect_one_on(&tx, n, [2; 32], 10, 10).await?);
     tx.commit().await?;
     let tx = db.begin().await?;
-    sync_orm::causal_leases::revoke_on(&tx, n, root_lease).await?;
+    causal_leases::revoke_on(&tx, n, root_lease).await?;
     tx.commit().await?;
     let tx = db.begin().await?;
     assert!(collect_one_on(&tx, n, [1; 32], 1, 10).await.is_err());
     tx.rollback().await?;
     let tx = db.begin().await?;
-    let first = sync_orm::causal_gc::step_on(&tx, n, None, 1, 10, 256).await?;
+    let first = causal_gc::step_on(&tx, n, None, 1, 10, 256).await?;
     assert!(first.reclaimed && !first.done);
     tx.commit().await?;
     let tx = db.begin().await?;
-    let second = sync_orm::causal_gc::step_on(&tx, n, first.next, 1, 10, 256).await?;
+    let second = causal_gc::step_on(&tx, n, first.next, 1, 10, 256).await?;
     assert!(second.reclaimed && !second.done);
     tx.commit().await?;
     let tx = db.begin().await?;
-    let end = sync_orm::causal_gc::step_on(&tx, n, second.next, 1, 10, 256).await?;
+    let end = causal_gc::step_on(&tx, n, second.next, 1, 10, 256).await?;
     assert!(end.done && !end.reclaimed);
     tx.commit().await?;
     let query = Query::select()
@@ -196,9 +200,9 @@ async fn graph_reclamation_respects_roots_edges_and_budgets() -> Result<()> {
     }
     let first_lease = Uuid::new_v4();
     let tx = other.begin().await?;
-    sync_orm::causal_leases::create_build_on(
+    causal_leases::create_build_on(
         &tx,
-        sync_orm::causal_leases::BuildLeaseRequest {
+        causal_leases::BuildLeaseRequest {
             namespace: n,
             id: first_lease,
             scope: vec![1],
@@ -209,28 +213,28 @@ async fn graph_reclamation_respects_roots_edges_and_budgets() -> Result<()> {
         },
     )
     .await?;
-    sync_orm::causal_leases::pin_root_on(&tx, n, first_lease, reclaim_digest, 1).await?;
+    causal_leases::pin_root_on(&tx, n, first_lease, reclaim_digest, 1).await?;
     tx.commit().await?;
     let tx = db.begin().await?;
     assert_eq!(
-        sync_orm::causal_gc::collect_incremental_on(&tx, n, reclaim_digest, 1, 256).await?,
+        causal_gc::collect_incremental_on(&tx, n, reclaim_digest, 1, 256).await?,
         IncrementalReclaim::LiveOrMissing
     );
     tx.commit().await?;
     let tx = other.begin().await?;
-    sync_orm::causal_leases::revoke_on(&tx, n, first_lease).await?;
+    causal_leases::revoke_on(&tx, n, first_lease).await?;
     tx.commit().await?;
     let tx = db.begin().await?;
     assert_eq!(
-        sync_orm::causal_gc::collect_incremental_on(&tx, n, reclaim_digest, 1, 256).await?,
+        causal_gc::collect_incremental_on(&tx, n, reclaim_digest, 1, 256).await?,
         IncrementalReclaim::More
     );
     tx.commit().await?;
     let tx = other.begin().await?;
     let stale_lease = Uuid::new_v4();
-    sync_orm::causal_leases::create_build_on(
+    causal_leases::create_build_on(
         &tx,
-        sync_orm::causal_leases::BuildLeaseRequest {
+        causal_leases::BuildLeaseRequest {
             namespace: n,
             id: stale_lease,
             scope: vec![1],
@@ -242,7 +246,7 @@ async fn graph_reclamation_respects_roots_edges_and_budgets() -> Result<()> {
     )
     .await?;
     assert!(
-        sync_orm::causal_leases::pin_root_on(&tx, n, stale_lease, reclaim_digest, 1)
+        causal_leases::pin_root_on(&tx, n, stale_lease, reclaim_digest, 1)
             .await
             .is_err()
     );
@@ -250,8 +254,7 @@ async fn graph_reclamation_respects_roots_edges_and_budgets() -> Result<()> {
     let mut steps = 0;
     loop {
         let tx = db.begin().await?;
-        let result =
-            sync_orm::causal_gc::collect_incremental_on(&tx, n, reclaim_digest, 1, 256).await?;
+        let result = causal_gc::collect_incremental_on(&tx, n, reclaim_digest, 1, 256).await?;
         tx.commit().await?;
         steps += 1;
         if result == IncrementalReclaim::Deleted {
@@ -263,6 +266,6 @@ async fn graph_reclamation_respects_roots_edges_and_budgets() -> Result<()> {
     assert_eq!(steps, 6);
     db.close().await?;
     other.close().await?;
-    std::fs::remove_file(path)?;
+    fs::remove_file(path)?;
     Ok(())
 }

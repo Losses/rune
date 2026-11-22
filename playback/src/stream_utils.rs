@@ -1,10 +1,15 @@
 use crate::player::{RemoteAudioError, UnavailableReason};
 use anyhow::{Result, anyhow};
+use reqwest::header;
 use std::io::{self, Seek};
+use std::sync as std_sync;
 use std::sync::{Arc, Mutex};
+use stream_download::http as stream_download_http;
 use stream_download::http::HttpStream;
 use stream_download::{Settings, StreamDownload, storage::temp::TempStorageProvider};
 use symphonia::core::io::{MediaSource, ReadOnlySource};
+use tokio::task;
+use tokio_util::sync as tokio_util_sync;
 
 pub async fn create_stream_from_url(url: &str) -> Result<StreamDownload<TempStorageProvider>> {
     StreamDownload::new_http(
@@ -41,17 +46,17 @@ pub async fn create_stream_with_client(
 
 /// Adapts a caller capability to the downloader's initial and range requests.
 #[derive(Clone)]
-struct RenewableClient(Option<std::sync::Arc<dyn crate::player::AudioRequest>>);
-impl stream_download::http::Client for RenewableClient {
+struct RenewableClient(Option<std_sync::Arc<dyn crate::player::AudioRequest>>);
+impl stream_download_http::Client for RenewableClient {
     type Url = reqwest::Url;
-    type Headers = reqwest::header::HeaderMap;
+    type Headers = header::HeaderMap;
     type Response = reqwest::Response;
-    type Error = std::io::Error;
+    type Error = io::Error;
 
     fn create() -> Self {
         Self(None)
     }
-    async fn get(&self, _url: &Self::Url) -> std::io::Result<Self::Response> {
+    async fn get(&self, _url: &Self::Url) -> io::Result<Self::Response> {
         let capability = self
             .0
             .as_ref()
@@ -63,7 +68,7 @@ impl stream_download::http::Client for RenewableClient {
         _url: &Self::Url,
         start: u64,
         end: Option<u64>,
-    ) -> std::io::Result<Self::Response> {
+    ) -> io::Result<Self::Response> {
         let capability = self
             .0
             .as_ref()
@@ -76,7 +81,7 @@ impl stream_download::http::Client for RenewableClient {
 }
 
 pub async fn create_stream_with_authorizer(
-    request: std::sync::Arc<dyn crate::player::AudioRequest>,
+    request: std_sync::Arc<dyn crate::player::AudioRequest>,
     url: &str,
 ) -> Result<StreamDownload<TempStorageProvider>> {
     let stream = HttpStream::new(RenewableClient(Some(request)), url.parse()?)
@@ -94,20 +99,20 @@ pub async fn create_stream_with_authorizer(
 /// Keeps a stream's lifetime tied to playback and stops reads after revocation.
 pub struct ManagedStream {
     inner: StreamDownload<TempStorageProvider>,
-    cancel: tokio_util::sync::CancellationToken,
+    cancel: tokio_util_sync::CancellationToken,
     failed: Arc<Mutex<Option<UnavailableReason>>>,
-    cancellation_bridge: tokio::task::JoinHandle<()>,
+    cancellation_bridge: task::JoinHandle<()>,
 }
 impl ManagedStream {
     pub fn new(
         inner: StreamDownload<TempStorageProvider>,
-        cancel: tokio_util::sync::CancellationToken,
+        cancel: tokio_util_sync::CancellationToken,
     ) -> Self {
         Self::new_with_failure(inner, cancel, Arc::new(Mutex::new(None)))
     }
     pub fn new_with_failure(
         inner: StreamDownload<TempStorageProvider>,
-        cancel: tokio_util::sync::CancellationToken,
+        cancel: tokio_util_sync::CancellationToken,
         failed: Arc<Mutex<Option<UnavailableReason>>>,
     ) -> Self {
         let download = inner.cancellation_token();
@@ -127,7 +132,7 @@ impl ManagedStream {
             cancellation_bridge,
         }
     }
-    fn ensure_active(&self) -> std::io::Result<()> {
+    fn ensure_active(&self) -> io::Result<()> {
         if self.cancel.is_cancelled() {
             if let Ok(mut reason) = self.failed.lock() {
                 reason.get_or_insert(UnavailableReason::AccessRevoked);
@@ -144,8 +149,8 @@ impl ManagedStream {
     fn fail_on_incomplete_eof(
         &mut self,
         position: u64,
-        result: std::io::Result<usize>,
-    ) -> std::io::Result<usize> {
+        result: io::Result<usize>,
+    ) -> io::Result<usize> {
         let bytes_read = match result {
             Ok(bytes_read) => bytes_read,
             Err(error) => {
@@ -172,16 +177,16 @@ impl ManagedStream {
         Ok(bytes_read)
     }
 }
-impl std::io::Read for ManagedStream {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+impl io::Read for ManagedStream {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.ensure_active()?;
         let position = self.inner.stream_position()?;
         let result = self.inner.read(buf);
         self.fail_on_incomplete_eof(position, result)
     }
 }
-impl std::io::Seek for ManagedStream {
-    fn seek(&mut self, from: std::io::SeekFrom) -> std::io::Result<u64> {
+impl io::Seek for ManagedStream {
+    fn seek(&mut self, from: io::SeekFrom) -> io::Result<u64> {
         self.ensure_active()?;
         self.inner.seek(from)
     }
@@ -196,6 +201,10 @@ impl Drop for ManagedStream {
 
 #[cfg(test)]
 mod tests {
+    use reqwest::Client;
+    use reqwest::header;
+    use tokio::task;
+    use tokio::time as tokio_time;
 
     use super::*;
     use reqwest::header::HeaderMap;
@@ -233,25 +242,25 @@ mod tests {
                 .await
                 .unwrap();
             socket.write_all(&vec![7; 300 * 1024]).await.unwrap();
-            if tokio::time::timeout(TEST_DEADLINE, waiting).await.is_err() {
+            if tokio_time::timeout(TEST_DEADLINE, waiting).await.is_err() {
                 forced_server.store(true, Ordering::SeqCst);
             }
             let _ = socket.write_all(&vec![9; 1024 * 1024 - 300 * 1024]).await;
         });
         let mut headers = HeaderMap::new();
-        headers.insert(reqwest::header::AUTHORIZATION, "Bearer test".parse()?);
-        let client = reqwest::Client::builder()
+        headers.insert(header::AUTHORIZATION, "Bearer test".parse()?);
+        let client = Client::builder()
             .default_headers(headers)
             .no_proxy()
             .build()?;
-        let mut stream = tokio::time::timeout(
+        let mut stream = tokio_time::timeout(
             TEST_DEADLINE,
             create_stream_with_client(client, &format!("http://{address}/audio")),
         )
         .await??;
-        let (first, stream) = tokio::time::timeout(
+        let (first, stream) = tokio_time::timeout(
             TEST_DEADLINE,
-            tokio::task::spawn_blocking(move || {
+            task::spawn_blocking(move || {
                 let mut bytes = [0; 4];
                 stream.read_exact(&mut bytes).unwrap();
                 (bytes, stream)
@@ -304,19 +313,19 @@ mod tests {
                 .await
                 .unwrap();
         });
-        let client = reqwest::Client::builder().no_proxy().build()?;
-        let stream = tokio::time::timeout(
+        let client = Client::builder().no_proxy().build()?;
+        let stream = tokio_time::timeout(
             TEST_DEADLINE,
             create_stream_with_client(client, &format!("http://{address}/audio")),
         )
         .await??;
         let mut managed = ManagedStream::new(stream, CancellationToken::new());
         release_initial.send(()).unwrap();
-        let reader = tokio::task::spawn_blocking(move || {
+        let reader = task::spawn_blocking(move || {
             let mut output = vec![0; 1_048_576];
             managed.read_exact(&mut output)
         });
-        let result = tokio::time::timeout(TEST_DEADLINE, reader).await??;
+        let result = tokio_time::timeout(TEST_DEADLINE, reader).await??;
         assert!(result.is_err(), "failed range request must fail the read");
         server.await?;
         Ok(())
@@ -347,14 +356,14 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            tokio::time::timeout(TEST_DEADLINE, waiting)
+            tokio_time::timeout(TEST_DEADLINE, waiting)
                 .await
                 .expect("client must create the stream before the response ends")
                 .expect("client must release the response");
             socket.shutdown().await.unwrap();
         });
-        let client = reqwest::Client::builder().no_proxy().build()?;
-        let stream = tokio::time::timeout(
+        let client = Client::builder().no_proxy().build()?;
+        let stream = tokio_time::timeout(
             TEST_DEADLINE,
             create_stream_with_client(client, &format!("http://{address}/audio")),
         )
@@ -372,7 +381,7 @@ mod tests {
                 .and_then(|source| source.downcast_ref::<RemoteAudioError>()),
             Some(RemoteAudioError::Incomplete)
         ));
-        let _ = tokio::task::spawn_blocking(move || {
+        let _ = task::spawn_blocking(move || {
             let mut bytes = vec![0; 1024];
             managed.read_exact(&mut bytes)
         })

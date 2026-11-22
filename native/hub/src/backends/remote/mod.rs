@@ -1,6 +1,11 @@
 use crate::node::{HandoffPlaybackEvent, HandoffPlaybackReport, NodeContext};
 use crate::request_error::ExpectedRequestError;
 use crate::request_owner::OpenLibrary;
+use reqwest::Client;
+use reqwest::StatusCode;
+use reqwest::header;
+use std::fmt;
+use std::result;
 #[cfg(test)]
 use std::sync::atomic::AtomicUsize;
 use std::{
@@ -11,6 +16,9 @@ use std::{
     },
     time::Duration,
 };
+use tokio::task;
+use tokio::time as tokio_time;
+use url::Url;
 
 use anyhow::{Context, Result};
 use database::library_registry::LibraryRecordId;
@@ -171,7 +179,7 @@ impl RemoteConnectError {
     }
 }
 
-fn protocol(error: impl std::fmt::Display) -> RemoteConnectError {
+fn protocol(error: impl fmt::Display) -> RemoteConnectError {
     RemoteConnectError::Protocol(error.to_string())
 }
 
@@ -180,7 +188,7 @@ pub(crate) fn token_error(error: anyhow::Error) -> RemoteConnectError {
     if let Some(error) = error.downcast_ref::<reqwest::Error>() {
         if matches!(
             error.status(),
-            Some(reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN)
+            Some(StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN)
         ) {
             return RemoteConnectError::NotAuthorized;
         }
@@ -216,7 +224,7 @@ pub struct RendererLink {
     #[cfg(test)]
     sent_requests: AtomicUsize,
     node: Weak<NodeContext>,
-    reader: tokio::task::JoinHandle<()>,
+    reader: task::JoinHandle<()>,
 }
 
 impl RendererLink {
@@ -224,7 +232,7 @@ impl RendererLink {
         node: Arc<NodeContext>,
         fingerprint: &str,
         link_use: RendererLinkUse,
-    ) -> std::result::Result<(Self, String, String), RemoteConnectError> {
+    ) -> result::Result<(Self, String, String), RemoteConnectError> {
         Self::connect_with_addresses(node, fingerprint, None, link_use).await
     }
 
@@ -233,7 +241,7 @@ impl RendererLink {
         fingerprint: &str,
         addresses: Option<Vec<String>>,
         link_use: RendererLinkUse,
-    ) -> std::result::Result<(Self, String, String), RemoteConnectError> {
+    ) -> result::Result<(Self, String, String), RemoteConnectError> {
         let validator = node.cert_validator.read().await.clone();
         let trusted_hosts = validator.get_hosts_for_fingerprint(fingerprint).await;
         if trusted_hosts.is_empty() {
@@ -258,7 +266,7 @@ impl RendererLink {
             return Err(RemoteConnectError::UntrustedEndpoint);
         }
         let endpoint = select_renderer_host(&node, hosts).await?;
-        let parsed = url::Url::parse(&endpoint).map_err(protocol)?;
+        let parsed = Url::parse(&endpoint).map_err(protocol)?;
         let host = parsed
             .host_str()
             .ok_or_else(|| protocol("invalid renderer host"))?;
@@ -366,7 +374,7 @@ impl RendererLink {
                                     .send(TungsteniteMessage::Close(frame.clone()))
                                     .await
                             };
-                            match tokio::time::timeout(Duration::from_secs(1), reply).await {
+                            match tokio_time::timeout(Duration::from_secs(1), reply).await {
                                 Ok(Ok(())) => {}
                                 Ok(Err(error)) => {
                                     detail = format!(
@@ -496,7 +504,7 @@ impl RendererLink {
                 .send(TungsteniteMessage::Binary(frame.into()))
                 .await
         };
-        let send_result = tokio::time::timeout(Duration::from_secs(10), send).await;
+        let send_result = tokio_time::timeout(Duration::from_secs(10), send).await;
         let send_error = match send_result {
             Ok(Ok(())) => None,
             Ok(Err(error)) => Some(format!("Could not send request to renderer: {error}")),
@@ -509,7 +517,7 @@ impl RendererLink {
         }
         #[cfg(test)]
         self.sent_requests.fetch_add(1, Ordering::Relaxed);
-        match tokio::time::timeout(Duration::from_secs(30), receiver).await {
+        match tokio_time::timeout(Duration::from_secs(30), receiver).await {
             Ok(Ok(result)) => result,
             Ok(Err(_)) | Err(_) => {
                 self.pending_replies.lock().await.remove(&request_id);
@@ -754,8 +762,8 @@ async fn connect_remote_with_version(
     validator: CertValidator,
     sync_tokens: &SyncTokenStore,
     local_version: ProtocolVersion,
-) -> std::result::Result<RemoteStream, RemoteConnectError> {
-    tokio::time::timeout(Duration::from_secs(10), async {
+) -> result::Result<RemoteStream, RemoteConnectError> {
+    tokio_time::timeout(Duration::from_secs(10), async {
         let entries = validator.clone_trusted_entries().await;
         if !entries.iter().any(|(_, hosts)| {
             hosts.iter().any(|candidate| {
@@ -780,7 +788,7 @@ async fn connect_remote_with_version(
             .await
             .map_err(protocol)?;
         let pinned_config = tls_config(validator, &server_fingerprint);
-        let client = reqwest::Client::builder()
+        let client = Client::builder()
             .use_preconfigured_tls(pinned_config.clone())
             .redirect(Policy::none())
             .build()
@@ -804,7 +812,7 @@ async fn connect_remote_with_version(
             .to_string();
         let mut request = url.as_str().into_client_request().map_err(protocol)?;
         request.headers_mut().insert(
-            reqwest::header::AUTHORIZATION,
+            header::AUTHORIZATION,
             format!("Bearer {token}").parse().map_err(protocol)?,
         );
         request.headers_mut().insert(
@@ -821,7 +829,7 @@ async fn connect_remote_with_version(
         let (stream, response) = match result {
             Ok(connection) => connection,
             Err(TungsteniteError::Http(response))
-                if response.status() == reqwest::StatusCode::UNAUTHORIZED =>
+                if response.status() == StatusCode::UNAUTHORIZED =>
             {
                 sync_tokens.invalidate(&server_fingerprint, &base);
                 let fresh_token = obtain_or_reuse_token(
@@ -836,7 +844,7 @@ async fn connect_remote_with_version(
                 .map_err(token_error)?;
                 let mut retry = url.as_str().into_client_request().map_err(protocol)?;
                 retry.headers_mut().insert(
-                    reqwest::header::AUTHORIZATION,
+                    header::AUTHORIZATION,
                     format!("Bearer {fresh_token}").parse().map_err(protocol)?,
                 );
                 retry.headers_mut().insert(
@@ -879,9 +887,7 @@ fn map_websocket_connect_error(
 ) -> RemoteConnectError {
     error!("WebSocket upgrade failed: {error}");
     match error {
-        TungsteniteError::Http(response)
-            if response.status() == reqwest::StatusCode::UPGRADE_REQUIRED =>
-        {
+        TungsteniteError::Http(response) if response.status() == StatusCode::UPGRADE_REQUIRED => {
             let peer = response
                 .headers()
                 .get(PROTOCOL_VERSION_HEADER)
@@ -964,12 +970,12 @@ pub(crate) async fn open_remote_library_for_fingerprint(
 pub(crate) async fn select_renderer_host(
     node: &NodeContext,
     hosts: Vec<String>,
-) -> std::result::Result<String, RemoteConnectError> {
+) -> result::Result<String, RemoteConnectError> {
     let validator = node.cert_validator.read().await.clone();
     let client_config = Arc::new(validator).into_client_config();
     let hosts = hosts
         .into_iter()
-        .map(|host| -> std::result::Result<String, RemoteConnectError> {
+        .map(|host| -> result::Result<String, RemoteConnectError> {
             if host.contains("://") {
                 Ok(host)
             } else {
@@ -980,7 +986,7 @@ pub(crate) async fn select_renderer_host(
                     .map_err(protocol)
             }
         })
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+        .collect::<result::Result<Vec<_>, _>>()?;
     select_best_host(hosts, Arc::new(client_config))
         .await
         .map_err(|error| {
@@ -995,6 +1001,7 @@ pub(crate) use loss_tests::connect_remote;
 #[cfg(test)]
 mod loss_tests {
     use super::*;
+    use std::result;
 
     pub(crate) async fn connect_remote(
         host: &str,
@@ -1002,7 +1009,7 @@ mod loss_tests {
         config_path: &str,
         validator: CertValidator,
         sync_tokens: &SyncTokenStore,
-    ) -> std::result::Result<RemoteStream, RemoteConnectError> {
+    ) -> result::Result<RemoteStream, RemoteConnectError> {
         connect_remote_with_version(
             host,
             port,

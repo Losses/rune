@@ -20,6 +20,7 @@ use ::playback::player::PlayingItem;
 use crate::actions::{cover_art::COVER_TEMP_DIR, metadata::extract_number};
 
 use super::{MediaFileHandle, PlayingFileMetadataProvider, PlayingItemMetadataSummary};
+use std::slice;
 
 pub fn extract_independent_file_paths(items: Vec<PlayingItem>) -> Vec<(PlayingItem, String)> {
     items
@@ -196,7 +197,7 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
                 } else {
                     // Attempt to bake cover art
                     if (self
-                        .bake_cover_art(fsio, lib_path, _main_db, std::slice::from_ref(item))
+                        .bake_cover_art(fsio, lib_path, _main_db, slice::from_ref(item))
                         .await)
                         .is_ok()
                     {

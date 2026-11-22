@@ -26,6 +26,8 @@ use crate::{
     request_error::ExpectedRequestError,
     utils::{initialize_databases, initialize_library_replica, initialize_opendal_databases},
 };
+use anyhow::Error;
+use tokio::time as tokio_time;
 
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 static POOLS: OnceLock<StdMutex<HashMap<PathBuf, Weak<LibraryPool>>>> = OnceLock::new();
@@ -231,7 +233,7 @@ impl LibraryPool {
         let interval = idle_timeout.clamp(Duration::from_millis(1), Duration::from_secs(30));
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(interval).await;
+                tokio_time::sleep(interval).await;
                 let Some(pool) = weak.upgrade() else { return };
                 if let Err(error) = pool.close_idle().await {
                     log::warn!("Could not close an idle library: {error:#}");
@@ -324,7 +326,7 @@ impl LibraryPool {
             return Err(ExpectedError::NotFound { what: "library" }.into());
         }
         self.acquire(library_id).await.map_err(|error| {
-            anyhow::Error::new(ExpectedRequestError::Unavailable {
+            Error::new(ExpectedRequestError::Unavailable {
                 what: "addressed library",
             })
             .context(error)
@@ -616,6 +618,7 @@ async fn checkpoint_wal(db: &sea_orm::DatabaseConnection) -> Result<()> {
 #[cfg(all(test, not(target_os = "android")))]
 mod tests {
     use super::*;
+    use tokio::time as tokio_time;
 
     impl LibraryPool {
         pub(crate) async fn ui_user_count(&self, library_id: Uuid) -> usize {
@@ -1123,8 +1126,8 @@ mod tests {
         started_rx.await?;
         assert!(!reopening.is_finished());
         transaction.commit().await?;
-        tokio::time::timeout(TEST_DEADLINE, closing).await???;
-        let reopened = tokio::time::timeout(TEST_DEADLINE, reopening).await???;
+        tokio_time::timeout(TEST_DEADLINE, closing).await???;
+        let reopened = tokio_time::timeout(TEST_DEADLINE, reopening).await???;
         assert_eq!(reopened.library_id, id);
         Ok(())
     }

@@ -1,5 +1,6 @@
 use anyhow::Result;
 use sea_orm::{ConnectionTrait, Database, DbBackend, Statement};
+use std::collections;
 use sync::causal::{Candidate, CausalMap, Dot, Limits};
 use uuid::Uuid;
 
@@ -43,7 +44,7 @@ fn every_delivery_order_and_duplicate_converges() -> Result<()> {
                     let order = [a, b, c, d];
                     if order
                         .into_iter()
-                        .collect::<std::collections::BTreeSet<_>>()
+                        .collect::<collections::BTreeSet<_>>()
                         .len()
                         != 4
                     {

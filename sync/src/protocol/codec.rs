@@ -2,7 +2,8 @@ use super::*;
 use crate::causal::Context;
 use serde_json::{Value, json};
 use std::collections;
-fn err<E: std::fmt::Display>(e: E) -> SyncError {
+use std::fmt;
+fn err<E: fmt::Display>(e: E) -> SyncError {
     SyncError::Storage(e.to_string())
 }
 fn valid_tag(s: &str) -> Result<()> {

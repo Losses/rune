@@ -7,6 +7,7 @@ use sea_orm::{
     ConnectionTrait, ExprTrait,
     sea_query::{Alias, Expr, Query},
 };
+use std::env;
 use std::{
     collections::BTreeMap,
     env::consts::{ARCH, OS},
@@ -54,7 +55,7 @@ async fn source_build_measurement() -> Result<()> {
     let namespace = Uuid::new_v4();
     let actor = Uuid::new_v4();
     let library = SqlLibrary::new(namespace, actor).await?;
-    let records = std::env::var("SYNC_SOURCE_RECORDS")
+    let records = env::var("SYNC_SOURCE_RECORDS")
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(1);

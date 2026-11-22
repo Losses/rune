@@ -1,4 +1,5 @@
 use axum::http::Method;
+use axum::middleware;
 use database::sync::{LibrarySyncStore, model::*};
 use database::{
     actions::{
@@ -16,15 +17,25 @@ use hub::server::sync::{
     http::{BlobContext, SharedLibrary, blob_router},
     library_router,
 };
+use migration::catalog_identity;
 use migration::catalog_identity::ParentKind;
+use reqwest::Client;
 use sea_orm::sea_query::Expr;
+use std::fs;
+use std::io;
 use std::io::Error;
 use std::io::ErrorKind;
+use std::net;
+use std::path as std_path;
 use std::path::Path;
 use std::time::Instant;
 use support::fixtures;
+use sync::Coordinator;
+use sync::SessionAdvance;
 use tokio::net::TcpListener;
-type MetadataPeer = http_request::sync::MetadataPeer<RuneModel>;
+use tokio::task;
+use tokio::time as tokio_time;
+type MetadataPeer = http_request_sync::MetadataPeer<RuneModel>;
 use anyhow::{Context, Result};
 use axum::{
     body::{Body, Bytes, to_bytes},
@@ -100,9 +111,9 @@ async fn perturb(State(faults): State<Arc<Faults>>, request: Request, next: Next
         faults.blobs.fetch_add(1, Ordering::SeqCst);
     }
     if mode == FRAGMENT {
-        tokio::time::sleep(Duration::from_millis(5)).await;
+        tokio_time::sleep(Duration::from_millis(5)).await;
     } else if mode == SLOW_LINK {
-        tokio::time::sleep(Duration::from_millis(80)).await;
+        tokio_time::sleep(Duration::from_millis(80)).await;
     }
     let response = next.run(request).await;
     let is_page = path == "/sync/page";
@@ -134,7 +145,7 @@ async fn perturb(State(faults): State<Arc<Faults>>, request: Request, next: Next
             bytes.slice(..bytes.len().min(1024))
         };
         Body::from_stream(stream::iter(vec![
-            Ok::<_, std::io::Error>(prefix),
+            Ok::<_, io::Error>(prefix),
             Err(Error::new(ErrorKind::ConnectionReset, "injected reset")),
         ]))
     } else if is_blob && mode == AUDIO_STALL {
@@ -144,9 +155,9 @@ async fn perturb(State(faults): State<Arc<Faults>>, request: Request, next: Next
             (0u8, prefix, rest),
             |(step, prefix, rest)| async move {
                 match step {
-                    0 => Some((Ok::<_, std::io::Error>(prefix.clone()), (1, prefix, rest))),
+                    0 => Some((Ok::<_, io::Error>(prefix.clone()), (1, prefix, rest))),
                     1 => {
-                        tokio::time::sleep(Duration::from_millis(800)).await;
+                        tokio_time::sleep(Duration::from_millis(800)).await;
                         Some((Ok(rest.clone()), (2, prefix, rest)))
                     }
                     _ => None,
@@ -165,12 +176,9 @@ async fn perturb(State(faults): State<Arc<Faults>>, request: Request, next: Next
                 } else {
                     (1024, if (offset / 1024) % 2 == 0 { 1 } else { 3 })
                 };
-                tokio::time::sleep(Duration::from_millis(delay)).await;
+                tokio_time::sleep(Duration::from_millis(delay)).await;
                 let end = (offset + chunk_size).min(bytes.len());
-                Some((
-                    Ok::<_, std::io::Error>(bytes.slice(offset..end)),
-                    (bytes, end),
-                ))
+                Some((Ok::<_, io::Error>(bytes.slice(offset..end)), (bytes, end)))
             },
         ))
     };
@@ -201,13 +209,13 @@ impl Replica {
             fsio,
         })
     }
-    fn root(&self) -> std::path::PathBuf {
+    fn root(&self) -> std_path::PathBuf {
         self._root.path().into()
     }
     async fn album(&self, name: &str) -> Result<ObjectKey> {
         let key = ObjectKey {
             collection: Collection::Albums,
-            id: migration::catalog_identity::parent(ParentKind::Album, name),
+            id: catalog_identity::parent(ParentKind::Album, name),
         };
         self.store
             .write_local(
@@ -224,14 +232,14 @@ impl Replica {
 async fn serve(
     replica: &Replica,
     faults: Arc<Faults>,
-) -> Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
+) -> Result<(net::SocketAddr, task::JoinHandle<()>)> {
     serve_at(replica, faults, "127.0.0.1:0".parse()?).await
 }
 async fn serve_at(
     replica: &Replica,
     faults: Arc<Faults>,
-    address: std::net::SocketAddr,
-) -> Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
+    address: net::SocketAddr,
+) -> Result<(net::SocketAddr, task::JoinHandle<()>)> {
     let shared = Arc::new(RwLock::new((*replica.store).clone()));
     let app = library_router(SharedLibrary(shared.clone()), Arc::new(|| {}))
         .merge(blob_router(BlobContext {
@@ -243,7 +251,7 @@ async fn serve_at(
             upload_lock: Arc::new(Mutex::new(())),
             notify: Arc::new(|| {}),
         }))
-        .layer(axum::middleware::from_fn_with_state(faults, perturb));
+        .layer(middleware::from_fn_with_state(faults, perturb));
     let listener = TcpListener::bind(address).await?;
     let address = listener.local_addr()?;
     Ok((
@@ -255,7 +263,7 @@ fn client() -> reqwest::Client {
     client_with_read_timeout(Duration::from_millis(300))
 }
 fn client_with_read_timeout(read_timeout: Duration) -> reqwest::Client {
-    reqwest::Client::builder()
+    Client::builder()
         .no_proxy()
         .pool_max_idle_per_host(0)
         .connect_timeout(Duration::from_millis(500))
@@ -263,7 +271,7 @@ fn client_with_read_timeout(read_timeout: Duration) -> reqwest::Client {
         .build()
         .unwrap()
 }
-fn url(address: std::net::SocketAddr) -> String {
+fn url(address: net::SocketAddr) -> String {
     format!("http://{address}")
 }
 fn album_scope() -> Scope {
@@ -451,8 +459,8 @@ async fn page_interruptions_preserve_prefix_and_peer_progress() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn lost_commit_ack_and_audio_interruptions_retry_without_duplicates() -> Result<()> {
     let source = Replica::new(None).await?;
-    std::fs::copy(fixtures::audio_fixture(), source.root().join("one.ogg"))?;
-    std::fs::copy(
+    fs::copy(fixtures::audio_fixture(), source.root().join("one.ogg"))?;
+    fs::copy(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_1.ogg"),
         source.root().join("two.ogg"),
     )?;
@@ -721,16 +729,16 @@ async fn slow_link_converges_after_three_outages_with_edits() -> Result<()> {
     let base = url(address);
     let remote = MetadataPeer::new(&base, client());
     let local = target.store.endpoint();
-    let mut coordinator = sync::Coordinator::new(scope.clone(), support::limits())?;
+    let mut coordinator = Coordinator::new(scope.clone(), support::limits())?;
     for step in 0..20000 {
         match coordinator
             .advance(&remote, &remote, &remote, &local, &local)
             .await?
         {
-            sync::SessionAdvance::Complete(_) => break,
-            sync::SessionAdvance::BudgetExhausted => coordinator.start_pass(),
-            sync::SessionAdvance::Incomplete => (),
-            sync::SessionAdvance::Cancelled => anyhow::bail!("unexpected cancellation"),
+            SessionAdvance::Complete(_) => break,
+            SessionAdvance::BudgetExhausted => coordinator.start_pass(),
+            SessionAdvance::Incomplete => (),
+            SessionAdvance::Cancelled => anyhow::bail!("unexpected cancellation"),
         }
         anyhow::ensure!(step < 19999, "push did not finish");
     }
@@ -742,16 +750,16 @@ async fn slow_link_converges_after_three_outages_with_edits() -> Result<()> {
     let target_head = target.store.head().await?;
     let remote = MetadataPeer::new(&base, client());
     let local = target.store.endpoint();
-    let mut coordinator = sync::Coordinator::new(scope.clone(), support::limits())?;
+    let mut coordinator = Coordinator::new(scope.clone(), support::limits())?;
     for step in 0..20000 {
         match coordinator
             .advance(&remote, &remote, &remote, &local, &local)
             .await?
         {
-            sync::SessionAdvance::Complete(_) => break,
-            sync::SessionAdvance::BudgetExhausted => coordinator.start_pass(),
-            sync::SessionAdvance::Incomplete => (),
-            sync::SessionAdvance::Cancelled => anyhow::bail!("unexpected cancellation"),
+            SessionAdvance::Complete(_) => break,
+            SessionAdvance::BudgetExhausted => coordinator.start_pass(),
+            SessionAdvance::Incomplete => (),
+            SessionAdvance::Cancelled => anyhow::bail!("unexpected cancellation"),
         }
         anyhow::ensure!(step < 19999, "push did not finish");
     }
@@ -788,16 +796,16 @@ async fn pull(
     let endpoint = local.endpoint();
     let mut limits = support::limits();
     limits.pages = pages;
-    let mut coordinator = sync::Coordinator::new(scope.clone(), limits)?;
+    let mut coordinator = Coordinator::new(scope.clone(), limits)?;
     for _ in 0..20000 {
         match coordinator
             .advance(&endpoint, &endpoint, &endpoint, remote, remote)
             .await?
         {
-            sync::SessionAdvance::Complete(_) => return Ok(()),
-            sync::SessionAdvance::BudgetExhausted => coordinator.start_pass(),
-            sync::SessionAdvance::Incomplete => (),
-            sync::SessionAdvance::Cancelled => anyhow::bail!("unexpected cancellation"),
+            SessionAdvance::Complete(_) => return Ok(()),
+            SessionAdvance::BudgetExhausted => coordinator.start_pass(),
+            SessionAdvance::Incomplete => (),
+            SessionAdvance::Cancelled => anyhow::bail!("unexpected cancellation"),
         }
     }
     anyhow::bail!("pull did not finish")

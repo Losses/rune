@@ -1,3 +1,4 @@
+use blake3::Hasher;
 use serde::{Deserialize, Serialize};
 use sync::protocol::*;
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -351,7 +352,7 @@ fn streaming_range_hash_validates_coverage_order_and_exact_preimage() {
     };
     let hasher = RangeHasher::new(&scope, range.clone(), 0, 0).unwrap();
     let actual = hasher.finish().unwrap();
-    let mut expected = blake3::Hasher::new();
+    let mut expected = Hasher::new();
     let mut part = |data: &[u8]| {
         expected.update(&(data.len() as u32).to_be_bytes());
         expected.update(data);

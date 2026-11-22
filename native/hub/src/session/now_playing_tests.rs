@@ -1,5 +1,7 @@
 use super::*;
 use crate::{server::utils::device::RunMode, utils::RinfRustSignal};
+use std::fs;
+use visualizer::Visualizer;
 
 struct Quiet;
 impl Broadcaster for Quiet {
@@ -18,7 +20,7 @@ async fn now_playing_waits_for_each_tracks_first_start() -> Result<()> {
         broadcaster.clone(),
         false,
         RunMode::App,
-        Arc::new(::visualizer::Visualizer::new()),
+        Arc::new(Visualizer::new()),
     )
     .await?;
     let (now_playing_tx, mut now_playing_rx) = mpsc::unbounded_channel();
@@ -28,7 +30,7 @@ async fn now_playing_waits_for_each_tracks_first_start() -> Result<()> {
     let mut tracks = Vec::new();
     for name in ["first.ogg", "second.ogg"] {
         let file = dir.path().join(name);
-        std::fs::copy(&fixture, &file)?;
+        fs::copy(&fixture, &file)?;
         let item = PlayingItem::IndependentFile(file.to_string_lossy().into_owned());
         let (metadata, _) = item_metadata(&node, &item, false).await?;
         tracks.push((item, metadata.title));

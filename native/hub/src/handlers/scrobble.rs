@@ -318,6 +318,7 @@ mod tests {
     };
     use crate::messages::{LoginRequestItem, ScrobbleApiCredentials, ScrobbleSecretInput};
     use database::credentials::CredentialStore;
+    use std::fs;
 
     fn password_login() -> LoginRequestItem {
         LoginRequestItem {
@@ -375,7 +376,7 @@ mod tests {
             ScrobbleSecretInput::Password { .. }
         ));
         assert!(store.get(reference).await.is_ok());
-        let encrypted = std::fs::read(directory.path().join("credentials.enc")).unwrap();
+        let encrypted = fs::read(directory.path().join("credentials.enc")).unwrap();
         assert!(
             !encrypted
                 .windows(b"unique-test-password".len())

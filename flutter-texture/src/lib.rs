@@ -49,8 +49,13 @@ use android as platform;
 use darwin as platform;
 #[cfg(target_os = "linux")]
 use linux as platform;
+use std::error;
+use std::ffi;
 #[cfg(target_os = "linux")]
 use std::os::fd::OwnedFd;
+use std::ptr;
+use std::result;
+use std::slice;
 #[cfg(not(any(
     target_vendor = "apple",
     windows,
@@ -77,7 +82,7 @@ use objc2_core_foundation::CFRetained;
 #[cfg(target_vendor = "apple")]
 use objc2_core_video::CVPixelBuffer;
 
-pub type Result<T, E = TextureError> = std::result::Result<T, E>;
+pub type Result<T, E = TextureError> = result::Result<T, E>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TextureError {
@@ -115,29 +120,29 @@ impl fmt::Display for TextureError {
     }
 }
 
-impl std::error::Error for TextureError {}
+impl error::Error for TextureError {}
 
 /// What the app hands over in [`attach`].
 #[non_exhaustive]
 pub enum PlatformHandle {
     /// An object that answers `FlutterTextureRegistry`'s messages: the `FlutterEngine` on macOS, the `FlutterTextureRegistry` of a plugin registrar on iOS.
     #[cfg(target_vendor = "apple")]
-    TextureRegistry(std::ptr::NonNull<std::ffi::c_void>),
+    TextureRegistry(ptr::NonNull<ffi::c_void>),
     /// A `FlutterDesktopPluginRegistrarRef` on Windows, which the runner gets from the engine
     /// (`GetRegistrarForPlugin`). It stays valid until the engine is destroyed.
     #[cfg(windows)]
-    PluginRegistrar(std::ptr::NonNull<std::ffi::c_void>),
+    PluginRegistrar(ptr::NonNull<ffi::c_void>),
     /// An `FlEngine*` on Linux (`fl_view_get_engine`). Its texture registrar is retained.
     #[cfg(target_os = "linux")]
-    FlEngine(std::ptr::NonNull<std::ffi::c_void>),
+    FlEngine(ptr::NonNull<ffi::c_void>),
     /// Android: the `JNIEnv*` of the main thread and a reference (`jobject`) to the engine's
     /// `io.flutter.view.TextureRegistry` (`flutterEngine.renderer`), which gets a global reference
     /// of its own. Attached on the main thread, whose looper calls into the registry from then
     /// on.
     #[cfg(target_os = "android")]
     JniTextureRegistry {
-        env: std::ptr::NonNull<std::ffi::c_void>,
-        registry: std::ptr::NonNull<std::ffi::c_void>,
+        env: ptr::NonNull<ffi::c_void>,
+        registry: ptr::NonNull<ffi::c_void>,
     },
 }
 
@@ -248,7 +253,7 @@ impl Pixels {
         let len = self.stride * (self.height as usize - 1) + row;
         // SAFETY: `new`'s caller guarantees `len` readable bytes while the frame is held, which
         // outlives this borrow.
-        Some(unsafe { std::slice::from_raw_parts(self.ptr, len) })
+        Some(unsafe { slice::from_raw_parts(self.ptr, len) })
     }
 
     /// The rows without padding (`width * 4` bytes each), for consumers that take no stride.
@@ -279,7 +284,7 @@ pub enum Frame {
     /// is alive. For [`Kind::Dxgi`].
     #[cfg(windows)]
     Dxgi {
-        handle: *mut std::ffi::c_void,
+        handle: *mut ffi::c_void,
         width: u32,
         height: u32,
     },

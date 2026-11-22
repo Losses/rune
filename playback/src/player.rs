@@ -18,6 +18,10 @@ use tokio_util::sync::CancellationToken;
 use crate::internal::{InternalLog, PlaybackMode, PlayerCommand, PlayerEvent, PlayerInternal};
 use crate::pcm_tap::PcmTap;
 use crate::strategies::AddMode;
+use anyhow::Error;
+use std::error as std_error;
+use std::future;
+use std::result;
 
 /// Why a queued item could not be played.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -37,7 +41,7 @@ pub enum UnavailableReason {
 }
 
 /// Underlying cause kept on [`RemoteAudioError::Unreachable`] for diagnostics.
-pub type RemoteAudioCause = Box<dyn std::error::Error + Send + Sync>;
+pub type RemoteAudioCause = Box<dyn std_error::Error + Send + Sync>;
 
 /// Typed failures reported by remote audio requests and stream readers.
 #[derive(Debug, thiserror::Error)]
@@ -347,7 +351,7 @@ pub trait PlaybackSourceResolver: Send + Sync {
         Box::pin(async move {
             Uuid::parse_str(&track)
                 .map(LibraryTrackKey::Rune)
-                .map_err(anyhow::Error::from)
+                .map_err(Error::from)
         })
     }
     fn for_library(
@@ -407,7 +411,7 @@ pub trait Playable: Send {
     fn command_with_completion(
         &mut self,
         command: PlayerCommand,
-    ) -> BoxFuture<'static, std::result::Result<(), PlayerCommandError>>;
+    ) -> BoxFuture<'static, result::Result<(), PlayerCommandError>>;
     /// Wait until commands already sent to the player have updated its public status.
     fn command_completion(
         &mut self,
@@ -858,7 +862,7 @@ impl Playable for Player {
     fn command_with_completion(
         &mut self,
         command: PlayerCommand,
-    ) -> BoxFuture<'static, std::result::Result<(), PlayerCommandError>> {
+    ) -> BoxFuture<'static, result::Result<(), PlayerCommandError>> {
         let (response, result) = oneshot::channel();
         let sent = self
             .commands
@@ -1109,7 +1113,7 @@ impl Playable for Player {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .clone();
-            return Box::pin(std::future::ready(status));
+            return Box::pin(future::ready(status));
         }
         Box::pin(async move {
             result.await.unwrap_or_else(|_| {
@@ -1162,14 +1166,14 @@ impl Playable for MockPlayer {
     fn command_with_completion(
         &mut self,
         _command: PlayerCommand,
-    ) -> BoxFuture<'static, std::result::Result<(), PlayerCommandError>> {
-        Box::pin(std::future::ready(Ok(())))
+    ) -> BoxFuture<'static, result::Result<(), PlayerCommandError>> {
+        Box::pin(future::ready(Ok(())))
     }
 
     fn command_completion(
         &mut self,
     ) -> BoxFuture<'static, Result<PlayerStatus, PlayerCommandError>> {
-        Box::pin(std::future::ready(Ok(self.get_status())))
+        Box::pin(future::ready(Ok(self.get_status())))
     }
     fn load(&self, _index: usize) {}
     fn play(&self) {}
@@ -1261,7 +1265,7 @@ impl Playable for MockPlayer {
         }
     }
     fn status_after_pending(&self) -> BoxFuture<'static, PlayerStatus> {
-        Box::pin(std::future::ready(self.get_status()))
+        Box::pin(future::ready(self.get_status()))
     }
     fn get_playlist(&self) -> Vec<PlayingItem> {
         Vec::new()
@@ -1289,6 +1293,7 @@ impl Playable for MockPlayer {
 #[cfg(test)]
 mod unavailable_reason_tests {
     use super::{RemoteAudioError, UnavailableReason};
+    use anyhow::Error;
 
     #[test]
     fn string_only_revocation_is_not_classified_as_access_revoked() {
@@ -1301,7 +1306,7 @@ mod unavailable_reason_tests {
 
     #[test]
     fn typed_remote_failures_map_to_queue_reasons() {
-        let error = anyhow::Error::new(RemoteAudioError::AccessRevoked);
+        let error = Error::new(RemoteAudioError::AccessRevoked);
         assert_eq!(
             UnavailableReason::classify(&error),
             UnavailableReason::AccessRevoked

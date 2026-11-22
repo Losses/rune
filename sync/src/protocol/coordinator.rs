@@ -1,5 +1,6 @@
 //! Resumable directional coordinator for the causal store capabilities.
 use super::*;
+use std::iter;
 
 /// Resource limits remain explicit at every read, receive, and comparison.
 #[derive(Clone, Copy, Debug)]
@@ -651,7 +652,7 @@ impl<M: SyncModel> Coordinator<M> {
                     .ok_or(SyncError::WorkLimit)?;
                 self.queue.remove(0);
                 self.depths
-                    .splice(0..0, std::iter::repeat_n(depth, self.child_summaries.len()));
+                    .splice(0..0, iter::repeat_n(depth, self.child_summaries.len()));
                 self.queue.splice(0..0, self.child_summaries.drain(..));
                 self.must_split = false;
                 self.phase = Phase::Compare(None);

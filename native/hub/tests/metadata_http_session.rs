@@ -10,11 +10,17 @@ use axum::{
 };
 use database::sync::model::{Collection, Payload, Playlist, RuneModel};
 use database::test_fixtures::causal_library as support;
+use futures::stream;
+use http_request::sync as http_request_sync;
 use http_request::sync::router;
+use reqwest::Client;
+use std::io;
 use std::io::Error;
 use std::io::ErrorKind;
 use tokio::net::TcpListener;
-type MetadataPeer = http_request::sync::MetadataPeer<RuneModel>;
+use tokio::task;
+use tokio::time as tokio_time;
+type MetadataPeer = http_request_sync::MetadataPeer<RuneModel>;
 use std::{
     collections::{BTreeMap, VecDeque},
     sync::Arc,
@@ -85,7 +91,7 @@ async fn lose_reply(
     let bytes = to_bytes(body, 32 * 1024 * 1024).await.unwrap();
     let body = match disturbance {
         Disturbance::Truncate => Body::from(bytes.slice(..bytes.len() / 2)),
-        Disturbance::Reset => Body::from_stream(futures::stream::iter(vec![
+        Disturbance::Reset => Body::from_stream(stream::iter(vec![
             Ok(bytes.slice(..bytes.len().min(32))),
             Err(Error::new(
                 ErrorKind::ConnectionReset,
@@ -93,23 +99,19 @@ async fn lose_reply(
             )),
         ])),
         Disturbance::Timeout => {
-            tokio::time::sleep(Duration::from_millis(700)).await;
+            tokio_time::sleep(Duration::from_millis(700)).await;
             Body::from(bytes)
         }
-        Disturbance::Slow => Body::from_stream(futures::stream::unfold(
-            (bytes, 0),
-            |(bytes, offset)| async move {
+        Disturbance::Slow => {
+            Body::from_stream(stream::unfold((bytes, 0), |(bytes, offset)| async move {
                 if offset == bytes.len() {
                     return None;
                 }
-                tokio::time::sleep(Duration::from_millis(2)).await;
+                tokio_time::sleep(Duration::from_millis(2)).await;
                 let end = (offset + 512).min(bytes.len());
-                Some((
-                    Ok::<_, std::io::Error>(bytes.slice(offset..end)),
-                    (bytes, end),
-                ))
-            },
-        )),
+                Some((Ok::<_, io::Error>(bytes.slice(offset..end)), (bytes, end)))
+            }))
+        }
     };
     Response::from_parts(parts, body)
 }
@@ -117,7 +119,7 @@ async fn lose_reply(
 struct Endpoint {
     peer: MetadataPeer,
     faults: Arc<Mutex<Faults>>,
-    task: tokio::task::JoinHandle<()>,
+    task: task::JoinHandle<()>,
 }
 impl Drop for Endpoint {
     fn drop(&mut self) {
@@ -137,7 +139,7 @@ impl Endpoint {
         Ok(Self {
             peer: MetadataPeer::new(
                 base,
-                reqwest::Client::builder()
+                Client::builder()
                     .timeout(Duration::from_millis(500))
                     .build()?,
             ),
@@ -437,7 +439,7 @@ async fn sqlite_sessions_resume_through_truncation_reset_timeout_and_slow_respon
     for step in 0..4096 {
         if step == 7 {
             // Retain the caller's continuation across a period with no scheduled work.
-            tokio::time::sleep(Duration::from_millis(60)).await;
+            tokio_time::sleep(Duration::from_millis(60)).await;
             suspended = true;
         }
         match coordinator
@@ -567,7 +569,7 @@ async fn lost_batched_snapshot_reply_retries_old_cursor_and_preserves_view() -> 
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let base = format!("http://{}", listener.local_addr()?);
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    let peer = MetadataPeer::new(base, reqwest::Client::new());
+    let peer = MetadataPeer::new(base, Client::new());
     let work = p::WorkLimits {
         max_requests: 64,
         max_bytes: 1024 * 1024,

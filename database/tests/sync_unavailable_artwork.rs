@@ -2,6 +2,7 @@ use database::test_fixtures::causal_library as support;
 
 use anyhow::{Context, Result};
 use database::entities::{media_cover_art, media_files};
+use rust_decimal::Decimal;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
 use uuid::Uuid;
 
@@ -29,7 +30,7 @@ async fn library_with_oversized_cover(local: &support::SqlLibrary) -> Result<(St
         file_hash: Set("track".into()),
         last_modified: Set("old".into()),
         sample_rate: Set(44100),
-        duration: Set(rust_decimal::Decimal::ONE),
+        duration: Set(Decimal::ONE),
         cover_art_uuid: Set(Some(cover.clone())),
         source_uuid: Set(track.clone()),
         ..Default::default()

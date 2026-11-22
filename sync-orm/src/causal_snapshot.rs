@@ -6,6 +6,8 @@ use sea_orm::{
     ConnectionTrait, DatabaseTransaction, ExprTrait,
     sea_query::{Alias, Expr, Query},
 };
+use std::collections;
+use std::result;
 use sync::protocol::{
     self, KeyRange, ManifestKind, Scope, SnapshotDescriptor, StoreIdentity, SyncModel, WorkLimits,
 };
@@ -99,7 +101,7 @@ pub async fn descriptor_on<M: SyncModel>(
         root.contexts == descriptor.contexts,
         "snapshot context mismatch"
     );
-    let expected: std::collections::BTreeSet<_> = root
+    let expected: collections::BTreeSet<_> = root
         .contexts
         .iter()
         .map(|c| c.context.manifest.manifest_digest.to_vec())
@@ -116,7 +118,7 @@ pub async fn descriptor_on<M: SyncModel>(
         .await?
         .into_iter()
         .map(|row| row.try_get_by_index::<Vec<u8>>(0))
-        .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+        .collect::<Result<collections::BTreeSet<_>, _>>()?;
     ensure!(actual == expected, "snapshot context dependencies mismatch");
     Ok((lease, descriptor))
 }
@@ -294,7 +296,7 @@ pub async fn fragment_on<M: SyncModel>(
         let parents = rows
             .into_iter()
             .map(|row| row.try_get_by_index::<Vec<u8>>(0))
-            .collect::<std::result::Result<Vec<_>, _>>()?;
+            .collect::<result::Result<Vec<_>, _>>()?;
         requested.kind == ManifestKind::Context && parents.contains(&requested_digest)
     };
     ensure!(found, "manifest not reachable from snapshot");

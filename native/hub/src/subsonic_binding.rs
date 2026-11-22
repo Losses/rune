@@ -32,6 +32,20 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 use crate::backends::remote::{deliver_visualizer_feed_frame, encode_message};
 use crate::request_error::ExpectedRequestError;
 use crate::subsonic_translate::jukebox_error_for_refresh;
+use anyhow::Error;
+use reqwest::header;
+use std::error;
+use std::fmt;
+use std::io;
+use std::iter;
+use std::result;
+use std::sync as std_sync;
+use subsonic::StreamError;
+use subsonic::SubsonicError;
+use subsonic::SubsonicServerError;
+use tokio::fs as tokio_fs;
+use tokio::task;
+use tokio::time as tokio_time;
 
 /// Opaque catalog IDs are scoped to the lifetime of the open Subsonic binding.
 #[derive(Default)]
@@ -403,18 +417,18 @@ pub(crate) struct SubsonicCoverCache {
 }
 
 #[derive(Clone)]
-struct CoverFetchResult(std::result::Result<Option<String>, Arc<anyhow::Error>>);
+struct CoverFetchResult(result::Result<Option<String>, Arc<anyhow::Error>>);
 
 struct SharedCoverFetchError(Arc<anyhow::Error>);
 
-impl std::fmt::Display for SharedCoverFetchError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for SharedCoverFetchError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "shared Subsonic cover fetch failed: {}", self.0)
     }
 }
 
-impl std::fmt::Debug for SharedCoverFetchError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for SharedCoverFetchError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_tuple("SharedCoverFetchError")
             .field(&self.0)
@@ -422,16 +436,16 @@ impl std::fmt::Debug for SharedCoverFetchError {
     }
 }
 
-impl std::error::Error for SharedCoverFetchError {}
+impl error::Error for SharedCoverFetchError {}
 
 pub(crate) async fn delete_subsonic_cover_cache(
     config_dir: &Path,
     library_id: Uuid,
-) -> std::io::Result<()> {
+) -> io::Result<()> {
     let path = config_dir
         .join("subsonic-covers")
         .join(library_id.to_string());
-    match tokio::fs::remove_dir_all(path).await {
+    match tokio_fs::remove_dir_all(path).await {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error),
@@ -446,7 +460,7 @@ impl SubsonicCoverCache {
 
     pub(crate) async fn cached_path(&self, cover_id: &str) -> Result<Option<String>> {
         let path = self.path_for(cover_id);
-        tokio::task::spawn_blocking(move || -> Result<Option<String>> {
+        task::spawn_blocking(move || -> Result<Option<String>> {
             let Ok(metadata) = fs::metadata(&path) else {
                 return Ok(None);
             };
@@ -501,7 +515,7 @@ impl SubsonicCoverCache {
         };
         loop {
             if let Some(CoverFetchResult(result)) = receiver.borrow().clone() {
-                return result.map_err(|error| anyhow::Error::new(SharedCoverFetchError(error)));
+                return result.map_err(|error| Error::new(SharedCoverFetchError(error)));
             }
             receiver
                 .changed()
@@ -533,13 +547,13 @@ impl SubsonicCoverCache {
             return Ok(None);
         }
         let path = self.path_for(cover_id);
-        tokio::fs::create_dir_all(&self.root).await?;
+        tokio_fs::create_dir_all(&self.root).await?;
         let temporary = path.with_extension("tmp");
-        tokio::fs::write(&temporary, bytes).await?;
-        tokio::fs::rename(&temporary, &path).await?;
+        tokio_fs::write(&temporary, bytes).await?;
+        tokio_fs::rename(&temporary, &path).await?;
         let root = self.root.clone();
         let newest = path.clone();
-        tokio::task::spawn_blocking(move || evict_cover_cache(&root, &newest, COVER_CACHE_LIMITS))
+        task::spawn_blocking(move || evict_cover_cache(&root, &newest, COVER_CACHE_LIMITS))
             .await??;
         self.broadcaster.broadcast(&LibraryContentChanged {
             path: String::new(),
@@ -562,7 +576,7 @@ const COVER_CACHE_LIMITS: CoverCacheLimits = CoverCacheLimits {
     max_bytes: 256 * 1024 * 1024,
 };
 
-fn evict_cover_cache(root: &Path, newest: &Path, limits: CoverCacheLimits) -> std::io::Result<()> {
+fn evict_cover_cache(root: &Path, newest: &Path, limits: CoverCacheLimits) -> io::Result<()> {
     let mut entries = fs::read_dir(root)?
         .filter_map(Result::ok)
         .filter_map(|entry| {
@@ -661,7 +675,7 @@ impl SubsonicBinding {
         let covers = Arc::clone(&self.covers);
         let binding_state = Arc::clone(&self.jukebox_state);
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(3));
+            let mut interval = tokio_time::interval(Duration::from_secs(3));
             loop {
                 tokio::select! {
                     _ = cancellation.cancelled() => break,
@@ -804,7 +818,7 @@ impl SubsonicBinding {
                 config
                     .delays
                     .into_iter()
-                    .chain(std::iter::repeat(config.interval))
+                    .chain(iter::repeat(config.interval))
             };
             let mut delays = backoff();
             loop {
@@ -827,7 +841,7 @@ impl SubsonicBinding {
                 let delay = delays.next().unwrap_or(config.interval);
                 tokio::select! {
                     _ = cancellation.cancelled() => break,
-                    _ = tokio::time::sleep(delay) => {}
+                    _ = tokio_time::sleep(delay) => {}
                 }
             }
         });
@@ -951,10 +965,10 @@ impl SubsonicBinding {
             log::warn!("Subsonic scrobble failed: {error:?}");
             if matches!(
                 error,
-                subsonic::SubsonicError::Server {
-                    kind: subsonic::SubsonicServerError::WrongCredentials
-                        | subsonic::SubsonicServerError::NotAuthorized
-                        | subsonic::SubsonicServerError::InvalidApiKey,
+                SubsonicError::Server {
+                    kind: SubsonicServerError::WrongCredentials
+                        | SubsonicServerError::NotAuthorized
+                        | SubsonicServerError::InvalidApiKey,
                     ..
                 }
             ) {
@@ -1062,7 +1076,7 @@ impl SubsonicBinding {
 struct SubsonicAudioRequest {
     client: Arc<SubsonicClient>,
     track_id: String,
-    failure_reason: Arc<std::sync::Mutex<Option<UnavailableReason>>>,
+    failure_reason: Arc<std_sync::Mutex<Option<UnavailableReason>>>,
 }
 
 impl AudioRequest for SubsonicAudioRequest {
@@ -1077,7 +1091,7 @@ impl AudioRequest for SubsonicAudioRequest {
                 .map_err(|error| stream_playback_error(error, &failure_reason))?;
             let supports_range = response
                 .headers()
-                .get(reqwest::header::ACCEPT_RANGES)
+                .get(header::ACCEPT_RANGES)
                 .and_then(|value| value.to_str().ok())
                 .is_some_and(|value| value.eq_ignore_ascii_case("bytes"));
             if supports_range {
@@ -1087,7 +1101,7 @@ impl AudioRequest for SubsonicAudioRequest {
                 if let Ok(mut reason) = failure_reason.lock() {
                     *reason = Some(UnavailableReason::SourceUnreachable);
                 }
-                anyhow::Error::new(RemoteAudioError::unreachable("Subsonic server unreachable"))
+                Error::new(RemoteAudioError::unreachable("Subsonic server unreachable"))
             })?;
             Ok(AudioSourceMode::Buffered {
                 bytes: bytes.to_vec(),
@@ -1114,21 +1128,19 @@ impl AudioRequest for SubsonicAudioRequest {
 
 fn stream_playback_error(
     error: subsonic::StreamError,
-    failure_reason: &std::sync::Mutex<Option<UnavailableReason>>,
+    failure_reason: &std_sync::Mutex<Option<UnavailableReason>>,
 ) -> anyhow::Error {
     let (reason, failure) = match error {
-        subsonic::StreamError::Unreachable => (
+        StreamError::Unreachable => (
             UnavailableReason::SourceUnreachable,
             RemoteAudioError::unreachable("Subsonic server unreachable"),
         ),
-        subsonic::StreamError::CredentialsRejected => (
+        StreamError::CredentialsRejected => (
             UnavailableReason::CredentialsRejected,
             RemoteAudioError::CredentialsRejected,
         ),
-        subsonic::StreamError::TrackGone => {
-            (UnavailableReason::TrackGone, RemoteAudioError::TrackGone)
-        }
-        subsonic::StreamError::Rejected => (
+        StreamError::TrackGone => (UnavailableReason::TrackGone, RemoteAudioError::TrackGone),
+        StreamError::Rejected => (
             UnavailableReason::SourceUnreachable,
             RemoteAudioError::unreachable("Subsonic stream rejected"),
         ),
@@ -1136,26 +1148,26 @@ fn stream_playback_error(
     if let Ok(mut stored) = failure_reason.lock() {
         *stored = Some(reason);
     }
-    anyhow::Error::new(failure)
+    Error::new(failure)
 }
 
 fn subsonic_playback_error(error: subsonic::SubsonicError) -> anyhow::Error {
     match error {
-        subsonic::SubsonicError::Transport(_) | subsonic::SubsonicError::HttpStatus(_) => {
-            anyhow::Error::new(RemoteAudioError::unreachable("Subsonic server unreachable"))
+        SubsonicError::Transport(_) | SubsonicError::HttpStatus(_) => {
+            Error::new(RemoteAudioError::unreachable("Subsonic server unreachable"))
         }
-        subsonic::SubsonicError::Server {
+        SubsonicError::Server {
             kind:
-                subsonic::SubsonicServerError::WrongCredentials
-                | subsonic::SubsonicServerError::NotAuthorized
-                | subsonic::SubsonicServerError::InvalidApiKey,
+                SubsonicServerError::WrongCredentials
+                | SubsonicServerError::NotAuthorized
+                | SubsonicServerError::InvalidApiKey,
             ..
-        } => anyhow::Error::new(RemoteAudioError::CredentialsRejected),
-        subsonic::SubsonicError::Server {
-            kind: subsonic::SubsonicServerError::NotFound,
+        } => Error::new(RemoteAudioError::CredentialsRejected),
+        SubsonicError::Server {
+            kind: SubsonicServerError::NotFound,
             ..
-        } => anyhow::Error::new(RemoteAudioError::TrackGone),
-        _ => anyhow::Error::new(RemoteAudioError::TrackGone),
+        } => Error::new(RemoteAudioError::TrackGone),
+        _ => Error::new(RemoteAudioError::TrackGone),
     }
 }
 
@@ -1251,12 +1263,19 @@ mod tests {
 
 #[cfg(test)]
 mod visualizer_feed_tests {
+    use bincode::config;
+    use bincode::serde as bincode_serde;
+    use reqwest::Client;
     use std::collections::HashMap;
+    use std::fs;
+    use std::path::Path as StdPath;
     use std::sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     };
     use std::time::Duration;
+    use tokio::task;
+    use tokio::time as tokio_time;
 
     use crate::request_owner::CurrentPlayer;
     use axum::{
@@ -1401,7 +1420,7 @@ mod visualizer_feed_tests {
     }
 
     fn empty_feed_chart() -> Vec<u8> {
-        bincode::serde::encode_to_vec(
+        bincode_serde::encode_to_vec(
             FeedChart {
                 beats: Vec::new(),
                 beats_per_bar: 4.0,
@@ -1420,7 +1439,7 @@ mod visualizer_feed_tests {
                 },
                 song_feel: 0.0,
             },
-            bincode::config::standard(),
+            config::standard(),
         )
         .unwrap()
     }
@@ -1466,7 +1485,7 @@ mod visualizer_feed_tests {
         Arc<SubsonicBinding>,
         Arc<Signals>,
         TempDir,
-        tokio::task::JoinHandle<()>,
+        task::JoinHandle<()>,
     ) {
         let (url, state, server) = server(true, true).await;
         *state.jukebox.lock().unwrap() = jukebox;
@@ -1488,10 +1507,7 @@ mod visualizer_feed_tests {
         (state, binding, signals, root, server)
     }
 
-    async fn server(
-        open: bool,
-        declares_feed: bool,
-    ) -> (Url, MockState, tokio::task::JoinHandle<()>) {
+    async fn server(open: bool, declares_feed: bool) -> (Url, MockState, task::JoinHandle<()>) {
         let state = MockState {
             open,
             declares_feed,
@@ -1681,7 +1697,7 @@ mod visualizer_feed_tests {
                 user: "alice".into(),
                 password: "secret".into(),
             },
-            reqwest::Client::new(),
+            Client::new(),
         );
         let probe = client.probe().await.unwrap();
         Arc::new(SubsonicBinding::new(
@@ -1828,8 +1844,8 @@ mod visualizer_feed_tests {
         })
         .await
         .unwrap();
-        assert_eq!(std::path::Path::new(&path), expected);
-        assert!(std::fs::metadata(&path).unwrap().len() > 0);
+        assert_eq!(StdPath::new(&path), expected);
+        assert!(fs::metadata(&path).unwrap().len() > 0);
         assert_eq!(state.cover_calls.load(Ordering::SeqCst), 1);
 
         binding.stop_jukebox_polling();
@@ -2198,7 +2214,7 @@ mod visualizer_feed_tests {
             Arc::new(Signals::default()),
             false,
             RunMode::App,
-            Arc::new(::visualizer::Visualizer::new()),
+            Arc::new(Visualizer::new()),
         )
         .await
         .unwrap();
@@ -2287,7 +2303,7 @@ mod visualizer_feed_tests {
             let root = TempDir::new().unwrap();
             let binding = open_binding(url, &root, Arc::new(Signals::default())).await;
             binding.start_jukebox_polling();
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio_time::sleep(Duration::from_millis(100)).await;
             assert_eq!(state.connections.load(Ordering::SeqCst), 0);
             binding.stop_jukebox_polling();
             binding.covers.cancellation.cancel();

@@ -11,6 +11,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use anyhow::Error;
 use anyhow::{Context, Result, ensure};
 use database::actions::file::{get_file_by_id, get_file_id_from_path};
 use database::connection::connect_main_db;
@@ -19,6 +20,7 @@ use fsio::FsIo;
 use rune::export::save_as_m3u8;
 use rust_decimal::Decimal;
 use tempfile::TempDir;
+use uuid::Uuid;
 
 struct Library {
     home: TempDir,
@@ -208,7 +210,7 @@ async fn recommend_export_preserves_rank_for_a_relative_library() -> Result<()> 
         &FsIo::new(),
         music.to_str().context("non-UTF-8 fixture path")?,
         None,
-        &uuid::Uuid::new_v4().to_string(),
+        &Uuid::new_v4().to_string(),
     )
     .await?;
     // The second track ranks itself first, whichever filename the scanner assigned it.
@@ -248,7 +250,7 @@ async fn recommend_export_preserves_rank_for_a_relative_library() -> Result<()> 
         playlist_ids.push(
             get_file_id_from_path(&db, &music, &path)
                 .await
-                .map_err(anyhow::Error::msg)?,
+                .map_err(Error::msg)?,
         );
     }
     assert_eq!(

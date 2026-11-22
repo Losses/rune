@@ -5,6 +5,7 @@ use std::time::Duration;
 use fsio::{FileIoError, FsIo, OpenDalConfig, OpenMode, StorageLocation};
 use tokio::runtime::Handle;
 use tokio::task::spawn_blocking;
+use tokio::time as tokio_time;
 
 #[path = "../src/test_fixtures.rs"]
 mod test_fixtures;
@@ -86,7 +87,7 @@ async fn assert_read_contract(config: OpenDalConfig) {
 
 #[tokio::test]
 async fn webdav_read_and_seek_contract() {
-    tokio::time::timeout(DEADLINE, async {
+    tokio_time::timeout(DEADLINE, async {
         let server = WebDavFixture::start(vec![("nested/audio.mp3".into(), AUDIO.to_vec())])
             .await
             .unwrap();
@@ -99,7 +100,7 @@ async fn webdav_read_and_seek_contract() {
 
 #[tokio::test]
 async fn s3_change_token_is_absent_only_when_the_server_reports_nothing() {
-    tokio::time::timeout(DEADLINE, async {
+    tokio_time::timeout(DEADLINE, async {
         let files = vec![("audio.mp3".to_owned(), AUDIO.to_vec())];
         let with_metadata = S3Fixture::start(files.clone()).await.unwrap();
         let without_metadata = S3Fixture::start_without_object_metadata(files)
@@ -121,7 +122,7 @@ async fn s3_change_token_is_absent_only_when_the_server_reports_nothing() {
 
 #[tokio::test]
 async fn s3_read_and_seek_contract() {
-    tokio::time::timeout(DEADLINE, async {
+    tokio_time::timeout(DEADLINE, async {
         let server = S3Fixture::start(vec![("nested/audio.mp3".into(), AUDIO.to_vec())])
             .await
             .unwrap();
@@ -133,7 +134,7 @@ async fn s3_read_and_seek_contract() {
 
 #[tokio::test]
 async fn wrong_webdav_password_is_redacted_permission_error() {
-    tokio::time::timeout(DEADLINE, async {
+    tokio_time::timeout(DEADLINE, async {
         let server = WebDavFixture::start(vec![("nested/audio.mp3".into(), AUDIO.to_vec())])
             .await
             .unwrap();
@@ -154,7 +155,7 @@ async fn wrong_webdav_password_is_redacted_permission_error() {
 
 #[tokio::test]
 async fn write_attempts_return_not_supported() {
-    tokio::time::timeout(DEADLINE, async {
+    tokio_time::timeout(DEADLINE, async {
         let server = S3Fixture::start(vec![("nested/audio.mp3".into(), AUDIO.to_vec())])
             .await
             .unwrap();
@@ -198,7 +199,7 @@ async fn write_attempts_return_not_supported() {
 
 #[tokio::test]
 async fn config_debug_redacts_both_secrets() {
-    tokio::time::timeout(DEADLINE, async {
+    tokio_time::timeout(DEADLINE, async {
         let webdav = format!(
             "{:?}",
             OpenDalConfig::WebDav {
@@ -230,7 +231,7 @@ async fn config_debug_redacts_both_secrets() {
 
 #[tokio::test]
 async fn sync_read_from_spawn_blocking_completes() {
-    tokio::time::timeout(DEADLINE, async {
+    tokio_time::timeout(DEADLINE, async {
         let server = S3Fixture::start(vec![("nested/audio.mp3".into(), AUDIO.to_vec())])
             .await
             .unwrap();
@@ -246,7 +247,7 @@ async fn sync_read_from_spawn_blocking_completes() {
 
 #[tokio::test]
 async fn remote_stream_can_be_dropped_on_a_runtime_thread() {
-    tokio::time::timeout(DEADLINE, async {
+    tokio_time::timeout(DEADLINE, async {
         let files = vec![("audio.mp3".to_owned(), AUDIO.to_vec())];
         let webdav = WebDavFixture::start(files.clone()).await.unwrap();
         let s3 = S3Fixture::start(files).await.unwrap();
@@ -274,7 +275,7 @@ async fn remote_stream_can_be_dropped_on_a_runtime_thread() {
 
 #[tokio::test]
 async fn large_remote_reads_and_end_seek_use_ranges() {
-    tokio::time::timeout(DEADLINE, async {
+    tokio_time::timeout(DEADLINE, async {
         let bytes = vec![0x5a; 64 * 1024 * 1024];
         let webdav = WebDavFixture::start(vec![("large.bin".into(), bytes.clone())])
             .await
@@ -320,7 +321,7 @@ async fn large_remote_reads_and_end_seek_use_ranges() {
 
 #[tokio::test]
 async fn paged_directory_listing_returns_every_entry() {
-    tokio::time::timeout(DEADLINE, async {
+    tokio_time::timeout(DEADLINE, async {
         let files: Vec<_> = (0..11)
             .map(|index| (format!("track-{index:02}.ogg"), vec![index]))
             .collect();

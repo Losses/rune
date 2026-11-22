@@ -11,7 +11,9 @@ use sea_orm::{
 };
 use sea_orm_migration::prelude::SchemaManager;
 use std::collections::BTreeSet;
+use std::fs;
 use std::path::{Path, PathBuf};
+use std::result;
 use tempfile::TempDir;
 use uuid::Uuid;
 
@@ -80,7 +82,7 @@ async fn setup_library_before(target_migration: &str) -> Result<DiskLibraryFixtu
     let dir = TempDir::new()?;
     let root_path = dir.path().join("library");
     let rune_dir = root_path.join(".rune");
-    std::fs::create_dir_all(&rune_dir)?;
+    fs::create_dir_all(&rune_dir)?;
     let db_path = rune_dir.join(".0.db");
 
     let db = open_raw_sqlite(&db_path).await?;
@@ -325,7 +327,7 @@ async fn verify_upgraded_library(
     let recorded_versions: BTreeSet<String> = recorded_rows
         .into_iter()
         .map(|row| row.try_get::<String>("", "version"))
-        .collect::<std::result::Result<_, _>>()?;
+        .collect::<result::Result<_, _>>()?;
     assert_eq!(recorded_versions, expected_versions);
 
     Ok(())

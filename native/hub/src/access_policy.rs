@@ -324,6 +324,7 @@ mod load_tests {
         server::{UserStatus, UserSummary},
         utils::DeviceType,
     };
+    use std::fs;
     use std::time::SystemTime;
 
     fn approved(fingerprint: &str) -> UserSummary {
@@ -348,7 +349,7 @@ mod load_tests {
     #[test]
     fn an_unreadable_file_resets_approved_devices_to_guest() -> anyhow::Result<()> {
         let dir = tempfile::tempdir()?;
-        std::fs::write(
+        fs::write(
             dir.path().join("grants.json"),
             br#"{"version":1,"devices":{}}"#,
         )?;
@@ -365,7 +366,7 @@ mod load_tests {
         let dir = tempfile::tempdir()?;
         let shared = Uuid::new_v4();
         let unshared = Uuid::new_v4();
-        std::fs::write(
+        fs::write(
             dir.path().join("grants.json"),
             serde_json::to_vec(&serde_json::json!({
                 "version": 2,
@@ -432,7 +433,7 @@ mod load_tests {
 
         let dir = tempfile::tempdir()?;
         let unshared = Uuid::new_v4();
-        std::fs::write(
+        fs::write(
             dir.path().join("grants.json"),
             serde_json::to_vec(&serde_json::json!({
                 "version": 2,

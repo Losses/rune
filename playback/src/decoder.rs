@@ -3,8 +3,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
+use rodio::Decoder as RodioDecoder;
 use rodio::Source;
 use rodio::source::{self, SeekError};
+use std::io;
 use symphonia::core::{
     audio::{AudioBufferRef, SampleBuffer, SignalSpec},
     codecs::{CODEC_TYPE_NULL, Decoder, DecoderOptions},
@@ -15,6 +17,7 @@ use symphonia::core::{
     probe::Hint,
     units::{self, Time},
 };
+use symphonia::default as symphonia_default;
 
 const MAX_DECODE_RETRIES: usize = 3;
 
@@ -70,7 +73,7 @@ impl<R: Read + Seek + Send + Sync> MediaSource for SharedSourceMedia<R> {
 }
 
 impl<R: Read + Seek + Send + Sync> Read for SharedSourceMedia<R> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let result = self.inner.lock().unwrap().read(buf);
         if let Err(error) = &result {
             *self.io_error.lock().unwrap() = Some(error.kind());
@@ -80,7 +83,7 @@ impl<R: Read + Seek + Send + Sync> Read for SharedSourceMedia<R> {
 }
 
 impl<R: Read + Seek + Send + Sync> Seek for SharedSourceMedia<R> {
-    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         let result = self.inner.lock().unwrap().seek(pos);
         if let Err(error) = &result {
             *self.io_error.lock().unwrap() = Some(error.kind());
@@ -112,7 +115,7 @@ impl SymphoniaDecoder {
         };
         let metadata_opts = MetadataOptions::default();
 
-        let mut probed = symphonia::default::get_probe()
+        let mut probed = symphonia_default::get_probe()
             .format(&hint, mss, &format_opts, &metadata_opts)
             .map_err(|e| anyhow::Error::new(e).context("Failed to probe audio stream"))?;
 
@@ -409,7 +412,7 @@ impl<R: Read + Seek + Send + Sync + 'static> RuneDecoder<R> {
                 let unwrapped = Arc::try_unwrap(shared)
                     .map(|mutex| mutex.into_inner().unwrap())
                     .unwrap_or_else(|_| panic!("Failed to unwrap shared reader"));
-                let decoder = rodio::Decoder::new(unwrapped)
+                let decoder = RodioDecoder::new(unwrapped)
                     .map_err(|err| anyhow!("All decoders failed: {err}"))?;
                 Ok(Self {
                     inner: DecoderInner::Rodio(Box::new(decoder)),
@@ -479,13 +482,15 @@ mod tests {
     use crate::buffered::rune_buffered;
     use crate::player::UnavailableReason;
     use std::fs::File;
+    use std::io;
     use std::io::Cursor;
     use std::io::{BufReader, Error as IoError};
+    use std::panic;
     use std::path::Path;
 
     struct RevokedReader;
     impl Read for RevokedReader {
-        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
             Err(IoError::new(
                 ErrorKind::PermissionDenied,
                 "audio access revoked",
@@ -493,7 +498,7 @@ mod tests {
         }
     }
     impl Seek for RevokedReader {
-        fn seek(&mut self, _: SeekFrom) -> std::io::Result<u64> {
+        fn seek(&mut self, _: SeekFrom) -> io::Result<u64> {
             Err(IoError::new(
                 ErrorKind::PermissionDenied,
                 "audio access revoked",
@@ -503,7 +508,7 @@ mod tests {
 
     #[test]
     fn revoked_reader_io_error_does_not_panic_during_decoder_fallback() {
-        let result = std::panic::catch_unwind(|| RuneDecoder::new(RevokedReader, Some("ogg")));
+        let result = panic::catch_unwind(|| RuneDecoder::new(RevokedReader, Some("ogg")));
         assert!(
             result.is_ok(),
             "revoked stream must not panic in decoder fallback"

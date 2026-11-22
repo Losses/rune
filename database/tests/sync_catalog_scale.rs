@@ -1,14 +1,17 @@
 use support::fixtures;
 
+use anyhow::Error;
 use anyhow::Result;
 use database::entities::{
     albums, artists, genres, media_file_albums, media_file_artists, media_file_genres,
     media_file_playlists, media_files, playlists,
 };
+use database::sync as database_sync;
 use database::sync::model::*;
 use database::test_fixtures::causal_library as support;
 use migration::catalog_identity::{self, ParentKind};
 use sea_orm::{EntityTrait, PaginatorTrait};
+use std::env;
 use std::{
     collections::BTreeMap,
     env::consts::{ARCH, OS},
@@ -18,6 +21,9 @@ use std::{
     },
     time::{Duration, Instant},
 };
+use sync::Coordinator;
+use sync::SessionAdvance;
+use tokio::time as tokio_time;
 use uuid::Uuid;
 
 // This diagnostic stores only bounded categories, never SQL text or values.
@@ -92,7 +98,7 @@ fn instrument(
 #[tokio::test]
 #[ignore = "manual catalog scale measurement"]
 async fn catalog_scale() -> Result<()> {
-    let count = std::env::var("SYNC_SCALE_TRACKS")
+    let count = env::var("SYNC_SCALE_TRACKS")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(1000usize);
@@ -190,7 +196,7 @@ async fn catalog_scale() -> Result<()> {
                     extension: "ogg".into(),
                     content_hash: Some(format!("{i:064x}")),
                     content_size: Some(1234),
-                    duration: "180".to_owned().try_into().map_err(anyhow::Error::msg)?,
+                    duration: "180".to_owned().try_into().map_err(Error::msg)?,
                     sample_rate: 44100,
                     cover_art_id: None,
                     metadata: vec![MetadataTag {
@@ -355,9 +361,9 @@ async fn exchange(
     source_db: &sea_orm::DatabaseConnection,
     target_db: &sea_orm::DatabaseConnection,
 ) -> Result<usize> {
-    tokio::time::timeout(Duration::from_secs(60), async {
+    tokio_time::timeout(Duration::from_secs(60), async {
         let remote = sync::StorePeer(source.clone());
-        let mut coordinator = sync::Coordinator::new(scope, database::sync::session_limits())?;
+        let mut coordinator = Coordinator::new(scope, database_sync::session_limits())?;
         let mut steps = 0;
         let started = Instant::now();
         loop {
@@ -374,10 +380,10 @@ async fn exchange(
                 .advance(&**target, &**target, &**target, &remote, &**source)
                 .await?
             {
-                sync::SessionAdvance::Complete(_) => return Ok(steps),
-                sync::SessionAdvance::BudgetExhausted => coordinator.start_pass(),
-                sync::SessionAdvance::Incomplete => (),
-                sync::SessionAdvance::Cancelled => anyhow::bail!("catalog session cancelled"),
+                SessionAdvance::Complete(_) => return Ok(steps),
+                SessionAdvance::BudgetExhausted => coordinator.start_pass(),
+                SessionAdvance::Incomplete => (),
+                SessionAdvance::Cancelled => anyhow::bail!("catalog session cancelled"),
             }
         }
     })

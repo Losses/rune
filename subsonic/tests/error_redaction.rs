@@ -8,6 +8,7 @@ use axum::{
     response::IntoResponse,
     routing::get,
 };
+use reqwest::Client;
 use subsonic::{SubsonicClient, SubsonicCredentials, SubsonicError, SubsonicServerError};
 use tokio::net::TcpListener;
 use url::Url;
@@ -52,7 +53,7 @@ async fn malformed_envelope_redacts_api_key_in_debug_and_display() {
     let client = SubsonicClient::new(
         server.url.clone(),
         SubsonicCredentials::ApiKey { key: secret.into() },
-        reqwest::Client::new(),
+        Client::new(),
     );
 
     let error = client
@@ -87,7 +88,7 @@ async fn malformed_envelope_redacts_password_token_and_salt_in_debug_and_display
             user: "alice".into(),
             password: password.into(),
         },
-        reqwest::Client::new(),
+        Client::new(),
     );
 
     let error = client
@@ -128,7 +129,7 @@ async fn malformed_payload_redacts_api_key_and_password_secrets_in_debug_and_dis
         SubsonicCredentials::ApiKey {
             key: api_key.into(),
         },
-        reqwest::Client::new(),
+        Client::new(),
     );
     let api_error = api_client.song("song-1").await.unwrap_err();
     assert!(matches!(api_error, SubsonicError::Malformed(_)));
@@ -159,7 +160,7 @@ async fn malformed_payload_redacts_api_key_and_password_secrets_in_debug_and_dis
             user: "alice".into(),
             password: password.into(),
         },
-        reqwest::Client::new(),
+        Client::new(),
     );
     let pw_error = pw_client.song("song-1").await.unwrap_err();
     assert!(matches!(pw_error, SubsonicError::Malformed(_)));
@@ -199,7 +200,7 @@ async fn well_formed_server_error_redacts_secrets_and_preserves_message() {
         SubsonicCredentials::ApiKey {
             key: api_key.into(),
         },
-        reqwest::Client::new(),
+        Client::new(),
     );
 
     let error = client
@@ -226,7 +227,7 @@ async fn transport_error_strips_url_and_secrets() {
     let address = listener.local_addr().unwrap();
     drop(listener);
     let base_url = Url::parse(&format!("http://{address}")).unwrap();
-    let http = reqwest::Client::builder().no_proxy().build().unwrap();
+    let http = Client::builder().no_proxy().build().unwrap();
 
     let api_key = "synthetic-secret-api-key";
     let api_client = SubsonicClient::new(
@@ -282,7 +283,7 @@ async fn empty_secret_does_not_corrupt_error_message() {
     let client = SubsonicClient::new(
         server.url.clone(),
         SubsonicCredentials::ApiKey { key: String::new() },
-        reqwest::Client::new(),
+        Client::new(),
     );
     let error = client
         .scrobble("synthetic-track", None, false)

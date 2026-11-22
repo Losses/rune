@@ -3,6 +3,9 @@ mod fixtures;
 
 use anyhow::Result;
 use sea_orm::{ConnectOptions, ConnectionTrait, Database, TransactionTrait};
+use std::env;
+use std::fs;
+use std::sync as std_sync;
 use sync::protocol::{self as p, ReceiveStore, SyncStore};
 use sync_orm::maintenance::Maintenance;
 use sync_orm::{causal_capabilities::CausalEndpoint, causal_schema, causal_store::CausalReplica};
@@ -33,7 +36,7 @@ impl p::SyncModel for Model {
 }
 #[tokio::test]
 async fn write_transaction_survives_concurrent_commit() -> Result<()> {
-    let path = std::env::temp_dir().join(format!("sync-wal-{}.sqlite", Uuid::new_v4()));
+    let path = env::temp_dir().join(format!("sync-wal-{}.sqlite", Uuid::new_v4()));
     let mut options = ConnectOptions::new(format!("sqlite://{}?mode=rwc", path.display()));
     options.max_connections(2).min_connections(2);
     let db = Database::connect(options).await?;
@@ -68,7 +71,7 @@ async fn write_transaction_survives_concurrent_commit() -> Result<()> {
     drop(endpoint);
     drop(store);
     db.close().await?;
-    std::fs::remove_file(path)?;
+    fs::remove_file(path)?;
     Ok(())
 }
 
@@ -237,7 +240,7 @@ async fn prepared_session() -> Result<(
     CausalEndpoint<Model>,
     Uuid,
     p::KeyRange<Model>,
-    std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    std_sync::Arc<std_sync::Mutex<Vec<String>>>,
 )> {
     use p::{SnapshotSink, SnapshotSource};
     use std::sync::{Arc, Mutex};

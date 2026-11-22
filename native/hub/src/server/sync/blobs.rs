@@ -1,15 +1,19 @@
 use anyhow::{Context, Result, ensure};
+use blake3::Hasher;
 use database::{
     actions::file::{MAX_BLOB_BYTES, blob_path, blob_path_for_track, hash_file, validate_digest},
     sync::model::BlobRef,
 };
 use fsio::{FsIo, OpenMode};
+use std::fs;
 use std::time::Duration;
 use std::{
     io::Write,
     path::{Path, PathBuf},
 };
 use tokio::runtime::Handle;
+use tokio::task;
+use tokio::time as tokio_time;
 use uuid::Uuid;
 struct TempFile {
     fsio: FsIo,
@@ -70,14 +74,12 @@ async fn download_to_path(
         );
         #[cfg(not(target_os = "android"))]
         ensure!(
-            !std::fs::symlink_metadata(&final_path)?
-                .file_type()
-                .is_symlink(),
+            !fs::symlink_metadata(&final_path)?.file_type().is_symlink(),
             "invalid existing blob path"
         );
         let hash_fsio = fsio.clone();
         let hash_path = final_path.clone();
-        if tokio::task::spawn_blocking(move || hash_file(&hash_fsio, &hash_path))
+        if task::spawn_blocking(move || hash_file(&hash_fsio, &hash_path))
             .await
             .context("existing blob verification task failed")??
             == *blob
@@ -90,7 +92,7 @@ async fn download_to_path(
         path: final_path.with_extension(format!("part-{}", Uuid::new_v4())),
     };
     let result = async {
-        let mut response = tokio::time::timeout(
+        let mut response = tokio_time::timeout(
             Duration::from_secs(30),
             client
                 .get(format!(
@@ -108,8 +110,8 @@ async fn download_to_path(
         }
         let mut output = fsio.open(&temp.path, OpenMode::WriteTruncate)?;
         let mut size = 0u64;
-        let mut hash = blake3::Hasher::new();
-        while let Some(chunk) = tokio::time::timeout(Duration::from_secs(30), response.chunk())
+        let mut hash = Hasher::new();
+        while let Some(chunk) = tokio_time::timeout(Duration::from_secs(30), response.chunk())
             .await
             .context("blob transfer stalled")??
         {

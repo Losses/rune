@@ -3,9 +3,12 @@
 
 use std::path::PathBuf;
 
+use anyhow::Error;
 use image::imageops::{self, FilterType};
 use image::{GenericImageView, RgbaImage};
 use log::warn;
+use std::fs;
+use std::iter;
 
 /// The atlas is `GRID` by `GRID` cells of `CELL` pixels.
 pub const GRID: u32 = 8;
@@ -90,7 +93,7 @@ pub fn pack(current: Option<&RgbaImage>, random: &[RgbaImage]) -> Option<Atlas> 
     let cells = current
         .into_iter()
         .map(Some)
-        .chain(std::iter::repeat_n(None, usize::from(current.is_none())))
+        .chain(iter::repeat_n(None, usize::from(current.is_none())))
         .chain(random.iter().map(Some))
         .take(MAX_COVERS);
     let mut count = 0;
@@ -111,8 +114,8 @@ pub fn pack(current: Option<&RgbaImage>, random: &[RgbaImage]) -> Option<Atlas> 
 }
 
 fn decode(path: &PathBuf) -> Option<RgbaImage> {
-    let result = std::fs::read(path)
-        .map_err(anyhow::Error::from)
+    let result = fs::read(path)
+        .map_err(Error::from)
         .and_then(|bytes| Ok(image::load_from_memory(&bytes)?));
     match result {
         Ok(image) => Some(image.to_rgba8()),

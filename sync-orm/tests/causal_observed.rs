@@ -6,14 +6,19 @@ use sea_orm::{
     ConnectionTrait, ExprTrait, TransactionTrait,
     sea_query::{Alias, Expr, Query},
 };
+use sync::causal;
 use sync::causal::{Context, Dot};
+use sync::protocol;
 use sync::protocol::SyncError;
+use sync_orm::causal_compaction;
+use sync_orm::causal_leases;
 use sync_orm::causal_observed as observed;
+use sync_orm::causal_store;
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Notes;
-impl sync::protocol::SyncModel for Notes {
+impl protocol::SyncModel for Notes {
     type Collection = u8;
     type Payload = String;
     fn model_id() -> &'static str {
@@ -31,10 +36,7 @@ impl sync::protocol::SyncModel for Notes {
     fn collection_from_tag(tag: &str) -> Option<u8> {
         (tag == "notes").then_some(1)
     }
-    fn validate(
-        _: &sync::protocol::ObjectKey<Self>,
-        _: &Option<String>,
-    ) -> sync::protocol::Result<()> {
+    fn validate(_: &protocol::ObjectKey<Self>, _: &Option<String>) -> protocol::Result<()> {
         Ok(())
     }
 }
@@ -44,8 +46,7 @@ async fn reclaim_preserves_pinned_observed_versions() -> Result<()> {
     let db = fixtures::fresh_database().await?;
     let ns = Uuid::new_v4();
     let writer = Uuid::new_v4();
-    sync_orm::causal_store::CausalReplica::<Notes>::create_empty(db.clone(), ns, Uuid::new_v4())
-        .await?;
+    causal_store::CausalReplica::<Notes>::create_empty(db.clone(), ns, Uuid::new_v4()).await?;
     let tx = db.begin().await?;
     let mut budget = 100;
     let mut original = Context::default();
@@ -62,9 +63,9 @@ async fn reclaim_preserves_pinned_observed_versions() -> Result<()> {
     )
     .await?;
     let pin = Uuid::new_v4();
-    sync_orm::causal_leases::create_build_on(
+    causal_leases::create_build_on(
         &tx,
-        sync_orm::causal_leases::BuildLeaseRequest {
+        causal_leases::BuildLeaseRequest {
             namespace: ns,
             id: pin,
             scope: vec![1],
@@ -87,7 +88,7 @@ async fn reclaim_preserves_pinned_observed_versions() -> Result<()> {
     )
     .await?;
     assert_eq!(
-        sync_orm::causal_compaction::reclaim_rows_step_on(&tx, ns, 10).await?,
+        causal_compaction::reclaim_rows_step_on(&tx, ns, 10).await?,
         0
     );
     assert_eq!(
@@ -96,9 +97,9 @@ async fn reclaim_preserves_pinned_observed_versions() -> Result<()> {
     );
     let current = observed::page_at_on(&tx, ns, b"notes", 2, None, 10).await?;
     assert_eq!(current, vec![(writer, 1, 3)]);
-    sync_orm::causal_leases::revoke_on(&tx, ns, pin).await?;
+    causal_leases::revoke_on(&tx, ns, pin).await?;
     assert_eq!(
-        sync_orm::causal_compaction::reclaim_rows_step_on(&tx, ns, 10).await?,
+        causal_compaction::reclaim_rows_step_on(&tx, ns, 10).await?,
         2
     );
     assert!(
@@ -133,7 +134,7 @@ async fn insert_budget_rolls_back_a_two_interval_merge() -> Result<()> {
         .await
         .unwrap_err();
     assert!(matches!(
-        error.downcast_ref::<sync::protocol::SyncError>(),
+        error.downcast_ref::<protocol::SyncError>(),
         Some(SyncError::WorkLimit)
     ));
     tx.rollback().await?;
@@ -191,7 +192,7 @@ async fn observed_terminal_interval_and_same_state_union() -> Result<()> {
     let writer = Uuid::new_v4();
     let tx = db.begin().await?;
     let mut budget = 100;
-    for counter in [1, 3, 2, sync::causal::MAX_DOT_COUNTER] {
+    for counter in [1, 3, 2, causal::MAX_DOT_COUNTER] {
         let mut context = Context::default();
         context.insert(Dot::new(writer, counter)?)?;
         assert!(observed::insert_on(&tx, ns, b"notes", 1, &context, &mut budget).await?);
@@ -200,11 +201,7 @@ async fn observed_terminal_interval_and_same_state_union() -> Result<()> {
         observed::page_at_on(&tx, ns, b"notes", 1, None, 10).await?,
         vec![
             (writer, 1, 3),
-            (
-                writer,
-                sync::causal::MAX_DOT_COUNTER,
-                sync::causal::MAX_DOT_COUNTER
-            )
+            (writer, causal::MAX_DOT_COUNTER, causal::MAX_DOT_COUNTER)
         ]
     );
     assert!(
@@ -212,7 +209,7 @@ async fn observed_terminal_interval_and_same_state_union() -> Result<()> {
             &tx,
             ns,
             b"notes",
-            Dot::new(writer, sync::causal::MAX_DOT_COUNTER)?
+            Dot::new(writer, causal::MAX_DOT_COUNTER)?
         )
         .await?
     );

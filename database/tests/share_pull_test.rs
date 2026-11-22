@@ -1,6 +1,7 @@
 use database::test_fixtures::causal_library as support;
 
 use anyhow::{Context, Result, ensure};
+use chrono::Utc;
 use database::sync::model::{Collection, ObjectKey, RuneModel};
 use database::sync::replica::PendingShareChange;
 use database::sync::share::{
@@ -14,6 +15,9 @@ use sea_orm::{
     sea_query::{Alias, Expr, Query},
 };
 use std::collections::{BTreeMap, BTreeSet};
+use std::env;
+use std::path as std_path;
+use std::result;
 use std::str::FromStr;
 use std::sync::{
     Arc, Mutex,
@@ -29,6 +33,7 @@ use sync::share::{
 use sync::{self as p, SyncModel, SyncPeer, SyncStore, share};
 use sync_orm::base_exporter::{BaseExportOptions, export_base};
 use sync_orm::causal_capabilities::CausalEndpoint;
+use sync_orm::causal_export_cursors;
 use sync_orm::causal_export_cursors::EXPORT_CURSOR_MAX_AGE_MS;
 use sync_orm::maintenance::Maintenance;
 use tokio::sync::Notify;
@@ -42,8 +47,8 @@ struct Published {
     store: Arc<MemoryObjectStore>,
 }
 
-fn cache_path() -> std::path::PathBuf {
-    std::env::temp_dir().join(format!("share-pull-{}", Uuid::new_v4()))
+fn cache_path() -> std_path::PathBuf {
+    env::temp_dir().join(format!("share-pull-{}", Uuid::new_v4()))
 }
 
 #[tokio::test]
@@ -145,7 +150,7 @@ async fn age_base_observation(
         )
         .await?;
     let identity = source.sync_store.identity().await?;
-    let now_ms = chrono::Utc::now().timestamp_millis();
+    let now_ms = Utc::now().timestamp_millis();
     let mut state = load_or_create_state(
         &source.db,
         identity.replica,
@@ -188,7 +193,7 @@ async fn publish_base(
         identity.replica,
         identity.namespace,
         cache_path(),
-        chrono::Utc::now().timestamp_millis(),
+        Utc::now().timestamp_millis(),
     )
     .await?;
     let stream = state.stream;
@@ -590,8 +595,7 @@ async fn export_cursor_sequence(
     stream: Uuid,
 ) -> Result<Option<u64>> {
     let tx = source.db.begin().await?;
-    let cursor =
-        sync_orm::causal_export_cursors::read_on(&tx, namespace, stream.as_bytes()).await?;
+    let cursor = causal_export_cursors::read_on(&tx, namespace, stream.as_bytes()).await?;
     tx.commit().await?;
     cursor
         .map(|cursor| u64::try_from(cursor.sequence))
@@ -838,7 +842,7 @@ async fn stale_base_is_replaced_by_own_stream_cut() -> Result<()> {
         .bucket_chunks
         .iter()
         .map(|name| share::chunk_key(&published.prefix, name))
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+        .collect::<result::Result<Vec<_>, _>>()?;
     let creates_before = unchanged_chunk_keys
         .iter()
         .map(|key| store.create_count(key))
@@ -866,7 +870,7 @@ async fn stale_base_is_replaced_by_own_stream_cut() -> Result<()> {
         identity.replica,
         namespace,
         cache_path(),
-        chrono::Utc::now().timestamp_millis(),
+        Utc::now().timestamp_millis(),
     )
     .await?;
     let base_key = share::base_key(&published.prefix, &published.head.bases[0].base_id)?;
@@ -874,7 +878,7 @@ async fn stale_base_is_replaced_by_own_stream_cut() -> Result<()> {
         .get(&base_key)
         .await
         .map_err(|error| anyhow::anyhow!("read base: {error:?}"))?;
-    let old_time = chrono::Utc::now().timestamp_millis() - share::BASE_MAX_AGE_MS as i64 - 1;
+    let old_time = Utc::now().timestamp_millis() - share::BASE_MAX_AGE_MS as i64 - 1;
     state.observe_tag(
         ShareObjectKey::Base {
             prefix: DevicePrefix::from_str(&published.prefix)?,
@@ -923,7 +927,7 @@ async fn stale_base_is_replaced_by_own_stream_cut() -> Result<()> {
         source.sync_store.identity().await?.replica,
         namespace,
         cache_path(),
-        chrono::Utc::now().timestamp_millis(),
+        Utc::now().timestamp_millis(),
     )
     .await?;
     let old_base = ShareObjectKey::Base {
@@ -935,9 +939,7 @@ async fn stale_base_is_replaced_by_own_stream_cut() -> Result<()> {
         .get_mut(&old_base)
         .context("old base timer was not recorded")?;
     old_base_observation.gc_state = ObjectGcState::Superseded {
-        since_ms: chrono::Utc::now().timestamp_millis()
-            - share::SUPERSEDED_BASE_RETENTION_MS as i64
-            - 1,
+        since_ms: Utc::now().timestamp_millis() - share::SUPERSEDED_BASE_RETENTION_MS as i64 - 1,
     };
     save_state(&source.db, &state).await?;
     let tail_key = ObjectKey {
@@ -1182,7 +1184,7 @@ async fn interrupted_base_cut_leaves_orphans_for_delayed_own_gc() -> Result<()> 
         identity.replica,
         namespace,
         cache_path(),
-        chrono::Utc::now().timestamp_millis(),
+        Utc::now().timestamp_millis(),
     )
     .await?;
     let prefix = format!("{}.{}", state.stream, state.generation);
@@ -1200,7 +1202,7 @@ async fn interrupted_base_cut_leaves_orphans_for_delayed_own_gc() -> Result<()> 
         .iter()
         .filter(|object| object.name != export.base_id)
         .map(|object| share::chunk_key(&prefix, &object.name))
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+        .collect::<result::Result<Vec<_>, _>>()?;
     ensure!(
         !orphan_keys.is_empty(),
         "interrupted cut fixture has no chunks"
@@ -1294,12 +1296,11 @@ async fn interrupted_base_cut_leaves_orphans_for_delayed_own_gc() -> Result<()> 
         identity.replica,
         namespace,
         cache_path(),
-        chrono::Utc::now().timestamp_millis(),
+        Utc::now().timestamp_millis(),
     )
     .await?;
-    let old_time =
-        chrono::Utc::now().timestamp_millis() - share::OBJECT_UNREFERENCED_MS as i64 - 10;
-    let second_observation = chrono::Utc::now().timestamp_millis();
+    let old_time = Utc::now().timestamp_millis() - share::OBJECT_UNREFERENCED_MS as i64 - 10;
+    let second_observation = Utc::now().timestamp_millis();
     for key in &orphan_keys {
         let ShareObjectKey::Chunk { prefix, digest } = parse_key(key)? else {
             anyhow::bail!("orphan chunk key did not parse as a chunk");
@@ -1446,7 +1447,7 @@ async fn age_retired_heads(
     retired_prefix: &str,
 ) -> Result<()> {
     let identity = keeper.sync_store.identity().await?;
-    let now_ms = chrono::Utc::now().timestamp_millis();
+    let now_ms = Utc::now().timestamp_millis();
     let mut state = load_or_create_state(
         &keeper.db,
         identity.replica,
@@ -2828,7 +2829,7 @@ async fn pulls_read_only_new_segments_and_skip_equal_base_bucket_chunks() -> Res
         .bucket_chunks
         .iter()
         .map(|name| share::chunk_key(&published.prefix, name))
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+        .collect::<result::Result<Vec<_>, _>>()?;
     ensure!(!bucket_keys.is_empty(), "base fixture has no bucket chunks");
     let bucket_counts = bucket_keys
         .iter()
@@ -3844,7 +3845,7 @@ async fn share_prefix_whose_head_another_writer_session_wrote_is_never_removed()
         replica,
         namespace,
         cache_path(),
-        chrono::Utc::now().timestamp_millis(),
+        Utc::now().timestamp_millis(),
     )
     .await?;
     state.writer_session = Uuid::new_v4();
@@ -3974,7 +3975,7 @@ async fn journal_compacted_past_an_expired_export_cursor_is_published_as_a_base(
         )
         .await?;
     // An export cursor older than its maximum age stops pinning, so compaction passes it.
-    let expired = chrono::Utc::now().timestamp_millis() - EXPORT_CURSOR_MAX_AGE_MS - 60_000;
+    let expired = Utc::now().timestamp_millis() - EXPORT_CURSOR_MAX_AGE_MS - 60_000;
     device
         .db
         .execute(
@@ -4287,7 +4288,7 @@ async fn by_kind(
 /// cuts a new base.
 async fn age_newest_own_base(device: &SqlLibrary, head: &Head) -> Result<()> {
     let identity = device.sync_store.identity().await?;
-    let now_ms = chrono::Utc::now().timestamp_millis();
+    let now_ms = Utc::now().timestamp_millis();
     let mut state = load_or_create_state(
         &device.db,
         identity.replica,
@@ -4482,7 +4483,7 @@ async fn push_passes_after_a_roll_up_do_not_download_the_rolled_up_segments() ->
                 .map(|segment| {
                     share::segment_key(&prefix, segment.first, segment.last, &segment.name)
                 })
-                .collect::<std::result::Result<BTreeSet<_>, _>>()?,
+                .collect::<result::Result<BTreeSet<_>, _>>()?,
             _ => BTreeSet::new(),
         };
         let read_once = |key: &String| inputs.contains(key) && sent[key].0 == 1;
@@ -4754,7 +4755,7 @@ async fn push_pass_learns_the_manifests_a_state_from_an_earlier_build_does_not_r
                 identity.replica,
                 namespace,
                 cache_path(),
-                chrono::Utc::now().timestamp_millis(),
+                Utc::now().timestamp_millis(),
             )
             .await?;
             let mut encoded = serde_json::to_value(&state)?;
@@ -4827,7 +4828,7 @@ async fn garbage_collection_starts_the_wait_again_for_an_object_that_changed() -
             .await?;
         // The run that first saw them is more than 24 hours ago, and a second run saw them too.
         let identity = device.sync_store.identity().await?;
-        let now_ms = chrono::Utc::now().timestamp_millis();
+        let now_ms = Utc::now().timestamp_millis();
         let mut state = load_or_create_state(
             &device.db,
             identity.replica,
@@ -4868,7 +4869,7 @@ async fn garbage_collection_starts_the_wait_again_for_an_object_that_changed() -
             .await
             .map_err(|error| anyhow::anyhow!("read {replaced}: {error:?}"))?
             .tag;
-        let run_ms = chrono::Utc::now().timestamp_millis();
+        let run_ms = Utc::now().timestamp_millis();
         device
             .sync_store
             .push_share(store.clone(), namespace, cache_path(), capabilities)
@@ -4886,7 +4887,7 @@ async fn garbage_collection_starts_the_wait_again_for_an_object_that_changed() -
             identity.replica,
             namespace,
             cache_path(),
-            chrono::Utc::now().timestamp_millis(),
+            Utc::now().timestamp_millis(),
         )
         .await?;
         let observed = state

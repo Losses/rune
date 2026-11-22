@@ -9,6 +9,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::get;
+use reqwest::Client;
 use subsonic::{SubsonicClient, SubsonicCredentials, SubsonicError, SubsonicServerError};
 use url::Url;
 
@@ -116,7 +117,7 @@ async fn rune_visualizer_feed_requires_open_subsonic_version_one_and_uses_accoun
     let mut cfg = config(true, true);
     cfg.feed_extension = true;
     let feed_fixture = fixture(cfg).await;
-    let client = SubsonicClient::new(feed_fixture.url.clone(), password(), reqwest::Client::new());
+    let client = SubsonicClient::new(feed_fixture.url.clone(), password(), Client::new());
     let probe = client.probe().await.unwrap();
     assert!(probe.supports_rune_visualizer_feed());
     let url = client.rune_visualizer_feed_url(&probe).await.unwrap();
@@ -133,7 +134,7 @@ async fn rune_visualizer_feed_requires_open_subsonic_version_one_and_uses_accoun
         SubsonicCredentials::ApiKey {
             key: "feed-api-key".into(),
         },
-        reqwest::Client::new(),
+        Client::new(),
     );
     let api_key_url = api_key_client
         .rune_visualizer_feed_url(&probe)
@@ -148,24 +149,16 @@ async fn rune_visualizer_feed_requires_open_subsonic_version_one_and_uses_accoun
     let mut classic = config(false, true);
     classic.feed_extension = true;
     let classic_fixture = fixture(classic).await;
-    let probe = SubsonicClient::new(
-        classic_fixture.url.clone(),
-        password(),
-        reqwest::Client::new(),
-    )
-    .probe()
-    .await
-    .unwrap();
+    let probe = SubsonicClient::new(classic_fixture.url.clone(), password(), Client::new())
+        .probe()
+        .await
+        .unwrap();
     assert!(!probe.supports_rune_visualizer_feed());
     assert_eq!(
-        SubsonicClient::new(
-            classic_fixture.url.clone(),
-            password(),
-            reqwest::Client::new()
-        )
-        .rune_visualizer_feed_url(&probe)
-        .await
-        .unwrap_err(),
+        SubsonicClient::new(classic_fixture.url.clone(), password(), Client::new())
+            .rune_visualizer_feed_url(&probe)
+            .await
+            .unwrap_err(),
         SubsonicError::RuneVisualizerFeedUnsupported,
     );
 }
@@ -175,7 +168,7 @@ async fn probe_re_reads_extensions_after_server_version_changes() {
     let mut cfg = config(true, true);
     cfg.feed_extension = true;
     let fixture = fixture(cfg).await;
-    let client = SubsonicClient::new(fixture.url.clone(), password(), reqwest::Client::new());
+    let client = SubsonicClient::new(fixture.url.clone(), password(), Client::new());
     let first = client.probe().await.unwrap();
     let second = client.probe().await.unwrap();
     assert_eq!(first.server_version.as_deref(), Some("2.0"));
@@ -202,7 +195,7 @@ fn password() -> SubsonicCredentials {
 #[tokio::test]
 async fn password_auth_uses_random_token_parameters_and_probe_orders_calls() {
     let fixture = fixture(config(true, true)).await;
-    let client = SubsonicClient::new(fixture.url.clone(), password(), reqwest::Client::new());
+    let client = SubsonicClient::new(fixture.url.clone(), password(), Client::new());
     let result = client.probe().await.unwrap();
     assert!(result.roles.jukebox_role);
     let requests = fixture.requests.lock().unwrap().clone();
@@ -229,7 +222,7 @@ async fn password_auth_uses_random_token_parameters_and_probe_orders_calls() {
 #[tokio::test]
 async fn classic_probe_skips_extensions() {
     let fixture = fixture(config(false, false)).await;
-    let result = SubsonicClient::new(fixture.url.clone(), password(), reqwest::Client::new())
+    let result = SubsonicClient::new(fixture.url.clone(), password(), Client::new())
         .probe()
         .await
         .unwrap();
@@ -253,7 +246,7 @@ async fn api_key_auth_resolves_user_through_token_info() {
     let credentials = SubsonicCredentials::ApiKey {
         key: "secret-key".into(),
     };
-    let result = SubsonicClient::new(fixture.url.clone(), credentials, reqwest::Client::new())
+    let result = SubsonicClient::new(fixture.url.clone(), credentials, Client::new())
         .probe()
         .await
         .unwrap();
@@ -293,7 +286,7 @@ async fn every_subsonic_error_code_is_typed_and_malformed_is_reported() {
         let mut cfg = config(false, false);
         cfg.error = Some(code);
         let fixture = fixture(cfg).await;
-        let error = SubsonicClient::new(fixture.url.clone(), password(), reqwest::Client::new())
+        let error = SubsonicClient::new(fixture.url.clone(), password(), Client::new())
             .probe()
             .await
             .unwrap_err();
@@ -309,20 +302,16 @@ async fn every_subsonic_error_code_is_typed_and_malformed_is_reported() {
     cfg.malformed = true;
     let malformed_fixture = fixture(cfg).await;
     assert!(matches!(
-        SubsonicClient::new(
-            malformed_fixture.url.clone(),
-            password(),
-            reqwest::Client::new()
-        )
-        .probe()
-        .await,
+        SubsonicClient::new(malformed_fixture.url.clone(), password(), Client::new())
+            .probe()
+            .await,
         Err(SubsonicError::Malformed(_))
     ));
     let mut cfg = config(false, false);
     cfg.http_status = Some(503);
     let fixture = fixture(cfg).await;
     assert_eq!(
-        SubsonicClient::new(fixture.url.clone(), password(), reqwest::Client::new())
+        SubsonicClient::new(fixture.url.clone(), password(), Client::new())
             .probe()
             .await
             .unwrap_err(),

@@ -12,6 +12,7 @@ use crate::protocol::{
     fragment_digest, fragment_response_bytes, initial_anchor, manifest_digest, next_anchor,
     scope_id,
 };
+use std::marker;
 use std::{
     collections::BTreeMap,
     fmt::Display,
@@ -70,7 +71,7 @@ impl<M: SyncModel> SharePeer<M> {
             cache_dir: cache_dir.into(),
             snapshots: Mutex::new(BTreeMap::new()),
             works: Mutex::new(BTreeMap::new()),
-            marker: std::marker::PhantomData,
+            marker: marker::PhantomData,
         })
     }
 

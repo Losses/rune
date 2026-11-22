@@ -462,10 +462,11 @@ impl<M: SyncModel> MemoryCore<M> {
 mod causal_error_tests {
     use super::*;
     use crate::causal::CausalError;
+    use anyhow::Error;
     #[test]
     fn causal_errors_are_classified_by_type() {
         assert!(matches!(
-            error(anyhow::Error::new(CausalError::ConflictingDot).context("different message")),
+            error(Error::new(CausalError::ConflictingDot).context("different message")),
             SyncError::ConflictingDot
         ));
         assert!(matches!(

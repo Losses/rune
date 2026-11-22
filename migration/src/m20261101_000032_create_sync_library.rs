@@ -1,3 +1,4 @@
+use sea_orm_migration::sea_orm as sea_orm_migration_sea_orm;
 use sea_orm_migration::{
     prelude::*,
     sea_orm::{ConnectionTrait, FromQueryResult, TransactionTrait, prelude::Uuid},
@@ -92,7 +93,7 @@ struct MembershipIdentityRow {
 }
 
 async fn correct_catalog_identities(
-    tx: &sea_orm_migration::sea_orm::DatabaseTransaction,
+    tx: &sea_orm_migration_sea_orm::DatabaseTransaction,
 ) -> Result<(), DbErr> {
     use crate::catalog_identity::{self, ParentKind};
     let schema = SchemaManager::new(tx);
@@ -433,7 +434,7 @@ async fn correct_catalog_identities(
 }
 
 async fn relax_similarity_pair_uniqueness(
-    tx: &sea_orm_migration::sea_orm::DatabaseTransaction,
+    tx: &sea_orm_migration_sea_orm::DatabaseTransaction,
 ) -> Result<(), DbErr> {
     let schema = SchemaManager::new(tx);
     if !schema.has_table("media_file_similarity").await? {
@@ -1077,9 +1078,10 @@ impl MigrationTrait for Migration {
 mod tests {
     use super::*;
     use crate::catalog_identity::ParentKind;
+    use sea_orm_migration::sea_orm as sea_orm_migration_sea_orm;
     use sea_orm_migration::sea_orm::{ConnectionTrait, Database, Statement};
 
-    async fn setup() -> sea_orm_migration::sea_orm::DatabaseConnection {
+    async fn setup() -> sea_orm_migration_sea_orm::DatabaseConnection {
         let _ = crate::initialize_node_id("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".to_owned());
         let db = Database::connect("sqlite::memory:").await.unwrap();
         db.execute_unprepared(
@@ -1271,7 +1273,7 @@ mod tests {
             ]
         );
     }
-    async fn populated_library() -> sea_orm_migration::sea_orm::DatabaseConnection {
+    async fn populated_library() -> sea_orm_migration_sea_orm::DatabaseConnection {
         let _ = crate::initialize_node_id("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".to_owned());
         let db = Database::connect("sqlite::memory:").await.unwrap();
         let position = crate::Migrator::migrations()
@@ -1286,7 +1288,7 @@ mod tests {
         db
     }
 
-    async fn assert_owner(db: &sea_orm_migration::sea_orm::DatabaseConnection, actor: &str) {
+    async fn assert_owner(db: &sea_orm_migration_sea_orm::DatabaseConnection, actor: &str) {
         let row = db.query_one_raw(Statement::from_string(db.get_database_backend(), "SELECT s.device_id,s.source_uuid,s.skipped,s.played_through,f.liked FROM media_file_stats s JOIN media_file_likes f ON s.track_uuid=f.track_uuid".to_owned())).await.unwrap().unwrap();
         assert_eq!(row.try_get::<String>("", "device_id").unwrap(), actor);
         let file = Uuid::parse_str("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb").unwrap();
@@ -1355,7 +1357,7 @@ mod tests {
         }
     }
 
-    async fn setup_catalog() -> sea_orm_migration::sea_orm::DatabaseConnection {
+    async fn setup_catalog() -> sea_orm_migration_sea_orm::DatabaseConnection {
         let db = setup().await;
         db.execute_unprepared("CREATE TABLE artists (id INTEGER PRIMARY KEY, name TEXT NOT NULL, hlc_uuid TEXT NOT NULL)").await.unwrap();
         db.execute_unprepared("CREATE TABLE media_file_artists (id INTEGER PRIMARY KEY, media_file_id INTEGER NOT NULL, artist_id INTEGER NOT NULL, hlc_uuid TEXT NOT NULL)").await.unwrap();
@@ -1537,7 +1539,7 @@ mod tests {
             .unwrap();
         assert_eq!(row.try_get::<i64>("", "n").unwrap(), 2);
     }
-    async fn setup_analysis_sources() -> sea_orm_migration::sea_orm::DatabaseConnection {
+    async fn setup_analysis_sources() -> sea_orm_migration_sea_orm::DatabaseConnection {
         let db = setup().await;
         db.execute_unprepared("INSERT INTO media_files VALUES (7, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'), (8, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc')").await.unwrap();
         db.execute_unprepared("CREATE TABLE media_file_fingerprint (id INTEGER PRIMARY KEY, media_file_id INTEGER NOT NULL, fingerprint BLOB NOT NULL, is_duplicated INTEGER NOT NULL, hlc_uuid TEXT NOT NULL)").await.unwrap();

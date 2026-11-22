@@ -20,6 +20,11 @@ use std::ffi::c_void;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
+use hal::api;
+use wgpu::Backends;
+use wgpu::TextureDimension;
+use wgpu::TextureUsages;
+use wgpu::TextureUses;
 use wgpu::hal;
 use windows::Win32::Foundation::{CloseHandle, GENERIC_ALL, HANDLE};
 use windows::Win32::Graphics::Direct3D12::{
@@ -42,12 +47,12 @@ const MAX_TEXTURES: usize = 8;
 /// The DirectX 12 adapter whose DXGI LUID is `luid` (as [`crate::adapter_luid`] combines it), if
 /// there is one. Frames can only be shared with a device on the same adapter.
 pub fn adapter_with_luid(instance: &wgpu::Instance, luid: u64) -> Option<wgpu::Adapter> {
-    pollster::block_on(instance.enumerate_adapters(wgpu::Backends::DX12))
+    pollster::block_on(instance.enumerate_adapters(Backends::DX12))
         .into_iter()
         .find(|adapter| {
             // SAFETY: only reads the adapter's description; the guard is dropped before wgpu
             // uses the adapter again.
-            let Some(hal_adapter) = (unsafe { adapter.as_hal::<hal::api::Dx12>() }) else {
+            let Some(hal_adapter) = (unsafe { adapter.as_hal::<api::Dx12>() }) else {
                 return false;
             };
             // SAFETY: a plain query on a valid adapter.
@@ -158,7 +163,7 @@ impl SharedTargets {
     fn create(&self, device: &wgpu::Device) -> Result<SharedTexture> {
         // SAFETY: the guard is dropped before wgpu is used again.
         let (resource, handle) = {
-            let hal_device = unsafe { device.as_hal::<hal::api::Dx12>() }
+            let hal_device = unsafe { device.as_hal::<api::Dx12>() }
                 .context("The GPU device does not run on DirectX 12")?;
             let raw = hal_device.raw_device();
             let heap = D3D12_HEAP_PROPERTIES {
@@ -218,25 +223,24 @@ impl SharedTargets {
             let hal_texture = Device::texture_from_raw(
                 resource,
                 crate::pipeline::FORMAT,
-                wgpu::TextureDimension::D2,
+                TextureDimension::D2,
                 size,
                 1,
                 1,
             );
-            device.create_texture_from_hal::<hal::api::Dx12>(
+            device.create_texture_from_hal::<api::Dx12>(
                 hal_texture,
                 &wgpu::TextureDescriptor {
                     label: Some("visualizer shared target"),
                     size,
                     mip_level_count: 1,
                     sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
+                    dimension: TextureDimension::D2,
                     format: crate::pipeline::FORMAT,
-                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
                     view_formats: &[],
                 },
-                wgpu::TextureUses::UNINITIALIZED,
+                TextureUses::UNINITIALIZED,
             )
         };
         Ok(SharedTexture(Arc::new(Inner {

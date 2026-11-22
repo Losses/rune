@@ -7,7 +7,10 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::get;
+use reqwest::Client;
+use std::future;
 use subsonic::{SubsonicClient, SubsonicCredentials, SubsonicError, SubsonicServerError};
+use tokio::time as tokio_time;
 use url::Url;
 
 mod support;
@@ -91,12 +94,12 @@ fn client(url: Url) -> SubsonicClient {
             user: "alice".into(),
             password: "secret-password".into(),
         },
-        reqwest::Client::new(),
+        Client::new(),
     )
 }
 
-async fn bounded<T>(future: impl std::future::Future<Output = T>) -> T {
-    tokio::time::timeout(TEST_DEADLINE, future)
+async fn bounded<T>(future: impl future::Future<Output = T>) -> T {
+    tokio_time::timeout(TEST_DEADLINE, future)
         .await
         .expect("request timed out")
 }

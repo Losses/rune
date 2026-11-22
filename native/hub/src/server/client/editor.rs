@@ -1,6 +1,12 @@
 use crate::hints::DIYHinter;
+use rustyline::Cmd;
+use rustyline::CompletionType;
+use rustyline::EditMode;
+use rustyline::KeyEvent;
 use rustyline::sqlite_history::SQLiteHistory;
 use rustyline::{Config, Editor, Result};
+use std::sync as std_sync;
+use tokio::sync as tokio_sync;
 
 pub struct EditorConfig {
     history_ignore_space: bool,
@@ -13,8 +19,8 @@ impl Default for EditorConfig {
     fn default() -> Self {
         Self {
             history_ignore_space: true,
-            completion_type: rustyline::CompletionType::List,
-            edit_mode: rustyline::EditMode::Emacs,
+            completion_type: CompletionType::List,
+            edit_mode: EditMode::Emacs,
             auto_add_history: true,
         }
     }
@@ -22,7 +28,7 @@ impl Default for EditorConfig {
 
 pub fn create_editor(
     config: EditorConfig,
-    fs: std::sync::Arc<tokio::sync::RwLock<crate::fs::VirtualFS>>,
+    fs: std_sync::Arc<tokio_sync::RwLock<crate::fs::VirtualFS>>,
 ) -> Result<Editor<DIYHinter, SQLiteHistory>> {
     let config = Config::builder()
         .history_ignore_space(config.history_ignore_space)
@@ -38,14 +44,8 @@ pub fn create_editor(
     editor.set_helper(Some(hinter));
 
     // Key bindings
-    editor.bind_sequence(
-        rustyline::KeyEvent::alt('n'),
-        rustyline::Cmd::HistorySearchForward,
-    );
-    editor.bind_sequence(
-        rustyline::KeyEvent::alt('p'),
-        rustyline::Cmd::HistorySearchBackward,
-    );
+    editor.bind_sequence(KeyEvent::alt('n'), Cmd::HistorySearchForward);
+    editor.bind_sequence(KeyEvent::alt('p'), Cmd::HistorySearchBackward);
 
     Ok(editor)
 }

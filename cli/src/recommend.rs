@@ -14,6 +14,7 @@ use database::connection::{MainDbConnection, RecommendationDbConnection};
 use crate::export::{
     OUTPUT_REQUIRED, UNSUPPORTED_FORMAT, check_and_correct_extension, save_as_m3u8,
 };
+use anyhow::Error;
 
 pub struct RecommendMusicOptions<'a> {
     pub canonicalized_path: &'a Path,
@@ -49,7 +50,7 @@ pub async fn recommend_music(
     } else if let Some(file_path) = file_path {
         get_file_id_from_path(main_db, path, file_path)
             .await
-            .map_err(anyhow::Error::msg)?
+            .map_err(Error::msg)?
     } else {
         bail!("Either item_id or file_path must be provided.");
     };

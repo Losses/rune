@@ -24,6 +24,7 @@ use sea_orm::{
 };
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
+use std::result;
 use std::{
     fs::{self, File},
     path::{Path, PathBuf},
@@ -729,7 +730,7 @@ async fn sync_over_http(
     source: &HttpRouterPeer,
     target: &HttpRouterPeer,
     limits: SessionLimits,
-) -> std::result::Result<ReceiveProgress, SyncError> {
+) -> result::Result<ReceiveProgress, SyncError> {
     let mut coordinator = Coordinator::new(scope(), limits)?;
     let max_bytes = coordinator.limits.work.max_bytes;
     let max_requests = coordinator.limits.work.max_requests;

@@ -9,6 +9,7 @@ use rodio::dynamic_mixer::{self, DynamicMixerController};
 use rodio::source::Source;
 use rodio::{DeviceTrait, SupportedStreamConfig, cpal};
 use rodio::{PlayError, StreamError};
+use std::any;
 #[cfg(any(feature = "test-output", test))]
 use std::{
     sync::atomic::{AtomicBool, Ordering},
@@ -409,7 +410,7 @@ fn supported_output_formats(
 
 /// How the player opens, stops and starts again its audio output. The player opens outputs this
 /// way so that its tests can count them and make them fail.
-pub(crate) trait Outputs: std::any::Any {
+pub(crate) trait Outputs: any::Any {
     fn open(
         &self,
         on_error: Arc<dyn Fn(cpal::StreamError) + Send + Sync>,

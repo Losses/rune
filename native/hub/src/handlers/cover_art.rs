@@ -18,6 +18,7 @@ use crate::{
     messages::*,
     utils::{GlobalParams, ParamsExtractor, query_cover_arts, require_library},
 };
+use std::collections;
 
 impl ParamsExtractor for GetCoverArtIdsByMixQueriesRequest {
     type Params = (Option<LibraryHandle>, Arc<NodeContext>);
@@ -60,7 +61,7 @@ impl Signal for GetCoverArtIdsByMixQueriesRequest {
                 match query {
                     Ok(files) => {
                         use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
-                        let uuids: std::collections::BTreeSet<_> = files
+                        let uuids: collections::BTreeSet<_> = files
                             .iter()
                             .filter_map(|file| file.cover_art_uuid.as_deref())
                             .collect();

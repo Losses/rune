@@ -4,7 +4,10 @@ use sea_orm::{
     ConnectionTrait, DatabaseTransaction, ExprTrait,
     sea_query::{Alias, Condition, Expr, Order, Query},
 };
+use std::cmp;
+use sync::causal;
 use sync::causal::{Context, Dot};
+use sync::protocol;
 use sync::protocol::SyncError;
 use uuid::Uuid;
 
@@ -52,15 +55,13 @@ pub async fn insert_on(
             .from(Alias::new("sync_observed"))
             .cond_where(current(ns, tag))
             .and_where(Expr::col(Alias::new("writer")).eq(writer.as_bytes().to_vec()))
-            .and_where(
-                Expr::col(Alias::new("first")).lte(i64::try_from(std::cmp::min(
-                    last.saturating_add(1),
-                    sync::causal::MAX_DOT_COUNTER,
-                ))?),
-            )
+            .and_where(Expr::col(Alias::new("first")).lte(i64::try_from(cmp::min(
+                last.saturating_add(1),
+                causal::MAX_DOT_COUNTER,
+            ))?))
             .and_where(Expr::col(Alias::new("last")).gte(i64::try_from(first.saturating_sub(1))?))
             .order_by(Alias::new("first"), Order::Desc)
-            .limit(std::cmp::min(*budget, sync::protocol::MAX_MUTATIONS).saturating_add(1))
+            .limit(cmp::min(*budget, protocol::MAX_MUTATIONS).saturating_add(1))
             .to_owned();
         let mut overlapping = Vec::new();
         let mut a = first;
@@ -76,8 +77,8 @@ pub async fn insert_on(
             if right < first.saturating_sub(1) {
                 break;
             }
-            a = std::cmp::min(a, left);
-            b = std::cmp::max(b, right);
+            a = cmp::min(a, left);
+            b = cmp::max(b, right);
             overlapping.push((left, right, added));
         }
         if overlapping.len() == 1 && overlapping[0].0 <= first && overlapping[0].1 >= last {
@@ -215,7 +216,7 @@ pub async fn unobserved_on(
         if first > next {
             gaps.push((next, first - 1));
         }
-        next = std::cmp::max(next, last.saturating_add(1));
+        next = cmp::max(next, last.saturating_add(1));
         if next > b {
             break;
         }

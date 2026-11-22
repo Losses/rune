@@ -20,6 +20,7 @@
 //! the drain.
 
 use std::collections::VecDeque;
+use std::mem;
 use std::time::{Duration, Instant};
 
 /// Frames that may wait to be taken. A reader that falls behind further skips the oldest, so the
@@ -116,7 +117,7 @@ impl<T: Clone> Published<T> {
 
     /// Forget every frame.
     pub fn clear(&mut self) -> Self {
-        std::mem::take(self)
+        mem::take(self)
     }
 }
 

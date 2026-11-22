@@ -11,6 +11,10 @@ use std::sync::{Arc, atomic::AtomicU32};
 use std::time::{Duration, Instant};
 
 use rtrb::RingBuffer;
+use std::env;
+use std::fs;
+use std::io;
+use std::thread;
 use visualizer::{PcmInput, Visualizer};
 
 const SAMPLE_RATE: u32 = 48_000;
@@ -19,7 +23,7 @@ const HEIGHT: u32 = 720;
 
 /// `SNAPSHOT_SIZE=1920x1080` renders at another size.
 fn size() -> (u32, u32) {
-    std::env::var("SNAPSHOT_SIZE")
+    env::var("SNAPSHOT_SIZE")
         .ok()
         .and_then(|s| {
             let (w, h) = s.split_once('x')?;
@@ -29,7 +33,7 @@ fn size() -> (u32, u32) {
 }
 
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let args: Vec<String> = env::args().skip(1).collect();
     let out = args.first().map(String::as_str).unwrap_or(".");
     let scene = args.get(1).filter(|a| !a.is_empty());
     let times: Vec<f64> = args
@@ -53,7 +57,7 @@ fn main() -> anyhow::Result<()> {
         visualizer.load_preset_path(Path::new(path))?;
         // The scene is built in the background and the first scene shows meanwhile: wait for the
         // requested one (or its error) before the clock starts.
-        let name = std::fs::read_to_string(Path::new(path).join("scene.toml"))
+        let name = fs::read_to_string(Path::new(path).join("scene.toml"))
             .ok()
             .and_then(|text| text.parse::<toml::Table>().ok())
             .and_then(|table| table.get("name")?.as_str().map(str::to_string));
@@ -64,7 +68,7 @@ fn main() -> anyhow::Result<()> {
                 break;
             }
             anyhow::ensure!(Instant::now() < until, "the scene did not load in time");
-            std::thread::sleep(Duration::from_millis(20));
+            thread::sleep(Duration::from_millis(20));
         }
     }
 
@@ -87,7 +91,7 @@ fn main() -> anyhow::Result<()> {
                 let _ = producer.push(value);
                 sent += 1;
             }
-            std::thread::sleep(Duration::from_millis(2));
+            thread::sleep(Duration::from_millis(2));
         }
         let frame = visualizer
             .latest_frame()
@@ -110,7 +114,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 /// A top-down 32-bit BMP; `pixels` are packed BGRA (Apple) or RGBA (elsewhere, swapped here).
-fn write_bmp(path: &str, width: u32, height: u32, pixels: &[u8]) -> std::io::Result<()> {
+fn write_bmp(path: &str, width: u32, height: u32, pixels: &[u8]) -> io::Result<()> {
     let size = pixels.len() as u32;
     let mut out = Vec::with_capacity(54 + pixels.len());
     out.extend_from_slice(b"BM");
@@ -132,5 +136,5 @@ fn write_bmp(path: &str, width: u32, height: u32, pixels: &[u8]) -> std::io::Res
             out.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
         }
     }
-    std::fs::write(path, out)
+    fs::write(path, out)
 }

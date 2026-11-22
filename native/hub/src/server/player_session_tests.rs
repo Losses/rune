@@ -55,6 +55,21 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
+use anyhow::Error;
+use axum::http as axum_http;
+use discovery::protocol_version;
+use futures::future;
+use playback::player;
+use playback::player::PausedPlayback;
+use reqwest::StatusCode as ReqwestStatusCode;
+use reqwest::header;
+use std::collections;
+use std::slice;
+use tokio::sync::RwLock;
+use tokio::task;
+use tokio::time as tokio_time;
+use visualizer::Chart;
+use visualizer::Visualizer;
 #[cfg(target_os = "linux")]
 use std::{env, process::Command};
 use sync::{
@@ -200,7 +215,7 @@ async fn subsonic_hub_response(
     AxumPath(action): AxumPath<String>,
     State(state): State<SubsonicHubMock>,
     Query(query): Query<HashMap<String, String>>,
-    headers: axum::http::HeaderMap,
+    headers: axum_http::HeaderMap,
 ) -> impl IntoResponse {
     let action = action.strip_suffix(".view").unwrap_or(&action).to_owned();
     let call = match action.as_str() {
@@ -866,7 +881,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
         TEST_DEADLINE,
         async {
             wait_until("the persisted Subsonic queue identity", || async {
-                Ok(std::fs::read_to_string(&session_store)
+                Ok(fs::read_to_string(&session_store)
                     .is_ok_and(|contents| contents.contains("song-opaque"))
                     .then_some(()))
             })
@@ -874,14 +889,14 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
         },
     )
     .await?;
-    let stored = std::fs::read_to_string(session_store)?;
+    let stored = fs::read_to_string(session_store)?;
     assert!(stored.contains("song-opaque"));
     for secret_marker in ["t=", "s=", "p=", "test-secret"] {
         assert!(!stored.contains(secret_marker));
         assert!(!format!("{playing:?}").contains(secret_marker));
     }
     let dart_message = serde_json::to_string(
-        &playing_item_requests(std::slice::from_ref(&item), &node.library_pool, None).await,
+        &playing_item_requests(slice::from_ref(&item), &node.library_pool, None).await,
     )?;
     assert!(dart_message.contains("song-opaque"));
     for secret_marker in ["t=", "s=", "p=", "test-secret"] {
@@ -1386,7 +1401,7 @@ async fn assert_node_threads_stop(case: &str) -> Result<()> {
             Arc::new(Quiet),
             false,
             RunMode::App,
-            Arc::new(::visualizer::Visualizer::new()),
+            Arc::new(Visualizer::new()),
         )
         .await?;
         // The bare-node cases exercise listener teardown along with the player.
@@ -2023,7 +2038,7 @@ async fn removing_trust_with_an_unreadable_trust_store_fails() -> Result<()> {
     let node_dir = tempfile::tempdir()?;
     let fixture = fixture(node_dir.path()).await?;
     let params = &fixture.global_params;
-    std::fs::write(node_dir.path().join(".known-servers"), "not [ a trust store")?;
+    fs::write(node_dir.path().join(".known-servers"), "not [ a trust store")?;
     let request = RemoveTrustedClientRequest {
         call_id: None,
         fingerprint: "some-device".into(),
@@ -2150,7 +2165,7 @@ async fn wait_player(
 }
 
 async fn queue_session(f: &Fixture, ids: &[i32]) -> Result<()> {
-    let items = futures::future::join_all(ids.iter().map(|id| library_track_for_id(f, *id)))
+    let items = future::join_all(ids.iter().map(|id| library_track_for_id(f, *id)))
         .await
         .into_iter()
         .collect::<Result<Vec<_>>>()?;
@@ -2207,7 +2222,7 @@ async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -
         session_audio(&b, "remote-renderer-second.ogg").await?,
     ];
     let b_items =
-        futures::future::join_all(b_tracks.iter().map(|id| library_track_for_id(&b, *id)))
+        future::join_all(b_tracks.iter().map(|id| library_track_for_id(&b, *id)))
             .await
             .into_iter()
             .collect::<Result<Vec<_>>>()?;
@@ -2753,7 +2768,7 @@ async fn pair_renderer(a: &Fixture, b: &Fixture) -> Result<String> {
 async fn detach_controller_returns_when_the_connection_never_ends() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let node = fixture(dir.path()).await?;
-    tokio::time::pause();
+    tokio_time::pause();
     let session = node.global_params.node.session()?;
     let guard = session.attach_controller("fingerprint".into(), "alias".into());
     let id = Uuid::parse_str(&session.attached_controllers()[0].id)?;
@@ -3154,7 +3169,7 @@ async fn attached_mix_query_resolves_for_controller_library_and_loads_resolved_i
         session_audio(&host, "mix-cast-local-queue.ogg").await?,
     ];
     let host_items =
-        futures::future::join_all(ids[..2].iter().map(|id| library_track_for_id(&host, *id)))
+        future::join_all(ids[..2].iter().map(|id| library_track_for_id(&host, *id)))
             .await
             .into_iter()
             .collect::<Result<Vec<_>>>()?;
@@ -3602,7 +3617,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
         .iter()
         .map(|id| library_track_for_id(&host, *id))
         .collect::<Vec<_>>();
-    let host_items = futures::future::join_all(items)
+    let host_items = future::join_all(items)
         .await
         .into_iter()
         .collect::<Result<Vec<_>>>()?;
@@ -3730,7 +3745,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
     renderer.global_params.player.lock().await.play();
     wait_player(&renderer, |status| status.state == PlayerPlaybackState::Playing).await?;
     // The playing status is the barrier before checking that a detached cast emits no renderer status.
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio_time::sleep(Duration::from_secs(2)).await;
     renderer.global_params.player.lock().await.pause();
     wait_player(&renderer, |status| status.state == PlayerPlaybackState::Paused).await?;
     cast_link.close();
@@ -4788,7 +4803,7 @@ async fn session_f1_all_failed_items_stop_without_hanging() -> Result<()> {
         .lock()
         .await
         .add_to_playlist_with_sources(
-            futures::future::join_all(ids.iter().map(|id| library_track_for_id(&a, *id)))
+            future::join_all(ids.iter().map(|id| library_track_for_id(&a, *id)))
                 .await
                 .into_iter()
                 .collect::<Result<Vec<_>>>()?
@@ -4844,7 +4859,7 @@ async fn deleted_queued_uuid_is_unreadable_and_playback_advances() -> Result<()>
         session_audio(&f, "delete-middle.ogg").await?,
         session_audio(&f, "delete-last.ogg").await?,
     ];
-    let queued = futures::future::join_all(ids.iter().map(|id| library_track_for_id(&f, *id)))
+    let queued = future::join_all(ids.iter().map(|id| library_track_for_id(&f, *id)))
         .await
         .into_iter()
         .collect::<Result<Vec<_>>>()?;
@@ -5012,18 +5027,18 @@ async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
     peer_step("verify B can request C audio before playback", async {
         let response = b_client
             .get(&audio_url)
-            .header(reqwest::header::RANGE, "bytes=0-31")
+            .header(header::RANGE, "bytes=0-31")
             .send()
             .await?;
         anyhow::ensure!(
-            response.status() == reqwest::StatusCode::PARTIAL_CONTENT,
+            response.status() == ReqwestStatusCode::PARTIAL_CONTENT,
             "pre-revocation range request returned {}",
             response.status()
         );
         Ok(())
     })
     .await?;
-    let queue = futures::future::join_all(b_c_ids.iter().map(|id| library_track_for_id(&c, *id)))
+    let queue = future::join_all(b_c_ids.iter().map(|id| library_track_for_id(&c, *id)))
         .await
         .into_iter()
         .collect::<Result<Vec<_>>>()?
@@ -5168,12 +5183,12 @@ async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
     peer_step("C denies a new ranged audio request from B", async {
         let response = b_client
             .get(&audio_url)
-            .header(reqwest::header::RANGE, "bytes=0-31")
+            .header(header::RANGE, "bytes=0-31")
             .send()
             .await?;
         anyhow::ensure!(
-            response.status() == reqwest::StatusCode::FORBIDDEN
-                || response.status() == reqwest::StatusCode::UNAUTHORIZED,
+            response.status() == ReqwestStatusCode::FORBIDDEN
+                || response.status() == ReqwestStatusCode::UNAUTHORIZED,
             "revoked range request returned {}",
             response.status()
         );
@@ -5220,7 +5235,7 @@ async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
         TEST_DEADLINE,
         async {
             loop {
-                let frame = tokio::time::timeout(TEST_DEADLINE, controller.next())
+                let frame = tokio_time::timeout(TEST_DEADLINE, controller.next())
                     .await
                     .context("controller update timed out")?
                     .context("controller socket closed")??;
@@ -5270,7 +5285,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         session_audio(&host, "cast-third.ogg").await?,
     ];
     let host_items =
-        futures::future::join_all(host_ids.iter().map(|id| library_track_for_id(&host, *id)))
+        future::join_all(host_ids.iter().map(|id| library_track_for_id(&host, *id)))
             .await
             .into_iter()
             .collect::<Result<Vec<_>>>()?;
@@ -5923,7 +5938,7 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
         session_audio(&renderer, "request-handoff-last.ogg").await?,
     ];
     let items =
-        futures::future::join_all(ids.iter().map(|id| library_track_for_id(&renderer, *id)))
+        future::join_all(ids.iter().map(|id| library_track_for_id(&renderer, *id)))
             .await
             .into_iter()
             .collect::<Result<Vec<_>>>()?;
@@ -6389,7 +6404,7 @@ async fn session_c2a_revision_conflicts_and_identity_persist() -> Result<()> {
         Arc::new(Quiet),
         false,
         RunMode::App,
-        Arc::new(::visualizer::Visualizer::new()),
+        Arc::new(Visualizer::new()),
     )
     .await?;
     assert_eq!(reopened.session()?.session_id().await, session_id);
@@ -6711,7 +6726,7 @@ pub(super) async fn replicate_host_library_at(
                 .await?
             {
                 PeerPass::Complete => return Ok::<_, anyhow::Error>(()),
-                PeerPass::Incomplete => tokio::task::yield_now().await,
+                PeerPass::Incomplete => task::yield_now().await,
                 other => anyhow::bail!("unexpected replica metadata pass: {other:?}"),
             }
         }
@@ -6832,6 +6847,8 @@ async fn hand_off(controller: &Fixture, target: Option<String>) -> Result<()> {
 }
 
 mod faulty_player {
+    use std::future;
+    use std::result;
     use super::*;
     use futures::future::BoxFuture;
     use playback::player::{
@@ -6853,10 +6870,10 @@ mod faulty_player {
             command: PlayerCommand,
         ) -> BoxFuture<
             'static,
-            std::result::Result<(), PlayerCommandError>,
+            result::Result<(), PlayerCommandError>,
         > {
             if matches!(command, PlayerCommand::Pause) {
-                return Box::pin(std::future::ready(Err(
+                return Box::pin(future::ready(Err(
                     PlayerCommandError::CannotApply,
                 )));
             }
@@ -6866,7 +6883,7 @@ mod faulty_player {
             &mut self,
         ) -> BoxFuture<
             'static,
-            std::result::Result<PlayerStatus, PlayerCommandError>,
+            result::Result<PlayerStatus, PlayerCommandError>,
         > {
             self.0.command_completion()
         }
@@ -7085,7 +7102,7 @@ async fn handoff_dispatch_appends_to_idle_renderer_queue_and_starts_source_curso
         session_audio(&source, "handoff-merge-4.ogg").await?,
         session_audio(&source, "handoff-merge-5.ogg").await?,
     ];
-    let items = futures::future::join_all(ids.iter().map(|id| library_track_for_id(&source, *id)))
+    let items = future::join_all(ids.iter().map(|id| library_track_for_id(&source, *id)))
         .await
         .into_iter()
         .collect::<Result<Vec<_>>>()?;
@@ -7385,7 +7402,7 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
         &source_file,
     )?;
     let host_item = library_track_for_id(&host, host_id).await?;
-    let source_item = ::playback::player::LibraryItem {
+    let source_item = player::LibraryItem {
         library_id: target_replica
             .global_params
             .library_id
@@ -7738,7 +7755,7 @@ async fn handoff_is_not_confirmed_by_this_devices_own_playing_status() -> Result
             let frame = match source_reports.recv().await {
                 Ok(frame) => frame,
                 Err(RecvError::Lagged(_)) => continue,
-                Err(error) => return Err(anyhow::Error::new(error)),
+                Err(error) => return Err(Error::new(error)),
             };
             let Some((name, payload, _)) = decode_message(&frame) else {
                 continue;
@@ -7801,7 +7818,7 @@ async fn handoff_of_a_paused_session_leaves_the_target_paused_at_its_position() 
         session_audio(&source, "handoff-paused-target-1.ogg").await?,
         session_audio(&source, "handoff-paused-target-2.ogg").await?,
     ];
-    let items = futures::future::join_all(ids.iter().map(|id| library_track_for_id(&source, *id)))
+    let items = future::join_all(ids.iter().map(|id| library_track_for_id(&source, *id)))
         .await
         .into_iter()
         .map(|item| item.map(PlayingItem::from))
@@ -8140,7 +8157,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
         )
         .await?;
 
-    let h_items = futures::future::join_all(h_ids.iter().map(|id| library_track_for_id(&h, *id)))
+    let h_items = future::join_all(h_ids.iter().map(|id| library_track_for_id(&h, *id)))
         .await
         .into_iter()
         .collect::<Result<Vec<_>>>()?;
@@ -8215,7 +8232,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
         session_audio(&b, "handoff-target-e.ogg").await?,
     ];
     let target_items =
-        futures::future::join_all(target_ids.iter().map(|id| library_track_for_id(&b, *id)))
+        future::join_all(target_ids.iter().map(|id| library_track_for_id(&b, *id)))
             .await
             .into_iter()
             .collect::<Result<Vec<_>>>()?;
@@ -9166,7 +9183,7 @@ async fn typed_renderer_call_rejects_wrong_reply_name() -> Result<()> {
         fixture.global_params.node.clone(),
         "fake-renderer".to_owned(),
         "Fake renderer".to_owned(),
-        discovery::protocol_version::PROTOCOL_VERSION,
+        protocol_version::PROTOCOL_VERSION,
         RendererLinkUse::Cast,
     )
     .await;
@@ -9234,7 +9251,7 @@ async fn rpc_target_session_and_library_catalogue_matches_registered_peer_handle
         let session = Session {
             public_key: "untrusted key".into(),
             fingerprint: "untrusted peer".into(),
-            base_url: url::Url::parse("https://127.0.0.1:7863/").unwrap(),
+            base_url: Url::parse("https://127.0.0.1:7863/").unwrap(),
         };
         let dispatched =
             dispatch_remote(name, &[255], Some(session), None, &peer.global_params.node).await;
@@ -9292,7 +9309,7 @@ async fn rpc_target_blacklisted_request_returns_typed_failure_without_sending() 
             controller.global_params.node.clone(),
             "blacklist-peer".to_owned(),
             "Blacklist peer".to_owned(),
-            discovery::protocol_version::PROTOCOL_VERSION,
+            protocol_version::PROTOCOL_VERSION,
             RendererLinkUse::Control,
         ),
     )
@@ -9859,7 +9876,7 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
             .decoded::<VisualizerFeedChart>("VisualizerFeedChart")
             .into_iter()
             .find(|chart| {
-                chart.item == feed_item && visualizer::Chart::decode(&chart.chart).is_ok()
+                chart.item == feed_item && Chart::decode(&chart.chart).is_ok()
             });
         let covers = signals
             .decoded::<VisualizerFeedCovers>("VisualizerFeedCovers")
@@ -9880,7 +9897,7 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     let first_chart = signals
         .decoded::<VisualizerFeedChart>("VisualizerFeedChart")
         .into_iter()
-        .find(|chart| chart.item == feed_item && visualizer::Chart::decode(&chart.chart).is_ok())
+        .find(|chart| chart.item == feed_item && Chart::decode(&chart.chart).is_ok())
         .context("first track chart was not forwarded")?;
     let first_covers = signals
         .decoded::<VisualizerFeedCovers>("VisualizerFeedCovers")
@@ -9909,7 +9926,7 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
             .decoded::<VisualizerFeedChart>("VisualizerFeedChart")
             .iter()
             .any(|chart| {
-                chart.item == next_item && visualizer::Chart::decode(&chart.chart).is_ok()
+                chart.item == next_item && Chart::decode(&chart.chart).is_ok()
             });
         let covers_arrived = signals
             .decoded::<VisualizerFeedCovers>("VisualizerFeedCovers")
@@ -10093,7 +10110,7 @@ struct FakeSubsonicRoles {
 
 struct FakeSubsonicServer {
     endpoint: String,
-    task: tokio::task::JoinHandle<()>,
+    task: task::JoinHandle<()>,
 }
 
 async fn fake_subsonic_server(roles: FakeSubsonicRoles) -> Result<FakeSubsonicServer> {
@@ -10114,7 +10131,7 @@ async fn fake_subsonic_server(roles: FakeSubsonicRoles) -> Result<FakeSubsonicSe
 async fn fake_subsonic_response(
     State(roles): State<FakeSubsonicRoles>,
     AxumPath(endpoint): AxumPath<String>,
-    Query(_query): Query<std::collections::HashMap<String, String>>,
+    Query(_query): Query<collections::HashMap<String, String>>,
 ) -> impl IntoResponse {
     let body = match endpoint.trim_end_matches(".view") {
         "ping" => r#"{"subsonic-response":{"status":"ok","version":"1.16.1","openSubsonic":false}}"#.to_owned(),
@@ -10772,10 +10789,10 @@ async fn subsonic_registration_resolves_mode_stores_secret_and_deduplicates() ->
     let restored = node.credentials.get(*credential).await?;
     assert_eq!(restored.username, "alice");
     assert_eq!(restored.secret.as_bytes(), b"sensitive-test-password");
-    let registry_bytes = std::fs::read(PathBuf::from(&*node.config_path).join("libraries.json"))?;
+    let registry_bytes = fs::read(PathBuf::from(&*node.config_path).join("libraries.json"))?;
     assert!(!String::from_utf8_lossy(&registry_bytes).contains("sensitive-test-password"));
     let credentials_path = PathBuf::from(&*node.config_path).join("credentials.enc");
-    let before_duplicate = std::fs::read(&credentials_path)?;
+    let before_duplicate = fs::read(&credentials_path)?;
     let duplicate = register_subsonic_library_on_node(
         &subsonic_registration_request(
             server.endpoint.clone(),
@@ -10790,7 +10807,7 @@ async fn subsonic_registration_resolves_mode_stores_secret_and_deduplicates() ->
         duplicate.record.context("duplicate record")?.record_id,
         summary.record_id
     );
-    assert_eq!(std::fs::read(credentials_path)?, before_duplicate);
+    assert_eq!(fs::read(credentials_path)?, before_duplicate);
     assert_eq!(
         registry
             .libraries
@@ -10831,7 +10848,7 @@ async fn subsonic_library_opened_at_startup_answers_gui_requests_until_closed() 
             Arc::new(Quiet),
             false,
             RunMode::App,
-            Arc::new(::visualizer::Visualizer::new()),
+            Arc::new(Visualizer::new()),
         )
         .await?;
         let server = fake_subsonic_server(FakeSubsonicRoles {
@@ -11340,7 +11357,7 @@ async fn a_local_load_still_pending_when_a_renderer_becomes_current_never_plays(
     ));
     assert_eq!(classify(&error), RequestErrorKind::Conflict);
     let paused = a.global_params.player.lock().await.pause_reporting();
-    assert_eq!(paused.await?, playback::player::PausedPlayback::NotPlaying);
+    assert_eq!(paused.await?, PausedPlayback::NotPlaying);
 
     node.shutdown().await?;
     b.global_params.node.shutdown().await?;
@@ -11371,7 +11388,7 @@ async fn a_play_queued_just_before_the_jukebox_becomes_current_is_paused() -> Re
     switch.await??;
 
     let paused = fixture.global_params.player.lock().await.pause_reporting();
-    assert_eq!(paused.await?, playback::player::PausedPlayback::NotPlaying);
+    assert_eq!(paused.await?, PausedPlayback::NotPlaying);
 
     node.close_ui(&fixture.global_params.main_token).await;
     server.task.abort();
@@ -11418,7 +11435,7 @@ async fn a_departure_whose_request_is_cancelled_still_pauses_the_local_player() 
     })
     .await?;
     let paused = a.global_params.player.lock().await.pause_reporting();
-    assert_eq!(paused.await?, playback::player::PausedPlayback::NotPlaying);
+    assert_eq!(paused.await?, PausedPlayback::NotPlaying);
 
     node.shutdown().await?;
     b.global_params.node.shutdown().await?;
@@ -11646,7 +11663,7 @@ async fn subsonic_tracks_played_here_report_their_title_and_cover() -> Result<()
         .cover_art_path
         .clone()
         .context("first track's cover path")?;
-    assert_eq!(std::fs::read(&cover)?, b"mock-cover-bytes");
+    assert_eq!(fs::read(&cover)?, b"mock-cover-bytes");
     wait_until("the now-playing report of the first track", || async {
         Ok(calls
             .lock()
@@ -11975,8 +11992,8 @@ async fn a_library_whose_folder_was_moved_is_not_opened_as_an_empty_one() -> Res
     .await?;
     let node = fixture.global_params.node.clone();
     let folder = dir.path().join("Music");
-    std::fs::create_dir_all(&folder)?;
-    std::fs::write(folder.join("track.ogg"), "audio")?;
+    fs::create_dir_all(&folder)?;
+    fs::write(folder.join("track.ogg"), "audio")?;
     let registered = register_local_library_on_node(
         &RegisterLocalLibraryRequest {
             call_id: None,
@@ -11994,7 +12011,7 @@ async fn a_library_whose_folder_was_moved_is_not_opened_as_an_empty_one() -> Res
         .library_id
         .context("local library id")?;
     let aside = dir.path().join("Music.offline");
-    std::fs::rename(&folder, &aside)?;
+    fs::rename(&folder, &aside)?;
 
     // Background work reaches the library before the user opens it.
     let background = node.library_pool.acquire_background(library_id).await;
@@ -12023,7 +12040,7 @@ async fn a_library_whose_folder_was_moved_is_not_opened_as_an_empty_one() -> Res
     );
 
     assert!(!folder.exists());
-    assert_eq!(std::fs::read(aside.join("track.ogg"))?, b"audio");
+    assert_eq!(fs::read(aside.join("track.ogg"))?, b"audio");
     Ok(())
 }
 
@@ -12055,7 +12072,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     let node = fixture.global_params.node.clone();
     signals.clear();
     let selected = dir.path().join("selected");
-    std::fs::create_dir_all(&selected)?;
+    fs::create_dir_all(&selected)?;
     let request = RegisterLocalLibraryRequest {
         call_id: None,
         path: selected.to_string_lossy().into_owned(),
@@ -12117,7 +12134,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     dispatch_gui_request(&current, &FetchAllPlaylistsRequest { call_id: None }).await?;
 
     let second_path = dir.path().join("selected-second");
-    std::fs::create_dir_all(&second_path)?;
+    fs::create_dir_all(&second_path)?;
     let second_registration = register_local_library_on_node(
         &RegisterLocalLibraryRequest {
             call_id: None,
@@ -12161,12 +12178,12 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     invalid_record.fs.clear();
     let registry_path = PathBuf::from(&*node.config_path).join("libraries.json");
     let mut registry_json: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&registry_path)?)?;
+        serde_json::from_slice(&fs::read(&registry_path)?)?;
     registry_json["libraries"]
         .as_array_mut()
         .context("registry libraries")?
         .push(serde_json::to_value(&invalid_record)?);
-    std::fs::write(&registry_path, serde_json::to_vec_pretty(&registry_json)?)?;
+    fs::write(&registry_path, serde_json::to_vec_pretty(&registry_json)?)?;
     open_library_by_record_on_node(
         &OpenLibraryRequest {
             call_id: Some(30),
@@ -14037,7 +14054,7 @@ async fn failed_settings_and_scene_requests_answer_typed_failures() -> Result<()
     }
 
     // Turning sync listening on needs the server manager, which this call does not have.
-    let settings = Arc::new(tokio::sync::RwLock::new(SyncSettings {
+    let settings = Arc::new(RwLock::new(SyncSettings {
         listen: false,
         ..SyncSettings::default()
     }));

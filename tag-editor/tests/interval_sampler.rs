@@ -2,8 +2,10 @@ use std::{env, fs, sync::mpsc::TryRecvError};
 
 use anyhow::Result;
 use fsio::FsIo;
+use std::iter;
 use tag_editor::sampler::interval_sampler::{IntervalSampler, SampleEvent};
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 const AUDIO_FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../assets/startup_0.ogg");
 
@@ -107,7 +109,7 @@ fn with_wav(rate: u32, samples: &[i16], check: impl FnOnce(&str) -> Result<()>) 
         wav.extend(sample.to_le_bytes());
     }
 
-    let path = env::temp_dir().join(format!("rune-interval-{}.wav", uuid::Uuid::new_v4()));
+    let path = env::temp_dir().join(format!("rune-interval-{}.wav", Uuid::new_v4()));
     fs::write(&path, wav)?;
     let result = check(path.to_str().unwrap());
     fs::remove_file(path)?;
@@ -126,7 +128,7 @@ fn resampled_audio_matches_both_ends_of_its_window() -> Result<()> {
     let target_rate = 6000_u32;
     let input: Vec<_> = [4096, 8192, 12288]
         .into_iter()
-        .flat_map(|level| std::iter::repeat_n(level, rate as usize))
+        .flat_map(|level| iter::repeat_n(level, rate as usize))
         .collect();
 
     with_wav(rate, &input, |path| {

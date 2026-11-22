@@ -199,7 +199,9 @@ mod android {
     use std::marker::PhantomData;
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
     use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::ptr;
     use std::sync::{Mutex, OnceLock};
+    use std::thread;
     use std::thread::ThreadId;
 
     use futures_channel::oneshot;
@@ -230,7 +232,7 @@ mod android {
     /// first call watches an eventfd with the thread's looper; later ones (a new engine, after the
     /// activity was recreated) only check that they run on the same thread.
     pub(crate) fn hook_main_looper() -> Result<()> {
-        let thread = std::thread::current().id();
+        let thread = thread::current().id();
         if let Some(main) = MAIN.get() {
             return if main.thread == thread {
                 Ok(())
@@ -264,7 +266,7 @@ mod android {
                 ndk::ALOOPER_POLL_CALLBACK,
                 ndk::ALOOPER_EVENT_INPUT,
                 Some(drain),
-                std::ptr::null_mut(),
+                ptr::null_mut(),
             )
         };
         if added != 1 {
@@ -291,7 +293,7 @@ mod android {
             error!("A call for the platform thread is dropped: no registry was attached");
             return;
         };
-        if std::thread::current().id() == main.thread {
+        if thread::current().id() == main.thread {
             guarded(Box::new(f));
             return;
         }

@@ -12,6 +12,7 @@ use database::{
 use fsio::FsIo;
 use hub::server::sync::downloads::download_requested_audio;
 use sea_orm::{ColumnTrait, Database, EntityTrait, PaginatorTrait, QueryFilter};
+use std::fs;
 use std::sync::Arc;
 use support::fixtures;
 use uuid::Uuid;
@@ -78,7 +79,7 @@ async fn interrupted_import_resumes_without_new_track_identity() -> Result<()> {
         )
         .await?;
     let dest = prepare_download(&db, &fs, dir.path(), track, &blob, "ogg").await?;
-    std::fs::copy(&fixture, &dest)?;
+    fs::copy(&fixture, &dest)?;
     fixtures::scan_library(
         &fs,
         &db,
@@ -125,7 +126,7 @@ async fn interrupted_import_resumes_without_new_track_identity() -> Result<()> {
         .await?;
     let second_path = prepare_download(&db, &fs, dir.path(), second, &blob, "ogg").await?;
     assert_ne!(dest, second_path);
-    std::fs::copy(&fixture, &second_path)?;
+    fs::copy(&fixture, &second_path)?;
     fixtures::scan_library(
         &fs,
         &db,

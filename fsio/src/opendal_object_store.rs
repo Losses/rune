@@ -7,6 +7,9 @@ use rustls::{ClientConfig, RootCertStore};
 use sync::share::{ConditionalGet, ObjectStore, ObjectTag, ObjectValue, ProbeObject, StoreError};
 
 use crate::OpenDalConfig;
+use reqwest::Client;
+use sync::protocol;
+use uuid::Uuid;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ObjectStoreCapabilities {
@@ -30,7 +33,7 @@ impl fmt::Debug for OpenDalObjectStore {
 impl OpenDalObjectStore {
     /// Construct a share store rooted below `<backend-root>/.rune/sync/`.
     pub fn new(config: OpenDalConfig) -> Result<Self, StoreError> {
-        let http_client = reqwest::Client::builder()
+        let http_client = Client::builder()
             .tls_backend_preconfigured(
                 ClientConfig::builder()
                     .with_root_certificates(RootCertStore {
@@ -91,8 +94,7 @@ impl OpenDalObjectStore {
     /// The scratch objects are named by [`ProbeObject`], so share listings pass over them.
     pub async fn probe(&self, own_prefix: &str) -> Result<ObjectStoreCapabilities, StoreError> {
         let prefix = validate_device_prefix(own_prefix)?;
-        let scratch_key =
-            |object: ProbeObject| format!("{prefix}{}", object.name(uuid::Uuid::new_v4()));
+        let scratch_key = |object: ProbeObject| format!("{prefix}{}", object.name(Uuid::new_v4()));
         let name = scratch_key(ProbeObject::Roundtrip);
         let bytes = b"rune object-store probe";
         let mut caps = ObjectStoreCapabilities::default();
@@ -162,7 +164,7 @@ impl OpenDalObjectStore {
                     self.get_if_none_match(&get_key, &original.tag).await,
                     Ok(ConditionalGet::NotModified)
                 );
-                let other_tag = ObjectTag::new(format!("\"{}\"", uuid::Uuid::new_v4()));
+                let other_tag = ObjectTag::new(format!("\"{}\"", Uuid::new_v4()));
                 let changed = matches!(
                     self.get_if_none_match(&get_key, &other_tag).await,
                     Ok(ConditionalGet::Modified(value)) if value.bytes == bytes
@@ -287,7 +289,7 @@ fn map_http_status(status: u16, detail: &str, temporary: bool) -> StoreError {
 }
 
 impl ObjectStore for OpenDalObjectStore {
-    fn get<'a>(&'a self, key: &'a str) -> sync::protocol::BoxFuture<'a, ObjectValue, StoreError> {
+    fn get<'a>(&'a self, key: &'a str) -> protocol::BoxFuture<'a, ObjectValue, StoreError> {
         Box::pin(async move {
             let key = object_key(key)?;
             let reader = self
@@ -312,7 +314,7 @@ impl ObjectStore for OpenDalObjectStore {
         &'a self,
         key: &'a str,
         tag: &'a ObjectTag,
-    ) -> sync::protocol::BoxFuture<'a, ConditionalGet, StoreError> {
+    ) -> protocol::BoxFuture<'a, ConditionalGet, StoreError> {
         Box::pin(async move {
             let key = object_key(key)?;
             let reader = match self
@@ -348,7 +350,7 @@ impl ObjectStore for OpenDalObjectStore {
         &'a self,
         key: &'a str,
         bytes: &'a [u8],
-    ) -> sync::protocol::BoxFuture<'a, ObjectTag, StoreError> {
+    ) -> protocol::BoxFuture<'a, ObjectTag, StoreError> {
         Box::pin(async move {
             let key = object_key(key)?;
             self.operator
@@ -363,7 +365,7 @@ impl ObjectStore for OpenDalObjectStore {
         &'a self,
         key: &'a str,
         bytes: &'a [u8],
-    ) -> sync::protocol::BoxFuture<'a, ObjectTag, StoreError> {
+    ) -> protocol::BoxFuture<'a, ObjectTag, StoreError> {
         Box::pin(async move {
             let key = object_key(key)?;
             self.operator
@@ -380,7 +382,7 @@ impl ObjectStore for OpenDalObjectStore {
         key: &'a str,
         tag: &'a ObjectTag,
         bytes: &'a [u8],
-    ) -> sync::protocol::BoxFuture<'a, ObjectTag, StoreError> {
+    ) -> protocol::BoxFuture<'a, ObjectTag, StoreError> {
         Box::pin(async move {
             let key = object_key(key)?;
             self.operator
@@ -392,7 +394,7 @@ impl ObjectStore for OpenDalObjectStore {
         })
     }
 
-    fn delete<'a>(&'a self, key: &'a str) -> sync::protocol::BoxFuture<'a, (), StoreError> {
+    fn delete<'a>(&'a self, key: &'a str) -> protocol::BoxFuture<'a, (), StoreError> {
         Box::pin(async move {
             let key = object_key(key)?;
             match self.operator.delete(&key).await {
@@ -408,7 +410,7 @@ impl ObjectStore for OpenDalObjectStore {
     fn list_prefix<'a>(
         &'a self,
         prefix: &'a str,
-    ) -> sync::protocol::BoxFuture<'a, Vec<String>, StoreError> {
+    ) -> protocol::BoxFuture<'a, Vec<String>, StoreError> {
         Box::pin(async move {
             let prefix = if prefix.is_empty() {
                 String::new()

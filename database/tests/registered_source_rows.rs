@@ -2,6 +2,7 @@ use anyhow::Result;
 use database::actions::mixes::{add_item_to_mix, executable_queries_on};
 use database::test_fixtures::causal_library as support;
 use database::{entities::*, sync::model::*};
+use migration::catalog_identity;
 use migration::catalog_identity::ParentKind;
 use sea_orm::{
     ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, TransactionTrait,
@@ -9,6 +10,7 @@ use sea_orm::{
 };
 use support::fixtures;
 use sync::protocol::{self as p, SyncModel};
+use sync_orm::row_policy;
 use uuid::Uuid;
 
 async fn database() -> Result<DatabaseConnection> {
@@ -92,7 +94,7 @@ async fn repeated_tags_reorder_without_replacing_source_rows_or_local_file_state
 async fn reference_arrival_and_parent_removal_leave_membership_untouched() -> Result<()> {
     let db = database().await?;
     let track_id = Uuid::new_v4();
-    let album_id = migration::catalog_identity::parent(ParentKind::Album, "Album");
+    let album_id = catalog_identity::parent(ParentKind::Album, "Album");
     let membership = key(Collection::TrackAlbums, track_id);
     let payload = Payload::TrackAlbum(TrackAlbum {
         track_id,
@@ -283,7 +285,7 @@ async fn source_scan_and_declared_effect_failure_are_transactional() -> Result<(
         &tx,
         &Collection::Tracks,
         None,
-        sync_orm::row_policy::ScanLimits {
+        row_policy::ScanLimits {
             max_records: 128,
             max_rows: 1024,
             max_bytes: 4 * 1024 * 1024,

@@ -6,6 +6,7 @@ use sea_orm::{
     ConnectionTrait, ExprTrait, TransactionTrait,
     sea_query::{Alias, Expr, Query},
 };
+use sync::protocol;
 use sync::protocol::{
     Fragment, ManifestKind, ManifestRef, content_digest, fragment_digest, manifest_digest,
 };
@@ -75,7 +76,7 @@ async fn complete_validated_manifests_publish_idempotently_and_atomically() -> R
         ])
         .to_owned();
     db.execute(&meta).await?;
-    let oversized = vec![1_u8; sync::protocol::MAX_PAGE_BYTES as usize + 1];
+    let oversized = vec![1_u8; protocol::MAX_PAGE_BYTES as usize + 1];
     let (too_large, oversized_fragment) = single(&oversized)?;
     let tx = db.begin().await?;
     assert!(
@@ -84,7 +85,7 @@ async fn complete_validated_manifests_publish_idempotently_and_atomically() -> R
             ns,
             &too_large,
             &oversized_fragment,
-            sync::protocol::MAX_LOGICAL_BYTES,
+            protocol::MAX_LOGICAL_BYTES,
             |_| Ok(vec![])
         )
         .await
@@ -194,12 +195,12 @@ async fn bounded_fragment_batches_verify_integrity_and_limits() -> Result<()> {
     let (manifest, fragments) = fragment_body(ManifestKind::Context, &body, 0, 100)?;
     assert_eq!(fragments.len(), 120);
     let (single_manifest, single_fragments) = single(b"one fragment")?;
-    let large_body = vec![9_u8; sync::protocol::MAX_PAGE_BYTES as usize + 2];
+    let large_body = vec![9_u8; protocol::MAX_PAGE_BYTES as usize + 2];
     let (large_manifest, large_fragments) = fragment_body(
         ManifestKind::Context,
         &large_body,
         0,
-        sync::protocol::MAX_PAGE_BYTES as usize / 2 + 1,
+        protocol::MAX_PAGE_BYTES as usize / 2 + 1,
     )?;
     assert_eq!(large_fragments.len(), 2);
     let tx = db.begin().await?;
@@ -313,7 +314,7 @@ async fn bounded_fragment_batches_verify_integrity_and_limits() -> Result<()> {
                 let mut q = filtered();
                 q.value(
                     Alias::new("bytes"),
-                    vec![0_u8; sync::protocol::MAX_PAGE_BYTES as usize + 1],
+                    vec![0_u8; protocol::MAX_PAGE_BYTES as usize + 1],
                 );
                 tx.execute(&q).await?;
             }
@@ -358,7 +359,7 @@ async fn bounded_fragment_batches_verify_integrity_and_limits() -> Result<()> {
     }
     for bytes in [
         vec![0_u8; b"one fragment".len()],
-        vec![0_u8; sync::protocol::MAX_PAGE_BYTES as usize + 1],
+        vec![0_u8; protocol::MAX_PAGE_BYTES as usize + 1],
     ] {
         let tx = db.begin().await?;
         tx.execute(

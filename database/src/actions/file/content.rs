@@ -1,14 +1,17 @@
 //! Verified, bounded transfer of audio blobs.
 use crate::sync::model::BlobRef;
 use anyhow::{Context, Result, ensure};
+use blake3::Hasher;
 use fsio::{FsIo, OpenMode};
 use sea_orm::sea_query::Expr;
+use std::collections;
 use std::collections::HashSet;
 use std::path::Component;
 use std::{
     io::Read,
     path::{Path, PathBuf},
 };
+use tokio::task;
 use uuid::Uuid;
 
 /// Maximum accepted audio object size (8 GiB).
@@ -50,7 +53,7 @@ pub fn validate_extension(extension: &str) -> Result<()> {
 /// Compute a full digest without loading the file into memory.
 pub fn hash_file(fsio: &FsIo, path: &Path) -> Result<BlobRef> {
     let mut input = fsio.open(path, OpenMode::Read)?;
-    let mut hasher = blake3::Hasher::new();
+    let mut hasher = Hasher::new();
     let mut size = 0u64;
     let mut buffer = [0u8; 64 * 1024];
     loop {
@@ -159,7 +162,7 @@ pub async fn catalog_track(
 pub async fn remote_content_ids(
     db: &DatabaseConnection,
     ids: &[i32],
-) -> Result<std::collections::HashSet<i32>> {
+) -> Result<collections::HashSet<i32>> {
     let mut found = HashSet::new();
     for chunk in ids.chunks(512) {
         let rows = media_files::Entity::find()
@@ -264,7 +267,7 @@ pub async fn attach_download(
     let relative = path.strip_prefix(root)?;
     let hash_fsio = fsio.clone();
     let hash_path = path.to_owned();
-    let actual = tokio::task::spawn_blocking(move || hash_file(&hash_fsio, &hash_path))
+    let actual = task::spawn_blocking(move || hash_file(&hash_fsio, &hash_path))
         .await
         .context("download verification task failed")??;
     ensure!(&actual == blob, "download digest or size mismatch");

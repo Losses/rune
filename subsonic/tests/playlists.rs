@@ -5,6 +5,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::get;
+use reqwest::Client;
 use subsonic::{SubsonicClient, SubsonicCredentials};
 use url::Url;
 
@@ -74,7 +75,7 @@ async fn playlist_actions_use_authenticated_requests_and_replace_entries() {
             user: "alice".into(),
             password: "secret".into(),
         },
-        reqwest::Client::new(),
+        Client::new(),
     );
 
     assert_eq!(client.playlists().await.unwrap()[0].id, "p1");

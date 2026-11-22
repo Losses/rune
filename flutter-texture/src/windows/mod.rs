@@ -10,6 +10,8 @@
 //! handler marks the registry as gone; after that, calls into the engine are skipped, and what
 //! textures hold is released without waiting for the engine.
 
+use std::ptr;
+use std::sync as std_sync;
 use std::sync::OnceLock;
 mod api;
 mod raster;
@@ -33,7 +35,7 @@ use api::{
 
 /// The engine's functions, looked up once they are found.
 fn api() -> Result<&'static Api> {
-    static API: std::sync::OnceLock<Api> = OnceLock::new();
+    static API: std_sync::OnceLock<Api> = OnceLock::new();
     if let Some(api) = API.get() {
         return Ok(api);
     }
@@ -69,7 +71,7 @@ impl State {
     /// The adapter the engine renders on, from the engine (a new reference to it is released
     /// again here). Called with the engine alive, on the thread that attached for the first time.
     fn query_adapter(&self) -> Option<(u32, i32)> {
-        let mut adapter: *mut c_void = std::ptr::null_mut();
+        let mut adapter: *mut c_void = ptr::null_mut();
         // SAFETY: the registrar is alive (the caller holds `alive`); `adapter` is writable.
         let found = unsafe { (self.api.get_graphics_adapter)(self.registrar, &mut adapter) };
         if !found || adapter.is_null() {

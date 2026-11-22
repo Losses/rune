@@ -13,6 +13,7 @@ use crate::request_error::ExpectedRequestError;
 use crate::server::{ServerManager, libraries::add_remote_library};
 use crate::utils::{GlobalParams, ParamsExtractor};
 use crate::{Session, Signal};
+use anyhow::Error;
 
 /// A peer that could not list its libraries: an incompatible version names the
 /// side to update, any other failure keeps its remote-open kind.
@@ -36,7 +37,7 @@ fn peer_libraries_error(error: RemoteConnectError) -> anyhow::Error {
         },
         error => ExpectedRequestError::RemoteOpenFailed { kind: error.kind() },
     };
-    anyhow::Error::new(typed).context(detail)
+    Error::new(typed).context(detail)
 }
 
 impl ParamsExtractor for ListPeerLibrariesRequest {
@@ -105,6 +106,7 @@ impl Signal for AddRemoteLibraryRequest {
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
+    use std::sync::Arc;
 
     use crate::Signal;
     use crate::messages::{
@@ -138,7 +140,7 @@ mod tests {
             sync: DeviceSyncLevel::Pull,
             call_id: None,
         };
-        let config = std::sync::Arc::new(dir.path().to_string_lossy().into_owned());
+        let config = Arc::new(dir.path().to_string_lossy().into_owned());
         let error = match request.handle(config, None, &request).await {
             Ok(_) => anyhow::bail!("an invalid library id must be refused"),
             Err(error) => error,

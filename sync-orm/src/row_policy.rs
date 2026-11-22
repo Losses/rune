@@ -3,14 +3,20 @@
 //! References are ordinary portable UUID columns. They are never followed or
 //! rewritten during projection; callers resolve them in their own read queries.
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use sea_orm::Condition;
+use sea_orm::DbBackend;
+use sea_orm::prelude;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder,
     QuerySelect, QueryTrait, Value, sea_query::Expr,
 };
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::collections;
 use std::collections::HashSet;
+use std::iter;
 use std::marker::PhantomData;
+use sync::protocol;
 use uuid::Uuid;
 
 /// Binary source-column data serialized as canonical standard base64 text.
@@ -96,7 +102,7 @@ fn column_value(row: &sea_orm::QueryResult, name: &str, sample: Value) -> Result
         Value::Double(_) => read!(f64),
         Value::String(_) => read!(String),
         Value::Bytes(_) => read!(Vec<u8>),
-        Value::Decimal(_) => read!(sea_orm::prelude::Decimal),
+        Value::Decimal(_) => read!(prelude::Decimal),
         _ => return Err(DbErr::Custom("unsupported source column type".into())),
     })
 }
@@ -274,7 +280,7 @@ pub trait RowMapping<E: EntityTrait>: Send + Sync {
     fn validate_revision(
         _id: Uuid,
         _value: Option<&Self::Payload>,
-        _revision: &sync::protocol::Revision,
+        _revision: &protocol::Revision,
     ) -> Result<(), DbErr> {
         Ok(())
     }
@@ -294,7 +300,7 @@ pub trait RowMapping<E: EntityTrait>: Send + Sync {
         Vec::new()
     }
     fn source_filter() -> sea_orm::Condition {
-        sea_orm::Condition::all()
+        Condition::all()
     }
     fn read_ceiling() -> u64 {
         1
@@ -359,7 +365,7 @@ impl<E: EntityTrait, M: RowMapping<E>> RowPolicy<E, M> {
         let mut query = E::find().select_only().filter(M::source_filter());
         for column in <E::PrimaryKey as Iterable>::iter()
             .map(|key| key.into_column())
-            .chain(std::iter::once(M::uuid_column()))
+            .chain(iter::once(M::uuid_column()))
             .chain(M::columns())
             .chain(M::local_read_columns())
         {
@@ -472,7 +478,7 @@ impl<E: EntityTrait, M: RowMapping<E>> RowPolicy<E, M> {
         };
         Self::validate_mapping()?;
         let backend = db.get_database_backend();
-        if backend != sea_orm::DbBackend::Sqlite {
+        if backend != DbBackend::Sqlite {
             return Err(DbErr::Custom(
                 "source schema validation supports SQLite only".into(),
             ));
@@ -491,7 +497,7 @@ impl<E: EntityTrait, M: RowMapping<E>> RowPolicy<E, M> {
         }
         let mut primary = Vec::new();
         let mut uuid_text = false;
-        let supplied: std::collections::HashSet<_> = std::iter::once(M::uuid_column())
+        let supplied: collections::HashSet<_> = iter::once(M::uuid_column())
             .chain(M::columns())
             .chain(M::local_defaults().into_iter().map(|(column, _)| column))
             .map(|column| column.as_str())
@@ -775,8 +781,7 @@ impl<E: EntityTrait, M: RowMapping<E>> RowPolicy<E, M> {
         for (column, value) in columns.iter().copied().zip(values) {
             active.try_set(column, value)?;
         }
-        let mut protected: std::collections::HashSet<_> =
-            columns.iter().map(|c| c.as_str()).collect();
+        let mut protected: collections::HashSet<_> = columns.iter().map(|c| c.as_str()).collect();
         protected.insert(M::uuid_column().as_str());
         for key in <E::PrimaryKey as Iterable>::iter() {
             protected.insert(key.into_column().as_str());

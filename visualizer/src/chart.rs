@@ -25,6 +25,8 @@ use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
 use crate::rhythm::Rhythm;
+use bincode::config;
+use bincode::serde as bincode_serde;
 
 /// The streams, in the order of [`ChartState::events`]; a lead of `i + 1` is stream `i`.
 const STREAMS: [&str; 5] = ["low", "mid", "high", "harmonic", "phrase"];
@@ -198,13 +200,12 @@ pub struct ChartState {
 impl Chart {
     /// Encode a completed analysis for the renderer feed.
     pub fn encode(&self) -> anyhow::Result<Vec<u8>> {
-        bincode::serde::encode_to_vec(self, bincode::config::standard()).map_err(Into::into)
+        bincode_serde::encode_to_vec(self, config::standard()).map_err(Into::into)
     }
 
     /// Decode a chart supplied by the renderer feed.
     pub fn decode(bytes: &[u8]) -> anyhow::Result<Self> {
-        let (chart, consumed) =
-            bincode::serde::decode_from_slice(bytes, bincode::config::standard())?;
+        let (chart, consumed) = bincode_serde::decode_from_slice(bytes, config::standard())?;
         anyhow::ensure!(consumed == bytes.len(), "chart has trailing bytes");
         Ok(chart)
     }
@@ -785,6 +786,9 @@ impl Drop for ChartFollower {
 
 #[cfg(test)]
 mod tests {
+    use std::env;
+    use std::fs;
+    use std::process as std_process;
 
     use super::*;
     use crate::{Visualizer, VisualizerInputs};
@@ -1018,9 +1022,8 @@ mod tests {
     /// `seconds` in a folder of its own.
     fn write_clicks(name: &str, seconds: usize) -> PathBuf {
         const RATE: u32 = 22050;
-        let dir =
-            std::env::temp_dir().join(format!("visualizer_chart_{name}_{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = env::temp_dir().join(format!("visualizer_chart_{name}_{}", std_process::id()));
+        fs::create_dir_all(&dir).unwrap();
         let mut samples = vec![0i16; seconds * RATE as usize];
         for start in (0..samples.len()).step_by(RATE as usize / 2) {
             for i in 0..2000.min(samples.len() - start) {
@@ -1045,7 +1048,7 @@ mod tests {
             bytes.extend_from_slice(&s.to_le_bytes());
         }
         let path = dir.join("clicks.wav");
-        std::fs::write(&path, bytes).unwrap();
+        fs::write(&path, bytes).unwrap();
         path
     }
 
@@ -1082,7 +1085,7 @@ mod tests {
         // The live tracker has the say until the analysis is done.
         assert!(follower.tick(&playback, Instant::now()).is_none());
         let state = wait_for_chart(&mut follower, &playback).expect("no chart in time");
-        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+        fs::remove_dir_all(path.parent().unwrap()).ok();
         // What the analyzer gives for it: the clicks' own 120 beats per minute.
         assert!((state.bpm - 120.0).abs() < 1.0, "{}", state.bpm);
         assert!(state.beat > 5.0 && state.beats_per_bar >= 1.0);
@@ -1171,7 +1174,7 @@ mod tests {
         };
         assert!(follower.tick(&online, Instant::now()).is_none());
         assert!(follower.loading.is_none() && follower.cancel.is_none());
-        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+        fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
     #[test]
@@ -1199,7 +1202,7 @@ mod tests {
         drop(follower);
         assert!(third.load(Ordering::Relaxed));
         for path in [long, short] {
-            std::fs::remove_dir_all(path.parent().unwrap()).ok();
+            fs::remove_dir_all(path.parent().unwrap()).ok();
         }
     }
 

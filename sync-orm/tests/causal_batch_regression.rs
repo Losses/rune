@@ -11,6 +11,9 @@ use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
+use sync::SyncError;
+use sync::WorkOutcome;
+use sync_orm::causal_candidates;
 use sync_orm::causal_candidates::{CandidatePageRequest, page_on};
 use uuid::Uuid;
 
@@ -162,7 +165,7 @@ async fn captured_candidate_pages_batch_reads_and_preserve_byte_boundaries() -> 
     );
 
     let mut final_request = request(namespace, 10, 1, BODY + 96);
-    final_request.after = Some(sync_orm::causal_candidates::Cursor {
+    final_request.after = Some(causal_candidates::Cursor {
         object: Uuid::from_u128(48),
         writer,
         counter: 39,
@@ -253,7 +256,7 @@ async fn pinned_public_snapshot_batches_leaf_reads_across_concurrent_changes() -
         .await
         .context("snapshot admission")?
     {
-        sync::WorkOutcome::Incomplete { cursor } => cursor,
+        WorkOutcome::Incomplete { cursor } => cursor,
         _ => anyhow::bail!("fixture did not pause after capturing its state"),
     };
     endpoint
@@ -291,8 +294,8 @@ async fn pinned_public_snapshot_batches_leaf_reads_across_concurrent_changes() -
             .await
             .context("snapshot continuation")?
         {
-            sync::WorkOutcome::Incomplete { cursor: next } => cursor = Some(next),
-            sync::WorkOutcome::Ready(snapshot) => break snapshot,
+            WorkOutcome::Incomplete { cursor: next } => cursor = Some(next),
+            WorkOutcome::Ready(snapshot) => break snapshot,
         }
     };
     let open_selects = candidate_selects.swap(0, Ordering::SeqCst);
@@ -454,9 +457,9 @@ async fn pinned_public_snapshot_batches_leaf_reads_across_concurrent_changes() -
             .open_snapshot(corrupt_request, scope.clone(), corrupt_work, resume)
             .await
         {
-            Ok(sync::WorkOutcome::Incomplete { cursor }) => resume = Some(cursor),
-            Ok(sync::WorkOutcome::Ready(_)) => anyhow::bail!("corrupt source produced a snapshot"),
-            Err(sync::SyncError::Storage(message)) if message.contains("line 1 column") => {
+            Ok(WorkOutcome::Incomplete { cursor }) => resume = Some(cursor),
+            Ok(WorkOutcome::Ready(_)) => anyhow::bail!("corrupt source produced a snapshot"),
+            Err(SyncError::Storage(message)) if message.contains("line 1 column") => {
                 rejected = true;
                 break;
             }

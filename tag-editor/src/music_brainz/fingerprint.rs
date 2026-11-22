@@ -14,6 +14,7 @@ use symphonia::core::{
     meta::MetadataOptions,
     probe::Hint,
 };
+use symphonia::default as symphonia_default;
 
 use ::fsio::{FsIo, OpenMode};
 use ::fsio_media_source::FsioMediaSource;
@@ -46,7 +47,7 @@ impl AudioReader {
         let meta_opts: MetadataOptions = Default::default();
         let fmt_opts: FormatOptions = Default::default();
 
-        let probed = symphonia::default::get_probe()
+        let probed = symphonia_default::get_probe()
             .format(&hint, mss, &fmt_opts, &meta_opts)
             .context("unsupported format")?;
 

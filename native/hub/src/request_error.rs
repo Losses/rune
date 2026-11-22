@@ -11,6 +11,7 @@ use crate::messages::{
 use crate::rpc::UnsupportedReason;
 use discovery::protocol_version::ProtocolVersion;
 use playback::player::PlayerCommandError;
+use std::fmt;
 
 /// Expected failures at the request boundary.
 #[derive(Debug, ThisError)]
@@ -123,8 +124,8 @@ pub struct FailedCall {
     pub call_id: u64,
 }
 
-impl std::fmt::Display for FailedCall {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for FailedCall {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "call {}", self.call_id)
     }
 }
