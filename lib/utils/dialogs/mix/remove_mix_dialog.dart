@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../../api/request_failure.dart';
 import '../../../bindings/bindings.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -15,7 +17,6 @@ Future<bool?> showRemoveMixDialog(BuildContext context, int mixId) async {
     staysUsableWhenShrunk: false,
     context,
     (context, $close) => RemoveMixDialog(mixId: mixId, $close: $close),
-    dismissWithEsc: true,
     barrierDismissible: true,
   );
 
@@ -36,7 +37,16 @@ class _RemoveMixDialogState extends State<RemoveMixDialog> {
   bool isLoading = false;
   RequestFailure? failure;
 
+  void _showFailure(RequestFailure error) {
+    if (!mounted) return;
+    setState(() {
+      isLoading = false;
+      failure = error;
+    });
+  }
+
   void _onConfirm() async {
+    if (isLoading) return;
     setState(() {
       isLoading = true;
     });
@@ -44,14 +54,18 @@ class _RemoveMixDialogState extends State<RemoveMixDialog> {
       await removeMix(widget.mixId);
     } on RequestFailure catch (error) {
       if (error.kind != RequestErrorKind.notFound) {
-        if (mounted) {
-          setState(() {
-            isLoading = false;
-            failure = error;
-          });
-        }
+        _showFailure(error);
         return;
       }
+    } on TimeoutException catch (error) {
+      _showFailure(
+        RequestFailure(
+          'RemoveMixRequest',
+          RequestErrorKind.unavailable,
+          error.toString(),
+        ),
+      );
+      return;
     }
 
     if (!mounted) return;
@@ -61,18 +75,19 @@ class _RemoveMixDialogState extends State<RemoveMixDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final error = failure == null
+        ? null
+        : requestFailureMessage(S.of(context), failure!);
     return RemoveDialogOnBand(
       $close: widget.$close,
       onConfirm: _onConfirm,
+      isLoading: isLoading,
+      error: error,
       child: ContentDialog(
         title: Column(
           children: [SizedBox(height: 8), Text(S.of(context).removeMixTitle)],
         ),
-        content: Text(
-          failure == null
-              ? S.of(context).removeMixSubtitle
-              : requestFailureMessage(S.of(context), failure!),
-        ),
+        content: Text(error ?? S.of(context).removeMixSubtitle),
         actions: [
           ResponsiveDialogActions(
             Button(

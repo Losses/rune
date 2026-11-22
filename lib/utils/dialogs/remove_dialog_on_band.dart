@@ -13,6 +13,8 @@ class RemoveDialogOnBand extends StatelessWidget {
     required this.onConfirm,
     required this.$close,
     this.icon,
+    this.isLoading = false,
+    this.error,
   });
 
   final IconData? icon;
@@ -20,14 +22,21 @@ class RemoveDialogOnBand extends StatelessWidget {
   final VoidCallback onConfirm;
   final void Function(Null) $close;
 
+  /// Keeps the route open and disables both compact actions during removal.
+  /// Leave Fluent's `dismissWithEsc` override off so Escape consults this scope.
+  final bool isLoading;
+
+  /// Localized failure to show beside the compact actions when removal fails.
+  final String? error;
+
   @override
   Widget build(BuildContext context) {
-    return DeviceTypeBuilder(
+    final dialog = DeviceTypeBuilder(
       deviceType: const [
         DeviceType.band,
         DeviceType.dock,
         DeviceType.belt,
-        DeviceType.tv
+        DeviceType.tv,
       ],
       builder: (context, activeBreakpoint) {
         if (activeBreakpoint == DeviceType.band ||
@@ -38,13 +47,20 @@ class RemoveDialogOnBand extends StatelessWidget {
               final size = min(constraint.maxWidth, constraint.maxHeight);
 
               final children = [
+                if (error case final message?)
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(4),
+                      child: Text(message, textAlign: TextAlign.center),
+                    ),
+                  ),
                 BandScreenFallbackButton(
                   icon: Icon(
                     icon ?? Symbols.delete,
                     color: Colors.warningPrimaryColor,
                     size: (size * 0.8).clamp(0, 48),
                   ),
-                  onPressed: onConfirm,
+                  onPressed: isLoading ? null : onConfirm,
                 ),
                 SizedBox(height: size * 0.2, width: size * 0.2),
                 BandScreenFallbackButton(
@@ -52,7 +68,7 @@ class RemoveDialogOnBand extends StatelessWidget {
                     icon ?? Symbols.close,
                     size: (size * 0.2).clamp(0, 32),
                   ),
-                  onPressed: () => $close(null),
+                  onPressed: isLoading ? null : () => $close(null),
                 ),
               ];
 
@@ -72,5 +88,6 @@ class RemoveDialogOnBand extends StatelessWidget {
         return child;
       },
     );
+    return PopScope(canPop: !isLoading, child: dialog);
   }
 }

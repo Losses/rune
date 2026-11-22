@@ -32,7 +32,7 @@ class _ModalRouteWrapperState extends State<ModalRouteWrapper> {
       name: widget.name,
       arguments: widget.arguments,
       canPop: widget.canPop,
-      pop: () => _handleClose(null),
+      pop: () => _handleClose(null, fromBack: true),
     );
     $history.pushModal(_entry);
   }
@@ -44,10 +44,11 @@ class _ModalRouteWrapperState extends State<ModalRouteWrapper> {
     super.dispose();
   }
 
-  void _handleClose(dynamic result) {
+  void _handleClose(dynamic result, {bool fromBack = false}) {
     if (!mounted || !identical($history.current, _entry)) return;
     final route = ModalRoute.of(context);
     if (route == null || !route.isCurrent) return;
+    if (fromBack && route.popDisposition == RoutePopDisposition.doNotPop) return;
 
     final canPop = _entry.canPop;
     if (canPop != null) {
