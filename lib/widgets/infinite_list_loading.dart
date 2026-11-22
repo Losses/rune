@@ -18,6 +18,7 @@ class InfiniteListLoading extends StatelessWidget {
   }
 }
 
+/// Displays the failed page's error in a tooltip and offers a retry action.
 class InfiniteListRetry extends StatelessWidget {
   const InfiniteListRetry({
     super.key,

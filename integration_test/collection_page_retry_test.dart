@@ -90,16 +90,21 @@ void main() {
           binary,
         );
       };
-      try {
-        await data.fetchData();
-      } on RequestFailure catch (error) {
-        expect(error.kind, RequestErrorKind.unavailable);
-      }
+      await data.fetchData();
+      expect(
+        data.pageError,
+        isA<RequestFailure>().having(
+          (error) => error.kind,
+          'kind',
+          RequestErrorKind.unavailable,
+        ),
+      );
       expect(titles(), groups.take(3));
       expect(data.isLoading, isFalse);
       expect(data.cursor, 1);
       expect(failedGroups, ['D', 'E', 'F']);
       await Future.wait([data.fetchData(), data.fetchData()]);
+      expect(data.pageError, isNull);
       expect(titles(), groups.take(6));
       expect(data.cursor, 2);
       expect(groupRequests, 3); // The concurrent retries share one request.

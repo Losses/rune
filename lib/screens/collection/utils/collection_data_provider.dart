@@ -115,6 +115,8 @@ class CollectionDataProvider with ChangeNotifier {
 
   Future<void>? _pageRequest;
   bool get isLoading => _pageRequest != null;
+
+  /// The failure for the current page. Starting a retry clears it.
   Object? pageError;
   bool isLastPage = false;
   bool initialized = false;
@@ -198,7 +200,7 @@ class CollectionDataProvider with ChangeNotifier {
       items.addAll(newItems);
       cursor = page + 1;
       isLastPage = newIsLastPage;
-    } on Exception catch (error) {
+    } catch (error) {
       if (!_disposed && generation == _generation) pageError = error;
     } finally {
       if (!_disposed && generation == _generation) {
