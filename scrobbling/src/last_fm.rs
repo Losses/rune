@@ -133,7 +133,10 @@ impl ScrobblingClient for LastFmClient {
             params.insert("albumArtist".to_string(), album_artist.clone());
         }
         if let Some(duration) = track.duration {
-            params.insert("duration".to_string(), duration.to_string());
+            params.insert(
+                "duration".to_string(),
+                (duration.max(0.0).ceil() as u32).to_string(),
+            );
         }
 
         let api_sig = self.generate_signature(&mut params);

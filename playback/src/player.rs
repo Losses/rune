@@ -101,6 +101,15 @@ pub struct PlayerStatus {
     pub volume: f32,
 }
 
+/// A track that reached its end, with the time it actually played.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlayedThrough {
+    /// The track that reached its end.
+    pub item: PlayingItem,
+    /// Time actually spent playing the track, excluding pauses and seeks.
+    pub listened: Duration,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum PlayerCommandError {
     #[error("player thread is no longer available")]
@@ -531,7 +540,7 @@ pub trait Playable: Send {
     fn status_after_pending(&self) -> BoxFuture<'static, PlayerStatus>;
     fn get_playlist(&self) -> Vec<PlayingItem>;
     fn subscribe_status(&self) -> SimpleReceiver<PlayerStatus>;
-    fn subscribe_played_through(&self) -> SimpleReceiver<PlayingItem>;
+    fn subscribe_played_through(&self) -> SimpleReceiver<PlayedThrough>;
     fn subscribe_playlist(&self) -> SimpleReceiver<PlaylistStatus>;
     fn subscribe_realtime_fft(&self) -> SimpleReceiver<Vec<f32>>;
     fn subscribe_crash(&self) -> SimpleReceiver<String>;
@@ -568,7 +577,7 @@ pub struct Player {
     pub current_status: Arc<Mutex<PlayerStatus>>,
     status_sender: SimpleSender<PlayerStatus>,
     playlist_sender: SimpleSender<PlaylistStatus>,
-    played_through_sender: SimpleSender<PlayingItem>,
+    played_through_sender: SimpleSender<PlayedThrough>,
     log_sender: SimpleSender<InternalLog>,
     realtime_fft_sender: SimpleSender<Vec<f32>>,
     pcm_tap: Arc<PcmTap>,
@@ -757,12 +766,13 @@ impl Player {
                         index,
                         path,
                         playback_mode,
+                        listened,
                     } => {
                         status.item = Some(item.clone());
                         status.index = Some(index);
                         status.path = Some(path);
                         status.playback_mode = playback_mode;
-                        played_through_sender.send(item);
+                        played_through_sender.send(PlayedThrough { item, listened });
                     }
                     PlayerEvent::Error {
                         item,
@@ -1139,7 +1149,7 @@ impl Playable for Player {
         self.status_sender.subscribe()
     }
 
-    fn subscribe_played_through(&self) -> SimpleReceiver<PlayingItem> {
+    fn subscribe_played_through(&self) -> SimpleReceiver<PlayedThrough> {
         self.played_through_sender.subscribe()
     }
 
@@ -1273,7 +1283,7 @@ impl Playable for MockPlayer {
     fn subscribe_status(&self) -> SimpleReceiver<PlayerStatus> {
         SimpleChannel::channel(1).1
     }
-    fn subscribe_played_through(&self) -> SimpleReceiver<PlayingItem> {
+    fn subscribe_played_through(&self) -> SimpleReceiver<PlayedThrough> {
         SimpleChannel::channel(1).1
     }
     fn subscribe_playlist(&self) -> SimpleReceiver<PlaylistStatus> {

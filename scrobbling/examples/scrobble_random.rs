@@ -61,7 +61,7 @@ async fn main() -> Result<()> {
         track: "Random Track".to_string(),
         album: Some("Random Album".to_string()),
         album_artist: Some("Random Album Artist".to_string()),
-        duration: Some(rand::thread_rng().gen_range(180..300)),
+        duration: Some(rand::thread_rng().gen_range(180..300) as f64),
         timestamp: None,
     };
 

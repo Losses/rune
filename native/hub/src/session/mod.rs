@@ -28,8 +28,8 @@ use playback::{
     PlaybackMode,
     controller::{MediaControlManager, handle_media_control_event},
     player::{
-        HandoffBlockId, InterruptedItem, Playable, PlaybackSource, PlaybackState, Player,
-        PlayerStatus, PlayingItem, PlaylistStatus, QueueEntry, TakeBackBlockResult,
+        HandoffBlockId, InterruptedItem, Playable, PlaybackSource, PlaybackState, PlayedThrough,
+        Player, PlayerStatus, PlayingItem, PlaylistStatus, QueueEntry, TakeBackBlockResult,
         UnavailableReason,
     },
 };
@@ -591,9 +591,9 @@ impl PlayerSession {
                         if let Some(manager) = &controls { let _ = manager.lock().await.controls.detach(); }
                         return;
                     },
-                    Ok(item) = played.recv() => {
+                    Ok(played) = played.recv() => {
                         if let Some(node) = weak.upgrade() {
-                            handle_played_event(&node, item, &item_state, &scrobbler).await;
+                            handle_played_event(&node, played, &mut item_state, &scrobbler).await;
                         }
                     }
                     Ok(value) = status.recv() => {
@@ -1078,10 +1078,11 @@ async fn handle_playlist_event(
 
 async fn handle_played_event(
     node: &NodeContext,
-    item: PlayingItem,
-    item_state: &ItemEventState,
+    played: PlayedThrough,
+    item_state: &mut ItemEventState,
     scrobbler: &Arc<Mutex<dyn ScrobblingServiceManager>>,
 ) {
+    let PlayedThrough { item, listened } = played;
     if let Err(error) = record_played(node, &item).await {
         log::warn!("Could not record played item: {error:#}");
     }
@@ -1089,7 +1090,7 @@ async fn handle_played_event(
         scrobbler
             .lock()
             .await
-            .scrobble_all(metadata_summary_to_scrobbling_track(&metadata));
+            .scrobble_all(metadata_summary_to_scrobbling_track(&metadata), listened);
     }
     let report = if item_state.last_item.as_ref() == Some(&item)
         && let Some(library) = item_state.library.as_ref()

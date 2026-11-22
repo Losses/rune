@@ -122,7 +122,8 @@ pub struct ScrobblingTrack {
     pub track: String,
     pub album: Option<String>,
     pub album_artist: Option<String>,
-    pub duration: Option<u32>,
+    /// Track length in seconds. Fractional values keep the 30-second boundary exact.
+    pub duration: Option<f64>,
     pub timestamp: Option<u64>,
 }
 
@@ -144,6 +145,7 @@ pub(crate) mod test_support {
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::{TcpListener, TcpStream},
+        sync::mpsc,
         task::JoinHandle,
     };
 
@@ -156,7 +158,7 @@ pub(crate) mod test_support {
             track: "Synthetic track".to_string(),
             album: None,
             album_artist: None,
-            duration: Some(60),
+            duration: Some(60.0),
             timestamp: Some(1_700_000_000),
         }
     }
@@ -219,6 +221,49 @@ pub(crate) mod test_support {
         });
 
         (format!("http://{address}/"), request_count, handle)
+    }
+
+    /// A server that answers every request with the same response, so a repeated submission is
+    /// counted rather than failing against a listener that already stopped.
+    pub async fn spawn_persistent_server(
+        response: (&'static str, String),
+    ) -> (
+        String,
+        Arc<AtomicUsize>,
+        mpsc::UnboundedReceiver<()>,
+        JoinHandle<()>,
+    ) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let request_count = Arc::new(AtomicUsize::new(0));
+        let count_for_task = Arc::clone(&request_count);
+        let (request_tx, request_rx) = mpsc::unbounded_channel();
+
+        let handle = tokio::spawn(async move {
+            let (status, body) = response;
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    return;
+                };
+                read_http_request(&mut stream).await;
+                count_for_task.fetch_add(1, Ordering::SeqCst);
+                let _ = request_tx.send(());
+
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes()).await;
+                let _ = stream.shutdown().await;
+            }
+        });
+
+        (
+            format!("http://{address}/"),
+            request_count,
+            request_rx,
+            handle,
+        )
     }
 }
 
