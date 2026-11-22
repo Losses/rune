@@ -215,6 +215,12 @@ pub trait FileIo: Send + Sync {
     async fn rename_file(&self, _from: &Path, _to: &Path) -> Result<(), FileIoError> {
         Err(FileIoError::NotSupported("file rename".into()))
     }
+    /// Give a file or folder a new name within its folder, failing with
+    /// [`io::ErrorKind::AlreadyExists`] when the new name is taken rather
+    /// than replacing what is there.
+    async fn rename_entry(&self, _from: &Path, _to: &Path) -> Result<(), FileIoError> {
+        Err(FileIoError::NotSupported("entry rename".into()))
+    }
     async fn remove_dir_all(&self, path: &Path) -> Result<(), FileIoError>;
     /// Every entry under `path`, with entries whose path is not valid Unicode
     /// reported apart in [`DirWalk::skipped`]. The standard file system fails
@@ -244,6 +250,13 @@ pub trait FileIo: Send + Sync {
     }
     async fn ensure_file(&self, path: &Path) -> Result<FsNode, FileIoError>;
     async fn ensure_directory(&self, path: &Path) -> Result<FsNode, FileIoError>;
+
+    /// The content URI the platform's document provider knows the item by,
+    /// for platform services that take one, such as Android's document
+    /// thumbnails. Backends addressed by plain paths have none.
+    fn content_uri(&self, _path: &Path) -> Result<Option<String>, FileIoError> {
+        Ok(None)
+    }
 
     /// Refresh any internal cache from the real filesystem. Backends that
     /// read through directly (std, noop) have nothing to refresh.

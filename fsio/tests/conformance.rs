@@ -360,6 +360,9 @@ async fn std_read_dir_details_reports_kind_size_time_and_hidden() {
     fsio.write(&root.join(".secret"), b"x").await.unwrap();
     fsio.create_dir(&root, "Albums").await.unwrap();
 
+    // Plain paths have no document provider to name them to.
+    assert_eq!(fsio.content_uri(&root.join("song.flac")).unwrap(), None);
+
     let mut entries = fsio.read_dir_details(&root).await.unwrap();
     entries.sort_by(|a, b| a.name.cmp(&b.name));
     let summary: Vec<_> = entries
@@ -447,6 +450,40 @@ async fn default_read_dir_details_derives_from_nodes() {
         .await
         .unwrap()
         .is_empty());
+}
+
+#[tokio::test]
+async fn std_rename_entry_renames_files_and_folders_without_replacing() {
+    let temp = tempfile::tempdir().unwrap();
+    let (fsio, root) = std_fsio_in(&temp);
+    fsio.write(&root.join("a.flac"), b"a").await.unwrap();
+    fsio.write(&root.join("taken.flac"), b"keep").await.unwrap();
+    fsio.create_dir(&root, "New folder").await.unwrap();
+
+    fsio.rename_entry(&root.join("a.flac"), &root.join("b.flac"))
+        .await
+        .unwrap();
+    fsio.rename_entry(&root.join("New folder"), &root.join("Live"))
+        .await
+        .unwrap();
+    assert!(fsio.is_file(&root.join("b.flac")).await.unwrap());
+    assert!(fsio.is_dir(&root.join("Live")).await.unwrap());
+
+    let taken = fsio
+        .rename_entry(&root.join("b.flac"), &root.join("taken.flac"))
+        .await;
+    assert!(
+        matches!(&taken, Err(FileIoError::Io(error)) if error.kind() == ErrorKind::AlreadyExists),
+        "{taken:?}"
+    );
+    assert_eq!(fsio.read(&root.join("taken.flac")).unwrap(), b"keep");
+
+    fsio.create_dir(&root, "elsewhere").await.unwrap();
+    assert!(matches!(
+        fsio.rename_entry(&root.join("b.flac"), &root.join("elsewhere/b.flac"))
+            .await,
+        Err(FileIoError::InvalidPath)
+    ));
 }
 
 // NoOpFsIo is the remote-mode stub: every operation succeeds and returns

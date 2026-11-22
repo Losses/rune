@@ -7,16 +7,20 @@
 //! provide comes back empty: a desktop without bookmarks has no pinned places,
 //! and a file the platform cannot preview has no thumbnail.
 
+#[cfg(target_os = "android")]
+mod android_jni;
 mod listing;
 mod location;
+mod operations;
 mod places;
 mod thumbnail;
 #[cfg(target_os = "windows")]
 mod windows_com;
 
 pub use listing::{BrowseError, list_directory};
-pub use location::{Location, Root, normalize_lexically, resolve_typed_path};
+pub use location::{Location, Root, home_dir, normalize_lexically, resolve_typed_path};
+pub use operations::{PathTarget, create_folder, inspect, rename_entry, valid_name};
 pub use places::{
     KnownFolder, Place, PlaceName, Places, Volume, VolumeKind, VolumeSpace, system_places,
 };
-pub use thumbnail::{Thumbnail, ThumbnailSize, decode_image_thumbnail, native_thumbnail};
+pub use thumbnail::{Thumbnail, ThumbnailSize, Thumbnailer};

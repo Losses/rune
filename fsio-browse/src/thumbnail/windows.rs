@@ -15,7 +15,7 @@ use windows::Win32::UI::Shell::{
 };
 use windows::core::HSTRING;
 
-use super::{Thumbnail, ThumbnailSize, fit, unpremultiply};
+use super::{Thumbnail, ThumbnailSize, fit_pixels, unpremultiply};
 use crate::windows_com::Apartment;
 
 pub(super) fn thumbnail(path: &Path, size: ThumbnailSize) -> Result<Option<Thumbnail>> {
@@ -45,10 +45,7 @@ pub(super) fn thumbnail(path: &Path, size: ThumbnailSize) -> Result<Option<Thumb
     let Some((width, height, rgba)) = pixels else {
         return Ok(None);
     };
-    let Some(image) = image::RgbaImage::from_raw(width, height, rgba) else {
-        return Ok(None);
-    };
-    Ok(Some(fit(image::DynamicImage::ImageRgba8(image), size)))
+    Ok(fit_pixels(width, height, rgba, size))
 }
 
 /// The bitmap's pixels as straight RGBA, top row first.
@@ -101,14 +98,16 @@ fn bitmap_pixels(bitmap: HBITMAP) -> Option<(u32, u32, Vec<u8>)> {
         return None;
     }
     // Many thumbnail handlers leave alpha at zero for opaque pictures.
-    if pixels.chunks_exact(4).all(|pixel| pixel[3] == 0) {
-        pixels.chunks_exact_mut(4).for_each(|pixel| pixel[3] = 255);
+    if pixels.as_chunks::<4>().0.iter().all(|pixel| pixel[3] == 0) {
+        pixels.as_chunks_mut::<4>().0.iter_mut().for_each(|pixel| pixel[3] = 255);
     } else {
         unpremultiply(&mut pixels, 3);
     }
     // BGRA to RGBA.
     pixels
-        .chunks_exact_mut(4)
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
         .for_each(|pixel| pixel.swap(0, 2));
     Some((width as u32, height as u32, pixels))
 }

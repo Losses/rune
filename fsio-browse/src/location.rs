@@ -69,6 +69,18 @@ fn document_tree(_uri: &str) -> Result<FsIo, BrowseError> {
     ))
 }
 
+/// The account's home folder, which `~` stands for in typed paths.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub fn home_dir() -> Option<PathBuf> {
+    directories::BaseDirs::new().map(|dirs| dirs.home_dir().to_path_buf())
+}
+
+/// An app container has no home a person would type `~` for.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn home_dir() -> Option<PathBuf> {
+    None
+}
+
 /// The path a person typed into an address bar or file name box, resolved the
 /// way the platform's file browser resolves it: surrounding quotes and spaces
 /// are dropped, `file://` URIs become paths, `~` stands for `home`, Windows

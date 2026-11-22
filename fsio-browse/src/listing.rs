@@ -14,6 +14,10 @@ pub enum BrowseError {
     NotADirectory,
     #[error("permission denied")]
     PermissionDenied,
+    #[error("an item with that name already exists")]
+    AlreadyExists,
+    #[error("the name cannot be used here")]
+    InvalidName,
     #[error("storage unavailable: {0}")]
     Unavailable(String),
 }
@@ -27,6 +31,8 @@ impl From<FileIoError> for BrowseError {
                 ErrorKind::NotFound => Self::NotFound,
                 ErrorKind::PermissionDenied => Self::PermissionDenied,
                 ErrorKind::NotADirectory => Self::NotADirectory,
+                ErrorKind::AlreadyExists => Self::AlreadyExists,
+                ErrorKind::InvalidFilename => Self::InvalidName,
                 _ => Self::Unavailable(error.to_string()),
             },
             other => Self::Unavailable(other.to_string()),

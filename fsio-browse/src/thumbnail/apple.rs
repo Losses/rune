@@ -19,7 +19,7 @@ use objc2_quick_look_thumbnailing::{
     QLThumbnailGenerator, QLThumbnailRepresentation,
 };
 
-use super::{Thumbnail, ThumbnailSize, fit, unpremultiply};
+use super::{Thumbnail, ThumbnailSize, fit_pixels, unpremultiply};
 
 /// How long one thumbnail may take. Quick Look answers within a moment for
 /// ordinary files; a slow extension must not hold up the folder.
@@ -57,10 +57,7 @@ pub(super) fn thumbnail(path: &Path, size: ThumbnailSize) -> Result<Option<Thumb
     let Ok(Some((width, height, rgba))) = receiver.recv_timeout(DEADLINE) else {
         return Ok(None);
     };
-    let Some(image) = image::RgbaImage::from_raw(width, height, rgba) else {
-        return Ok(None);
-    };
-    Ok(Some(fit(image::DynamicImage::ImageRgba8(image), size)))
+    Ok(fit_pixels(width, height, rgba, size))
 }
 
 /// The image's pixels as straight RGBA, top row first.

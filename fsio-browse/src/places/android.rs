@@ -5,11 +5,10 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use jni::JNIEnv;
 use jni::objects::{JString, JValue};
-use ndk_saf::{clear_pending_exception, find_class, get_env};
 
 use super::{KnownFolder, PinnedFolder, Volume, VolumeKind};
+use crate::android_jni::{content_resolver, with_env};
 use crate::location::{Location, Root, percent_decode};
 
 pub(super) fn known_folders() -> Vec<(KnownFolder, PathBuf)> {
@@ -32,75 +31,50 @@ pub(super) fn volumes() -> Vec<Volume> {
 
 /// The tree URIs Rune holds a lasting read grant for.
 fn granted_trees() -> Result<Vec<String>> {
-    let mut guard = get_env()?;
-    let env = &mut *guard;
-    let uris = persisted_read_grants(env);
-    if uris.is_err() {
-        // A pending Java exception would abort the process when this thread
-        // detaches.
-        clear_pending_exception(env);
-    }
-    Ok(uris?
+    let uris = with_env(|env| {
+        let resolver = content_resolver(env)?;
+        let grants = env
+            .call_method(
+                &resolver,
+                "getPersistedUriPermissions",
+                "()Ljava/util/List;",
+                &[],
+            )?
+            .l()?;
+        let count = env.call_method(&grants, "size", "()I", &[])?.i()?;
+        let mut uris = Vec::new();
+        for index in 0..count {
+            let grant = env
+                .call_method(
+                    &grants,
+                    "get",
+                    "(I)Ljava/lang/Object;",
+                    &[JValue::Int(index)],
+                )?
+                .l()?;
+            let readable = env
+                .call_method(&grant, "isReadPermission", "()Z", &[])?
+                .z()?;
+            let uri = env
+                .call_method(&grant, "getUri", "()Landroid/net/Uri;", &[])?
+                .l()?;
+            let text = env
+                .call_method(&uri, "toString", "()Ljava/lang/String;", &[])?
+                .l()?;
+            let text: String = env.get_string(&JString::from(text))?.into();
+            if readable {
+                uris.push(text);
+            }
+            for local in [grant, uri] {
+                env.delete_local_ref(local)?;
+            }
+        }
+        Ok(uris)
+    })?;
+    Ok(uris
         .into_iter()
         .filter(|uri| uri.contains("/tree/"))
         .collect())
-}
-
-fn persisted_read_grants(env: &mut JNIEnv) -> jni::errors::Result<Vec<String>> {
-    let thread = find_class("android/app/ActivityThread")?;
-    let application = env
-        .call_static_method(
-            &thread,
-            "currentApplication",
-            "()Landroid/app/Application;",
-            &[],
-        )?
-        .l()?;
-    let resolver = env
-        .call_method(
-            &application,
-            "getContentResolver",
-            "()Landroid/content/ContentResolver;",
-            &[],
-        )?
-        .l()?;
-    let grants = env
-        .call_method(
-            &resolver,
-            "getPersistedUriPermissions",
-            "()Ljava/util/List;",
-            &[],
-        )?
-        .l()?;
-    let count = env.call_method(&grants, "size", "()I", &[])?.i()?;
-    let mut uris = Vec::new();
-    for index in 0..count {
-        let grant = env
-            .call_method(
-                &grants,
-                "get",
-                "(I)Ljava/lang/Object;",
-                &[JValue::Int(index)],
-            )?
-            .l()?;
-        let readable = env
-            .call_method(&grant, "isReadPermission", "()Z", &[])?
-            .z()?;
-        let uri = env
-            .call_method(&grant, "getUri", "()Landroid/net/Uri;", &[])?
-            .l()?;
-        let text = env
-            .call_method(&uri, "toString", "()Ljava/lang/String;", &[])?
-            .l()?;
-        let text: String = env.get_string(&JString::from(text))?.into();
-        if readable {
-            uris.push(text);
-        }
-        for local in [grant, uri] {
-            env.delete_local_ref(local)?;
-        }
-    }
-    Ok(uris)
 }
 
 /// A granted tree as a volume: named after the folder it grants, internal

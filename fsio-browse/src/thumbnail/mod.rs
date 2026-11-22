@@ -1,14 +1,21 @@
-//! Thumbnails as the platform's own file browser draws them. Windows asks the
-//! shell, Apple platforms ask Quick Look, Linux reads and fills the shared
-//! freedesktop thumbnail cache. Images on every backend, including Android's
-//! document trees, can also be decoded here from their bytes.
+//! Thumbnails as the platform draws them for its own file browser: the
+//! Windows shell, Quick Look on Apple platforms, the freedesktop thumbnail
+//! cache and its thumbnailers on Linux, and the document provider on
+//! Android. An item the platform draws none for keeps its type icon.
 
-use std::io::Cursor;
 use std::path::Path;
+#[cfg(target_os = "linux")]
+use std::sync::Arc;
 
 use anyhow::Result;
-use image::{DynamicImage, ImageDecoder, ImageReader};
+use fsio::FsIo;
+use image::DynamicImage;
+use tokio::task;
 
+use crate::location::{Location, Root};
+
+#[cfg(target_os = "android")]
+mod android;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod apple;
 #[cfg(target_os = "linux")]
@@ -29,42 +36,88 @@ pub struct Thumbnail {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ThumbnailSize(pub u32);
 
-/// The thumbnail the platform draws for the file or folder at `path` on the
-/// device's own file system, scaled to fit `size`. `Ok(None)` when it draws
-/// none for this item, which then shows its type icon. Blocks while the
-/// platform renders, so call it on a blocking thread.
-pub fn native_thumbnail(path: &Path, size: ThumbnailSize) -> Result<Option<Thumbnail>> {
-    #[cfg(target_os = "windows")]
-    return windows::thumbnail(path, size);
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
-    return apple::thumbnail(path, size);
+/// Draws thumbnails the platform's way. What it learns about the platform
+/// (on Linux: the type database, the registered thumbnailers, the sandbox and
+/// the thumbnail service) it keeps for its own lifetime, so keep one for as
+/// long as thumbnails are asked for. Clones share that knowledge.
+#[derive(Clone)]
+pub struct Thumbnailer {
     #[cfg(target_os = "linux")]
-    return freedesktop::thumbnail(path, size);
+    freedesktop: Arc<freedesktop::Freedesktop>,
+}
+
+impl Default for Thumbnailer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Thumbnailer {
+    pub fn new() -> Self {
+        Self {
+            #[cfg(target_os = "linux")]
+            freedesktop: Arc::new(freedesktop::Freedesktop::new()),
+        }
+    }
+
+    /// The thumbnail the platform draws for the item at `location`, scaled
+    /// to fit `size`. Items in an Android document tree are drawn by their
+    /// document provider, which `fs` names them to.
+    pub async fn item(
+        &self,
+        fs: &FsIo,
+        location: &Location,
+        size: ThumbnailSize,
+    ) -> Result<Option<Thumbnail>> {
+        match &location.root {
+            Root::FileSystem => {
+                let thumbnailer = self.clone();
+                let path = location.path.clone();
+                task::spawn_blocking(move || thumbnailer.file(&path, size)).await?
+            }
+            Root::DocumentTree { .. } => {
+                let Some(uri) = fs.content_uri(&location.path)? else {
+                    return Ok(None);
+                };
+                task::spawn_blocking(move || document_thumbnail(&uri, size)).await?
+            }
+        }
+    }
+
+    /// The thumbnail the platform draws for the file or folder at `path` on
+    /// the device's own file system, scaled to fit `size`. `Ok(None)` when
+    /// it draws none for this item. Blocks while the platform renders, so
+    /// call it on a blocking thread.
+    pub fn file(&self, path: &Path, size: ThumbnailSize) -> Result<Option<Thumbnail>> {
+        #[cfg(target_os = "windows")]
+        return windows::thumbnail(path, size);
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        return apple::thumbnail(path, size);
+        #[cfg(target_os = "linux")]
+        return self.freedesktop.thumbnail(path, size);
+        // Android apps reach shared files through document providers, which
+        // draw thumbnails for document URIs, not paths.
+        #[cfg(target_os = "android")]
+        {
+            let _ = (path, size);
+            Ok(None)
+        }
+    }
+}
+
+/// The thumbnail a document provider draws for the document at `uri`.
+fn document_thumbnail(uri: &str, size: ThumbnailSize) -> Result<Option<Thumbnail>> {
     #[cfg(target_os = "android")]
+    return android::thumbnail(uri, size);
+    #[cfg(not(target_os = "android"))]
     {
-        let _ = (path, size);
+        let _ = (uri, size);
         Ok(None)
     }
 }
 
-/// A thumbnail of an image file's bytes, turned upright by its EXIF
-/// orientation and scaled to fit `size`. `None` when the bytes are not an
-/// image this decoder reads.
-pub fn decode_image_thumbnail(bytes: &[u8], size: ThumbnailSize) -> Option<Thumbnail> {
-    let mut decoder = ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .ok()?
-        .into_decoder()
-        .ok()?;
-    let orientation = decoder.orientation().ok();
-    let mut image = DynamicImage::from_decoder(decoder).ok()?;
-    if let Some(orientation) = orientation {
-        image.apply_orientation(orientation);
-    }
-    Some(fit(image, size))
-}
-
-/// `image` scaled down to fit `size`, never up.
+/// `image` scaled down to fit `size`, never up. Platforms may draw a larger
+/// thumbnail than asked when that is what they have at hand.
 pub(crate) fn fit(image: DynamicImage, size: ThumbnailSize) -> Thumbnail {
     let ThumbnailSize(edge) = size;
     let image = if image.width() > edge || image.height() > edge {
@@ -80,12 +133,29 @@ pub(crate) fn fit(image: DynamicImage, size: ThumbnailSize) -> Thumbnail {
     }
 }
 
+/// [`fit`] for pixels the platform handed over as straight RGBA rows.
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn fit_pixels(
+    width: u32,
+    height: u32,
+    rgba: Vec<u8>,
+    size: ThumbnailSize,
+) -> Option<Thumbnail> {
+    let image = image::RgbaImage::from_raw(width, height, rgba)?;
+    Some(fit(DynamicImage::ImageRgba8(image), size))
+}
+
 /// Straight alpha from premultiplied: platform bitmaps carry color already
 /// multiplied by alpha. `alpha` is the byte offset of alpha within each
 /// 4-byte pixel; the other three bytes are color.
-#[cfg(any(target_os = "windows", target_os = "macos", target_os = "ios"))]
+#[cfg(any(
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "android"
+))]
 pub(crate) fn unpremultiply(pixels: &mut [u8], alpha: usize) {
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         let a = u32::from(pixel[alpha]);
         if a == 0 || a == 255 {
             continue;
@@ -98,38 +168,27 @@ pub(crate) fn unpremultiply(pixels: &mut [u8], alpha: usize) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_os = "linux")))]
 mod tests {
-    use image::{ImageFormat, Rgba, RgbaImage};
-
     use super::*;
 
-    fn png_bytes(width: u32, height: u32) -> Vec<u8> {
-        let mut image = RgbaImage::new(width, height);
-        image.put_pixel(0, 0, Rgba([255, 0, 0, 255]));
-        let mut bytes = Vec::new();
-        DynamicImage::ImageRgba8(image)
-            .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
-            .unwrap();
-        bytes
-    }
-
     #[test]
-    fn decoded_thumbnails_fit_the_size_and_keep_the_aspect() {
-        let thumbnail = decode_image_thumbnail(&png_bytes(400, 200), ThumbnailSize(100)).unwrap();
-        assert_eq!((thumbnail.width, thumbnail.height), (100, 50));
-        assert_eq!(thumbnail.rgba.len(), 100 * 50 * 4);
+    fn larger_platform_thumbnails_shrink_to_fit_and_smaller_ones_stay() {
+        let wide = fit_pixels(400, 200, vec![255; 400 * 200 * 4], ThumbnailSize(100)).unwrap();
+        assert_eq!((wide.width, wide.height), (100, 50));
+        assert_eq!(wide.rgba.len(), 100 * 50 * 4);
 
-        let small = decode_image_thumbnail(&png_bytes(20, 10), ThumbnailSize(100)).unwrap();
+        let small = fit_pixels(20, 10, vec![7; 20 * 10 * 4], ThumbnailSize(100)).unwrap();
         assert_eq!((small.width, small.height), (20, 10));
-        assert_eq!(&small.rgba[..4], &[255, 0, 0, 255]);
+        assert_eq!(&small.rgba[..4], &[7, 7, 7, 7]);
+
+        assert_eq!(fit_pixels(10, 10, vec![0; 3], ThumbnailSize(100)), None);
     }
 
     #[test]
-    fn bytes_that_are_not_an_image_have_no_thumbnail() {
-        assert_eq!(
-            decode_image_thumbnail(b"fLaC not an image", ThumbnailSize(64)),
-            None
-        );
+    fn premultiplied_color_is_restored() {
+        let mut pixels = vec![64, 32, 0, 128, 10, 20, 30, 255, 9, 9, 9, 0];
+        unpremultiply(&mut pixels, 3);
+        assert_eq!(pixels, [128, 64, 0, 128, 10, 20, 30, 255, 9, 9, 9, 0]);
     }
 }

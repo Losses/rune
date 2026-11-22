@@ -368,6 +368,10 @@ impl FileIo for AndroidFsIo {
         self.open_sync(path, open_mode)
     }
 
+    fn content_uri(&self, path: &Path) -> Result<Option<String>, FileIoError> {
+        self.get_uri(path).map(Some)
+    }
+
     async fn open_async(
         &self,
         path: &Path,

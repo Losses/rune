@@ -237,6 +237,19 @@ impl FileIo for StdFsIo {
         Ok(())
     }
 
+    async fn rename_entry(&self, from: &Path, to: &Path) -> Result<(), FileIoError> {
+        if from.parent() != to.parent() {
+            return Err(FileIoError::InvalidPath);
+        }
+        // rename replaces an existing file on Unix, so a taken name is
+        // checked first. Another program creating the name in between is
+        // the one case this cannot rule out.
+        if fs::symlink_metadata(to).await.is_ok() {
+            return Err(FileIoError::Io(Error::from(ErrorKind::AlreadyExists)));
+        }
+        fs::rename(from, to).await.map_err(FileIoError::Io)
+    }
+
     async fn remove_dir_all(&self, path: &Path) -> Result<(), FileIoError> {
         fs::remove_dir_all(path).await.map_err(FileIoError::Io)
     }

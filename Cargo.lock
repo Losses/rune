@@ -2717,6 +2717,7 @@ dependencies = [
  "fsio",
  "image",
  "jni 0.21.1",
+ "libc",
  "log",
  "md5",
  "ndk-saf",
@@ -2731,6 +2732,7 @@ dependencies = [
  "thiserror 1.0.65",
  "tokio",
  "windows 0.62.2",
+ "zbus",
 ]
 
 [[package]]
@@ -3324,6 +3326,7 @@ dependencies = [
  "env_logger",
  "flutter-texture",
  "fsio",
+ "fsio_browse",
  "futures",
  "futures-channel",
  "futures-util",

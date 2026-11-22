@@ -4,7 +4,7 @@
 use std::env;
 use std::path::Path;
 
-use fsio_browse::{ThumbnailSize, native_thumbnail, system_places};
+use fsio_browse::{ThumbnailSize, Thumbnailer, system_places};
 
 fn main() {
     let places = system_places();
@@ -23,8 +23,9 @@ fn main() {
             volume.kind, volume.label, volume.location.path, volume.space
         );
     }
+    let thumbnailer = Thumbnailer::new();
     for file in env::args().skip(1) {
-        match native_thumbnail(Path::new(&file), ThumbnailSize(256)) {
+        match thumbnailer.file(Path::new(&file), ThumbnailSize(256)) {
             Ok(Some(thumbnail)) => println!("{file}: {}x{}", thumbnail.width, thumbnail.height),
             Ok(None) => println!("{file}: no thumbnail"),
             Err(error) => println!("{file}: {error:#}"),
