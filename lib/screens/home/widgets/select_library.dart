@@ -34,7 +34,8 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
         .where(
           (record) => switch (record.kind) {
             LibraryRecordKindSummaryLocal() ||
-            LibraryRecordKindSummaryReplica() => true,
+            LibraryRecordKindSummaryReplica() ||
+            LibraryRecordKindSummarySubsonic() => true,
             _ => false,
           },
         )
@@ -101,17 +102,21 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
                           _ => '',
                         };
                         final fileName = switch (record.kind) {
-                          LibraryRecordKindSummaryReplica() => record.alias,
+                          LibraryRecordKindSummaryReplica() ||
+                          LibraryRecordKindSummarySubsonic() => record.alias,
                           _ => localFolderName(itemPath),
                         };
 
                         return SettingsButton(
-                          icon: Symbols.folder,
+                          icon: record.kind is LibraryRecordKindSummarySubsonic
+                              ? Symbols.music_note
+                              : Symbols.folder,
                           title: fileName,
-                          subtitle: describeLibraryPath(
-                            S.of(context),
-                            itemPath,
-                          ),
+                          subtitle: switch (record.kind) {
+                            LibraryRecordKindSummarySubsonic(:final endpoint) =>
+                              endpoint,
+                            _ => describeLibraryPath(S.of(context), itemPath),
+                          },
                           onPressed: () async {
                             try {
                               await openLibraryWithSubsonicRelogin(
