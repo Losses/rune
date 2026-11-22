@@ -361,9 +361,11 @@ impl SymphoniaDecoder {
         decoded.spec().clone_into(&mut self.spec);
         self.buffer = Self::get_buffer(decoded, &self.spec);
         self.current_frame_offset = samples_to_pass as usize * self.channels() as usize;
-        // Some codecs (e.g. Vorbis) emit an empty first packet after a reset. A seek that stops
-        // on it would report success with an empty buffer, which consumers treat as the end.
-        if self.buffer.is_empty() && !self.decode_next_buffer() {
+        // Some codecs (e.g. Vorbis) emit an empty first packet after a reset. Mid-track, a seek
+        // that stops on it would report success with an empty buffer, which consumers treat as
+        // the end, so decode the next packet. At a confirmed end there is nothing left to decode,
+        // and the empty buffer is the end rather than a failed seek.
+        if self.buffer.is_empty() && !self.decode_next_buffer() && !self.at_end {
             return Err(unsupported_seek());
         }
         Ok(())
@@ -634,6 +636,11 @@ impl Source for SymphoniaDecoder {
             Err(e) => return Err(source::SeekError::Other(Box::new(e))),
         };
 
+        // A seek is discontinuous with the last decoded packet. Stateful codecs keep overlap or
+        // reservoir data from the old position, so Symphonia requires a reset before the
+        // decoder sees packets from the new one.
+        self.decoder.reset();
+
         self.refine_position(seek_res)?;
         self.current_frame_offset += to_skip;
 
@@ -786,12 +793,16 @@ mod tests {
     use super::*;
     use crate::buffered::rune_buffered;
     use crate::player::UnavailableReason;
+    use std::borrow::Cow;
     use std::fs::File;
     use std::io;
     use std::io::Cursor;
     use std::io::{BufReader, Error as IoError};
     use std::panic;
     use std::path::{Path, PathBuf};
+    use symphonia::core::audio::{AudioBuffer, Channels, Signal};
+    use symphonia::core::codecs::{CodecDescriptor, CodecParameters, FinalizeResult};
+    use symphonia::core::formats::Packet;
 
     fn fixture(name: &str) -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -824,6 +835,75 @@ mod tests {
             .filter(|pair| pair[0] <= 0 && pair[1] > 0)
             .count();
         crossings as f64 * f64::from(rate) / samples.len() as f64
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum DecoderCall {
+        Decode,
+        Reset,
+    }
+
+    /// A decoder that records the calls made to it, so a test can check that a seek resets it
+    /// before the first post-seek decode.
+    struct RecordingDecoder {
+        calls: Arc<Mutex<Vec<DecoderCall>>>,
+        params: CodecParameters,
+        last: AudioBuffer<f32>,
+    }
+
+    impl Decoder for RecordingDecoder {
+        fn try_new(_: &CodecParameters, _: &DecoderOptions) -> std::result::Result<Self, Error> {
+            Err(Error::Unsupported(
+                "the recording decoder is built directly",
+            ))
+        }
+
+        fn supported_codecs() -> &'static [CodecDescriptor] {
+            &[]
+        }
+
+        fn reset(&mut self) {
+            self.calls.lock().unwrap().push(DecoderCall::Reset);
+        }
+
+        fn codec_params(&self) -> &CodecParameters {
+            &self.params
+        }
+
+        fn decode(&mut self, _packet: &Packet) -> std::result::Result<AudioBufferRef<'_>, Error> {
+            self.calls.lock().unwrap().push(DecoderCall::Decode);
+            Ok(AudioBufferRef::F32(Cow::Borrowed(&self.last)))
+        }
+
+        fn finalize(&mut self) -> FinalizeResult {
+            FinalizeResult { verify_ok: None }
+        }
+
+        fn last_decoded(&self) -> AudioBufferRef<'_> {
+            AudioBufferRef::F32(Cow::Borrowed(&self.last))
+        }
+    }
+
+    /// Builds a `SymphoniaDecoder` over a real Ogg file, with a recording decoder in place of the
+    /// codec so the test can see the calls a seek makes.
+    fn recording_decoder(calls: Arc<Mutex<Vec<DecoderCall>>>) -> SymphoniaDecoder {
+        let file = File::open(fixture("tone_440_44100.ogg")).expect("open ogg file");
+        let mss = MediaSourceStream::new(Box::new(file), Default::default());
+        let mut decoder =
+            SymphoniaDecoder::new(mss, Some("ogg")).expect("create symphonia decoder");
+
+        let spec = SignalSpec::new(44_100, Channels::FRONT_LEFT);
+        let mut last = AudioBuffer::<f32>::new(units::Duration::from(4u64), spec);
+        last.render_reserved(Some(4));
+        for (index, sample) in last.chan_mut(0).iter_mut().enumerate() {
+            *sample = index as f32 / 4.0;
+        }
+        decoder.decoder = Box::new(RecordingDecoder {
+            calls,
+            params: CodecParameters::default(),
+            last,
+        });
+        decoder
     }
 
     struct RevokedReader;
@@ -1305,5 +1385,152 @@ mod tests {
         remove(&path);
         let tone = frequency(&samples, 44_100);
         assert!((tone - 660.0).abs() < 10.0, "second stream is {tone} Hz");
+    }
+
+    #[test]
+    fn a_seek_resets_the_decoder_before_decoding_at_the_new_position() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let mut decoder = recording_decoder(calls.clone());
+
+        // Consume the packet decoded during construction, then decode one more packet so the
+        // seek is discontinuous with a packet this decoder produced.
+        let initial = decoder.buffer.len();
+        for _ in 0..initial {
+            assert!(decoder.next().is_some(), "the initial packet must decode");
+        }
+        calls.lock().unwrap().clear();
+
+        decoder
+            .try_seek(Duration::from_secs(1))
+            .expect("seek within the tone");
+
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec![DecoderCall::Reset, DecoderCall::Decode],
+            "a discontinuous seek must reset the decoder before the first post-seek decode"
+        );
+    }
+
+    fn decode_all(path: &str) -> Vec<i16> {
+        let file = File::open(path).expect("open ogg file");
+        RuneDecoder::new(BufReader::new(file), Some("ogg"))
+            .expect("create rune decoder for ogg")
+            .collect()
+    }
+
+    /// Finds where `actual` resumes in `reference` near `expected_start`. A decoder reset makes
+    /// the first decoded packet prime the codec's overlap, so the resumed position can be up to
+    /// one packet later. The samples themselves must still match exactly.
+    fn matching_offset(
+        actual: &[i16],
+        reference: &[i16],
+        expected_start: usize,
+        max_shift: usize,
+        channels: usize,
+        context: &str,
+    ) -> usize {
+        let window = 2_048 * channels;
+        assert!(
+            actual.len() >= window,
+            "{context}: only {} samples after the seek",
+            actual.len()
+        );
+        let low = expected_start.saturating_sub(max_shift);
+        let high = (expected_start + max_shift).min(reference.len().saturating_sub(window));
+        let mut best = (i64::MAX, expected_start);
+        for start in low..=high {
+            let difference: i64 = actual[..window]
+                .iter()
+                .zip(&reference[start..start + window])
+                .map(|(actual, expected)| (*actual as i64 - *expected as i64).abs())
+                .sum();
+            if difference < best.0 {
+                best = (difference, start);
+            }
+        }
+        assert_eq!(
+            best.0,
+            0,
+            "{context}: no exact match within {max_shift} samples of the requested position \
+             (best offset {}, mean difference {})",
+            best.1 as i64 - expected_start as i64,
+            best.0 as f64 / window as f64
+        );
+        best.1
+    }
+
+    fn assert_seek_resumes(
+        reference: &[i16],
+        seek_to: Duration,
+        target: usize,
+        take: Option<usize>,
+        context: &str,
+    ) {
+        let path = "../assets/startup_0.ogg";
+        let channels = 2usize;
+        let rate = 44_100usize;
+        let file = File::open(path).expect("open ogg file");
+        let mut decoder = RuneDecoder::new(BufReader::new(file), Some("ogg"))
+            .expect("create rune decoder for ogg");
+        assert_eq!(decoder.channels() as usize, channels);
+        assert_eq!(decoder.sample_rate() as usize, rate);
+
+        for _ in 0..rate * channels / 2 {
+            assert!(
+                decoder.next().is_some(),
+                "the first half second must decode"
+            );
+        }
+
+        decoder.try_seek(seek_to).expect("seek within the track");
+        // Leave one maximum Vorbis block so the comparison starts after the packet that primes
+        // the reset decoder.
+        let settle = 8_192 * channels;
+        let after: Vec<i16> = match take {
+            Some(frames) => decoder.by_ref().take(settle + frames * channels).collect(),
+            None => decoder.by_ref().collect(),
+        };
+        assert!(
+            after.len() > settle,
+            "the seek must leave samples to compare"
+        );
+
+        let resumed = matching_offset(
+            &after[settle..],
+            reference,
+            target + settle,
+            8_192 * channels,
+            channels,
+            context,
+        );
+        assert_eq!(
+            &after[settle..],
+            &reference[resumed..resumed + after.len() - settle],
+            "{context} must match the same position decoded from the start"
+        );
+    }
+
+    #[test]
+    fn a_seek_resumes_with_correct_samples_and_channel_phase() {
+        let reference = decode_all("../assets/startup_0.ogg");
+        assert_seek_resumes(
+            &reference,
+            Duration::from_secs(5),
+            5 * 44_100 * 2,
+            Some(4_096),
+            "samples after a seek",
+        );
+    }
+
+    #[test]
+    fn a_near_end_seek_resumes_with_correct_samples_and_channel_phase() {
+        let reference = decode_all("../assets/startup_0.ogg");
+        assert_seek_resumes(
+            &reference,
+            Duration::from_millis(8_500),
+            8_500 * 44_100 / 1_000 * 2,
+            None,
+            "samples after a near-end seek",
+        );
     }
 }
