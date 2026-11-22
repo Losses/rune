@@ -21,6 +21,12 @@ Future<void> showM3u8ImportResultDialog(
   );
 }
 
+/// Shows the partial-success dialog for an M3U8 import that needs attention.
+///
+/// [notFoundPaths] lists entries that matched no library track.
+/// [ambiguousPaths] lists entries that matched more than one track; the import
+/// selected one match for each. Each non-empty list gets its own localized
+/// heading.
 Future<void> showCreateImportM3u8SuccessDialog(
   BuildContext context, {
   required List<String> notFoundPaths,

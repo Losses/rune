@@ -141,6 +141,10 @@ pub struct CreateM3u8PlaylistResponse {
     pub not_found_paths: Vec<String>,
     #[serde(default)]
     pub call_id: Option<u64>,
+    /// Playlist entries that matched more than one file in the library.
+    ///
+    /// The import still adds the match with the highest database ID for each
+    /// entry.
     #[serde(default)]
     pub ambiguous_paths: Vec<String>,
 }
