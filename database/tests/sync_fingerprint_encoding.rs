@@ -448,6 +448,10 @@ async fn schema_1_upgrade_preserves_remote_accepted_statistics_and_forwards_them
     // Device B is unavailable while A upgrades and syncs to C.
     drop(b);
 
+    // Older schema 1 databases could sync statistics before export cursors existed.
+    a.db.execute_unprepared("DROP TABLE sync_export_cursors")
+        .await?;
+
     let upgraded_a = LibrarySyncStore::open(a.db.clone(), actor_a, Some(namespace)).await?;
     assert_eq!(
         namespace_model_on(&a.db, namespace)

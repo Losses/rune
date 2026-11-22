@@ -430,6 +430,8 @@ pub async fn clear_namespace_on(
     tx: &DatabaseTransaction,
     namespace: uuid::Uuid,
 ) -> Result<u64, DbErr> {
+    // Historical databases can be reset before the replica open path upgrades this table.
+    ensure_export_cursors_on(tx).await?;
     let mut removed = 0;
     for (name, _, _) in TABLES.iter().rev() {
         let query = Query::delete()
