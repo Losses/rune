@@ -240,6 +240,17 @@ async fn fetch_remote_playlist(
     ))
 }
 
+/// A playlist's songs in the server's order, repeats included.
+async fn playlist_songs(binding: &SubsonicBinding, id: i32) -> Result<Vec<SubsonicSong>> {
+    let remote_id = resolve_playlist_id(binding, id)?;
+    Ok(binding
+        .client
+        .playlist(&remote_id)
+        .await
+        .map_err(subsonic_request_error)?
+        .songs)
+}
+
 /// The server's playlists, under the IDs this library gives them.
 async fn interned_playlists(binding: &SubsonicBinding) -> Result<Vec<(i32, SubsonicPlaylist)>> {
     let remote = binding
@@ -591,13 +602,7 @@ pub(crate) async fn fetch_playlist_occurrences_request(
         .into());
     }
     let after = occurrence_page_cursor(request.after.as_ref())?;
-    let remote_id = resolve_playlist_id(binding, request.playlist_id)?;
-    let songs = binding
-        .client
-        .playlist(&remote_id)
-        .await
-        .map_err(subsonic_request_error)?
-        .songs;
+    let songs = playlist_songs(binding, request.playlist_id).await?;
     let fingerprint = playlist_fingerprint(songs.iter().map(|song| song.id.as_str()));
     let start = match after {
         None => 0,
@@ -2214,19 +2219,22 @@ pub(crate) async fn mix_query_request(
     }))
 }
 
-/// A track list a click plays from: the tracks page, or an artist's or album's tracks.
+/// A track list a click plays from: the tracks page, an artist's or album's tracks, or a
+/// playlist's entries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TrackListQuery {
     All,
     Detail(DetailQuery),
+    Playlist(i32),
 }
 
 fn parse_track_list_query(queries: &[MixQuery]) -> Result<TrackListQuery> {
-    if let [query] = queries
-        && let Ok(QueryOperator::LibAll(true)) =
-            QueryOperator::parse(&query.operator, &query.parameter)
-    {
-        return Ok(TrackListQuery::All);
+    if let [query] = queries {
+        match QueryOperator::parse(&query.operator, &query.parameter) {
+            Ok(QueryOperator::LibAll(true)) => return Ok(TrackListQuery::All),
+            Ok(QueryOperator::LibPlaylist(id)) => return Ok(TrackListQuery::Playlist(id)),
+            _ => {}
+        }
     }
     match parse_detail_query(queries, ResolveMixQueryRequest::wire_name())? {
         // A random list cannot be listed again, so a click in it cannot be resolved.
@@ -2308,6 +2316,7 @@ pub(crate) async fn resolve_mix_query_request(
         let songs = match query {
             TrackListQuery::All => tracks_page_songs(binding).await?,
             TrackListQuery::Detail(query) => detail_songs(binding, query).await?,
+            TrackListQuery::Playlist(id) => playlist_songs(binding, id).await?,
         };
         songs
             .into_iter()
@@ -4479,6 +4488,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_playlist_resolves_to_its_entries_in_order_with_repeats() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) =
+            mock_subsonic_mode(&root, false, SubsonicOpenMode::PlayOnThisDevice).await;
+        let library = binding.library_id;
+        let playlist = playlist_ids(&binding).await["Road"].to_string();
+        let road = [("lib::playlist", playlist.as_str())];
+        let entries = library_tracks(library, &["song-1", "song-2", "song-1"]);
+
+        let clicked = click_resolve(&road, 2, library_track(library, "song-1"))
+            .translate(&binding)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(clicked.playing_items, entries);
+        assert_eq!(clicked.start_index, Some(2));
+        assert_eq!(
+            server
+                .state
+                .requests
+                .lock()
+                .unwrap()
+                .last()
+                .map(String::as_str),
+            Some("getPlaylist")
+        );
+
+        // Start Playing on the playlist's tile names no track.
+        let mut started = click_resolve(&road, -1, library_track(library, "song-1"));
+        started.initial_playback_item = None;
+        let started = started.translate(&binding).await.unwrap().unwrap();
+        assert_eq!(started.playing_items, entries);
+        assert_eq!(started.start_index, Some(0));
+
+        let mut queued = click_resolve(&road, -1, library_track(library, "song-1"));
+        queued.initial_playback_item = None;
+        queued.instantly_play = false;
+        queued.excluded.items = vec![library_track(library, "song-2")];
+        let queued = queued.translate(&binding).await.unwrap().unwrap();
+        assert_eq!(
+            queued.playing_items,
+            library_tracks(library, &["song-1", "song-1"])
+        );
+        assert_eq!(queued.start_index, None);
+    }
+
+    #[tokio::test]
     async fn resolving_leaves_out_the_queue_and_falls_back_like_a_local_library() {
         let root = TempDir::new().unwrap();
         let (binding, _server) =
@@ -4562,6 +4618,20 @@ mod tests {
                 request: "ResolveMixQueryRequest",
                 reason: UnsupportedReason::NotImplemented,
             })
+        ));
+
+        let unlisted_playlist = click_resolve(
+            &[("lib::playlist", "9999")],
+            0,
+            library_track(binding.library_id, "song-1"),
+        )
+        .translate(&binding)
+        .await
+        .err()
+        .unwrap();
+        assert!(matches!(
+            unlisted_playlist.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::InvalidInput { .. })
         ));
 
         let foreign = click_resolve(
