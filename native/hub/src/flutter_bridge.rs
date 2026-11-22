@@ -45,6 +45,7 @@ use std::ffi;
 use std::mem;
 #[cfg(target_os = "android")]
 use std::panic;
+#[cfg(target_os = "linux")]
 use visualizer::SharedFrame;
 
 /// Whether the visualizer is shown through `flutter_texture` here (else not at all).
@@ -297,7 +298,7 @@ struct SharedImage(Arc<::visualizer::Frame>);
 impl SharedImage {
     fn export(
         &self,
-        export: impl FnOnce(&::visualizer::SharedFrame) -> anyhow::Result<OwnedFd>,
+        export: impl FnOnce(&SharedFrame) -> anyhow::Result<OwnedFd>,
     ) -> Result<OwnedFd, String> {
         let image = self
             .0
