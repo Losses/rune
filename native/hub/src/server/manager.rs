@@ -5631,10 +5631,12 @@ mod lifecycle_tests {
         use discovery::ssl;
         use playback::player::AudioRequest;
 
+        type RecordedRequests = Arc<StdMutex<Vec<(Method, String, StatusCode)>>>;
+
         #[derive(Clone, Default)]
         struct Faults {
             reject_next_authorize: Arc<AtomicBool>,
-            requests: Arc<StdMutex<Vec<(Method, String, StatusCode)>>>,
+            requests: RecordedRequests,
         }
 
         async fn record(
@@ -5821,7 +5823,7 @@ mod lifecycle_tests {
             "a transient rejection cancelled the authorized stream"
         );
 
-        let requests = faults.requests.lock().unwrap();
+        let requests = faults.requests.lock().unwrap().clone();
         let authorize_statuses: Vec<_> = requests
             .iter()
             .filter(|(_, path, _)| path == "/sync/authorize")
@@ -5840,7 +5842,6 @@ mod lifecycle_tests {
             3,
             "unexpected challenge sequence: {requests:?}"
         );
-        drop(requests);
 
         server.abort();
         client.global_params.node.shutdown().await?;

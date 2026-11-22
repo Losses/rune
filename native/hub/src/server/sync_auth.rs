@@ -602,8 +602,10 @@ mod tests {
         let _ = fs::remove_dir_all(dir);
     }
 
+    type RecordedRequests = Arc<Mutex<Vec<(Method, String, StatusCode)>>>;
+
     async fn record_auth_request(
-        State(recorded): State<Arc<Mutex<Vec<(Method, String, StatusCode)>>>>,
+        State(recorded): State<RecordedRequests>,
         request: axum::extract::Request,
         next: Next,
     ) -> Response {
