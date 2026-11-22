@@ -24,12 +24,15 @@ LibraryRecordSummary _record() => const LibraryRecordSummary(
   kind: LibraryRecordKindSummaryLocal(libraryId: 'library-1', path: '/music'),
 );
 
-LibraryRegistryProvider _emptyRegistry() => LibraryRegistryProvider(
+LibraryRegistryProvider _emptyRegistry({
+  Future<void> Function(String path)? saveBookmark,
+}) => LibraryRegistryProvider(
   loadRecords: () async => ListLibraryRecordsResponse(
     records: const [],
     invalidRecords: const [],
     lastOpenRecord: null,
   ),
+  saveBookmark: saveBookmark,
 );
 
 LibraryManagerProvider _testManager() =>
@@ -356,7 +359,7 @@ void main() {
       tester,
     ) async {
       final modes = <LibraryInitializeMode?>[];
-      final opened = <String>[];
+      final steps = <String>[];
       final scans = <String>[];
       final registry = LibraryRegistryProvider(
         loadRecords: () async => ListLibraryRecordsResponse(
@@ -364,6 +367,7 @@ void main() {
           invalidRecords: const [],
           lastOpenRecord: null,
         ),
+        saveBookmark: (path) async => steps.add('bookmark $path'),
         registerLocal: (path, alias, mode) async {
           expect(path, '/picked/music');
           expect(alias, 'music');
@@ -378,7 +382,7 @@ void main() {
                 );
         },
         openRecord: (recordId, callId) async {
-          opened.add(recordId);
+          steps.add('open $recordId');
           return _opened(recordId, callId);
         },
       );
@@ -408,7 +412,7 @@ void main() {
                       outcome: const RegisterLibraryOutcomeRegistered(),
                     );
                   },
-                  openRecord: (recordId) async => opened.add(recordId),
+                  openRecord: (recordId) async => steps.add('open $recordId'),
                   scanLibrary: (recordId) async => scans.add(recordId),
                 ),
               ),
@@ -434,7 +438,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(modes, [expectedMode]);
-      expect(opened, ['record-1']);
+      expect(steps, ['bookmark /picked/music', 'open record-1']);
       expect(scans, hasLength(1));
       expect(scans, ['record-1']);
     });
@@ -444,9 +448,11 @@ void main() {
     tester,
   ) async {
     final modes = <LibraryInitializeMode?>[];
-    final opened = <String>[];
+    final steps = <String>[];
     final scans = <String>[];
-    final registry = _emptyRegistry();
+    final registry = _emptyRegistry(
+      saveBookmark: (path) async => steps.add('bookmark $path'),
+    );
     final manager = _testManager();
     addTearDown(registry.dispose);
     addTearDown(manager.dispose);
@@ -468,7 +474,7 @@ void main() {
                     outcome: const RegisterLibraryOutcomeRegistered(),
                   );
                 },
-                openRecord: (recordId) async => opened.add(recordId),
+                openRecord: (recordId) async => steps.add('open $recordId'),
                 scanLibrary: (recordId) async => scans.add(recordId),
               ),
             ),
@@ -485,7 +491,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Library Setup'), findsNothing);
     expect(modes, [null]);
-    expect(opened, ['record-1']);
+    expect(steps, ['bookmark /picked/music', 'open record-1']);
     expect(scans, isEmpty);
   });
 

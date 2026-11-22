@@ -18,7 +18,6 @@ import '../../../utils/dialogs/information/error.dart';
 import '../../../utils/dialogs/subsonic/subsonic_relogin_dialog.dart';
 import '../../../utils/l10n.dart';
 import '../../../utils/library_ui/library_ui_state.dart';
-import '../../../utils/file_storage/mac_secure_manager.dart';
 import '../../../utils/router/navigation.dart';
 import '../../../widgets/no_shortcuts.dart';
 import '../../../widgets/subtitle_button.dart';
@@ -450,7 +449,7 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
               registry.registerLocalFolder)(path, alias, mode);
       final record = response.record;
       if (record == null) throw StateError('Registration returned no record');
-      await MacSecureManager().saveBookmark(path);
+      await registry.saveFolderBookmark(path);
       if (!mounted) return;
       if (widget.dependencies.openRecord case final openRecord?) {
         await openRecord(record.recordId);

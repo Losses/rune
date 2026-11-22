@@ -47,9 +47,7 @@ Future<LibraryRecordSummary?> registerAndOpenLocalFolder(
       response.record == null) {
     return null;
   }
-  // A sandboxed macOS app can reopen a user-picked folder after a restart only
-  // through a security-scoped bookmark taken now; other platforms skip this.
-  await MacSecureManager().saveBookmark(path);
+  await registry.saveFolderBookmark(path);
   await registry.open(response.record!.recordId);
   return response.record;
 }
@@ -73,6 +71,7 @@ class LibraryRegistryProvider extends ChangeNotifier {
     registerLocal,
     Future<RegisterLibraryResponse> Function(String fingerprint, String alias)?
     registerRemote,
+    Future<void> Function(String path)? saveBookmark,
     Future<void> Function()? closeRecord,
     Future<RemoveLibraryRecordResponse> Function(String recordId)? removeRecord,
     Stream<RustSignalPack<LibraryRecordsChanged>>? recordsChanged,
@@ -81,6 +80,7 @@ class LibraryRegistryProvider extends ChangeNotifier {
        _replaceCredential = replaceCredential,
        _registerLocal = registerLocal,
        _registerRemote = registerRemote,
+       _saveBookmark = saveBookmark,
        _closeRecord = closeRecord,
        _removeRecord = removeRecord {
     _recordsSubscription =
@@ -119,6 +119,7 @@ class LibraryRegistryProvider extends ChangeNotifier {
   _registerLocal;
   final Future<RegisterLibraryResponse> Function(String, String)?
   _registerRemote;
+  final Future<void> Function(String)? _saveBookmark;
   final Future<void> Function()? _closeRecord;
   final Future<RemoveLibraryRecordResponse> Function(String)? _removeRecord;
 
@@ -203,6 +204,13 @@ class LibraryRegistryProvider extends ChangeNotifier {
   ) => _replaceCredential == null
       ? library_api.replaceSubsonicCredential(recordId, username, password)
       : _replaceCredential(recordId, username, password);
+
+  /// Keeps access to a folder the user just registered. A sandboxed macOS app
+  /// can reopen a user-picked folder after a restart only through a
+  /// security-scoped bookmark taken now; other platforms skip this.
+  Future<void> saveFolderBookmark(String path) => _saveBookmark == null
+      ? MacSecureManager().saveBookmark(path)
+      : _saveBookmark(path);
 
   Future<RegisterLibraryResponse> registerLocalFolder(
     String path,
