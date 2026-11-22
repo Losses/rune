@@ -86,17 +86,20 @@ void main() {
       ),
     );
     final watch = Stopwatch()..start();
+    final context = tester.element(find.byType(MixStudioDialog));
+    final labels = AppLocalizations.of(context)!;
+    final save = find.widgetWithText(FilledButton, labels.save);
     final title = find.byWidgetPredicate(
       (w) => w is EditableText && w.controller.text == original.name,
     );
-    while (title.evaluate().isEmpty &&
+    while ((title.evaluate().isEmpty ||
+            tester.widget<FilledButton>(save).onPressed == null) &&
         watch.elapsed < const Duration(seconds: 15)) {
       await tester.pump(const Duration(milliseconds: 50));
     }
     expect(title, findsOneWidget);
+    expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
     await tester.enterText(title, 'Evening walks');
-    final context = tester.element(find.byType(MixStudioDialog));
-    final labels = AppLocalizations.of(context)!;
     final section = find.byWidgetPredicate(
       (w) => w is SelectInputSection && w.title == labels.mode,
     );
@@ -130,7 +133,7 @@ void main() {
       await tester.tap(find.text(label).hitTestable().last);
       await tester.pumpAndSettle();
     }
-    await tester.tap(find.widgetWithText(FilledButton, labels.save));
+    await tester.tap(save);
     expect(
       (await closed.future.timeout(const Duration(seconds: 15)))?.id,
       original.id,
