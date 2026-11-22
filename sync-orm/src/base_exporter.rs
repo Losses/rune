@@ -116,19 +116,11 @@ pub async fn export_base<M: p::SyncModel>(
             return Err(error);
         }
     };
-    let mut covers = options.covers.clone();
-    covers.insert(
-        options.own_prefix.clone(),
-        share::Checkpoint {
-            seq: descriptor.head.sequence,
-            anchor: descriptor.head.anchor,
-        },
-    );
     let mut export = BaseExport {
         base_id: String::new(),
         manifest: share::BaseManifest {
             format: share::FORMAT_VERSION,
-            covers,
+            covers: options.covers.clone(),
             collections: BTreeMap::new(),
         },
         objects: Vec::new(),
@@ -155,6 +147,25 @@ async fn build_export<M: p::SyncModel>(
     options: BaseExportOptions,
     export: &mut BaseExport<M>,
 ) -> Result<()> {
+    // The first segment starts at the share stream's genesis, not the local
+    // database's genesis. A nonempty snapshot already has its cut anchor.
+    let anchor = if descriptor.head.sequence == 0 {
+        let prefix: share::DevicePrefix = options.own_prefix.parse()?;
+        p::initial_anchor(&p::StoreIdentity {
+            replica: prefix.stream,
+            generation: prefix.generation,
+            ..descriptor.source.clone()
+        })?
+    } else {
+        descriptor.head.anchor
+    };
+    export.manifest.covers.insert(
+        options.own_prefix.clone(),
+        share::Checkpoint {
+            seq: descriptor.head.sequence,
+            anchor,
+        },
+    );
     let mut chunk_objects = Vec::new();
     let mut emitted_chunks = BTreeSet::new();
     let mut context_objects = Vec::new();
