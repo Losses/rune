@@ -35,7 +35,8 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
           (record) => switch (record.kind) {
             LibraryRecordKindSummaryLocal() ||
             LibraryRecordKindSummaryReplica() ||
-            LibraryRecordKindSummarySubsonic() => true,
+            LibraryRecordKindSummarySubsonic() ||
+            LibraryRecordKindSummaryOpenDal() => true,
             _ => false,
           },
         )
@@ -103,18 +104,24 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
                         };
                         final fileName = switch (record.kind) {
                           LibraryRecordKindSummaryReplica() ||
-                          LibraryRecordKindSummarySubsonic() => record.alias,
+                          LibraryRecordKindSummarySubsonic() ||
+                          LibraryRecordKindSummaryOpenDal() => record.alias,
                           _ => localFolderName(itemPath),
                         };
 
                         return SettingsButton(
-                          icon: record.kind is LibraryRecordKindSummarySubsonic
-                              ? Symbols.music_note
-                              : Symbols.folder,
+                          icon: switch (record.kind) {
+                            LibraryRecordKindSummarySubsonic() =>
+                              Symbols.music_note,
+                            LibraryRecordKindSummaryOpenDal() => Symbols.cloud,
+                            _ => Symbols.folder,
+                          },
                           title: fileName,
                           subtitle: switch (record.kind) {
-                            LibraryRecordKindSummarySubsonic(:final endpoint) =>
-                              endpoint,
+                            LibraryRecordKindSummarySubsonic(:final endpoint) ||
+                            LibraryRecordKindSummaryOpenDal(
+                              :final endpoint,
+                            ) => endpoint,
                             _ => describeLibraryPath(S.of(context), itemPath),
                           },
                           onPressed: () async {
