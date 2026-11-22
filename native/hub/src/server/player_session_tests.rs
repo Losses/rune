@@ -345,6 +345,10 @@ async fn subsonic_hub_response(
         "getPlaylists" => {
             json!({ "subsonic-response": { "status": "ok", "playlists": { "playlist": { "id": "playlist-opaque", "name": "Road" } } } })
         }
+        "getPlaylist" => {
+            let entry = |id: &str, title: &str| json!({ "id": id, "title": title, "artist": "Artist", "album": "Album", "duration": 90 });
+            json!({ "subsonic-response": { "status": "ok", "playlist": { "id": "playlist-opaque", "name": "Road", "entry": [ entry("song-a", "A"), entry("song-b", "B"), entry("song-a", "A") ] } } })
+        }
         "getAlbum" => {
             json!({ "subsonic-response": { "status": "ok", "album": { "id": "album-opaque", "name": "Album", "artist": "Artist", "artistId": "artist-opaque", "song": [ { "id": "song-later", "title": "Later disc", "artist": "Artist", "album": "Album", "discNumber": 2, "track": 1, "duration": 90 }, { "id": "song-first", "title": "First disc", "artist": "Artist", "album": "Album", "discNumber": 1, "track": 8, "duration": 100 } ] } } })
         }
@@ -1298,6 +1302,75 @@ async fn clicked_subsonic_tracks_play_on_this_device() -> Result<()> {
     );
 
     fixture.global_params.player.lock().await.stop();
+    server.abort();
+    node.close_ui(&fixture.global_params.main_token).await;
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn subsonic_playlist_detail_lists_its_occurrences_in_order() -> Result<()> {
+    use crate::messages::{FetchPlaylistOccurrencesRequest, FetchPlaylistOccurrencesResponse};
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, calls, _, _, _, server) = subsonic_hub_mock(false).await;
+    let registered = register_subsonic_library_on_node(
+        &subsonic_registration_request(
+            endpoint,
+            "test-secret",
+            Some(SubsonicOpenModeMessage::PlayOnThisDevice),
+        ),
+        &node,
+    )
+    .await?;
+    let record = registered.record.context("Subsonic record")?;
+    open_registered_library_record(node.clone(), record.record_id).await?;
+
+    let playlist_id = dispatch_gui_request(
+        &fixture.global_params,
+        &FetchAllPlaylistsRequest { call_id: None },
+    )
+    .await?
+    .context("Subsonic playlist list")?
+    .playlists[0]
+        .id;
+    let page = |after| FetchPlaylistOccurrencesRequest {
+        request_id: "playlist-detail".into(),
+        playlist_id,
+        after,
+        page_size: 2,
+        bake_cover_arts: true,
+        call_id: None,
+    };
+    let listed = |page: &FetchPlaylistOccurrencesResponse| {
+        page.entries
+            .iter()
+            .map(|entry| {
+                let file = entry.file.as_ref().expect("a listed Subsonic entry has its track");
+                (entry.position, file.track.clone(), file.title.clone())
+            })
+            .collect::<Vec<_>>()
+    };
+    let first = dispatch_gui_request(&fixture.global_params, &page(None))
+        .await?
+        .context("first playlist page")?;
+    assert_eq!(first.request_id, "playlist-detail");
+    assert_eq!(
+        listed(&first),
+        [(0, "song-a".into(), "A".into()), (1, "song-b".into(), "B".into())]
+    );
+    let second = dispatch_gui_request(&fixture.global_params, &page(first.next.clone()))
+        .await?
+        .context("second playlist page")?;
+    assert_eq!(listed(&second), [(2, "song-a".into(), "A".into())]);
+    assert!(second.next.is_none());
+    assert_eq!(
+        calls.lock().unwrap().last().map(String::as_str),
+        Some("getPlaylist")
+    );
+
     server.abort();
     node.close_ui(&fixture.global_params.main_token).await;
     node.shutdown().await?;
