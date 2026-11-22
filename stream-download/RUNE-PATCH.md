@@ -49,6 +49,12 @@ This is stream-download 0.24.5 from crates.io, with its original licenses, used 
   exits. Tests:
   `src/process/exit_status_tests.rs` (`--features process`); on unpatched 0.24.5 the
   nonzero-exit and cancel-after-EOF tests fail.
+- Stream item errors (`src/source/mod.rs`, `Source::handle_bytes`): an error from a stream
+  that cannot seek, such as an `AsyncRead` reader, fails the download, so the reader gets an
+  I/O error instead of a normal end of stream. The wrapped reader stream ends after an error,
+  and without seeking nothing can fetch the missing data again. Streams that can seek still
+  log the error and continue. Tests: `src/async_read.rs` (`--features async-read`) and
+  `src/source/lifecycle_tests.rs`; on unpatched 0.24.5 the reader-error test fails.
 
 Regression tests: `src/source/lifecycle_tests.rs` (on unpatched 0.24.5 the cached-seek,
 zero-prefetch and downloader-panic tests fail; the two gap tests guard the 0.22.4 panic), run from this directory with

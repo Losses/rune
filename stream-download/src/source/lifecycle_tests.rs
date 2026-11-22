@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::convert::Infallible;
 use std::future::Future;
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -212,4 +213,65 @@ async fn zero_prefetch_seek_wakes_when_tail_arrives_before_missing_prefix() {
     result
         .expect("peer step timed out: zero-prefetch tail seek")
         .expect("tail seeker result");
+}
+
+/// Seekable stream with a known length whose first item is an error.
+struct ErrorThenData(VecDeque<io::Result<Bytes>>);
+
+impl Stream for ErrorThenData {
+    type Item = io::Result<Bytes>;
+
+    fn poll_next(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Poll::Ready(self.0.pop_front())
+    }
+}
+
+impl SourceStream for ErrorThenData {
+    type Params = ();
+    type StreamCreationError = Infallible;
+
+    async fn create((): ()) -> Result<Self, Infallible> {
+        Ok(Self(VecDeque::from([
+            Err(io::Error::other("injected chunk failure")),
+            Ok(Bytes::from_static(b"data")),
+        ])))
+    }
+
+    fn content_length(&self) -> Option<u64> {
+        Some(4)
+    }
+
+    async fn seek_range(&mut self, _: u64, _: Option<u64>) -> io::Result<()> {
+        panic!("a complete download must not request remote data");
+    }
+
+    async fn reconnect(&mut self, _: u64) -> io::Result<()> {
+        panic!("a complete download must not reconnect");
+    }
+
+    fn supports_seek(&self) -> bool {
+        true
+    }
+}
+
+#[tokio::test]
+async fn seekable_stream_continues_after_a_chunk_error() {
+    let mut stream =
+        StreamDownload::new::<ErrorThenData>((), MemoryStorageProvider, Settings::default())
+            .await
+            .expect("create test stream");
+    let handle = stream.handle();
+    let read = tokio::task::spawn_blocking(move || {
+        let mut output = Vec::new();
+        let result = stream.read_to_end(&mut output).map(|_| output);
+        (result, stream)
+    });
+    let (result, _stream) = timeout(Duration::from_secs(5), read)
+        .await
+        .expect("peer step timed out: read after chunk error")
+        .expect("reader thread");
+    timeout(Duration::from_secs(5), handle.wait_for_completion())
+        .await
+        .expect("peer step timed out: download handle after chunk error");
+    assert_eq!(result.expect("the download must complete"), b"data");
 }

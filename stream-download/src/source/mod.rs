@@ -401,6 +401,13 @@ where
             Ok(bytes) => bytes,
             Err(e) => {
                 error!("Error fetching chunk from stream: {e:?}");
+                if !stream.supports_seek() {
+                    // Without seeking, the chunk cannot be fetched again, and the end of the
+                    // stream would otherwise look like a normal finish.
+                    return Err(io::Error::other(format!(
+                        "error fetching chunk from stream: {e:?}"
+                    )));
+                }
                 return Ok(DownloadAction::Continue);
             }
         };
