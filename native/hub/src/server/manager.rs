@@ -3696,6 +3696,63 @@ mod lifecycle_tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn file_endpoint_serves_the_requested_file_for_encoded_names() -> Result<()> {
+        use crate::handlers::neighbors::authorized_get;
+        use url::Url;
+
+        let first = tempfile::tempdir()?;
+        let second = tempfile::tempdir()?;
+        let a = fixture(first.path()).await?;
+        let b = fixture(second.path()).await?;
+        let addr = paired_full(&a, &b).await?;
+        let validator = b.global_params.cert_validator.read().await.clone();
+        let config = &b.global_params.config_path;
+
+        let spaced = b"file named with a space";
+        let escaped = b"file named with a literal percent escape";
+        std::fs::write(first.path().join("a b.txt"), spaced)?;
+        std::fs::write(first.path().join("a%20b.txt"), escaped)?;
+
+        for (encoded, expected) in [("a%20b.txt", spaced.as_slice()), ("a%2520b.txt", escaped)] {
+            let url = Url::parse(&format!(
+                "https://127.0.0.1:{}/files/library/{encoded}",
+                addr.port()
+            ))?;
+            let response = authorized_get(
+                config,
+                validator.clone(),
+                &b.global_params.node.sync_tokens,
+                "127.0.0.1",
+                addr.port(),
+                url,
+            )
+            .await?;
+            assert_eq!(response.status(), reqwest::StatusCode::OK, "{encoded}");
+            assert_eq!(response.bytes().await?.as_ref(), expected, "{encoded}");
+        }
+
+        let url = Url::parse(&format!(
+            "https://127.0.0.1:{}/files/library/..%2Fa%20b.txt",
+            addr.port()
+        ))?;
+        let response = authorized_get(
+            config,
+            validator,
+            &b.global_params.node.sync_tokens,
+            "127.0.0.1",
+            addr.port(),
+            url,
+        )
+        .await?;
+        assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN);
+
+        a.stop().await?;
+        a.global_params.node.token.cancel();
+        b.global_params.node.token.cancel();
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn library_namespace_requests_authenticate_before_rejecting_other_ids() -> Result<()> {
         let first = tempfile::tempdir()?;
         let second = tempfile::tempdir()?;
