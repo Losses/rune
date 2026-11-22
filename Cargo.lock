@@ -2708,6 +2708,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "fsio_browse"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "block2",
+ "directories",
+ "fsio",
+ "image",
+ "jni 0.21.1",
+ "log",
+ "md5",
+ "ndk-saf",
+ "objc2",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-foundation",
+ "objc2-quick-look-thumbnailing",
+ "png",
+ "sysinfo 0.31.4",
+ "tempfile",
+ "thiserror 1.0.65",
+ "tokio",
+ "windows 0.62.2",
+]
+
+[[package]]
 name = "fsio_media_source"
 version = "0.1.0"
 dependencies = [
@@ -5088,6 +5114,20 @@ dependencies = [
  "objc2-core-graphics",
  "objc2-foundation",
  "objc2-metal",
+]
+
+[[package]]
+name = "objc2-quick-look-thumbnailing"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac8e00da1ca87ffe3ea8d20981026f013df91072a140432f0f88da9a356d9b3c"
+dependencies = [
+ "bitflags 2.13.2",
+ "block2",
+ "objc2",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-foundation",
 ]
 
 [[package]]
