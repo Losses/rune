@@ -22,7 +22,7 @@ class FsSelfTestSettings extends StatelessWidget {
           "Use this on a TF card to verify file access end to end.",
       content: Button(
         onPressed: () async {
-          final path = await getDirPath();
+          final path = await getDirPath(context);
 
           if (path == null) return;
           if (!context.mounted) return;

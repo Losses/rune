@@ -303,7 +303,7 @@ void main() {
               onPressed: () => showAddLibraryGuide(
                 context,
                 dependencies: AddLibraryGuideDependencies(
-                  pickLocalFolder: () async => '/picked/music',
+                  pickLocalFolder: (_) async => '/picked/music',
                   testLocalLibrary: (_) async => false,
                 ),
               ),
@@ -401,7 +401,7 @@ void main() {
               onPressed: () => showAddLibraryGuide(
                 context,
                 dependencies: AddLibraryGuideDependencies(
-                  pickLocalFolder: () async => '/picked/music',
+                  pickLocalFolder: (_) async => '/picked/music',
                   testLocalLibrary: (_) async => false,
                   registerLocal: (path, alias, mode) async {
                     expect(path, '/picked/music');
@@ -465,7 +465,7 @@ void main() {
             onPressed: () => showAddLibraryGuide(
               context,
               dependencies: AddLibraryGuideDependencies(
-                pickLocalFolder: () async => '/picked/music',
+                pickLocalFolder: (_) async => '/picked/music',
                 testLocalLibrary: (_) async => true,
                 registerLocal: (_, __, mode) async {
                   modes.add(mode);
@@ -511,7 +511,7 @@ void main() {
             onPressed: () => showAddLibraryGuide(
               context,
               dependencies: AddLibraryGuideDependencies(
-                pickLocalFolder: () async => '/picked/music',
+                pickLocalFolder: (_) async => '/picked/music',
                 testLocalLibrary: (_) async => throw const RequestFailure(
                   'TestLibraryInitializedRequest',
                   RequestErrorKind.unavailable,

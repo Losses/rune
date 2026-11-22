@@ -35,6 +35,7 @@ import 'providers/start_screen_layout_manager.dart';
 
 import 'start_group.dart';
 import 'start_group_implementation.dart';
+import '../../utils/dialogs/file_dialog/pick_files.dart';
 
 class StartScreen extends StatelessWidget {
   const StartScreen({super.key});
@@ -179,10 +180,10 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                     label: 'playlist',
                     extensions: <String>['m3u', 'm3u8'],
                   );
-                  final FastFilePickerPath? file =
-                      await FastFilePicker.pickFile(
-                        acceptedTypeGroups: <XTypeGroup>[typeGroup],
-                      );
+                  final FastFilePickerPath? file = await pickFile(
+                    context,
+                    acceptedTypeGroups: <XTypeGroup>[typeGroup],
+                  );
 
                   if (file == null) return;
                   if (!mounted) return;

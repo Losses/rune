@@ -10,6 +10,7 @@ import '../filter_audio_files.dart';
 import '../api/operate_playback_with_mix_query.dart';
 
 import 'open_intent.dart';
+import '../dialogs/file_dialog/pick_files.dart';
 
 class OpenAction extends ContextAction<OpenIntent> {
   OpenAction();
@@ -21,10 +22,11 @@ class OpenAction extends ContextAction<OpenIntent> {
       extensions: audioExtensions,
     );
 
-    final List<FastFilePickerPath>? files =
-        await FastFilePicker.pickMultipleFiles(
-          acceptedTypeGroups: <XTypeGroup>[typeGroup],
-        );
+    if (context == null || !context.mounted) return;
+    final List<FastFilePickerPath>? files = await pickMultipleFiles(
+      context,
+      acceptedTypeGroups: <XTypeGroup>[typeGroup],
+    );
 
     if (files == null) {
       return;
@@ -38,7 +40,7 @@ class OpenAction extends ContextAction<OpenIntent> {
       return;
     }
 
-    if (context == null || !context.mounted) return;
+    if (!context.mounted) return;
     await safeOperatePlaybackWithMixQuery(
       context: context,
       queries: QueryList(),

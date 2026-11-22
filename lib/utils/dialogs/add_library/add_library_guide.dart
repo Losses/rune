@@ -64,7 +64,7 @@ class AddLibraryGuideDependencies {
   detectOpenDal;
   final Future<void> Function(String)? openRecord;
   final Future<void> Function(String)? scanLibrary;
-  final Future<String?> Function()? pickLocalFolder;
+  final Future<String?> Function(BuildContext context)? pickLocalFolder;
   final Future<bool> Function(String)? testLocalLibrary;
   final Future<RegisterLibraryResponse> Function(
     String,
@@ -396,7 +396,7 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
             Provider.of<LocalFolderPickerProvider>(
               context,
               listen: false,
-            ).pickDirectory)();
+            ).pickDirectory)(context);
     if (!mounted || path == null) return;
     try {
       final initialized =

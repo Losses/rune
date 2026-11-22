@@ -1,7 +1,5 @@
-import 'dart:async';
 import 'dart:io';
 
-import 'package:file_selector_platform_interface/file_selector_platform_interface.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,22 +10,9 @@ import 'package:rune/screens/library_home/library_home.dart';
 import 'package:rune/utils/api/get_media_files_count.dart';
 import 'package:rune/utils/dialogs/export_cover_wall/export_cover_wall_dialog.dart';
 import 'package:rune/utils/dialogs/export_cover_wall/show_export_cover_wall_dialog.dart';
+import 'package:rune/utils/dialogs/file_dialog/file_dialog_window.dart';
 
 import 'e2e_library_flow_test.dart' as flow;
-
-class _SavePicker extends FileSelectorPlatform {
-  late Completer<FileSaveLocation?> selection;
-  int requests = 0;
-
-  @override
-  Future<FileSaveLocation?> getSaveLocation({
-    List<XTypeGroup>? acceptedTypeGroups,
-    SaveDialogOptions options = const SaveDialogOptions(),
-  }) {
-    requests++;
-    return selection.future;
-  }
-}
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -51,11 +36,6 @@ void main() {
       music.uri.resolve('startup_0.ogg'),
     ).writeAsBytes(Uint8List.sublistView(track));
     final output = File.fromUri(workspace.uri.resolve('wall.png'));
-    final systemPicker = FileSelectorPlatform.instance;
-    addTearDown(() => FileSelectorPlatform.instance = systemPicker);
-    final picker = _SavePicker();
-    FileSelectorPlatform.instance = picker;
-
     app.main(const []);
     await flow.expectVisible(tester, find.byType(WelcomePage));
     for (final (folder, tracks) in [(music, 1), (empty, 0)]) {
@@ -75,33 +55,39 @@ void main() {
       final dialog = find.byType(ExportCoverWallDialog);
       await flow.expectVisible(tester, dialog);
       final labels = flow.localized(tester);
-      final save = find.widgetWithText(FilledButton, labels.save);
-      final cancel = find.widgetWithText(Button, labels.cancel);
+      // The export dialog's own buttons; Rune's save dialog has a Save too.
+      final save = find.descendant(
+        of: dialog,
+        matching: find.widgetWithText(FilledButton, labels.save),
+      );
+      final cancel = find.descendant(
+        of: dialog,
+        matching: find.widgetWithText(Button, labels.cancel),
+      );
       final onSave = tester.widget<FilledButton>(save).onPressed!;
-      final expectedRequests = picker.requests + 1;
-      picker.selection = Completer<FileSaveLocation?>();
+      final chooser = find.byType(FileDialogWindow);
       await tester.tap(save);
-      await flow.waitFor(
+      await flow.expectVisible(
         tester,
-        () => picker.requests == expectedRequests,
+        chooser,
         description: 'the save chooser to open',
       );
       expect(tester.widget<Button>(cancel).onPressed, isNotNull);
+      // A second press while the chooser is open opens no second chooser.
       onSave();
-      picker.selection.complete(FileSaveLocation(output.path));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(chooser, findsOneWidget);
+      final name = find
+          .descendant(of: chooser, matching: find.byType(TextBox))
+          .last;
+      await tester.enterText(name, output.path);
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await flow.expectAbsent(tester, chooser);
       await flow.expectVisible(
         tester,
         find.text('No cover art is available to export.'),
       );
-      expect(
-        tester
-            .widget<FilledButton>(
-              find.widgetWithText(FilledButton, labels.save),
-            )
-            .onPressed,
-        isNotNull,
-      );
-      expect(picker.requests, expectedRequests);
+      expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
       expect(await output.exists(), isFalse);
       expect(tester.widget<Button>(cancel).onPressed, isNotNull);
       await tester.tap(cancel);

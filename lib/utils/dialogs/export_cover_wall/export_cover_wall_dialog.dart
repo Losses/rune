@@ -3,7 +3,6 @@ import 'dart:ui' as ui;
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:fast_file_picker/fast_file_picker.dart';
 import 'package:file_selector/file_selector.dart' show XTypeGroup;
 
 import '../../../utils/l10n.dart';
@@ -22,6 +21,7 @@ import 'utils/render_cover_wall.dart';
 import 'constants/size_items.dart';
 import 'constants/frame_item.dart';
 import 'constants/background_item.dart';
+import '../file_dialog/pick_files.dart';
 
 class ExportCoverWallDialog extends StatefulWidget {
   final List<(String, String)> queries;
@@ -135,7 +135,8 @@ class ExportCoverWallDialogState extends State<ExportCoverWallDialog> {
     try {
       final documents = await getApplicationDocumentsDirectory();
       if (!mounted) return;
-      final path = await FastFilePicker.pickSaveFile(
+      final path = await pickSaveFile(
+        context,
         suggestedName: '${widget.title}.png',
         initialDirectory: documents.path,
         acceptedTypeGroups: const [

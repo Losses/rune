@@ -104,7 +104,7 @@ void main() {
         final labels = S.of(ctx);
         final open = ctx.read<LibraryOpenStateProvider>();
         final manager = ctx.read<LibraryManagerProvider>();
-        ctx.read<LocalFolderPickerProvider>().pickDirectory = () async =>
+        ctx.read<LocalFolderPickerProvider>().pickDirectory = (_) async =>
             folder;
         await tester.tap(find.text(labels.addLibrary).last);
         await tester.pumpAndSettle();

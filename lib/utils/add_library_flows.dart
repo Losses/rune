@@ -22,7 +22,7 @@ import 'rune_log.dart';
 Future<void> addLocalFolderLibrary(
   BuildContext context, {
   bool navigateIfFailed = false,
-  Future<String?> Function()? pickDirectory,
+  Future<String?> Function(BuildContext context)? pickDirectory,
 }) async {
   final registry = Provider.of<LibraryRegistryProvider>(context, listen: false);
   final libraryManager = Provider.of<LibraryManagerProvider>(
@@ -37,7 +37,7 @@ Future<void> addLocalFolderLibrary(
           Provider.of<LocalFolderPickerProvider>(
             context,
             listen: false,
-          ).pickDirectory)();
+          ).pickDirectory)(context);
   info$("Path selected $path");
   if (path == null || !context.mounted) return;
 

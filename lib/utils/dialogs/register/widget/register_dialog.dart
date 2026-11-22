@@ -18,6 +18,7 @@ import '../show_register_dialog.dart';
 
 import 'show_register_failed_dialog.dart';
 import 'show_register_success_dialog.dart';
+import '../../file_dialog/pick_files.dart';
 
 class RegisterDialog extends StatefulWidget {
   final void Function(void) $close;
@@ -126,10 +127,10 @@ class _RegisterDialogState extends State<RegisterDialog> {
                           'aiff',
                         ],
                       );
-                      final FastFilePickerPath? file =
-                          await FastFilePicker.pickFile(
-                            acceptedTypeGroups: <XTypeGroup>[typeGroup],
-                          );
+                      final FastFilePickerPath? file = await pickFile(
+                        context,
+                        acceptedTypeGroups: <XTypeGroup>[typeGroup],
+                      );
 
                       if (file == null) return;
 

@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:fast_file_picker/fast_file_picker.dart';
 import 'package:file_selector/file_selector.dart' show XTypeGroup;
 
 import '../../utils/api/get_all_mixes.dart';
@@ -31,6 +30,7 @@ import '../router/router_aware_flyout_controller.dart';
 import 'utils/build_m3u8.dart';
 import 'offers_mixes.dart';
 import 'offline_selection.dart';
+import '../dialogs/file_dialog/pick_files.dart';
 
 Future<void> _handleCollectionRequest(
   BuildContext context,
@@ -354,7 +354,9 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
               final Directory appDocumentsDir =
                   await getApplicationDocumentsDirectory();
 
-              final String? path = await FastFilePicker.pickSaveFile(
+              if (!host.mounted) return;
+              final String? path = await pickSaveFile(
+                host,
                 suggestedName: '$title.m3u8',
                 initialDirectory: appDocumentsDir.path,
                 acceptedTypeGroups: const [

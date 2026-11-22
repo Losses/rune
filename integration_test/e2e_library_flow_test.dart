@@ -114,7 +114,7 @@ Future<void> addLibrary(
   final context = tester.element(page);
   final manager = context.read<LibraryManagerProvider>();
   final openState = context.read<LibraryOpenStateProvider>();
-  context.read<LocalFolderPickerProvider>().pickDirectory = () async => path;
+  context.read<LocalFolderPickerProvider>().pickDirectory = (_) async => path;
 
   final addLibraryLabel = localized(tester).addLibrary;
   await expectVisible(tester, find.text(addLibraryLabel));

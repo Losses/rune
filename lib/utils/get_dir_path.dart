@@ -1,11 +1,15 @@
 import 'dart:io';
 
 import 'package:fast_file_picker/fast_file_picker.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 import 'package:saf_util/saf_util.dart';
 
+import 'dialogs/file_dialog/pick_files.dart';
 import 'ios_file_selector.dart';
 
-Future<String?> getDirPath() async {
+Future<String?> getDirPath(BuildContext context) async {
+  if (runeFileDialogAvailable) return pickFolder(context);
+
   if (Platform.isIOS) {
     return await IosFileSelector.shared.getDirectoryPath();
   }
@@ -22,6 +26,7 @@ Future<String?> getDirPath() async {
     return dir?.uri;
   }
 
+  // A sandboxed Mac: the system's picker grants access to the folder.
   final path = await FastFilePicker.pickFolder(writePermission: true);
 
   if (path == null) {

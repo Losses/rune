@@ -14,6 +14,7 @@ import 'package:rune/utils/dialogs/file_dialog/file_dialog.dart';
 import 'package:rune/utils/dialogs/file_dialog/file_dialog_window.dart';
 import 'package:rune/utils/dialogs/file_dialog/widgets/address_bar.dart';
 import 'package:rune/utils/dialogs/file_dialog/widgets/items_view.dart';
+import 'package:rune/utils/get_dir_path.dart';
 
 import 'e2e_library_flow_test.dart' as flow;
 
@@ -328,5 +329,27 @@ void main() {
       find.widgetWithText(FilledButton, labels.fileDialogReplace),
     );
     expect((await second)?.location.path, '${workspace.path}/mix.m3u8');
+    await flow.expectAbsent(tester, find.byType(FileDialogWindow));
+
+    // Adding a library asks for its folder in Rune's dialog on Linux.
+    final folder = getDirPath(tester.element(find.byType(WelcomePage)));
+    // It opens in the folder used last, showing folders only.
+    await flow.expectVisible(tester, _item('Albums'));
+    expect(_item('notes.txt'), findsNothing);
+    expect(
+      find.widgetWithText(FilledButton, labels.fileDialogSelectFolder),
+      findsOneWidget,
+    );
+    await _chord(tester, LogicalKeyboardKey.keyL, control: true);
+    await flow.expectVisible(tester, address);
+    await _submitText(tester, address, '${workspace.path}/Albums');
+    await flow.expectVisible(tester, _item('Live 2019'));
+    // Folders only: the song in Albums is not listed.
+    expect(_item('song.ogg'), findsNothing);
+    await _shot(tester, '10-pick-folder');
+    await tester.tap(
+      find.widgetWithText(FilledButton, labels.fileDialogSelectFolder),
+    );
+    expect(await folder, '${workspace.path}/Albums');
   });
 }
