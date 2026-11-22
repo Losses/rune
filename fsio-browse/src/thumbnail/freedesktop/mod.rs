@@ -281,7 +281,11 @@ fn read_current(file: &Path, item: &Item, size: ThumbnailSize) -> Option<Thumbna
     if text("Thumb::URI").as_deref() != Some(item.uri.as_str()) {
         return None;
     }
-    if text("Thumb::MTime")?.trim().parse::<u64>().ok()? != item.mtime {
+    // tumbler and newer GNOME write fractional seconds; the whole second is
+    // what the cache's writers agree on.
+    let stored = text("Thumb::MTime")?;
+    let seconds = stored.trim().split('.').next()?.parse::<u64>().ok()?;
+    if seconds != item.mtime {
         return None;
     }
     let image = image::load_from_memory_with_format(&bytes, ImageFormat::Png).ok()?;
@@ -513,5 +517,35 @@ mod tests {
             freedesktop.thumbnail(&song, ThumbnailSize(128)).unwrap(),
             None
         );
+    }
+
+    /// tumbler writes the modification time with microseconds.
+    #[test]
+    fn fractional_modification_times_are_current() {
+        let root = tempfile::tempdir().unwrap();
+        let song = root.path().join("song.flac");
+        fs::write(&song, b"flac").unwrap();
+        let item = item_for(&song);
+        let file = root.path().join("thumb.png");
+        let mut encoder = png::Encoder::new(fs::File::create(&file).unwrap(), 1, 1);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder
+            .add_text_chunk("Thumb::URI".into(), item.uri.clone())
+            .unwrap();
+        encoder
+            .add_text_chunk("Thumb::MTime".into(), format!("{}.383310", item.mtime))
+            .unwrap();
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(&[1, 2, 3, 255]).unwrap();
+        writer.finish().unwrap();
+
+        let read = read_current(&file, &item, ThumbnailSize(64)).unwrap();
+        assert_eq!(read.rgba, [1, 2, 3, 255]);
+        let later = Item {
+            mtime: item.mtime + 1,
+            ..item_for(&song)
+        };
+        assert_eq!(read_current(&file, &later, ThumbnailSize(64)), None);
     }
 }
