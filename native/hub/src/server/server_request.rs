@@ -77,6 +77,10 @@ where
 }
 
 /// Authorize the libraries a request's body names, as its catalogue entry declares.
+///
+/// `PlayerReads` requests are scoped to the player, not to an addressed library, so each
+/// named library is checked with the caller's connection view grant instead of the request's
+/// node-wide Control rule.
 async fn authorize_body_libraries<R: TargetRequest + NamedLibraries>(
     node: &NodeContext,
     session: &Session,
@@ -84,8 +88,8 @@ async fn authorize_body_libraries<R: TargetRequest + NamedLibraries>(
     request: &R,
 ) -> Result<()> {
     match R::BODY_LIBRARIES {
-        BodyLibraries::NoLibrary | BodyLibraries::PlayerReads => return Ok(()),
-        BodyLibraries::Authorized => {}
+        BodyLibraries::NoLibrary => return Ok(()),
+        BodyLibraries::Authorized | BodyLibraries::PlayerReads => {}
     }
     let mut named = Vec::new();
     request.visit_libraries(&mut |library_id| {
@@ -97,16 +101,25 @@ async fn authorize_body_libraries<R: TargetRequest + NamedLibraries>(
         let library_id = Uuid::parse_str(library_id).map_err(|error| {
             ExpectedRequestError::invalid_input(format!("Invalid library id: {error}"))
         })?;
-        node.authorize_request(session, R::wire_name(), None, Some(library_id))
-            .await?;
-        let addressed_library = addressed_library.ok_or(ExpectedRequestError::Unavailable {
-            what: "addressed library id",
-        })?;
-        if library_id != addressed_library {
-            return Err(ExpectedRequestError::invalid_input(
-                "request library does not match the item's library",
-            )
-            .into());
+        match R::BODY_LIBRARIES {
+            BodyLibraries::Authorized => {
+                node.authorize_request(session, R::wire_name(), None, Some(library_id))
+                    .await?;
+                let addressed_library =
+                    addressed_library.ok_or(ExpectedRequestError::Unavailable {
+                        what: "addressed library id",
+                    })?;
+                if library_id != addressed_library {
+                    return Err(ExpectedRequestError::invalid_input(
+                        "request library does not match the item's library",
+                    )
+                    .into());
+                }
+            }
+            BodyLibraries::PlayerReads => {
+                node.authorize_library_view(session, library_id).await?;
+            }
+            BodyLibraries::NoLibrary => {}
         }
     }
     Ok(())

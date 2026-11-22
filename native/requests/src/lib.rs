@@ -1942,7 +1942,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             /// the request's access rule and must be the library the frame names.
             Authorized,
             /// The body names items for this device's player, which reads them under its own
-            /// standing grants on their libraries; the request's access rule covers naming them.
+            /// standing grants on their libraries; each named library is also checked for the
+            /// calling session before the player reads it.
             PlayerReads,
         }
         pub fn request_access(name: &str) -> Option<RequestAccess> {
