@@ -490,8 +490,10 @@ List<ControllerEntry> controllerItems = [
       showPlayQueueDialog(context);
     },
     tooltipBuilder: (context) => S.of(context).playlist,
+    // Fluent adds a MouseRegion under the tooltip when a mouse connects.
+    // Preserve the open queue when its toolbar button moves under that region.
     controllerButtonBuilder: (context, shadows) =>
-        QueueButton(shadows: shadows),
+        QueueButton(key: GlobalObjectKey(context), shadows: shadows),
     flyoutEntryBuilder: (context) async {
       return MenuFlyoutItem(
         leading: const Icon(Symbols.list_alt),
