@@ -133,6 +133,10 @@ pub async fn file_handler(
         return StatusCode::FORBIDDEN.into_response();
     }
 
+    if !canonical_path.is_file() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
     // Serve the validated file itself so its name is never re-interpreted as URI syntax.
     let service = ServeFile::new(&canonical_path);
     let request = match Request::builder().uri("/").body(Body::empty()) {

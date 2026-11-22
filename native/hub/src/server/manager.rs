@@ -3737,7 +3737,7 @@ mod lifecycle_tests {
         ))?;
         let response = authorized_get(
             config,
-            validator,
+            validator.clone(),
             &b.global_params.node.sync_tokens,
             "127.0.0.1",
             addr.port(),
@@ -3745,6 +3745,22 @@ mod lifecycle_tests {
         )
         .await?;
         assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN);
+
+        std::fs::create_dir(first.path().join("albums"))?;
+        let url = Url::parse(&format!(
+            "https://127.0.0.1:{}/files/library/albums",
+            addr.port()
+        ))?;
+        let response = authorized_get(
+            config,
+            validator,
+            &b.global_params.node.sync_tokens,
+            "127.0.0.1",
+            addr.port(),
+            url,
+        )
+        .await?;
+        assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
 
         a.stop().await?;
         a.global_params.node.token.cancel();
