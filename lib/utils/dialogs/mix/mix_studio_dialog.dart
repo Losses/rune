@@ -14,6 +14,7 @@ import '../../../widgets/navigation_bar/constants/navigation_bar_height.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../../screens/search/widgets/track_search_item.dart';
 import '../../../bindings/bindings.dart';
+import '../../../providers/library_registry.dart';
 import '../../../providers/responsive_providers.dart';
 
 import '../../query_list.dart';
@@ -83,11 +84,23 @@ class _MixStudioDialogImplementationState
   List<InternalMediaFile> _allTracks = [];
   Timer? _debounceTimer;
   bool _isInitialLoad = true;
+  late final LibraryRegistryProvider? _library;
+  late final String? _libraryId;
+  late bool _hasDraft;
+
+  bool get _inOriginalLibrary =>
+      _library == null ||
+      (_libraryId != null &&
+          _library.openRecordId == _libraryId &&
+          !_library.isOpening);
 
   @override
   void initState() {
     super.initState();
 
+    _library = context.read<LibraryRegistryProvider?>();
+    _libraryId = _library?.openRecordId;
+    _hasDraft = widget.mixId == null;
     _scrollController.addListener(_onScroll);
 
     _controller.addListener(() {
@@ -98,15 +111,28 @@ class _MixStudioDialogImplementationState
       }
       _debouncedResetAndLoad();
     });
+  }
 
-    if (widget.mixId != null) {
-      loadMix(widget.mixId!);
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _loadInitialMixIfReady();
+  }
+
+  void _loadInitialMixIfReady() {
+    if (_hasDraft ||
+        isLoading ||
+        _initialLoadError != null ||
+        !_inOriginalLibrary) {
+      return;
     }
+    loadMix(widget.mixId!);
   }
 
   void _debouncedResetAndLoad() {
     // A response for the old draft is stale even while the new query is debouncing.
     _previewGeneration++;
+    _isLoadingMore = false;
     _debounceTimer?.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 300), () {
       _resetAndLoadTracks();
@@ -125,7 +151,9 @@ class _MixStudioDialogImplementationState
   }
 
   Future<void> _resetAndLoadTracks() async {
+    if (!_inOriginalLibrary) return;
     final generation = ++_previewGeneration;
+    final libraryGeneration = _library?.openGeneration;
     setState(() => _isLoadingMore = true);
     _layoutManager.resetAnimations();
 
@@ -136,7 +164,7 @@ class _MixStudioDialogImplementationState
 
     try {
       final newTracks = await queryMixTracks(QueryList(query), 0, _pageSize);
-      if (!mounted || generation != _previewGeneration) return;
+      if (!_acceptPreview(generation, libraryGeneration)) return;
       setState(() {
         _previewError = null;
         _query = newQuery;
@@ -153,7 +181,7 @@ class _MixStudioDialogImplementationState
 
       _layoutManager.playAnimations();
     } on Exception catch (error) {
-      if (!mounted || generation != _previewGeneration) return;
+      if (!_acceptPreview(generation, libraryGeneration)) return;
       setState(() {
         _previewError = error;
         _query = newQuery;
@@ -166,8 +194,9 @@ class _MixStudioDialogImplementationState
   }
 
   Future<void> _loadMoreTracks() async {
-    if (_isLoadingMore || !_hasMore) return;
+    if (_isLoadingMore || !_hasMore || !_inOriginalLibrary) return;
     final generation = _previewGeneration;
+    final libraryGeneration = _library?.openGeneration;
     setState(() {
       _isLoadingMore = true;
     });
@@ -180,7 +209,7 @@ class _MixStudioDialogImplementationState
         _pageSize,
       );
 
-      if (!mounted || generation != _previewGeneration) return;
+      if (!_acceptPreview(generation, libraryGeneration)) return;
       setState(() {
         _previewError = null;
         _allTracks.addAll(newTracks);
@@ -189,12 +218,21 @@ class _MixStudioDialogImplementationState
         _isLoadingMore = false;
       });
     } on Exception catch (error) {
-      if (!mounted || generation != _previewGeneration) return;
+      if (!_acceptPreview(generation, libraryGeneration)) return;
       setState(() {
         _previewError = error;
         _isLoadingMore = false;
       });
     }
+  }
+
+  bool _acceptPreview(int generation, int? libraryGeneration) {
+    if (!mounted || generation != _previewGeneration) return false;
+    if (_inOriginalLibrary && _library?.openGeneration == libraryGeneration) {
+      return true;
+    }
+    setState(() => _isLoadingMore = false);
+    return false;
   }
 
   Future<void> _retryPreview() {
@@ -206,6 +244,9 @@ class _MixStudioDialogImplementationState
   }
 
   Future<void> loadMix(int mixId) async {
+    final libraryGeneration = _library?.openGeneration;
+    bool sameRead() =>
+        _inOriginalLibrary && _library?.openGeneration == libraryGeneration;
     setState(() {
       isLoading = true;
       _initialLoadError = null;
@@ -215,12 +256,20 @@ class _MixStudioDialogImplementationState
       final queries = await fetchMixQueriesByMixId(mixId);
       final data = await queryToMixEditorData(mix, queries);
       if (!mounted) return;
+      if (!sameRead()) return;
       _controller.setData(data);
+      _hasDraft = true;
       await _resetAndLoadTracks();
     } catch (error) {
-      if (mounted) setState(() => _initialLoadError = error);
+      if (!mounted) return;
+      if (sameRead()) {
+        setState(() => _initialLoadError = error);
+      }
     } finally {
-      if (mounted) setState(() => isLoading = false);
+      if (mounted) {
+        setState(() => isLoading = false);
+        _loadInitialMixIfReady();
+      }
     }
   }
 
@@ -234,7 +283,7 @@ class _MixStudioDialogImplementationState
   }
 
   Future<void> saveMix() async {
-    if (isLoading || _initialLoadError != null) return;
+    if (!_canSave) return;
     setState(() {
       isLoading = true;
       _saveError = null;
@@ -273,8 +322,15 @@ class _MixStudioDialogImplementationState
     if (mounted) widget.$close(response);
   }
 
+  bool get _canSave =>
+      !isLoading &&
+      _hasDraft &&
+      _initialLoadError == null &&
+      _inOriginalLibrary;
+
   @override
   Widget build(BuildContext context) {
+    context.watch<LibraryRegistryProvider?>();
     final r = Provider.of<ResponsiveProvider>(context);
     final height = MediaQuery.of(context).size.height;
     const reduce = fullNavigationBarHeight + playbackControllerHeight + 48;
@@ -293,15 +349,24 @@ class _MixStudioDialogImplementationState
       height: editorHeight,
       child: initialError != null
           ? Center(child: Text(errorMessage(initialError)))
+          : !_hasDraft
+          ? Center(
+              child: _inOriginalLibrary
+                  ? const ProgressRing()
+                  : Text(S.of(context).requestUnavailable),
+            )
           : Column(
               children: [
+                if (!_inOriginalLibrary) Text(S.of(context).requestUnavailable),
                 if (_saveError case final error?) Text(errorMessage(error)),
                 if (_previewError case final error?)
                   Row(
                     children: [
                       Expanded(child: Text(errorMessage(error))),
                       Button(
-                        onPressed: _isLoadingMore ? null : _retryPreview,
+                        onPressed: _isLoadingMore || !_inOriginalLibrary
+                            ? null
+                            : _retryPreview,
                         child: Text(S.of(context).playOnRetry),
                       ),
                     ],
@@ -415,7 +480,7 @@ class _MixStudioDialogImplementationState
           actions: [
             ResponsiveDialogActions(
               FilledButton(
-                onPressed: isLoading || initialError != null ? null : saveMix,
+                onPressed: _canSave ? saveMix : null,
                 child: Text(
                   widget.mixId != null
                       ? S.of(context).save

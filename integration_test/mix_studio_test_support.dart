@@ -13,7 +13,8 @@ import 'package:rune/utils/api/request_failure.dart';
 import 'package:rune/utils/dialogs/mix/mix_studio_dialog.dart';
 import 'package:rune/widgets/ax_reveal/widgets/reveal_effect_context.dart';
 
-Future<Directory> openMixLibrary() async {
+Future<({Directory music, LibraryRegistryProvider registry})>
+openMixLibrary() async {
   final root = await Directory.systemTemp.createTemp('rune-mix-studio-');
   addTearDown(() => root.delete(recursive: true));
   await initializeRust(assignRustSignal);
@@ -38,10 +39,14 @@ Future<Directory> openMixLibrary() async {
   )).record!;
   addTearDown(() => registry.remove(record.recordId));
   await registry.open(record.recordId);
-  return music;
+  return (music: music, registry: registry);
 }
 
-Future<Completer<Mix?>> openMixStudio(WidgetTester tester, {int? mixId}) async {
+Future<Completer<Mix?>> openMixStudio(
+  WidgetTester tester,
+  LibraryRegistryProvider registry, {
+  int? mixId,
+}) async {
   final screen = ScreenSizeProvider.withWriter(null, (_) async {});
   final responsive = ResponsiveProvider(screen, () async => null);
   addTearDown(screen.dispose);
@@ -54,6 +59,7 @@ Future<Completer<Mix?>> openMixStudio(WidgetTester tester, {int? mixId}) async {
   await tester.pumpWidget(
     MultiProvider(
       providers: [
+        ChangeNotifierProvider.value(value: registry),
         ChangeNotifierProvider.value(value: screen),
         ChangeNotifierProvider.value(value: responsive),
       ],

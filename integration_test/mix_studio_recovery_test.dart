@@ -6,6 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:rune/bindings/bindings.dart';
 import 'package:rune/l10n/app_localizations.dart';
+import 'package:rune/providers/library_registry.dart';
+import 'package:rune/utils/api/create_mix.dart';
+import 'package:rune/utils/api/get_mix_by_id.dart';
 import 'package:rune/utils/api/get_all_mixes.dart';
 import 'package:rune/utils/api/request_failure.dart';
 import 'package:rune/utils/dialogs/mix/mix_studio_dialog.dart';
@@ -47,13 +50,89 @@ Future<void> withLockedDatabase(
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  late Directory music;
+  late LibraryRegistryProvider registry;
   late FileSystemEntity database;
   setUpAll(() async {
-    final music = await openMixLibrary();
+    final library = await openMixLibrary();
+    music = library.music;
+    registry = library.registry;
     database = await music
         .list(recursive: true)
         .where((entry) => entry is File && entry.path.endsWith('.db'))
         .single;
+  });
+
+  testWidgets('a failed edit can only be retried in its original library', (
+    tester,
+  ) async {
+    final originalRecordId = registry.openRecordId!;
+    final original = await createMix('Evening walks', 'Outdoors', null, []);
+    final other = await Directory('${music.parent.path}/Second').create();
+    final otherRecord = (await registry.registerLocalFolder(
+      other.path,
+      'Second',
+      LibraryInitializeMode.portable,
+    )).record!;
+    addTearDown(() => registry.remove(otherRecord.recordId));
+    addTearDown(() => registry.open(originalRecordId));
+    await registry.open(otherRecord.recordId);
+    Mix control;
+    do {
+      control = await createMix('Other library', 'Original group', null, []);
+    } while (control.id < original.id);
+    expect(control.id, original.id);
+    await registry.open(originalRecordId);
+
+    final closed = await openMixStudio(tester, registry, mixId: original.id);
+    final labels = AppLocalizations.of(
+      tester.element(find.byType(MixStudioDialog)),
+    )!;
+    final save = find.widgetWithText(FilledButton, labels.save);
+    final title = find.byWidgetPredicate(
+      (w) => w is EditableText && w.controller.text == original.name,
+    );
+    await probeWait(
+      tester,
+      () =>
+          title.evaluate().isNotEmpty &&
+          tester.widget<FilledButton>(save).onPressed != null,
+      'the saved mix',
+    );
+    await tester.tap(title);
+    await tester.enterText(title, 'Revised evening walks');
+    final failed = RequestFailedResponse.rustSignalStream.firstWhere(
+      (s) => s.message.request == 'UpdateMixRequest',
+    );
+    await withLockedDatabase(database, () async {
+      await tester.tap(save);
+      await failed.timeout(const Duration(seconds: 40));
+      await tester.pump();
+    });
+    final retry = tester.widget<FilledButton>(save).onPressed!;
+    final switching = registry.open(otherRecord.recordId);
+    expect(registry.isOpening, isTrue);
+    retry();
+    await switching;
+    await tester.pump();
+    expect(
+      tester.widget<FilledButton>(save).onPressed,
+      isNull,
+      reason: 'A retry belongs to the library that supplied this mix.',
+    );
+    retry();
+    expect((await getMixById(control.id)).name, control.name);
+
+    await registry.open(originalRecordId);
+    await tester.pump();
+    expect((await getMixById(original.id)).name, original.name);
+    expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
+    await tester.tap(save);
+    expect(
+      (await closed.future.timeout(const Duration(seconds: 15)))?.id,
+      original.id,
+    );
+    expect((await getMixById(original.id)).name, 'Revised evening walks');
   });
 
   for (final failPreview in [true, false]) {
@@ -61,7 +140,7 @@ void main() {
     testWidgets('a failed $request keeps the same editable draft', (
       tester,
     ) async {
-      final closed = await openMixStudio(tester);
+      final closed = await openMixStudio(tester, registry);
       final dialog = tester.element(find.byType(MixStudioDialog));
       final labels = AppLocalizations.of(dialog)!;
       final editor = find.byType(MixEditor);
@@ -154,7 +233,7 @@ void main() {
     tester,
   ) async {
     final before = await getAllMixes();
-    final closed = await openMixStudio(tester, mixId: -1);
+    final closed = await openMixStudio(tester, registry, mixId: -1);
     final labels = AppLocalizations.of(
       tester.element(find.byType(MixStudioDialog)),
     )!;

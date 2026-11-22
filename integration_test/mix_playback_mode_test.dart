@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:rune/bindings/bindings.dart';
 import 'package:rune/l10n/app_localizations.dart';
+import 'package:rune/providers/library_registry.dart';
 import 'package:rune/utils/api/create_mix.dart';
 import 'package:rune/utils/api/get_mix_by_id.dart';
 import 'package:rune/utils/dialogs/mix/mix_studio_dialog.dart';
@@ -14,8 +15,9 @@ import 'mix_studio_test_support.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  late LibraryRegistryProvider registry;
   setUpAll(() async {
-    await openMixLibrary();
+    registry = (await openMixLibrary()).registry;
   });
 
   Future<void> editMix(
@@ -31,7 +33,7 @@ void main() {
       [],
     );
     expect((await getMixById(original.id)).mode, initialMode);
-    final closed = await openMixStudio(tester, mixId: original.id);
+    final closed = await openMixStudio(tester, registry, mixId: original.id);
     final watch = Stopwatch()..start();
     final context = tester.element(find.byType(MixStudioDialog));
     final labels = AppLocalizations.of(context)!;
