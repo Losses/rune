@@ -177,6 +177,7 @@ class MixEditorController extends ChangeNotifier {
       );
     }
 
+    randomTrackController.text = data.randomTracks.toString();
     directoryController.value = data.directories;
     limitController.value = data.limit;
     modeController.selectedValue = modeSelectValue(data.mode);
