@@ -27,6 +27,15 @@ typedef QueryTrackPageLoader = Future<List<InternalMediaFile>> Function(
   int pageSize,
 );
 
+/// Loads one page of a playlist's entries. The production loader is
+/// [fetchPlaylistOccurrences].
+typedef PlaylistPageLoader =
+    Future<PlaylistOccurrencePage> Function(
+      int playlistId,
+      PlaylistOccurrenceCursor? after,
+      int pageSize,
+    );
+
 class QueryTrackListView extends StatefulWidget {
   final QueryList queries;
   final StartScreenLayoutManager layoutManager;
@@ -36,12 +45,17 @@ class QueryTrackListView extends StatefulWidget {
   /// drive the list without the native hub.
   final QueryTrackPageLoader loadMixPage;
 
+  /// Replaces how pages of a playlist are loaded. Tests use it to drive the
+  /// list without the native hub.
+  final PlaylistPageLoader loadPlaylistPage;
+
   const QueryTrackListView({
     super.key,
     required this.layoutManager,
     required this.queries,
     required this.mode,
     this.loadMixPage = queryMixTracks,
+    this.loadPlaylistPage = fetchPlaylistOccurrences,
   });
 
   @override
@@ -69,21 +83,25 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
   @override
   void initState() {
     super.initState();
-    _contentSubscription = LibraryContentChanged.rustSignalStream.listen((_) {
-      _generation++;
-      _loadedItems.clear();
-      _playlistCursors
-        ..clear()
-        ..[0] = null;
-      _loadingIndices.clear();
-      _failedPages.clear();
-      _reachedEnd = false;
-      _totalCount = 0;
-      setState(() {
-        _isInitialized = false;
-        _failure = null;
-      });
-      _initializeData();
+    _contentSubscription = LibraryContentChanged.rustSignalStream.listen(
+      (_) => _restartListing(),
+    );
+    _initializeData();
+  }
+
+  void _restartListing() {
+    _generation++;
+    _loadedItems.clear();
+    _playlistCursors
+      ..clear()
+      ..[0] = null;
+    _loadingIndices.clear();
+    _failedPages.clear();
+    _reachedEnd = false;
+    _totalCount = 0;
+    setState(() {
+      _isInitialized = false;
+      _failure = null;
     });
     _initializeData();
   }
@@ -115,7 +133,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
       throw StateError('The preceding playlist page has not loaded');
     }
     final generation = _generation;
-    final page = await fetchPlaylistOccurrences(
+    final page = await widget.loadPlaylistPage(
       playlistId,
       _playlistCursors[cursor],
       _pageSize,
@@ -221,6 +239,20 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
       );
     } catch (error) {
       if (!mounted || generation != _generation) return;
+
+      // A later playlist page conflicts when the playlist changed after its first
+      // page was listed, as when another client edits a Subsonic playlist. The
+      // cursors no longer fit, so list the playlist again from its first page,
+      // which cannot conflict.
+      if (error is RequestFailure &&
+          error.kind == RequestErrorKind.conflict &&
+          getPlaylistIdFromQueryList(widget.queries) != null) {
+        SchedulerBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || generation != _generation) return;
+          _restartListing();
+        });
+        return;
+      }
 
       SchedulerBinding.instance.addPostFrameCallback((_) {
         if (!mounted || generation != _generation) return;
