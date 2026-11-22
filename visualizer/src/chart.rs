@@ -1193,7 +1193,8 @@ mod tests {
             library_id: "library".into(),
             track: "track".into(),
         };
-        visualizer.set_feed_playback(Some(item.clone()), Duration::from_secs_f64(0.25), true);
+        // Paused at 0.25 s: the lookups below must not depend on how long the test takes.
+        visualizer.set_feed_playback(Some(item.clone()), Duration::from_secs_f64(0.25), false);
         visualizer
             .set_feed_chart(item.clone(), &fixture().encode().unwrap())
             .unwrap();
