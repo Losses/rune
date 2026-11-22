@@ -7,8 +7,13 @@
 //! and frames of pixels alike, so a producer that falls back from one to the other keeps its
 //! texture id. Which GPU frames may come from is read from a context like Flutter's ([`gl::probe`]).
 //!
-//! The registrar looks textures up for the raster thread without taking a reference, so after
-//! unregistering a texture its object is kept for a while ([`GRACE`]) before it is let go.
+//! The registrar looks textures up for the raster thread without taking a reference. An
+//! unregistered texture's object is therefore kept in a retired list until a populate has run on
+//! the raster thread: that populate is ordered after every callback that could still hold the
+//! object. The next populate releases the retired objects, and the `Raster` it is using stays
+//! alive through an `Arc` clone until the callback returns. If no populate runs again, the
+//! objects stay until the process exits: they are small, and the raster thread is the only place
+//! that can prove it is done with them.
 
 pub(crate) mod api;
 mod gl;
@@ -18,25 +23,79 @@ mod texture;
 use std::ffi::c_void;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock};
-use std::time::Duration;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use log::{error, info};
 
 use crate::thread::{self, MainContext};
-use crate::{DeviceUuids, FrameNotifier, FrameSource, Kind, PlatformHandle, Result, TextureError};
-use api::{Api, Gboolean, Gpointer, PRIORITY_DEFAULT, SOURCE_REMOVE};
+use crate::{
+    DeviceUuids, FrameNotifier, FrameSource, Kind, PlatformHandle, Result, TextureError, lock,
+};
+use api::{Api, Gpointer};
 use texture::Raster;
 
 use api::api;
 
-/// How long an unregistered texture's object is kept: the raster thread may still be inside its
-/// populate.
-const GRACE: Duration = Duration::from_secs(1);
-
 /// Set once OpenGL failed to import a frame in a Vulkan image: from then on frames are read back
 /// (no device UUIDs are given out).
 static SHARING_FAILED: AtomicBool = AtomicBool::new(false);
+
+/// The objects of unregistered textures that the raster thread may still use. A populate takes
+/// them out and lets them go once it has finished: the raster thread has then passed every
+/// callback that could have looked one up.
+#[derive(Default)]
+pub(super) struct Retired {
+    objects: Mutex<Vec<ObjectRef>>,
+}
+
+impl Retired {
+    fn add(&self, object: ObjectRef) {
+        lock(&self.objects).push(object);
+    }
+
+    /// Let go of the objects: the raster thread has finished the populate that was using them.
+    /// Called on the raster thread.
+    pub(super) fn release(&self) {
+        let objects = std::mem::take(&mut *lock(&self.objects));
+        drop(objects);
+    }
+}
+
+/// Our reference to a texture object that the raster thread may still use.
+struct ObjectRef {
+    object: usize,
+    /// `g_object_unref`, the reference `new_object` made.
+    release: unsafe extern "C" fn(Gpointer),
+}
+
+impl ObjectRef {
+    fn new(api: &'static Api, object: Gpointer) -> Self {
+        Self {
+            object: object as usize,
+            release: api.object_unref,
+        }
+    }
+
+    fn as_usize(&self) -> usize {
+        self.object
+    }
+
+    fn as_ptr(&self) -> Gpointer {
+        self.object as Gpointer
+    }
+
+    #[cfg(test)]
+    fn for_test(object: usize, release: unsafe extern "C" fn(Gpointer)) -> Self {
+        Self { object, release }
+    }
+}
+
+impl Drop for ObjectRef {
+    fn drop(&mut self) {
+        // SAFETY: the reference `new_object` made, given up once.
+        unsafe { (self.release)(self.as_ptr()) }
+    }
+}
 
 /// The engine's texture registrar, retained.
 pub(crate) struct Registry {
@@ -46,6 +105,9 @@ pub(crate) struct Registry {
     /// The probe of Flutter's OpenGL context, once made: the GPU and driver do not change while
     /// the app runs.
     device_uuids: OnceLock<Option<DeviceUuids>>,
+    /// The objects of unregistered textures of this engine, until its raster thread has finished
+    /// the callback that may use them.
+    retired: Arc<Retired>,
 }
 
 impl Registry {
@@ -68,6 +130,7 @@ impl Registry {
             api,
             registrar: registrar as usize,
             device_uuids: OnceLock::new(),
+            retired: Arc::new(Retired::default()),
         })
     }
 
@@ -128,7 +191,7 @@ pub(crate) struct Registered {
     registry: Arc<Registry>,
     id: i64,
     /// The texture object, our reference; the registrar holds its own while it is registered.
-    object: usize,
+    object: ObjectRef,
     raster: Arc<Raster>,
 }
 
@@ -139,7 +202,7 @@ impl Registered {
 
     pub(crate) fn notifier(&self) -> FrameNotifier {
         let registry = Arc::clone(&self.registry);
-        let object = self.object;
+        let object = self.object.as_usize();
         FrameNotifier::new(
             |task| thread::run(move |_| task()),
             move || {
@@ -170,43 +233,17 @@ impl Registered {
 
     fn unregister_now(self, _context: MainContext) {
         let api = self.registry.api;
+        let object = self.object;
         // SAFETY: a live registrar and texture, on the main context. Once the engine is gone this
         // does nothing.
         unsafe {
-            (api.texture_registrar_unregister_texture)(
-                self.registry.registrar(),
-                self.object as Gpointer,
-            )
+            (api.texture_registrar_unregister_texture)(self.registry.registrar(), object.as_ptr())
         };
         self.raster.retire();
-        release_later(api, self.object as Gpointer);
+        // The raster thread may still be inside a callback that looked the object up. Keep it
+        // until a populate has finished there.
+        self.registry.retired.add(object);
     }
-}
-
-/// Give up our reference to `object` after [`GRACE`], from the main context.
-fn release_later(api: &'static Api, object: Gpointer) {
-    /// The timeout's function.
-    ///
-    /// # Safety
-    ///
-    /// `object` is the reference `release_later` was given.
-    unsafe extern "C" fn release(object: Gpointer) -> Gboolean {
-        if let Ok(api) = api::api() {
-            // SAFETY: as the caller guarantees, given up once.
-            unsafe { (api.object_unref)(object) };
-        }
-        SOURCE_REMOVE
-    }
-    // SAFETY: the source runs `release` once with the object.
-    unsafe {
-        (api.timeout_add_full)(
-            PRIORITY_DEFAULT,
-            GRACE.as_millis() as u32,
-            release,
-            object,
-            None,
-        )
-    };
 }
 
 pub(crate) async fn register(
@@ -217,7 +254,7 @@ pub(crate) async fn register(
 ) -> Result<Registered> {
     thread::call(move |_| {
         let api = registry.api;
-        let raster = Arc::new(Raster::new(source));
+        let raster = Arc::new(Raster::new(source, Arc::clone(&registry.retired)));
         let object = texture::new_object(api, Arc::clone(&raster)).map_err(TextureError::Frame)?;
         // SAFETY: a live registrar and texture, on the main context. The registrar takes its own
         // reference.
@@ -235,9 +272,81 @@ pub(crate) async fn register(
         Ok(Registered {
             registry,
             id,
-            object: object as usize,
+            object: ObjectRef::new(api, object),
             raster,
         })
     })
     .await?
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Weak;
+
+    use super::*;
+    use crate::Acquired;
+
+    /// A texture source that never has a frame; the test only needs its `Raster`.
+    struct NoFrames;
+
+    impl FrameSource for NoFrames {
+        fn acquire(&self) -> Option<Acquired> {
+            None
+        }
+    }
+
+    /// A stand-in for the native texture object, released the way `g_object_unref` would.
+    struct Fake {
+        value: u32,
+    }
+
+    /// `g_object_unref` for a fake object: the test put an `Arc<Fake>` in the pointer.
+    unsafe extern "C" fn release_fake(object: Gpointer) {
+        // SAFETY: the test gives the pointer `Arc::into_raw` made, once.
+        drop(unsafe { Arc::from_raw(object.cast::<Fake>()) });
+    }
+
+    /// Retire a fake texture in `retired` and return what can tell whether it is still alive.
+    fn retire_fake(retired: &Retired, value: u32) -> Weak<Fake> {
+        let fake = Arc::new(Fake { value });
+        let weak = Arc::downgrade(&fake);
+        retired.add(ObjectRef::for_test(
+            Arc::into_raw(fake) as usize,
+            release_fake,
+        ));
+        weak
+    }
+
+    #[test]
+    fn retired_textures_live_until_a_populate_finishes() {
+        let retired = Arc::new(Retired::default());
+        let raster = Raster::new(Arc::new(NoFrames), Arc::clone(&retired));
+
+        let first = retire_fake(&retired, 1);
+        let second = retire_fake(&retired, 2);
+
+        // The raster thread may still use either object: both are alive.
+        assert_eq!(
+            first
+                .upgrade()
+                .expect("first texture released before raster use")
+                .value,
+            1
+        );
+        assert_eq!(
+            second
+                .upgrade()
+                .expect("second texture released before raster use")
+                .value,
+            2
+        );
+
+        // The next populate has finished: both can go, exactly once.
+        raster.release_retired();
+        assert!(first.upgrade().is_none());
+        assert!(second.upgrade().is_none());
+
+        // A later populate has nothing left to release.
+        raster.release_retired();
+    }
 }

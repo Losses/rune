@@ -18,13 +18,13 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use log::{error, info, warn};
 
-use super::SHARING_FAILED;
 use super::api::{
     self, Api, FALSE, GType, Gboolean, Gpointer, ObjectClass, PopulateFunc, TRUE, TypeInfo,
     TypeQuery,
 };
 use super::gl::{self, Gl, PixelTexture};
 use super::logic::{self, Garbage, Imported};
+use super::{Retired, SHARING_FAILED};
 use crate::{Acquired, Frame, FrameSource, Pixels, TextureError, VulkanImage, lock};
 use std::mem;
 use std::ptr;
@@ -145,15 +145,31 @@ unsafe fn slot(object: Gpointer) -> *mut *const Raster {
     unsafe { object.cast::<u8>().add(offset).cast() }
 }
 
+/// The raster pointer in `object`, if it has one.
+///
+/// # Safety
+///
+/// `object` is a live instance of [`texture_type`]; the pointer is valid while it is alive.
+unsafe fn raster_ptr(object: Gpointer) -> Option<*const Raster> {
+    // SAFETY: as the caller guarantees; the pointer is null or the `Arc` that `new_object` put
+    // there, given up only by `finalize`.
+    let raster = unsafe { slot(object).read() };
+    (!raster.is_null()).then_some(raster)
+}
+
 /// The raster state of `object`, if it has one.
 ///
 /// # Safety
 ///
 /// `object` is a live instance of [`texture_type`]; the result is valid while it is alive.
-unsafe fn raster<'a>(object: Gpointer) -> Option<&'a Raster> {
-    // SAFETY: as the caller guarantees; the pointer is null or the `Arc` that `new_object` put
-    // there, given up only by `finalize`.
-    unsafe { slot(object).read().as_ref() }
+unsafe fn raster(object: Gpointer) -> Option<Arc<Raster>> {
+    let raster = unsafe { raster_ptr(object) }?;
+    // SAFETY: `raster` is the `Arc` in the slot, alive because the object is; the clone keeps it
+    // alive if the object is released while a callback still uses it.
+    unsafe {
+        Arc::increment_strong_count(raster);
+        Some(Arc::from_raw(raster))
+    }
 }
 
 /// A new texture object with `raster`, holding one reference for the caller.
@@ -239,9 +255,14 @@ unsafe extern "C" fn populate(
     error: *mut *mut c_void,
 ) -> Gboolean {
     let result = catch_unwind(AssertUnwindSafe(|| {
-        // SAFETY: as the caller guarantees; the engine borrows the object during the call.
+        // SAFETY: as the caller guarantees.
         let raster = unsafe { raster(texture) }.ok_or("the texture has no frames")?;
-        raster.populate()
+        let output = raster.populate();
+        // The raster thread has finished this populate: every callback that could have looked up
+        // a retired texture is behind it. `raster` keeps this texture's raster alive while the
+        // retired objects are let go.
+        raster.release_retired();
+        output
     }));
     let message = match result {
         Ok(Ok(shown)) => {
@@ -278,6 +299,8 @@ unsafe extern "C" fn populate(
 pub(super) struct Raster {
     source: Arc<dyn FrameSource>,
     state: Mutex<State>,
+    /// The objects of this engine's unregistered textures, kept until a populate has finished.
+    retired: Arc<Retired>,
 }
 
 #[derive(Default)]
@@ -325,11 +348,18 @@ struct Output {
 }
 
 impl Raster {
-    pub(super) fn new(source: Arc<dyn FrameSource>) -> Self {
+    pub(super) fn new(source: Arc<dyn FrameSource>, retired: Arc<Retired>) -> Self {
         Self {
             source,
             state: Mutex::default(),
+            retired,
         }
+    }
+
+    /// Let go of textures unregistered before this populate; called once it has finished, on the
+    /// raster thread.
+    pub(super) fn release_retired(&self) {
+        self.retired.release();
     }
 
     /// Hand out the newest frame, or the one handed out last if there is no newer one.
@@ -526,9 +556,14 @@ fn import(state: &mut State, gl: &Gl, image: &VulkanImage) -> Result<(u32, u32),
 #[cfg(test)]
 mod tests {
     use std::mem;
-    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::{AtomicBool, AtomicUsize};
+    use std::sync::{Barrier, Weak};
 
+    use super::super::ObjectRef;
     use super::*;
+
+    /// `GARBAGE` and the fake texture type are process-wide; these tests run one at a time.
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     struct NoFrames;
 
@@ -549,7 +584,8 @@ mod tests {
 
     #[test]
     fn retire_gives_the_frame_back_and_leaves_the_objects_to_a_populate() {
-        let raster = Raster::new(Arc::new(NoFrames));
+        let _guard = lock(&TEST_LOCK);
+        let raster = Raster::new(Arc::new(NoFrames), Arc::new(Retired::default()));
         let dropped = Arc::new(AtomicUsize::new(0));
         {
             let mut state = lock(&raster.state);
@@ -592,5 +628,132 @@ mod tests {
         // Disposing after unregistering retires again: nothing more to give back.
         raster.retire();
         assert!(lock(&GARBAGE).is_empty());
+    }
+
+    /// The slot offset of a fresh texture instance: the parent's size rounded up to pointer
+    /// alignment, which a zero-sized parent makes the alignment itself.
+    const SLOT_OFFSET: usize = align_of::<*const Raster>();
+
+    /// A native texture object stand-in: the slot is at the same offset as the real
+    /// `FlTextureGL` instance, and dropping the object gives up the slot's `Arc`.
+    #[repr(C)]
+    struct FakeTexture {
+        pad: [u8; SLOT_OFFSET],
+        /// The `Arc::into_raw` pointer in the slot, as an address so the fake is `Send + Sync`.
+        raster: usize,
+        /// The raster in that slot, to tell whether a callback still holds it after the slot
+        /// reference is given up.
+        raster_lifetime: Weak<Raster>,
+        /// Whether `raster_lifetime` still upgraded once the slot reference was dropped.
+        raster_alive: Arc<AtomicBool>,
+        released: Arc<AtomicUsize>,
+    }
+
+    impl Drop for FakeTexture {
+        fn drop(&mut self) {
+            if self.raster != 0 {
+                // SAFETY: the test put the `Arc` from `Arc::into_raw` there, once.
+                drop(unsafe { Arc::from_raw(self.raster as *const Raster) });
+            }
+            self.raster_alive
+                .store(self.raster_lifetime.upgrade().is_some(), Ordering::SeqCst);
+        }
+    }
+
+    /// `g_object_unref` for the fake: count the release, then drop the object.
+    unsafe extern "C" fn release_fake(object: Gpointer) {
+        // SAFETY: the test put an `Arc<FakeTexture>` in the pointer, once.
+        let fake = unsafe { Arc::from_raw(object.cast::<FakeTexture>()) };
+        fake.released.fetch_add(1, Ordering::SeqCst);
+        drop(fake);
+    }
+
+    #[test]
+    fn a_retired_texture_lives_until_the_populate_that_took_its_raster() {
+        let _guard = lock(&TEST_LOCK);
+        // `slot` reads the pointer at the offset of a real FlTextureGL instance; the fake has
+        // that layout. No other test registers the texture type.
+        let texture_type = TEXTURE_TYPE.get_or_init(|| {
+            Ok(TextureType {
+                gtype: 0,
+                offset: SLOT_OFFSET,
+            })
+        });
+        assert_eq!(texture_type.as_ref().unwrap().offset, SLOT_OFFSET);
+
+        let retired = Arc::new(Retired::default());
+        let raster = Arc::new(Raster::new(Arc::new(NoFrames), Arc::clone(&retired)));
+        let raster_weak = Arc::downgrade(&raster);
+        let released = Arc::new(AtomicUsize::new(0));
+        let raster_alive = Arc::new(AtomicBool::new(false));
+        let fake = Arc::new(FakeTexture {
+            pad: [0; SLOT_OFFSET],
+            raster: Arc::into_raw(Arc::clone(&raster)) as usize,
+            raster_lifetime: Arc::downgrade(&raster),
+            raster_alive: Arc::clone(&raster_alive),
+            released: Arc::clone(&released),
+        });
+        let weak = Arc::downgrade(&fake);
+        let fake = Arc::into_raw(fake) as usize;
+
+        // The engine has looked the texture up and holds `fake` as a raw pointer. The test
+        // harness stops the raster thread before it enters the callback, unregisters the texture,
+        // and only then lets the production populate run. The callback's `Arc` clone has to keep
+        // the texture's raster alive, and the retired reference has to last until it returns.
+        let looked_up = Arc::new(Barrier::new(2));
+        let resume = Arc::new(Barrier::new(2));
+        let raster_thread = {
+            let looked_up = Arc::clone(&looked_up);
+            let resume = Arc::clone(&resume);
+            std::thread::spawn(move || {
+                looked_up.wait();
+                resume.wait();
+                let mut target = 0;
+                let mut name = 0;
+                let mut width = 0;
+                let mut height = 0;
+                // SAFETY: the fake has the texture layout and its slot points at a live Raster.
+                unsafe {
+                    populate(
+                        fake as Gpointer,
+                        &mut target,
+                        &mut name,
+                        &mut width,
+                        &mut height,
+                        std::ptr::null_mut(),
+                    )
+                }
+            })
+        };
+
+        looked_up.wait();
+        // Production unregister order: stop handing out frames, then keep the object until a
+        // populate has finished on the raster thread.
+        raster.retire();
+        retired.add(ObjectRef::for_test(fake, release_fake));
+        assert!(
+            weak.upgrade().is_some(),
+            "texture released before the raster callback took its Arc"
+        );
+        assert_eq!(released.load(Ordering::SeqCst), 0);
+        assert!(!raster_alive.load(Ordering::SeqCst));
+        // From here the callback is the only holder of the raster: the slot reference is in the
+        // fake object and the callback has not taken its `Arc` yet.
+        drop(raster);
+        resume.wait();
+
+        let result = raster_thread.join().unwrap();
+        assert_eq!(result, FALSE);
+        assert_eq!(released.load(Ordering::SeqCst), 1);
+        assert!(weak.upgrade().is_none());
+        assert!(
+            raster_alive.load(Ordering::SeqCst),
+            "Raster dropped before the populate callback returned"
+        );
+        assert!(raster_weak.upgrade().is_none());
+
+        // A later populate has nothing left to release.
+        retired.release();
+        assert_eq!(released.load(Ordering::SeqCst), 1);
     }
 }
