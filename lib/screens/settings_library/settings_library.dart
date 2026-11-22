@@ -120,7 +120,8 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
           (record) => switch (record.kind) {
             LibraryRecordKindSummaryLocal() ||
             LibraryRecordKindSummaryReplica() ||
-            LibraryRecordKindSummarySubsonic() => true,
+            LibraryRecordKindSummarySubsonic() ||
+            LibraryRecordKindSummaryOpenDal() => true,
             _ => false,
           },
         )
@@ -244,6 +245,11 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                           // device, so no local library belongs to its row.
                           LibraryRecordKindSummarySubsonic(:final endpoint) =>
                             LibraryRowState(null, endpoint),
+                          // A WebDAV or S3 library has no folder on this
+                          // device, so its local library cannot be found by
+                          // path.
+                          LibraryRecordKindSummaryOpenDal(:final endpoint) =>
+                            LibraryRowState(null, endpoint),
                           _ => libraryRowState(
                             itemPath,
                             registeredLibraries,
@@ -278,7 +284,8 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
 
                         String fileName = switch (record.kind) {
                           LibraryRecordKindSummaryReplica() ||
-                          LibraryRecordKindSummarySubsonic() => record.alias,
+                          LibraryRecordKindSummarySubsonic() ||
+                          LibraryRecordKindSummaryOpenDal() => record.alias,
                           _ => localFolderName(itemPath),
                         };
 
@@ -297,6 +304,8 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                             icon: switch (record.kind) {
                               LibraryRecordKindSummarySubsonic() =>
                                 Symbols.music_note,
+                              LibraryRecordKindSummaryOpenDal() =>
+                                Symbols.cloud,
                               _ when shared => Symbols.cloud_sync,
                               _ => Symbols.folder,
                             },

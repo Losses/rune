@@ -14,13 +14,50 @@ import 'package:rune/screens/settings_library/settings_library.dart';
 import 'package:rune/utils/router/history.dart';
 import 'package:rune/widgets/settings/settings_button.dart';
 
-const _endpoint = 'https://music.example/navidrome';
-
-const _subsonic = LibraryRecordSummary(
-  recordId: 'subsonic-1',
-  alias: 'music.example',
-  kind: LibraryRecordKindSummarySubsonic(endpoint: _endpoint, account: ''),
-);
+/// Saved libraries kept on a server, which have no folder on this device:
+/// each with its service, alias and endpoint.
+const _saved = [
+  (
+    'Subsonic',
+    LibraryRecordSummary(
+      recordId: 'subsonic-1',
+      alias: 'music.example',
+      kind: LibraryRecordKindSummarySubsonic(
+        endpoint: 'https://music.example/navidrome',
+        account: '',
+      ),
+    ),
+    'https://music.example/navidrome',
+  ),
+  (
+    'WebDAV',
+    LibraryRecordSummary(
+      recordId: 'webdav-1',
+      alias: 'music',
+      kind: LibraryRecordKindSummaryOpenDal(
+        libraryId: 'library-3',
+        service: OpenDalServiceKind.webDav,
+        endpoint: 'https://dav.example/remote.php/dav',
+        root: 'music',
+      ),
+    ),
+    'https://dav.example/remote.php/dav',
+  ),
+  (
+    'S3',
+    LibraryRecordSummary(
+      recordId: 's3-1',
+      alias: 'tunes',
+      kind: LibraryRecordKindSummaryOpenDal(
+        libraryId: 'library-4',
+        service: OpenDalServiceKind.s3,
+        endpoint: 'https://s3.example',
+        root: 'tunes',
+      ),
+    ),
+    'https://s3.example',
+  ),
+];
 
 const _replica = LibraryRecordSummary(
   recordId: 'replica-1',
@@ -109,87 +146,89 @@ Future<void> _pumpPage(
 }
 
 void main() {
-  testWidgets('the home page offers a saved Subsonic library to reopen', (
-    tester,
-  ) async {
-    final opened = <String>[];
-    final registry = LibraryRegistryProvider(
-      loadRecords: () async => const ListLibraryRecordsResponse(
-        records: [_subsonic],
-        invalidRecords: [],
-      ),
-      openRecord: (recordId, callId) async {
-        opened.add(recordId);
-        return _opened(recordId, callId);
-      },
-    );
-    await _pumpPage(tester, registry, const HomePage());
-
-    final row = find.widgetWithText(SettingsButton, 'music.example');
-    expect(row, findsOneWidget);
-    expect(tester.widget<SettingsButton>(row).subtitle, _endpoint);
-
-    await tester.tap(row);
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 1));
-
-    expect(opened, ['subsonic-1']);
-    expect(find.text('Library Home'), findsOneWidget);
-  });
-
-  testWidgets(
-    'Library settings list a saved Subsonic library to switch to or remove',
-    (tester) async {
-      final removed = <String>[];
+  for (final (service, record, endpoint) in _saved) {
+    testWidgets('the home page offers a saved $service library to reopen', (
+      tester,
+    ) async {
+      final opened = <String>[];
       final registry = LibraryRegistryProvider(
-        loadRecords: () async => const ListLibraryRecordsResponse(
-          records: [_replica, _subsonic],
-          invalidRecords: [],
-        ),
-        removeRecord: (recordId) async {
-          removed.add(recordId);
-          return const RemoveLibraryRecordResponse();
+        loadRecords: () async =>
+            ListLibraryRecordsResponse(records: [record], invalidRecords: []),
+        openRecord: (recordId, callId) async {
+          opened.add(recordId);
+          return _opened(recordId, callId);
         },
       );
-      await _pumpPage(
-        tester,
-        registry,
-        SettingsLibraryPage(
-          loadLibraries: () async =>
-              const ListLocalLibrariesResponse(libraries: [_replicaCatalog]),
-        ),
-      );
+      await _pumpPage(tester, registry, const HomePage());
+
+      final row = find.widgetWithText(SettingsButton, record.alias);
+      expect(row, findsOneWidget);
+      expect(tester.widget<SettingsButton>(row).subtitle, endpoint);
+
+      await tester.tap(row);
       await tester.pump();
-
-      expect(find.text('music.example'), findsOneWidget);
-      expect(find.text(_endpoint), findsOneWidget);
-      // The replica's catalog belongs to the replica's row alone.
-      expect(find.text('Shared Music'), findsOneWidget);
-
-      final row = find.ancestor(
-        of: find.text('music.example'),
-        matching: find.byType(ListTile),
-      );
-      await tester.tap(find.text('music.example'));
-      await tester.pump();
-
-      final switchTo = find.descendant(
-        of: row,
-        matching: find.widgetWithText(Button, 'Switch to'),
-      );
-      expect(switchTo, findsOneWidget);
-      expect(tester.widget<Button>(switchTo).onPressed, isNotNull);
-      expect(
-        find.descendant(of: row, matching: find.textContaining('Background')),
-        findsNothing,
-      );
-
-      await tester.tap(find.descendant(of: row, matching: find.text('Remove')));
-      await tester.pump();
-
-      expect(removed, ['subsonic-1']);
-      expect(find.text('music.example'), findsNothing);
       await tester.pump(const Duration(seconds: 1));
-    },
-  );
+
+      expect(opened, [record.recordId]);
+      expect(find.text('Library Home'), findsOneWidget);
+    });
+
+    testWidgets(
+      'Library settings list a saved $service library to switch to or remove',
+      (tester) async {
+        final removed = <String>[];
+        final registry = LibraryRegistryProvider(
+          loadRecords: () async => ListLibraryRecordsResponse(
+            records: [_replica, record],
+            invalidRecords: [],
+          ),
+          removeRecord: (recordId) async {
+            removed.add(recordId);
+            return const RemoveLibraryRecordResponse();
+          },
+        );
+        await _pumpPage(
+          tester,
+          registry,
+          SettingsLibraryPage(
+            loadLibraries: () async =>
+                const ListLocalLibrariesResponse(libraries: [_replicaCatalog]),
+          ),
+        );
+        await tester.pump();
+
+        expect(find.text(record.alias), findsOneWidget);
+        expect(find.text(endpoint), findsOneWidget);
+        // The replica's catalog belongs to the replica's row alone.
+        expect(find.text('Shared Music'), findsOneWidget);
+
+        final row = find.ancestor(
+          of: find.text(record.alias),
+          matching: find.byType(ListTile),
+        );
+        await tester.tap(find.text(record.alias));
+        await tester.pump();
+
+        final switchTo = find.descendant(
+          of: row,
+          matching: find.widgetWithText(Button, 'Switch to'),
+        );
+        expect(switchTo, findsOneWidget);
+        expect(tester.widget<Button>(switchTo).onPressed, isNotNull);
+        expect(
+          find.descendant(of: row, matching: find.textContaining('Background')),
+          findsNothing,
+        );
+
+        await tester.tap(
+          find.descendant(of: row, matching: find.text('Remove')),
+        );
+        await tester.pump();
+
+        expect(removed, [record.recordId]);
+        expect(find.text(record.alias), findsNothing);
+        await tester.pump(const Duration(seconds: 1));
+      },
+    );
+  }
 }
