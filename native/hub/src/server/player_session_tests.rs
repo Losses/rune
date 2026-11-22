@@ -815,7 +815,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
         &fixture.global_params,
         &FetchCollectionGroupsRequest {
             call_id: None,
-            collection_type: CollectionType::Playlist,
+            collection_type: CollectionType::Mix,
             bake_cover_arts: false,
             group_titles: vec!["A".into()],
         },
