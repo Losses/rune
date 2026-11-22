@@ -4744,6 +4744,102 @@ async fn session_d5_stats_follow_item_library() -> Result<()> {
     a.global_params.node.shutdown().await
 }
 
+/// Plays `completions` queued library tracks through to their end on the real player, with the
+/// session's completion handler blocked on the shared scrobbler while `hold_handler` is set, and
+/// returns how many times each completed track was recorded as played through.
+async fn played_through_counts(completions: usize, hold_handler: bool) -> Result<Vec<i32>> {
+    let dir = tempfile::tempdir()?;
+    let f = fixture(dir.path()).await?;
+    let mut ids = Vec::new();
+    // One more track than completions, so the player is playing it after the last completion.
+    for index in 0..=completions {
+        ids.push(session_audio(&f, &format!("completion-{index}.ogg")).await?);
+    }
+    queue_session(&f, &ids).await?;
+    let library = f.global_params.test_library();
+    let mut tracks = Vec::new();
+    for id in &ids[..completions] {
+        tracks.push(library_track_for_id(&f, *id).await?.file_uuid.to_string());
+    }
+    let duration = media_files::Entity::find_by_id(ids[0])
+        .one(&*library.main_db)
+        .await?
+        .context("completion track")?
+        .duration
+        .to_f64()
+        .context("completion track duration")?;
+    let counts = || async {
+        let rows = media_file_stats::Entity::find().all(&*library.main_db).await?;
+        Ok::<_, anyhow::Error>(
+            tracks
+                .iter()
+                .map(|track| {
+                    rows.iter()
+                        .filter(|row| &row.track_uuid == track)
+                        .map(|row| row.played_through)
+                        .sum::<i32>()
+                })
+                .collect::<Vec<_>>(),
+        )
+    };
+    let scrobbler = f.global_params.scrobbler.clone();
+    let held = if hold_handler {
+        Some(scrobbler.lock().await)
+    } else {
+        None
+    };
+    f.global_params.player.lock().await.switch(0);
+    for index in 0..completions {
+        wait_player(&f, |status| {
+            status.index == Some(index) && status.state == PlayerPlaybackState::Playing
+        })
+        .await?;
+        f.global_params
+            .player
+            .lock()
+            .await
+            .seek((duration - 0.1).max(0.0));
+        if index == 0 && hold_handler {
+            // The handler has taken the first completion and now waits for the scrobbler.
+            wait_until("the first completion to be handled", || async {
+                Ok((counts().await?[0] == 1).then_some(()))
+            })
+            .await?;
+        }
+    }
+    wait_player(&f, |status| {
+        status.index == Some(completions) && status.state == PlayerPlaybackState::Playing
+    })
+    .await?;
+    f.global_params.player.lock().await.pause();
+    wait_player(&f, |status| status.state == PlayerPlaybackState::Paused).await?;
+    drop(held);
+    // Completions are handled in order, so the last one being recorded means the earlier
+    // ones were handled before it.
+    wait_until("the last completion to be handled", || async {
+        Ok((counts().await?[completions - 1] > 0).then_some(()))
+    })
+    .await?;
+    let result = counts().await?;
+    f.global_params.node.shutdown().await?;
+    Ok(result)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn completions_queued_behind_a_held_handler_are_each_recorded_once() -> Result<()> {
+    // The first completion holds the handler; seventeen more wait behind it.
+    let counts = played_through_counts(18, true).await?;
+    assert_eq!(counts, vec![1; 18]);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn completions_handled_as_they_arrive_are_each_recorded_once() -> Result<()> {
+    let counts = played_through_counts(3, false).await?;
+    assert_eq!(counts, vec![1; 3]);
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn session_d6_removed_library_is_unavailable_without_crash() -> Result<()> {
     use crate::messages::PlaylistUnavailableReason;

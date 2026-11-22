@@ -35,6 +35,15 @@ impl<T> SimpleChannel<T> {
         let receiver = SimpleReceiver { queue, notify };
         (sender, receiver)
     }
+
+    /// Creates a channel that keeps every message until it is received, for events that must
+    /// each be handled rather than replaced by a newer snapshot.
+    pub fn unbounded() -> (SimpleSender<T>, SimpleReceiver<T>) {
+        let (mut sender, receiver) = Self::channel(0);
+        // A queue never holds this many messages, so it is never cleared.
+        sender.capacity = usize::MAX;
+        (sender, receiver)
+    }
 }
 
 impl<T> SimpleSender<T> {

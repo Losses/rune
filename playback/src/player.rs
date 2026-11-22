@@ -603,8 +603,8 @@ impl Player {
         let (event_sender, mut event_receiver) = mpsc::unbounded_channel();
         // Create a broadcast channel for status updates
         let (status_sender, _) = SimpleChannel::channel(16);
-        // Create a broadcast channel for played through update
-        let (played_through_sender, _) = SimpleChannel::channel(16);
+        // Keep every completed track until the session handles it
+        let (played_through_sender, _) = SimpleChannel::unbounded();
         // Create a broadcast channel for playlist updates
         let (playlist_sender, _) = SimpleChannel::channel(16);
         // Create a broadcast channel for realtime FFT updates
