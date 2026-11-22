@@ -23,6 +23,7 @@ import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../bindings/bindings.dart';
 import '../../providers/library_home.dart';
+import '../../providers/request_capabilities.dart';
 import '../settings_library_home/constants/library_home_items.dart';
 
 import './constants/first_column.dart';
@@ -37,9 +38,14 @@ const groupTitleLinks = <LibraryHomeDomain, String>{
 class LargeScreenLibraryHomeListView extends StatefulWidget {
   final StartScreenLayoutManager layoutManager;
 
+  /// Loads the summaries of the home's query sections. Tests replace it.
+  final Future<ComplexQueryResponse?> Function(List<ComplexQuery> queries)
+  loadSummary;
+
   const LargeScreenLibraryHomeListView({
     super.key,
     required this.layoutManager,
+    this.loadSummary = complexQuery,
   });
 
   @override
@@ -50,6 +56,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
   Future<List<Group<dynamic>>>? summary;
 
   late LibraryHomeProvider libraryHome;
+  bool _offersSummary = true;
   StreamSubscription? _contentSubscription;
 
   @override
@@ -66,6 +73,12 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
 
     Localizations.localeOf(context);
     libraryHome = Provider.of<LibraryHomeProvider>(context);
+    _offersSummary =
+        capabilityForRequest(
+              context,
+              (capabilities) => capabilities.complexQueryRequest,
+            )
+            is RequestCapabilityAvailable;
 
     updateLibrary(libraryHome);
   }
@@ -129,34 +142,39 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
     LibraryHomeProvider libraryHome,
   ) async {
     widget.layoutManager.resetAnimations();
-    final librarySummary = await complexQuery(
-      libraryHome.entries
-          .where((x) => x.setting is LibraryHomeSettingQuery)
-          .map((x) {
-            final setting = x.setting as LibraryHomeSettingQuery;
-            return ComplexQuery(
-              title: x.definition.titleBuilder(context),
-              query: setting.query,
-            );
-          })
-          .toList(),
-    );
+    var groups = <Group<InternalCollection>>[];
+    if (_offersSummary) {
+      final librarySummary = await widget.loadSummary(
+        libraryHome.entries
+            .where((x) => x.setting is LibraryHomeSettingQuery)
+            .map((x) {
+              final setting = x.setting as LibraryHomeSettingQuery;
+              return ComplexQuery(
+                title: x.definition.titleBuilder(context),
+                query: setting.query,
+              );
+            })
+            .toList(),
+      );
 
-    if (!mounted) return [];
-    if (librarySummary == null) return [];
+      if (!mounted) return [];
+      if (librarySummary == null) return [];
 
-    final groups = librarySummary.result
-        .map(
-          (x) => Group<InternalCollection>(
-            groupTitle: x.title,
-            groupLink: groupTitleLinks[x.domain],
-            items: x.entries
-                .map(InternalCollection.fromComplexQueryEntry)
-                .toList(),
-          ),
-        )
-        .toList();
+      groups = librarySummary.result
+          .map(
+            (x) => Group<InternalCollection>(
+              groupTitle: x.title,
+              groupLink: groupTitleLinks[x.domain],
+              items: x.entries
+                  .map(InternalCollection.fromComplexQueryEntry)
+                  .toList(),
+            ),
+          )
+          .toList();
+    }
 
+    // The Start group's tiles appear only once the animations play, so a
+    // library without summaries plays them too.
     Timer(
       Duration(milliseconds: gridAnimationDelay),
       () => widget.layoutManager.playAnimations(),
@@ -182,7 +200,8 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                   : 'Error: $error',
             ),
           );
-        } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+        } else if (_offersSummary &&
+            (!snapshot.hasData || snapshot.data!.isEmpty)) {
           return Center(child: Text(S.of(context).noDataAvailable));
         } else {
           return ContextMenuWrapper(
@@ -244,7 +263,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                                 },
                                 direction: Axis.horizontal,
                               ),
-                              ...snapshot.data!
+                              ...(snapshot.data ?? const [])
                                   .where((x) => x.items.isNotEmpty)
                                   .map((item) {
                                     if (item is Group<InternalCollection>) {

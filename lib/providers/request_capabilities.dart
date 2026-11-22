@@ -52,6 +52,8 @@ class RequestCapabilitiesProvider extends ChangeNotifier {
       _snapshot?.fetchAllMixesRequest ?? const RequestCapabilityAvailable();
   RequestCapability get addItemToMixRequest =>
       _snapshot?.addItemToMixRequest ?? const RequestCapabilityAvailable();
+  RequestCapability get complexQueryRequest =>
+      _snapshot?.complexQueryRequest ?? const RequestCapabilityAvailable();
 
   void _update(RequestCapabilities snapshot) {
     _snapshot = snapshot;
