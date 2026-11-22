@@ -44,7 +44,7 @@ impl From<&ScrobblingTrack> for Value {
 #[derive(Clone)]
 pub struct ListenBrainzClient {
     client: Client,
-    base_url: String,
+    pub base_url: String,
     pub session_key: Option<String>,
 }
 

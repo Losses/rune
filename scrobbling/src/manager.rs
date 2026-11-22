@@ -72,6 +72,38 @@ pub struct LoginStatus {
     pub error_message: Option<String>,
 }
 
+const MIN_LISTEN_DURATION: Duration = Duration::from_secs(4 * 60);
+const LAST_FM_MIN_TRACK_DURATION_SECS: u32 = 30;
+
+/// The listening a service requires before it accepts a final submission. A track that lasts
+/// longer than four minutes still needs only four minutes of listening; an unknown duration
+/// falls back to the same four minutes.
+fn required_listen(track: &ScrobblingTrack) -> Duration {
+    track
+        .duration
+        .filter(|seconds| *seconds > 0)
+        .map(|seconds| Duration::from_secs(u64::from(seconds)) / 2)
+        .unwrap_or(MIN_LISTEN_DURATION)
+        .min(MIN_LISTEN_DURATION)
+}
+
+/// Whether `listened` qualifies as a play for `service`. Last.fm and Libre.fm also refuse
+/// tracks of 30 seconds or less; ListenBrainz has no track-length rule.
+fn listen_qualifies(
+    track: &ScrobblingTrack,
+    listened: Duration,
+    service: ScrobblingService,
+) -> bool {
+    let long_enough = match service {
+        ScrobblingService::LastFm | ScrobblingService::LibreFm => track
+            .duration
+            .filter(|seconds| *seconds > 0)
+            .is_none_or(|seconds| seconds > LAST_FM_MIN_TRACK_DURATION_SECS),
+        ScrobblingService::ListenBrainz => true,
+    };
+    long_enough && listened >= required_listen(track)
+}
+
 #[async_trait]
 pub trait ScrobblingServiceManager: Send + Sync {
     async fn send_login_status(&self);
@@ -87,8 +119,13 @@ pub trait ScrobblingServiceManager: Send + Sync {
     async fn update_now_playing(&mut self, service: &ScrobblingService, track: ScrobblingTrack);
     fn restore_session(&mut self, service: &ScrobblingService, session_key: String) -> Result<()>;
     fn update_now_playing_all(&mut self, track: ScrobblingTrack);
-    async fn scrobble(&mut self, service: ScrobblingService, track: ScrobblingTrack);
-    fn scrobble_all(&mut self, track: ScrobblingTrack);
+    async fn scrobble(
+        &mut self,
+        service: ScrobblingService,
+        track: ScrobblingTrack,
+        listened: Duration,
+    );
+    fn scrobble_all(&mut self, track: ScrobblingTrack, listened: Duration);
     async fn logout(&mut self, service: ScrobblingService);
     fn subscribe_error(&self) -> SimpleReceiver<ScrobblingError>;
     fn subscribe_login_status(&self) -> SimpleReceiver<Vec<LoginStatus>>;
@@ -111,7 +148,7 @@ pub struct ScrobblingManager {
 
     is_authenticating: bool,
     now_playing_cache: VecDeque<ScrobblingTrack>,
-    scrobble_cache: VecDeque<ScrobblingTrack>,
+    scrobble_cache: VecDeque<(ScrobblingTrack, Duration)>,
 }
 
 pub struct ScrobblingCredential {
@@ -225,8 +262,8 @@ impl ScrobblingManager {
             self.update_now_playing_all(track);
         }
 
-        while let Some(track) = self.scrobble_cache.pop_front() {
-            self.scrobble_all(track);
+        while let Some((track, listened)) = self.scrobble_cache.pop_front() {
+            self.scrobble_all(track, listened);
         }
     }
 
@@ -569,15 +606,24 @@ impl ScrobblingServiceManager for ScrobblingManager {
         });
     }
 
-    async fn scrobble(&mut self, service: ScrobblingService, track: ScrobblingTrack) {
+    async fn scrobble(
+        &mut self,
+        service: ScrobblingService,
+        track: ScrobblingTrack,
+        listened: Duration,
+    ) {
         if self.is_authenticating {
-            self.scrobble_cache.push_back(track);
+            self.scrobble_cache.push_back((track, listened));
             if self.scrobble_cache.len() > 48 {
                 self.scrobble_cache.pop_front();
             }
 
             info!("Caching scrobble for {}", { service });
 
+            return;
+        }
+
+        if !listen_qualifies(&track, listened, service) {
             return;
         }
 
@@ -622,9 +668,9 @@ impl ScrobblingServiceManager for ScrobblingManager {
         }
     }
 
-    fn scrobble_all(&mut self, track: ScrobblingTrack) {
+    fn scrobble_all(&mut self, track: ScrobblingTrack, listened: Duration) {
         if self.is_authenticating {
-            self.scrobble_cache.push_back(track);
+            self.scrobble_cache.push_back((track, listened));
             if self.scrobble_cache.len() > 48 {
                 self.scrobble_cache.pop_front();
             }
@@ -632,9 +678,21 @@ impl ScrobblingServiceManager for ScrobblingManager {
             return;
         }
 
-        let lastfm = self.lastfm.clone();
-        let librefm = self.librefm.clone();
-        let listenbrainz = self.listenbrainz.clone();
+        let lastfm = if listen_qualifies(&track, listened, ScrobblingService::LastFm) {
+            self.lastfm.clone()
+        } else {
+            None
+        };
+        let librefm = if listen_qualifies(&track, listened, ScrobblingService::LibreFm) {
+            self.librefm.clone()
+        } else {
+            None
+        };
+        let listenbrainz = if listen_qualifies(&track, listened, ScrobblingService::ListenBrainz) {
+            self.listenbrainz.clone()
+        } else {
+            None
+        };
         let max_retries = self.max_retries;
         let retry_delay = self.retry_delay;
         let error_sender = Arc::clone(&self.error_sender);
@@ -801,11 +859,16 @@ impl ScrobblingServiceManager for MockScrobblingManager {
         // Mock implementation: do nothing
     }
 
-    async fn scrobble(&mut self, _service: ScrobblingService, _track: ScrobblingTrack) {
+    async fn scrobble(
+        &mut self,
+        _service: ScrobblingService,
+        _track: ScrobblingTrack,
+        _listened: Duration,
+    ) {
         // Mock implementation: do nothing
     }
 
-    fn scrobble_all(&mut self, _track: ScrobblingTrack) {
+    fn scrobble_all(&mut self, _track: ScrobblingTrack, _listened: Duration) {
         // Mock implementation: do nothing
     }
 
@@ -835,14 +898,22 @@ mod tests {
 
     use super::{
         ActionType, ScrobblingManager, ScrobblingService, ScrobblingServiceManager,
-        classify_authentication_error, redact_authentication_secrets,
+        classify_authentication_error, listen_qualifies, redact_authentication_secrets,
     };
     use crate::{
-        ScrobblingAuthFailure,
+        ScrobblingAuthFailure, ScrobblingTrack,
         last_fm::LastFmClient,
         libre_fm::LibreFmClient,
+        listen_brainz::ListenBrainzClient,
         test_support::{sample_track, spawn_sequence_server},
     };
+
+    fn track_with_duration(seconds: u32) -> ScrobblingTrack {
+        ScrobblingTrack {
+            duration: Some(seconds),
+            ..sample_track()
+        }
+    }
 
     #[test]
     fn auth_error_redaction_preserves_non_secret_details() {
@@ -899,7 +970,7 @@ mod tests {
         manager.lastfm = Some(lastfm);
         let error_rx = manager.subscribe_error();
 
-        manager.scrobble_all(sample_track());
+        manager.scrobble_all(sample_track(), Duration::from_secs(30));
         timeout(Duration::from_secs(5), server)
             .await
             .unwrap()
@@ -933,7 +1004,7 @@ mod tests {
         manager.librefm = Some(librefm);
         let error_rx = manager.subscribe_error();
 
-        manager.scrobble_all(sample_track());
+        manager.scrobble_all(sample_track(), Duration::from_secs(30));
         timeout(Duration::from_secs(5), server)
             .await
             .unwrap()
@@ -999,5 +1070,156 @@ mod tests {
         assert_eq!(second.service, ScrobblingService::LibreFm);
         assert_eq!(second.action, ActionType::UpdateNowPlaying);
         assert_eq!(second.library_id.as_deref(), Some("lib-1"));
+    }
+
+    #[test]
+    fn listen_qualification_follows_each_services_rule() {
+        let check =
+            |duration: Option<u32>, listened: Duration, last_fm: bool, listen_brainz: bool| {
+                let track = ScrobblingTrack {
+                    duration,
+                    ..sample_track()
+                };
+                for service in [ScrobblingService::LastFm, ScrobblingService::LibreFm] {
+                    assert_eq!(
+                        listen_qualifies(&track, listened, service),
+                        last_fm,
+                        "{service} eligibility for duration {duration:?} and {listened:?} listened"
+                    );
+                }
+                assert_eq!(
+                    listen_qualifies(&track, listened, ScrobblingService::ListenBrainz),
+                    listen_brainz,
+                    "ListenBrainz eligibility for duration {duration:?} and {listened:?} listened"
+                );
+            };
+
+        check(Some(180), Duration::from_secs(4), false, false);
+        check(Some(180), Duration::from_secs(89), false, false);
+        check(Some(180), Duration::from_secs(90), true, true);
+        check(Some(20), Duration::from_secs(20), false, true);
+        check(Some(30), Duration::from_secs(30), false, true);
+        check(Some(31), Duration::from_millis(15_000), false, false);
+        check(Some(31), Duration::from_millis(15_500), true, true);
+        check(Some(600), Duration::from_secs(239), false, false);
+        check(Some(600), Duration::from_secs(240), true, true);
+        check(None, Duration::from_secs(239), false, false);
+        check(None, Duration::from_secs(240), true, true);
+        check(Some(0), Duration::from_secs(240), true, true);
+    }
+
+    #[tokio::test]
+    async fn scrobble_all_submits_a_qualifying_listen_once_to_each_service() {
+        let (lastfm_url, lastfm_count, lastfm_server) = spawn_sequence_server(vec![(
+            "200 OK",
+            r#"{"scrobbles":{"@attr":{"accepted":1,"ignored":0}}}"#.to_string(),
+        )])
+        .await;
+        let (listenbrainz_url, listenbrainz_count, listenbrainz_server) =
+            spawn_sequence_server(vec![("200 OK", r#"{"status":"ok"}"#.to_string())]).await;
+
+        let mut lastfm = LastFmClient::new("api-key".into(), "api-secret".into()).unwrap();
+        lastfm.base_url = lastfm_url;
+        lastfm.session_key = Some("session-key".into());
+
+        let mut listenbrainz = ListenBrainzClient::new().unwrap();
+        listenbrainz.base_url = listenbrainz_url.trim_end_matches('/').to_string();
+        listenbrainz.session_key = Some("session-key".into());
+
+        let mut manager = ScrobblingManager::new(2, Duration::from_millis(1));
+        manager.lastfm = Some(lastfm);
+        manager.listenbrainz = Some(listenbrainz);
+
+        manager.scrobble_all(track_with_duration(180), Duration::from_secs(180));
+
+        timeout(Duration::from_secs(5), lastfm_server)
+            .await
+            .unwrap()
+            .unwrap();
+        timeout(Duration::from_secs(5), listenbrainz_server)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(lastfm_count.load(Ordering::SeqCst), 1);
+        assert_eq!(listenbrainz_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn scrobble_all_submits_a_short_track_only_to_listen_brainz() {
+        let (lastfm_url, lastfm_count, lastfm_server) = spawn_sequence_server(vec![(
+            "200 OK",
+            r#"{"scrobbles":{"@attr":{"accepted":1,"ignored":0}}}"#.to_string(),
+        )])
+        .await;
+        let (listenbrainz_url, listenbrainz_count, listenbrainz_server) =
+            spawn_sequence_server(vec![("200 OK", r#"{"status":"ok"}"#.to_string())]).await;
+
+        let mut lastfm = LastFmClient::new("api-key".into(), "api-secret".into()).unwrap();
+        lastfm.base_url = lastfm_url;
+        lastfm.session_key = Some("session-key".into());
+
+        let mut listenbrainz = ListenBrainzClient::new().unwrap();
+        listenbrainz.base_url = listenbrainz_url.trim_end_matches('/').to_string();
+        listenbrainz.session_key = Some("session-key".into());
+
+        let mut manager = ScrobblingManager::new(2, Duration::from_millis(1));
+        manager.lastfm = Some(lastfm);
+        manager.listenbrainz = Some(listenbrainz);
+
+        manager.scrobble_all(track_with_duration(20), Duration::from_secs(20));
+
+        timeout(Duration::from_secs(5), listenbrainz_server)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(listenbrainz_count.load(Ordering::SeqCst), 1);
+        assert!(
+            timeout(Duration::from_secs(1), lastfm_server)
+                .await
+                .is_err(),
+            "Last.fm must not receive a track of 30 seconds or less"
+        );
+        assert_eq!(lastfm_count.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn scrobble_all_does_not_submit_an_unqualified_listen() {
+        let (lastfm_url, lastfm_count, lastfm_server) = spawn_sequence_server(vec![(
+            "200 OK",
+            r#"{"scrobbles":{"@attr":{"accepted":1,"ignored":0}}}"#.to_string(),
+        )])
+        .await;
+        let (listenbrainz_url, listenbrainz_count, listenbrainz_server) =
+            spawn_sequence_server(vec![("200 OK", r#"{"status":"ok"}"#.to_string())]).await;
+
+        let mut lastfm = LastFmClient::new("api-key".into(), "api-secret".into()).unwrap();
+        lastfm.base_url = lastfm_url;
+        lastfm.session_key = Some("session-key".into());
+
+        let mut listenbrainz = ListenBrainzClient::new().unwrap();
+        listenbrainz.base_url = listenbrainz_url.trim_end_matches('/').to_string();
+        listenbrainz.session_key = Some("session-key".into());
+
+        let mut manager = ScrobblingManager::new(2, Duration::from_millis(1));
+        manager.lastfm = Some(lastfm);
+        manager.listenbrainz = Some(listenbrainz);
+
+        manager.scrobble_all(track_with_duration(180), Duration::from_secs(4));
+
+        assert!(
+            timeout(Duration::from_secs(1), lastfm_server)
+                .await
+                .is_err(),
+            "Last.fm must not receive an unqualified listen"
+        );
+        assert!(
+            timeout(Duration::from_secs(1), listenbrainz_server)
+                .await
+                .is_err(),
+            "ListenBrainz must not receive an unqualified listen"
+        );
+        assert_eq!(lastfm_count.load(Ordering::SeqCst), 0);
+        assert_eq!(listenbrainz_count.load(Ordering::SeqCst), 0);
     }
 }
