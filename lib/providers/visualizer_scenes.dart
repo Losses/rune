@@ -448,22 +448,30 @@ class VisualizerScenesProvider extends ChangeNotifier {
     );
   }
 
-  void _placeListed() {
-    _order = placeArranged(_order, _scenes.map((scene) => scene.path).toList());
-  }
-
   /// Moves a scene, with the semantics of `ReorderableColumn.onReorder`.
+  ///
+  /// The list on screen leaves out the scenes the current input cannot run,
+  /// so the indexes are of [scenes]. [placeArranged] puts the new visible
+  /// order back among the hidden scenes, which keep their places.
   void reorder(int oldIndex, int newIndex) {
+    final shown = scenes;
     if (oldIndex < 0 ||
-        oldIndex >= _scenes.length ||
+        oldIndex >= shown.length ||
         newIndex < 0 ||
-        newIndex >= _scenes.length) {
+        newIndex >= shown.length) {
       return;
     }
-    final scenes = [..._scenes];
-    scenes.insert(newIndex, scenes.removeAt(oldIndex));
-    _scenes = scenes;
-    _placeListed();
+    final arranged = [...shown];
+    arranged.insert(newIndex, arranged.removeAt(oldIndex));
+    _order = placeArranged(
+      _order,
+      arranged.map((scene) => scene.path).toList(),
+    );
+    final byPath = {for (final scene in _scenes) scene.path: scene};
+    _scenes = [
+      for (final path in _order)
+        if (byPath[path] case final scene?) scene,
+    ];
     _save();
     notifyListeners();
     _sendChoice();
