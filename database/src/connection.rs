@@ -531,8 +531,9 @@ pub type RecommendationVectors = Arc<Vec<(u32, [f32; 61])>>;
 ///
 /// The data lives in the `media_analysis` table of the main database and is
 /// read from there: when the library is opened (see
-/// [`connect_recommendation_db`]) and again after every analysis run (see
-/// `sync_recommendation`). Nothing is stored on disk.
+/// [`connect_recommendation_db`]), before and after a library scan, and again
+/// after every analysis run (see `sync_recommendation`). Nothing is stored on
+/// disk.
 ///
 /// The vectors are replaced as a whole behind an `Arc`, so a query only holds
 /// the lock for the moment it takes to clone the pointer and never while it

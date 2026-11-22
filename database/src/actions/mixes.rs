@@ -20,7 +20,9 @@ use sea_orm::{
     sea_query::{Condition, Expr, LikeExpr, Query},
 };
 
-use crate::actions::analysis::{get_analyze_count, get_percentile_analysis_result};
+use crate::actions::analysis::{
+    current_analysis_condition, get_analyze_count, get_percentile_analysis_result,
+};
 use crate::connection::{MainDbConnection, RecommendationDbConnection};
 use crate::entities::{
     albums, artists, genres, media_analysis, media_file_albums, media_file_artists,
@@ -1062,11 +1064,13 @@ pub async fn query_mix_media_files_with_seed(
 
         if let Some(analyzed) = filter_analyzed {
             let current = media_analysis::Entity::find()
+                .join(
+                    JoinType::InnerJoin,
+                    media_analysis::Relation::MediaFiles.def(),
+                )
                 .select_only()
                 .column(media_analysis::Column::FileId)
-                .filter(
-                    media_analysis::Column::AnalysisVersion.eq(analysis::CURRENT_ANALYSIS_VERSION),
-                )
+                .filter(current_analysis_condition())
                 .into_query();
             filter = filter.add(if analyzed {
                 media_files::Column::Id.in_subquery(current)

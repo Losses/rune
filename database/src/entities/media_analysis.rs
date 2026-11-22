@@ -11,6 +11,10 @@ pub struct Model {
     pub id: i32,
     pub file_id: i32,
     pub analysis_version: i32,
+    /// The content hash of the source file this analysis was computed from.
+    pub source_hash: Option<String>,
+    /// The size in bytes of the source file this analysis was computed from.
+    pub source_size: Option<i64>,
     pub rms: Option<Decimal>,
     pub zcr: Option<Decimal>,
     pub energy: Option<Decimal>,

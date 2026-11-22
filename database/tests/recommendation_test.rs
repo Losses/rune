@@ -24,11 +24,17 @@ async fn setup_db() -> Result<DatabaseConnection> {
     Ok(db)
 }
 
+fn content_hash(id: i32) -> String {
+    format!("{id:064x}")
+}
+
 async fn insert_file(db: &DatabaseConnection, id: i32) -> Result<()> {
     db.execute_unprepared(&format!(
         "INSERT INTO media_files (id, file_name, directory, extension, file_hash, last_modified, \
-         sample_rate, duration, source_uuid) \
-         VALUES ({id}, 'f{id}.mp3', '.', 'mp3', 'hash{id}', '0', 44100, 1.0, 'file-{id}')"
+         sample_rate, duration, source_uuid, content_hash, content_size) \
+         VALUES ({id}, 'f{id}.mp3', '.', 'mp3', 'hash{id}', '0', 44100, 1.0, 'file-{id}', \
+         '{}', 100)",
+        content_hash(id)
     ))
     .await?;
     Ok(())
@@ -37,8 +43,10 @@ async fn insert_file(db: &DatabaseConnection, id: i32) -> Result<()> {
 /// A track whose analysis has `rms = x` and `zcr = y`, everything else NULL (0).
 async fn insert_analysis(db: &DatabaseConnection, file_id: i32, x: f64, y: f64) -> Result<()> {
     db.execute_unprepared(&format!(
-        "INSERT INTO media_analysis (analysis_version, file_id, rms, zcr, source_uuid) \
-         VALUES (2, {file_id}, {x}, {y}, 'analysis-{file_id}')"
+        "INSERT INTO media_analysis (analysis_version, file_id, rms, zcr, source_uuid, \
+         source_hash, source_size) \
+         VALUES (2, {file_id}, {x}, {y}, 'analysis-{file_id}', '{}', 100)",
+        content_hash(file_id)
     ))
     .await?;
     Ok(())
@@ -304,7 +312,17 @@ async fn loaded_vectors_are_bit_identical_to_the_model_conversion() -> Result<()
         .await?
         .into_iter()
         .map(|r| r.try_get::<String>("", "name").unwrap())
-        .filter(|c| !["id", "file_id", "analysis_version", "source_uuid"].contains(&c.as_str()))
+        .filter(|c| {
+            ![
+                "id",
+                "file_id",
+                "analysis_version",
+                "source_hash",
+                "source_size",
+                "source_uuid",
+            ]
+            .contains(&c.as_str())
+        })
         .collect();
     assert_eq!(columns.len(), 61);
 
@@ -323,10 +341,12 @@ async fn loaded_vectors_are_bit_identical_to_the_model_conversion() -> Result<()
             })
             .collect();
         db.execute_unprepared(&format!(
-            "INSERT INTO media_analysis (analysis_version, file_id, {}, source_uuid) \
-             VALUES (2, {id}, {}, 'a{id}')",
+            "INSERT INTO media_analysis (analysis_version, file_id, {}, source_uuid, \
+             source_hash, source_size) \
+             VALUES (2, {id}, {}, 'a{id}', '{}', 100)",
             columns.join(", "),
-            values.join(", ")
+            values.join(", "),
+            content_hash(id)
         ))
         .await?;
     }
@@ -410,6 +430,8 @@ async fn perf_load_100k_rows() -> Result<()> {
             c.as_str() != "id"
                 && c.as_str() != "file_id"
                 && c.as_str() != "analysis_version"
+                && c.as_str() != "source_hash"
+                && c.as_str() != "source_size"
                 && c.as_str() != "source_uuid"
         })
         .collect();
@@ -420,10 +442,12 @@ async fn perf_load_100k_rows() -> Result<()> {
             .map(|i| format!("{}", (id as f64 * 0.37 + i as f64).sin()))
             .collect();
         db.execute_unprepared(&format!(
-            "INSERT INTO media_analysis (analysis_version, file_id, {}, source_uuid) \
-             VALUES (2, {id}, {}, 'a{id}')",
+            "INSERT INTO media_analysis (analysis_version, file_id, {}, source_uuid, \
+             source_hash, source_size) \
+             VALUES (2, {id}, {}, 'a{id}', '{}', 100)",
             columns.join(", "),
-            values.join(", ")
+            values.join(", "),
+            content_hash(id)
         ))
         .await?;
     }

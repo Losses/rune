@@ -156,7 +156,12 @@ impl Signal for ScanAudioLibraryRequest {
                             );
                         }
 
-                        let file_processed = scan_audio_library(
+                        // The recommendation store is an in-memory copy of the
+                        // analysis rows. Drop it before the scan can delete
+                        // them, so a failure cannot leave stale features
+                        // behind; reload the rows that remain afterwards.
+                        _library.recommend_db.replace(Vec::new());
+                        let scan_result = scan_audio_library(
                             &_library.fsio,
                             &main_db_clone,
                             &node_id,
@@ -184,7 +189,11 @@ impl Signal for ScanAudioLibraryRequest {
                             },
                             &_library.library_sync.record_store(),
                         )
-                        .await?;
+                        .await;
+                        let sync_result =
+                            sync_recommendation(&_library.main_db, &_library.recommend_db).await;
+                        let file_processed = scan_result?;
+                        sync_result?;
 
                         if new_token.is_cancelled() {
                             info!("Operation cancelled during artist processing.");
@@ -779,6 +788,129 @@ mod scan_task_tests {
                 .await?
                 .0,
             LibraryTaskEnd::Analysis(AnalysisOutcome::Failed(AnalysisFailure::AnalysisFailed))
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn changed_audio_evicts_recommendations_even_when_analysis_fails() -> Result<()> {
+        use database::actions::analysis::analysis_audio_library;
+        use database::actions::recommendation::get_recommendation_by_file_id;
+        use database::entities::{media_analysis, media_files};
+        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+
+        let (_config, node_id, library) =
+            open_test_library_with_audio_files(&["track.ogg"]).await?;
+        assert_eq!(
+            analysis_audio_library(
+                Arc::clone(&library.fsio),
+                &library.main_db,
+                Path::new(&library.media_root),
+                1,
+                ComputingDevice::Cpu,
+                |_, _| {},
+                None,
+            )
+            .await?,
+            1
+        );
+        sync_recommendation(&library.main_db, &library.recommend_db).await?;
+        let file = media_files::Entity::find()
+            .filter(media_files::Column::FileName.eq("track.ogg"))
+            .one(library.main_db.as_ref())
+            .await?
+            .expect("scanned track");
+        assert!(get_recommendation_by_file_id(&library.recommend_db, file.id, 1).is_ok());
+
+        // Replace the audio and rescan. The scan must drop the loaded vector
+        // before it deletes the analysis row.
+        let path = Path::new(&library.media_root).join("track.ogg");
+        fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_1.ogg"),
+            &path,
+        )?;
+        let changed = std::time::SystemTime::now() + std::time::Duration::from_secs(2);
+        std::fs::File::options()
+            .write(true)
+            .open(&path)?
+            .set_times(std::fs::FileTimes::new().set_modified(changed))?;
+        let capture = Arc::new(Capture::default());
+        let request = ScanAudioLibraryRequest {
+            call_id: None,
+            force: false,
+        };
+        request
+            .handle(
+                (
+                    Some(library.clone()),
+                    Arc::new(node_id),
+                    capture.clone(),
+                    Arc::new(RwLock::new(SyncSettings::default())),
+                    Arc::new(StdMutex::new(LibraryTaskOwner::default())),
+                ),
+                None,
+                &request,
+            )
+            .await?;
+        assert_eq!(
+            wait_for_task_outcome(&capture, LibraryTaskKind::Scan)
+                .await?
+                .0,
+            LibraryTaskEnd::Scan(ScanOutcome::Finished)
+        );
+        assert!(
+            library
+                .recommend_db
+                .vectors()
+                .iter()
+                .all(|(id, _)| *id != file.id as u32),
+            "the scan must evict the changed track's old features"
+        );
+        assert!(get_recommendation_by_file_id(&library.recommend_db, file.id, 1).is_err());
+
+        // A failing analysis must not bring the old features back.
+        library
+            .main_db
+            .execute_unprepared(
+                "CREATE TRIGGER reject_analysis BEFORE INSERT ON media_analysis BEGIN SELECT RAISE(ABORT, 'test failure'); END",
+            )
+            .await?;
+        let capture = Arc::new(Capture::default());
+        let request = AnalyzeAudioLibraryRequest {
+            call_id: None,
+            computing_device: ComputingDeviceRequest::Cpu,
+            workload_factor: 1.0,
+        };
+        request
+            .handle(
+                (
+                    Some(library.clone()),
+                    Arc::new(StdMutex::new(LibraryTaskOwner::default())),
+                    capture.clone(),
+                ),
+                None,
+                &request,
+            )
+            .await?;
+        assert_eq!(
+            wait_for_task_outcome(&capture, LibraryTaskKind::Analyze)
+                .await?
+                .0,
+            LibraryTaskEnd::Analysis(AnalysisOutcome::Failed(AnalysisFailure::AnalysisFailed))
+        );
+        assert!(
+            library
+                .recommend_db
+                .vectors()
+                .iter()
+                .all(|(id, _)| *id != file.id as u32),
+            "a failed analysis must not leave stale features behind"
+        );
+        assert!(
+            media_analysis::Entity::find()
+                .all(library.main_db.as_ref())
+                .await?
+                .is_empty()
         );
         Ok(())
     }
