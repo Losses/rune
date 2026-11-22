@@ -34,11 +34,9 @@ void main() {
             const MethodChannel('plugins.flutter.io/path_provider'),
             (call) async => directory.path,
           );
-      addTearDown(() async {
-        // GetStorage retains an open file handle until process exit on Windows.
-        // The Windows test runner removes the reported directory after exit.
-        if (!Platform.isWindows) await directory.delete(recursive: true);
-      });
+      // GetStorage writes its backup from an unawaited future after the test,
+      // and it keeps a file handle open until process exit on Windows. Leave
+      // the directory for the test process's temporary-directory cleanup.
       StorageKeyManager.initialize(null);
       settings = SettingsManager();
     });

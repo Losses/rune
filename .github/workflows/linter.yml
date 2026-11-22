@@ -58,6 +58,32 @@ jobs:
       - name: Run cargo clippy
         run: cargo clippy -- -D warnings
 
+      - name: Run Rust behavior tests
+        # Runs every workspace test that currently builds and passes on a
+        # GPU-less Ubuntu runner. Three pre-existing problems are excluded:
+        #
+        # * The analysis GPU tests need a graphics adapter. This runner has none.
+        #   Remove their --skip flags on a GPU runner, or gate the tests behind a
+        #   feature.
+        # * The rune-cli integration tests do not compile because Cargo does not
+        #   define env!("CARGO_BIN_EXE_rune-cli") for the hyphenated binary name.
+        #   Reproduced with Cargo 1.98.1 (the Nix devshell) and Cargo 1.100.0
+        #   (the stable toolchain this job installs) by running:
+        #     cargo test -p rune-cli --test m3u8_export_test --no-run
+        #   Remove --exclude rune-cli after cli/tests/m3u8_export_test.rs and
+        #   scan_exit_status_test.rs locate the binary another way.
+        # * subsonic_open_search_fetch_and_unsupported_requests still expects
+        #   playlist collection groups to be unsupported, while #769 added
+        #   support. It fails on clean master (reproduced with Cargo 1.98.1 by
+        #   running that test alone). Update that expectation and remove the
+        #   --skip.
+        run: |
+          cargo test --workspace --exclude rune-cli --no-fail-fast -- \
+            --skip gpu_finishes_all_counted_windows \
+            --skip test_fft_cpu_vs_gpu \
+            --skip wgpu_fft:: \
+            --skip subsonic_open_search_fetch_and_unsupported_requests
+
   flutter-analyze:
     name: Flutter Analyze
     runs-on: ubuntu-latest
@@ -94,6 +120,15 @@ jobs:
       - name: Dart Flutter
         run: |
           dart analyze .
+
+      - name: Run Flutter behavior tests
+        # Widget and unit tests for the playback controls, queue edits, library
+        # lifecycle, settings and dialogs. The real-app flows in integration_test/
+        # stay a local check; this job runs the fast behavior suite on every pull
+        # request.
+        run: |
+          flutter gen-l10n
+          flutter test lib/test
 
       
 

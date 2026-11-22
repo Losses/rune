@@ -3803,6 +3803,83 @@ mod playback_state_tests {
         Ok(())
     }
 
+    // Play Next puts the whole selection directly after the track that plays, in its own order,
+    // and leaves the rest of the queue behind it.
+    #[tokio::test]
+    async fn play_next_places_the_selection_after_the_playing_track() -> Result<()> {
+        let file_uuids = (0..5).map(|_| Uuid::new_v4()).collect::<Vec<_>>();
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&file_uuids);
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let mut runner = Some(task::spawn_local(async move { internal.run().await }));
+                async {
+                    let library_id = Uuid::new_v4();
+                    commands_sender.send(add_library_tracks(library_id, &file_uuids[..3]))?;
+                    commands_sender.send(PlayerCommand::Switch(1))?;
+                    expect_playing(&mut events, &library_item(library_id, file_uuids[1])).await?;
+
+                    commands_sender.send(PlayerCommand::EditPlaylist(PlaylistEdit {
+                        tracks: library_tracks(library_id, &file_uuids[3..]),
+                        placement: PlaylistPlacement::PlayNext,
+                        playback_mode: None,
+                        block: None,
+                        load: None,
+                    }))?;
+                    let updated = tokio_time::timeout(TEST_DEADLINE, async {
+                        loop {
+                            match events.recv().await {
+                                Some(PlayerEvent::PlaylistUpdated(items))
+                                    if items.len() == file_uuids.len() =>
+                                {
+                                    return Ok(items);
+                                }
+                                Some(_) => {}
+                                None => {
+                                    let failure = runner
+                                        .take()
+                                        .expect("the player task is still running")
+                                        .await;
+                                    bail!(
+                                        "player events closed before the playlist update: {failure:?}"
+                                    );
+                                }
+                            }
+                        }
+                    })
+                    .await??;
+                    assert_eq!(
+                        updated
+                            .iter()
+                            .map(|entry| entry.item.clone())
+                            .collect::<Vec<_>>(),
+                        [0, 1, 3, 4, 2].map(|index| library_item(library_id, file_uuids[index]))
+                    );
+
+                    for (index, file_uuid) in
+                        [(2, file_uuids[3]), (3, file_uuids[4]), (4, file_uuids[2])]
+                    {
+                        commands_sender.send(PlayerCommand::Next)?;
+                        let event = next_track_state(&mut events).await?;
+                        assert!(
+                            matches!(event, PlayerEvent::Playing { index: actual, ref item, .. }
+                                if actual == index && *item == library_item(library_id, file_uuid)),
+                            "{event:?}"
+                        );
+                    }
+
+                    if let Some(runner) = runner.take() {
+                        runner.abort();
+                    }
+                    let _ = fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
     async fn assert_nothing_plays(
         commands_sender: &mpsc::UnboundedSender<PlayerCommand>,
         events: &mut mpsc::UnboundedReceiver<PlayerEvent>,
