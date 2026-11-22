@@ -1,12 +1,14 @@
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 
 import '../../../bindings/bindings.dart';
 import '../../../providers/responsive_providers.dart';
+import '../../../config/shortcuts.dart' as config;
 import '../../../widgets/no_shortcuts.dart';
 import '../../../widgets/responsive_dialog_actions.dart';
 import '../../l10n.dart';
@@ -74,10 +76,14 @@ class FileDialogWindowState extends State<FileDialogWindow> {
   final _menu = RouterAwareFlyoutController();
   final _menuTarget = GlobalKey();
 
+  /// Everything the dialog opens (menus, drop-downs, message boxes) opens
+  /// on this navigator, inside the dialog's keyboard barrier.
+  final _navigator = GlobalKey<NavigatorState>();
+  BuildContext? _pageContext;
+
   @override
   void initState() {
     super.initState();
-    controller.addListener(_changed);
     unawaited(
       controller.start().then((_) {
         if (mounted && !_fileNameFocus.hasFocus) _initialFocus();
@@ -101,7 +107,6 @@ class FileDialogWindowState extends State<FileDialogWindow> {
 
   @override
   void dispose() {
-    controller.removeListener(_changed);
     controller.dispose();
     if (widget.thumbnails == null) _thumbnails.dispose();
     _addressFocus.dispose();
@@ -110,10 +115,6 @@ class FileDialogWindowState extends State<FileDialogWindow> {
     _fileNameFocus.dispose();
     _menu.dispose();
     super.dispose();
-  }
-
-  void _changed() {
-    if (mounted) setState(() {});
   }
 
   String _title(BuildContext context) {
@@ -155,9 +156,10 @@ class FileDialogWindowState extends State<FileDialogWindow> {
       ),
     };
     await showErrorDialog(
-      context: context,
+      context: _pageContext ?? context,
       title: _title(context),
       errorMessage: message,
+      useRootNavigator: false,
     );
     // Back where the person was typing a name.
     if (mounted && notice is! FileDialogFailureNotice) {
@@ -168,11 +170,12 @@ class FileDialogWindowState extends State<FileDialogWindow> {
   Future<bool> _confirmReplace(String name) async {
     final s = S.of(context);
     final replace = await showConfirmDialog(
-      context: context,
+      context: _pageContext ?? context,
       title: s.fileDialogConfirmSaveAs,
       subtitle: s.fileDialogReplacePrompt(name),
       yesLabel: s.fileDialogReplace,
       noLabel: s.cancel,
+      useRootNavigator: false,
     );
     return replace ?? false;
   }
@@ -200,7 +203,8 @@ class FileDialogWindowState extends State<FileDialogWindow> {
   /// Open a context menu for an item, or for the folder.
   void _openContextMenu(FileDialogEntry? entry, Offset globalPosition) {
     final target = _menuTarget.currentContext?.findRenderObject() as RenderBox?;
-    final navigator = Navigator.of(context).context.findRenderObject();
+    // Menus open on the dialog's own navigator.
+    final navigator = _navigator.currentContext?.findRenderObject();
     if (target == null || navigator is! RenderBox) return;
     final position = navigator.globalToLocal(globalPosition);
     unawaited(
@@ -409,8 +413,6 @@ class FileDialogWindowState extends State<FileDialogWindow> {
       ): _copyPath,
       const SingleActivator(LogicalKeyboardKey.keyN, alt: true): () =>
           _fileNameFocus.requestFocus(),
-      const SingleActivator(LogicalKeyboardKey.escape): () =>
-          widget.close(null),
       for (final (index, mode) in FileDialogViewMode.values.indexed)
         SingleActivator(
           LogicalKeyboardKey(LogicalKeyboardKey.digit1.keyId + index),
@@ -423,12 +425,98 @@ class FileDialogWindowState extends State<FileDialogWindow> {
 
   // Layout.
 
+  /// Rune's own shortcuts (playback, pages, Ctrl+O, Backspace and Escape)
+  /// do nothing while the dialog or anything it opened has the keyboard.
+  /// Inside text boxes [NoShortcuts] already leaves the keys to the text.
+  static final Map<ShortcutActivator, Intent> _appShortcutsOff = {
+    for (final activator in config.shortcuts.keys)
+      activator: const DoNothingAndStopPropagationIntent(),
+  };
+
+  /// The mouse's back and forward buttons move through the folders, as in
+  /// File Explorer. Rune's own handler for them finds the dialog unwilling
+  /// to pop (see [PopScope] in [build]). While a notice or menu is open the
+  /// press belongs to it: Rune's handler closes a notice, and the folder
+  /// stays where it is.
+  void _mouseButtons(PointerDownEvent event) {
+    if (_navigator.currentState?.canPop() ?? false) return;
+    if (event.buttons == kBackMouseButton) unawaited(controller.back());
+    if (event.buttons == kForwardMouseButton) unawaited(controller.forward());
+  }
+
   @override
   Widget build(BuildContext context) {
+    return UnavailableDialogOnBand(
+      $close: (_) => widget.close(null),
+      // Back navigation (the mouse's back button, Android's back) does not
+      // close the dialog; its buttons and Escape do.
+      child: PopScope(
+        canPop: false,
+        child: Shortcuts(
+          shortcuts: _appShortcutsOff,
+          // Escape asks for DismissIntent. Menus and notices the dialog
+          // opens dismiss themselves; on the dialog itself it closes it.
+          child: NoShortcuts(
+            CallbackShortcuts(
+              bindings: _shortcuts(),
+              child: FocusScope(
+                autofocus: true,
+                child: Listener(
+                  onPointerDown: _mouseButtons,
+                  // The frame around a dialog may scroll and so leave the
+                  // height open; the navigator takes the height the frame
+                  // lays dialogs out at.
+                  child: LayoutBuilder(
+                    builder: (context, constraints) => SizedBox(
+                      width: constraints.maxWidth,
+                      height: constraints.hasBoundedHeight
+                          ? constraints.maxHeight
+                          : constraints.minHeight,
+                      child: Navigator(
+                        key: _navigator,
+                        onGenerateRoute: (settings) => PageRouteBuilder<void>(
+                          settings: settings,
+                          opaque: false,
+                          transitionDuration: Duration.zero,
+                          reverseTransitionDuration: Duration.zero,
+                          // Inside the page: the route maps DismissIntent to
+                          // its own action, disabled for a page, and the
+                          // nearest action is the one that answers.
+                          pageBuilder: (context, animation, secondary) =>
+                              Actions(
+                                actions: <Type, Action<Intent>>{
+                                  DismissIntent: CallbackAction<DismissIntent>(
+                                    onInvoke: (_) {
+                                      widget.close(null);
+                                      return null;
+                                    },
+                                  ),
+                                },
+                                child: ListenableBuilder(
+                                  listenable: controller,
+                                  builder: (context, _) {
+                                    _pageContext = context;
+                                    return _dialog(context);
+                                  },
+                                ),
+                              ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _dialog(BuildContext context) {
     final s = S.of(context);
     final responsive = Provider.of<ResponsiveProvider>(context);
     final narrow = responsive.smallerOrEqualTo(DeviceType.tablet);
-    final phone = responsive.smallerOrEqualTo(DeviceType.phone);
     final names = FileDialogNames(s, controller.places);
     final height = MediaQuery.sizeOf(context).height;
     final bodyHeight =
@@ -436,45 +524,64 @@ class FileDialogWindowState extends State<FileDialogWindow> {
                 _chromeHeight)
             .clamp(240.0, 560.0);
 
+    Widget iconButton(String tooltip, IconData icon, VoidCallback? onPressed) =>
+        Tooltip(
+          message: tooltip,
+          child: Semantics(
+            label: tooltip,
+            button: true,
+            excludeSemantics: true,
+            child: IconButton(icon: Icon(icon, size: 16), onPressed: onPressed),
+          ),
+        );
+
+    final search = TextBox(
+      controller: controller.search,
+      focusNode: _searchFocus,
+      placeholder: controller.current == null
+          ? s.search
+          : s.fileDialogSearchIn(names.location(controller.current!)),
+      onChanged: (_) => controller.searchChanged(),
+      suffix: const Padding(
+        padding: EdgeInsetsDirectional.only(end: 8),
+        child: Icon(Symbols.search, size: 16),
+      ),
+    );
+
+    // Narrow windows keep the path and the folder history in the first row
+    // and move search beside the commands, which shrink to their icons.
     final toolbar = Row(
       children: [
-        Tooltip(
-          message: s.back,
-          child: IconButton(
-            icon: const Icon(Symbols.arrow_back, size: 16),
-            onPressed: controller.canGoBack ? () => controller.back() : null,
-          ),
+        iconButton(
+          s.back,
+          Symbols.arrow_back,
+          controller.canGoBack ? () => controller.back() : null,
         ),
-        Tooltip(
-          message: s.fileDialogForward,
-          child: IconButton(
-            icon: const Icon(Symbols.arrow_forward, size: 16),
-            onPressed: controller.canGoForward
-                ? () => controller.forward()
-                : null,
-          ),
+        iconButton(
+          s.fileDialogForward,
+          Symbols.arrow_forward,
+          controller.canGoForward ? () => controller.forward() : null,
         ),
-        FileDialogMenuButton(
-          tooltip: s.fileDialogRecentLocations,
-          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
-          items: () async {
-            final history = controller.backHistory;
-            return [
-              for (var index = history.length - 1; index >= 0; index--)
-                MenuFlyoutItem(
-                  text: Text(names.location(history[index])),
-                  onPressed: () => controller.travelBack(index),
-                ),
-            ];
-          },
-          child: const Icon(Symbols.keyboard_arrow_down, size: 16),
-        ),
-        Tooltip(
-          message: s.fileDialogUp,
-          child: IconButton(
-            icon: const Icon(Symbols.arrow_upward, size: 16),
-            onPressed: controller.canGoUp ? () => controller.up() : null,
+        if (!narrow)
+          FileDialogMenuButton(
+            tooltip: s.fileDialogRecentLocations,
+            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+            items: () async {
+              final history = controller.backHistory;
+              return [
+                for (var index = history.length - 1; index >= 0; index--)
+                  MenuFlyoutItem(
+                    text: Text(names.location(history[index])),
+                    onPressed: () => controller.travelBack(index),
+                  ),
+              ];
+            },
+            child: const Icon(Symbols.keyboard_arrow_down, size: 16),
           ),
+        iconButton(
+          s.fileDialogUp,
+          Symbols.arrow_upward,
+          controller.canGoUp ? () => controller.up() : null,
         ),
         const SizedBox(width: 4),
         Expanded(
@@ -485,60 +592,79 @@ class FileDialogWindowState extends State<FileDialogWindow> {
             editFocus: _addressFocus,
           ),
         ),
-        Tooltip(
-          message: s.refresh,
-          child: IconButton(
-            icon: const Icon(Symbols.refresh, size: 16),
-            onPressed: controller.current == null
-                ? null
-                : () => controller.refresh(),
-          ),
+        iconButton(
+          s.refresh,
+          Symbols.refresh,
+          controller.current == null ? null : () => controller.refresh(),
         ),
-        if (!phone) ...[
+        if (!narrow) ...[
           const SizedBox(width: 4),
-          SizedBox(
-            width: narrow ? 160 : 220,
-            child: TextBox(
-              controller: controller.search,
-              focusNode: _searchFocus,
-              placeholder: controller.current == null
-                  ? s.search
-                  : s.fileDialogSearchIn(names.location(controller.current!)),
-              onChanged: (_) => controller.searchChanged(),
-              suffix: const Padding(
-                padding: EdgeInsetsDirectional.only(end: 8),
-                child: Icon(Symbols.search, size: 16),
-              ),
-            ),
-          ),
+          SizedBox(width: 220, child: search),
         ],
       ],
     );
 
+    Widget menuButton(
+      String label,
+      IconData icon,
+      List<MenuFlyoutItemBase> items,
+    ) => narrow
+        ? Tooltip(
+            message: label,
+            child: Semantics(
+              label: label,
+              button: true,
+              child: DropDownButton(
+                leading: Icon(icon, size: 16),
+                items: items,
+              ),
+            ),
+          )
+        : DropDownButton(
+            leading: Icon(icon, size: 16),
+            title: Text(label),
+            items: items,
+          );
+
+    final newFolder = Button(
+      onPressed: controller.hasEntries ? () => _newFolder() : null,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Symbols.create_new_folder, size: 16),
+          if (!narrow) ...[
+            const SizedBox(width: 8),
+            Text(s.fileDialogNewFolder),
+          ],
+        ],
+      ),
+    );
+
     final commands = Row(
       children: [
-        Button(
-          onPressed: controller.hasEntries ? () => _newFolder() : null,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Symbols.create_new_folder, size: 16),
-              const SizedBox(width: 8),
-              Text(s.fileDialogNewFolder),
-            ],
-          ),
-        ),
-        const Spacer(),
-        DropDownButton(
-          leading: const Icon(Symbols.sort, size: 16),
-          title: Text(s.sortBy),
-          items: _sortItems(context),
-        ),
+        narrow
+            ? Tooltip(
+                message: s.fileDialogNewFolder,
+                child: Semantics(
+                  label: s.fileDialogNewFolder,
+                  button: true,
+                  excludeSemantics: true,
+                  child: newFolder,
+                ),
+              )
+            : newFolder,
+        if (narrow) ...[
+          const SizedBox(width: 8),
+          Expanded(child: search),
+          const SizedBox(width: 8),
+        ] else
+          const Spacer(),
+        menuButton(s.sortBy, Symbols.sort, _sortItems(context)),
         const SizedBox(width: 8),
-        DropDownButton(
-          leading: Icon(_viewIcon(controller.viewMode), size: 16),
-          title: Text(s.fileDialogView),
-          items: _viewItems(context),
+        menuButton(
+          s.fileDialogView,
+          _viewIcon(controller.viewMode),
+          _viewItems(context),
         ),
       ],
     );
@@ -587,31 +713,21 @@ class FileDialogWindowState extends State<FileDialogWindow> {
       ),
     );
 
-    return UnavailableDialogOnBand(
-      $close: (_) => widget.close(null),
-      child: NoShortcuts(
-        CallbackShortcuts(
-          bindings: _shortcuts(),
-          child: FocusScope(
-            autofocus: true,
-            child: ContentDialog(
-              constraints: BoxConstraints(maxWidth: narrow ? 420 : 1000),
-              title: Column(
-                children: [const SizedBox(height: 8), Text(_title(context))],
-              ),
-              content: body,
-              actions: [
-                _Footer(
-                  controller: controller,
-                  fileNameFocus: _fileNameFocus,
-                  okLabel: _okLabel(context),
-                  onCancel: () => widget.close(null),
-                ),
-              ],
-            ),
-          ),
-        ),
+    return ContentDialog(
+      constraints: BoxConstraints(maxWidth: narrow ? 420 : 1000),
+      title: Column(
+        children: [const SizedBox(height: 8), Text(_title(context))],
       ),
+      content: body,
+      actions: [
+        _Footer(
+          controller: controller,
+          fileNameFocus: _fileNameFocus,
+          okLabel: _okLabel(context),
+          narrow: narrow,
+          onCancel: () => widget.close(null),
+        ),
+      ],
     );
   }
 }
@@ -623,12 +739,16 @@ class _Footer extends StatelessWidget {
     required this.controller,
     required this.fileNameFocus,
     required this.okLabel,
+    required this.narrow,
     required this.onCancel,
   });
 
   final FileDialogController controller;
   final FocusNode fileNameFocus;
   final String okLabel;
+
+  /// In a narrow dialog the file type box takes a row of its own.
+  final bool narrow;
   final VoidCallback onCancel;
 
   @override
@@ -681,6 +801,12 @@ class _Footer extends StatelessWidget {
           if (typeBox != null) ...[
             const SizedBox(height: 8),
             labelled(s.fileDialogSaveAsType, typeBox),
+          ],
+        ] else if (narrow) ...[
+          labelled(nameLabel, Semantics(label: nameLabel, child: nameBox)),
+          if (typeBox != null) ...[
+            const SizedBox(height: 8),
+            labelled('', typeBox),
           ],
         ] else
           labelled(

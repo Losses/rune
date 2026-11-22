@@ -226,6 +226,21 @@ void main() {
     // Back at the top, the file type box lets every file through.
     await _chord(tester, LogicalKeyboardKey.arrowUp, alt: true);
     await flow.expectVisible(tester, _item('track.ogg'));
+    // The mouse's back and forward buttons move through the folders; Rune's
+    // own handler for them leaves the dialog open.
+    await tester.tap(
+      _item('track.ogg'),
+      buttons: kBackMouseButton,
+      kind: PointerDeviceKind.mouse,
+    );
+    await flow.expectVisible(tester, _item('Rips'));
+    await tester.tap(
+      _item('Rips'),
+      buttons: kForwardMouseButton,
+      kind: PointerDeviceKind.mouse,
+    );
+    await flow.expectVisible(tester, _item('track.ogg'));
+    expect(find.byType(FileDialogWindow), findsOneWidget);
     await tester.tap(find.byType(ComboBox<int>));
     await tester.pumpAndSettle();
     await tester.tap(find.text('All Files (*.*)').last);
@@ -272,6 +287,65 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.byType(FileDialogWindow), findsOneWidget);
+
+    // While the dialog or anything it opened has the keyboard, Rune's own
+    // shortcuts stay off: Ctrl+O would open another file dialog.
+    Future<void> expectOneDialog() async {
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.byType(FileDialogWindow), findsOneWidget);
+    }
+
+    await _click(tester, _item('track.ogg'));
+    await _chord(tester, LogicalKeyboardKey.keyO, control: true);
+    await expectOneDialog();
+    await tester.tap(
+      _item('track.ogg'),
+      buttons: kSecondaryButton,
+      kind: PointerDeviceKind.mouse,
+    );
+    await flow.expectVisible(tester, find.text(labels.fileDialogCopyAsPath));
+    await _chord(tester, LogicalKeyboardKey.keyO, control: true);
+    await expectOneDialog();
+    // Escape closes the menu and leaves the dialog open.
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await flow.expectAbsent(tester, find.text(labels.fileDialogCopyAsPath));
+    await expectOneDialog();
+    await tester.tap(find.text(labels.fileDialogView));
+    await flow.expectVisible(tester, find.text(labels.fileDialogTiles));
+    await _chord(tester, LogicalKeyboardKey.keyO, control: true);
+    await expectOneDialog();
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await flow.expectAbsent(tester, find.text(labels.fileDialogTiles));
+    await expectOneDialog();
+    // Alt+N goes to the file name box, as in Windows.
+    await _chord(tester, LogicalKeyboardKey.keyN, alt: true);
+    expect(tester.widget<TextBox>(fileName).focusNode?.hasFocus, isTrue);
+    await _submitText(tester, fileName, 'missing.ogg');
+    await flow.expectVisible(
+      tester,
+      find.text(labels.fileDialogFileNotFound('missing.ogg')),
+    );
+    await _chord(tester, LogicalKeyboardKey.keyO, control: true);
+    await expectOneDialog();
+    // Escape closes the explanation and leaves the dialog open.
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await flow.expectAbsent(
+      tester,
+      find.text(labels.fileDialogFileNotFound('missing.ogg')),
+    );
+    await expectOneDialog();
+    // So does the mouse's back button, and the folder stays.
+    await _submitText(tester, fileName, 'missing.ogg');
+    final notFound = find.text(labels.fileDialogFileNotFound('missing.ogg'));
+    await flow.expectVisible(tester, notFound);
+    await tester.tap(
+      notFound,
+      buttons: kBackMouseButton,
+      kind: PointerDeviceKind.mouse,
+    );
+    await flow.expectAbsent(tester, notFound);
+    await expectOneDialog();
+    expect(_item('track.ogg'), findsOneWidget);
 
     // Clicking a file puts its name in the box; Open picks it.
     await _click(tester, _item('track.ogg'));

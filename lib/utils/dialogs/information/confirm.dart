@@ -10,6 +10,7 @@ Future<bool?> showConfirmDialog({
   required String noLabel,
   bool barrierDismissible = true,
   bool dismissWithEsc = true,
+  bool useRootNavigator = true,
 }) async {
   return await $showModal<bool>(
     context,
@@ -37,5 +38,6 @@ Future<bool?> showConfirmDialog({
     ),
     barrierDismissible: barrierDismissible,
     dismissWithEsc: dismissWithEsc,
+    useRootNavigator: useRootNavigator,
   );
 }

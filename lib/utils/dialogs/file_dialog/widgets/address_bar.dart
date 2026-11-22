@@ -326,7 +326,9 @@ class _Crumbs extends StatelessWidget {
   List<(FileDialogLocation, String)> _topPlaces() {
     final places = controller.places;
     if (places == null) return const [];
+    // Narrow dialogs have no navigation pane: the first chevron stands in.
     return [
+      for (final place in places.pinned) (place.location, names.place(place)),
       for (final place in places.folders) (place.location, names.place(place)),
       for (final volume in places.volumes)
         (volume.location, names.volume(volume)),

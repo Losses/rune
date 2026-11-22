@@ -25,6 +25,9 @@ typedef FileDialogContextMenuCallback =
     void Function(FileDialogEntry? entry, Offset globalPosition);
 
 const double _rowHeight = 28;
+
+/// Rows a finger can hit: what File Explorer gives touch.
+const double _touchRowHeight = 40;
 const double _listCellWidth = 240;
 const double _tileWidth = 260;
 const double _tileHeight = 64;
@@ -74,6 +77,23 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
   /// so a click on an item does not also count as a click on empty space.
   bool _itemHit = false;
 
+  /// The kind of the last pointer pressed in the items. After a touch the
+  /// rows grow to finger size.
+  PointerDeviceKind _pointer = PointerDeviceKind.mouse;
+
+  static bool _isTouch(PointerDeviceKind kind) =>
+      kind == PointerDeviceKind.touch || kind == PointerDeviceKind.stylus;
+
+  bool get _touch => _isTouch(_pointer);
+
+  double get _rowExtent => _touch ? _touchRowHeight : _rowHeight;
+
+  double get _smallRowExtent => _touch ? _touchRowHeight : 24;
+
+  void _notePointer(PointerDeviceKind kind) {
+    if (kind != _pointer && mounted) setState(() => _pointer = kind);
+  }
+
   double _dateWidth = 160;
   double _typeWidth = 130;
   double _sizeWidth = 96;
@@ -84,6 +104,12 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
   void initState() {
     super.initState();
     widget.focusNode.addListener(_focusChanged);
+    FocusManager.instance.addHighlightModeListener(_highlightChanged);
+  }
+
+  /// The keyboard focus outline shows only while the keyboard is in use.
+  void _highlightChanged(FocusHighlightMode mode) {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -103,6 +129,7 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
   @override
   void dispose() {
     widget.focusNode.removeListener(_focusChanged);
+    FocusManager.instance.removeHighlightModeListener(_highlightChanged);
     _vertical.dispose();
     _horizontal.dispose();
     _typedTimer?.cancel();
@@ -239,10 +266,10 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
   }
 
   double _lineExtent() => switch (_controller.viewMode) {
-    FileDialogViewMode.details => _rowHeight,
+    FileDialogViewMode.details => _rowExtent,
     FileDialogViewMode.content => _contentRowHeight,
     FileDialogViewMode.tiles => _tileHeight,
-    FileDialogViewMode.smallIcons || FileDialogViewMode.list => 24,
+    FileDialogViewMode.smallIcons || FileDialogViewMode.list => _smallRowExtent,
     final mode => _gridCellHeight(mode),
   };
 
@@ -279,6 +306,10 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
 
   void _pointerDown(PointerDownEvent event, FileDialogEntry entry) {
     _itemHit = true;
+    _notePointer(event.kind);
+    // A finger selects when it lifts (see [_tap]), so a scroll that starts
+    // on an item neither selects nor opens it.
+    if (_isTouch(event.kind)) return;
     widget.focusNode.requestFocus();
     if (event.buttons == kSecondaryButton) {
       if (!_controller.selection.contains(entry.location)) {
@@ -289,12 +320,6 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
     }
     if (event.buttons != kPrimaryButton) return;
     if (_controller.renaming == entry.location) return;
-    // Touch opens folders with one tap, as touch file pickers do.
-    if (event.kind == PointerDeviceKind.touch) {
-      _controller.select(entry.location);
-      if (isFolder(entry)) unawaited(_controller.activate(entry));
-      return;
-    }
     final now = DateTime.now();
     final again =
         _lastClicked == entry.location &&
@@ -314,16 +339,40 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
     _lastClicked = entry.location;
   }
 
+  /// A tap of a finger or pen: a folder opens at once, as in touch file
+  /// pickers; a file is selected, and where several can be picked each tap
+  /// adds or removes one, since touch has no Ctrl key.
+  void _tap(FileDialogEntry entry, TapUpDetails details) {
+    if (!_isTouch(details.kind)) return;
+    if (_controller.renaming == entry.location) return;
+    widget.focusNode.requestFocus();
+    if (isFolder(entry)) {
+      _controller.select(entry.location);
+      unawaited(_controller.activate(entry));
+      return;
+    }
+    _controller.select(entry.location, toggle: _controller.multiple);
+  }
+
   void _backgroundPointerDown(PointerDownEvent event) {
     if (_itemHit) {
       _itemHit = false;
       return;
     }
+    _notePointer(event.kind);
+    if (_isTouch(event.kind)) return;
     widget.focusNode.requestFocus();
     if (event.buttons == kSecondaryButton) {
       widget.onContextMenu(null, event.position);
     } else if (event.buttons == kPrimaryButton &&
         !HardwareKeyboard.instance.isControlPressed) {
+      _controller.clearSelection();
+    }
+  }
+
+  /// A finger tapping empty space clears the selection when it lifts.
+  void _backgroundTap(TapUpDetails details) {
+    if (_isTouch(details.kind)) {
       _controller.clearSelection();
     }
   }
@@ -378,6 +427,7 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
           onPointerDown: _backgroundPointerDown,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
+            onTapUp: _backgroundTap,
             onLongPressStart: (details) =>
                 widget.onContextMenu(null, details.globalPosition),
             child: DefaultTextStyle.merge(
@@ -419,13 +469,17 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
                 thumbnails: widget.thumbnails,
                 date: _date(context, entries[index]),
                 renaming: _renameField(entries[index]),
+                wide: constraints.maxWidth >= 480,
               ),
               row: true,
             ),
           ),
         );
       case FileDialogViewMode.list:
-        final rows = math.max(1, (constraints.maxHeight / 24).floor());
+        final rows = math.max(
+          1,
+          (constraints.maxHeight / _smallRowExtent).floor(),
+        );
         _perLine = rows;
         return Scrollbar(
           controller: _horizontal,
@@ -456,7 +510,7 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
         _perLine = columns;
         return _grid(
           columns,
-          24,
+          _smallRowExtent,
           entries,
           (entry) => _SmallRow(
             entry: entry,
@@ -537,7 +591,20 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
     BoxConstraints constraints,
     List<FileDialogEntry> entries,
   ) {
-    final columns = _DetailsColumns(_dateWidth, _typeWidth, _sizeWidth);
+    // A narrow view drops columns, the type first, then the size, keeping
+    // the name readable: 40 for the selection bar and icon, 160 for the
+    // name at its narrowest.
+    var room = constraints.maxWidth - 40 - 160;
+    double? fit(double width) {
+      if (room < width) return null;
+      room -= width;
+      return width;
+    }
+
+    final date = fit(_dateWidth);
+    final size = fit(_sizeWidth);
+    final type = fit(_typeWidth);
+    final columns = _DetailsColumns(date, type, size);
     return Column(
       children: [
         _DetailsHeader(
@@ -566,7 +633,7 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
                 controller: _vertical,
                 child: ListView.builder(
                   controller: _vertical,
-                  itemExtent: _rowHeight,
+                  itemExtent: _rowExtent,
                   itemCount: entries.length,
                   itemBuilder: (context, index) {
                     final entry = entries[index];
@@ -629,7 +696,9 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
   }) {
     final selected = _controller.selection.contains(entry.location);
     final focused =
-        widget.focusNode.hasFocus && _controller.focused == entry.location;
+        widget.focusNode.hasFocus &&
+        FocusManager.instance.highlightMode == FocusHighlightMode.traditional &&
+        _controller.focused == entry.location;
     return _ItemFrame(
       key: _keyFor(entry.location),
       label: _semanticLabel(entry),
@@ -637,6 +706,7 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
       focused: focused,
       row: row,
       onPointerDown: (event) => _pointerDown(event, entry),
+      onTap: (details) => _tap(entry, details),
       onLongPress: (position) {
         _controller.select(entry.location);
         widget.onContextMenu(entry, position);
@@ -715,6 +785,7 @@ class _ItemFrame extends StatefulWidget {
     required this.focused,
     required this.row,
     required this.onPointerDown,
+    required this.onTap,
     required this.onLongPress,
     required this.child,
   });
@@ -724,6 +795,7 @@ class _ItemFrame extends StatefulWidget {
   final bool focused;
   final bool row;
   final void Function(PointerDownEvent event) onPointerDown;
+  final void Function(TapUpDetails details) onTap;
   final void Function(Offset globalPosition) onLongPress;
   final Widget child;
 
@@ -755,6 +827,7 @@ class _ItemFrameState extends State<_ItemFrame> {
             widget.onPointerDown(event);
           },
           child: GestureDetector(
+            onTapUp: widget.onTap,
             onLongPressStart: (details) =>
                 widget.onLongPress(details.globalPosition),
             child: FocusBorder(
@@ -798,12 +871,14 @@ class _ItemFrameState extends State<_ItemFrame> {
   }
 }
 
+/// The widths of the details columns beside the name; a column the view
+/// has no room for is null and left out.
 class _DetailsColumns {
   const _DetailsColumns(this.date, this.type, this.size);
 
-  final double date;
-  final double type;
-  final double size;
+  final double? date;
+  final double? type;
+  final double? size;
 }
 
 class _DetailsHeader extends StatelessWidget {
@@ -906,17 +981,16 @@ class _DetailsHeader extends StatelessWidget {
       child: Row(
         children: [
           header(FileDialogSortColumn.name, s.fileDialogName),
-          header(
-            FileDialogSortColumn.dateModified,
-            s.fileDialogDateModified,
-            width: columns.date,
-          ),
-          header(FileDialogSortColumn.type, s.type, width: columns.type),
-          header(
-            FileDialogSortColumn.size,
-            s.fileDialogSize,
-            width: columns.size,
-          ),
+          if (columns.date case final width?)
+            header(
+              FileDialogSortColumn.dateModified,
+              s.fileDialogDateModified,
+              width: width,
+            ),
+          if (columns.type case final width?)
+            header(FileDialogSortColumn.type, s.type, width: width),
+          if (columns.size case final width?)
+            header(FileDialogSortColumn.size, s.fileDialogSize, width: width),
         ],
       ),
     );
@@ -972,13 +1046,15 @@ class _DetailsRow extends StatelessWidget {
                 renaming ??
                 Text(entry.name, maxLines: 1, overflow: TextOverflow.ellipsis),
           ),
-          cell(date, columns.date),
-          cell(names.entryType(entry), columns.type),
-          cell(
-            isFolder(entry) ? '' : detailsSize(entry.size.toInt()),
-            columns.size,
-            end: true,
-          ),
+          if (columns.date case final width?) cell(date, width),
+          if (columns.type case final width?)
+            cell(names.entryType(entry), width),
+          if (columns.size case final width?)
+            cell(
+              isFolder(entry) ? '' : detailsSize(entry.size.toInt()),
+              width,
+              end: true,
+            ),
         ],
       ),
     );
@@ -1134,6 +1210,7 @@ class _ContentRow extends StatelessWidget {
     required this.thumbnails,
     required this.date,
     required this.renaming,
+    required this.wide,
   });
 
   final FileDialogEntry entry;
@@ -1141,6 +1218,9 @@ class _ContentRow extends StatelessWidget {
   final FileDialogThumbnails thumbnails;
   final String date;
   final Widget? renaming;
+
+  /// Whether there is room for the date and size beside the name.
+  final bool wide;
 
   @override
   Widget build(BuildContext context) {
@@ -1182,28 +1262,29 @@ class _ContentRow extends StatelessWidget {
                 ],
               ),
             ),
-            SizedBox(
-              width: 220,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (date.isNotEmpty)
-                    Text(
-                      '${s.fileDialogDateModified}: $date',
-                      style: secondary,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  if (!isFolder(entry))
-                    Text(
-                      '${s.fileDialogSize}: ${shortSize(entry.size.toInt())}',
-                      style: secondary,
-                      maxLines: 1,
-                    ),
-                ],
+            if (wide)
+              SizedBox(
+                width: 220,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (date.isNotEmpty)
+                      Text(
+                        '${s.fileDialogDateModified}: $date',
+                        style: secondary,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    if (!isFolder(entry))
+                      Text(
+                        '${s.fileDialogSize}: ${shortSize(entry.size.toInt())}',
+                        style: secondary,
+                        maxLines: 1,
+                      ),
+                  ],
+                ),
               ),
-            ),
           ],
         ),
       ),

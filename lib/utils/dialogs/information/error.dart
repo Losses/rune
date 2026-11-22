@@ -10,6 +10,7 @@ Future<void> showErrorDialog({
   String? errorMessage,
   bool useFilledButton = true,
   bool barrierDismissible = true,
+  bool useRootNavigator = true,
 }) async {
   await $showModal<bool>(
     context,
@@ -53,5 +54,6 @@ Future<void> showErrorDialog({
     ),
     barrierDismissible: barrierDismissible,
     dismissWithEsc: true,
+    useRootNavigator: useRootNavigator,
   );
 }
