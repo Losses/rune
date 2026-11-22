@@ -450,6 +450,42 @@ impl Shared {
         }
     }
 
+    /// Keep `atlas`, made by job `job`, unless a later job was started or the covers were dropped
+    /// since.
+    fn store_covers(&self, job: u64, atlas: Option<Arc<covers::Atlas>>) {
+        let mut state = lock(&self.covers);
+        if self.covers_job.load(Ordering::Relaxed) != job {
+            return;
+        }
+        state.atlas = atlas;
+        state.version += 1;
+    }
+
+    /// Keep `cell`, made by job `job`, unless a later job was started or the covers were dropped
+    /// since.
+    fn store_playing_cover(&self, job: u64, cell: covers::Cell) {
+        let mut state = lock(&self.playing_cover);
+        if self.playing_cover_job.load(Ordering::Relaxed) != job {
+            return;
+        }
+        state.cell = Some(Arc::new(cell));
+        state.version += 1;
+    }
+
+    /// Drop the atlas and the playing cover, and the results of jobs still running.
+    fn clear_covers(&self) {
+        {
+            let mut covers = lock(&self.covers);
+            self.covers_job.fetch_add(1, Ordering::Relaxed);
+            covers.atlas = None;
+            covers.version += 1;
+        }
+        let mut playing_cover = lock(&self.playing_cover);
+        self.playing_cover_job.fetch_add(1, Ordering::Relaxed);
+        playing_cover.cell = None;
+        playing_cover.version += 1;
+    }
+
     fn status(&self) -> MutexGuard<'_, Status> {
         self.status.lock().unwrap_or_else(|e| e.into_inner())
     }
@@ -645,12 +681,7 @@ impl Visualizer {
             .name("visualizer-covers".into())
             .spawn(move || {
                 let atlas = covers::build(current.as_ref(), &random).map(Arc::new);
-                if shared.covers_job.load(Ordering::Relaxed) != job {
-                    return;
-                }
-                let mut state = lock(&shared.covers);
-                state.atlas = atlas;
-                state.version += 1;
+                shared.store_covers(job, atlas);
             });
         if let Err(e) = spawned {
             error!("Visualizer: no thread for the covers: {e}");
@@ -673,13 +704,7 @@ impl Visualizer {
         let spawned = thread::Builder::new()
             .name("visualizer-cover".into())
             .spawn(move || {
-                let cell = Arc::new(covers::build_cell(path.as_ref()));
-                if shared.playing_cover_job.load(Ordering::Relaxed) != job {
-                    return;
-                }
-                let mut state = lock(&shared.playing_cover);
-                state.cell = Some(cell);
-                state.version += 1;
+                shared.store_playing_cover(job, covers::build_cell(path.as_ref()));
             });
         if let Err(e) = spawned {
             error!("Visualizer: no thread for the playing cover: {e}");
@@ -726,20 +751,7 @@ impl Visualizer {
         drop(playback);
         if leaving_feed {
             *lock(&self.shared.feed_covers) = None;
-            self.shared.covers_job.fetch_add(1, Ordering::Relaxed);
-            self.shared
-                .playing_cover_job
-                .fetch_add(1, Ordering::Relaxed);
-            {
-                let mut covers = lock(&self.shared.covers);
-                covers.atlas = None;
-                covers.version += 1;
-            }
-            {
-                let mut playing_cover = lock(&self.shared.playing_cover);
-                playing_cover.cell = None;
-                playing_cover.version += 1;
-            }
+            self.shared.clear_covers();
         }
         if leaving_feed
             && self.wants_covers()
@@ -782,20 +794,7 @@ impl Visualizer {
         };
         drop(playback);
         if track_changed {
-            self.shared.covers_job.fetch_add(1, Ordering::Relaxed);
-            self.shared
-                .playing_cover_job
-                .fetch_add(1, Ordering::Relaxed);
-            {
-                let mut covers = lock(&self.shared.covers);
-                covers.atlas = None;
-                covers.version += 1;
-            }
-            {
-                let mut playing_cover = lock(&self.shared.playing_cover);
-                playing_cover.cell = None;
-                playing_cover.version += 1;
-            }
+            self.shared.clear_covers();
         }
         if lock(&self.shared.feed_covers)
             .as_ref()
@@ -894,12 +893,7 @@ impl Visualizer {
             .spawn(move || {
                 let atlas =
                     covers::build_from_bytes(current_atlas.as_deref(), &random_atlas).map(Arc::new);
-                if shared.covers_job.load(Ordering::Relaxed) != atlas_job {
-                    return;
-                }
-                let mut state = lock(&shared.covers);
-                state.atlas = atlas;
-                state.version += 1;
+                shared.store_covers(atlas_job, atlas);
             })
             .map_err(Error::from)?;
 
@@ -912,13 +906,10 @@ impl Visualizer {
         thread::Builder::new()
             .name("visualizer-feed-cover".into())
             .spawn(move || {
-                let cell = Arc::new(covers::build_cell_from_bytes(current.as_deref()));
-                if shared.playing_cover_job.load(Ordering::Relaxed) != cover_job {
-                    return;
-                }
-                let mut state = lock(&shared.playing_cover);
-                state.cell = Some(cell);
-                state.version += 1;
+                shared.store_playing_cover(
+                    cover_job,
+                    covers::build_cell_from_bytes(current.as_deref()),
+                );
             })
             .map_err(Error::from)?;
         Ok(())
@@ -2678,5 +2669,177 @@ target = "out"
         };
         assert_eq!((last.bucket, last.columns_version), (4800, old));
         assert_eq!((first.bucket, first.columns_version), (0, new));
+    }
+
+    /// Cover jobs that are overtaken while they wait for the lock of their slot. Linux shows which
+    /// lock a thread waits on, so a test knows the job has decoded its cover and passed every check
+    /// it makes before it takes that lock.
+    #[cfg(target_os = "linux")]
+    mod cover_jobs {
+        use super::*;
+        use std::io;
+        use std::mem;
+
+        use image::{ImageFormat, Rgba, RgbaImage};
+
+        const OLD: [u8; 4] = [255, 0, 0, 255];
+        const NEW: [u8; 4] = [0, 0, 255, 255];
+
+        /// A PNG of one colour.
+        fn png(colour: [u8; 4]) -> Vec<u8> {
+            let mut bytes = Vec::new();
+            RgbaImage::from_pixel(8, 8, Rgba(colour))
+                .write_to(&mut io::Cursor::new(&mut bytes), ImageFormat::Png)
+                .unwrap();
+            bytes
+        }
+
+        /// A PNG file of one colour, named `name`.
+        fn png_file(name: &str, colour: [u8; 4]) -> PathBuf {
+            let dir = env::temp_dir().join(format!("rune-visualizer-covers-{}", std_process::id()));
+            fs::create_dir_all(&dir).unwrap();
+            let path = dir.join(name);
+            fs::write(&path, png(colour)).unwrap();
+            path
+        }
+
+        /// The colour of the first pixel of `rgba`: of cell 0 for an atlas.
+        fn first_pixel(rgba: &[u8]) -> [u8; 4] {
+            rgba[..4].try_into().unwrap()
+        }
+
+        fn wait_until(what: &str, done: impl Fn() -> bool) {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !done() {
+                assert!(Instant::now() < deadline, "timed out waiting for {what}");
+                thread::yield_now();
+            }
+        }
+
+        /// Whether a thread of this process is blocked in a system call on the memory of `mutex`,
+        /// that is waiting to lock it.
+        fn waits_on<T>(mutex: &Mutex<T>) -> bool {
+            let start = mutex as *const Mutex<T> as usize;
+            let memory = start..start + mem::size_of::<Mutex<T>>();
+            fs::read_dir("/proc/self/task")
+                .unwrap()
+                .filter_map(|task| fs::read_to_string(task.ok()?.path().join("syscall")).ok())
+                .any(|syscall| {
+                    syscall
+                        .split_whitespace()
+                        .nth(1)
+                        .and_then(|arg| {
+                            usize::from_str_radix(arg.trim_start_matches("0x"), 16).ok()
+                        })
+                        .is_some_and(|arg| memory.contains(&arg))
+                })
+        }
+
+        /// Run the cover job `start` begins until it waits for `slot`, held here. Then do what a
+        /// newer job or a source change does under that lock, here because the lock is held:
+        /// count a newer job in `job` and `replace` what the slot holds. Let the old job go and
+        /// wait until every job has ended.
+        fn invalidate_waiting_job<T>(
+            visualizer: &Visualizer,
+            slot: &Mutex<T>,
+            job: &AtomicU64,
+            start: impl FnOnce(),
+            replace: impl FnOnce(&mut T),
+        ) {
+            let mut held = lock(slot);
+            start();
+            wait_until("the cover job to wait for its slot", || waits_on(slot));
+            job.fetch_add(1, Ordering::Relaxed);
+            replace(&mut held);
+            drop(held);
+            wait_until("the cover jobs to end", || {
+                Arc::strong_count(&visualizer.shared) == 1
+            });
+        }
+
+        #[test]
+        fn a_local_atlas_job_overtaken_while_waiting_for_its_slot_keeps_the_newer_atlas() {
+            let visualizer = Visualizer::new();
+            let shared = &visualizer.shared;
+            let old = png_file("old-atlas.png", OLD);
+            let new = png_file("new-atlas.png", NEW);
+            invalidate_waiting_job(
+                &visualizer,
+                &shared.covers,
+                &shared.covers_job,
+                || visualizer.set_covers(Some(old), Vec::new()),
+                |state| {
+                    state.atlas = covers::build(Some(&new), &[]).map(Arc::new);
+                    state.version += 1;
+                },
+            );
+            let atlas = lock(&shared.covers).atlas.clone().unwrap();
+            assert_eq!(first_pixel(&atlas.rgba), NEW);
+        }
+
+        #[test]
+        fn a_local_playing_cover_job_overtaken_while_waiting_for_its_slot_keeps_it_cleared() {
+            let visualizer = Visualizer::new();
+            let shared = &visualizer.shared;
+            let old = png_file("old-cell.png", OLD);
+            invalidate_waiting_job(
+                &visualizer,
+                &shared.playing_cover,
+                &shared.playing_cover_job,
+                || visualizer.set_playing_cover(Some(old)),
+                |state| {
+                    state.cell = None;
+                    state.version += 1;
+                },
+            );
+            assert!(lock(&shared.playing_cover).cell.is_none());
+        }
+
+        #[test]
+        fn a_feed_atlas_job_overtaken_while_waiting_for_its_slot_keeps_it_cleared() {
+            let visualizer = Visualizer::new();
+            let shared = &visualizer.shared;
+            let item = feed_item("first");
+            visualizer.set_feed_playback(Some(item.clone()), Duration::ZERO, true);
+            invalidate_waiting_job(
+                &visualizer,
+                &shared.covers,
+                &shared.covers_job,
+                || {
+                    visualizer
+                        .set_feed_covers(&item, Some(png(OLD)), Vec::new())
+                        .unwrap()
+                },
+                |state| {
+                    state.atlas = None;
+                    state.version += 1;
+                },
+            );
+            assert!(lock(&shared.covers).atlas.is_none());
+        }
+
+        #[test]
+        fn a_feed_playing_cover_job_overtaken_while_waiting_for_its_slot_keeps_the_newer_cover() {
+            let visualizer = Visualizer::new();
+            let shared = &visualizer.shared;
+            let item = feed_item("first");
+            visualizer.set_feed_playback(Some(item.clone()), Duration::ZERO, true);
+            invalidate_waiting_job(
+                &visualizer,
+                &shared.playing_cover,
+                &shared.playing_cover_job,
+                || {
+                    visualizer
+                        .set_feed_covers(&item, Some(png(OLD)), Vec::new())
+                        .unwrap()
+                },
+                |state| {
+                    state.cell = Some(Arc::new(covers::build_cell_from_bytes(Some(&png(NEW)))));
+                    state.version += 1;
+                },
+            );
+            let cell = lock(&shared.playing_cover).cell.clone().unwrap();
+            assert_eq!(first_pixel(&cell.rgba), NEW);
+        }
     }
 }
