@@ -123,7 +123,7 @@ pub fn blob_path_for_track(
     fsio.create_dir_all(&directory)?;
     #[cfg(not(target_os = "android"))]
     {
-        let parent = base.parent().unwrap();
+        let parent = canonical_download_path(fsio, base.parent().unwrap())?;
         let canonical = canonical_download_path(fsio, &directory)?;
         ensure!(
             canonical.starts_with(parent),
