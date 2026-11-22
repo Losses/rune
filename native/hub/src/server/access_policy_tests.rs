@@ -13,18 +13,24 @@ mod access_policy_tests {
         BodyLibraries, RequestAccess, RequestScope, body_library_declarations, request_access,
         request_scope,
     };
-    use crate::messages::{CastLibraryState, RendererAvailability};
+    use crate::messages::{
+        CastLibraryState, CastResolvedItemsRequest, CastResolvedItemsResponse, HandoffBlockId,
+        HandoffLoadRequest, HandoffLoadResponse, LoadPlay, LoadResolvedItemsRequest,
+        PlaylistOperateMode, RendererAvailability,
+    };
     use crate::messages::{DeviceGrantsChange, DeviceGrantsInfo, RemoveTrustedClientRequest};
     use crate::messages::{
         GetLikedRequest, GetLyricByTrackIdRequest, GetPrimaryColorByTrackIdRequest,
         PlayingItemRef, SetLikedRequest,
     };
+    use playback::player::PlayingItem;
     use crate::messages::{ExcludedItems, ResolveMixQueryRequest};
     use crate::request_error::ExpectedRequestError;
     use crate::server::api::remove_trusted_device;
     use crate::server::libraries::{
         cast_library_state, list_peer_libraries, list_renderer_candidates,
     };
+    use crate::server::server_request::MAX_BODY_LIBRARIES;
     use crate::server::sync::client::LibrarySession;
     use crate::server::sync_worker::share_worker_tests::TestPeerSession;
     use crate::test_wait::{TEST_DEADLINE, wait_until};
@@ -279,6 +285,482 @@ mod access_policy_tests {
             }) if *library_id == library_b
         ), "{error:#}");
         pair.close().await?;
+        Ok(())
+    }
+
+    /// A controller may control this player without being allowed to read every library it
+    /// names. Cast, load and handoff must check each distinct named library for the calling
+    /// session before the player reads a track or edits its queue.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn player_reads_requests_authorize_every_named_library() -> Result<()> {
+        let pair = PolicyPair::new().await?;
+        let second_dir = tempfile::tempdir()?;
+        let second = fixture_open_local_library(&pair.b, second_dir.path()).await?;
+        let granted_library = pair.id;
+        let denied_library = second
+            .global_params
+            .library_id
+            .context("second library id")?;
+
+        let granted_track = Uuid::new_v4();
+        let denied_track = Uuid::new_v4();
+        seed_player_read_track(&pair.a, "granted.ogg", granted_track).await?;
+        seed_player_read_track(&pair.b, "granted.ogg", granted_track).await?;
+        seed_player_read_track(&second, "denied.ogg", denied_track).await?;
+
+        let granted_item = PlayingItemRef::LibraryTrack {
+            library_id: granted_library.to_string(),
+            track: granted_track.to_string(),
+        };
+        let denied_item = PlayingItemRef::LibraryTrack {
+            library_id: denied_library.to_string(),
+            track: denied_track.to_string(),
+        };
+        let malformed_item = PlayingItemRef::LibraryTrack {
+            library_id: "not-a-uuid".into(),
+            track: granted_track.to_string(),
+        };
+
+        let controller = info(&pair.a).await?.fingerprint;
+        set_controller_library_grants(&pair, &controller, &[granted_library])?;
+        let user = pair
+            .b
+            .global_params
+            .node
+            .permission_manager
+            .read()
+            .await
+            .verify_by_fingerprint(&controller)
+            .await
+            .context("approved controller")?;
+        let session = Session {
+            fingerprint: user.fingerprint,
+            public_key: user.public_key,
+            base_url: Url::parse("https://127.0.0.1:7863/").unwrap(),
+        };
+        let node = Arc::clone(&pair.b.global_params.node);
+
+        let queue_before = pair.b.global_params.player.lock().await.get_playlist();
+        let revision_before = node.session()?.queue_revision().await;
+        let renderer_queue_before = pair.a.global_params.player.lock().await.get_playlist();
+        let renderer_revision_before = pair.a.global_params.node.session()?.queue_revision().await;
+
+        for (name, payload) in [
+            (
+                "LoadResolvedItemsRequest",
+                rinf::serialize(&load_request(
+                    vec![denied_item.clone()],
+                    PlaylistOperateMode::Replace,
+                ))?,
+            ),
+            (
+                "HandoffLoadRequest",
+                rinf::serialize(&handoff_request(vec![denied_item.clone()]))?,
+            ),
+            (
+                "CastResolvedItemsRequest",
+                rinf::serialize(&cast_request(&controller, vec![denied_item.clone()]))?,
+            ),
+        ] {
+            let error = send_player_read(&node, name, payload, &session)
+                .await
+                .expect_err("a library the controller cannot read must be refused");
+            assert_connection_view_denial(&error, denied_library);
+            assert_eq!(
+                pair.b.global_params.player.lock().await.get_playlist(),
+                queue_before,
+                "{name}"
+            );
+            assert_eq!(
+                node.session()?.queue_revision().await,
+                revision_before,
+                "{name}"
+            );
+            assert_eq!(
+                pair.a.global_params.player.lock().await.get_playlist(),
+                renderer_queue_before,
+                "{name}"
+            );
+            assert_eq!(
+                pair.a.global_params.node.session()?.queue_revision().await,
+                renderer_revision_before,
+                "{name}"
+            );
+        }
+
+        for (name, payload) in [
+            (
+                "LoadResolvedItemsRequest",
+                rinf::serialize(&load_request(
+                    vec![granted_item.clone(), denied_item.clone()],
+                    PlaylistOperateMode::Replace,
+                ))?,
+            ),
+            (
+                "HandoffLoadRequest",
+                rinf::serialize(&handoff_request(vec![
+                    granted_item.clone(),
+                    denied_item.clone(),
+                ]))?,
+            ),
+            (
+                "CastResolvedItemsRequest",
+                rinf::serialize(&cast_request(
+                    &controller,
+                    vec![granted_item.clone(), denied_item.clone()],
+                ))?,
+            ),
+        ] {
+            let error = send_player_read(&node, name, payload, &session)
+                .await
+                .expect_err("a mixed request must refuse its ungranted library");
+            assert_connection_view_denial(&error, denied_library);
+            assert_eq!(
+                pair.b.global_params.player.lock().await.get_playlist(),
+                queue_before,
+                "{name}"
+            );
+            assert_eq!(
+                node.session()?.queue_revision().await,
+                revision_before,
+                "{name}"
+            );
+            assert_eq!(
+                pair.a.global_params.player.lock().await.get_playlist(),
+                renderer_queue_before,
+                "{name}"
+            );
+            assert_eq!(
+                pair.a.global_params.node.session()?.queue_revision().await,
+                renderer_revision_before,
+                "{name}"
+            );
+        }
+
+        for (name, payload) in [
+            (
+                "LoadResolvedItemsRequest",
+                rinf::serialize(&load_request(
+                    vec![malformed_item.clone()],
+                    PlaylistOperateMode::Replace,
+                ))?,
+            ),
+            (
+                "HandoffLoadRequest",
+                rinf::serialize(&handoff_request(vec![malformed_item.clone()]))?,
+            ),
+            (
+                "CastResolvedItemsRequest",
+                rinf::serialize(&cast_request(&controller, vec![malformed_item.clone()]))?,
+            ),
+        ] {
+            let error = send_player_read(&node, name, payload, &session)
+                .await
+                .expect_err("a malformed library id must be refused");
+            assert_eq!(
+                classify(&error),
+                RequestErrorKind::InvalidInput,
+                "{name}: {error:#}"
+            );
+            assert_eq!(
+                pair.b.global_params.player.lock().await.get_playlist(),
+                queue_before,
+                "{name}"
+            );
+            assert_eq!(
+                node.session()?.queue_revision().await,
+                revision_before,
+                "{name}"
+            );
+            assert_eq!(
+                pair.a.global_params.player.lock().await.get_playlist(),
+                renderer_queue_before,
+                "{name}"
+            );
+            assert_eq!(
+                pair.a.global_params.node.session()?.queue_revision().await,
+                renderer_revision_before,
+                "{name}"
+            );
+        }
+
+        set_controller_library_grants(&pair, &controller, &[granted_library, denied_library])?;
+        let allowed_load = load_request(
+            vec![granted_item.clone(), denied_item.clone()],
+            PlaylistOperateMode::Replace,
+        );
+        send_player_read(
+            &node,
+            "LoadResolvedItemsRequest",
+            rinf::serialize(&allowed_load)?,
+            &session,
+        )
+        .await?;
+        let loaded_queue = pair.b.global_params.player.lock().await.get_playlist();
+        assert!(loaded_queue.contains(&playing_item(granted_library, granted_track)));
+        assert!(loaded_queue.contains(&playing_item(denied_library, denied_track)));
+        let revision_after_load = node.session()?.queue_revision().await;
+        assert!(revision_after_load > revision_before);
+
+        let allowed_handoff = handoff_request(vec![granted_item.clone(), denied_item.clone()]);
+        let payload = send_player_read(
+            &node,
+            "HandoffLoadRequest",
+            rinf::serialize(&allowed_handoff)?,
+            &session,
+        )
+        .await?;
+        let handoff: HandoffLoadResponse = rinf::deserialize(&payload)?;
+        assert_eq!(handoff.handoff_item, granted_item);
+        let handed_off_queue = pair.b.global_params.player.lock().await.get_playlist();
+        assert!(handed_off_queue.contains(&playing_item(granted_library, granted_track)));
+        assert!(handed_off_queue.contains(&playing_item(denied_library, denied_track)));
+        assert!(node.session()?.queue_revision().await > revision_after_load);
+
+        // A is also the cast target: the cast goes to B, which forwards its load to A, and
+        // both hold the same library id and track, so the allowed cast has a real queue to edit.
+        let renderer_revision = pair.a.global_params.node.session()?.queue_revision().await;
+        let controller_queue = pair.b.global_params.player.lock().await.get_playlist();
+        let controller_revision = node.session()?.queue_revision().await;
+        let allowed_cast = cast_request(&controller, vec![granted_item.clone()]);
+        let payload = send_player_read(
+            &node,
+            "CastResolvedItemsRequest",
+            rinf::serialize(&allowed_cast)?,
+            &session,
+        )
+        .await?;
+        let cast: CastResolvedItemsResponse = rinf::deserialize(&payload)?;
+        assert!(cast.result.left_out_items.is_empty());
+        assert!(
+            pair.a
+                .global_params
+                .player
+                .lock()
+                .await
+                .get_playlist()
+                .contains(&playing_item(granted_library, granted_track))
+        );
+        assert!(
+            pair.a.global_params.node.session()?.queue_revision().await > renderer_revision
+        );
+        assert_eq!(
+            pair.b.global_params.player.lock().await.get_playlist(),
+            controller_queue
+        );
+        assert_eq!(
+            node.session()?.queue_revision().await,
+            controller_revision
+        );
+
+        pair.close().await?;
+        Ok(())
+    }
+
+    /// The library limit counts distinct libraries, and a request over it is refused before
+    /// any per-library authorization or handler work.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn player_reads_requests_bound_the_number_of_named_libraries() -> Result<()> {
+        let pair = PolicyPair::new().await?;
+        let controller = info(&pair.a).await?.fingerprint;
+        set_controller_library_grants(&pair, &controller, &[])?;
+        let user = pair
+            .b
+            .global_params
+            .node
+            .permission_manager
+            .read()
+            .await
+            .verify_by_fingerprint(&controller)
+            .await
+            .context("approved controller")?;
+        let session = Session {
+            fingerprint: user.fingerprint,
+            public_key: user.public_key,
+            base_url: Url::parse("https://127.0.0.1:7863/").unwrap(),
+        };
+        let node = Arc::clone(&pair.b.global_params.node);
+        let queue_before = pair.b.global_params.player.lock().await.get_playlist();
+        let revision_before = node.session()?.queue_revision().await;
+
+        let at_limit = (0..MAX_BODY_LIBRARIES)
+            .map(|_| PlayingItemRef::LibraryTrack {
+                library_id: Uuid::new_v4().to_string(),
+                track: Uuid::new_v4().to_string(),
+            })
+            .collect::<Vec<_>>();
+        let error = send_player_read(
+            &node,
+            "LoadResolvedItemsRequest",
+            rinf::serialize(&load_request(at_limit, PlaylistOperateMode::Replace))?,
+            &session,
+        )
+        .await
+        .expect_err("libraries without a grant must still be refused at the limit");
+        assert_eq!(
+            classify(&error),
+            RequestErrorKind::PermissionDenied,
+            "{error:#}"
+        );
+        assert_eq!(
+            pair.b.global_params.player.lock().await.get_playlist(),
+            queue_before
+        );
+        assert_eq!(node.session()?.queue_revision().await, revision_before);
+
+        let over_limit = (0..=MAX_BODY_LIBRARIES)
+            .map(|_| PlayingItemRef::LibraryTrack {
+                library_id: Uuid::new_v4().to_string(),
+                track: Uuid::new_v4().to_string(),
+            })
+            .collect::<Vec<_>>();
+        let error = send_player_read(
+            &node,
+            "LoadResolvedItemsRequest",
+            rinf::serialize(&load_request(over_limit, PlaylistOperateMode::Replace))?,
+            &session,
+        )
+        .await
+        .expect_err("a request over the library limit must be refused");
+        assert_eq!(
+            classify(&error),
+            RequestErrorKind::InvalidInput,
+            "{error:#}"
+        );
+        assert_eq!(
+            pair.b.global_params.player.lock().await.get_playlist(),
+            queue_before
+        );
+        assert_eq!(node.session()?.queue_revision().await, revision_before);
+
+        pair.close().await?;
+        Ok(())
+    }
+
+    async fn send_player_read(
+        node: &Arc<NodeContext>,
+        name: &str,
+        payload: Vec<u8>,
+        session: &Session,
+    ) -> Result<Vec<u8>> {
+        let (_, result) = node
+            .websocket_service
+            .handle_addressed_message(
+                name,
+                payload,
+                Some(Session {
+                    fingerprint: session.fingerprint.clone(),
+                    public_key: session.public_key.clone(),
+                    base_url: session.base_url.clone(),
+                }),
+                None,
+                node,
+            )
+            .await
+            .with_context(|| format!("{name} route"))?;
+        result
+    }
+
+    fn assert_connection_view_denial(error: &anyhow::Error, library_id: Uuid) {
+        assert_eq!(
+            classify(error),
+            RequestErrorKind::PermissionDenied,
+            "{error:#}"
+        );
+        assert!(
+            matches!(
+                error.downcast_ref::<Denial>(),
+                Some(Denial::Action {
+                    action: Action::ConnectionView { library_id: denied }
+                }) if *denied == library_id
+            ),
+            "{error:#}"
+        );
+    }
+
+    fn set_controller_library_grants(
+        pair: &PolicyPair,
+        fingerprint: &str,
+        libraries: &[Uuid],
+    ) -> Result<()> {
+        let mut grants = DeviceGrants::guest();
+        grants.connection.all_libraries = None;
+        grants.connection.libraries = libraries
+            .iter()
+            .map(|library_id| (*library_id, ConnectionLevel::View))
+            .collect();
+        pair.b
+            .global_params
+            .node
+            .access_policy
+            .set(fingerprint, grants)?;
+        Ok(())
+    }
+
+    fn load_request(
+        items: Vec<PlayingItemRef>,
+        mode: PlaylistOperateMode,
+    ) -> LoadResolvedItemsRequest {
+        LoadResolvedItemsRequest {
+            items,
+            start_index: Some(0),
+            mode,
+            expected_revision: None,
+            playback_mode: None,
+            position_seconds: None,
+            play: LoadPlay::Pause,
+            call_id: None,
+        }
+    }
+
+    fn handoff_request(items: Vec<PlayingItemRef>) -> HandoffLoadRequest {
+        HandoffLoadRequest {
+            block: HandoffBlockId {
+                uuid: Uuid::new_v4().to_string(),
+            },
+            load: load_request(items, PlaylistOperateMode::PlayNext),
+            call_id: None,
+        }
+    }
+
+    fn cast_request(fingerprint: &str, items: Vec<PlayingItemRef>) -> CastResolvedItemsRequest {
+        CastResolvedItemsRequest {
+            fingerprint: fingerprint.to_owned(),
+            load: load_request(items, PlaylistOperateMode::Replace),
+            call_id: None,
+        }
+    }
+
+    fn playing_item(library_id: Uuid, track: Uuid) -> PlayingItem {
+        PlayingItem::LibraryTrack {
+            library_id,
+            track: track.to_string(),
+        }
+    }
+
+    async fn seed_player_read_track(fixture: &Fixture, name: &str, track: Uuid) -> Result<()> {
+        let library = fixture.global_params.test_library();
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg");
+        fs::copy(source, Path::new(&library.media_root).join(name))?;
+        media_files::Entity::insert(media_files::ActiveModel {
+            id: ActiveValue::NotSet,
+            file_name: Set(name.into()),
+            directory: Set(String::new()),
+            extension: Set("ogg".into()),
+            file_hash: Set(track.to_string()),
+            last_modified: Set(String::new()),
+            change_token: Set(None),
+            cover_art_uuid: Set(None),
+            cover_art_checked_at: Set(None),
+            sample_rate: Set(44_100),
+            duration: Set(Decimal::ONE),
+            local_available: Set(true),
+            content_hash: Set(None),
+            content_size: Set(None),
+            source_uuid: Set(track.to_string()),
+        })
+        .exec(&*library.main_db)
+        .await?;
         Ok(())
     }
 

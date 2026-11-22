@@ -1241,14 +1241,8 @@ impl NodeContext {
             .context("Node server is not initialized")
     }
 
-    /// Authorize against the exact UI library captured for this dispatch.
-    pub(crate) async fn authorize_request(
-        &self,
-        session: &Session,
-        name: &str,
-        params: Option<&GlobalParams>,
-        addressed_library_id: Option<Uuid>,
-    ) -> Result<()> {
+    /// Verify that a remote session is an approved device, as this node knows it.
+    async fn verified_peer(&self, session: &Session) -> Result<PeerIdentity> {
         let user = self
             .permission_manager
             .read()
@@ -1259,6 +1253,38 @@ impl NodeContext {
                 user.status == UserStatus::Approved && user.public_key == session.public_key
             })
             .ok_or(Denial::Untrusted)?;
+        Ok(PeerIdentity {
+            fingerprint: user.fingerprint,
+            public_key: user.public_key,
+        })
+    }
+
+    /// Authorize a remote session to read the given libraries through this node. A player
+    /// request's own access rule is Control, which is node-wide, so the libraries its player
+    /// reads need this separate library-scoped check. The session is verified once for the
+    /// whole request.
+    pub(crate) async fn authorize_library_views(
+        &self,
+        session: &Session,
+        library_ids: impl IntoIterator<Item = Uuid>,
+    ) -> Result<()> {
+        let peer = self.verified_peer(session).await?;
+        for library_id in library_ids {
+            self.access_policy
+                .check(&peer, &Action::ConnectionView { library_id })?;
+        }
+        Ok(())
+    }
+
+    /// Authorize against the exact UI library captured for this dispatch.
+    pub(crate) async fn authorize_request(
+        &self,
+        session: &Session,
+        name: &str,
+        params: Option<&GlobalParams>,
+        addressed_library_id: Option<Uuid>,
+    ) -> Result<()> {
+        let peer = self.verified_peer(session).await?;
         let access = request_access(name).ok_or(Denial::NodeLocal)?;
         if access == RequestAccess::NodeLocal {
             return Err(Denial::NodeLocal.into());
@@ -1286,13 +1312,7 @@ impl NodeContext {
             },
             RequestAccess::NodeLocal => return Err(Denial::NodeLocal.into()),
         };
-        self.access_policy.check(
-            &PeerIdentity {
-                fingerprint: user.fingerprint,
-                public_key: user.public_key,
-            },
-            &action,
-        )?;
+        self.access_policy.check(&peer, &action)?;
         Ok(())
     }
 
