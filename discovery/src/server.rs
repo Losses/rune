@@ -624,6 +624,66 @@ mod change_tests {
         changes
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn failed_trust_save_changes_nothing_and_can_be_retried()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir =
+            std::env::temp_dir().join(format!("permission-failed-save-{}", uuid::Uuid::new_v4()));
+        let mut manager = PermissionManager::new(&dir)?;
+        let changes = record_trust_changes(&mut manager);
+        add_permission_user(&manager, "device").await?;
+        manager
+            .change_user_status("device", UserStatus::Approved)
+            .await?;
+        let notified_before = changes.lock().unwrap().len();
+
+        // A process that may write anyway (such as root) would let this pass without a failed write.
+        let trust_file = dir.join(".known-clients");
+        std::fs::set_permissions(&trust_file, std::fs::Permissions::from_mode(0o444))?;
+        assert!(
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(&trust_file)
+                .is_err(),
+            "trust file is still writable; run this test as an unprivileged user"
+        );
+        assert!(
+            manager
+                .change_user_status("device", UserStatus::Blocked)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            manager
+                .verify_by_fingerprint("device")
+                .await
+                .map(|user| user.status),
+            Some(UserStatus::Approved)
+        );
+        assert_eq!(changes.lock().unwrap().len(), notified_before);
+
+        std::fs::set_permissions(&trust_file, std::fs::Permissions::from_mode(0o644))?;
+        manager
+            .change_user_status("device", UserStatus::Blocked)
+            .await?;
+        assert_eq!(
+            manager
+                .verify_by_fingerprint("device")
+                .await
+                .map(|user| user.status),
+            Some(UserStatus::Blocked)
+        );
+        assert_eq!(
+            changes.lock().unwrap().last(),
+            Some(&("device".to_owned(), Some(UserStatus::Blocked)))
+        );
+        std::fs::remove_dir_all(dir)?;
+        Ok(())
+    }
+
     #[tokio::test]
     async fn separate_managers_merge_updates_to_the_same_file() -> Result<(), Box<dyn error::Error>>
     {
