@@ -141,6 +141,8 @@ async fn mix_filters_and_orders_by_likes_and_per_device_totals() -> Result<()> {
             duration: Set(1.into()),
             source_uuid: Set(Uuid::new_v4().to_string()),
             local_available: Set(true),
+            content_hash: Set(Some(format!("{id:064x}"))),
+            content_size: Set(Some(100)),
             ..Default::default()
         })
         .exec(&db)
@@ -149,6 +151,8 @@ async fn mix_filters_and_orders_by_likes_and_per_device_totals() -> Result<()> {
             file_id: Set(id),
             analysis_version: Set(analysis::CURRENT_ANALYSIS_VERSION),
             source_uuid: Set(Uuid::new_v4().to_string()),
+            source_hash: Set(Some(format!("{id:064x}"))),
+            source_size: Set(Some(100)),
             ..Default::default()
         })
         .exec(&db)

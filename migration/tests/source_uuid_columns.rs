@@ -59,8 +59,11 @@ async fn fresh_database_has_source_uuid_columns() {
 async fn existing_source_uuids_survive_column_rename() {
     let _ = migration::initialize_node_id("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".to_owned());
     let db = Database::connect("sqlite::memory:").await.unwrap();
-    let migration_count = Migrator::migrations().len() as u32;
-    Migrator::up(&db, Some(migration_count - 1)).await.unwrap();
+    let before_rename = Migrator::migrations()
+        .iter()
+        .position(|migration| migration.name() == "m20261112_000037_rename_source_uuid")
+        .expect("migration 37 must be registered") as u32;
+    Migrator::up(&db, Some(before_rename)).await.unwrap();
     db.execute_unprepared("INSERT INTO media_files(id,file_name,directory,extension,file_hash,last_modified,sample_rate,duration,hlc_uuid) VALUES(204,'a.ogg','/music','ogg','hash','2020',44100,12,'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')")
         .await
         .unwrap();

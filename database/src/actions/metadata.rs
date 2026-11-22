@@ -6,8 +6,8 @@ use crate::actions::{
     logging::{LogLevel, insert_log},
 };
 use crate::entities::{
-    albums, artists, media_file_albums, media_file_artists, media_files, media_metadata,
-    sync_download_jobs, sync_download_jobs::Column,
+    albums, artists, media_analysis, media_file_albums, media_file_artists, media_files,
+    media_metadata, sync_download_jobs, sync_download_jobs::Column,
 };
 use crate::error::ExpectedError;
 use sea_orm::ExprTrait;
@@ -324,6 +324,12 @@ async fn sync_file_descriptions_inner(
             }
             let txn = batch_txn.begin().await?;
             let result: Result<()> = async {
+                let content_changed = existing.as_ref().is_some_and(|file| {
+                    file.content_hash
+                        .as_deref()
+                        .is_some_and(|old_hash| old_hash != digest.as_str())
+                        || file.content_size.is_some_and(|old_size| old_size != size)
+                });
                 match (&existing, &metadata) {
                     (Some(file), Some(metadata)) => {
                         update_file_codec_information(fsio, &txn, file, description).await?;
@@ -348,6 +354,15 @@ async fn sync_file_descriptions_inner(
 
                 let id = author_track(&txn, store, &description.directory, &description.file_name)
                     .await?;
+
+                // Analysis describes the bytes it read, so a changed source
+                // invalidates it before the next analysis run.
+                if content_changed {
+                    media_analysis::Entity::delete_many()
+                        .filter(media_analysis::Column::FileId.eq(id))
+                        .exec(&txn)
+                        .await?;
+                }
 
                 if let Some(options) = scan {
                     anyhow::ensure!(

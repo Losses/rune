@@ -61,6 +61,15 @@ async fn legacy_rows_are_invalid_and_replaced_only_after_success() -> Result<()>
         &store.record_store(),
     )
     .await?;
+    assert!(
+        media_analysis::Entity::find().all(&db).await?.is_empty(),
+        "migration 38 drops legacy analysis that cannot prove its source bytes"
+    );
+    // A row written by an old client after the migration is still invalid.
+    db.execute_unprepared(
+        "INSERT INTO media_analysis (file_id,rms,source_uuid) VALUES (1,999,'legacy')",
+    )
+    .await?;
     let old = media_analysis::Entity::find().one(&db).await?.unwrap();
     assert_eq!(old.analysis_version, 1);
     assert_eq!(get_analyze_count(&db).await?, 0);

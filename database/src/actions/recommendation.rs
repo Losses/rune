@@ -143,22 +143,35 @@ fn decode_vector_row(row: &SqliteRow) -> Result<(u32, [f32; 61])> {
     Ok((file_id, vector))
 }
 
-/// Read all analysis data of `main_db` into the recommendation store.
+/// Read the current analysis data of `main_db` into the recommendation store.
 ///
 /// Only `file_id` and the feature columns are read, straight into floats.
-/// Rows that cannot be converted (e.g. a negative file id) are skipped with a
-/// warning. If the data cannot be read at all, the error is returned and the
-/// store keeps its previous vectors.
+/// An analysis is current only while its recorded content identity matches
+/// the file; rows without one are not eligible. Rows that cannot be converted
+/// (e.g. a negative file id) are skipped with a warning. If the data cannot be
+/// read at all, the error is returned and the store keeps its previous
+/// vectors.
 pub(crate) async fn load_recommendation_vectors(
     main_db: &MainDbConnection,
     recommend_db: &RecommendationDbConnection,
 ) -> Result<()> {
-    let mut query = sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT file_id, ");
+    let mut query = sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT media_analysis.file_id, ");
     // Column names come only from the fixed feature list; values stay bound.
     query
-        .push(feature_columns().join(", "))
-        .push(" FROM media_analysis WHERE analysis_version = ")
-        .push_bind(analysis::CURRENT_ANALYSIS_VERSION);
+        .push(
+            feature_columns()
+                .iter()
+                .map(|column| format!("media_analysis.{column}"))
+                .collect::<Vec<_>>()
+                .join(", "),
+        )
+        .push(
+            " FROM media_analysis JOIN media_files ON media_files.id = media_analysis.file_id \
+             WHERE media_analysis.analysis_version = ",
+        )
+        .push_bind(analysis::CURRENT_ANALYSIS_VERSION)
+        .push(" AND media_analysis.source_hash = media_files.content_hash")
+        .push(" AND media_analysis.source_size = media_files.content_size");
     let rows = query
         .build()
         .fetch_all(main_db.get_sqlite_connection_pool())

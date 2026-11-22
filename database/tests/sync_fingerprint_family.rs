@@ -922,6 +922,15 @@ async fn recommendations_exclude_verified_duplicates_only() -> Result<()> {
     // Track 4 only has a marked fingerprint of an unsupported legacy format.
     let legacy_file = Uuid::new_v4();
     support::local_file(&db, 4, legacy_file, "file-4").await?;
+    media_files::Entity::update_many()
+        .col_expr(
+            media_files::Column::ContentHash,
+            Expr::value("d".repeat(64)),
+        )
+        .col_expr(media_files::Column::ContentSize, Expr::value(Some(100)))
+        .filter(media_files::Column::Id.eq(4))
+        .exec(&db)
+        .await?;
     media_file_fingerprint::Entity::insert(media_file_fingerprint::ActiveModel {
         track_uuid: Set(legacy_file.to_string()),
         fingerprint: Set(vec![1, 2, 3, 4]),
@@ -933,8 +942,15 @@ async fn recommendations_exclude_verified_duplicates_only() -> Result<()> {
     .await?;
     // Distance from the seed ranks the tracks 2, 1, 4, 3, unlike their ids.
     for (id, rms) in [(1, 0.21), (2, 0.2), (3, 0.4), (4, 0.3)] {
+        // Track 3 was analysed again after its content changed above.
+        let (content_hash, content_size) = match id {
+            3 => (format!("'{}'", "c".repeat(64)), "100"),
+            4 => (format!("'{}'", "d".repeat(64)), "100"),
+            _ => (format!("'{}'", format!("{id}").repeat(64)), "100"),
+        };
         db.execute_unprepared(&format!(
-            "INSERT INTO media_analysis(file_id,analysis_version,rms,source_uuid) VALUES({id},{},{rms},'analysis-{id}')",
+            "INSERT INTO media_analysis(file_id,analysis_version,rms,source_uuid,source_hash,source_size) \
+             VALUES({id},{},{rms},'analysis-{id}',{content_hash},{content_size})",
             analysis::CURRENT_ANALYSIS_VERSION
         ))
         .await?;

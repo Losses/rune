@@ -34,6 +34,8 @@ async fn existence_queries_preserve_filters_duplicates_and_errors() -> Result<()
     let file = media_files::Entity::find().one(&db).await?.unwrap();
     let id = file.id;
     let track_uuid = file.source_uuid;
+    let content_hash = file.content_hash.expect("scanned file has a content hash");
+    let content_size = file.content_size.expect("scanned file has a content size");
     assert!(!if_analyze_exists(&db, id).await?);
     assert!(!has_fingerprint(&db, id).await?);
 
@@ -42,7 +44,8 @@ async fn existence_queries_preserve_filters_duplicates_and_errors() -> Result<()
             "INSERT INTO media_file_fingerprint (track_uuid,fingerprint,is_duplicated,source_uuid) VALUES ('{track_uuid}',X'0102',0,'fingerprint-{n}')"
         )).await?;
         db.execute_unprepared(&format!(
-            "INSERT INTO media_analysis (file_id,analysis_version,source_uuid) VALUES ({id},1,'analysis-{n}')"
+            "INSERT INTO media_analysis (file_id,analysis_version,source_uuid,source_hash,source_size) \
+             VALUES ({id},1,'analysis-{n}','{content_hash}',{content_size})"
         )).await?;
     }
     assert!(has_fingerprint(&db, id).await?);

@@ -9,7 +9,10 @@ use paste::paste;
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::prelude::ToPrimitive;
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveValue, QueryOrder, QuerySelect, QueryTrait, TransactionTrait};
+use sea_orm::sea_query::{Condition, Expr};
+use sea_orm::{
+    ActiveValue, ExprTrait, JoinType, QueryOrder, QuerySelect, QueryTrait, TransactionTrait,
+};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use seq_macro::seq;
 use tokio_util::sync::CancellationToken;
@@ -18,11 +21,32 @@ use analysis::analysis::{NormalizedAnalysisResult, analyze_audio, normalize_anal
 use analysis::utils::computing_device::ComputingDevice;
 use uuid::Uuid;
 
+use crate::actions::file::hash_file;
 use crate::actions::utils::ParallelMediaFilesResult as BatchResult;
 use crate::entities::{media_analysis, media_files};
 use crate::parallel_media_files_processing;
+use crate::sync::model::BlobRef;
 
 pub fn empty_progress_callback(_processed: usize, _total: usize) {}
+
+/// Match analysis rows that describe the file's current content.
+///
+/// A row is current only when it recorded the content hash and size it was
+/// computed from and both still match the file. Rows without a recorded
+/// identity (including every row written before migration 38) are never
+/// current, so they are analyzed again.
+pub(crate) fn current_analysis_condition() -> Condition {
+    Condition::all()
+        .add(media_analysis::Column::AnalysisVersion.eq(analysis::CURRENT_ANALYSIS_VERSION))
+        .add(
+            Expr::col((media_analysis::Entity, media_analysis::Column::SourceHash))
+                .equals((media_files::Entity, media_files::Column::ContentHash)),
+        )
+        .add(
+            Expr::col((media_analysis::Entity, media_analysis::Column::SourceSize))
+                .equals((media_files::Entity, media_files::Column::ContentSize)),
+        )
+}
 
 /// Analyze the audio library by reading existing files, checking if they have been analyzed,
 /// and performing audio analysis if not. The function uses cursor pagination to process files
@@ -55,20 +79,19 @@ where
 
     info!("Starting audio library analysis with batch size: {batch_size}");
 
+    let current_analysis = media_analysis::Entity::find()
+        .join(
+            JoinType::InnerJoin,
+            media_analysis::Relation::MediaFiles.def(),
+        )
+        .filter(current_analysis_condition())
+        .select_only()
+        .column(media_analysis::Column::FileId)
+        .into_query();
+
     let cursor_query = media_files::Entity::find()
         .filter(media_files::Column::LocalAvailable.eq(true))
-        .filter(
-            media_files::Column::Id.not_in_subquery(
-                media_analysis::Entity::find()
-                    .filter(
-                        media_analysis::Column::AnalysisVersion
-                            .eq(analysis::CURRENT_ANALYSIS_VERSION),
-                    )
-                    .select_only()
-                    .column(media_analysis::Column::FileId)
-                    .into_query(),
-            ),
-        );
+        .filter(media_files::Column::Id.not_in_subquery(current_analysis));
 
     let lib_path = Arc::new(lib_path.to_path_buf());
     parallel_media_files_processing!(
@@ -88,7 +111,7 @@ where
             match analysis_result {
                 Ok(analysis_result) => {
                     if let Some(x) = analysis_result {
-                        match insert_analysis_result(db, file.id, &file.file_hash, x).await {
+                        match insert_analysis_result(db, &file, x).await {
                             Ok(()) => BatchResult::Processed,
                             Err(error) => BatchResult::TaskFailed(error),
                         }
@@ -102,8 +125,23 @@ where
     )
 }
 
+/// The content identity a file must still have for its analysis to be stored.
+fn verified_source(file: &media_files::Model) -> Option<BlobRef> {
+    match (&file.content_hash, file.content_size) {
+        (Some(digest), Some(size)) if size >= 0 => Some(BlobRef {
+            digest: digest.clone(),
+            size: size as u64,
+        }),
+        _ => None,
+    }
+}
+
 /// Process a file if it has not been analyzed yet. Perform audio analysis and store the results
 /// in the database.
+///
+/// The result is bound to the bytes that were analyzed: the file is hashed
+/// before and after the computation, and a result whose bytes no longer match
+/// the observed file is discarded.
 ///
 /// # Arguments
 /// * `db` - A reference to the database connection.
@@ -120,6 +158,24 @@ fn analysis_file(
     // Construct the full path to the file
     let file_path = lib_path.join(&file.directory).join(&file.file_name);
 
+    let Some(expected) = verified_source(file) else {
+        info!(
+            "Skipping analysis for file {} because it has no verified content identity",
+            file.id
+        );
+        return Ok(None);
+    };
+
+    // The file row can be older than the bytes at the path. Only analyze the
+    // content the row describes, as fingerprint computation does.
+    if hash_file(fsio, &file_path)? != expected {
+        info!(
+            "Discarding analysis for file {} because its source changed before analysis",
+            file.id
+        );
+        return Ok(None);
+    }
+
     // Perform audio analysis
     let analysis_result = analyze_audio(
         fsio,
@@ -130,11 +186,17 @@ fn analysis_file(
         cancel_token,
     )?;
 
-    if analysis_result.is_none() {
+    let Some(analysis_result) = analysis_result else {
+        return Ok(None);
+    };
+
+    if hash_file(fsio, &file_path)? != expected {
+        info!(
+            "Discarding analysis for file {} because its source changed during analysis",
+            file.id
+        );
         return Ok(None);
     }
-
-    let analysis_result = analysis_result.expect("Analysis result should never be none");
 
     // Normalize the analysis result
     Ok(Some(normalize_analysis_result(&analysis_result)))
@@ -144,17 +206,55 @@ fn analysis_file(
 ///
 /// # Arguments
 /// * `main_db` - A reference to the database connection.
-/// * `file_id` - The ID of the file being analyzed.
+/// * `observed` - The file row the analysis was started from.
 /// * `result` - The normalized analysis result.
 async fn insert_analysis_result(
     main_db: &DatabaseConnection,
-    file_id: i32,
-    file_hash: &str,
+    observed: &media_files::Model,
     result: NormalizedAnalysisResult,
 ) -> Result<()> {
+    // Only the small replacement is transactional; decoding and DSP happen beforehand.
+    let txn = main_db.begin().await?;
+    let current = media_files::Entity::find_by_id(observed.id)
+        .one(&txn)
+        .await?;
+    let Some(current) = current else {
+        info!(
+            "Discarding analysis for file {} because the file disappeared",
+            observed.id
+        );
+        txn.rollback().await?;
+        return Ok(());
+    };
+    if current.source_uuid != observed.source_uuid
+        || current.last_modified != observed.last_modified
+        || current.content_hash != observed.content_hash
+        || current.content_size != observed.content_size
+        || !current.local_available
+    {
+        info!(
+            "Discarding analysis for file {} because its source changed during analysis",
+            observed.id
+        );
+        txn.rollback().await?;
+        return Ok(());
+    }
+    let (Some(source_hash), Some(source_size)) =
+        (current.content_hash.clone(), current.content_size)
+    else {
+        info!(
+            "Discarding analysis for file {} because it has no verified content identity",
+            observed.id
+        );
+        txn.rollback().await?;
+        return Ok(());
+    };
+
     let mut new_analysis = media_analysis::ActiveModel {
-        file_id: ActiveValue::Set(file_id),
+        file_id: ActiveValue::Set(current.id),
         analysis_version: ActiveValue::Set(analysis::CURRENT_ANALYSIS_VERSION),
+        source_hash: ActiveValue::Set(Some(source_hash)),
+        source_size: ActiveValue::Set(Some(source_size)),
         rms: ActiveValue::Set(Decimal::from_f32(result.raw.rms)),
         zcr: ActiveValue::Set(Decimal::from_f32(result.zcr)),
         energy: ActiveValue::Set(Decimal::from_f32(result.energy)),
@@ -171,8 +271,9 @@ async fn insert_analysis_result(
             Uuid::new_v5(
                 &Uuid::NAMESPACE_OID,
                 format!(
-                    "RUNE_ANALYSIS::v{}::{file_hash}",
-                    analysis::CURRENT_ANALYSIS_VERSION
+                    "RUNE_ANALYSIS::v{}::{}",
+                    analysis::CURRENT_ANALYSIS_VERSION,
+                    current.file_hash
                 )
                 .as_bytes(),
             )
@@ -193,10 +294,8 @@ async fn insert_analysis_result(
         new_analysis.mfcc~N = ActiveValue::Set(Decimal::from_f32(result.raw.mfcc[N]));
     });
 
-    // Only the small replacement is transactional; decoding and DSP happen beforehand.
-    let txn = main_db.begin().await?;
     media_analysis::Entity::delete_many()
-        .filter(media_analysis::Column::FileId.eq(file_id))
+        .filter(media_analysis::Column::FileId.eq(current.id))
         .filter(media_analysis::Column::AnalysisVersion.lte(analysis::CURRENT_ANALYSIS_VERSION))
         .exec(&txn)
         .await?;
@@ -386,7 +485,11 @@ macro_rules! calculate_array_mean {
 
 pub async fn if_analyze_exists(main_db: &DatabaseConnection, file_id: i32) -> Result<bool> {
     Ok(media_analysis::Entity::find()
-        .filter(media_analysis::Column::AnalysisVersion.eq(analysis::CURRENT_ANALYSIS_VERSION))
+        .join(
+            JoinType::InnerJoin,
+            media_analysis::Relation::MediaFiles.def(),
+        )
+        .filter(current_analysis_condition())
         .filter(media_analysis::Column::FileId.eq(file_id))
         .exists(main_db)
         .await?)
@@ -394,7 +497,11 @@ pub async fn if_analyze_exists(main_db: &DatabaseConnection, file_id: i32) -> Re
 
 pub async fn get_analyze_count(main_db: &DatabaseConnection) -> Result<u64> {
     Ok(media_analysis::Entity::find()
-        .filter(media_analysis::Column::AnalysisVersion.eq(analysis::CURRENT_ANALYSIS_VERSION))
+        .join(
+            JoinType::InnerJoin,
+            media_analysis::Relation::MediaFiles.def(),
+        )
+        .filter(current_analysis_condition())
         .count(main_db)
         .await?)
 }
@@ -418,7 +525,11 @@ pub async fn get_centralized_analysis_result(
     file_ids: Vec<i32>,
 ) -> Result<AggregatedAnalysisResult> {
     let analysis_results = media_analysis::Entity::find()
-        .filter(media_analysis::Column::AnalysisVersion.eq(analysis::CURRENT_ANALYSIS_VERSION))
+        .join(
+            JoinType::InnerJoin,
+            media_analysis::Relation::MediaFiles.def(),
+        )
+        .filter(current_analysis_condition())
         .filter(media_analysis::Column::FileId.is_in(file_ids))
         .all(main_db)
         .await?;
@@ -513,7 +624,11 @@ pub async fn get_percentile(
     let index = rank.round() as u64;
 
     let result = match media_analysis::Entity::find()
-        .filter(media_analysis::Column::AnalysisVersion.eq(analysis::CURRENT_ANALYSIS_VERSION))
+        .join(
+            JoinType::InnerJoin,
+            media_analysis::Relation::MediaFiles.def(),
+        )
+        .filter(current_analysis_condition())
         .select_only()
         .order_by_asc(column)
         .column(column)
@@ -589,4 +704,119 @@ pub async fn get_percentile_analysis_result(
         .expect("Length checked above, this should never fail");
 
     Ok(virtual_point)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use analysis::analysis::{AnalysisParameter, AnalysisResult, AudioStat};
+    use migration::{Migrator, MigratorTrait};
+    use sea_orm::{Database, Set};
+
+    fn normalized_result(spectral_centroid: f32) -> NormalizedAnalysisResult {
+        normalize_analysis_result(&AnalysisResult {
+            stat: AudioStat {
+                sample_rate: 44100,
+                duration: 1.0,
+                total_samples: 44100,
+            },
+            parameters: AnalysisParameter {
+                window_size: 1024,
+                overlap_size: 512,
+            },
+            rms: 0.0,
+            zcr: 0,
+            energy: 0.0,
+            spectral_centroid,
+            spectral_flatness: 0.0,
+            spectral_flux: 0.0,
+            spectral_slope: 0.0,
+            spectral_rolloff: 0.0,
+            spectral_spread: 0.0,
+            spectral_skewness: 0.0,
+            spectral_kurtosis: 0.0,
+            chromagram: [0.0; 12],
+            perceptual_spread: 0.0,
+            perceptual_sharpness: 0.0,
+            perceptual_loudness: [0.0; 24],
+            mfcc: [0.0; 13],
+        })
+    }
+
+    #[tokio::test]
+    async fn stale_result_is_not_stored_after_the_source_changes() -> Result<()> {
+        let _ = migration::initialize_node_id(Uuid::new_v4().to_string());
+        let db = Database::connect("sqlite::memory:").await?;
+        Migrator::up(&db, None).await?;
+        let observed = media_files::Entity::insert(media_files::ActiveModel {
+            file_name: Set("track.ogg".into()),
+            directory: Set(String::new()),
+            extension: Set("ogg".into()),
+            file_hash: Set("old-file-hash".into()),
+            last_modified: Set("old".into()),
+            sample_rate: Set(44100),
+            duration: Set(1.into()),
+            source_uuid: Set(Uuid::new_v4().to_string()),
+            local_available: Set(true),
+            content_hash: Set(Some("a".repeat(64))),
+            content_size: Set(Some(100)),
+            ..Default::default()
+        })
+        .exec_with_returning(&db)
+        .await?;
+
+        // A rescan observes new bytes while the old analysis is still running.
+        media_files::Entity::update_many()
+            .col_expr(media_files::Column::FileHash, Expr::value("new-file-hash"))
+            .col_expr(media_files::Column::LastModified, Expr::value("new"))
+            .col_expr(
+                media_files::Column::ContentHash,
+                Expr::value("b".repeat(64)),
+            )
+            .col_expr(media_files::Column::ContentSize, Expr::value(Some(200)))
+            .filter(media_files::Column::Id.eq(observed.id))
+            .exec(&db)
+            .await?;
+
+        insert_analysis_result(&db, &observed, normalized_result(0.5)).await?;
+
+        assert_eq!(
+            media_analysis::Entity::find().count(&db).await?,
+            0,
+            "an old computation must not become current after a rescan"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn analysis_of_bytes_that_do_not_match_the_file_row_is_discarded() -> Result<()> {
+        let fsio = FsIo::new();
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("track.ogg");
+        std::fs::copy(crate::test_fixtures::fixtures::audio_fixture_at(1), &path)?;
+        let expected = hash_file(&fsio, &crate::test_fixtures::fixtures::audio_fixture())?;
+        let observed = media_files::Model {
+            id: 1,
+            file_name: "track.ogg".into(),
+            directory: String::new(),
+            extension: "ogg".into(),
+            file_hash: "file-hash".into(),
+            last_modified: "2020".into(),
+            change_token: None,
+            cover_art_uuid: None,
+            cover_art_checked_at: None,
+            sample_rate: 44100,
+            duration: 1.into(),
+            local_available: true,
+            content_hash: Some(expected.digest),
+            content_size: Some(expected.size as i64),
+            source_uuid: Uuid::new_v4().to_string(),
+        };
+
+        assert!(
+            analysis_file(&fsio, &observed, dir.path(), ComputingDevice::Cpu, None)?.is_none(),
+            "analysis must not describe bytes that differ from the observed file"
+        );
+        Ok(())
+    }
 }
