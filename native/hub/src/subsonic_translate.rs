@@ -1880,6 +1880,11 @@ pub(crate) async fn mix_query_request(
     request: &MixQueryRequest,
 ) -> Result<Option<MixQueryResponse>> {
     let query = parse_detail_query(&request.queries, MixQueryRequest::wire_name())?;
+    let cover_wall = matches!(query, DetailQuery::RandomCovers(_));
+    // `getRandomSongs` takes no seed, so the pages of a seeded random list could not agree.
+    if cover_wall && request.random_seed.is_some() {
+        return Err(unsupported_detail_query(MixQueryRequest::wire_name()).into());
+    }
     let mut songs = detail_songs(binding, query)
         .await?
         .into_iter()
@@ -1888,7 +1893,6 @@ pub(crate) async fn mix_query_request(
         .collect::<Vec<_>>();
     // The cover wall shows only covers and reads them once, so its covers must be on disk
     // before it gets the tracks. Track lists show a cover whenever its background fetch lands.
-    let cover_wall = matches!(query, DetailQuery::RandomCovers(_));
     if cover_wall {
         let cached = cache_covers(binding, &songs).await;
         songs.retain(|song| {
@@ -3904,6 +3908,7 @@ mod tests {
             page_size: 40,
             bake_cover_arts: true,
             queue: CallerQueue::default(),
+            random_seed: None,
             call_id: None,
         }
     }
@@ -3994,8 +3999,17 @@ mod tests {
                 ("lib::album", "1"),
             ],
         ];
-        for queries in cases {
-            let error = mix_query_request(&binding, &mix_request(queries))
+        let seeded = MixQueryRequest {
+            random_seed: Some(7),
+            ..mix_request(&[("lib::random", "40"), ("filter::with_cover_art", "true")])
+        };
+        let requests = cases
+            .into_iter()
+            .map(mix_request)
+            .chain(std::iter::once(seeded));
+        for request in requests {
+            let queries = &request.queries;
+            let error = mix_query_request(&binding, &request)
                 .await
                 .err()
                 .unwrap_or_else(|| panic!("{queries:?} should be unsupported"));
