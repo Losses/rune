@@ -306,7 +306,8 @@ async fn connect_main_db_with_probe(
     fail_wal_probe: bool,
 ) -> Result<MainDbConnection> {
     let storage_info = get_storage_info(fsio, lib_path, db_path)?;
-    connect_main_db_from_storage_info(fsio, storage_info, node_id, fail_wal_probe, false).await
+    let catalog_fs = (!db_uses_local_fs(&storage_info.db_dir)).then_some(fsio);
+    connect_main_db_from_storage_info(catalog_fs, storage_info, node_id, fail_wal_probe).await
 }
 
 /// Open a redirected catalog whose media root is remote and has no Rune marker.
@@ -321,30 +322,29 @@ pub async fn connect_main_db_redirected(
         rune_dir: PathBuf::new(),
         db_dir: db_dir.to_path_buf(),
     };
-    connect_main_db_from_storage_info(&FsIo::new(), storage_info, node_id, false, true).await
+    connect_main_db_from_storage_info(None, storage_info, node_id, false).await
 }
 
 async fn connect_main_db_from_storage_info(
-    fsio: &FsIo,
+    catalog_fs: Option<&FsIo>,
     storage_info: StorageInfo,
     node_id: &str,
     fail_wal_probe: bool,
-    local_db: bool,
 ) -> Result<MainDbConnection> {
     let db_file = storage_info.get_main_db_path();
 
-    let db_path = if local_db || db_uses_local_fs(&storage_info.db_dir) {
-        tokio::fs::create_dir_all(&storage_info.db_dir).await?;
-        if !tokio::fs::try_exists(&db_file).await? {
-            tokio::fs::write(&db_file, b"").await?;
-        }
-        db_file
-    } else {
+    let db_path = if let Some(fsio) = catalog_fs {
         if !storage_info.db_dir.exists() {
             fsio.ensure_directory(&storage_info.db_dir).await?;
         }
         let db_node = fsio.ensure_file(&db_file).await?;
         fsio.canonicalize_path(&db_node.path)?
+    } else {
+        tokio::fs::create_dir_all(&storage_info.db_dir).await?;
+        if !tokio::fs::try_exists(&db_file).await? {
+            tokio::fs::write(&db_file, b"").await?;
+        }
+        db_file
     };
 
     // The path goes in as it is, not through a URL: a Windows path such as `\\?\UNC\...`
@@ -422,6 +422,34 @@ mod journal_mode_tests {
             .await?
             .context("missing journal mode")?
             .try_get::<String>("", "journal_mode")?)
+    }
+
+    #[tokio::test]
+    async fn remote_catalog_opens_existing_database_in_its_local_directory() -> Result<()> {
+        let temp = TempDir::new()?;
+        let key = Uuid::new_v4();
+        let catalog = temp.path().join(key.to_string());
+        let db = connect_main_db_redirected(&catalog, key, "node").await?;
+        assert!(catalog.join(".0.db").is_file());
+        assert_eq!(mode(&db).await?.to_ascii_lowercase(), "wal");
+        db.execute_unprepared("CREATE TABLE reopen_probe (value INTEGER)")
+            .await?;
+        db.execute_unprepared("INSERT INTO reopen_probe VALUES (73)")
+            .await?;
+        db.close().await?;
+
+        let db = connect_main_db_redirected(&catalog, key, "node").await?;
+        let value: i64 = db
+            .query_one_raw(Statement::from_string(
+                DbBackend::Sqlite,
+                "SELECT value FROM reopen_probe",
+            ))
+            .await?
+            .context("missing saved row")?
+            .try_get("", "value")?;
+        assert_eq!(value, 73);
+        db.close().await?;
+        Ok(())
     }
 
     #[tokio::test]
