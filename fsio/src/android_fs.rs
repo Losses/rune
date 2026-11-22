@@ -605,6 +605,14 @@ impl FileIo for AndroidFsIo {
         Ok(self.get_uri(path).is_ok())
     }
 
+    fn entry_exists(&self, path: &Path) -> Result<bool, FileIoError> {
+        match self.get_uri(path) {
+            Ok(_) => Ok(true),
+            Err(FileIoError::PathNotFound(_)) => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+
     async fn is_file(&self, path: &Path) -> Result<bool, FileIoError> {
         let (_, is_dir, _) = self.get_cached_meta(path)?;
         Ok(!is_dir)

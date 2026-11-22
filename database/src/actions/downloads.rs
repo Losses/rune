@@ -11,13 +11,14 @@ use crate::{
 };
 use anyhow::{Result, ensure};
 use chrono::{DateTime, SecondsFormat, Utc};
-use fsio::FsIo;
+use fsio::{FileIoError, FsIo};
 use sea_orm::sea_query::Expr;
 use sea_orm::{
     ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set, TransactionTrait,
     sea_query::OnConflict,
 };
 use std::collections::HashSet;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -189,10 +190,26 @@ pub async fn cleanup_unselected_downloads(
         .all(db)
         .await?;
     let canonical_root = fsio.canonicalize_path(root)?;
-    let managed = fsio.canonicalize_path(&root.join(MANAGED_AUDIO_DIRECTORY))?;
+    let managed_path = root.join(MANAGED_AUDIO_DIRECTORY);
+    let managed = match fsio.canonicalize_path(&managed_path) {
+        Ok(path) => path,
+        Err(error) => {
+            let missing = matches!(&error, FileIoError::PathNotFound(_))
+                || matches!(&error, FileIoError::Io(io) if io.kind() == ErrorKind::NotFound);
+            // A dangling entry also fails to resolve. Only an absent entry is an empty cleanup.
+            if missing && fsio.is_dir(root).await? && !fsio.entry_exists(&managed_path)? {
+                return Ok(CleanupReport::default());
+            }
+            return Err(error.into());
+        }
+    };
     ensure!(
         managed == canonical_root.join(MANAGED_AUDIO_DIRECTORY),
         "managed download directory escapes the library"
+    );
+    ensure!(
+        fsio.is_dir(&managed_path).await?,
+        "managed download path is not a directory"
     );
     let mut report = CleanupReport::default();
     for row in rows {

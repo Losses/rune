@@ -191,6 +191,14 @@ impl FileIo for StdFsIo {
         Ok(std::fs::exists(path)?)
     }
 
+    fn entry_exists(&self, path: &Path) -> Result<bool, FileIoError> {
+        match std::fs::symlink_metadata(path) {
+            Ok(_) => Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(error.into()),
+        }
+    }
+
     async fn is_file(&self, path: &Path) -> Result<bool, FileIoError> {
         let metadata = fs::metadata(path).await?;
         Ok(metadata.is_file())
