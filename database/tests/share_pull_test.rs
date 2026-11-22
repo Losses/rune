@@ -46,6 +46,89 @@ fn cache_path() -> std::path::PathBuf {
     std::env::temp_dir().join(format!("share-pull-{}", Uuid::new_v4()))
 }
 
+#[tokio::test]
+async fn a_new_device_can_join_a_share_published_before_its_first_edit() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let owner = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let store = Arc::new(MemoryObjectStore::default());
+    let publish = || {
+        owner
+            .sync_store
+            .push_share(store.clone(), namespace, cache_path(), Default::default())
+    };
+    let empty = publish()
+        .await?
+        .context("empty share did not publish its head")?;
+    let stream = p::StoreIdentity {
+        replica: empty.stream,
+        generation: empty.generation,
+        ..owner.sync_store.identity().await?
+    };
+    let genesis = Checkpoint {
+        seq: 0,
+        anchor: p::initial_anchor(&stream)?,
+    };
+    assert_eq!(empty.floor, genesis);
+    assert_eq!(empty.floor_base.covers_anchor, genesis.anchor);
+    let key = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::new_v4(),
+    };
+    owner
+        .sync_store
+        .write_local(key.clone(), support::playlist("first edit"))
+        .await?;
+    let mut head = publish()
+        .await?
+        .context("first edit did not publish a head")?;
+    assert_eq!(head.floor, genesis);
+    assert_eq!(head.segments[0].prev_anchor, genesis.anchor);
+    let join = || async {
+        let joining = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+        joining
+            .sync_store
+            .pull_share(store.clone(), namespace, cache_path(), Default::default())
+            .await?;
+        assert_eq!(
+            joining
+                .sync_store
+                .get(&key)
+                .await?
+                .context("missing first edit")?
+                .value,
+            support::playlist("first edit")
+        );
+        anyhow::Ok(())
+    };
+    join().await?;
+
+    // Recreate the base reference an older publisher left behind. Its first
+    // segment is already chained to share genesis and does not need rewriting.
+    let prefix = head.floor_base.owner_prefix.clone();
+    let base = &mut head.bases[0];
+    let base_key = share::base_key(&prefix, &base.base_id)?;
+    let old_anchor = p::initial_anchor(&owner.sync_store.identity().await?)?;
+    assert_ne!(old_anchor, genesis.anchor);
+    let bytes = store.get(&base_key).await.unwrap().bytes;
+    let mut manifest = share::decode_manifest::<RuneModel>(&bytes, &base.base_id)?;
+    manifest.covers.get_mut(&prefix).unwrap().anchor = old_anchor;
+    let (id, bytes) = share::encode_manifest(&manifest)?;
+    store
+        .put(&share::base_key(&prefix, &id)?, &bytes)
+        .await
+        .unwrap();
+    base.covers = manifest.covers;
+    base.base_id = id.clone();
+    head.floor_base.base_id = id;
+    head.floor_base.covers_anchor = old_anchor;
+    head.counter += 1;
+    store
+        .put(&share::head_key(&prefix, 0)?, &share::encode_head(&head)?)
+        .await
+        .unwrap();
+    join().await
+}
+
 async fn age_base_observation(
     source: &SqlLibrary,
     published: &Published,
@@ -450,15 +533,16 @@ async fn journal_events_since(
 ) -> Result<Vec<share::JournalEvent<RuneModel>>> {
     let identity = SyncPeer::identity(endpoint).await?;
     let through = SyncPeer::head(endpoint).await?;
-    let page_read = endpoint
-        .store()
+    let journal = endpoint.store();
+    let after = journal
+        .progress_at(after.local_cursor)
+        .await?
+        .context("missing local journal cursor")?;
+    let page_read = journal
         .read_page_with_origins(p::PageRequest {
             source: identity.clone(),
             scope: full_scope(),
-            after: p::ReceiveProgress {
-                sequence: after.head.seq,
-                anchor: after.head.anchor,
-            },
+            after,
             through: through.clone(),
             limits: support::limits().pages,
         })

@@ -1615,7 +1615,10 @@ pub async fn pull<M: SyncModel>(
                 .checkpoint(&checkpoint)
                 .await
                 .map_err(|error| SharePullError::Store(error.to_string()))?;
-            let needs_base = applied.is_none_or(|received| received.sequence < head.floor.seq);
+            // With no checkpoint a new reader can still start at share genesis
+            // if the whole history is retained. Older empty bases recorded the
+            // local database's genesis instead, so must not be required here.
+            let needs_base = applied.map_or(0, |received| received.sequence) < head.floor.seq;
             let selected_base = if needs_base {
                 Some(
                     choose_live_base::<M>(&*store, &candidates, &prefix, &head, &unavailable_bases)
