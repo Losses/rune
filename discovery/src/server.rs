@@ -297,9 +297,10 @@ impl PermissionManager {
     /// Adds a new user to the permission system.
     ///
     /// This method adds a new user with the provided details to the permission list. It checks
-    /// for user existence based on fingerprint before adding. It also manages an IP-based application queue,
-    /// potentially for rate limiting or tracking purposes. If the queue for a given IP is full (max 5 entries),
-    /// the oldest entry (and its associated user if any) is removed to make space for the new entry.
+    /// for user existence based on fingerprint before adding. It also manages an IP-based application queue
+    /// to bound pending requests per IP. Entries whose user was approved, blocked or removed no longer
+    /// count. If the queue for a given IP still holds 5 pending requests, the oldest pending
+    /// request and its user are removed to make space for the new entry; approved and blocked users are never evicted.
     ///
     /// # Arguments
     /// * `public_key` - Public key of the user.
@@ -339,10 +340,19 @@ impl PermissionManager {
                 let mut ip_apps = self.ip_applications.write().await; // Acquire write lock on IP applications map
                 let queue = ip_apps.entry(ip).or_default(); // Get or create queue for the given IP
 
+                // Only requests that are still pending count towards the limit;
+                // approved and blocked decisions (or removed users) leave the queue.
+                queue.retain(|queued| {
+                    permissions
+                        .users
+                        .get(queued)
+                        .is_some_and(|user| user.status == UserStatus::Pending)
+                });
+
                 if queue.len() >= 5 {
-                    // Check if queue is full (max 5 entries)
+                    // Check if queue is full (max 5 pending entries)
                     if let Some(old_key) = queue.pop_front() {
-                        // Remove oldest entry if queue is full
+                        // Remove oldest pending entry if queue is full
                         self.notify_trust_change(&old_key, None)?;
                         permissions.users.remove(&old_key); // Optionally remove user associated with the oldest key
                     }
@@ -740,6 +750,158 @@ mod change_tests {
             *hook_calls.lock().unwrap(),
             vec![("fingerprint".to_owned(), Some(UserStatus::Blocked))]
         );
+        std::fs::remove_dir_all(dir)?;
+        Ok(())
+    }
+
+    type HookCalls = Arc<Mutex<Vec<(String, Option<UserStatus>)>>>;
+
+    async fn add_from_address(
+        manager: &PermissionManager,
+        fingerprint: &str,
+        ip: &str,
+    ) -> Result<(), PermissionError> {
+        manager
+            .add_user(
+                format!("{fingerprint}-key"),
+                fingerprint.into(),
+                fingerprint.into(),
+                "model".into(),
+                DeviceType::Desktop,
+                ip.into(),
+            )
+            .await
+    }
+
+    fn manager_recording_trust_changes(
+        dir: &std::path::Path,
+    ) -> Result<(PermissionManager, HookCalls), Box<dyn std::error::Error>> {
+        let mut manager = PermissionManager::new(dir)?;
+        let hook_calls = HookCalls::default();
+        let observed = hook_calls.clone();
+        manager.set_trust_change_hook(Arc::new(move |fingerprint, status| {
+            observed
+                .lock()
+                .unwrap()
+                .push((fingerprint.to_owned(), status.cloned()));
+            Ok(())
+        }));
+        Ok((manager, hook_calls))
+    }
+
+    fn removals(hook_calls: &HookCalls) -> Vec<String> {
+        hook_calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, status)| status.is_none())
+            .map(|(fingerprint, _)| fingerprint.clone())
+            .collect()
+    }
+
+    async fn assert_decision_survives_later_requests(
+        decision: UserStatus,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let dir =
+            std::env::temp_dir().join(format!("permission-decision-kept-{}", uuid::Uuid::new_v4()));
+        let (manager, hook_calls) = manager_recording_trust_changes(&dir)?;
+        add_from_address(&manager, "victim", "192.0.2.1").await?;
+        manager
+            .change_user_status("victim", decision.clone())
+            .await?;
+
+        for index in 0..5 {
+            add_from_address(&manager, &format!("later-{index}"), "192.0.2.1").await?;
+        }
+
+        let status_of = |user: Option<super::User>| user.map(|user| user.status);
+        assert_eq!(
+            status_of(manager.verify_by_fingerprint("victim").await),
+            Some(decision.clone()),
+            "{decision:?} identity must outlive later requests"
+        );
+        assert!(removals(&hook_calls).is_empty());
+
+        let reopened = PermissionManager::new(&dir)?;
+        assert_eq!(
+            status_of(reopened.verify_by_fingerprint("victim").await),
+            Some(decision.clone())
+        );
+
+        add_from_address(&manager, "victim", "192.0.2.1").await?;
+        assert_eq!(
+            status_of(manager.verify_by_fingerprint("victim").await),
+            Some(decision)
+        );
+        std::fs::remove_dir_all(dir)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn approved_identity_survives_later_requests_from_the_same_address()
+    -> Result<(), Box<dyn std::error::Error>> {
+        assert_decision_survives_later_requests(UserStatus::Approved).await
+    }
+
+    #[tokio::test]
+    async fn blocked_identity_survives_later_requests_from_the_same_address()
+    -> Result<(), Box<dyn std::error::Error>> {
+        assert_decision_survives_later_requests(UserStatus::Blocked).await
+    }
+
+    #[tokio::test]
+    async fn oldest_pending_request_is_evicted_when_the_address_is_full()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir =
+            std::env::temp_dir().join(format!("permission-pending-bound-{}", uuid::Uuid::new_v4()));
+        let (manager, hook_calls) = manager_recording_trust_changes(&dir)?;
+        add_from_address(&manager, "oldest", "192.0.2.1").await?;
+
+        for index in 0..4 {
+            add_from_address(&manager, &format!("later-{index}"), "192.0.2.1").await?;
+        }
+        assert!(manager.verify_by_fingerprint("oldest").await.is_some());
+        assert!(removals(&hook_calls).is_empty());
+
+        add_from_address(&manager, "later-4", "192.0.2.1").await?;
+
+        assert!(manager.verify_by_fingerprint("oldest").await.is_none());
+        assert_eq!(removals(&hook_calls), vec!["oldest".to_owned()]);
+        assert_eq!(manager.get_pending_count().await, 5);
+        let reopened = PermissionManager::new(&dir)?;
+        assert!(reopened.verify_by_fingerprint("oldest").await.is_none());
+        std::fs::remove_dir_all(dir)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn duplicate_and_other_address_requests_do_not_evict_a_decided_identity()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir =
+            std::env::temp_dir().join(format!("permission-other-source-{}", uuid::Uuid::new_v4()));
+        let (manager, hook_calls) = manager_recording_trust_changes(&dir)?;
+        add_from_address(&manager, "victim", "192.0.2.1").await?;
+        manager
+            .change_user_status("victim", UserStatus::Approved)
+            .await?;
+        for index in 0..4 {
+            add_from_address(&manager, &format!("later-{index}"), "192.0.2.1").await?;
+        }
+
+        add_from_address(&manager, "victim", "192.0.2.1").await?;
+        for index in 0..5 {
+            add_from_address(&manager, &format!("elsewhere-{index}"), "192.0.2.2").await?;
+        }
+
+        assert_eq!(
+            manager
+                .verify_by_fingerprint("victim")
+                .await
+                .map(|user| user.status),
+            Some(UserStatus::Approved)
+        );
+        assert!(manager.verify_by_fingerprint("later-0").await.is_some());
+        assert!(removals(&hook_calls).is_empty());
         std::fs::remove_dir_all(dir)?;
         Ok(())
     }
