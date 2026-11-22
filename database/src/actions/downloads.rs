@@ -1,5 +1,7 @@
 //! Device-local rules for keeping selected audio available offline.
-use crate::actions::file::{MANAGED_AUDIO_DIRECTORY, blob_path_for_track, is_managed_directory};
+use crate::actions::file::{
+    MANAGED_AUDIO_DIRECTORY, blob_path_for_track, canonical_download_path, is_managed_directory,
+};
 use crate::actions::mixes::query_mix_media_files;
 use crate::connection::RecommendationDbConnection;
 use crate::error::ExpectedError;
@@ -190,9 +192,9 @@ pub async fn cleanup_unselected_downloads(
         .filter(media_files::Column::LocalAvailable.eq(true))
         .all(db)
         .await?;
-    let canonical_root = fsio.canonicalize_path(root)?;
+    let canonical_root = canonical_download_path(fsio, root)?;
     let managed_path = root.join(MANAGED_AUDIO_DIRECTORY);
-    let managed = match fsio.canonicalize_path(&managed_path) {
+    let managed = match canonical_download_path(fsio, &managed_path) {
         Ok(path) => path,
         Err(error) => {
             let missing = matches!(&error, FileIoError::PathNotFound(_))
@@ -223,8 +225,7 @@ pub async fn cleanup_unselected_downloads(
         }
         let path = root.join(&row.directory).join(&row.file_name);
         // Only forget rows whose file provably lives inside the managed directory.
-        let contained = fsio
-            .canonicalize_path(&path)
+        let contained = canonical_download_path(fsio, &path)
             .is_ok_and(|canonical| canonical.starts_with(&managed) && canonical != managed);
         if !contained {
             log::warn!(
@@ -276,7 +277,7 @@ pub async fn prepare_download(
 ) -> Result<PathBuf> {
     let path = blob_path_for_track(fsio, root, track_id, &blob.digest, extension)?;
     #[cfg(not(target_os = "android"))]
-    let canonical_root = fsio.canonicalize_path(root)?;
+    let canonical_root = canonical_download_path(fsio, root)?;
     #[cfg(target_os = "android")]
     let canonical_root = root.to_path_buf();
     let relative = path.strip_prefix(&canonical_root)?;

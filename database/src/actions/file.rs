@@ -10,6 +10,7 @@ pub use access::{
     AudioAvailability, AudioOrigin, audio_availability, audio_origin, is_materialized,
     materialized_path, remote_required_ids, resolve_local_id,
 };
+pub(crate) use content::canonical_download_path;
 pub use content::{
     MANAGED_AUDIO_DIRECTORY, MAX_BLOB_BYTES, attach_download, blob_path, blob_path_for_track,
     cached_blob_path, catalog_track, hash_file, is_managed_directory, local_audio_path,

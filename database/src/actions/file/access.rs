@@ -51,11 +51,16 @@ fn row_path(fsio: &FsIo, root: &Path, row: &media_files::Model) -> Result<Option
     let path = root.join(relative);
     #[cfg(not(target_os = "android"))]
     {
-        let Ok(canonical) = fsio.canonicalize_path(&path) else {
+        let canonical = if managed {
+            super::content::canonical_download_path(fsio, &path)
+        } else {
+            fsio.canonicalize_path(&path)
+        };
+        let Ok(canonical) = canonical else {
             return Ok(None);
         };
         ensure!(
-            !managed || canonical.starts_with(fsio.canonicalize_path(root)?),
+            !managed || canonical.starts_with(super::content::canonical_download_path(fsio, root)?),
             "local path escapes library root"
         );
     }
