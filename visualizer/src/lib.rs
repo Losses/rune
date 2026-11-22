@@ -844,13 +844,13 @@ impl Visualizer {
         Ok(())
     }
 
-    /// Return a completed chart retained for `path`, if a previous visualizer run analysed it.
-    pub fn cached_chart(&self, path: &Path) -> anyhow::Result<Option<Vec<u8>>> {
+    /// Return a completed chart retained for `source`, if a previous visualizer run analysed it.
+    pub fn cached_chart(&self, source: &ChartSource) -> anyhow::Result<Option<Vec<u8>>> {
         let kept = lock(&self.shared.kept_chart);
-        let Some((cached_path, chart)) = kept.as_ref() else {
+        let Some((cached_source, chart)) = kept.as_ref() else {
             return Ok(None);
         };
-        if cached_path != path {
+        if !cached_source.same_item(source) {
             return Ok(None);
         }
         chart.encode().map(Some)
@@ -2353,6 +2353,38 @@ mod tests {
                 .set_feed_chart(feed_item("bad"), b"not a chart")
                 .is_err()
         );
+    }
+
+    #[test]
+    fn a_retained_chart_is_returned_only_for_the_same_file_and_filesystem() {
+        let visualizer = Visualizer::new();
+        let path = Path::new("/music/song.flac");
+        let fsio = Arc::new(FsIo::new());
+        let source = ChartSource::LocalFile {
+            path: path.to_path_buf(),
+            fsio: Some(Arc::clone(&fsio)),
+        };
+        let chart = Arc::new(Chart::decode(&feed_chart_bytes()).unwrap());
+        *lock(&visualizer.shared.kept_chart) = Some((source.clone(), chart));
+
+        assert!(visualizer.cached_chart(&source).unwrap().is_some());
+
+        let other_filesystem = ChartSource::LocalFile {
+            path: path.to_path_buf(),
+            fsio: Some(Arc::new(FsIo::new())),
+        };
+        assert!(
+            visualizer
+                .cached_chart(&other_filesystem)
+                .unwrap()
+                .is_none()
+        );
+
+        let other_path = ChartSource::LocalFile {
+            path: Path::new("/music/other.flac").to_path_buf(),
+            fsio: Some(Arc::clone(&fsio)),
+        };
+        assert!(visualizer.cached_chart(&other_path).unwrap().is_none());
     }
 
     #[test]
