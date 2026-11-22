@@ -13,6 +13,18 @@ import 'constants/image_memory_manager.dart';
 
 const flipInterval = 8;
 
+/// A cover of [paths] that is not in [inUse], picked by [r] between 0 and 1,
+/// or null when every cover is in use.
+@visibleForTesting
+String? freeCover(List<String> paths, Set<String> inUse, double r) {
+  final free = [
+    for (final path in paths)
+      if (!inUse.contains(path)) path,
+  ];
+  if (free.isEmpty) return null;
+  return free[(free.length * r).floor().clamp(0, free.length - 1)];
+}
+
 class FastFlipCoverGrid extends StatefulWidget {
   final List<String> paths;
   final int speed;
@@ -235,32 +247,28 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
     setState(() {});
   }
 
-  void _stageFlipGridData(int index) {
-    const int maxAttempts = 10;
-    int attempts = 0;
-    String newPath;
-
-    do {
-      newPath = pickRandom(widget.paths, index);
-      attempts++;
-    } while ((_frontPaths.contains(newPath) ||
-            _backPaths.contains(newPath) ||
-            _frontPaths[index] == newPath ||
-            _backPaths[index] == newPath) &&
-        attempts < maxAttempts);
-
-    if (attempts < maxAttempts) {
-      _backPaths[index] = newPath;
-    }
+  /// Puts a cover that no cell shows, and no cell before [index] turns to in
+  /// this round, on the face the cell at [index] turns to. A cell at rest
+  /// shows its back path and turns to its front one. Returns false when every
+  /// cover is in use, and the cell then stays as it is.
+  bool _stageFlipGridData(int index) {
+    final inUse = {
+      ..._backPaths.take(_gridCount * _gridCount),
+      for (int k = 0; k < index; k++)
+        if (_isFlipping[k]) _frontPaths[k],
+    };
+    final next = freeCover(widget.paths, inUse, rand(index.toDouble()));
+    if (next == null) return false;
+    _frontPaths[index] = next;
+    return true;
   }
 
   void _prepareFlip() {
     bool isGoingToFlip = false;
     for (int k = 0; k < _gridCount * _gridCount; k++) {
-      if (rand(k.toDouble()) > 0.64) {
+      if (rand(k.toDouble()) > 0.64 && _stageFlipGridData(k)) {
         _isFlipping[k] = true;
         _flipStartTimes[k] = DateTime.now();
-        _stageFlipGridData(k);
         isGoingToFlip = true;
       } else {
         _isFlipping[k] = false;

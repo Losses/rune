@@ -29,6 +29,24 @@ Future<ui.Image> _image() async {
 }
 
 void main() {
+  group('the cover a cell turns to', () {
+    test('is none while every cover is shown', () {
+      const covers = ['a', 'b', 'c', 'd'];
+      for (final r in [0.0, 0.3, 0.99]) {
+        expect(freeCover(covers, covers.toSet(), r), isNull);
+      }
+    });
+
+    test('is never one that is shown or about to be', () {
+      const covers = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+      const inUse = {'a', 'c', 'e', 'g', 'h'};
+      final picked = {
+        for (var i = 0; i < 100; i += 1) freeCover(covers, inUse, i / 100),
+      };
+      expect(picked, {'b', 'd', 'f'});
+    });
+  });
+
   testWidgets(
     'a card that a reload gives another collection shows its covers',
     (tester) async {
