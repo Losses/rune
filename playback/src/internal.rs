@@ -1540,7 +1540,7 @@ impl PlayerInternal {
             })
             .context("Failed to send Playing event")?;
         self.state = InternalPlaybackState::Playing;
-        self.listen.reset(position, true);
+        self.listen.reset(position, true, Instant::now());
         self.complete_load_completions(Ok(()));
 
         Ok(())
@@ -1569,7 +1569,7 @@ impl PlayerInternal {
                 position,
             })
             .context("Failed to send Loaded event")?;
-        self.listen.reset(position, false);
+        self.listen.reset(position, false, Instant::now());
         Ok(())
     }
 
@@ -1643,7 +1643,7 @@ impl PlayerInternal {
 
         if self.current_track_index.is_some() {
             let position = self.current_position().unwrap_or_default();
-            self.listen.rebase(position, !loading);
+            self.listen.rebase(position, !loading, Instant::now());
             self.send_track_state(true, position)?;
             if !loading {
                 self.state = InternalPlaybackState::Playing;
@@ -1666,7 +1666,7 @@ impl PlayerInternal {
 
             if self.current_track_index.is_some() {
                 let position = self.current_position().unwrap_or_default();
-                self.listen.update(position, false);
+                self.listen.update(position, false, Instant::now());
                 self.send_track_state(false, position)?;
                 if !loading {
                     self.state = InternalPlaybackState::Paused;
@@ -1943,7 +1943,7 @@ impl PlayerInternal {
         self.resume_after_interruption = false;
         self.restore_position = None;
         self.pending_seek = None;
-        self.listen.reset(Duration::ZERO, false);
+        self.listen.reset(Duration::ZERO, false, Instant::now());
         Ok(())
     }
 
@@ -2051,7 +2051,7 @@ impl PlayerInternal {
             self.pending_seek = None;
             if self.current_track_index.is_some() {
                 self.restore_position = Some(position);
-                self.listen.rebase(position, false);
+                self.listen.rebase(position, false, Instant::now());
                 self.send_track_state(false, position)?;
                 return Ok(SeekOutcome::Applied);
             }
@@ -2062,7 +2062,7 @@ impl PlayerInternal {
             // Seeking on a stopped output would wait forever. The track keeps the place, and the
             // next play seeks there once the output runs again.
             self.pending_seek = Some(position);
-            self.listen.rebase(position, false);
+            self.listen.rebase(position, false, Instant::now());
             self.send_track_state(false, position)?;
             return Ok(SeekOutcome::Applied);
         }
@@ -2078,7 +2078,7 @@ impl PlayerInternal {
         info!("Seeking to position: {seconds} s");
         let position = sink.get_pos();
         let playing = self.state == InternalPlaybackState::Playing;
-        self.listen.rebase(position, playing);
+        self.listen.rebase(position, playing, Instant::now());
         self.send_track_state(playing, position)?;
         Ok(SeekOutcome::Applied)
     }
@@ -2288,7 +2288,7 @@ impl PlayerInternal {
             .with_context(|| "Failed to send Stopped event")?;
         self.schedule_playlist_update();
         self.state = InternalPlaybackState::Stopped;
-        self.listen.reset(Duration::ZERO, false);
+        self.listen.reset(Duration::ZERO, false, Instant::now());
 
         Ok(())
     }
@@ -2390,8 +2390,11 @@ impl PlayerInternal {
         // A track reports where a seek put it even while its output does not run, so the
         // reports do not take the slider back.
         let position = self.current_position().unwrap_or_default();
-        self.listen
-            .update(position, self.state == InternalPlaybackState::Playing);
+        self.listen.update(
+            position,
+            self.state == InternalPlaybackState::Playing,
+            Instant::now(),
+        );
 
         if let Some(sink) = &self.sink {
             // While a track loads, the previous one keeps the sink and may still run out. Its end
