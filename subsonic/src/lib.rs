@@ -356,6 +356,17 @@ impl SubsonicClient {
             .unwrap_or_default())
     }
 
+    /// Return up to `size` songs picked at random by the server. Servers cap `size` at 500.
+    pub async fn random_songs(&self, size: u32) -> Result<Vec<SubsonicSong>, SubsonicError> {
+        let size = size.to_string();
+        let response: RandomSongsResponse = self.call("getRandomSongs", &[("size", &size)]).await?;
+        Ok(response
+            .random_songs
+            .and_then(|value| value.song)
+            .map(OneOrMany::into_vec)
+            .unwrap_or_default())
+    }
+
     /// Read lyrics using the legacy artist and title lookup.
     pub async fn lyrics(&self, artist: &str, title: &str) -> Result<SubsonicLyrics, SubsonicError> {
         let response: LyricsResponse = self
@@ -1106,10 +1117,15 @@ struct SongResponse {
 #[derive(Deserialize)]
 struct StarredResponse {
     #[serde(default, rename = "starred2")]
-    starred: Option<StarredSongs>,
+    starred: Option<SongList>,
 }
 #[derive(Deserialize)]
-struct StarredSongs {
+struct RandomSongsResponse {
+    #[serde(default, rename = "randomSongs")]
+    random_songs: Option<SongList>,
+}
+#[derive(Deserialize)]
+struct SongList {
     #[serde(default)]
     song: Option<OneOrMany<SubsonicSong>>,
 }
