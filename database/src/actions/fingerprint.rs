@@ -20,8 +20,8 @@ use anyhow::{Context, Result, anyhow, bail};
 use fsio::FsIo;
 use log::info;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait,
-    QueryFilter, QueryOrder, QuerySelect, SelectExt,
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, SelectExt,
 };
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -181,7 +181,7 @@ fn group_similar_files(
 }
 
 // Function to get all duplicated files
-pub async fn get_duplicate_files(db: &DatabaseConnection) -> Result<Vec<media_files::Model>> {
+pub async fn get_duplicate_files<C: ConnectionTrait>(db: &C) -> Result<Vec<media_files::Model>> {
     let mut duplicates = Vec::new();
     for file in MediaFiles::find().all(db).await? {
         if let Some(row) = current_fingerprint(db, &file).await?
@@ -406,7 +406,13 @@ where
     Ok(())
 }
 
-/// Recompute shared duplicate marks from similarity rows with verified source observations.
+/// Replace shared duplicate marks with the groups formed by verified similarity rows at
+/// `threshold`.
+///
+/// In each group the file with the highest sample rate (then the smallest source identity) is
+/// kept and the others are marked. Verified marks on files outside every group are cleared. All
+/// mark changes are committed in one transaction, so a failed run leaves the previous marks.
+/// Returns the number of files marked as duplicates.
 pub async fn mark_duplicate_files<F>(
     db: &DatabaseConnection,
     threshold: f32,
@@ -416,6 +422,7 @@ pub async fn mark_duplicate_files<F>(
 where
     F: Fn(usize, usize) + Send + Sync + 'static,
 {
+    use sea_orm::TransactionTrait;
     let rows = MediaFileSimilarity::find()
         .filter(media_file_similarity::Column::Similarity.gte(threshold))
         .all(db)
@@ -470,7 +477,7 @@ where
     }
     let groups = group_similar_files(&verified, &zero_score_files);
     let total = groups.len();
-    let mut marked = 0;
+    let mut marks = HashMap::new();
     for (index, group) in groups.into_iter().enumerate() {
         let files = MediaFiles::find()
             .filter(media_files::Column::SourceUuid.is_in(group))
@@ -494,13 +501,22 @@ where
             .context("empty duplicate group")?
             .id;
         for file in files {
-            let mark = i32::from(file.id != keep);
-            assign_duplicate_mark(db, store, file.id, mark).await?;
-            marked += mark as usize;
+            marks.insert(file.id, i32::from(file.id != keep));
         }
         progress(index + 1, total);
     }
-    Ok(marked)
+    let tx = db.begin().await?;
+    store.lock(&tx).await?;
+    for file in get_duplicate_files(&tx).await? {
+        if !marks.contains_key(&file.id) {
+            source::assign_duplicate_mark_on(&tx, store, file.id, 0).await?;
+        }
+    }
+    for (&file_id, &mark) in &marks {
+        source::assign_duplicate_mark_on(&tx, store, file_id, mark).await?;
+    }
+    tx.commit().await?;
+    Ok(marks.values().filter(|&&mark| mark == 1).count())
 }
 
 /// Reset shared duplicate marks using source-row assignments.
