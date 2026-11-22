@@ -320,6 +320,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
               getItem: _getItem,
               queries: widget.queries,
               mode: widget.mode,
+              reloadData: _restartListing,
             ),
           );
         }
@@ -331,6 +332,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
             getItem: _getItem,
             queries: widget.queries,
             mode: widget.mode,
+            reloadData: _restartListing,
           );
         }
 
@@ -340,6 +342,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
             getItem: _getItem,
             queries: widget.queries,
             mode: widget.mode,
+            reloadData: _restartListing,
           );
         }
 
@@ -348,6 +351,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
           getItem: _getItem,
           queries: widget.queries,
           mode: widget.mode,
+          reloadData: _restartListing,
         );
       },
     );
