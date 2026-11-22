@@ -117,9 +117,6 @@ pub(crate) struct Api {
     pub main_context_is_owner: unsafe extern "C" fn(Gpointer) -> Gboolean,
     /// `g_idle_add_full`: attaches to the default main context.
     pub idle_add_full: unsafe extern "C" fn(c_int, SourceFunc, Gpointer, DestroyNotify) -> c_uint,
-    /// `g_timeout_add_full`: attaches to the default main context.
-    pub timeout_add_full:
-        unsafe extern "C" fn(c_int, c_uint, SourceFunc, Gpointer, DestroyNotify) -> c_uint,
     /// `g_quark_from_static_string`.
     pub quark_from_static_string: unsafe extern "C" fn(*const c_char) -> u32,
     /// `g_set_error_literal`.
@@ -165,7 +162,6 @@ impl Api {
             main_context_default: lookup(c"g_main_context_default")?,
             main_context_is_owner: lookup(c"g_main_context_is_owner")?,
             idle_add_full: lookup(c"g_idle_add_full")?,
-            timeout_add_full: lookup(c"g_timeout_add_full")?,
             quark_from_static_string: lookup(c"g_quark_from_static_string")?,
             set_error_literal: lookup(c"g_set_error_literal")?,
             engine_get_texture_registrar: lookup(c"fl_engine_get_texture_registrar")?,
