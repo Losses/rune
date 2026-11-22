@@ -97,8 +97,7 @@ class MixEditorData {
 }
 
 Future<MixEditorData> queryToMixEditorData(
-  String title,
-  String group,
+  Mix mix,
   List<(String, String)> query,
 ) async {
   List<int> artistsId = [];
@@ -109,7 +108,6 @@ Future<MixEditorData> queryToMixEditorData(
   int randomTracks = 0;
   Set<String> directories = {};
   double limit = 0.0;
-  const PlaybackMode? mode = null;
   String recommendation = '';
   String sortBy = 'default';
   bool sortOrder = true;
@@ -179,8 +177,8 @@ Future<MixEditorData> queryToMixEditorData(
   )).map((x) => (x.id, x.title)).toList();
 
   return MixEditorData(
-    title: title,
-    group: group,
+    title: mix.name,
+    group: mix.group,
     artists: artists,
     albums: albums,
     genres: genres,
@@ -189,7 +187,7 @@ Future<MixEditorData> queryToMixEditorData(
     randomTracks: randomTracks,
     directories: directories,
     limit: limit,
-    mode: mode,
+    mode: mix.mode,
     recommendation: recommendation,
     sortBy: sortBy,
     sortOrder: sortOrder,

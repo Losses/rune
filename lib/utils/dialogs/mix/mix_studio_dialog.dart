@@ -194,7 +194,7 @@ class _MixStudioDialogImplementationState
     try {
       final mix = await getMixById(mixId);
       final queries = await fetchMixQueriesByMixId(mixId);
-      final data = await queryToMixEditorData(mix.name, mix.group, queries);
+      final data = await queryToMixEditorData(mix, queries);
       if (!mounted) return;
       _controller.setData(data);
       await _resetAndLoadTracks();
