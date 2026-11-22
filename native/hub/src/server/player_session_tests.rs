@@ -1378,6 +1378,101 @@ async fn subsonic_playlist_detail_lists_its_occurrences_in_order() -> Result<()>
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn clicked_subsonic_playlist_entries_play_on_this_device() -> Result<()> {
+    use crate::messages::FetchPlaylistOccurrencesRequest;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, _, _, _, _, server) = subsonic_hub_mock(false).await;
+    let registered = register_subsonic_library_on_node(
+        &subsonic_registration_request(
+            endpoint,
+            "test-secret",
+            Some(SubsonicOpenModeMessage::PlayOnThisDevice),
+        ),
+        &node,
+    )
+    .await?;
+    let record = registered.record.context("Subsonic record")?;
+    open_registered_library_record(node.clone(), record.record_id).await?;
+
+    let playlist_id = dispatch_gui_request(
+        &fixture.global_params,
+        &FetchAllPlaylistsRequest { call_id: None },
+    )
+    .await?
+    .context("Subsonic playlist list")?
+    .playlists[0]
+        .id;
+    let entries = dispatch_gui_request(
+        &fixture.global_params,
+        &FetchPlaylistOccurrencesRequest {
+            request_id: "playlist-detail".into(),
+            playlist_id,
+            after: None,
+            page_size: 128,
+            bake_cover_arts: false,
+            call_id: None,
+        },
+    )
+    .await?
+    .context("Subsonic playlist detail")?
+    .entries;
+    let tracks = entries
+        .iter()
+        .map(|entry| {
+            let file = entry
+                .file
+                .as_ref()
+                .context("a listed Subsonic entry has its track")?;
+            Ok(PlayingItemRef::LibraryTrack {
+                library_id: file.library_id.clone(),
+                track: file.track.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    // The detail lists A, B, A, and its second A is clicked.
+    let resolved = play_clicked_track(
+        &fixture.global_params,
+        vec![MixQuery {
+            operator: "lib::playlist".into(),
+            parameter: playlist_id.to_string(),
+        }],
+        2,
+        tracks[2].clone(),
+        Vec::new(),
+    )
+    .await?;
+    assert_eq!(resolved.playing_items, tracks);
+    assert_eq!(resolved.start_index, Some(2));
+    let mut items = Vec::with_capacity(tracks.len());
+    for track in tracks {
+        items.push(playing_item_from_request(track, None).await?);
+    }
+    let playing = wait_player(&fixture, |status| {
+        status.state == PlayerPlaybackState::Playing && status.index == Some(2)
+    })
+    .await?;
+    assert_eq!(playing.item.as_ref(), Some(&items[2]));
+    assert_eq!(
+        playing
+            .playlist
+            .iter()
+            .map(|entry| entry.item.clone())
+            .collect::<Vec<_>>(),
+        items
+    );
+
+    fixture.global_params.player.lock().await.stop();
+    server.abort();
+    node.close_ui(&fixture.global_params.main_token).await;
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn subsonic_relogin_replaces_only_a_verified_secret() -> Result<()> {
     use crate::messages::{OpenLibraryRequest, ReplaceSubsonicCredentialRequest};
     use crate::request_error::request_failure_cause;
