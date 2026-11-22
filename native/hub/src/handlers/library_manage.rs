@@ -1107,8 +1107,26 @@ mod scan_task_tests {
 
     #[tokio::test]
     async fn scan_lifecycle_scanning_a_missing_folder_ends_failed() -> Result<()> {
-        let (config, node_id, library) = open_test_library().await?;
-        std::fs::rename(&library.media_root, config.path().join("offline"))?;
+        use database::connection::{check_storage_mode, create_redirect};
+        use database::library_registry::resolve_library;
+        use fsio::FsIo;
+
+        // A redirected catalog stays open when the media folder goes offline,
+        // including on Windows, which cannot move a directory holding an open DB.
+        let config = tempfile::tempdir()?;
+        let media = config.path().join("music");
+        let root = media.to_str().unwrap();
+        let fs = FsIo::new();
+        create_redirect(&fs, root).await?;
+        let mut registry = LibraryRegistry::load(config.path())?;
+        let mode = check_storage_mode(&fs, root)?;
+        let record = resolve_library(&fs, &mut registry, root, "Music", mode).await?;
+        let node_id = Uuid::new_v4().to_string();
+        let pool = LibraryPool::new(config.path(), config.path(), &node_id)?;
+        let library = pool
+            .acquire_ui(record.catalog_library_id().unwrap())
+            .await?;
+        std::fs::rename(media, config.path().join("offline"))?;
         let capture = Arc::new(Capture::default());
         let request = ScanAudioLibraryRequest {
             call_id: None,

@@ -762,6 +762,13 @@ pub async fn scan_audio_file(
     let root_for_describe = lib_path.to_path_buf();
     let description = tokio::task::spawn_blocking(move || {
         let node = fsio_for_describe.canonicalize(&path_for_describe)?;
+        // A local file may have been reached through another spelling of the
+        // root (for example an 8.3 path). Keep already-matching backend paths.
+        let root_for_describe = if node.path.starts_with(&root_for_describe) {
+            root_for_describe
+        } else {
+            fsio_for_describe.canonicalize_path(&root_for_describe)?
+        };
         let description = describe_file(&fsio_for_describe, &node, &Some(root_for_describe))?;
         Ok::<_, anyhow::Error>(description)
     })
