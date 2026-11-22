@@ -119,7 +119,8 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
         .where(
           (record) => switch (record.kind) {
             LibraryRecordKindSummaryLocal() ||
-            LibraryRecordKindSummaryReplica() => true,
+            LibraryRecordKindSummaryReplica() ||
+            LibraryRecordKindSummarySubsonic() => true,
             _ => false,
           },
         )
@@ -238,15 +239,21 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                             if (user.status == ClientStatus.approved)
                               user.fingerprint: user.alias,
                         };
-                        final row = libraryRowState(
-                          itemPath,
-                          registeredLibraries,
-                          aliases,
-                          S.of(context).libraryFromDevice,
-                          S.of(context).readOnly,
-                          describePath: (path) =>
-                              describeLibraryPath(S.of(context), path),
-                        );
+                        final row = switch (record.kind) {
+                          // A Subsonic library keeps no catalog on this
+                          // device, so no local library belongs to its row.
+                          LibraryRecordKindSummarySubsonic(:final endpoint) =>
+                            LibraryRowState(null, endpoint),
+                          _ => libraryRowState(
+                            itemPath,
+                            registeredLibraries,
+                            aliases,
+                            S.of(context).libraryFromDevice,
+                            S.of(context).readOnly,
+                            describePath: (path) =>
+                                describeLibraryPath(S.of(context), path),
+                          ),
+                        };
                         final owner = row.library?.ownerFingerprint;
                         final shared = owner != null && owner.isNotEmpty;
                         final isCurrentLibrary =
@@ -270,7 +277,8 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                             (analyzeProgress?.isInitializeTask ?? false);
 
                         String fileName = switch (record.kind) {
-                          LibraryRecordKindSummaryReplica() => record.alias,
+                          LibraryRecordKindSummaryReplica() ||
+                          LibraryRecordKindSummarySubsonic() => record.alias,
                           _ => localFolderName(itemPath),
                         };
 
@@ -286,7 +294,12 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
 
                         return ListTile.selectable(
                           title: SettingsTileTitle(
-                            icon: shared ? Symbols.cloud_sync : Symbols.folder,
+                            icon: switch (record.kind) {
+                              LibraryRecordKindSummarySubsonic() =>
+                                Symbols.music_note,
+                              _ when shared => Symbols.cloud_sync,
+                              _ => Symbols.folder,
+                            },
                             title: shared ? row.library!.alias : fileName,
                             subtitle: subtitle,
                             showActions: isSelectedLibrary,
