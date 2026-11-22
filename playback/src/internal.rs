@@ -2200,15 +2200,13 @@ impl PlayerInternal {
         Ok(())
     }
 
-    // Apply the same playlist edit to every surviving occurrence. A deletion
-    // redraws the shuffle order, so even a directly selected track needs its rank.
     fn adjust_positions_after_splice(
         &mut self,
         current_position: Option<usize>,
         removed: Range<usize>,
         inserted: usize,
     ) {
-        let relocate = |position: usize| {
+        self.relocate_queue_positions(current_position, !removed.is_empty(), |position| {
             if position < removed.start {
                 Some(position)
             } else if position >= removed.end {
@@ -2216,9 +2214,19 @@ impl PlayerInternal {
             } else {
                 None
             }
-        };
-        if let Some(position) = current_position.and_then(relocate) {
-            self.set_current_position(position, self.current_track_mapped || !removed.is_empty());
+        });
+    }
+
+    // A removal or move redraws the shuffle order. Resolve even a directly selected
+    // occurrence in that order before the player uses its cursor for Next.
+    fn relocate_queue_positions(
+        &mut self,
+        current_position: Option<usize>,
+        shuffle_order_changed: bool,
+        relocate: impl Fn(usize) -> Option<usize>,
+    ) {
+        if let Some(position) = current_position.and_then(&relocate) {
+            self.set_current_position(position, self.current_track_mapped || shuffle_order_changed);
         }
         for target in self
             .loading_position
@@ -2227,7 +2235,7 @@ impl PlayerInternal {
         {
             if let Some(position) = relocate(target.playlist_index) {
                 target.playlist_index = position;
-                target.mapped |= !removed.is_empty();
+                target.mapped |= shuffle_order_changed;
             }
         }
     }
@@ -2480,8 +2488,8 @@ impl PlayerInternal {
             },
         );
 
-        if let Some(position) = current_position {
-            let position = if position == old_index {
+        self.relocate_queue_positions(current_position, true, |position| {
+            Some(if position == old_index {
                 new_index
             } else if old_index < position && position <= new_index {
                 position - 1
@@ -2489,9 +2497,8 @@ impl PlayerInternal {
                 position + 1
             } else {
                 position
-            };
-            self.set_current_position(position, self.current_track_mapped);
-        }
+            })
+        });
 
         self.schedule_playlist_update();
     }
@@ -5896,6 +5903,69 @@ mod playback_state_tests {
             "{event:?}"
         );
         Ok(())
+    }
+
+    async fn check_move_during_load(queued: bool) -> Result<()> {
+        let library = Uuid::new_v4();
+        let ids = [(); 4].map(|_| Uuid::new_v4());
+        let (mut player, commands, mut events, wav_path) = long_track_engine(&ids);
+        player.playback_mode = PlaybackMode::Shuffle;
+        player.playback_strategy = Box::new(SHIFTED_ORDER);
+        commands.send(add_library_tracks(library, &ids))?;
+        if queued {
+            commands.send(PlayerCommand::Load { index: 0 })?;
+        }
+        let restore = Duration::from_secs(1);
+        let completion = completed_command(
+            &commands,
+            PlayerCommand::LoadAtPosition {
+                index: 3,
+                position: restore,
+                play: !queued,
+            },
+        );
+        commands.send(PlayerCommand::MovePlayListItem {
+            old_index: 3,
+            new_index: 1,
+        })?;
+
+        let event = run_until_track_state(&mut player, &mut events).await?;
+        let position = position_of(&event);
+        let (index, item) = match &event {
+            PlayerEvent::Playing { index, item, .. } if !queued => (index, item),
+            PlayerEvent::Loaded { index, item, .. } if queued => (index, item),
+            _ => bail!("unexpected queued={queued} event: {event:?}"),
+        };
+        assert_eq!(
+            tokio::time::timeout(TEST_DEADLINE, completion).await??,
+            Ok(())
+        );
+        assert_about(position, restore);
+        assert_eq!(
+            (*index, item),
+            (1, &library_item(library, ids[3])),
+            "{event:?}"
+        );
+
+        player.next()?;
+        let next = run_until_track_state(&mut player, &mut events).await?;
+        let _ = std::fs::remove_file(wav_path);
+        assert!(
+            matches!(&next, PlayerEvent::Playing { index: 2, item, .. }
+                if *item == library_item(library, ids[1])),
+            "{next:?}"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn move_during_active_load_keeps_the_playing_occurrence() -> Result<()> {
+        check_move_during_load(false).await
+    }
+
+    #[tokio::test]
+    async fn move_during_pending_load_keeps_the_paused_occurrence() -> Result<()> {
+        check_move_during_load(true).await
     }
 
     #[tokio::test]
