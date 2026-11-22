@@ -20,17 +20,15 @@ import 'e2e_library_flow_test.dart' as flow;
 /// Where screenshots go when the run asks for them, for reviewing the look.
 final String? _shots = Platform.environment['FILE_DIALOG_SHOTS'];
 
+/// The whole window, menus and message boxes included.
 Future<void> _shot(WidgetTester tester, String name) async {
   final folder = _shots;
   if (folder == null) return;
   await tester.pump(const Duration(milliseconds: 300));
-  RenderObject? boundary = tester.renderObject(find.byType(FileDialogWindow));
-  while (boundary != null && !boundary.isRepaintBoundary) {
-    boundary = boundary.parent;
-  }
-  final layer = boundary?.debugLayer;
-  if (boundary is! RenderBox || layer is! OffsetLayer) return;
-  final image = await layer.toImage(Offset.zero & boundary.size);
+  final view = tester.binding.renderViews.first;
+  final layer = view.debugLayer;
+  if (layer is! OffsetLayer) return;
+  final image = await layer.toImage(Offset.zero & view.size);
   final png = await image.toByteData(format: ui.ImageByteFormat.png);
   image.dispose();
   await File('$folder/$name.png').writeAsBytes(png!.buffer.asUint8List());
@@ -246,6 +244,33 @@ void main() {
     );
     await tester.tap(find.widgetWithText(FilledButton, labels.close));
     await tester.pump();
+
+    // The context menus, as Windows 11 lays them out.
+    await tester.tap(
+      _item('track.ogg'),
+      buttons: kSecondaryButton,
+      kind: PointerDeviceKind.mouse,
+    );
+    await flow.expectVisible(tester, find.text(labels.fileDialogCopyAsPath));
+    expect(find.text(labels.fileDialogRename), findsOneWidget);
+    await _shot(tester, '07a-item-menu');
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await flow.expectAbsent(tester, find.text(labels.fileDialogCopyAsPath));
+    final blank =
+        tester.getBottomRight(find.byType(FileDialogItemsView)) -
+        const Offset(40, 40);
+    await tester.tapAt(
+      blank,
+      buttons: kSecondaryButton,
+      kind: PointerDeviceKind.mouse,
+    );
+    // Refresh is written out only in the menu; the toolbar has its icon.
+    await flow.expectVisible(tester, find.text(labels.refresh));
+    expect(find.text(labels.fileDialogNewFolder), findsNWidgets(2));
+    await _shot(tester, '07b-folder-menu');
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(FileDialogWindow), findsOneWidget);
 
     // Clicking a file puts its name in the box; Open picks it.
     await _click(tester, _item('track.ogg'));
