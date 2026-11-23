@@ -2315,8 +2315,9 @@ async fn observe_own_object(
 /// What this device knows of one of its base manifests or segments, for the bytes the store holds
 /// now, or `None` when the object is gone. A record is taken only when the store has confirmed the
 /// tag it belongs to; other bytes are downloaded, unless `observed` holds them already, decoded,
-/// and recorded in its place. `observed` is what observing the object found in this pass; without
-/// it the object is observed here.
+/// and recorded in its place. A manifest whose candidate flag is unknown, recorded by an earlier
+/// build, is read and decoded too, so it always returns one that knows. `observed` is what
+/// observing the object found in this pass; without it the object is observed here.
 async fn own_contents<M: SyncModel>(
     store: &dyn ObjectStore,
     state: &mut ShareState,
@@ -2335,9 +2336,20 @@ async fn own_contents<M: SyncModel>(
         OwnObjectRead::Downloaded(value) => value,
         OwnObjectRead::Unchanged => {
             if let Some(contents) = state.recorded(object) {
-                return Ok(Some(contents.clone()));
+                let resolved = !matches!(
+                    contents,
+                    OwnContents::Manifest {
+                        has_candidates: None,
+                        ..
+                    }
+                );
+                if resolved {
+                    return Ok(Some(contents.clone()));
+                }
             }
-            // Confirmed, but nothing is recorded for these bytes, as after an earlier build.
+            // Confirmed, but nothing is recorded for these bytes, as after an earlier build, or
+            // the recorded manifest does not yet say whether it holds candidates. Read the bytes
+            // so the flag is resolved before anything decides with the contents.
             match store.get(key).await {
                 Ok(value) => {
                     state.observe_tag(object.clone(), value.tag.clone(), now_ms);
@@ -2396,8 +2408,9 @@ pub(crate) struct BaseGzipSizes {
 /// The compressed sizes of a base: the chunks and context fragments that its manifest references,
 /// and the manifest itself. A base without candidate chunks reports zero content, because it has
 /// no catalog content to compare a change with. A base cut records both sizes with the manifest;
-/// a manifest from an earlier build is measured once by reading it and its chunks, then recorded.
-/// `None` means the manifest or one of its chunks is gone.
+/// a manifest from an earlier build resolves its candidate flag and measures its sizes once, by
+/// reading it and its chunks, then records them. `None` means the manifest or one of its chunks
+/// is gone.
 pub(crate) async fn base_gzip_sizes<M: SyncModel>(
     store: &dyn ObjectStore,
     state: &mut ShareState,
@@ -2412,16 +2425,16 @@ pub(crate) async fn base_gzip_sizes<M: SyncModel>(
     };
     if let Some(OwnContents::Manifest {
         content_gzip_bytes: Some(content_gzip_bytes),
-        has_candidates,
+        has_candidates: Some(has_candidates),
         manifest_gzip_bytes,
         ..
     }) = state.recorded(&object)
     {
         return Ok(Some(BaseGzipSizes {
-            content: Some(if *has_candidates == Some(false) {
-                0
-            } else {
+            content: Some(if *has_candidates {
                 *content_gzip_bytes
+            } else {
+                0
             }),
             manifest: *manifest_gzip_bytes,
         }));
@@ -2437,7 +2450,14 @@ pub(crate) async fn base_gzip_sizes<M: SyncModel>(
     else {
         return Ok(None);
     };
-    if has_candidates == Some(false) {
+    // `own_contents` reads a manifest whose flag is unknown, so a manifest it returns always
+    // knows whether it holds candidates.
+    let Some(has_candidates) = has_candidates else {
+        return Err(SharePushError::Failed(
+            "the base manifest left its candidate flag unresolved".into(),
+        ));
+    };
+    if !has_candidates {
         record_base_gzip_sizes(state, &object, Some(0), manifest_gzip_bytes);
         return Ok(Some(BaseGzipSizes {
             content: Some(0),
@@ -2450,9 +2470,8 @@ pub(crate) async fn base_gzip_sizes<M: SyncModel>(
             manifest: manifest_gzip_bytes,
         }));
     }
-    // A record from an earlier build does not say whether it has candidate chunks; count every
-    // chunk it names, context fragments included, as the old manifest-size decision did, and read
-    // the manifest itself for its bytes.
+    // A manifest recorded by an earlier build names no sizes yet; count every chunk it
+    // references, context fragments included, and read the manifest itself for its bytes.
     let mut measured = 0_u64;
     for chunk in &chunks {
         let key = chunk_key(&prefix.to_string(), chunk)

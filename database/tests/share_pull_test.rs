@@ -1,13 +1,13 @@
 use database::test_fixtures::causal_library as support;
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use chrono::Utc;
 use database::sync::model::{Collection, ObjectKey, RuneModel};
 use database::sync::replica::PendingShareChange;
 use database::sync::share::{
-    BaseCutRequest, PublishJournalRequest, ShareCapabilities, SharePullError, SharePushError,
-    SharePushResult, ShareState, ShareWriter, cut_base, load_or_create_state, publish_journal,
-    save_state,
+    BaseCutRequest, OwnContents, OwnRecord, PublishJournalRequest, ShareCapabilities,
+    SharePullError, SharePushError, SharePushResult, ShareState, ShareWriter, cut_base,
+    load_or_create_state, publish_journal, save_state,
 };
 use rand::{Rng, SeedableRng, distributions::Alphanumeric, rngs::StdRng};
 use sea_orm::{
@@ -4885,6 +4885,194 @@ async fn push_cuts_a_small_base_whose_manifest_is_larger_than_its_content() -> R
     ensure!(
         head.bases.len() == 2,
         "the push kept a base whose manifest is larger than a quarter of the update"
+    );
+    Ok(())
+}
+
+/// Replaces the manifest the device recorded for `base_id` with one from an earlier build: the
+/// content size and the candidate flag are unknown, as in a state file written before this build
+/// kept them.
+async fn forget_the_manifest_size_and_flag(device: &SqlLibrary, base_id: &str) -> Result<()> {
+    let identity = device.sync_store.identity().await?;
+    let now_ms = Utc::now().timestamp_millis();
+    let mut state = load_or_create_state(
+        &device.db,
+        identity.replica,
+        identity.namespace,
+        cache_path(),
+        now_ms,
+    )
+    .await?;
+    let object = ShareObjectKey::Base {
+        prefix: DevicePrefix {
+            stream: state.stream,
+            generation: state.generation,
+        },
+        base_id: base_id.to_owned(),
+    };
+    let record = state
+        .own_objects
+        .get_mut(&object)
+        .context("the base was never recorded")?;
+    let OwnContents::Manifest { chunks, .. } = &record.contents else {
+        bail!(
+            "the recorded base {base_id} is not a manifest: {:?}",
+            record.contents
+        );
+    };
+    record.contents = OwnContents::Manifest {
+        content_gzip_bytes: None,
+        chunks: chunks.clone(),
+        has_candidates: None,
+        manifest_gzip_bytes: None,
+    };
+    save_state(&device.db, &state).await?;
+    Ok(())
+}
+
+/// The content size and candidate flag the device has recorded for `base_id`.
+async fn recorded_manifest_size_and_flag(
+    device: &SqlLibrary,
+    base_id: &str,
+) -> Result<(Option<u64>, Option<bool>)> {
+    let identity = device.sync_store.identity().await?;
+    let now_ms = Utc::now().timestamp_millis();
+    let state = load_or_create_state(
+        &device.db,
+        identity.replica,
+        identity.namespace,
+        cache_path(),
+        now_ms,
+    )
+    .await?;
+    let object = ShareObjectKey::Base {
+        prefix: DevicePrefix {
+            stream: state.stream,
+            generation: state.generation,
+        },
+        base_id: base_id.to_owned(),
+    };
+    let Some(OwnRecord {
+        contents:
+            OwnContents::Manifest {
+                content_gzip_bytes,
+                has_candidates,
+                ..
+            },
+        ..
+    }) = state.own_objects.get(&object)
+    else {
+        bail!("the base {base_id} was never recorded as a manifest");
+    };
+    Ok((*content_gzip_bytes, *has_candidates))
+}
+
+/// A manifest recorded by an earlier build carries neither a content size nor a candidate flag.
+/// The push must resolve both from the manifest itself before it decides with the size: a base of
+/// context only keeps its first edit incremental instead of cutting, and a base with candidates
+/// records its positive content total and the flag with it.
+#[tokio::test]
+async fn push_resolves_the_candidate_flag_of_a_manifest_record_from_an_earlier_build() -> Result<()>
+{
+    let namespace = Uuid::new_v4();
+    let store = Arc::new(MemoryObjectStore::default());
+    let device = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let capabilities = memory_store_capabilities(true);
+    // The keeper cuts a base for the empty library. It holds the collection context fragments and
+    // no candidate chunk, so measuring its chunks must not stand in for catalog content.
+    let head = device
+        .sync_store
+        .push_share(store.clone(), namespace, cache_path(), capabilities)
+        .await?
+        .context("the first push pass published no head")?;
+    ensure!(head.bases.len() == 1, "the first push did not cut a base");
+    let base_id = head.bases[0].base_id.clone();
+    let (cut_content_gzip_bytes, cut_has_candidates) =
+        recorded_manifest_size_and_flag(&device, &base_id).await?;
+    ensure!(
+        cut_content_gzip_bytes.unwrap_or(0) > 0 && cut_has_candidates == Some(false),
+        "the empty base is not a context-only base: {cut_content_gzip_bytes:?}, {cut_has_candidates:?}"
+    );
+    forget_the_manifest_size_and_flag(&device, &base_id).await?;
+
+    add_playlist(&device, 9100, "first edit").await?;
+    let next = device
+        .sync_store
+        .push_share(store.clone(), namespace, cache_path(), capabilities)
+        .await?
+        .context("the update published no head")?;
+    ensure!(
+        next.bases.len() == 1,
+        "the push cut a base for the first edit of a context-only base"
+    );
+    ensure!(
+        next.segments.len() == 1,
+        "the first edit of a context-only base did not publish a segment"
+    );
+    let (content_gzip_bytes, has_candidates) =
+        recorded_manifest_size_and_flag(&device, &base_id).await?;
+    ensure!(
+        content_gzip_bytes == Some(0),
+        "the context-only base did not record a zero content size: {content_gzip_bytes:?}"
+    );
+    ensure!(
+        has_candidates == Some(false),
+        "the context-only base did not record its candidate flag: {has_candidates:?}"
+    );
+
+    // The same unknown flag on a base whose chunks do hold candidates is resolved too, and its
+    // positive content total is recorded with the flag before the fraction decides with it.
+    let namespace = Uuid::new_v4();
+    let store = Arc::new(MemoryObjectStore::default());
+    let device = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let mut rng = StdRng::seed_from_u64(440);
+    // An incompressible name keeps the base content well above a quarter of the update.
+    add_playlist(&device, 9110, &random_name(&mut rng, 4096)).await?;
+    let head = device
+        .sync_store
+        .push_share(store.clone(), namespace, cache_path(), capabilities)
+        .await?
+        .context("the first push pass published no head")?;
+    ensure!(head.bases.len() == 1, "the first push did not cut a base");
+    let base_id = head.bases[0].base_id.clone();
+    let (cut_content_gzip_bytes, cut_has_candidates) =
+        recorded_manifest_size_and_flag(&device, &base_id).await?;
+    let cut_content_gzip_bytes = cut_content_gzip_bytes
+        .filter(|bytes| *bytes > 0)
+        .context("the candidate base recorded no content size")?;
+    ensure!(
+        cut_has_candidates == Some(true),
+        "the candidate base did not record its candidate flag: {cut_has_candidates:?}"
+    );
+    forget_the_manifest_size_and_flag(&device, &base_id).await?;
+
+    add_playlist(&device, 9111, "within the quarter").await?;
+    let prefix = device.sync_store.share_prefix(cache_path()).await?;
+    let (_, content_gzip_bytes) = base_sizes(&store, &prefix, &head).await?;
+    let identity = SyncPeer::identity(&device.sync_store.endpoint()).await?;
+    let entries = journal_events_since(&device.sync_store.endpoint(), &head).await?;
+    let update_gzip_bytes = planned_segment_gzip_bytes(&identity, &head, &entries)?;
+    ensure!(
+        update_gzip_bytes.saturating_mul(4) <= content_gzip_bytes,
+        "the fixture update does not stay within a quarter of the base content: update {update_gzip_bytes}, content {content_gzip_bytes}"
+    );
+    let next = device
+        .sync_store
+        .push_share(store.clone(), namespace, cache_path(), capabilities)
+        .await?
+        .context("the update published no head")?;
+    ensure!(
+        next.bases.len() == 1,
+        "the push cut a base for an update within a quarter of the candidate base content"
+    );
+    let (recorded, has_candidates) = recorded_manifest_size_and_flag(&device, &base_id).await?;
+    ensure!(
+        recorded == Some(cut_content_gzip_bytes),
+        "the candidate base did not record its measured content total: {recorded:?}, cut {cut_content_gzip_bytes:?}"
+    );
+    ensure!(
+        has_candidates == Some(true),
+        "the candidate base did not record its candidate flag: {has_candidates:?}"
     );
     Ok(())
 }
