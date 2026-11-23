@@ -1741,7 +1741,7 @@ pub(crate) async fn replace_subsonic_credential_on_node(
         node.credentials
             .replace(
                 *credential,
-                Credential {
+                &Credential {
                     username: request.username.clone(),
                     secret: Secret::new(request.password.as_bytes().to_vec()),
                 },
