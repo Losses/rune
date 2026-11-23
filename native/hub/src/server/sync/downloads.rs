@@ -1,6 +1,6 @@
 //! Network execution for device-local download rules.
 use super::blobs::download_track_blob;
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use database::{
     actions::{
         downloads::{
@@ -335,14 +335,11 @@ pub async fn download_audio_pass(
                     }
                     Err(error) => {
                         log::warn!("Download failed for file {}: {error:#}", file_id);
-                        if let Err(record_error) =
-                            record_download_failure(&db, track_id, &blob, server, &error).await
-                        {
-                            log::warn!(
-                                "Could not record failure for file {}: {record_error:#}",
-                                file_id
-                            );
-                        }
+                        record_download_failure(&db, track_id, &blob, server, &error)
+                            .await
+                            .with_context(|| {
+                                format!("could not record download failure for file {file_id}")
+                            })?;
                         report.failed += 1;
                         report.pending += 1;
                     }
