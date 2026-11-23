@@ -144,6 +144,22 @@ impl Signal for crate::messages::GetSyncSettingsRequest {
         }))
     }
 }
+
+async fn start_paired_sync_listener(
+    manager: &Arc<crate::server::ServerManager>,
+    config: &Arc<String>,
+    run_mode: RunMode,
+) -> Result<()> {
+    let info = load_device_info(Path::new(&**config), run_mode).await?;
+    manager
+        .clone()
+        .start_sync(
+            ([0, 0, 0, 0], DEFAULT_DEVICE_PORT).into(),
+            discovery::DiscoveryParams { device_info: info },
+        )
+        .await
+}
+
 impl ParamsExtractor for crate::messages::SetSyncSettingsRequest {
     type Params = (
         Arc<tokio_sync::RwLock<SyncSettings>>,
@@ -180,30 +196,40 @@ impl Signal for crate::messages::SetSyncSettingsRequest {
         // instead of only when the stored value changes: an earlier attempt may have saved
         // the setting without starting the listener. Persist only after the listener reached
         // the requested state, so a failed attempt leaves the saved and displayed setting
-        // equal to the state that is actually served.
+        // equal to the state that is actually served. If the save itself fails, put the
+        // listener back to the state the saved setting still describes.
+        let was_running = manager.as_ref().is_some_and(|manager| manager.is_running());
+        let started = request.listen && !was_running;
+        let stopped = !request.listen && was_running;
         if request.listen {
-            let manager = manager.ok_or(ExpectedRequestError::Unavailable {
+            let manager = manager.as_ref().ok_or(ExpectedRequestError::Unavailable {
                 what: "server manager",
             })?;
-            if !manager.is_running() {
-                let info = load_device_info(Path::new(&**config), run_mode).await?;
-                manager
-                    .start_sync(
-                        ([0, 0, 0, 0], DEFAULT_DEVICE_PORT).into(),
-                        discovery::DiscoveryParams { device_info: info },
-                    )
-                    .await?;
+            if started {
+                start_paired_sync_listener(manager, &config, run_mode).await?;
             }
-        } else if let Some(manager) = manager.as_ref()
-            && manager.is_running()
-        {
+        } else if stopped && let Some(manager) = manager.as_ref() {
             manager.stop().await?;
         }
         let next = SyncSettings {
             listen: request.listen,
             missing_host_file: policy,
         };
-        next.save(Path::new(&**config))?;
+        if let Err(save_error) = next.save(Path::new(&**config)) {
+            let restore = match manager.as_ref() {
+                Some(manager) if started => manager.stop().await,
+                Some(manager) if stopped => {
+                    start_paired_sync_listener(manager, &config, run_mode).await
+                }
+                _ => Ok(()),
+            };
+            return Err(match restore {
+                Ok(()) => save_error,
+                Err(restore_error) => save_error.context(format!(
+                    "the sync listener could not be restored after the settings failed to save: {restore_error:#}"
+                )),
+            });
+        }
         *current = next;
         Ok(Some(Self::Response {
             call_id: None,
@@ -262,6 +288,36 @@ mod tests {
             .context("sync settings response")
     }
 
+    /// Removes write permission from a directory so the next settings save fails, and
+    /// restores the mode when dropped, including while unwinding from a failed assertion.
+    #[cfg(unix)]
+    struct ReadOnlyDir {
+        path: std::path::PathBuf,
+        mode: u32,
+    }
+
+    #[cfg(unix)]
+    impl ReadOnlyDir {
+        fn new(path: &Path) -> Result<Self> {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(path)?.permissions().mode();
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode & !0o222))?;
+            Ok(Self {
+                path: path.to_owned(),
+                mode,
+            })
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for ReadOnlyDir {
+        fn drop(&mut self) {
+            use std::os::unix::fs::PermissionsExt;
+            let _ =
+                std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(self.mode));
+        }
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn failed_enable_keeps_the_setting_off_and_the_retry_starts_the_listener() -> Result<()> {
         let dir = tempfile::tempdir()?;
@@ -311,6 +367,27 @@ mod tests {
         assert!(SyncSettings::load(dir.path()).listen);
         assert!(shown_settings(&node).await?.listen);
 
+        // A save failure must not stop a listener that was already running before the
+        // request: the saved setting still says enabled.
+        #[cfg(unix)]
+        {
+            let read_only = ReadOnlyDir::new(dir.path())?;
+            let error = set_sync_settings(&node, true, MissingHostFilePolicy::RemoveEverywhere)
+                .await
+                .expect_err("enabling while the settings cannot be saved");
+            assert!(
+                format!("{error:#}").contains("write sync settings"),
+                "{error:#}"
+            );
+            assert!(
+                manager.is_running(),
+                "an already running listener was stopped"
+            );
+            assert!(SyncSettings::load(dir.path()).listen);
+            assert!(shown_settings(&node).await?.listen);
+            drop(read_only);
+        }
+
         // The same enable request succeeds without starting a second listener.
         set_sync_settings(&node, true, MissingHostFilePolicy::KeepAsRemote).await?;
         assert!(manager.is_running());
@@ -321,6 +398,32 @@ mod tests {
             MissingHostFilePolicy::KeepAsRemote
         ));
 
+        // A disable that cannot be saved must restart the listener the saved setting still
+        // describes.
+        #[cfg(unix)]
+        {
+            let read_only = ReadOnlyDir::new(dir.path())?;
+            let error = set_sync_settings(&node, false, MissingHostFilePolicy::KeepAsRemote)
+                .await
+                .expect_err("disabling while the settings cannot be saved");
+            assert!(
+                format!("{error:#}").contains("write sync settings"),
+                "{error:#}"
+            );
+            assert!(
+                manager.is_running(),
+                "the stopped listener was not restarted"
+            );
+            assert!(SyncSettings::load(dir.path()).listen);
+            let shown = shown_settings(&node).await?;
+            assert!(shown.listen);
+            assert!(matches!(
+                shown.missing_host_file,
+                MissingHostFilePolicy::KeepAsRemote
+            ));
+            drop(read_only);
+        }
+
         set_sync_settings(&node, false, MissingHostFilePolicy::KeepAsRemote).await?;
         assert!(!manager.is_running());
         let saved = SyncSettings::load(dir.path());
@@ -330,6 +433,32 @@ mod tests {
             SavedMissingHostFilePolicy::KeepAsRemote
         );
         assert!(!shown_settings(&node).await?.listen);
+
+        // An enable that starts the listener but cannot be saved must stop it again: the
+        // saved setting still says disabled.
+        #[cfg(unix)]
+        {
+            let read_only = ReadOnlyDir::new(dir.path())?;
+            let error = set_sync_settings(&node, true, MissingHostFilePolicy::KeepAsRemote)
+                .await
+                .expect_err("enabling while the settings cannot be saved");
+            assert!(
+                format!("{error:#}").contains("write sync settings"),
+                "{error:#}"
+            );
+            assert!(
+                !manager.is_running(),
+                "the listener started by the failed enable was kept"
+            );
+            assert!(!SyncSettings::load(dir.path()).listen);
+            assert!(!shown_settings(&node).await?.listen);
+            drop(read_only);
+        }
+
+        set_sync_settings(&node, true, MissingHostFilePolicy::KeepAsRemote).await?;
+        assert!(manager.is_running());
+        assert!(SyncSettings::load(dir.path()).listen);
+        assert!(shown_settings(&node).await?.listen);
 
         node.shutdown().await?;
         Ok(())
