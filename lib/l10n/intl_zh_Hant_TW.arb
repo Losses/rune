@@ -1331,6 +1331,7 @@
   "libraryUntrusted": "此裝置未受信任。",
   "libraryInvalidSource": "此資料夾無法用作資料庫。",
   "libraryStorageFailure": "無法儲存資料庫。",
+  "libraryNewerVersion": "此資料庫由較新版本的 Rune 建立。請更新此裝置上的 Rune 以開啟。",
   "libraryShareStoreUnavailable": "共享儲存空間無法使用。同步會自動重試。",
   "libraryRemoteNotAuthorized": "裝置未授權此連線。",
   "libraryRemoteUnreachable": "無法連線到裝置。",

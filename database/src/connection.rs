@@ -29,6 +29,7 @@ use ::fsio::FsIo;
 
 use crate::actions::mixes::initialize_mix_queries_before_replication;
 use crate::actions::recommendation::load_recommendation_vectors;
+use crate::error::NewerLibraryDatabase;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StorageMode {
@@ -294,6 +295,94 @@ async fn configure_journal_mode(
     }
 }
 
+/// The migrations the SQLite database at [path] records; none for a new,
+/// empty file.
+async fn recorded_migrations(path: &Path) -> Result<Vec<String>> {
+    let mut connection = SqliteConnectOptions::new()
+        .filename(path)
+        .read_only(true)
+        .connect()
+        .await?;
+    let table: Option<String> = sqlx::query_scalar(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'seaql_migrations'",
+    )
+    .fetch_optional(&mut connection)
+    .await?;
+    let versions = match table {
+        Some(_) => {
+            sqlx::query_scalar("SELECT version FROM seaql_migrations")
+                .fetch_all(&mut connection)
+                .await?
+        }
+        None => Vec::new(),
+    };
+    connection.close().await?;
+    Ok(versions)
+}
+
+/// Settle a library database whose migration history is not this version's.
+///
+/// One written before the history was rewritten during pre-release
+/// development records migrations this version no longer has, and its tables
+/// do not match the ones it expects, so it can neither be migrated nor read.
+/// It is kept beside the new database, with the time it was replaced in its
+/// name, and the library starts afresh from its media files; this returns
+/// true then. One written by a newer Rune is left as it is and not opened
+/// ([`NewerLibraryDatabase`]).
+///
+/// [db_file] is where the library's storage keeps the file, moved through
+/// [fsio] when the storage is reached through it; [sqlite_path] is where
+/// SQLite opens it.
+async fn settle_migration_history(
+    fsio: Option<&FsIo>,
+    db_file: &Path,
+    sqlite_path: &Path,
+) -> Result<bool> {
+    let retired = match migration::MigrationHistory::of(&recorded_migrations(sqlite_path).await?) {
+        migration::MigrationHistory::Known => return Ok(false),
+        migration::MigrationHistory::Newer(migrations) => {
+            return Err(NewerLibraryDatabase { migrations }.into());
+        }
+        migration::MigrationHistory::Replaced(retired) => retired,
+    };
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+    let name = db_file
+        .file_name()
+        .context("library database without a file name")?
+        .to_string_lossy()
+        .into_owned();
+    let aside_name = format!("{name}.replaced-{seconds}");
+    // SQLite's companion files belong to the database and move with it.
+    for (from, to) in [
+        (format!("{name}-wal"), format!("{aside_name}-wal")),
+        (format!("{name}-shm"), format!("{aside_name}-shm")),
+        (name.clone(), aside_name.clone()),
+    ] {
+        let from = db_file.with_file_name(from);
+        let to = db_file.with_file_name(to);
+        match fsio {
+            Some(fsio) => {
+                if fsio.exists(&from)? {
+                    fsio.rename_file(&from, &to).await?;
+                }
+            }
+            None => {
+                if fs::try_exists(&from).await? {
+                    fs::rename(&from, &to).await?;
+                }
+            }
+        }
+    }
+    warn!(
+        "Library database {} records migrations this version replaced ({}); kept it as {aside_name} and started a new one",
+        db_file.display(),
+        retired.join(", "),
+    );
+    Ok(true)
+}
+
 pub async fn connect_main_db(
     fsio: &FsIo,
     lib_path: &str,
@@ -343,9 +432,18 @@ async fn connect_main_db_from_storage_info(
             fsio.ensure_directory(&storage_info.db_dir).await?;
         }
         let db_node = fsio.ensure_file(&db_file).await?;
-        fsio.canonicalize_path(&db_node.path)?
+        let db_path = fsio.canonicalize_path(&db_node.path)?;
+        if settle_migration_history(Some(fsio), &db_node.path, &db_path).await? {
+            let db_node = fsio.ensure_file(&db_file).await?;
+            fsio.canonicalize_path(&db_node.path)?
+        } else {
+            db_path
+        }
     } else {
         fs::create_dir_all(&storage_info.db_dir).await?;
+        if fs::try_exists(&db_file).await? {
+            settle_migration_history(None, &db_file, &db_file).await?;
+        }
         if !fs::try_exists(&db_file).await? {
             fs::write(&db_file, b"").await?;
         }
@@ -456,6 +554,121 @@ mod journal_mode_tests {
             .try_get("", "value")?;
         assert_eq!(value, 73);
         db.close().await?;
+        Ok(())
+    }
+
+    /// A library folder whose database records [versions], with a table the
+    /// way an old version made it.
+    async fn library_recording(root: &Path, versions: &[&str]) -> Result<Vec<u8>> {
+        let rune_dir = root.join(".rune");
+        tokio::fs::create_dir_all(&rune_dir).await?;
+        let mut old = SqliteConnectOptions::new()
+            .filename(rune_dir.join(".0.db"))
+            .create_if_missing(true)
+            .connect()
+            .await?;
+        sqlx::query("CREATE TABLE seaql_migrations (version TEXT PRIMARY KEY, applied_at INTEGER)")
+            .execute(&mut old)
+            .await?;
+        for version in versions {
+            sqlx::query("INSERT INTO seaql_migrations VALUES (?, 0)")
+                .bind(*version)
+                .execute(&mut old)
+                .await?;
+        }
+        sqlx::query("CREATE TABLE media_analysis (id INTEGER PRIMARY KEY)")
+            .execute(&mut old)
+            .await?;
+        old.close().await?;
+        Ok(tokio::fs::read(rune_dir.join(".0.db")).await?)
+    }
+
+    async fn set_aside_files(root: &Path) -> Result<Vec<PathBuf>> {
+        let mut found = Vec::new();
+        let mut entries = tokio::fs::read_dir(root.join(".rune")).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            if entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".0.db.replaced-")
+            {
+                found.push(entry.path());
+            }
+        }
+        Ok(found)
+    }
+
+    #[tokio::test]
+    async fn a_database_from_a_replaced_history_is_kept_aside_and_started_afresh() -> Result<()> {
+        let dir = TempDir::new()?;
+        let root = dir.path().join("Chaos");
+        // What a library made in August 2024 records.
+        let old = library_recording(
+            &root,
+            &[
+                "m20230701_000001_create_media_files_table",
+                "m20230701_000004_create_user_logs_table",
+            ],
+        )
+        .await?;
+        let fsio = FsIo::new();
+        let db =
+            connect_main_db(&fsio, root.to_str().context("library path")?, None, "node").await?;
+        let applied: Vec<String> = sqlx::query_scalar("SELECT version FROM seaql_migrations")
+            .fetch_all(db.get_sqlite_connection_pool())
+            .await?;
+        assert_eq!(
+            applied.len(),
+            <migration::Migrator as migration::MigratorTrait>::migrations().len()
+        );
+        assert!(!applied.iter().any(|version| version.contains("user_logs")));
+        db.close().await?;
+        let aside = set_aside_files(&root).await?;
+        assert_eq!(aside.len(), 1, "{aside:?}");
+        assert_eq!(tokio::fs::read(&aside[0]).await?, old);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_database_from_a_newer_version_is_left_alone() -> Result<()> {
+        let dir = TempDir::new()?;
+        let root = dir.path().join("Later");
+        let recorded = library_recording(
+            &root,
+            &[
+                "m20230701_000001_create_media_files_table",
+                "m29991231_000999_from_a_later_version",
+            ],
+        )
+        .await?;
+        let fsio = FsIo::new();
+        let opened =
+            connect_main_db(&fsio, root.to_str().context("library path")?, None, "node").await;
+        let refused = opened.err().context("a newer library opened")?;
+        let newer = refused
+            .downcast_ref::<NewerLibraryDatabase>()
+            .context("refused for another reason")?;
+        assert_eq!(newer.migrations, ["m29991231_000999_from_a_later_version"]);
+        assert!(set_aside_files(&root).await?.is_empty());
+        assert_eq!(tokio::fs::read(root.join(".rune/.0.db")).await?, recorded);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_database_of_this_version_is_opened_again_in_place() -> Result<()> {
+        let dir = TempDir::new()?;
+        let root = dir.path().join("library");
+        let path = root.to_str().context("library path")?.to_owned();
+        let fsio = FsIo::new();
+        connect_main_db(&fsio, &path, None, "node")
+            .await?
+            .close()
+            .await?;
+        connect_main_db(&fsio, &path, None, "node")
+            .await?
+            .close()
+            .await?;
+        assert!(set_aside_files(&root).await?.is_empty());
         Ok(())
     }
 

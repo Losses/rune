@@ -58,6 +58,7 @@ use ::database::{
     },
     credentials::{Credential, CredentialRef, CredentialStore, Secret},
     entities::media_files,
+    error::NewerLibraryDatabase,
     library_registry::{
         CatalogPlacement, FsAdapter, InvalidRecord, LibraryRecord, LibraryRecordId,
         LibraryRegistry, ProtocolAdapter, RuneForwardMode, SubsonicOpenMode, resolve_library,
@@ -2270,9 +2271,11 @@ async fn open_catalog_record(
 }
 
 /// Why the pool did not open a library on this device.
-fn local_open_failure(error: &anyhow::Error) -> OpenLibraryFailureKind {
+pub(crate) fn local_open_failure(error: &anyhow::Error) -> OpenLibraryFailureKind {
     if error.downcast_ref::<MediaFolderMissing>().is_some() {
         OpenLibraryFailureKind::MediaFolderMissing
+    } else if error.downcast_ref::<NewerLibraryDatabase>().is_some() {
+        OpenLibraryFailureKind::NewerVersion
     } else {
         OpenLibraryFailureKind::Storage
     }

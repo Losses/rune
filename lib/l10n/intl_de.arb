@@ -1600,6 +1600,7 @@
   "libraryUntrusted": "Diesem Gerät wird nicht vertraut.",
   "libraryInvalidSource": "Dieser Ordner kann nicht als Bibliothek verwendet werden.",
   "libraryStorageFailure": "Die Bibliothek konnte nicht gespeichert werden.",
+  "libraryNewerVersion": "Diese Bibliothek wurde mit einer neueren Version von Rune erstellt. Aktualisieren Sie Rune auf diesem Gerät, um sie zu öffnen.",
   "libraryShareStoreUnavailable": "Der gemeinsame Speicher ist nicht erreichbar. Die Synchronisierung wird automatisch wiederholt.",
   "libraryRemoteNotAuthorized": "Das Gerät hat diese Verbindung nicht autorisiert.",
   "libraryRemoteUnreachable": "Das Gerät ist nicht erreichbar.",

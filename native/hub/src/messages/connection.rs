@@ -449,6 +449,8 @@ pub enum OpenLibraryFailureKind {
     RemoteProtocol,
     ProtocolIncompatible,
     NotSupportedYet,
+    /// The library's database was written by a newer version of Rune.
+    NewerVersion,
     Storage,
 }
 

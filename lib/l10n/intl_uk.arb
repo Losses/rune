@@ -1600,6 +1600,7 @@
   "libraryUntrusted": "Цей пристрій не є довіреним.",
   "libraryInvalidSource": "Цю папку не можна використовувати як медіатеку.",
   "libraryStorageFailure": "Не вдалося зберегти медіатеку.",
+  "libraryNewerVersion": "Цю медіатеку створено новішою версією Rune. Оновіть Rune на цьому пристрої, щоб відкрити її.",
   "libraryShareStoreUnavailable": "Спільне сховище недоступне. Синхронізація повторить спробу автоматично.",
   "libraryRemoteNotAuthorized": "Пристрій не дозволив це з’єднання.",
   "libraryRemoteUnreachable": "Не вдалося під’єднатися до пристрою.",

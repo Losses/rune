@@ -1537,6 +1537,7 @@
   "libraryUntrusted": "Ĉi tiu aparato ne estas fidata.",
   "libraryInvalidSource": "Ĉi tiu dosierujo ne povas esti biblioteko.",
   "libraryStorageFailure": "La biblioteko ne povis esti konservita.",
+  "libraryNewerVersion": "Ĉi tiun bibliotekon kreis pli nova versio de Rune. Ĝisdatigu Rune ĉe ĉi tiu aparato por malfermi ĝin.",
   "libraryShareStoreUnavailable": "La komuna konservejo ne atingeblas. La sinkronigo aŭtomate reprovos.",
   "libraryRemoteNotAuthorized": "La aparato ne rajtigis ĉi tiun konekton.",
   "libraryRemoteUnreachable": "La aparato ne atingeblas.",

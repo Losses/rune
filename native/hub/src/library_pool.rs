@@ -629,9 +629,11 @@ mod tests {
                 .map_or(0, |entry| entry.ui_users)
         }
     }
+    use crate::messages::OpenLibraryFailureKind;
     use crate::test_wait::{TEST_DEADLINE, wait_until};
     use database::{
         connection::create_redirect,
+        error::NewerLibraryDatabase,
         library_registry::{create_replica, resolve_library},
     };
     use sea_orm::{
@@ -780,6 +782,48 @@ mod tests {
         assert_eq!(fs::read(aside.join(".rune/.0.db"))?, database);
         fs::rename(&aside, &f.root)?;
         assert_eq!(f.pool.acquire_ui(id).await?.media_root, f.root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_database_from_a_newer_rune_is_refused_and_left_alone() -> Result<()> {
+        let f = Fixture::new(false).await?;
+        let id = f.descriptor.catalog_library_id().unwrap();
+        drop(f.pool.acquire(id).await?);
+        *f.pool.entries.lock().await[&id]
+            .last_released
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Instant::now() - f.pool.idle_timeout;
+        f.pool.close_idle().await?;
+        // A newer Rune records a migration this version does not have.
+        let database = Path::new(&f.root).join(".rune/.0.db");
+        let mut newer = SqliteConnectOptions::new()
+            .filename(&database)
+            .connect()
+            .await?;
+        sea_orm::sqlx::query(
+            "INSERT INTO seaql_migrations (version, applied_at) VALUES ('m29991231_000999_from_a_later_version', 0)",
+        )
+        .execute(&mut newer)
+        .await?;
+        newer.close().await?;
+        let before = fs::read(&database)?;
+
+        let error = f
+            .pool
+            .acquire_ui(id)
+            .await
+            .err()
+            .context("a library from a newer Rune opened")?;
+        assert!(
+            error.downcast_ref::<NewerLibraryDatabase>().is_some(),
+            "{error:#}"
+        );
+        assert_eq!(
+            crate::utils::local_open_failure(&error),
+            OpenLibraryFailureKind::NewerVersion
+        );
+        assert_eq!(fs::read(&database)?, before);
         Ok(())
     }
 

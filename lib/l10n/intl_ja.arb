@@ -1600,6 +1600,7 @@
   "libraryUntrusted": "このデバイスは信頼されていません。",
   "libraryInvalidSource": "このフォルダーはライブラリーとして使用できません。",
   "libraryStorageFailure": "ライブラリーを保存できませんでした。",
+  "libraryNewerVersion": "このライブラリーは新しいバージョンのRuneで作成されました。開くには、このデバイスでRuneを更新してください。",
   "libraryShareStoreUnavailable": "共有ストレージに接続できません。同期は自動的に再試行されます。",
   "libraryRemoteNotAuthorized": "デバイスが接続を許可しませんでした。",
   "libraryRemoteUnreachable": "デバイスに接続できません。",
