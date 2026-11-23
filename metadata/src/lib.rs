@@ -1,9 +1,16 @@
 pub mod artist;
 pub mod cover_art;
 pub mod crc;
+mod credit_parser;
+mod credit_roles;
+mod delimiters;
 pub mod describe;
 pub mod genre;
+pub mod model;
+pub mod overlay;
 pub mod reader;
+mod release_type;
+pub mod resolve;
 pub mod scanner;
 pub mod streaming;
 pub mod taglib;
