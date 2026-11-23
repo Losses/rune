@@ -22,7 +22,12 @@ uniform float u_count;
 uniform float u_sigma;
 // The bars' colour, premultiplied, with the opacity of the glow.
 uniform vec4 u_color;
-uniform float u_half_heights[64];
+// The bars' half heights, four to an entry: bar 4 * j + k is component k of
+// entry j. The player sends 512 bands (playback/src/internal.rs). GLES gives
+// each element of a uniform array a slot of four floats and guarantees 224
+// slots from version 3.0 on: 512 single floats would not fit, 128 groups of
+// four do.
+uniform vec4 u_half_heights[128];
 
 // erf(x), Abramowitz and Stegun 7.1.26, error below 1.5e-7.
 float erf_approx(float x) {
@@ -49,29 +54,47 @@ void main() {
   // i - 1: the bars share their edges, so each is worked out once.
   float belowLeft = -1.0;
 
-  for (int i = 0; i < 64; i++) {
-    if (float(i) >= u_count) {
+  for (int group = 0; group < 128; group++) {
+    float first = 4.0 * float(group);
+    if (first >= u_count) {
       break;
     }
-    float left = (float(i) - 0.5) * u_bar_width;
-    float right = left + u_bar_width;
-    if (right < p.x - reach) {
+    // The four bars of the group lie between these: a group out of reach is
+    // passed over whole.
+    float groupLeft = (first - 0.5) * u_bar_width;
+    if (groupLeft > p.x + reach) {
+      break;
+    }
+    if (groupLeft + 4.0 * u_bar_width < p.x - reach) {
       continue;
     }
-    if (left > p.x + reach) {
-      break;
+    vec4 halfHeights = u_half_heights[group];
+
+    for (int k = 0; k < 4; k++) {
+      float i = first + float(k);
+      if (i >= u_count) {
+        break;
+      }
+      float left = (i - 0.5) * u_bar_width;
+      float right = left + u_bar_width;
+      if (right < p.x - reach) {
+        continue;
+      }
+      if (left > p.x + reach) {
+        break;
+      }
+      float h = halfHeights[k];
+      float belowRight = below((right - p.x) / u_sigma);
+      if (belowLeft < 0.0) {
+        belowLeft = below((left - p.x) / u_sigma);
+      }
+      if (abs(p.y - u_middle) < h + reach) {
+        float along = below((u_middle + h - p.y) / u_sigma)
+            - below((u_middle - h - p.y) / u_sigma);
+        glow += (belowRight - belowLeft) * along;
+      }
+      belowLeft = belowRight;
     }
-    float h = u_half_heights[i];
-    float belowRight = below((right - p.x) / u_sigma);
-    if (belowLeft < 0.0) {
-      belowLeft = below((left - p.x) / u_sigma);
-    }
-    if (abs(p.y - u_middle) < h + reach) {
-      float along = below((u_middle + h - p.y) / u_sigma)
-          - below((u_middle - h - p.y) / u_sigma);
-      glow += (belowRight - belowLeft) * along;
-    }
-    belowLeft = belowRight;
   }
 
   fragColor = u_color * glow;

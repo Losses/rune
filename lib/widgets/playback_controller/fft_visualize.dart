@@ -245,18 +245,18 @@ class _WindowVisibilityObserver extends WidgetsBindingObserver {
 /// image has [resolution] pixels for each logical pixel, 4 for each deviation:
 /// a third, on every screen. The shader then works out a ninth of the pixels,
 /// and no pixel moves by more than 2 levels of 255 from the glow at the full
-/// resolution (lib/test/widgets/spectrum_glow_test.dart). On a Radxa ZERO 3 at
-/// its 400 MHz GPU floor, the glow at the full resolution made the GPU miss
-/// about one frame a second while music played, and at a third none.
+/// resolution (lib/test/widgets/spectrum_glow_test.dart).
 class SpectrumGlow {
   SpectrumGlow(this._shader, {this.resolution = 4 / blurSigma});
 
   static const double blurSigma = 12.0;
   static const double glowOpacity = 0.87;
 
-  /// The bars the shader takes. The spectrum has 64 bands
-  /// (playback/src/realtime_fft.rs); further bars are not drawn.
-  static const int maxBars = 64;
+  /// The bars the shader takes: the player sends 512 bands, the magnitudes of
+  /// a 512 point FFT (playback/src/internal.rs). lib/shaders/spectrum.frag
+  /// holds no more, so a longer spectrum fails an assertion here, as missing
+  /// bands would leave the glow without them.
+  static const int maxBars = 512;
 
   final ui.FragmentShader _shader;
 
@@ -275,6 +275,11 @@ class SpectrumGlow {
   /// Draws the glow of [values] over [size].
   void paint(Canvas canvas, Size size, List<double> values, Color color) {
     if (values.isEmpty) return;
+    assert(
+      values.length <= maxBars,
+      'The glow draws $maxBars bands at most, but the spectrum has '
+      '${values.length}.',
+    );
 
     final barWidth = size.width / values.length;
     final middle = size.height / 2;

@@ -13,8 +13,14 @@ const _width = 640.0, _height = 160.0;
 const _margin = 48.0;
 const _color = Color(0xFF0078D4);
 
-/// What the spectrum drew before its glow became a shader: solid bars, as
-/// lines as wide as a band, under a blur of 12 and an opacity of 0.87.
+/// What the spectrum drew before its glow became a shader: solid bars as wide
+/// as a band, under a blur of 12 and an opacity of 0.87.
+///
+/// The bars are one path. The app drew each as a line of its own, and where
+/// two narrow bars share a pixel, blending their partial coverage one after
+/// the other loses some of it: 512 bars over 640 pixels lost 12% of the glow,
+/// in seams up to 31 levels darker. One path covers each pixel by the bars'
+/// true area, which the shader works out.
 class _Bars extends CustomPainter {
   _Bars(this.values);
 
@@ -22,15 +28,21 @@ class _Bars extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = _color
-      ..strokeWidth = size.width / values.length;
+    final barWidth = size.width / values.length;
     final midY = size.height / 2;
+    final bars = Path();
     for (int i = 0; i < values.length; i++) {
-      final x = i * (size.width / values.length);
       final y = values[i] * size.height / 2;
-      canvas.drawLine(Offset(x, midY - y), Offset(x, midY + y), paint);
+      bars.addRect(
+        Rect.fromLTRB(
+          (i - 0.5) * barWidth,
+          midY - y,
+          (i + 0.5) * barWidth,
+          midY + y,
+        ),
+      );
     }
+    canvas.drawPath(bars, Paint()..color = _color);
   }
 
   @override
@@ -91,10 +103,35 @@ List<double> _spectrum(int seed) {
   );
 }
 
+/// What the player sends while music plays (playback/src/realtime_fft.rs,
+/// with a window of 512 in playback/src/internal.rs): the magnitudes of a
+/// 512 point FFT, mirrored about the middle band, weighted by a Nuttall window
+/// and scaled to a peak of 1, so that the outer bands stay near 0.
+List<double> _playerSpectrum(int seed) {
+  final random = Random(seed);
+  final magnitudes = List.generate(
+    257,
+    (k) => exp(-k / 40) * (0.5 + random.nextDouble()),
+  );
+  final weighted = List.generate(512, (n) {
+    final f = 2 * pi * n / 511;
+    final window =
+        0.355768 -
+        0.487396 * cos(f) +
+        0.144232 * cos(2 * f) -
+        0.012604 * cos(3 * f);
+    return magnitudes[n <= 256 ? n : 512 - n] * window;
+  });
+  final peak = weighted.reduce(max);
+  return [for (final value in weighted) value / peak];
+}
+
 void main() {
   final cases = <String, List<double>>{
     'music': _spectrum(1),
     'other music': _spectrum(7),
+    'the player\'s 512 bands': _playerSpectrum(1),
+    'other 512 bands': _playerSpectrum(7),
     'bars reaching the box edges': List.generate(64, (i) => i.isEven ? 1.0 : 0),
     'a lone bar': List.generate(64, (i) => i == 20 ? 0.6 : 0),
     'quiet': List.generate(64, (i) => 0.04 * (i % 5)),
