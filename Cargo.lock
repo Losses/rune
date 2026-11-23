@@ -4459,6 +4459,8 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "chrono",
+ "deunicode",
+ "migration",
  "once_cell",
  "sea-orm-migration",
  "sync-orm",
