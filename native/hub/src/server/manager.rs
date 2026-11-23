@@ -748,6 +748,12 @@ impl ServerManager {
         self.is_running.load(Ordering::SeqCst)
     }
 
+    /// Whether the running listener is the sync-only service started for paired sync, rather
+    /// than the full server started through `StartServerRequest`.
+    pub fn is_sync_listener(&self) -> bool {
+        self.is_running() && self.sync_only.load(Ordering::SeqCst)
+    }
+
     pub async fn get_address(&self) -> Option<SocketAddr> {
         *self.addr.lock().await
     }

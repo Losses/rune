@@ -192,15 +192,20 @@ impl Signal for crate::messages::SetSyncSettingsRequest {
     ) -> Result<Option<Self::Response>> {
         let policy = request.missing_host_file.into();
         let mut current = settings.write().await;
-        // The setting describes the listener, so reconcile the listener on every request
-        // instead of only when the stored value changes: an earlier attempt may have saved
-        // the setting without starting the listener. Persist only after the listener reached
-        // the requested state, so a failed attempt leaves the saved and displayed setting
-        // equal to the state that is actually served. If the save itself fails, put the
-        // listener back to the state the saved setting still describes.
-        let was_running = manager.as_ref().is_some_and(|manager| manager.is_running());
-        let started = request.listen && !was_running;
-        let stopped = !request.listen && was_running;
+        // The setting describes the paired sync listener, so reconcile that listener on every
+        // request instead of only when the stored value changes: an earlier attempt may have
+        // saved the setting without starting the listener. A full server started through
+        // `StartServerRequest` is independent and must never be stopped or replaced here.
+        // Persist only after the listener reached the requested state, so a failed attempt
+        // leaves the saved and displayed setting equal to the state that is actually served.
+        // If the save itself fails, put the sync listener back to the state the saved setting
+        // still describes.
+        let was_sync_listener = manager
+            .as_ref()
+            .is_some_and(|manager| manager.is_sync_listener());
+        let any_server_running = manager.as_ref().is_some_and(|manager| manager.is_running());
+        let started = request.listen && !any_server_running;
+        let stopped = !request.listen && was_sync_listener;
         if request.listen {
             let manager = manager.as_ref().ok_or(ExpectedRequestError::Unavailable {
                 what: "server manager",
@@ -217,8 +222,8 @@ impl Signal for crate::messages::SetSyncSettingsRequest {
         };
         if let Err(save_error) = next.save(Path::new(&**config)) {
             let restore = match manager.as_ref() {
-                Some(manager) if started => manager.stop().await,
-                Some(manager) if stopped => {
+                Some(manager) if started && manager.is_sync_listener() => manager.stop().await,
+                Some(manager) if stopped && !manager.is_running() => {
                     start_paired_sync_listener(manager, &config, run_mode).await
                 }
                 _ => Ok(()),
@@ -313,12 +318,10 @@ mod tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn failed_enable_keeps_the_setting_off_and_the_retry_starts_the_listener() -> Result<()> {
-        let dir = tempfile::tempdir()?;
-        let config = Arc::new(dir.path().to_string_lossy().into_owned());
-        crate::test_node::disable_sync_listener(dir.path())?;
-        let node = NodeContext::new(
+    async fn test_node(dir: &Path) -> Result<Arc<NodeContext>> {
+        crate::test_node::disable_sync_listener(dir)?;
+        let config = Arc::new(dir.to_string_lossy().into_owned());
+        NodeContext::new(
             &config,
             &config,
             Arc::new(LocalGuiBroadcaster),
@@ -326,7 +329,28 @@ mod tests {
             RunMode::App,
             Arc::new(::visualizer::Visualizer::new()),
         )
-        .await?;
+        .await
+    }
+
+    /// Starts the full server the way `StartServerRequest` does, and returns its bound address.
+    async fn start_full_server(node: &Arc<NodeContext>) -> Result<SocketAddr> {
+        let manager = node.manager()?;
+        manager
+            .clone()
+            .start(
+                ([127, 0, 0, 1], 0).into(),
+                discovery::DiscoveryParams {
+                    device_info: node.device_info().await?,
+                },
+            )
+            .await?;
+        manager.get_address().await.context("full server address")
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn failed_enable_keeps_the_setting_off_and_the_retry_starts_the_listener() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let node = test_node(dir.path()).await?;
         let manager = node.manager()?;
         assert!(!manager.is_running());
 
@@ -456,6 +480,64 @@ mod tests {
         assert!(manager.is_running());
         assert!(SyncSettings::load(dir.path()).listen);
         assert!(shown_settings(&node).await?.listen);
+
+        node.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn disabled_setting_keeps_an_independent_full_server_running() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let node = test_node(dir.path()).await?;
+        let manager = node.manager()?;
+        let address = start_full_server(&node).await?;
+        assert!(manager.is_running());
+        assert!(!manager.is_sync_listener());
+
+        // The saved setting is already off, so this request only persists the policy.
+        set_sync_settings(&node, false, MissingHostFilePolicy::KeepAsRemote).await?;
+
+        assert!(manager.is_running(), "the full server was stopped");
+        assert_eq!(manager.get_address().await, Some(address));
+        assert!(
+            !manager.is_sync_listener(),
+            "the full server became a sync listener"
+        );
+        assert!(!SyncSettings::load(dir.path()).listen);
+
+        node.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn failed_save_keeps_an_independent_full_server_running() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let node = test_node(dir.path()).await?;
+        let manager = node.manager()?;
+
+        // A full server is already serving, so enabling the setting must not start a
+        // sync listener and disabling it must not stop the full server.
+        let address = start_full_server(&node).await?;
+        set_sync_settings(&node, true, MissingHostFilePolicy::RemoveEverywhere).await?;
+        assert!(manager.is_running());
+        assert!(!manager.is_sync_listener());
+
+        let blocked = BlockedSettingsFile::new(dir.path())?;
+        let error = set_sync_settings(&node, false, MissingHostFilePolicy::KeepAsRemote)
+            .await
+            .expect_err("disabling while the settings cannot be saved");
+        assert!(
+            format!("{error:#}").contains("replace sync settings"),
+            "{error:#}"
+        );
+        assert!(manager.is_running(), "the full server was stopped");
+        assert_eq!(manager.get_address().await, Some(address));
+        assert!(
+            !manager.is_sync_listener(),
+            "the full server was replaced by a sync listener"
+        );
+        drop(blocked);
+        assert!(SyncSettings::load(dir.path()).listen);
 
         node.shutdown().await?;
         Ok(())
