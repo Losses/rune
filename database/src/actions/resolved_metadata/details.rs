@@ -8,11 +8,19 @@ use metadata::{
     },
     resolve::LocalMetadata,
 };
-use sea_orm::{ConnectionTrait, DatabaseTransaction, QueryResult, Value};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DatabaseTransaction, ExprTrait, JoinType, QueryResult, Value,
+    sea_query::{Expr, IntoTableRef, Order, Query, SelectStatement, UnionType},
+};
 use serde::{Serialize, de::DeserializeOwned};
 use uuid::Uuid;
 
-use super::{CreditScope, Winners, credits, statement};
+use crate::entities::music_metadata::{
+    audio, current_recording_audio as verified, details as orm_details, discs, track_assets,
+    track_recordings, values as orm_values,
+};
+
+use super::{CreditScope, Winners, column, credits};
 
 const ALBUM: i32 = CreditScope::Album as i32;
 const DISC: i32 = CreditScope::Disc as i32;
@@ -36,40 +44,75 @@ impl Selection {
     }
 
     // Read side tables in release, track, and tag order without loading audio metadata.
-    pub(super) async fn rows(
+    pub(super) fn rows(
         self,
-        db: &impl ConnectionTrait,
-        table: &str,
-        fields: &str,
-        restriction: &str,
-        order: &str,
-    ) -> Result<Vec<QueryResult>> {
-        let (filter, id) = match self {
-            Self::Album(id) => ("d.album_id = ?", id.to_string().into()),
-            Self::Disc(id) => ("a.disc_id = ?", id.to_string().into()),
-            Self::Audio(id) => ("a.file_id = ?", id.into()),
-            Self::Recording(id) => (
-                "a.file_id IN (
-                SELECT file_id FROM music_metadata_current_recording_audio WHERE recording_id = ?2
-                UNION SELECT current.file_id FROM music_metadata_track_recordings r
-                JOIN music_metadata_track_assets v ON v.track_id = r.track_id
-                JOIN music_metadata_current_recording_audio current ON current.file_id = v.file_id
-                WHERE r.recording_id = ?2 AND v.end_ms IS NULL
-            )",
-                id.to_string().into(),
-            ),
+        table: impl IntoTableRef,
+        file_id: impl ColumnTrait,
+        scope: impl ColumnTrait,
+    ) -> SelectStatement {
+        let mut query = side_rows(table, file_id, scope, self.scope());
+        let scope = match self {
+            Self::Album(id) => discs::Column::AlbumId.eq(id.to_string()),
+            Self::Disc(id) => audio::Column::DiscId.eq(id.to_string()),
+            Self::Audio(id) => audio::Column::FileId.eq(id),
+            Self::Recording(id) => {
+                let id = id.to_string();
+                let tracks = Query::select()
+                    .column(verified::Column::FileId.as_column_ref())
+                    .from(track_recordings::Entity)
+                    .inner_join(
+                        track_assets::Entity,
+                        column(track_assets::Column::TrackId)
+                            .eq(column(track_recordings::Column::TrackId)),
+                    )
+                    .inner_join(
+                        verified::Entity,
+                        column(verified::Column::FileId).eq(column(track_assets::Column::FileId)),
+                    )
+                    .and_where(track_recordings::Column::RecordingId.eq(&id))
+                    .and_where(track_assets::Column::EndMs.is_null())
+                    .to_owned();
+
+                // Whole-file versions contribute recording metadata in either identity path.
+                let files = Query::select()
+                    .column(verified::Column::FileId)
+                    .from(verified::Entity)
+                    .and_where(verified::Column::RecordingId.eq(id))
+                    .union(UnionType::Distinct, tracks)
+                    .to_owned();
+                column(audio::Column::FileId).in_subquery(files)
+            }
         };
-        let sql = format!(
-            "SELECT v.file_id, {fields} FROM {table} v
-             JOIN music_metadata_audio a ON a.file_id = v.file_id
-             JOIN music_metadata_discs d ON d.id = a.disc_id
-             WHERE v.scope = ? AND {filter}{restriction}
-             ORDER BY d.disc_number, a.track_number IS NULL, a.track_number, a.file_id{order}"
-        );
-        Ok(db
-            .query_all_raw(statement(sql, [self.scope().into(), id]))
-            .await?)
+        query.and_where(scope);
+        query
     }
+}
+
+fn side_rows(
+    table: impl IntoTableRef,
+    file_id: impl ColumnTrait,
+    scope: impl ColumnTrait,
+    selection: i32,
+) -> SelectStatement {
+    Query::select()
+        .column(file_id.as_column_ref())
+        .from(table)
+        .join(
+            JoinType::InnerJoin,
+            audio::Entity,
+            column(audio::Column::FileId).eq(column(file_id)),
+        )
+        .join(
+            JoinType::InnerJoin,
+            discs::Entity,
+            column(discs::Column::Id).eq(column(audio::Column::DiscId)),
+        )
+        .and_where(scope.eq(selection))
+        .order_by(discs::Column::DiscNumber.as_column_ref(), Order::Asc)
+        .order_by_expr(audio::Column::TrackNumber.is_null(), Order::Asc)
+        .order_by(audio::Column::TrackNumber.as_column_ref(), Order::Asc)
+        .order_by(audio::Column::FileId.as_column_ref(), Order::Asc)
+        .to_owned()
 }
 
 pub(super) type Contributors = BTreeMap<i32, BTreeSet<String>>;
@@ -164,48 +207,66 @@ pub(super) async fn store(
     }
 
     // Replace ordered tag values as a batch, keeping below SQLite's bind limit.
-    db.execute_raw(statement(
-        "DELETE FROM music_metadata_values WHERE file_id = ?",
-        [file_id.into()],
-    ))
+    db.execute(
+        Query::delete()
+            .from_table(orm_values::Entity)
+            .and_where(Expr::col(orm_values::Column::FileId).eq(Expr::val(file_id))),
+    )
     .await?;
     for rows in rows.chunks(128) {
-        let placeholders = vec!["(?, ?, ?, ?, ?, ?)"; rows.len()].join(", ");
-        let sql = format!(
-            "INSERT INTO music_metadata_values(file_id, scope, field, qualifier, position, value) VALUES {placeholders}"
-        );
-        let binds = rows
-            .iter()
-            .flat_map(|row| std::iter::once(file_id.into()).chain(row.iter().cloned()));
-        db.execute_raw(statement(sql, binds)).await?;
+        use orm_values::Column as C;
+        let mut insert = Query::insert();
+        insert.into_table(orm_values::Entity).columns([
+            C::FileId,
+            C::Scope,
+            C::Field,
+            C::Qualifier,
+            C::Position,
+            C::Value,
+        ]);
+        for row in rows {
+            insert.values(
+                std::iter::once(Expr::val(file_id)).chain(row.iter().cloned().map(Expr::val)),
+            )?;
+        }
+        db.execute(&insert).await?;
     }
 
     // Keep the structured, rarely filtered fields away from the scalar evidence.
-    db.execute_raw(statement(
-        "DELETE FROM music_metadata_details WHERE file_id = ?",
-        [file_id.into()],
-    ))
+    db.execute(
+        Query::delete()
+            .from_table(orm_details::Entity)
+            .and_where(Expr::col(orm_details::Column::FileId).eq(Expr::val(file_id))),
+    )
     .await?;
-    let mut details = Vec::new();
+    use orm_details::Column as DetailColumn;
+    let mut insert = Query::insert();
+    insert.into_table(orm_details::Entity).columns([
+        DetailColumn::FileId,
+        DetailColumn::Scope,
+        DetailColumn::Artwork,
+        DetailColumn::Links,
+        DetailColumn::Provenance,
+    ]);
+    let mut has_details = false;
     for (scope, base) in [
         (ALBUM, &metadata.album.base),
         (DISC, &metadata.disc.base),
         (AUDIO, &metadata.audio.base),
     ] {
         if base.artwork.is_some() || base.links.is_some() || base.provenance.is_some() {
-            details.extend([
-                file_id.into(),
-                scope.into(),
-                encode(&base.artwork)?.into(),
-                encode(&base.links)?.into(),
-                encode(&base.provenance)?.into(),
-            ]);
+            insert.values([
+                Expr::val(file_id),
+                Expr::val(scope),
+                Expr::val(encode(&base.artwork)?),
+                Expr::val(encode(&base.links)?),
+                Expr::val(encode(&base.provenance)?),
+            ])?;
+            has_details = true;
         }
     }
-    if !details.is_empty() {
-        let placeholders = vec!["(?, ?, ?, ?, ?)"; details.len() / 5].join(", ");
-        let sql = format!("INSERT INTO music_metadata_details VALUES {placeholders}");
-        db.execute_raw(statement(sql, details)).await?;
+    if has_details {
+        db.execute(&insert).await?;
     }
     Ok(())
 }
@@ -252,15 +313,26 @@ pub(super) async fn load(
     base: &mut MetadataBase,
     winners: &Winners,
 ) -> Result<Lists> {
-    let rows = selection
-        .rows(
-            db,
-            "music_metadata_values",
-            "v.field, v.qualifier, v.value",
-            "",
-            ", v.field, v.qualifier, v.position",
+    use orm_values::Column as ValueColumn;
+    let mut query = selection.rows(orm_values::Entity, ValueColumn::FileId, ValueColumn::Scope);
+    query
+        .columns(
+            [
+                ValueColumn::Field,
+                ValueColumn::Qualifier,
+                ValueColumn::Value,
+            ]
+            .map(|c| c.as_column_ref()),
         )
-        .await?;
+        .order_by_columns(
+            [
+                ValueColumn::Field,
+                ValueColumn::Qualifier,
+                ValueColumn::Position,
+            ]
+            .map(|c| (c.as_column_ref(), Order::Asc)),
+        );
+    let rows = db.query_all(&query).await?;
     let mut lists = Lists::default();
     let mut contributors = Contributors::new();
     for row in rows {
@@ -273,15 +345,20 @@ pub(super) async fn load(
     credits::load(db, selection, first_file, base, &mut contributors).await?;
 
     // Artwork and links often repeat unchanged on every track of a release.
-    let rows = selection
-        .rows(
-            db,
-            "music_metadata_details",
-            "v.artwork, v.links",
-            " AND (v.artwork IS NOT NULL OR v.links IS NOT NULL)",
-            "",
-        )
-        .await?;
+    use orm_details::Column as DetailColumn;
+    let mut query = selection.rows(
+        orm_details::Entity,
+        DetailColumn::FileId,
+        DetailColumn::Scope,
+    );
+    query
+        .columns([DetailColumn::Artwork, DetailColumn::Links].map(|c| c.as_column_ref()))
+        .and_where(
+            DetailColumn::Artwork
+                .is_not_null()
+                .or(DetailColumn::Links.is_not_null()),
+        );
+    let rows = db.query_all(&query).await?;
     let mut seen = SeenObjects::default();
     for row in rows {
         let file_id: i32 = row.try_get("", "file_id")?;
@@ -318,17 +395,13 @@ async fn load_provenance(
 
     // Fetch JSON only from tracks that contributed a winning field.
     for ids in ids.chunks(500) {
-        let parameters = vec!["?"; ids.len()].join(", ");
-        let sql = format!(
-            "SELECT v.file_id, v.provenance FROM music_metadata_details v
-             JOIN music_metadata_audio a ON a.file_id = v.file_id
-             JOIN music_metadata_discs d ON d.id = a.disc_id
-             WHERE v.scope = ? AND v.provenance IS NOT NULL AND v.file_id IN ({parameters})
-             ORDER BY d.disc_number, a.track_number IS NULL, a.track_number, v.file_id"
-        );
-        let values =
-            std::iter::once(selection.scope().into()).chain(ids.iter().map(|id| (*id).into()));
-        let rows = db.query_all_raw(statement(sql, values)).await?;
+        use orm_details::Column as C;
+        let mut query = side_rows(orm_details::Entity, C::FileId, C::Scope, selection.scope());
+        query
+            .column(C::Provenance.as_column_ref())
+            .and_where(C::Provenance.is_not_null())
+            .and_where(C::FileId.is_in(ids.iter().copied()));
+        let rows = db.query_all(&query).await?;
         append_provenance(base, selection, winners, contributors, rows)?;
     }
     Ok(())

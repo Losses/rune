@@ -5,13 +5,19 @@ use metadata::{
     model::{AlbumMetadata, FieldSource, MetadataSourceKind},
     overlay::{OverlayField, OverlayMetadata},
 };
-use sea_orm::{ConnectionTrait, TransactionSession, TransactionTrait};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, EntityTrait, ExprTrait, QueryFilter, QueryOrder, Set,
+    TransactionSession, TransactionTrait,
+    sea_query::{Alias, Expr, OnConflict},
+};
 use uuid::Uuid;
 
-use super::{
-    overlays::{self, OverlayTarget},
-    statement,
+use crate::entities::music_metadata::{
+    album_effective_fields as effective, album_field_values as proposals,
 };
+use proposals::Column as FieldColumn;
+
+use super::overlays::{self, OverlayTarget};
 pub use metadata::overlay::OverlayEdit as AlbumOverride;
 
 /// Scalar edition fields that can be edited independently of the audio tags.
@@ -93,12 +99,33 @@ pub async fn propose_album_field(
     let value = OverlayField::from_key(field.key())
         .context("unknown album field")?
         .normalize(value)?;
-    db.execute_raw(statement(
-        "INSERT INTO music_metadata_album_field_values (album_id, field, provider, resource, value, decision)
-         VALUES (?, ?, ?, ?, ?, 0) ON CONFLICT(album_id, field, provider, resource) DO UPDATE SET
-             value = excluded.value, decision = CASE WHEN value = excluded.value THEN decision ELSE 0 END",
-        [album.to_string().into(), field.key().into(), provider.into(), resource.into(), value.into()],
-    )).await?;
+    // A provider can refresh the same proposal without resetting an unchanged decision.
+    let decision = Expr::case(
+        Expr::col(FieldColumn::Value).eq(Expr::col((Alias::new("excluded"), FieldColumn::Value))),
+        Expr::col(FieldColumn::Decision),
+    )
+    .finally(CandidateDecision::Pending as i32);
+    let conflict = OnConflict::columns([
+        FieldColumn::AlbumId,
+        FieldColumn::Field,
+        FieldColumn::Provider,
+        FieldColumn::Resource,
+    ])
+    .update_column(FieldColumn::Value)
+    .value(FieldColumn::Decision, decision)
+    .to_owned();
+
+    proposals::Entity::insert(proposals::ActiveModel {
+        album_id: Set(album.to_string()),
+        field: Set(field.key().to_owned()),
+        provider: Set(provider.to_owned()),
+        resource: Set(resource.to_owned()),
+        value: Set(Some(value)),
+        decision: Set(CandidateDecision::Pending as i32),
+    })
+    .on_conflict(conflict)
+    .exec_without_returning(db)
+    .await?;
     Ok(())
 }
 
@@ -108,20 +135,21 @@ pub async fn album_field_candidates(
     album: Uuid,
     field: AlbumField,
 ) -> Result<Vec<AlbumFieldCandidate>> {
-    let rows = db
-        .query_all_raw(statement(
-            "SELECT provider, resource, value, decision FROM music_metadata_album_field_values
-         WHERE album_id = ? AND field = ? AND provider <> '' ORDER BY provider, resource",
-            [album.to_string().into(), field.key().into()],
-        ))
+    let rows = proposals::Entity::find()
+        .filter(FieldColumn::AlbumId.eq(album.to_string()))
+        .filter(FieldColumn::Field.eq(field.key()))
+        .filter(FieldColumn::Provider.ne(""))
+        .order_by_asc(FieldColumn::Provider)
+        .order_by_asc(FieldColumn::Resource)
+        .all(db)
         .await?;
-    rows.iter()
+    rows.into_iter()
         .map(|row| {
             Ok(AlbumFieldCandidate {
-                provider: row.try_get("", "provider")?,
-                resource: row.try_get("", "resource")?,
-                value: row.try_get("", "value")?,
-                decision: match row.try_get::<i32>("", "decision")? {
+                provider: row.provider,
+                resource: row.resource,
+                value: row.value.context("album field proposal has no value")?,
+                decision: match row.decision {
                     0 => CandidateDecision::Pending,
                     1 => CandidateDecision::Accepted,
                     2 => CandidateDecision::Rejected,
@@ -152,33 +180,32 @@ pub async fn decide_album_field(
 
     // The savepoint keeps the old selection if a caller references a missing proposal.
     if decision == CandidateDecision::Accepted {
-        tx.execute_raw(statement(
-            "UPDATE music_metadata_album_field_values SET decision = 0
-             WHERE album_id = ?1 AND field = ?2 AND provider <> '' AND decision = 1
-               AND (provider <> ?3 OR resource <> ?4)",
-            [
-                album.clone().into(),
-                field.key().into(),
-                provider.into(),
-                resource.into(),
-            ],
-        ))
-        .await?;
+        proposals::Entity::update_many()
+            .col_expr(
+                FieldColumn::Decision,
+                Expr::val(CandidateDecision::Pending as i32),
+            )
+            .filter(FieldColumn::AlbumId.eq(&album))
+            .filter(FieldColumn::Field.eq(field.key()))
+            .filter(FieldColumn::Provider.ne(""))
+            .filter(FieldColumn::Decision.eq(CandidateDecision::Accepted as i32))
+            .filter(
+                Condition::any()
+                    .add(FieldColumn::Provider.ne(provider))
+                    .add(FieldColumn::Resource.ne(resource)),
+            )
+            .exec(&tx)
+            .await?;
     }
-    let updated = tx
-        .execute_raw(statement(
-            "UPDATE music_metadata_album_field_values SET decision = ?
-         WHERE album_id = ? AND field = ? AND provider = ? AND resource = ?",
-            [
-                (decision as i32).into(),
-                album.into(),
-                field.key().into(),
-                provider.into(),
-                resource.into(),
-            ],
-        ))
+    let updated = proposals::Entity::update_many()
+        .col_expr(FieldColumn::Decision, Expr::val(decision as i32))
+        .filter(FieldColumn::AlbumId.eq(album))
+        .filter(FieldColumn::Field.eq(field.key()))
+        .filter(FieldColumn::Provider.eq(provider))
+        .filter(FieldColumn::Resource.eq(resource))
+        .exec(&tx)
         .await?
-        .rows_affected()
+        .rows_affected
         != 0;
     if updated {
         tx.commit().await?;
@@ -196,35 +223,32 @@ pub async fn withdraw_album_provider(
 ) -> Result<u64> {
     let provider = provider.trim();
     ensure!(!provider.is_empty(), "missing album provider");
-    Ok(db
-        .execute_raw(statement(
-            "DELETE FROM music_metadata_album_field_values WHERE album_id = ? AND provider = ?",
-            [album.to_string().into(), provider.into()],
-        ))
+    Ok(proposals::Entity::delete_many()
+        .filter(FieldColumn::AlbumId.eq(album.to_string()))
+        .filter(FieldColumn::Provider.eq(provider))
+        .exec(db)
         .await?
-        .rows_affected())
+        .rows_affected)
 }
 
 pub(super) async fn apply(db: &impl ConnectionTrait, album: &mut AlbumMetadata) -> Result<()> {
-    let rows = db
-        .query_all_raw(statement(
-            "SELECT field, provider, resource, value FROM music_metadata_album_effective_fields
-         WHERE album_id = ? AND provider <> ''",
-            [album.base.id.to_string().into()],
-        ))
+    let rows = effective::Entity::find()
+        .filter(effective::Column::AlbumId.eq(album.base.id.to_string()))
+        .filter(effective::Column::Provider.ne(""))
+        .all(db)
         .await?;
     for row in rows {
-        let key: String = row.try_get("", "field")?;
-        let field = OverlayField::from_key(&key).context("unknown external metadata field")?;
+        let field =
+            OverlayField::from_key(&row.field).context("unknown external metadata field")?;
         let source = FieldSource {
             kind: MetadataSourceKind::External,
-            key: Some(row.try_get("", "provider")?),
-            path: Some(row.try_get("", "resource")?),
+            key: Some(row.provider),
+            path: Some(row.resource),
             pattern: None,
             entity_id: None,
             confidence: None,
         };
-        album.apply_field(field, row.try_get("", "value")?, source);
+        album.apply_field(field, row.value, source);
     }
     Ok(())
 }

@@ -2,10 +2,12 @@
 
 use anyhow::Result;
 use metadata::model::MetadataBase;
-use sea_orm::{ConnectionTrait, DatabaseTransaction};
+use sea_orm::{ColumnTrait, DatabaseTransaction, EntityTrait, Set, sea_query::OnConflict};
 use uuid::Uuid;
 
-use super::{external_uuid, statement};
+use crate::entities::music_metadata::artists;
+
+use super::external_uuid;
 
 const NAMESPACE: Uuid = Uuid::from_u128(0xa512c2e6_5010_5d7a_8971_dcdf1881bb4d);
 const VARIOUS_ARTISTS: Uuid = Uuid::from_u128(0x89ad4ac3_39f7_470e_963a_56509c546377);
@@ -29,16 +31,18 @@ pub(super) async fn primary(
 
     // The MBID identifies the artist. The spelling remains on each contributing credit.
     let id = Uuid::new_v5(&NAMESPACE, mbid.as_bytes()).to_string();
-    db.execute_raw(statement(
-        "INSERT INTO music_metadata_artists (id, name, musicbrainz_id) VALUES (?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET musicbrainz_id = excluded.musicbrainz_id
-         WHERE musicbrainz_id IS NULL",
-        [
-            id.clone().into(),
-            credit.credited_as.clone().into(),
-            mbid.to_string().into(),
-        ],
-    ))
+    artists::Entity::insert(artists::ActiveModel {
+        id: Set(id.clone()),
+        name: Set(credit.credited_as.clone()),
+        musicbrainz_id: Set(Some(mbid.to_string())),
+    })
+    .on_conflict(
+        OnConflict::column(artists::Column::Id)
+            .update_column(artists::Column::MusicbrainzId)
+            .action_and_where(artists::Column::MusicbrainzId.is_null())
+            .to_owned(),
+    )
+    .exec_without_returning(db)
     .await?;
     Ok(Some(id))
 }

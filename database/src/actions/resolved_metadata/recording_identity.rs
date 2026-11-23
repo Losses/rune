@@ -1,13 +1,23 @@
 //! Reconcile normalized identifier evidence without letting a partial tag seed a match.
 
+use crate::entities::music_metadata::audio as orm_audio;
+use crate::entities::music_metadata::recording_dirty as orm_recording_dirty;
+use crate::entities::music_metadata::recordings as orm_recordings;
+use sea_orm::ExprTrait;
+use sea_orm::sea_query::{
+    Alias, Asterisk, BinOper, CommonTableExpression, Expr, Func, OnConflict, Query,
+    SelectStatement, UnionType, WithClause,
+};
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::Result;
 use metadata::model::RecordingIdentifiers;
-use sea_orm::{ConnectionTrait, QueryResult};
+use sea_orm::{ColumnTrait, ConnectionTrait, QueryResult};
 use uuid::Uuid;
 
-use super::{statement, uuid};
+use crate::entities::music_metadata::{recording_evidence, recording_sources};
+
+use super::{column, uuid};
 
 pub(super) const NAMESPACE: Uuid = Uuid::from_u128(0x59e7e858_d294_50cc_9468_d2b63f436799);
 
@@ -31,10 +41,17 @@ pub(super) fn isrc(value: &str) -> Option<String> {
 }
 
 pub(super) async fn ensure_exists(db: &impl ConnectionTrait, id: Uuid) -> Result<()> {
-    db.execute_raw(statement(
-        "INSERT INTO music_metadata_recordings (id) VALUES (?) ON CONFLICT(id) DO NOTHING",
-        [id.to_string().into()],
-    ))
+    db.execute(
+        Query::insert()
+            .into_table(orm_recordings::Entity)
+            .columns([orm_recordings::Column::Id])
+            .values_panic([Expr::val(id.to_string())])
+            .on_conflict(
+                OnConflict::column(orm_recordings::Column::Id)
+                    .do_nothing()
+                    .to_owned(),
+            ),
+    )
     .await?;
     Ok(())
 }
@@ -46,15 +63,20 @@ pub(super) async fn prepare_audio(
 ) -> Result<Uuid> {
     // Reuse an unchanged assignment. A changed or new source starts on its private UUID.
     if let Some(row) = db
-        .query_one_raw(statement(
-            "SELECT recording_id FROM music_metadata_audio WHERE id = ?
-         AND recording_mbid IS ? AND recording_isrc IS ?",
-            [
-                audio.to_string().into(),
-                ids.musicbrainz_id.map(|id| id.to_string()).into(),
-                ids.isrc.clone().into(),
-            ],
-        ))
+        .query_one(
+            Query::select()
+                .column(orm_audio::Column::RecordingId)
+                .from(orm_audio::Entity)
+                .and_where(Expr::col(orm_audio::Column::Id).eq(Expr::val(audio.to_string())))
+                .and_where(Expr::col(orm_audio::Column::RecordingMbid).binary(
+                    BinOper::Is,
+                    Expr::val(ids.musicbrainz_id.map(|id| id.to_string())),
+                ))
+                .and_where(
+                    Expr::col(orm_audio::Column::RecordingIsrc)
+                        .binary(BinOper::Is, Expr::val(ids.isrc.clone())),
+                ),
+        )
         .await?
     {
         return uuid(&row, "recording_id");
@@ -111,31 +133,19 @@ type Claims<'a> = BTreeMap<&'a str, BTreeSet<&'a str>>;
 /// Rebuild only identifier components touched by source changes in the current transaction.
 pub(in crate::actions) async fn reconcile(db: &impl ConnectionTrait) -> Result<()> {
     if db
-        .query_one_raw(statement(
-            "SELECT 1 FROM music_metadata_recording_dirty LIMIT 1",
-            [],
-        ))
+        .query_one(
+            Query::select()
+                .expr(Expr::val(1))
+                .from(orm_recording_dirty::Entity)
+                .limit(1),
+        )
         .await?
         .is_none()
     {
         return Ok(());
     }
     // The bipartite identifier graph expands equally from the old and new identifiers.
-    let rows = db.query_all_raw(statement(
-        "WITH RECURSIVE keys(kind, value) AS (
-            SELECT kind, value FROM music_metadata_recording_dirty WHERE kind <> 'recording'
-            UNION
-            SELECT 'isrc', e.isrc FROM keys k JOIN music_metadata_recording_evidence e ON e.mbid = k.value
-                WHERE k.kind = 'mbid' AND e.isrc IS NOT NULL
-            UNION
-            SELECT 'mbid', e.mbid FROM keys k JOIN music_metadata_recording_evidence e ON e.isrc = k.value
-                WHERE k.kind = 'isrc' AND e.mbid IS NOT NULL
-         )
-         SELECT e.* FROM keys k JOIN music_metadata_recording_evidence e ON e.mbid = k.value WHERE k.kind = 'mbid'
-         UNION
-         SELECT e.* FROM keys k JOIN music_metadata_recording_evidence e ON e.isrc = k.value WHERE k.kind = 'isrc'",
-        [],
-    )).await?;
+    let rows = db.query_all(&related_evidence()).await?;
     let evidence = rows
         .iter()
         .map(Evidence::read)
@@ -149,13 +159,27 @@ pub(in crate::actions) async fn reconcile(db: &impl ConnectionTrait) -> Result<(
     }
 
     // Clear derived identifiers while retaining the identity and its credited history.
-    db.execute_raw(statement(
-        "UPDATE music_metadata_recordings SET musicbrainz_id = NULL, isrc = NULL
-         WHERE id IN (SELECT value FROM music_metadata_recording_dirty WHERE kind = 'recording')
-            OR musicbrainz_id IN (SELECT value FROM music_metadata_recording_dirty WHERE kind = 'mbid')
-            OR isrc IN (SELECT value FROM music_metadata_recording_dirty WHERE kind = 'isrc')",
-        [],
-    )).await?;
+    use orm_recordings::Column as R;
+    let affected = |property| {
+        Query::select()
+            .column(orm_recording_dirty::Column::Value)
+            .from(orm_recording_dirty::Entity)
+            .and_where(orm_recording_dirty::Column::Kind.eq(property))
+            .to_owned()
+    };
+    db.execute(
+        Query::update()
+            .table(orm_recordings::Entity)
+            .value(R::MusicbrainzId, Expr::val(None::<String>))
+            .value(R::Isrc, Expr::val(None::<String>))
+            .and_where(
+                column(R::Id)
+                    .in_subquery(affected("recording"))
+                    .or(column(R::MusicbrainzId).in_subquery(affected("mbid")))
+                    .or(column(R::Isrc).in_subquery(affected("isrc"))),
+            ),
+    )
+    .await?;
     let mut known = BTreeSet::new();
     for entry in &evidence {
         let (id, mbid, isrc) = classify(entry, &by_mbid, &by_isrc);
@@ -166,9 +190,58 @@ pub(in crate::actions) async fn reconcile(db: &impl ConnectionTrait) -> Result<(
             attach(db, &entry.owner, id).await?;
         }
     }
-    db.execute_raw(statement("DELETE FROM music_metadata_recording_dirty", []))
+    db.execute(Query::delete().from_table(orm_recording_dirty::Entity))
         .await?;
     Ok(())
+}
+
+fn related_evidence() -> SelectStatement {
+    use orm_recording_dirty::Column as D;
+    use recording_evidence::Column as E;
+    let keys = Alias::new("keys");
+    let kind = Expr::col((keys.clone(), D::Kind));
+    let value = Expr::col((keys.clone(), D::Value));
+
+    // Traverse both identifier types until the touched components stop growing.
+    let edges = |from: E, to: E, from_kind, to_kind| {
+        Query::select()
+            .expr(Expr::val(to_kind))
+            .column(to)
+            .from(keys.clone())
+            .inner_join(recording_evidence::Entity, column(from).eq(value.clone()))
+            .and_where(kind.clone().eq(from_kind))
+            .and_where(to.is_not_null())
+            .to_owned()
+    };
+    let seed = Query::select()
+        .columns([D::Kind, D::Value])
+        .from(orm_recording_dirty::Entity)
+        .and_where(D::Kind.ne("recording"))
+        .union(UnionType::Distinct, edges(E::Mbid, E::Isrc, "mbid", "isrc"))
+        .union(UnionType::Distinct, edges(E::Isrc, E::Mbid, "isrc", "mbid"))
+        .to_owned();
+    let cte = CommonTableExpression::new()
+        .table_name(keys.clone())
+        .columns([D::Kind, D::Value])
+        .query(seed)
+        .to_owned();
+
+    // Deduplicate rows that can be reached through both identifier paths.
+    let matches = |identifier, identifier_kind| {
+        Query::select()
+            .column((recording_evidence::Entity, Asterisk))
+            .from(keys.clone())
+            .inner_join(
+                recording_evidence::Entity,
+                column(identifier).eq(value.clone()),
+            )
+            .and_where(kind.clone().eq(identifier_kind))
+            .to_owned()
+    };
+    matches(E::Mbid, "mbid")
+        .union(UnionType::Distinct, matches(E::Isrc, "isrc"))
+        .with_cte(WithClause::new().recursive(true).cte(cte).to_owned())
+        .to_owned()
 }
 
 fn classify<'a>(
@@ -223,27 +296,47 @@ async fn update_projection(
     mbid: Option<&str>,
     isrc: Option<&str>,
 ) -> Result<()> {
-    db.execute_raw(statement(
-        "INSERT INTO music_metadata_recordings (id, musicbrainz_id, isrc, legacy_isrc) VALUES (?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET musicbrainz_id = excluded.musicbrainz_id, isrc = excluded.isrc,
-            legacy_isrc = COALESCE(legacy_isrc, excluded.legacy_isrc)",
-        [id.to_string().into(), mbid.into(), isrc.into(), isrc.filter(|_| mbid.is_none()).into()],
-    )).await?;
+    use orm_recordings::Column as R;
+    let legacy_isrc = Func::coalesce([
+        column(R::LegacyIsrc),
+        Expr::col((Alias::new("excluded"), R::LegacyIsrc)),
+    ]);
+    db.execute(
+        Query::insert()
+            .into_table(orm_recordings::Entity)
+            .columns([R::Id, R::MusicbrainzId, R::Isrc, R::LegacyIsrc])
+            .values([
+                Expr::val(id.to_string()),
+                Expr::val(mbid),
+                Expr::val(isrc),
+                Expr::val(isrc.filter(|_| mbid.is_none())),
+            ])?
+            .on_conflict(
+                OnConflict::column(R::Id)
+                    .update_columns([R::MusicbrainzId, R::Isrc])
+                    .value(R::LegacyIsrc, legacy_isrc)
+                    .to_owned(),
+            ),
+    )
+    .await?;
     Ok(())
 }
 
 async fn attach(db: &impl ConnectionTrait, owner: &Owner, id: Uuid) -> Result<()> {
     let id = id.to_string();
     let query = match owner {
-        Owner::Audio { file, .. } => statement(
-            "UPDATE music_metadata_audio SET recording_id = ? WHERE file_id = ?",
-            [id.into(), (*file).into()],
-        ),
-        Owner::Remote { provider, resource } => statement(
-            "UPDATE music_metadata_recording_sources SET recording_id = ? WHERE provider = ? AND resource_id = ?",
-            [id.into(), provider.clone().into(), resource.clone().into()],
-        ),
+        Owner::Audio { file, .. } => Query::update()
+            .table(orm_audio::Entity)
+            .value(orm_audio::Column::RecordingId, Expr::val(id))
+            .and_where(orm_audio::Column::FileId.eq(*file))
+            .to_owned(),
+        Owner::Remote { provider, resource } => Query::update()
+            .table(recording_sources::Entity)
+            .value(recording_sources::Column::RecordingId, Expr::val(id))
+            .and_where(recording_sources::Column::Provider.eq(provider))
+            .and_where(recording_sources::Column::ResourceId.eq(resource))
+            .to_owned(),
     };
-    db.execute_raw(query).await?;
+    db.execute(&query).await?;
     Ok(())
 }

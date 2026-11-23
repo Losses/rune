@@ -1,5 +1,14 @@
 //! Logical release tracks and the audio ranges that can play them.
 
+use crate::entities::music_metadata::audio as orm_audio;
+use crate::entities::music_metadata::audio_layouts as orm_audio_layouts;
+use crate::entities::music_metadata::dirty_tracks as orm_dirty_tracks;
+use crate::entities::music_metadata::release_tracks as orm_release_tracks;
+use crate::entities::music_metadata::track_assets as orm_track_assets;
+use sea_orm::ExprTrait;
+use sea_orm::sea_query::{
+    Alias, BinOper, Expr, Func, OnConflict, Order, Query, SelectStatement, WindowStatement,
+};
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, BTreeSet},
@@ -10,17 +19,34 @@ use metadata::model::{
     AudioQuality, AudioVariant, AudioVariantSource, ReleaseTrackMetadata, TrackSegment,
 };
 use sea_orm::{
-    ConnectionTrait, DatabaseTransaction, QueryResult, TransactionSession, TransactionTrait,
+    ColumnTrait, ConnectionTrait, DatabaseTransaction, QueryResult, TransactionSession,
+    TransactionTrait,
 };
 use uuid::Uuid;
 
-use super::{statement, uuid};
+use crate::entities::{
+    media_files,
+    music_metadata::{current_recording_audio as verified, discs, track_recordings},
+};
 
-pub(super) const LOCAL_QUALITY: &str = "a.codec,
-    CASE WHEN a.codec IS NULL THEN NULL
-         WHEN lower(a.codec) IN ('flac','alac','wav','pcm','aiff','dsd','wavpack') THEN 1
-         WHEN lower(a.codec) IN ('mp3','aac','opus','vorbis','wma') THEN 0 END AS is_lossless,
-    a.sample_rate, a.bits_per_sample, a.bitrate, f.local_available AS available";
+use super::{column, scalar, uuid};
+
+pub(super) fn local_quality(query: &mut SelectStatement) {
+    use verified::Column as V;
+    let codec: Expr = Func::lower(column(V::Codec)).into();
+    let lossless = Expr::case(
+        codec
+            .clone()
+            .is_in(["flac", "alac", "wav", "pcm", "aiff", "dsd", "wavpack"]),
+        1,
+    )
+    .case(codec.is_in(["mp3", "aac", "opus", "vorbis", "wma"]), 0);
+    query
+        .column(V::Codec.as_column_ref())
+        .expr_as(lossless, "is_lossless")
+        .columns([V::SampleRate, V::BitsPerSample, V::Bitrate].map(|c| c.as_column_ref()))
+        .expr_as(column(media_files::Column::LocalAvailable), "available");
+}
 
 pub(super) fn title_key(title: &str) -> String {
     title
@@ -60,10 +86,11 @@ impl TrackEvidence {
 
 pub(super) async fn reconcile(db: &impl ConnectionTrait) -> Result<()> {
     let dirty = db
-        .query_all_raw(statement(
-            "SELECT disc_id FROM music_metadata_dirty_tracks",
-            [],
-        ))
+        .query_all(
+            Query::select()
+                .column(orm_dirty_tracks::Column::DiscId)
+                .from(orm_dirty_tracks::Entity),
+        )
         .await?;
     for disc in dirty {
         reconcile_disc(db, uuid(&disc, "disc_id")?).await?;
@@ -73,15 +100,51 @@ pub(super) async fn reconcile(db: &impl ConnectionTrait) -> Result<()> {
 
 async fn reconcile_disc(db: &impl ConnectionTrait, disc: Uuid) -> Result<()> {
     // Exclude explicit layouts and keep the last logical membership as a retention candidate.
-    let rows = db.query_all_raw(statement(
-        "SELECT a.*, (SELECT t.id FROM music_metadata_track_assets x
-            JOIN music_metadata_release_tracks t ON t.id = x.track_id
-            WHERE x.file_id = a.file_id AND t.disc_id = a.disc_id AND x.end_ms IS NULL LIMIT 1) AS current_track
-         FROM music_metadata_audio a WHERE a.disc_id = ? AND NOT EXISTS (
-            SELECT 1 FROM music_metadata_audio_layouts l WHERE l.file_id = a.file_id)
-         ORDER BY a.track_number IS NULL, a.track_number, a.id",
-        [disc.to_string().into()],
-    )).await?;
+    use orm_audio::Column as A;
+    use orm_release_tracks::Column as T;
+    use orm_track_assets::Column as V;
+
+    // Find the current file assignment only for whole-file, automatically assigned tracks.
+    let current = Query::select()
+        .column(T::Id.as_column_ref())
+        .from(orm_track_assets::Entity)
+        .inner_join(
+            orm_release_tracks::Entity,
+            column(T::Id).eq(column(V::TrackId)),
+        )
+        .and_where(column(V::FileId).eq(column(A::FileId)))
+        .and_where(column(T::DiscId).eq(column(A::DiscId)))
+        .and_where(V::EndMs.is_null())
+        .limit(1)
+        .to_owned();
+    let layout = Query::select()
+        .column(orm_audio_layouts::Column::FileId.as_column_ref())
+        .from(orm_audio_layouts::Entity)
+        .and_where(column(orm_audio_layouts::Column::FileId).eq(column(A::FileId)))
+        .to_owned();
+    let rows = db
+        .query_all(
+            Query::select()
+                .columns(
+                    [
+                        A::FileId,
+                        A::Id,
+                        A::TrackNumber,
+                        A::Title,
+                        A::TrackTitleKey,
+                        A::ReleaseTrackMbid,
+                    ]
+                    .map(|c| c.as_column_ref()),
+                )
+                .expr_as(scalar(current), "current_track")
+                .from(orm_audio::Entity)
+                .and_where(A::DiscId.eq(disc.to_string()))
+                .and_where(Expr::not_exists(layout))
+                .order_by_expr(A::TrackNumber.is_null(), Order::Asc)
+                .order_by(A::TrackNumber.as_column_ref(), Order::Asc)
+                .order_by(A::Id.as_column_ref(), Order::Asc),
+        )
+        .await?;
     let records = rows
         .iter()
         .map(TrackEvidence::read)
@@ -156,29 +219,47 @@ async fn reconcile_disc(db: &impl ConnectionTrait, disc: Uuid) -> Result<()> {
     }
     for (id, group) in assignments {
         for row in group.into_iter().filter(|row| row.current != Some(id)) {
-            db.execute_raw(statement(
-                "DELETE FROM music_metadata_track_assets WHERE file_id = ? AND track_id <> ?",
-                [row.file.into(), id.to_string().into()],
-            ))
+            db.execute(
+                Query::delete()
+                    .from_table(orm_track_assets::Entity)
+                    .and_where(Expr::col(orm_track_assets::Column::FileId).eq(Expr::val(row.file)))
+                    .and_where(
+                        Expr::col(orm_track_assets::Column::TrackId).ne(Expr::val(id.to_string())),
+                    ),
+            )
             .await?;
         }
     }
-    db.execute_raw(statement(
-        "DELETE FROM music_metadata_dirty_tracks WHERE disc_id = ?",
-        [disc.to_string().into()],
-    ))
+    db.execute(
+        Query::delete()
+            .from_table(orm_dirty_tracks::Entity)
+            .and_where(Expr::col(orm_dirty_tracks::Column::DiscId).eq(Expr::val(disc.to_string()))),
+    )
     .await?;
     Ok(())
 }
 
 pub(super) async fn prepare_move(db: &DatabaseTransaction, file: i32, disc: &str) -> Result<()> {
     // Move explicit image layouts before deleting an empty old disc.
-    db.execute_raw(statement(
-        "UPDATE music_metadata_release_tracks SET disc_id = ?1 WHERE disc_id <> ?1 AND id IN (
-            SELECT l.track_id FROM music_metadata_track_assets l
-            JOIN music_metadata_audio_layouts layout ON layout.file_id = l.file_id WHERE l.file_id = ?2)",
-        [disc.to_owned().into(), file.into()],
-    )).await?;
+    use orm_release_tracks::Column as T;
+    use orm_track_assets::Column as V;
+    let tracks = Query::select()
+        .column(V::TrackId.as_column_ref())
+        .from(orm_track_assets::Entity)
+        .inner_join(
+            orm_audio_layouts::Entity,
+            column(orm_audio_layouts::Column::FileId).eq(column(V::FileId)),
+        )
+        .and_where(V::FileId.eq(file))
+        .to_owned();
+    db.execute(
+        Query::update()
+            .table(orm_release_tracks::Entity)
+            .value(T::DiscId, Expr::val(disc))
+            .and_where(T::DiscId.ne(disc))
+            .and_where(column(T::Id).in_subquery(tracks)),
+    )
+    .await?;
     Ok(())
 }
 
@@ -187,22 +268,53 @@ pub(super) async fn duration_rows(
     id: Uuid,
     album: bool,
 ) -> Result<Vec<QueryResult>> {
-    let filter = if album { "d.album_id" } else { "t.disc_id" };
-    // Each logical track contributes only one duration, even with multiple encodings.
-    Ok(db.query_all_raw(statement(
-        format!("WITH variants AS (
-            SELECT a.id AS audio_id,
-                CASE WHEN x.end_ms IS NOT NULL THEN x.end_ms - x.start_ms ELSE a.duration_ms END AS duration_ms,
-                ROW_NUMBER() OVER (PARTITION BY t.id
-                    ORDER BY a.duration_ms IS NULL, f.local_available DESC, f.id) AS pick
-            FROM music_metadata_release_tracks t JOIN music_metadata_discs d ON d.id = t.disc_id
-            JOIN music_metadata_track_assets x ON x.track_id = t.id
-            JOIN music_metadata_audio a ON a.file_id = x.file_id JOIN media_files f ON f.id = a.file_id
-            WHERE {filter} = ?
-         )
-         SELECT audio_id, duration_ms FROM variants WHERE pick = 1"),
-        [id.to_string().into()],
-    )).await?)
+    use media_files::Column as F;
+    use orm_audio::Column as A;
+    use orm_release_tracks::Column as T;
+    use orm_track_assets::Column as V;
+    let key = id.to_string();
+    let filter = if album {
+        discs::Column::AlbumId.eq(key)
+    } else {
+        T::DiscId.eq(key)
+    };
+
+    // Rank versions once for each logical track so only one duration contributes.
+    let mut window = WindowStatement::partition_by(T::Id.as_column_ref());
+    window
+        .order_by_expr(A::DurationMs.is_null(), Order::Asc)
+        .order_by(F::LocalAvailable.as_column_ref(), Order::Desc)
+        .order_by(F::Id.as_column_ref(), Order::Asc);
+    let duration = Expr::case(
+        V::EndMs.is_not_null(),
+        column(V::EndMs).sub(column(V::StartMs)),
+    )
+    .finally(column(A::DurationMs));
+    let variants = Query::select()
+        .expr_as(column(A::Id), "audio_id")
+        .expr_as(duration, "duration_ms")
+        .expr_window_as(Func::cust("ROW_NUMBER"), window, "pick")
+        .from(orm_release_tracks::Entity)
+        .inner_join(
+            discs::Entity,
+            column(discs::Column::Id).eq(column(T::DiscId)),
+        )
+        .inner_join(
+            orm_track_assets::Entity,
+            column(V::TrackId).eq(column(T::Id)),
+        )
+        .inner_join(orm_audio::Entity, column(A::FileId).eq(column(V::FileId)))
+        .inner_join(media_files::Entity, column(F::Id).eq(column(A::FileId)))
+        .and_where(filter)
+        .to_owned();
+    Ok(db
+        .query_all(
+            Query::select()
+                .columns([Alias::new("audio_id"), Alias::new("duration_ms")])
+                .from_subquery(variants, "variants")
+                .and_where(Expr::col(Alias::new("pick")).eq(1)),
+        )
+        .await?)
 }
 
 async fn put_track(
@@ -214,12 +326,33 @@ async fn put_track(
 ) -> Result<()> {
     let recording = Uuid::new_v5(&id, b"release-track-recording");
     super::recording_identity::ensure_exists(db, recording).await?;
-    db.execute_raw(statement(
-        "INSERT INTO music_metadata_release_tracks (id, disc_id, recording_id, track_number, title) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET track_number = excluded.track_number, title = excluded.title
-         WHERE track_number IS NOT excluded.track_number OR title <> excluded.title",
-        [id.to_string().into(), disc.to_string().into(), recording.to_string().into(), track.map(i64::from).into(), title.to_owned().into()],
-    )).await?;
+    use orm_release_tracks::Column as T;
+    let excluded = Alias::new("excluded");
+    let changed = column(T::TrackNumber)
+        .binary(
+            BinOper::IsNot,
+            Expr::col((excluded.clone(), T::TrackNumber)),
+        )
+        .or(column(T::Title).ne(Expr::col((excluded, T::Title))));
+    db.execute(
+        Query::insert()
+            .into_table(orm_release_tracks::Entity)
+            .columns([T::Id, T::DiscId, T::RecordingId, T::TrackNumber, T::Title])
+            .values([
+                Expr::val(id.to_string()),
+                Expr::val(disc.to_string()),
+                Expr::val(recording.to_string()),
+                Expr::val(track.map(i64::from)),
+                Expr::val(title),
+            ])?
+            .on_conflict(
+                OnConflict::column(T::Id)
+                    .update_columns([T::TrackNumber, T::Title])
+                    .action_and_where(changed)
+                    .to_owned(),
+            ),
+    )
+    .await?;
     Ok(())
 }
 
@@ -230,11 +363,32 @@ async fn bind_asset(
     start: i64,
     end: Option<i64>,
 ) -> Result<()> {
-    db.execute_raw(statement(
-        "INSERT INTO music_metadata_track_assets (track_id, file_id, start_ms, end_ms) VALUES (?, ?, ?, ?)
-         ON CONFLICT(track_id, file_id, start_ms) DO UPDATE SET end_ms = excluded.end_ms",
-        [track.to_string().into(), file.into(), start.into(), end.into()],
-    )).await?;
+    db.execute(
+        Query::insert()
+            .into_table(orm_track_assets::Entity)
+            .columns([
+                orm_track_assets::Column::TrackId,
+                orm_track_assets::Column::FileId,
+                orm_track_assets::Column::StartMs,
+                orm_track_assets::Column::EndMs,
+            ])
+            .values_panic([
+                Expr::val(track.to_string()),
+                Expr::val(file),
+                Expr::val(start),
+                Expr::val(end),
+            ])
+            .on_conflict(
+                OnConflict::columns([
+                    orm_track_assets::Column::TrackId,
+                    orm_track_assets::Column::FileId,
+                    orm_track_assets::Column::StartMs,
+                ])
+                .update_column(orm_track_assets::Column::EndMs)
+                .to_owned(),
+            ),
+    )
+    .await?;
     Ok(())
 }
 
@@ -246,10 +400,16 @@ pub async fn set_track_layout(
 ) -> Result<Vec<Uuid>> {
     let tx = db.begin().await?;
     let row = tx
-        .query_one_raw(statement(
-            "SELECT file_id, disc_id, duration_ms FROM music_metadata_audio WHERE id = ?",
-            [audio_id.to_string().into()],
-        ))
+        .query_one(
+            Query::select()
+                .columns([
+                    orm_audio::Column::FileId,
+                    orm_audio::Column::DiscId,
+                    orm_audio::Column::DurationMs,
+                ])
+                .from(orm_audio::Entity)
+                .and_where(Expr::col(orm_audio::Column::Id).eq(Expr::val(audio_id.to_string()))),
+        )
         .await?
         .context("audio asset was not indexed")?;
     let file: i32 = row.try_get("", "file_id")?;
@@ -285,29 +445,43 @@ pub(super) async fn write_layout(
         previous = (segment.track_number, segment.end_ms);
     }
     let previous_links = tx
-        .query_all_raw(statement(
-            "SELECT track_id, start_ms FROM music_metadata_track_assets WHERE file_id = ?",
-            [file.into()],
-        ))
+        .query_all(
+            Query::select()
+                .columns([
+                    orm_track_assets::Column::TrackId,
+                    orm_track_assets::Column::StartMs,
+                ])
+                .from(orm_track_assets::Entity)
+                .and_where(Expr::col(orm_track_assets::Column::FileId).eq(Expr::val(file))),
+        )
         .await?;
-    tx.execute_raw(statement(
-        "DELETE FROM music_metadata_audio_layouts WHERE file_id = ?",
-        [file.into()],
-    ))
+    tx.execute(
+        Query::delete()
+            .from_table(orm_audio_layouts::Entity)
+            .and_where(Expr::col(orm_audio_layouts::Column::FileId).eq(Expr::val(file))),
+    )
     .await?;
-    tx.execute_raw(statement(
-        "INSERT INTO music_metadata_dirty_tracks VALUES (?) ON CONFLICT DO NOTHING",
-        [disc.to_string().into()],
-    ))
+    tx.execute(
+        Query::insert()
+            .into_table(orm_dirty_tracks::Entity)
+            .columns([orm_dirty_tracks::Column::DiscId])
+            .values_panic([Expr::val(disc.to_string())])
+            .on_conflict(OnConflict::new().do_nothing().to_owned()),
+    )
     .await?;
 
     // Segment identity is independent of its mutable title and range.
     let mut ids = BTreeMap::new();
     if !segments.is_empty() {
-        tx.execute_raw(statement(
-            "INSERT INTO music_metadata_audio_layouts (file_id, kind) VALUES (?, ?)",
-            [file.into(), kind.into()],
-        ))
+        tx.execute(
+            Query::insert()
+                .into_table(orm_audio_layouts::Entity)
+                .columns([
+                    orm_audio_layouts::Column::FileId,
+                    orm_audio_layouts::Column::Kind,
+                ])
+                .values_panic([Expr::val(file), Expr::val(kind)]),
+        )
         .await?;
         for segment in segments {
             let id = Uuid::new_v5(
@@ -339,10 +513,17 @@ pub(super) async fn write_layout(
         let track = uuid(&row, "track_id")?;
         let start: i64 = row.try_get("", "start_ms")?;
         if !ids.contains_key(&(track, start)) {
-            tx.execute_raw(statement(
-                "DELETE FROM music_metadata_track_assets WHERE track_id = ? AND file_id = ? AND start_ms = ?",
-                [track.to_string().into(), file.into(), start.into()],
-            )).await?;
+            tx.execute(
+                Query::delete()
+                    .from_table(orm_track_assets::Entity)
+                    .and_where(
+                        Expr::col(orm_track_assets::Column::TrackId)
+                            .eq(Expr::val(track.to_string())),
+                    )
+                    .and_where(Expr::col(orm_track_assets::Column::FileId).eq(Expr::val(file)))
+                    .and_where(Expr::col(orm_track_assets::Column::StartMs).eq(Expr::val(start))),
+            )
+            .await?;
         }
     }
     let mut ordered: Vec<_> = ids
@@ -358,12 +539,22 @@ pub(super) async fn cue_layout_matches(
     file: i32,
     segments: &[TrackSegment],
 ) -> Result<bool> {
-    let rows = tx.query_all_raw(statement(
-        "SELECT t.track_number, t.title, a.start_ms, a.end_ms FROM music_metadata_track_assets a
-         JOIN music_metadata_release_tracks t ON t.id = a.track_id
-         WHERE a.file_id = ? ORDER BY t.track_number",
-        [file.into()],
-    )).await?;
+    use orm_release_tracks::Column as T;
+    use orm_track_assets::Column as V;
+    let rows = tx
+        .query_all(
+            Query::select()
+                .columns([T::TrackNumber, T::Title].map(|c| c.as_column_ref()))
+                .columns([V::StartMs, V::EndMs].map(|c| c.as_column_ref()))
+                .from(orm_track_assets::Entity)
+                .inner_join(
+                    orm_release_tracks::Entity,
+                    column(T::Id).eq(column(V::TrackId)),
+                )
+                .and_where(V::FileId.eq(file))
+                .order_by(T::TrackNumber.as_column_ref(), Order::Asc),
+        )
+        .await?;
     if rows.len() != segments.len() {
         return Ok(false);
     }
@@ -384,11 +575,20 @@ pub async fn disc_track_ids(db: &impl TransactionTrait, disc: Uuid) -> Result<Ve
     let tx = db.begin().await?;
     reconcile(&tx).await?;
     let ids = tx
-        .query_all_raw(statement(
-            "SELECT id FROM music_metadata_release_tracks WHERE disc_id = ?
-         ORDER BY track_number IS NULL, track_number, id",
-            [disc.to_string().into()],
-        ))
+        .query_all(
+            Query::select()
+                .column(orm_release_tracks::Column::Id)
+                .from(orm_release_tracks::Entity)
+                .and_where(
+                    Expr::col(orm_release_tracks::Column::DiscId).eq(Expr::val(disc.to_string())),
+                )
+                .order_by_expr(
+                    Expr::col(orm_release_tracks::Column::TrackNumber).is_null(),
+                    Order::Asc,
+                )
+                .order_by(orm_release_tracks::Column::TrackNumber, Order::Asc)
+                .order_by(orm_release_tracks::Column::Id, Order::Asc),
+        )
         .await?
         .iter()
         .map(|row| uuid(row, "id"))
@@ -406,27 +606,44 @@ pub async fn release_track_metadata(
     super::recording_identity::reconcile(&tx).await?;
     reconcile(&tx).await?;
     let key = id.to_string();
+    use orm_release_tracks::Column as T;
+    use orm_track_assets::Column as V;
     let Some(row) = tx
-        .query_one_raw(statement(
-            "SELECT t.disc_id, t.track_number, t.title, r.recording_id
-             FROM music_metadata_release_tracks t JOIN music_metadata_track_recordings r ON r.track_id = t.id
-             WHERE t.id = ?",
-            [key.clone().into()],
-        ))
+        .query_one(
+            Query::select()
+                .columns([T::DiscId, T::TrackNumber, T::Title].map(|c| c.as_column_ref()))
+                .column(track_recordings::Column::RecordingId.as_column_ref())
+                .from(orm_release_tracks::Entity)
+                .inner_join(
+                    track_recordings::Entity,
+                    column(track_recordings::Column::TrackId).eq(column(T::Id)),
+                )
+                .and_where(T::Id.eq(&key)),
+        )
         .await?
     else {
         return Ok(None);
     };
-    let rows = tx
-        .query_all_raw(statement(
-            format!(
-                "SELECT a.id AS audio_id, l.start_ms, l.end_ms, {LOCAL_QUALITY}
-         FROM music_metadata_track_assets l JOIN music_metadata_current_recording_audio a ON a.file_id = l.file_id
-         JOIN media_files f ON f.id = l.file_id WHERE l.track_id = ? ORDER BY a.id"
-            ),
-            [key.into()],
-        ))
-        .await?;
+
+    // Resolve only verified audio linked to this release position.
+    let mut query = Query::select();
+    query
+        .expr_as(column(verified::Column::Id), "audio_id")
+        .columns([V::StartMs, V::EndMs].map(|c| c.as_column_ref()));
+    local_quality(&mut query);
+    query
+        .from(orm_track_assets::Entity)
+        .inner_join(
+            verified::Entity,
+            column(verified::Column::FileId).eq(column(V::FileId)),
+        )
+        .inner_join(
+            media_files::Entity,
+            column(media_files::Column::Id).eq(column(V::FileId)),
+        )
+        .and_where(V::TrackId.eq(key))
+        .order_by(verified::Column::Id.as_column_ref(), Order::Asc);
+    let rows = tx.query_all(&query).await?;
     let mut variants = rows.iter().map(local_variant).collect::<Result<Vec<_>>>()?;
     rank(&mut variants);
     let mut result = ReleaseTrackMetadata {

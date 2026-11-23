@@ -11,7 +11,16 @@ use fsio::{FsIo, OpenMode};
 use metadata::model::TrackSegment;
 use sea_orm::{ConnectionTrait, DatabaseConnection, TransactionTrait};
 
-use super::{statement, tracks, uuid};
+use crate::entities::{
+    media_files,
+    music_metadata::{audio_layouts as layouts, current_recording_audio as verified},
+};
+use sea_orm::{
+    ColumnTrait, ExprTrait,
+    sea_query::{Expr, Query},
+};
+
+use super::{column, tracks, uuid};
 
 #[derive(Debug, PartialEq, Eq)]
 struct CueTrack {
@@ -235,11 +244,17 @@ pub(in crate::actions) async fn reconcile_scan(
 
     // Include previously indexed sidecars that disappeared during a complete directory walk.
     let existing = db
-        .query_all_raw(statement(
-            "SELECT DISTINCT f.directory FROM music_metadata_audio_layouts l
-         JOIN media_files f ON f.id = l.file_id WHERE l.kind = 'cue'",
-            [],
-        ))
+        .query_all(
+            Query::select()
+                .column(media_files::Column::Directory.as_column_ref())
+                .from(layouts::Entity)
+                .inner_join(
+                    media_files::Entity,
+                    column(media_files::Column::Id).eq(column(layouts::Column::FileId)),
+                )
+                .and_where(layouts::Column::Kind.eq("cue"))
+                .distinct(),
+        )
         .await?;
     for row in existing {
         let directory: String = row.try_get("", "directory")?;
@@ -265,10 +280,23 @@ pub(in crate::actions) async fn reconcile_directory(
     directory: &str,
     paths: Vec<PathBuf>,
 ) -> Result<()> {
-    if paths.is_empty() && db.query_one_raw(statement(
-        "SELECT 1 FROM media_files f JOIN music_metadata_audio_layouts l ON l.file_id = f.id
-         WHERE f.directory = ? AND l.kind = 'cue' LIMIT 1", [directory.into()],
-    )).await?.is_none() {
+    if paths.is_empty()
+        && db
+            .query_one(
+                Query::select()
+                    .expr(Expr::val(1))
+                    .from(media_files::Entity)
+                    .inner_join(
+                        layouts::Entity,
+                        column(layouts::Column::FileId).eq(column(media_files::Column::Id)),
+                    )
+                    .and_where(media_files::Column::Directory.eq(directory))
+                    .and_where(layouts::Column::Kind.eq("cue"))
+                    .limit(1),
+            )
+            .await?
+            .is_none()
+    {
         return Ok(());
     }
     let fs = fs.clone();
@@ -278,13 +306,31 @@ pub(in crate::actions) async fn reconcile_directory(
     let tx = db.begin().await?;
     store.lock(&tx).await?;
     let files = tx
-        .query_all_raw(statement(
-            "SELECT a.file_id, a.id, a.disc_id, a.duration_ms, f.file_name, l.kind
-         FROM media_files f JOIN music_metadata_current_recording_audio a ON a.file_id = f.id
-         LEFT JOIN music_metadata_audio_layouts l ON l.file_id = a.file_id
-         WHERE f.directory = ? AND f.local_available = 1",
-            [directory.into()],
-        ))
+        .query_all(
+            Query::select()
+                .columns(
+                    [
+                        verified::Column::FileId,
+                        verified::Column::Id,
+                        verified::Column::DiscId,
+                        verified::Column::DurationMs,
+                    ]
+                    .map(|c| c.as_column_ref()),
+                )
+                .column(media_files::Column::FileName.as_column_ref())
+                .column(layouts::Column::Kind.as_column_ref())
+                .from(media_files::Entity)
+                .inner_join(
+                    verified::Entity,
+                    column(verified::Column::FileId).eq(column(media_files::Column::Id)),
+                )
+                .left_join(
+                    layouts::Entity,
+                    column(layouts::Column::FileId).eq(column(verified::Column::FileId)),
+                )
+                .and_where(media_files::Column::Directory.eq(directory))
+                .and_where(media_files::Column::LocalAvailable.eq(true)),
+        )
         .await?;
     let mut names = BTreeMap::new();
     for row in &files {

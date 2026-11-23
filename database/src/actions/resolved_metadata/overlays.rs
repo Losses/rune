@@ -5,10 +5,17 @@ use std::collections::HashMap;
 use anyhow::{Context, Result, ensure};
 use metadata::overlay::{MetadataOverlay, OverlayMetadata};
 pub use metadata::overlay::{OverlayEdit, OverlayField};
-use sea_orm::ConnectionTrait;
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, ExprTrait, JoinType, QueryFilter,
+    Set,
+    sea_query::{Alias, Expr, Func, OnConflict, Order, Query},
+};
 use uuid::Uuid;
 
-use super::statement;
+use crate::entities::music_metadata::{
+    album_effective_fields as effective, audio, discs, local_overlays as storage, track_assets,
+};
+use storage::Column as OverlayColumn;
 
 /// The catalog entity whose fields are locally overridden.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,12 +27,12 @@ pub enum OverlayTarget {
 }
 
 impl OverlayTarget {
-    fn column(self) -> (&'static str, Uuid) {
+    fn column(self) -> (OverlayColumn, Uuid) {
         match self {
-            Self::Album(id) => ("album_id", id),
-            Self::Disc(id) => ("disc_id", id),
-            Self::Audio(id) => ("audio_id", id),
-            Self::ReleaseTrack(id) => ("track_id", id),
+            Self::Album(id) => (OverlayColumn::AlbumId, id),
+            Self::Disc(id) => (OverlayColumn::DiscId, id),
+            Self::Audio(id) => (OverlayColumn::AudioId, id),
+            Self::ReleaseTrack(id) => (OverlayColumn::TrackId, id),
         }
     }
 
@@ -64,15 +71,12 @@ pub async fn set_local_overlay(
     let (column, id) = target.column();
     let value = match edit {
         OverlayEdit::Restore => {
-            let update = db
-                .execute_raw(statement(
-                    format!(
-                        "DELETE FROM music_metadata_local_overlays WHERE {column} = ? AND field = ?"
-                    ),
-                    [id.to_string().into(), field.key().into()],
-                ))
+            let update = storage::Entity::delete_many()
+                .filter(column.eq(id.to_string()))
+                .filter(OverlayColumn::Field.eq(field.key()))
+                .exec(db)
                 .await?;
-            return Ok(update.rows_affected() != 0);
+            return Ok(update.rows_affected != 0);
         }
         OverlayEdit::Set(value) => Some(field.normalize(&value)?),
         OverlayEdit::Clear => {
@@ -83,12 +87,21 @@ pub async fn set_local_overlay(
             None
         }
     };
-    let update = db.execute_raw(statement(
-        format!("INSERT INTO music_metadata_local_overlays ({column}, field, value) VALUES (?, ?, ?)
-            ON CONFLICT({column}, field) DO UPDATE SET value = excluded.value"),
-        [id.to_string().into(), field.key().into(), value.into()],
-    )).await?;
-    Ok(update.rows_affected() != 0)
+    let mut row = storage::ActiveModel {
+        field: Set(field.key().to_owned()),
+        value: Set(value),
+        ..Default::default()
+    };
+    row.set(column, id.to_string().into());
+    let updated = storage::Entity::insert(row)
+        .on_conflict(
+            OnConflict::columns([column, OverlayColumn::Field])
+                .update_column(OverlayColumn::Value)
+                .to_owned(),
+        )
+        .exec_without_returning(db)
+        .await?;
+    Ok(updated != 0)
 }
 
 /// Read only the local assertions, including explicit clears.
@@ -97,17 +110,14 @@ pub async fn local_overlay(
     target: OverlayTarget,
 ) -> Result<MetadataOverlay> {
     let (column, id) = target.column();
-    let rows = db
-        .query_all_raw(statement(
-            format!("SELECT field, value FROM music_metadata_local_overlays WHERE {column} = ?"),
-            [id.to_string().into()],
-        ))
+    let rows = storage::Entity::find()
+        .filter(column.eq(id.to_string()))
+        .all(db)
         .await?;
     let mut overlay = MetadataOverlay::default();
     for row in rows {
-        let key: String = row.try_get("", "field")?;
-        let field = OverlayField::from_key(&key).context("unknown local metadata field")?;
-        overlay.insert(field, row.try_get("", "value")?);
+        let field = OverlayField::from_key(&row.field).context("unknown local metadata field")?;
+        overlay.insert(field, row.value);
     }
     Ok(overlay)
 }
@@ -127,18 +137,68 @@ pub(in crate::actions) async fn summary_titles(
 ) -> Result<HashMap<i32, (Option<String>, Option<String>)>> {
     let mut titles = HashMap::new();
     for files in files.chunks(400) {
-        let ids = vec!["?"; files.len()].join(", ");
         // Whole-file summaries may show a logical title. Disc images retain their own display title.
-        let rows = db.query_all_raw(statement(format!(
-            "SELECT a.file_id, COALESCE(audio.value, (
-                SELECT song.value FROM music_metadata_track_assets asset
-                JOIN music_metadata_local_overlays song ON song.track_id = asset.track_id AND song.field = 'title'
-                WHERE asset.file_id = a.file_id AND asset.start_ms = 0 AND asset.end_ms IS NULL
-                ORDER BY asset.track_id LIMIT 1)) AS title, album.value AS album_title
-             FROM music_metadata_audio a JOIN music_metadata_discs d ON d.id = a.disc_id
-             LEFT JOIN music_metadata_local_overlays audio ON audio.audio_id = a.id AND audio.field = 'title'
-             LEFT JOIN music_metadata_album_effective_fields album ON album.album_id = d.album_id AND album.field = 'title'
-             WHERE a.file_id IN ({ids})"), files.iter().copied().map(Into::into))).await?;
+        let file_id = Expr::col((audio::Entity, audio::Column::FileId));
+        let track_title = Query::select()
+            .column((storage::Entity, OverlayColumn::Value))
+            .from(track_assets::Entity)
+            .join(
+                JoinType::InnerJoin,
+                storage::Entity,
+                Expr::col(OverlayColumn::TrackId.as_column_ref())
+                    .eq(Expr::col((
+                        track_assets::Entity,
+                        track_assets::Column::TrackId,
+                    )))
+                    .and(OverlayColumn::Field.eq("title")),
+            )
+            .and_where(Expr::col(track_assets::Column::FileId.as_column_ref()).eq(file_id.clone()))
+            .and_where(track_assets::Column::StartMs.eq(0))
+            .and_where(track_assets::Column::EndMs.is_null())
+            .order_by(track_assets::Column::TrackId.as_column_ref(), Order::Asc)
+            .limit(1)
+            .to_owned();
+
+        // Join the audio and album overrides directly, retaining the track fallback above.
+        let audio_title = Alias::new("audio_title");
+        let query = Query::select()
+            .column((audio::Entity, audio::Column::FileId))
+            .expr_as(
+                Func::coalesce([
+                    Expr::col((audio_title.clone(), OverlayColumn::Value)),
+                    Expr::SubQuery(None, Box::new(track_title.into())),
+                ]),
+                Alias::new("title"),
+            )
+            .expr_as(
+                Expr::col((effective::Entity, effective::Column::Value)),
+                Alias::new("album_title"),
+            )
+            .from(audio::Entity)
+            .join(
+                JoinType::InnerJoin,
+                discs::Entity,
+                Expr::col(discs::Column::Id.as_column_ref())
+                    .eq(Expr::col((audio::Entity, audio::Column::DiscId))),
+            )
+            .join_as(
+                JoinType::LeftJoin,
+                storage::Entity,
+                audio_title.clone(),
+                Expr::col((audio_title.clone(), OverlayColumn::AudioId))
+                    .eq(Expr::col((audio::Entity, audio::Column::Id)))
+                    .and(Expr::col((audio_title, OverlayColumn::Field)).eq("title")),
+            )
+            .join(
+                JoinType::LeftJoin,
+                effective::Entity,
+                Expr::col(effective::Column::AlbumId.as_column_ref())
+                    .eq(Expr::col((discs::Entity, discs::Column::AlbumId)))
+                    .and(effective::Column::Field.eq("title")),
+            )
+            .and_where(file_id.is_in(files.iter().copied()))
+            .to_owned();
+        let rows = db.query_all(&query).await?;
         for row in rows {
             titles.insert(
                 row.try_get("", "file_id")?,

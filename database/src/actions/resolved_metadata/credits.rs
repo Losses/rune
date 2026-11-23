@@ -1,5 +1,9 @@
 //! Storage for ordered, source-attributed credits and optional artist links.
 
+use crate::entities::music_metadata::credits as orm_credits;
+use crate::entities::music_metadata::{artist_redirects, audio as orm_audio};
+use sea_orm::ExprTrait;
+use sea_orm::sea_query::{Alias, BinOper, Expr, Func, Order, Query};
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, Result};
@@ -7,13 +11,12 @@ use metadata::{
     model::{Credit, Credits, FieldSource, MetadataBase, MetadataSourceKind},
     resolve::LocalMetadata,
 };
-use sea_orm::{ConnectionTrait, DatabaseTransaction, QueryResult, Value};
+use sea_orm::{ColumnTrait, ConnectionTrait, DatabaseTransaction, QueryResult, Value};
 use uuid::Uuid;
 
 use super::{
-    CreditScope,
+    CreditScope, column,
     details::{Contributors, Selection},
-    statement,
 };
 
 const SOURCE_KINDS: &[(&str, MetadataSourceKind)] = &[
@@ -36,12 +39,21 @@ async fn current_links(
     file_id: i32,
 ) -> Result<BTreeMap<LinkKey, Option<String>>> {
     let rows = db
-        .query_all_raw(statement(
-            "SELECT scope, credited_as, role, instrument, artist_id
-         FROM music_metadata_credits WHERE file_id = ? AND source_kind = 'audio_tag'
-         AND source_provider = '' AND artist_confirmed = 1",
-            [file_id.into()],
-        ))
+        .query_all(
+            Query::select()
+                .columns([
+                    orm_credits::Column::Scope,
+                    orm_credits::Column::CreditedAs,
+                    orm_credits::Column::Role,
+                    orm_credits::Column::Instrument,
+                    orm_credits::Column::ArtistId,
+                ])
+                .from(orm_credits::Entity)
+                .and_where(Expr::col(orm_credits::Column::FileId).eq(Expr::val(file_id)))
+                .and_where(Expr::col(orm_credits::Column::SourceKind).eq(Expr::val("audio_tag")))
+                .and_where(Expr::col(orm_credits::Column::SourceProvider).eq(Expr::val("")))
+                .and_where(Expr::col(orm_credits::Column::ArtistConfirmed).eq(Expr::val(1))),
+        )
         .await?;
     rows.into_iter()
         .map(|row| {
@@ -101,27 +113,42 @@ pub(super) async fn store(
     }
 
     // The caller's scan transaction replaces the evidence and its links together.
-    db.execute_raw(statement(
-        "DELETE FROM music_metadata_credits WHERE file_id = ? AND source_kind = 'audio_tag'
-         AND source_provider = ''",
-        [file_id.into()],
-    ))
+    db.execute(
+        Query::delete()
+            .from_table(orm_credits::Entity)
+            .and_where(Expr::col(orm_credits::Column::FileId).eq(Expr::val(file_id)))
+            .and_where(Expr::col(orm_credits::Column::SourceKind).eq(Expr::val("audio_tag")))
+            .and_where(Expr::col(orm_credits::Column::SourceProvider).eq(Expr::val(""))),
+    )
     .await?;
     insert(db, &rows).await
 }
 
 async fn insert(db: &DatabaseTransaction, rows: &[[Value; 15]]) -> Result<()> {
+    use orm_credits::Column as C;
     for rows in rows.chunks(64) {
-        let parameters =
-            vec!["(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"; rows.len()].join(", ");
-        let sql = format!(
-            "INSERT INTO music_metadata_credits (
-                file_id, scope, position, credited_as, role, artist_id, artist_confirmed, instrument, source_kind,
-                source_provider, source_key, source_path, source_pattern, source_entity_id, source_confidence
-             ) VALUES {parameters}"
-        );
-        db.execute_raw(statement(sql, rows.iter().flatten().cloned()))
-            .await?;
+        let mut insert = Query::insert();
+        insert.into_table(orm_credits::Entity).columns([
+            C::FileId,
+            C::Scope,
+            C::Position,
+            C::CreditedAs,
+            C::Role,
+            C::ArtistId,
+            C::ArtistConfirmed,
+            C::Instrument,
+            C::SourceKind,
+            C::SourceProvider,
+            C::SourceKey,
+            C::SourcePath,
+            C::SourcePattern,
+            C::SourceEntityId,
+            C::SourceConfidence,
+        ]);
+        for row in rows {
+            insert.values(row.iter().cloned().map(Expr::val))?;
+        }
+        db.execute(&insert).await?;
     }
     Ok(())
 }
@@ -181,10 +208,12 @@ pub(super) async fn replace_source(
     let provider = provider.trim();
     anyhow::ensure!(!provider.is_empty(), "credit provider is required");
     let Some(track) = db
-        .query_one_raw(statement(
-            "SELECT file_id FROM music_metadata_audio WHERE id = ?",
-            [track_id.to_string().into()],
-        ))
+        .query_one(
+            Query::select()
+                .column(orm_audio::Column::FileId)
+                .from(orm_audio::Entity)
+                .and_where(Expr::col(orm_audio::Column::Id).eq(Expr::val(track_id.to_string()))),
+        )
         .await?
     else {
         return Ok(false);
@@ -215,16 +244,18 @@ pub(super) async fn replace_source(
             )
         })
         .collect::<Result<Vec<_>>>()?;
-    db.execute_raw(statement(
-        "DELETE FROM music_metadata_credits
-         WHERE file_id = ? AND scope = ? AND source_kind = ? AND source_provider = ?",
-        [
-            file_id.into(),
-            (scope as i32).into(),
-            source_name(source)?.into(),
-            provider.to_owned().into(),
-        ],
-    ))
+    db.execute(
+        Query::delete()
+            .from_table(orm_credits::Entity)
+            .and_where(Expr::col(orm_credits::Column::FileId).eq(Expr::val(file_id)))
+            .and_where(Expr::col(orm_credits::Column::Scope).eq(Expr::val(scope as i32)))
+            .and_where(
+                Expr::col(orm_credits::Column::SourceKind).eq(Expr::val(source_name(source)?)),
+            )
+            .and_where(
+                Expr::col(orm_credits::Column::SourceProvider).eq(Expr::val(provider.to_owned())),
+            ),
+    )
     .await?;
     insert(db, &rows).await?;
     Ok(true)
@@ -270,19 +301,44 @@ pub(super) async fn load(
     base: &mut MetadataBase,
     contributors: &mut Contributors,
 ) -> Result<()> {
-    let rows = selection
-        .rows(
-            db,
-            "music_metadata_credits",
-            "v.credited_as, v.role, COALESCE(
-                (SELECT target_uuid FROM music_metadata_artist_redirects WHERE source_uuid = v.artist_id),
-                v.artist_id) AS artist_id, v.instrument, v.source_kind,
-        v.source_provider, v.source_key, v.source_path, v.source_pattern, v.source_entity_id, v.source_confidence",
-            "",
-            ", CASE v.source_kind WHEN 'user' THEN 0 WHEN 'audio_tag' THEN 1 ELSE 2 END,
-              v.source_kind, v.source_provider, v.position",
+    use orm_credits::Column as C;
+    let mut query = selection.rows(orm_credits::Entity, C::FileId, C::Scope);
+    let priority = Expr::case(C::SourceKind.eq("user"), 0)
+        .case(C::SourceKind.eq("audio_tag"), 1)
+        .finally(2);
+    query
+        .columns(
+            [
+                C::CreditedAs,
+                C::Role,
+                C::Instrument,
+                C::SourceKind,
+                C::SourceProvider,
+                C::SourceKey,
+                C::SourcePath,
+                C::SourcePattern,
+                C::SourceEntityId,
+                C::SourceConfidence,
+            ]
+            .map(|c| c.as_column_ref()),
         )
-        .await?;
+        .expr_as(
+            Func::coalesce([
+                column(artist_redirects::Column::TargetUuid),
+                column(C::ArtistId),
+            ]),
+            Alias::new("artist_id"),
+        )
+        .left_join(
+            artist_redirects::Entity,
+            column(artist_redirects::Column::SourceUuid).eq(column(C::ArtistId)),
+        )
+        .order_by_expr(priority.into(), Order::Asc)
+        .order_by_columns(
+            [C::SourceKind, C::SourceProvider, C::Position]
+                .map(|c| (c.as_column_ref(), Order::Asc)),
+        );
+    let rows = db.query_all(&query).await?;
     let mut credits = Credits::new();
 
     // Deduplicate album credits without conflating two confirmed artists with the same name.
@@ -321,23 +377,31 @@ pub(super) async fn link(
     credit: &Credit,
     artist_id: Option<Uuid>,
 ) -> Result<bool> {
+    use orm_credits::Column as C;
+    let file = Query::select()
+        .column(orm_audio::Column::FileId)
+        .from(orm_audio::Entity)
+        .and_where(orm_audio::Column::Id.eq(track_id.to_string()))
+        .to_owned();
     let result = db
-        .execute_raw(statement(
-            "UPDATE music_metadata_credits SET artist_id = ?, artist_confirmed = 1
-         WHERE file_id = (SELECT file_id FROM music_metadata_audio WHERE id = ?)
-         AND scope = ? AND credited_as = ? AND role = ? AND instrument IS ?
-         AND source_kind = ? AND source_provider = ?",
-            [
-                artist_id.map(|id| id.to_string()).into(),
-                track_id.to_string().into(),
-                (scope as i32).into(),
-                credit.credited_as.clone().into(),
-                credit.role.clone().into(),
-                credit.instrument.clone().into(),
-                source_name(credit.source.kind)?.into(),
-                credit.source_provider.clone().unwrap_or_default().into(),
-            ],
-        ))
+        .execute(
+            Query::update()
+                .table(orm_credits::Entity)
+                .value(C::ArtistId, Expr::val(artist_id.map(|id| id.to_string())))
+                .value(C::ArtistConfirmed, Expr::val(1))
+                .and_where(column(C::FileId).eq(super::scalar(file)))
+                .and_where(C::Scope.eq(scope as i32))
+                .and_where(C::CreditedAs.eq(&credit.credited_as))
+                .and_where(C::Role.eq(&credit.role))
+                .and_where(
+                    column(C::Instrument)
+                        .binary(BinOper::Is, Expr::val(credit.instrument.as_deref())),
+                )
+                .and_where(C::SourceKind.eq(source_name(credit.source.kind)?))
+                .and_where(
+                    C::SourceProvider.eq(credit.source_provider.as_deref().unwrap_or_default()),
+                ),
+        )
         .await?;
     Ok(result.rows_affected() != 0)
 }

@@ -3,7 +3,10 @@ use crate::sync::model::BlobRef;
 use anyhow::{Context, Result, ensure};
 use blake3::Hasher;
 use fsio::{FsIo, OpenMode};
-use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ExprTrait,
+    sea_query::{Expr, Query},
+};
 use std::collections;
 use std::collections::HashSet;
 use std::path::Component;
@@ -141,8 +144,7 @@ use crate::{
     sync::SeaOrmSyncStore,
 };
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait, QueryFilter,
-    Statement, TransactionTrait,
+    ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySelect, TransactionTrait,
 };
 
 pub async fn catalog_track(
@@ -390,21 +392,33 @@ pub(in crate::actions) async fn index_cached_download(
         .parent()
         .and_then(Path::to_str)
         .unwrap_or_default();
-    let row = db.query_one_raw(Statement::from_sql_and_values(
-        DbBackend::Sqlite,
-        "SELECT f.source_uuid, f.content_hash, f.content_size FROM media_files f
-         WHERE f.directory IN (?, ?) AND f.file_name = ? AND f.local_available = 1
-           AND f.content_hash IS NOT NULL AND f.content_size IS NOT NULL
-           AND NOT EXISTS (SELECT 1 FROM music_metadata_current_recording_audio a WHERE a.file_id = f.id)",
-        [native_directory.into(), description.directory.clone().into(), description.file_name.clone().into()],
-    )).await?;
-    let Some(row) = row else {
+    use crate::entities::music_metadata::current_recording_audio as indexed;
+    use media_files::Column as C;
+    let existing = Query::select()
+        .column(indexed::Column::FileId)
+        .from(indexed::Entity)
+        .and_where(
+            Expr::col(indexed::Column::FileId.as_column_ref()).eq(Expr::col(C::Id.as_column_ref())),
+        )
+        .to_owned();
+    let row = media_files::Entity::find()
+        .select_only()
+        .columns([C::SourceUuid, C::ContentHash, C::ContentSize])
+        .filter(C::Directory.is_in([native_directory, description.directory.as_str()]))
+        .filter(C::FileName.eq(&description.file_name))
+        .filter(C::LocalAvailable.eq(true))
+        .filter(C::ContentHash.is_not_null())
+        .filter(C::ContentSize.is_not_null())
+        .filter(Expr::not_exists(existing))
+        .into_tuple::<(String, String, i64)>()
+        .one(db)
+        .await?;
+    let Some((track, digest, size)) = row else {
         return Ok(());
     };
-    let track: String = row.try_get("", "source_uuid")?;
     let blob = BlobRef {
-        digest: row.try_get("", "content_hash")?,
-        size: u64::try_from(row.try_get::<i64>("", "content_size")?)?,
+        digest,
+        size: u64::try_from(size)?,
     };
     attach_download(
         db,

@@ -1,10 +1,17 @@
 //! Manual album groups and artist identity redirects for the owning library.
 
+use crate::entities::music_metadata::album_groups as orm_album_groups;
+use crate::entities::music_metadata::artists as orm_artists;
+use crate::entities::music_metadata::synced_album_groups as orm_synced_album_groups;
+use crate::entities::music_metadata_sync_edits as orm_sync_edits;
+use sea_orm::ExprTrait;
+use sea_orm::sea_query::{Alias, Expr, Func, OnConflict, Order, Query, SelectStatement};
 use std::collections::BTreeSet;
 
 use anyhow::Result;
 use sea_orm::{
-    ConnectionTrait, DatabaseConnection, DatabaseTransaction, FromQueryResult, TransactionTrait,
+    ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, DatabaseTransaction,
+    FromQueryResult, TransactionTrait,
 };
 use uuid::Uuid;
 
@@ -16,7 +23,14 @@ use crate::{
     },
 };
 
-use super::statement;
+use super::{column, like_pattern, nocase, query_models, scalar};
+use crate::entities::{
+    media_file_artists,
+    music_metadata::{
+        album_field_values, albums, artist_redirects, audio, credits, current_album_titles, discs,
+        edition_matches, local_overlays, release_identity,
+    },
+};
 
 pub const PAGE_SIZE: usize = 50;
 
@@ -76,34 +90,55 @@ pub async fn releases(
     offset: u32,
 ) -> Result<Vec<ReleaseEntry>> {
     super::ensure_tracks_current(db).await?;
+    use albums::Column as A;
+    use current_album_titles::Column as T;
+    use orm_album_groups::Column as G;
     let filter = pattern(query);
-    let group_filter = if group.is_some() {
-        "a.group_id = ?1"
-    } else {
-        "?1 IS NULL"
-    };
+    let matching = Condition::any()
+        .add(column(T::Title).like(like_pattern(&filter)))
+        .add(column(A::DirectoryPath).like(like_pattern(&filter)))
+        .add(column(T::Version).like(like_pattern(&filter)))
+        .add(column(T::CatalogNumber).like(like_pattern(&filter)));
+    let mut query = Query::select();
+
     // The group-specific plan can use the membership index directly.
-    let rows = ReleaseEntry::find_by_statement(statement(
-        format!("SELECT a.id, current.title, current.version, current.catalog_number, current.release_date, current.release_type,
-                a.directory_path AS directory, a.group_id, g.name AS group_name, a.needs_review,
-                current.track_count > 0 AS available
-         FROM music_metadata_albums a
-         LEFT JOIN music_metadata_album_groups g ON g.id = a.group_id
-         JOIN music_metadata_current_album_titles current ON current.id = a.id
-         WHERE {group_filter}
-           AND (current.title LIKE ?2 ESCAPE '!' OR a.directory_path LIKE ?2 ESCAPE '!'
-                OR current.version LIKE ?2 ESCAPE '!' OR current.catalog_number LIKE ?2 ESCAPE '!')
-         ORDER BY title COLLATE NOCASE, a.directory_path, a.id LIMIT ?3 OFFSET ?4"),
-        [
-            group.map(|id| id.to_string()).into(),
-            filter.into(),
-            page_limit(),
-            offset.into(),
-        ],
-    ))
-    .all(db)
-    .await?;
-    Ok(rows)
+    query
+        .column(A::Id.as_column_ref())
+        .columns(
+            [
+                T::Title,
+                T::Version,
+                T::CatalogNumber,
+                T::ReleaseDate,
+                T::ReleaseType,
+            ]
+            .map(|c| c.as_column_ref()),
+        )
+        .expr_as(column(A::DirectoryPath), "directory")
+        .column(A::GroupId.as_column_ref())
+        .expr_as(column(G::Name), "group_name")
+        .column(A::NeedsReview.as_column_ref())
+        .expr_as(column(T::TrackCount).gt(0), "available")
+        .from(albums::Entity)
+        .left_join(
+            orm_album_groups::Entity,
+            column(G::Id).eq(column(A::GroupId)),
+        )
+        .inner_join(
+            current_album_titles::Entity,
+            column(T::Id).eq(column(A::Id)),
+        )
+        .cond_where(matching);
+
+    if let Some(group) = group {
+        query.and_where(A::GroupId.eq(group.to_string()));
+    }
+    query
+        .order_by_expr(nocase(column(T::Title)), Order::Asc)
+        .order_by_columns([A::DirectoryPath, A::Id].map(|c| (c.as_column_ref(), Order::Asc)))
+        .limit(PAGE_SIZE as u64 + 1)
+        .offset(u64::from(offset));
+    query_models(db, &query).await
 }
 
 /// Return one page of existing groups matching a name.
@@ -112,13 +147,18 @@ pub async fn album_groups(
     query: &str,
     offset: u32,
 ) -> Result<Vec<GroupEntry>> {
-    Ok(GroupEntry::find_by_statement(statement(
-        "SELECT id, name FROM music_metadata_album_groups
-         WHERE name LIKE ? ESCAPE '!' ORDER BY name COLLATE NOCASE, id LIMIT ? OFFSET ?",
-        [pattern(query).into(), page_limit(), offset.into()],
-    ))
-    .all(db)
-    .await?)
+    use orm_album_groups::Column as G;
+    let filter = pattern(query);
+    let mut query = Query::select();
+    query
+        .columns([G::Id, G::Name])
+        .from(orm_album_groups::Entity)
+        .and_where(column(G::Name).like(like_pattern(&filter)))
+        .order_by_expr(nocase(column(G::Name)), Order::Asc)
+        .order_by(G::Id, Order::Asc)
+        .limit(PAGE_SIZE as u64 + 1)
+        .offset(u64::from(offset));
+    query_models(db, &query).await
 }
 
 /// Return canonical artists, matching either the main name or any merged name.
@@ -127,35 +167,92 @@ pub async fn artists(
     query: &str,
     offset: u32,
 ) -> Result<Vec<ArtistEntry>> {
-    Ok(ArtistEntry::find_by_statement(statement(
-        "SELECT a.id, a.name, a.musicbrainz_id FROM music_metadata_artists a
-         WHERE NOT EXISTS (
-            SELECT 1 FROM music_metadata_artist_redirects WHERE source_uuid = a.id)
-          AND (a.musicbrainz_id IS NOT NULL OR NOT EXISTS (
-            SELECT 1 FROM music_metadata_artists known
-            WHERE known.musicbrainz_id IS NOT NULL AND known.name = a.name COLLATE NOCASE)
-            OR EXISTS (
-                SELECT 1 FROM media_file_artists link
-                LEFT JOIN music_metadata_audio track ON track.id = link.track_uuid
-                WHERE link.artist_uuid = a.id AND NOT EXISTS (
-                    SELECT 1 FROM music_metadata_credits c WHERE c.file_id = track.file_id
-                    AND c.scope = 2 AND c.role = 'Primary Artist' AND c.artist_id IS NOT NULL
-                    AND c.credited_as = a.name COLLATE NOCASE)))
-          AND (a.name LIKE ?1 ESCAPE '!' OR EXISTS (
-            SELECT 1 FROM music_metadata_artist_redirects r
-            JOIN music_metadata_artists alias ON alias.id = r.source_uuid
-            WHERE r.target_uuid = a.id AND alias.name LIKE ?1 ESCAPE '!') OR EXISTS (
-            SELECT 1 FROM music_metadata_credits c WHERE c.artist_id = a.id
-            AND c.credited_as LIKE ?1 ESCAPE '!'))
-         ORDER BY a.name COLLATE NOCASE, a.id LIMIT ?2 OFFSET ?3",
-        [pattern(query).into(), page_limit(), offset.into()],
-    ))
-    .all(db)
-    .await?)
+    use artist_redirects::Column as R;
+    use orm_artists::Column as A;
+    let filter = pattern(query);
+    let alias = Alias::new("merged_artist");
+    let former = Query::select()
+        .column(R::SourceUuid.as_column_ref())
+        .from(artist_redirects::Entity)
+        .join_as(
+            sea_orm::JoinType::InnerJoin,
+            orm_artists::Entity,
+            alias.clone(),
+            Expr::col((alias.clone(), A::Id)).eq(column(R::SourceUuid)),
+        )
+        .and_where(column(R::TargetUuid).eq(column(A::Id)))
+        .and_where(Expr::col((alias, A::Name)).like(like_pattern(&filter)))
+        .to_owned();
+    let credited = Query::select()
+        .column(credits::Column::FileId.as_column_ref())
+        .from(credits::Entity)
+        .and_where(column(credits::Column::ArtistId).eq(column(A::Id)))
+        .and_where(column(credits::Column::CreditedAs).like(like_pattern(&filter)))
+        .to_owned();
+
+    // Search canonical names and current credit spellings without reviving merged artists.
+    let mut query = Query::select();
+    query
+        .columns([A::Id, A::Name, A::MusicbrainzId])
+        .from(orm_artists::Entity)
+        .and_where(visible_artist())
+        .and_where(
+            column(A::Name)
+                .like(like_pattern(&filter))
+                .or(Expr::exists(former))
+                .or(Expr::exists(credited)),
+        )
+        .order_by_expr(nocase(column(A::Name)), Order::Asc)
+        .order_by(A::Id, Order::Asc)
+        .limit(PAGE_SIZE as u64 + 1)
+        .offset(u64::from(offset));
+    query_models(db, &query).await
 }
 
-fn page_limit() -> sea_orm::Value {
-    (PAGE_SIZE as i64 + 1).into()
+fn visible_artist() -> Expr {
+    use artist_redirects::Column as R;
+    use credits::Column as C;
+    use media_file_artists::Column as L;
+    use orm_artists::Column as A;
+    let redirect = Query::select()
+        .column(R::SourceUuid.as_column_ref())
+        .from(artist_redirects::Entity)
+        .and_where(column(R::SourceUuid).eq(column(A::Id)))
+        .to_owned();
+    let known = Alias::new("verified_artist");
+    let homonym = Query::select()
+        .column((known.clone(), A::Id))
+        .from_as(orm_artists::Entity, known.clone())
+        .and_where(Expr::col((known.clone(), A::MusicbrainzId)).is_not_null())
+        .and_where(Expr::col((known, A::Name)).eq(nocase(column(A::Name))))
+        .to_owned();
+
+    // A name shared with a verified artist remains visible if any tag is still unlinked.
+    let linked = Query::select()
+        .column(C::FileId.as_column_ref())
+        .from(credits::Entity)
+        .and_where(column(C::FileId).eq(column(audio::Column::FileId)))
+        .and_where(C::Scope.eq(2))
+        .and_where(C::Role.eq("Primary Artist"))
+        .and_where(C::ArtistId.is_not_null())
+        .and_where(column(C::CreditedAs).eq(nocase(column(A::Name))))
+        .to_owned();
+    let unlinked = Query::select()
+        .column(L::TrackUuid.as_column_ref())
+        .from(media_file_artists::Entity)
+        .left_join(
+            audio::Entity,
+            column(audio::Column::Id).eq(column(L::TrackUuid)),
+        )
+        .and_where(column(L::ArtistUuid).eq(column(A::Id)))
+        .and_where(Expr::not_exists(linked))
+        .to_owned();
+    Expr::not_exists(redirect).and(
+        A::MusicbrainzId
+            .is_not_null()
+            .or(Expr::not_exists(homonym))
+            .or(Expr::exists(unlinked)),
+    )
 }
 
 /// Update multiple memberships in the same transaction.
@@ -173,8 +270,10 @@ pub async fn edit_album_group(
     for &id in &releases {
         require(
             &tx,
-            "SELECT 1 FROM music_metadata_albums WHERE id = ?",
-            id,
+            Query::select()
+                .column(albums::Column::Id)
+                .from(albums::Entity)
+                .and_where(albums::Column::Id.eq(id.to_string())),
             "release",
         )
         .await?;
@@ -184,8 +283,10 @@ pub async fn edit_album_group(
         AlbumGroupEdit::Join(id) => {
             require(
                 &tx,
-                "SELECT 1 FROM music_metadata_album_groups WHERE id = ?",
-                id,
+                Query::select()
+                    .column(orm_album_groups::Column::Id)
+                    .from(orm_album_groups::Entity)
+                    .and_where(orm_album_groups::Column::Id.eq(id.to_string())),
                 "album group",
             )
             .await?;
@@ -197,10 +298,12 @@ pub async fn edit_album_group(
                 return Err(invalid("Album group name must contain 1 to 256 characters"));
             }
             let group = Uuid::new_v4();
-            tx.execute_raw(statement(
-                "INSERT INTO music_metadata_album_groups (id, name) VALUES (?, ?)",
-                [group.to_string().into(), name.to_owned().into()],
-            ))
+            tx.execute(
+                Query::insert()
+                    .into_table(orm_album_groups::Entity)
+                    .columns([orm_album_groups::Column::Id, orm_album_groups::Column::Name])
+                    .values_panic([Expr::val(group.to_string()), Expr::val(name.to_owned())]),
+            )
             .await?;
             Some(group)
         }
@@ -208,10 +311,14 @@ pub async fn edit_album_group(
 
     let label = if let Some(group) = group {
         let row = tx
-            .query_one_raw(statement(
-                "SELECT name FROM music_metadata_album_groups WHERE id = ?",
-                [group.to_string().into()],
-            ))
+            .query_one(
+                Query::select()
+                    .column(orm_album_groups::Column::Name)
+                    .from(orm_album_groups::Entity)
+                    .and_where(
+                        Expr::col(orm_album_groups::Column::Id).eq(Expr::val(group.to_string())),
+                    ),
+            )
             .await?
             .ok_or(ExpectedError::NotFound {
                 what: "album group",
@@ -237,28 +344,83 @@ pub async fn edit_album_group(
         )
         .await?;
     }
-    tx.execute_unprepared(
-        "DELETE FROM music_metadata_albums WHERE group_id IS NULL
-         AND NOT EXISTS (SELECT 1 FROM music_metadata_album_field_values WHERE album_id = music_metadata_albums.id)
-         AND NOT EXISTS (SELECT 1 FROM music_metadata_local_overlays WHERE album_id = music_metadata_albums.id)
-         AND NOT EXISTS (
-            SELECT 1 FROM music_metadata_discs WHERE album_id = music_metadata_albums.id);
-         DELETE FROM music_metadata_album_groups WHERE NOT EXISTS (
-            SELECT 1 FROM music_metadata_albums WHERE group_id = music_metadata_album_groups.id)
-            AND NOT EXISTS (SELECT 1 FROM music_metadata_sync_edits
-                WHERE kind = 'album' AND target_uuid = music_metadata_album_groups.id);",
-    )
-    .await?;
+    cleanup_groups(&tx).await?;
     tx.commit().await?;
     Ok(group)
 }
 
+async fn cleanup_groups(tx: &DatabaseTransaction) -> Result<()> {
+    use albums::Column as A;
+    use orm_album_groups::Column as G;
+    use orm_sync_edits::Column as E;
+    let proposed = Query::select()
+        .column(album_field_values::Column::AlbumId)
+        .from(album_field_values::Entity)
+        .and_where(column(album_field_values::Column::AlbumId).eq(column(A::Id)))
+        .to_owned();
+    let overridden = Query::select()
+        .column(local_overlays::Column::AlbumId)
+        .from(local_overlays::Entity)
+        .and_where(column(local_overlays::Column::AlbumId).eq(column(A::Id)))
+        .to_owned();
+    let media = Query::select()
+        .column(discs::Column::AlbumId)
+        .from(discs::Entity)
+        .and_where(column(discs::Column::AlbumId).eq(column(A::Id)))
+        .to_owned();
+
+    // Keep editions with either authored state or a current disc.
+    tx.execute(
+        Query::delete()
+            .from_table(albums::Entity)
+            .and_where(A::GroupId.is_null())
+            .and_where(Expr::not_exists(proposed))
+            .and_where(Expr::not_exists(overridden))
+            .and_where(Expr::not_exists(media)),
+    )
+    .await?;
+
+    // A synced edit may still name a group whose edition has not arrived.
+    let members = Query::select()
+        .column(A::Id.as_column_ref())
+        .from(albums::Entity)
+        .and_where(column(A::GroupId).eq(column(G::Id)))
+        .to_owned();
+    let edits = Query::select()
+        .column(E::Id.as_column_ref())
+        .from(orm_sync_edits::Entity)
+        .and_where(E::Kind.eq("album"))
+        .and_where(column(E::TargetUuid).eq(column(G::Id)))
+        .to_owned();
+    tx.execute(
+        Query::delete()
+            .from_table(orm_album_groups::Entity)
+            .and_where(Expr::not_exists(members))
+            .and_where(Expr::not_exists(edits)),
+    )
+    .await?;
+    Ok(())
+}
+
 async fn edition_for_edit(db: &DatabaseTransaction, release: Uuid) -> Result<(Uuid, i64)> {
-    let row = db.query_one_raw(statement(
-        "SELECT owner_uuid AS id, generation FROM music_metadata_synced_album_groups WHERE album_id = ?
-         ORDER BY generation DESC, owner_uuid LIMIT 1",
-        [release.to_string().into()],
-    )).await?;
+    let row = db
+        .query_one(
+            Query::select()
+                .expr_as(
+                    Expr::col(orm_synced_album_groups::Column::OwnerUuid),
+                    Alias::new("id"),
+                )
+                .column(orm_synced_album_groups::Column::Generation)
+                .from(orm_synced_album_groups::Entity)
+                .and_where(
+                    Expr::col(orm_synced_album_groups::Column::AlbumId)
+                        .eq(Expr::val(release.to_string())),
+                )
+                .order_by(orm_synced_album_groups::Column::Generation, Order::Desc)
+                .order_by(orm_synced_album_groups::Column::OwnerUuid, Order::Asc)
+                .limit(1),
+        )
+        .await?;
     if let Some(row) = row {
         let generation = row.try_get::<i64>("", "generation")?;
         return Ok((
@@ -275,15 +437,39 @@ pub(in crate::actions) async fn portable_edition(
     db: &impl ConnectionTrait,
     release: Uuid,
 ) -> Result<Uuid> {
-    let row = db.query_one_raw(statement(
-        "SELECT COALESCE(
-            (SELECT i.edition_uuid FROM music_metadata_release_identity i WHERE i.album_id = ?1
-             AND NOT EXISTS (SELECT 1 FROM music_metadata_release_identity other
-                             WHERE other.edition_uuid = i.edition_uuid AND other.album_id <> ?1)),
-            (SELECT e.edition_uuid FROM music_metadata_edition_matches e
-             WHERE e.album_id = ?1 AND e.edition_uuid <> ?1 ORDER BY e.edition_uuid LIMIT 1), ?1) AS id",
-        [release.to_string().into()],
-    )).await?.ok_or(ExpectedError::NotFound { what: "release" })?;
+    use edition_matches::Column as M;
+    use release_identity::Column as I;
+    let key = release.to_string();
+    let other = Alias::new("other_edition");
+    let duplicate = Query::select()
+        .column((other.clone(), I::AlbumId))
+        .from_as(release_identity::Entity, other.clone())
+        .and_where(Expr::col((other.clone(), I::EditionUuid)).eq(column(I::EditionUuid)))
+        .and_where(Expr::col((other, I::AlbumId)).ne(&key))
+        .to_owned();
+    let unique = Query::select()
+        .column(I::EditionUuid.as_column_ref())
+        .from(release_identity::Entity)
+        .and_where(I::AlbumId.eq(&key))
+        .and_where(Expr::not_exists(duplicate))
+        .to_owned();
+
+    // Prefer the exact identity and fall back to a matching anchor or the local UUID.
+    let anchored = Query::select()
+        .column(M::EditionUuid)
+        .from(edition_matches::Entity)
+        .and_where(M::AlbumId.eq(&key))
+        .and_where(M::EditionUuid.ne(&key))
+        .order_by(M::EditionUuid, Order::Asc)
+        .limit(1)
+        .to_owned();
+    let row = db
+        .query_one(Query::select().expr_as(
+            Func::coalesce([scalar(unique), scalar(anchored), Expr::val(key)]),
+            "id",
+        ))
+        .await?
+        .ok_or(ExpectedError::NotFound { what: "release" })?;
     super::uuid(&row, "id")
 }
 
@@ -294,12 +480,27 @@ pub(in crate::actions) async fn publish_edition_anchors(
     release: Uuid,
 ) -> Result<()> {
     // Only current shared tracks can establish identity on another replica.
-    let rows = tx.query_all_raw(statement(
-        "SELECT t.id FROM music_metadata_discs d JOIN music_metadata_audio t ON t.disc_id = d.id
-         WHERE d.album_id = ?1 AND NOT EXISTS (SELECT 1 FROM music_metadata_sync_edits e
-            WHERE e.kind = 'anchor' AND e.owner_uuid = ?2 AND e.edition_uuid = t.id)",
-        [release.to_string().into(), edition.to_string().into()],
-    )).await?;
+    use orm_sync_edits::Column as E;
+    let anchored = Query::select()
+        .column(E::Id.as_column_ref())
+        .from(orm_sync_edits::Entity)
+        .and_where(E::Kind.eq("anchor"))
+        .and_where(E::OwnerUuid.eq(edition.to_string()))
+        .and_where(column(E::EditionUuid).eq(column(audio::Column::Id)))
+        .to_owned();
+    let rows = tx
+        .query_all(
+            Query::select()
+                .column(audio::Column::Id.as_column_ref())
+                .from(discs::Entity)
+                .inner_join(
+                    audio::Entity,
+                    column(audio::Column::DiscId).eq(column(discs::Column::Id)),
+                )
+                .and_where(discs::Column::AlbumId.eq(release.to_string()))
+                .and_where(Expr::not_exists(anchored)),
+        )
+        .await?;
     for row in rows {
         let track = super::uuid(&row, "id")?;
         author_edit(tx, store, "anchor", edition, Some(track), None, None, 0).await?;
@@ -325,14 +526,38 @@ async fn author_edit(
     } else {
         metadata_edit_id(kind, owner)
     };
-    db.execute_raw(statement(
-        "INSERT INTO music_metadata_sync_edits (source_uuid, kind, owner_uuid, edition_uuid, target_uuid, label, generation)
-         VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(source_uuid) DO UPDATE SET
-            target_uuid = excluded.target_uuid, label = excluded.label, generation = excluded.generation",
-        [id.to_string().into(), kind.to_owned().into(), owner.to_string().into(),
-         edition.map(|id| id.to_string()).into(), target.map(|id| id.to_string()).into(),
-         label.map(str::to_owned).into(), generation.into()],
-    )).await?;
+    db.execute(
+        Query::insert()
+            .into_table(orm_sync_edits::Entity)
+            .columns([
+                orm_sync_edits::Column::SourceUuid,
+                orm_sync_edits::Column::Kind,
+                orm_sync_edits::Column::OwnerUuid,
+                orm_sync_edits::Column::EditionUuid,
+                orm_sync_edits::Column::TargetUuid,
+                orm_sync_edits::Column::Label,
+                orm_sync_edits::Column::Generation,
+            ])
+            .values_panic([
+                Expr::val(id.to_string()),
+                Expr::val(kind.to_owned()),
+                Expr::val(owner.to_string()),
+                Expr::val(edition.map(|id| id.to_string())),
+                Expr::val(target.map(|id| id.to_string())),
+                Expr::val(label.map(str::to_owned)),
+                Expr::val(generation),
+            ])
+            .on_conflict(
+                OnConflict::column(orm_sync_edits::Column::SourceUuid)
+                    .update_columns([
+                        orm_sync_edits::Column::TargetUuid,
+                        orm_sync_edits::Column::Label,
+                        orm_sync_edits::Column::Generation,
+                    ])
+                    .to_owned(),
+            ),
+    )
+    .await?;
     author_source_on(
         db,
         store,
@@ -356,10 +581,12 @@ pub async fn merge_artists(
     store.lock(&tx).await?;
     let target = canonical_artist(&tx, target).await?;
     let row = tx
-        .query_one_raw(statement(
-            "SELECT name FROM music_metadata_artists WHERE id = ?",
-            [target.to_string().into()],
-        ))
+        .query_one(
+            Query::select()
+                .column(orm_artists::Column::Name)
+                .from(orm_artists::Entity)
+                .and_where(Expr::col(orm_artists::Column::Id).eq(Expr::val(target.to_string()))),
+        )
         .await?
         .ok_or(ExpectedError::NotFound { what: "artist" })?;
     let name: String = row.try_get("", "name")?;
@@ -403,12 +630,12 @@ pub async fn confirm_release(
     Ok(())
 }
 
-async fn require(db: &impl ConnectionTrait, sql: &str, id: Uuid, what: &'static str) -> Result<()> {
-    if db
-        .query_one_raw(statement(sql, [id.to_string().into()]))
-        .await?
-        .is_none()
-    {
+async fn require(
+    db: &impl ConnectionTrait,
+    query: &SelectStatement,
+    what: &'static str,
+) -> Result<()> {
+    if db.query_one(query).await?.is_none() {
         return Err(ExpectedError::NotFound { what }.into());
     }
     Ok(())
@@ -416,12 +643,19 @@ async fn require(db: &impl ConnectionTrait, sql: &str, id: Uuid, what: &'static 
 
 /// Resolve a current or merged artist UUID to its canonical identity.
 pub async fn canonical_artist(db: &impl ConnectionTrait, id: Uuid) -> Result<Uuid> {
+    use artist_redirects::Column as R;
+    use orm_artists::Column as A;
     let row = db
-        .query_one_raw(statement(
-            "SELECT COALESCE(r.target_uuid, a.id) AS id FROM music_metadata_artists a
-         LEFT JOIN music_metadata_artist_redirects r ON r.source_uuid = a.id WHERE a.id = ?",
-            [id.to_string().into()],
-        ))
+        .query_one(
+            Query::select()
+                .expr_as(Func::coalesce([column(R::TargetUuid), column(A::Id)]), "id")
+                .from(orm_artists::Entity)
+                .left_join(
+                    artist_redirects::Entity,
+                    column(R::SourceUuid).eq(column(A::Id)),
+                )
+                .and_where(A::Id.eq(id.to_string())),
+        )
         .await?
         .ok_or(ExpectedError::NotFound { what: "artist" })?;
     super::uuid(&row, "id")

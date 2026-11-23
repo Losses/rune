@@ -1,17 +1,35 @@
 //! Recordings shared by files and provider resources.
 
+use crate::entities::music_metadata::recording_credits as orm_recording_credits;
+use crate::entities::music_metadata::recording_sources as orm_recording_sources;
+use crate::entities::music_metadata::recordings as orm_recordings;
 use anyhow::Result;
 use metadata::model::{
     AudioQuality, AudioVariantSource, Credit, MetadataBase, MetadataSourceKind,
     RecordingIdentifiers, RecordingMetadata, RecordingSource,
 };
-use sea_orm::{ConnectionTrait, DatabaseTransaction, TransactionSession, TransactionTrait};
+use sea_orm::ExprTrait;
+use sea_orm::sea_query::{
+    Alias, BinOper, Expr, Func, OnConflict, Order, Query, SelectStatement, UnionType,
+};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DatabaseTransaction, TransactionSession, TransactionTrait,
+};
 use uuid::Uuid;
 
+use crate::entities::{
+    media_files,
+    music_metadata::{
+        artist_redirects, current_recording_audio as verified, recording_aliases, track_assets,
+        track_recordings,
+    },
+};
+
 use super::{
+    column,
     details::Selection,
     recording_identity::{ensure_exists, isrc, reconcile, remote_fallback},
-    statement, tracks,
+    tracks,
 };
 
 /// Register a provider resource after obtaining its recording identifiers.
@@ -36,21 +54,58 @@ pub async fn register_recording_source(
     ensure_exists(&tx, fallback).await?;
 
     // Store the provider's current assertion. A later refresh can remove either identifier.
-    tx.execute_raw(statement(
-        "INSERT INTO music_metadata_recording_sources
-            (provider, resource_id, recording_id, recording_mbid, recording_isrc) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(provider, resource_id) DO UPDATE SET
-            recording_id = CASE WHEN recording_mbid IS excluded.recording_mbid
-              AND recording_isrc IS excluded.recording_isrc THEN recording_id ELSE excluded.recording_id END,
-            recording_mbid = excluded.recording_mbid, recording_isrc = excluded.recording_isrc",
-        [provider.to_owned().into(), resource.to_owned().into(), fallback.to_string().into(),
-         identifiers.musicbrainz_id.map(|id| id.to_string()).into(), identifiers.isrc.into()],
-    )).await?;
+    use orm_recording_sources::Column as S;
+    let excluded = Alias::new("excluded");
+    let unchanged = column(S::RecordingMbid)
+        .binary(BinOper::Is, Expr::col((excluded.clone(), S::RecordingMbid)))
+        .and(
+            column(S::RecordingIsrc)
+                .binary(BinOper::Is, Expr::col((excluded.clone(), S::RecordingIsrc))),
+        );
+    let recording = Expr::case(unchanged, column(S::RecordingId))
+        .finally(Expr::col((excluded, S::RecordingId)));
+    tx.execute(
+        Query::insert()
+            .into_table(orm_recording_sources::Entity)
+            .columns([
+                S::Provider,
+                S::ResourceId,
+                S::RecordingId,
+                S::RecordingMbid,
+                S::RecordingIsrc,
+            ])
+            .values([
+                Expr::val(provider),
+                Expr::val(resource),
+                Expr::val(fallback.to_string()),
+                Expr::val(identifiers.musicbrainz_id.map(|id| id.to_string())),
+                Expr::val(identifiers.isrc),
+            ])?
+            .on_conflict(
+                OnConflict::columns([S::Provider, S::ResourceId])
+                    .update_columns([S::RecordingMbid, S::RecordingIsrc])
+                    .value(S::RecordingId, recording)
+                    .to_owned(),
+            ),
+    )
+    .await?;
     reconcile(&tx).await?;
-    let row = tx.query_one_raw(statement(
-        "SELECT recording_id FROM music_metadata_recording_sources WHERE provider = ? AND resource_id = ?",
-        [provider.to_owned().into(), resource.to_owned().into()],
-    )).await?.ok_or_else(|| anyhow::anyhow!("missing recording source after registration"))?;
+    let row = tx
+        .query_one(
+            Query::select()
+                .column(orm_recording_sources::Column::RecordingId)
+                .from(orm_recording_sources::Entity)
+                .and_where(
+                    Expr::col(orm_recording_sources::Column::Provider)
+                        .eq(Expr::val(provider.to_owned())),
+                )
+                .and_where(
+                    Expr::col(orm_recording_sources::Column::ResourceId)
+                        .eq(Expr::val(resource.to_owned())),
+                ),
+        )
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("missing recording source after registration"))?;
     let id = super::uuid(&row, "recording_id")?;
     tx.commit().await?;
     Ok(id)
@@ -63,14 +118,44 @@ pub async fn update_recording_source_quality(
     available: bool,
     quality: &AudioQuality,
 ) -> Result<bool> {
-    let result = db.execute_raw(statement(
-        "UPDATE music_metadata_recording_sources SET available = ?, codec = ?, is_lossless = ?,
-             sample_rate = ?, bits_per_sample = ?, bitrate = ? WHERE provider = ? AND resource_id = ?",
-        [available.into(), quality.codec.clone().into(), quality.is_lossless.into(),
-         quality.sample_rate.map(i64::from).into(), quality.bits_per_sample.map(i64::from).into(),
-         quality.bitrate.map(i64::try_from).transpose()?.into(),
-         source.provider.trim().to_owned().into(), source.resource_id.trim().to_owned().into()],
-    )).await?;
+    let result = db
+        .execute(
+            Query::update()
+                .table(orm_recording_sources::Entity)
+                .value(
+                    orm_recording_sources::Column::Available,
+                    Expr::val(available),
+                )
+                .value(
+                    orm_recording_sources::Column::Codec,
+                    Expr::val(quality.codec.clone()),
+                )
+                .value(
+                    orm_recording_sources::Column::IsLossless,
+                    Expr::val(quality.is_lossless),
+                )
+                .value(
+                    orm_recording_sources::Column::SampleRate,
+                    Expr::val(quality.sample_rate.map(i64::from)),
+                )
+                .value(
+                    orm_recording_sources::Column::BitsPerSample,
+                    Expr::val(quality.bits_per_sample.map(i64::from)),
+                )
+                .value(
+                    orm_recording_sources::Column::Bitrate,
+                    Expr::val(quality.bitrate.map(i64::try_from).transpose()?),
+                )
+                .and_where(
+                    Expr::col(orm_recording_sources::Column::Provider)
+                        .eq(Expr::val(source.provider.trim().to_owned())),
+                )
+                .and_where(
+                    Expr::col(orm_recording_sources::Column::ResourceId)
+                        .eq(Expr::val(source.resource_id.trim().to_owned())),
+                ),
+        )
+        .await?;
     Ok(result.rows_affected() > 0)
 }
 
@@ -96,12 +181,19 @@ pub async fn replace_recording_credit_source(
     let id = recording.to_string();
 
     // Replace the entire ordered contribution of this source in one savepoint.
-    tx.execute_raw(statement(
-        "DELETE FROM music_metadata_recording_credits WHERE source_kind = ?2 AND source_provider = ?3
-         AND (recording_id = ?1 OR recording_id IN (
-             SELECT source_id FROM music_metadata_recording_aliases WHERE target_id = ?1))",
-        [id.clone().into(), kind.into(), provider.to_owned().into()],
-    )).await?;
+    use orm_recording_credits::Column as C;
+    tx.execute(
+        Query::delete()
+            .from_table(orm_recording_credits::Entity)
+            .and_where(C::SourceKind.eq(kind))
+            .and_where(C::SourceProvider.eq(provider))
+            .and_where(
+                C::RecordingId
+                    .eq(&id)
+                    .or(column(C::RecordingId).in_subquery(aliases_to(&id))),
+            ),
+    )
+    .await?;
     for (position, credit) in credits.iter().enumerate() {
         let evidence = &credit.source;
         anyhow::ensure!(
@@ -112,15 +204,41 @@ pub async fn replace_recording_credit_source(
                     .is_none_or(|name| name == provider),
             "credit source does not match its provider"
         );
-        tx.execute_raw(statement(
-            "INSERT INTO music_metadata_recording_credits (recording_id, position, source_kind,
-                source_provider, credited_as, role, artist_id, instrument, source_key, source_path,
-                source_pattern, source_entity_id, source_confidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [id.clone().into(), i64::try_from(position)?.into(), kind.into(), provider.to_owned().into(),
-             credit.credited_as.clone().into(), credit.role.clone().into(), credit.artist_id.map(|id| id.to_string()).into(),
-             credit.instrument.clone().into(), evidence.key.clone().into(), evidence.path.clone().into(),
-             evidence.pattern.clone().into(), evidence.entity_id.map(|id| id.to_string()).into(), evidence.confidence.into()],
-        )).await?;
+        tx.execute(
+            Query::insert()
+                .into_table(orm_recording_credits::Entity)
+                .columns([
+                    orm_recording_credits::Column::RecordingId,
+                    orm_recording_credits::Column::Position,
+                    orm_recording_credits::Column::SourceKind,
+                    orm_recording_credits::Column::SourceProvider,
+                    orm_recording_credits::Column::CreditedAs,
+                    orm_recording_credits::Column::Role,
+                    orm_recording_credits::Column::ArtistId,
+                    orm_recording_credits::Column::Instrument,
+                    orm_recording_credits::Column::SourceKey,
+                    orm_recording_credits::Column::SourcePath,
+                    orm_recording_credits::Column::SourcePattern,
+                    orm_recording_credits::Column::SourceEntityId,
+                    orm_recording_credits::Column::SourceConfidence,
+                ])
+                .values_panic([
+                    Expr::val(id.clone()),
+                    Expr::val(i64::try_from(position)?),
+                    Expr::val(kind),
+                    Expr::val(provider.to_owned()),
+                    Expr::val(credit.credited_as.clone()),
+                    Expr::val(credit.role.clone()),
+                    Expr::val(credit.artist_id.map(|id| id.to_string())),
+                    Expr::val(credit.instrument.clone()),
+                    Expr::val(evidence.key.clone()),
+                    Expr::val(evidence.path.clone()),
+                    Expr::val(evidence.pattern.clone()),
+                    Expr::val(evidence.entity_id.map(|id| id.to_string())),
+                    Expr::val(evidence.confidence),
+                ]),
+        )
+        .await?;
     }
     tx.commit().await?;
     Ok(true)
@@ -139,10 +257,15 @@ pub async fn recording_metadata(
     };
     let key = id.to_string();
     let Some(row) = tx
-        .query_one_raw(statement(
-            "SELECT musicbrainz_id, isrc FROM music_metadata_recordings WHERE id = ?",
-            [key.clone().into()],
-        ))
+        .query_one(
+            Query::select()
+                .columns([
+                    orm_recordings::Column::MusicbrainzId,
+                    orm_recordings::Column::Isrc,
+                ])
+                .from(orm_recordings::Entity)
+                .and_where(Expr::col(orm_recordings::Column::Id).eq(Expr::val(key.clone()))),
+        )
         .await?
     else {
         return Ok(None);
@@ -153,34 +276,33 @@ pub async fn recording_metadata(
     };
 
     // Playback ranking applies after identity has been established.
+    use orm_recording_sources::Column as S;
     let mut versions = tx
-        .query_all_raw(statement(
-            format!(
-                "SELECT a.id AS audio_id, 0 AS start_ms, NULL AS end_ms, {quality}
-             FROM music_metadata_current_recording_audio a JOIN media_files f ON f.id = a.file_id
-             WHERE a.recording_id = ?1
-             UNION
-             SELECT a.id, v.start_ms, v.end_ms, {quality}
-             FROM music_metadata_track_recordings r JOIN music_metadata_track_assets v ON v.track_id = r.track_id
-             JOIN music_metadata_current_recording_audio a ON a.file_id = v.file_id
-             JOIN media_files f ON f.id = a.file_id WHERE r.recording_id = ?1
-             ORDER BY audio_id, start_ms",
-                quality = tracks::LOCAL_QUALITY
-            ),
-            [key.clone().into()],
-        ))
+        .query_all(&local_versions(&key))
         .await?
         .iter()
         .map(tracks::local_variant)
         .collect::<Result<Vec<_>>>()?;
     let sources = tx
-        .query_all_raw(statement(
-            "SELECT provider, resource_id, available, codec, is_lossless, sample_rate,
-            bits_per_sample, bitrate, 0 AS start_ms, NULL AS end_ms
-         FROM music_metadata_recording_sources WHERE recording_id = ?
-         ORDER BY provider, resource_id",
-            [key.clone().into()],
-        ))
+        .query_all(
+            Query::select()
+                .columns([
+                    S::Provider,
+                    S::ResourceId,
+                    S::Available,
+                    S::Codec,
+                    S::IsLossless,
+                    S::SampleRate,
+                    S::BitsPerSample,
+                    S::Bitrate,
+                ])
+                .expr_as(Expr::val(0), "start_ms")
+                .expr_as(Expr::val(None::<i64>), "end_ms")
+                .from(orm_recording_sources::Entity)
+                .and_where(S::RecordingId.eq(&key))
+                .order_by(S::Provider, Order::Asc)
+                .order_by(S::ResourceId, Order::Asc),
+        )
         .await?;
     for row in &sources {
         versions.push(tracks::variant(
@@ -222,22 +344,7 @@ pub async fn recording_metadata(
         &mut Default::default(),
     )
     .await?;
-    let direct = tx
-        .query_all_raw(statement(
-            "SELECT c.credited_as, c.role, COALESCE(r.target_uuid, c.artist_id) AS artist_id,
-                c.instrument, c.source_kind, c.source_provider, c.source_key, c.source_path,
-                c.source_pattern, c.source_entity_id, c.source_confidence
-         FROM music_metadata_recording_credits c
-         LEFT JOIN music_metadata_artist_redirects r ON r.source_uuid = c.artist_id
-         WHERE c.recording_id = ?1 OR (c.recording_id IN (
-            SELECT source_id FROM music_metadata_recording_aliases WHERE target_id = ?1)
-            AND NOT EXISTS (SELECT 1 FROM music_metadata_recording_credits current
-                WHERE current.recording_id = ?1 AND current.source_kind = c.source_kind
-                  AND current.source_provider = c.source_provider))
-         ORDER BY c.source_kind, c.source_provider, c.position",
-            [key.into()],
-        ))
-        .await?;
+    let direct = tx.query_all(&recording_credits(&key)).await?;
     let mut credits = direct
         .iter()
         .map(super::credits::read)
@@ -256,11 +363,121 @@ pub async fn recording_metadata(
 
 async fn canonical_id(db: &impl ConnectionTrait, id: Uuid) -> Result<Option<Uuid>> {
     let row = db
-        .query_one_raw(statement(
-            "SELECT COALESCE(a.target_id, r.id) AS id FROM music_metadata_recordings r
-         LEFT JOIN music_metadata_recording_aliases a ON a.source_id = r.id WHERE r.id = ?",
-            [id.to_string().into()],
-        ))
+        .query_one(
+            Query::select()
+                .expr_as(
+                    Func::coalesce([
+                        column(recording_aliases::Column::TargetId),
+                        column(orm_recordings::Column::Id),
+                    ]),
+                    "id",
+                )
+                .from(orm_recordings::Entity)
+                .left_join(
+                    recording_aliases::Entity,
+                    column(recording_aliases::Column::SourceId)
+                        .eq(column(orm_recordings::Column::Id)),
+                )
+                .and_where(orm_recordings::Column::Id.eq(id.to_string())),
+        )
         .await?;
     row.map(|row| super::uuid(&row, "id")).transpose()
+}
+
+fn aliases_to(id: &str) -> SelectStatement {
+    Query::select()
+        .column(recording_aliases::Column::SourceId)
+        .from(recording_aliases::Entity)
+        .and_where(recording_aliases::Column::TargetId.eq(id))
+        .to_owned()
+}
+
+fn recording_credits(id: &str) -> SelectStatement {
+    use orm_recording_credits::Column as C;
+    let current = Alias::new("current_credit");
+    let same_source = Query::select()
+        .column((current.clone(), C::RecordingId))
+        .from_as(orm_recording_credits::Entity, current.clone())
+        .and_where(Expr::col((current.clone(), C::RecordingId)).eq(id))
+        .and_where(Expr::col((current.clone(), C::SourceKind)).eq(column(C::SourceKind)))
+        .and_where(Expr::col((current, C::SourceProvider)).eq(column(C::SourceProvider)))
+        .to_owned();
+
+    // Fall back to an alias only when no current contribution supersedes its source.
+    Query::select()
+        .columns(
+            [
+                C::CreditedAs,
+                C::Role,
+                C::Instrument,
+                C::SourceKind,
+                C::SourceProvider,
+                C::SourceKey,
+                C::SourcePath,
+                C::SourcePattern,
+                C::SourceEntityId,
+                C::SourceConfidence,
+            ]
+            .map(|c| c.as_column_ref()),
+        )
+        .expr_as(
+            Func::coalesce([
+                column(artist_redirects::Column::TargetUuid),
+                column(C::ArtistId),
+            ]),
+            "artist_id",
+        )
+        .from(orm_recording_credits::Entity)
+        .left_join(
+            artist_redirects::Entity,
+            column(artist_redirects::Column::SourceUuid).eq(column(C::ArtistId)),
+        )
+        .and_where(
+            C::RecordingId.eq(id).or(column(C::RecordingId)
+                .in_subquery(aliases_to(id))
+                .and(Expr::not_exists(same_source))),
+        )
+        .order_by_columns(
+            [C::SourceKind, C::SourceProvider, C::Position]
+                .map(|c| (c.as_column_ref(), Order::Asc)),
+        )
+        .to_owned()
+}
+
+fn local_versions(id: &str) -> SelectStatement {
+    use media_files::Column as F;
+    use track_assets::Column as V;
+    use verified::Column as A;
+
+    // The union deduplicates assets reachable through both file and track identities.
+    let mut whole = Query::select();
+    whole
+        .expr_as(column(A::Id), "audio_id")
+        .expr_as(Expr::val(0), "start_ms")
+        .expr_as(Expr::val(None::<i64>), "end_ms");
+    tracks::local_quality(&mut whole);
+    whole
+        .from(verified::Entity)
+        .inner_join(media_files::Entity, column(F::Id).eq(column(A::FileId)))
+        .and_where(A::RecordingId.eq(id));
+
+    let mut segments = Query::select();
+    segments
+        .column(A::Id.as_column_ref())
+        .columns([V::StartMs, V::EndMs].map(|c| c.as_column_ref()));
+    tracks::local_quality(&mut segments);
+    segments
+        .from(track_recordings::Entity)
+        .inner_join(
+            track_assets::Entity,
+            column(V::TrackId).eq(column(track_recordings::Column::TrackId)),
+        )
+        .inner_join(verified::Entity, column(A::FileId).eq(column(V::FileId)))
+        .inner_join(media_files::Entity, column(F::Id).eq(column(A::FileId)))
+        .and_where(track_recordings::Column::RecordingId.eq(id));
+    whole
+        .union(UnionType::Distinct, segments)
+        .order_by(Alias::new("audio_id"), Order::Asc)
+        .order_by(Alias::new("start_ms"), Order::Asc);
+    whole
 }

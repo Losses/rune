@@ -5,13 +5,14 @@ use crate::actions::{
     index::{index_media_file, index_media_files},
     logging::{LogLevel, insert_log},
 };
+use crate::entities::music_metadata::{artist_identities, audio as catalog_audio};
 use crate::entities::{
     albums, artists, media_analysis, media_file_albums, media_files, media_metadata,
     sync_download_jobs, sync_download_jobs::Column,
 };
 use crate::error::ExpectedError;
-use sea_orm::ExprTrait;
 use sea_orm::sqlx::Error;
+use sea_orm::{ExprTrait, sea_query::Query};
 use std::collections::HashSet;
 use std::{
     collections::HashMap,
@@ -94,8 +95,15 @@ pub async fn get_existing_files_modified(
             .filter(media_files::Column::LocalAvailable.eq(true))
             .filter(media_files::Column::ContentHash.is_not_null())
             .filter(media_files::Column::ContentSize.is_not_null())
-            .filter(Expr::cust(
-                "EXISTS (SELECT 1 FROM music_metadata_audio WHERE file_id = media_files.id)",
+            .filter(Expr::exists(
+                Query::select()
+                    .column(catalog_audio::Column::FileId)
+                    .from(catalog_audio::Entity)
+                    .and_where(
+                        Expr::col(catalog_audio::Column::FileId.as_column_ref())
+                            .eq(Expr::col(media_files::Column::Id.as_column_ref())),
+                    )
+                    .to_owned(),
             ))
             .filter(conditions)
             .all(main_db)
@@ -496,7 +504,7 @@ async fn find_moved_file(
     size: i64,
     release_track: Option<Uuid>,
 ) -> Result<Option<(media_files::Model, Option<String>)>> {
-    use sea_orm::{DbBackend, FromQueryResult, QuerySelect, Statement};
+    use sea_orm::QuerySelect;
 
     let Some(root) = description.lib_path.as_deref() else {
         return Ok(None);
@@ -521,14 +529,17 @@ async fn find_moved_file(
     if candidates.is_empty()
         && let Some(id) = release_track
     {
-        candidates = media_files::Model::find_by_statement(Statement::from_sql_and_values(
-            DbBackend::Sqlite,
-            "SELECT f.* FROM music_metadata_audio a JOIN media_files f ON f.id = a.file_id
-             WHERE a.release_track_mbid = ? AND f.local_available = 1 LIMIT 2",
-            [id.to_string().into()],
-        ))
-        .all(db)
-        .await?;
+        let tagged_files = Query::select()
+            .column(catalog_audio::Column::FileId)
+            .from(catalog_audio::Entity)
+            .and_where(catalog_audio::Column::ReleaseTrackMbid.eq(id.to_string()))
+            .to_owned();
+        candidates = media_files::Entity::find()
+            .filter(Expr::col(media_files::Column::Id.as_column_ref()).in_subquery(tagged_files))
+            .filter(media_files::Column::LocalAvailable.eq(true))
+            .limit(2)
+            .all(db)
+            .await?;
     }
     let [old] = candidates.as_slice() else {
         return Ok(None);
@@ -1429,14 +1440,19 @@ pub async fn get_parsed_file_by_id(
     let file = get_metadata_summary_by_file_id(db, file_id).await?;
 
     // Credits preserve tag spellings while artist navigation follows confirmed identities.
-    use sea_orm::{DbBackend, FromQueryResult, Statement};
-    let artists = artists::Model::find_by_statement(Statement::from_sql_and_values(
-        DbBackend::Sqlite,
-        "SELECT DISTINCT a.* FROM media_file_artists link
-         JOIN music_metadata_artist_identities identities ON identities.source_uuid = link.artist_uuid
-         JOIN artists a ON a.id = identities.target_id WHERE link.track_uuid = ?",
-        [file.file_uuid.clone().into()],
-    ))
+    use crate::entities::media_file_artists as links;
+    let targets = Query::select()
+        .column(artist_identities::Column::TargetId.as_column_ref())
+        .from(links::Entity)
+        .inner_join(
+            artist_identities::Entity,
+            Expr::col(artist_identities::Column::SourceUuid.as_column_ref())
+                .eq(Expr::col(links::Column::ArtistUuid.as_column_ref())),
+        )
+        .and_where(links::Column::TrackUuid.eq(&file.file_uuid))
+        .to_owned();
+    let artists = artists::Entity::find()
+        .filter(Expr::col(artists::Column::Id.as_column_ref()).in_subquery(targets))
         .all(db)
         .await?;
 
