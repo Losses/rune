@@ -1041,7 +1041,9 @@ mod lifecycle_tests {
     use uuid::Uuid;
 
     use crate::backends::remote::encode_message;
-    use crate::backends::remote::{connect_remote, decode_message};
+    use crate::backends::remote::{
+        RemoteConnectError, connect_controller, connect_remote, decode_message,
+    };
     use crate::handlers::neighbors::select_pinned_pair_host;
     use crate::library_pool::{LibraryHandle, LibraryPool};
     use crate::messages::{
@@ -2520,6 +2522,58 @@ mod lifecycle_tests {
             )
             .await?;
         }
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn repl_handshake_rejects_an_incompatible_server_version() -> Result<()> {
+        use discovery::protocol_version::ProtocolVersion;
+
+        let server_dir = tempfile::tempdir()?;
+        let client_dir = tempfile::tempdir()?;
+        let server = step("create version server", fixture(server_dir.path())).await?;
+        let client = step("create version client", fixture(client_dir.path())).await?;
+        let address = step(
+            "pair version fixtures",
+            paired_full_with_protocol_version(&server, &client, ProtocolVersion::parse("3.0.0")?),
+        )
+        .await?;
+        let validator = client.global_params.cert_validator.read().await.clone();
+        let error = match step(
+            "reject the incompatible REPL handshake",
+            connect_controller(
+                "127.0.0.1",
+                address.port(),
+                client.global_params.config_path.as_str(),
+                validator,
+            ),
+        )
+        .await
+        {
+            Ok(_) => panic!("an incompatible server version must be rejected"),
+            Err(error) => error,
+        };
+        assert!(
+            matches!(
+                error,
+                RemoteConnectError::PeerNeedsUpdate {
+                    peer: Some(version),
+                    ..
+                } if version == ProtocolVersion::parse("3.0.0").unwrap()
+            ),
+            "unexpected handshake error: {error:?}"
+        );
+        step("stop version server", server.manager.stop()).await?;
+        step(
+            "shutdown version client",
+            client.global_params.node.shutdown(),
+        )
+        .await?;
+        step(
+            "shutdown version server",
+            server.global_params.node.shutdown(),
+        )
+        .await?;
         Ok(())
     }
 
