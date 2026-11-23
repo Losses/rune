@@ -1535,6 +1535,7 @@
   "libraryUntrusted": "此器未受信任。",
   "libraryInvalidSource": "此資料夾不可用作媒體庫。",
   "libraryStorageFailure": "不可儲存媒體庫。",
+  "libraryShareStoreUnavailable": "共有儲存不可達。同步將自動再試。",
   "libraryRemoteNotAuthorized": "器未授權此連線。",
   "libraryRemoteUnreachable": "不可連線到器。",
   "libraryRemoteProtocolFailure": "器傳回不相容的回應。",

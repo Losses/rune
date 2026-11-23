@@ -1704,6 +1704,10 @@
   "libraryUntrusted": "This device is not trusted.",
   "libraryInvalidSource": "This folder cannot be used as a library.",
   "libraryStorageFailure": "The library could not be saved.",
+  "libraryShareStoreUnavailable": "Shared storage is unavailable. Sync will retry automatically.",
+  "@libraryShareStoreUnavailable": {
+    "description": "Shown when the shared storage holding the library is unreachable and the share sync retries on its own."
+  },
   "libraryRemoteNotAuthorized": "The device did not allow this connection.",
   "libraryRemoteUnreachable": "The device could not be reached.",
   "libraryRemoteProtocolFailure": "The device returned an incompatible response.",

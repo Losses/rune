@@ -709,7 +709,6 @@ class RuneLifecycleState extends State<RuneLifecycle> {
         final context = _noticeContext();
         if (context == null || !context.mounted) return;
         final message = shareSyncFailureMessage(S.of(context), failure);
-        if (message == null) return;
         displayInfoBar(
           context,
           builder: (_, close) => InfoBar(

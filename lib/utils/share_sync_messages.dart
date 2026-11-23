@@ -1,9 +1,8 @@
 import '../bindings/bindings.dart';
 import '../l10n/app_localizations.dart';
 
-/// The message for a library whose share sync stopped, or null for an
-/// unavailable store, which the share worker retries on its own.
-String? shareSyncFailureMessage(AppLocalizations s, ShareSyncFailure failure) =>
+/// The message for a library whose share sync stopped.
+String shareSyncFailureMessage(AppLocalizations s, ShareSyncFailure failure) =>
     switch (failure) {
       ShareSyncFailure.shareChanged => s.libraryInvalidSource,
       ShareSyncFailure.readOnlyShare => s.libraryOpenDalReadOnly,
@@ -11,5 +10,5 @@ String? shareSyncFailureMessage(AppLocalizations s, ShareSyncFailure failure) =>
         s.libraryOpenDalAuthenticationRejected,
       ShareSyncFailure.objectMissing => s.libraryOpenDalNotFolder,
       ShareSyncFailure.probeFailed => s.libraryStorageFailure,
-      ShareSyncFailure.storeUnavailable => null,
+      ShareSyncFailure.storeUnavailable => s.libraryShareStoreUnavailable,
     };
