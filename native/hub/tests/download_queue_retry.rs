@@ -315,6 +315,44 @@ async fn another_source_is_eligible_during_failed_source_backoff() -> Result<()>
 }
 
 #[tokio::test]
+async fn failure_recording_error_reaches_the_pass_caller() -> Result<()> {
+    let fixture = Fixture::new().await?;
+    fixture
+        .db
+        .execute_unprepared(
+            "CREATE TRIGGER reject_download_failure BEFORE UPDATE OF attempts ON sync_download_jobs \
+             WHEN NEW.attempts > OLD.attempts \
+             BEGIN SELECT RAISE(ABORT, 'injected failure recording error'); END",
+        )
+        .await?;
+    let error = fixture
+        .run(&fixture.base)
+        .await
+        .expect_err("a database error recording a failed download must reach the pass caller");
+    assert!(
+        format!("{error:#}").contains("injected failure recording error"),
+        "unexpected error: {error:#}"
+    );
+    fixture
+        .db
+        .execute_unprepared("DROP TRIGGER reject_download_failure")
+        .await?;
+    // Control: once failure recording succeeds, its retry state is persisted and
+    // the other selected file still downloads in the same pass.
+    let report = fixture.run(&fixture.base).await?;
+    assert_eq!(report.failed, 1);
+    assert_eq!(report.downloaded, 1);
+    let job = sync_download_jobs::Entity::find()
+        .one(&fixture.db)
+        .await?
+        .unwrap();
+    assert_eq!(job.attempts, 1);
+    assert!(job.last_error.is_some());
+    assert!(DateTime::parse_from_rfc3339(job.retry_at.as_deref().unwrap())? > Utc::now());
+    Ok(())
+}
+
+#[tokio::test]
 async fn preparation_failure_isolated_to_its_file() -> Result<()> {
     let fixture = Fixture::new().await?;
     fixture.fail.store(false, Ordering::SeqCst);
