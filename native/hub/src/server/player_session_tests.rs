@@ -7722,6 +7722,7 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
     use crate::access_policy::{ConnectionLevel, DeviceGrants, LibraryGrants, SyncLevel};
     use crate::messages::HandoffRequest;
     use crate::request_error::ExpectedRequestError;
+    use tokio::sync::Notify;
     let host_dir = tempfile::tempdir()?;
     let source_dir = tempfile::tempdir()?;
     let target_dir = tempfile::tempdir()?;
@@ -7933,6 +7934,38 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
     )
     .await?;
     fs::write(&target_file, b"not an audio file")?;
+    let controller_link = host
+        .global_params
+        .node
+        .connect_renderer(&target_fingerprint, RendererLinkUse::Control)
+        .await?
+        .0;
+    // Let the real decode failure initiate rollback, then hold that request at the
+    // test's WebSocket boundary until the other controller's edit has committed.
+    let rollback_entered = Arc::new(Notify::new());
+    let release_rollback = Arc::new(Notify::new());
+    let target_node = Arc::downgrade(&target.global_params.node);
+    let entered = rollback_entered.clone();
+    let release = release_rollback.clone();
+    let take_back = "TakeBackHandoffBlockRequest";
+    target
+        .global_params
+        .node
+        .websocket_service
+        .override_handler(take_back, move |payload, session, library_id| {
+            let target_node = target_node.clone();
+            let entered = entered.clone();
+            let release = release.clone();
+            async move {
+                entered.notify_one();
+                release.notified().await;
+                let node = target_node.upgrade().expect("target node");
+                dispatch_remote(take_back, &payload, session, library_id, &node)
+                    .await
+                    .expect("real handoff rollback handler")
+            }
+        })
+        .await;
     let source_params = source.global_params.clone();
     let handoff_request = HandoffRequest {
         call_id: None,
@@ -7942,43 +7975,44 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
     let handoff_task = tokio::spawn(async move {
         dispatch_gui_request(&source_params, &handoff_request).await
     });
-    wait_player(&target, |status| {
-        status.playlist.iter().any(|entry| {
+    let concurrent_edit = async {
+        timeout(TEST_DEADLINE, rollback_entered.notified())
+            .await
+            .context("decode failure should request a handoff rollback")?;
+        let before_rollback = target.global_params.player.lock().await.get_status();
+        assert!(before_rollback.playlist.iter().any(|entry| {
             entry.item == PlayingItem::LibraryTrack {
                 library_id: target_replica.global_params.library_id.unwrap(),
                 track: host_item.file_uuid.to_string(),
             }
+        }));
+        controller_link
+            .call(&LoadResolvedItemsRequest {
+                call_id: None,
+                items: vec![PlayingItemRef::LibraryTrack {
+                    library_id: target_during_handoff_item.library_id.to_string(),
+                    track: target_during_handoff_item.file_uuid.to_string(),
+                }],
+                start_index: None,
+                mode: PlaylistOperateMode::AppendToEnd,
+                expected_revision: None,
+                playback_mode: None,
+                position_seconds: None,
+                play: LoadPlay::Auto,
+            })
+            .await?;
+        wait_player(&target, |status| {
+            status
+                .playlist
+                .iter()
+                .any(|entry| entry.item == PlayingItem::from(target_during_handoff_item))
         })
-    })
-    .await?;
-    let controller_link = host
-        .global_params
-        .node
-        .connect_renderer(&target_fingerprint, RendererLinkUse::Control)
-        .await?
-        .0;
-    controller_link
-        .call(&LoadResolvedItemsRequest {
-            call_id: None,
-            items: vec![PlayingItemRef::LibraryTrack {
-                library_id: target_during_handoff_item.library_id.to_string(),
-                track: target_during_handoff_item.file_uuid.to_string(),
-            }],
-            start_index: None,
-            mode: PlaylistOperateMode::AppendToEnd,
-            expected_revision: None,
-            playback_mode: None,
-            position_seconds: None,
-            play: LoadPlay::Auto,
-        })
-        .await?;
-    wait_player(&target, |status| {
-        status
-            .playlist
-            .iter()
-            .any(|entry| entry.item == PlayingItem::from(target_during_handoff_item))
-    })
-    .await?;
+        .await
+        .context("concurrent target queue edit before rollback")
+    }
+    .await;
+    release_rollback.notify_one();
+    concurrent_edit?;
     let result = handoff_task
         .await
         .context("join corrupt-track handoff")?
