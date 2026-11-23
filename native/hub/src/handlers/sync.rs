@@ -213,8 +213,23 @@ impl Signal for crate::messages::SetSyncSettingsRequest {
             if started {
                 start_paired_sync_listener(manager, &config, run_mode).await?;
             }
-        } else if stopped && let Some(manager) = manager.as_ref() {
-            manager.stop().await?;
+        } else if stopped
+            && let Some(manager) = manager.as_ref()
+            && let Err(stop_error) = manager.stop().await
+        {
+            // stop() clears the listener state before returning a join error, so the
+            // sync listener may already be gone while the saved setting still says on.
+            let restore = if manager.is_running() {
+                Ok(())
+            } else {
+                start_paired_sync_listener(manager, &config, run_mode).await
+            };
+            return Err(match restore {
+                Ok(()) => stop_error,
+                Err(restore_error) => stop_error.context(format!(
+                    "the sync listener could not be restored after stopping it failed: {restore_error:#}"
+                )),
+            });
         }
         let next = SyncSettings {
             listen: request.listen,
@@ -349,6 +364,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn failed_enable_keeps_the_setting_off_and_the_retry_starts_the_listener() -> Result<()> {
+        let _sync_port = crate::test_node::SYNC_PORT.lock().await;
         let dir = tempfile::tempdir()?;
         let node = test_node(dir.path()).await?;
         let manager = node.manager()?;
