@@ -19,8 +19,12 @@ use tokio::sync::Mutex;
 #[cfg(any(target_os = "macos", test))]
 use url::Url;
 
+/// Describes a listen of `metadata` for the scrobbling services. `started_at` is when the listen
+/// began, and the final submission carries it as the listen's time. With `None` the service
+/// client stamps the submission with the time it is sent.
 pub fn metadata_summary_to_scrobbling_track(
     metadata: &PlayingItemMetadataSummary,
+    started_at: Option<SystemTime>,
 ) -> ScrobblingTrack {
     ScrobblingTrack {
         library_id: match &metadata.item {
@@ -32,9 +36,8 @@ pub fn metadata_summary_to_scrobbling_track(
         track: metadata.title.clone(),
         duration: Some(metadata.duration.clamp(0.0, u32::MAX as f64)),
         album_artist: None,
-        timestamp: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .ok()
+        timestamp: started_at
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
             .map(|time| time.as_secs()),
     }
 }
@@ -216,5 +219,31 @@ mod cover_file_url_tests {
         let missing = dir.path().join("missing.png");
         assert_eq!(ios_cover_path(Some("relative.jpg"), &missing), None);
         assert_eq!(ios_cover_path(None, &missing), None);
+    }
+}
+
+#[cfg(test)]
+mod scrobbling_track_tests {
+    use super::metadata_summary_to_scrobbling_track;
+    use database::playing_item::PlayingItemMetadataSummary;
+    use std::time::{Duration, UNIX_EPOCH};
+
+    #[test]
+    fn a_listen_is_scrobbled_at_its_start() {
+        let started_at = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let track = metadata_summary_to_scrobbling_track(
+            &PlayingItemMetadataSummary::default(),
+            Some(started_at),
+        );
+
+        assert_eq!(track.timestamp, Some(1_700_000_000));
+    }
+
+    #[test]
+    fn a_listen_without_a_start_leaves_the_time_to_the_service_client() {
+        let track =
+            metadata_summary_to_scrobbling_track(&PlayingItemMetadataSummary::default(), None);
+
+        assert_eq!(track.timestamp, None);
     }
 }
