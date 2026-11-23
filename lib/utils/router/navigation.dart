@@ -5,6 +5,7 @@ import '../../widgets/router/rune_with_navigation_bar_and_playback_controllor.da
 import '../../providers/router_path.dart';
 
 import '../dialogs/unavailable_dialog_on_band.dart';
+import 'context_menu_route_entry.dart';
 import 'history.dart';
 import 'modal_route_entry.dart';
 import 'route_entry.dart';
@@ -144,7 +145,21 @@ Future<T?> $showModal<T extends Object?>(
   );
 }
 
+/// Closes the context menus open over the current page, as a menu item that
+/// opens a page does, before the page is pushed. A menu closes itself only
+/// after its item ran, which leaves its route and its history entry under the
+/// new page, so going back would reveal the menu instead of the page below.
+void _closeContextMenus() {
+  for (var top = $history.current; top is ContextMenuRouteEntry;) {
+    $history.remove(top);
+    top.pop();
+    top = $history.current;
+  }
+}
+
 Future<T?>? $push<T extends Object?>(String routeName, {Object? arguments}) {
+  _closeContextMenus();
+
   if (_openOnce.contains(routeName) && $popTo(routeName)) return null;
 
   final navigation = $state();
@@ -163,6 +178,8 @@ Future<T?>? $push<T extends Object?>(String routeName, {Object? arguments}) {
 }
 
 Future<T?>? $replace<T extends Object?>(String routeName, {Object? arguments}) {
+  _closeContextMenus();
+
   final navigation = $state();
 
   final from = $router.path ?? "/library";

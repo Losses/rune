@@ -12,6 +12,8 @@ import '../../screens/search/widgets/collection_search_item.dart';
 import '../../utils/query_list.dart';
 import '../../utils/router/history.dart';
 import '../../utils/router/navigation.dart';
+import '../../utils/router/query_tracks_parameter.dart';
+import '../../utils/router/router_aware_flyout_controller.dart';
 import '../../widgets/ax_reveal/widgets/reveal_effect_context.dart';
 import '../../widgets/navigation_bar/flip_animation_manager.dart';
 import '../../widgets/navigation_bar/navigation_bar.dart';
@@ -19,6 +21,14 @@ import '../../widgets/navigation_bar/parent_link.dart';
 import '../../widgets/router/router_animation.dart';
 import '../../widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 import '../../widgets/start_screen/utils/internal_collection.dart';
+
+/// The menu controller of the search page's result, as its menus own one, for
+/// the tests that open a menu.
+RouterAwareFlyoutController? _menu;
+
+Widget _target(Widget child) => _menu == null
+    ? child
+    : FlyoutTarget(controller: _menu!.controller, child: child);
 
 class _SearchPage extends StatefulWidget {
   const _SearchPage();
@@ -44,16 +54,18 @@ class _SearchPageState extends State<_SearchPage> {
         const SizedBox(height: 1500),
         SizedBox(
           height: 80,
-          child: CollectionSearchItem(
-            index: 0,
-            collectionType: CollectionType.artist,
-            item: InternalCollection(
-              id: 7,
-              name: 'Some Artist',
-              queries: QueryList([('lib::artist', '7')]),
+          child: _target(
+            CollectionSearchItem(
+              index: 0,
               collectionType: CollectionType.artist,
-              coverArtMap: const {},
-              readonly: true,
+              item: InternalCollection(
+                id: 7,
+                name: 'Some Artist',
+                queries: QueryList([('lib::artist', '7')]),
+                collectionType: CollectionType.artist,
+                coverArtMap: const {},
+                readonly: true,
+              ),
             ),
           ),
         ),
@@ -305,4 +317,69 @@ void main() {
       expect(_names(), ['/library']);
     },
   );
+
+  for (final (label, route) in [
+    ('Go to Album', '/albums/detail'),
+    ('Go to Artist', '/artists/detail'),
+  ]) {
+    testWidgets(
+      'a page opened from a context menu item over search, as $label does, '
+      'names search as its parent and goes back to the search as it was',
+      (tester) async {
+        final controller = _menu = RouterAwareFlyoutController();
+        addTearDown(() {
+          _menu = null;
+          controller.dispose();
+        });
+        await _pumpApp(tester, '/search');
+        final searchState = tester.state<_SearchPageState>(
+          find.byType(_SearchPage),
+        );
+        final searchRoute = _routeOf(tester, find.byType(_SearchPage));
+        searchState.controller.jumpTo(1400);
+        await tester.pump();
+
+        // The menu as the track menus open it, with an item that closes the
+        // flyout and then pushes, as a MenuFlyoutItem does.
+        final host = tester.element(find.byType(CollectionSearchItem));
+        controller.showFlyout<void>(
+          position: const Offset(100, 100),
+          builder: (context) => MenuFlyout(
+            items: [
+              MenuFlyoutItem(
+                text: Text(label),
+                onPressed: () =>
+                    $push(route, arguments: QueryTracksParameter(9, 'Nine')),
+              ),
+            ],
+          ),
+          navigatorKey: Navigator.of(host),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
+
+        expect($router.path, route);
+        expect(_names(), ['/library', '/search', route]);
+        expect($history.previousPage?.name, '/search');
+        expect(_title(tester).text, 'Search');
+
+        _title(tester).onPressed();
+        await tester.pumpAndSettle();
+
+        expect($router.path, '/search');
+        expect(_names(), ['/library', '/search']);
+        expect(_built['/search'], hasLength(1));
+        expect(
+          identical(_routeOf(tester, find.byType(_SearchPage)), searchRoute),
+          isTrue,
+        );
+        expect(
+          tester.state<_SearchPageState>(find.byType(_SearchPage)),
+          same(searchState),
+        );
+        expect(searchState.controller.offset, 1400);
+      },
+    );
+  }
 }
