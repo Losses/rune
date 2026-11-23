@@ -51,6 +51,93 @@ void main() {
   );
 
   test(
+    'a late cancellation of an old run leaves the restarted run working',
+    () async {
+      final states = StreamController<LibraryTaskStateChanged>.broadcast(
+        sync: true,
+      );
+      final manager = LibraryManagerProvider(libraryTaskStates: states.stream);
+      addTearDown(states.close);
+      addTearDown(manager.dispose);
+      const recordId = 'library';
+
+      const oldRunning = LibraryTaskStateChanged(
+        state: LibraryTaskStateScanRunning(
+          recordId: recordId,
+          runId: 'old-run',
+          progress: 1,
+          total: 10,
+          phase: ScanTaskPhase.indexFiles,
+        ),
+      );
+      const oldCancelled = LibraryTaskStateChanged(
+        state: LibraryTaskStateScanEnded(
+          recordId: recordId,
+          runId: 'old-run',
+          progress: 1,
+          total: 10,
+          phase: ScanTaskPhase.indexFiles,
+          outcome: ScanOutcomeCancelled(),
+        ),
+      );
+
+      states.add(oldRunning);
+      expect(manager.getScanTaskProgress(recordId)?.status, TaskStatus.working);
+      states.add(oldCancelled);
+      expect(
+        manager.getScanTaskProgress(recordId)?.status,
+        TaskStatus.cancelled,
+      );
+
+      states.add(
+        const LibraryTaskStateChanged(
+          state: LibraryTaskStateScanRunning(
+            recordId: recordId,
+            runId: 'new-run',
+            progress: 0,
+            total: 0,
+            phase: ScanTaskPhase.indexFiles,
+          ),
+        ),
+      );
+      expect(manager.getScanTaskProgress(recordId)?.status, TaskStatus.working);
+
+      var waiterCompleted = false;
+      final waiter = manager.waitForScanToComplete(recordId);
+      unawaited(waiter.then((_) => waiterCompleted = true));
+      await pumpEventQueue();
+      expect(waiterCompleted, isFalse);
+
+      // The old run's cancellation is delivered after the restart.
+      states.add(oldCancelled);
+      await pumpEventQueue();
+      expect(manager.getScanTaskProgress(recordId)?.status, TaskStatus.working);
+      expect(waiterCompleted, isFalse);
+
+      // The restarted run's own end still updates the display and waiter.
+      states.add(
+        const LibraryTaskStateChanged(
+          state: LibraryTaskStateScanEnded(
+            recordId: recordId,
+            runId: 'new-run',
+            progress: 10,
+            total: 10,
+            phase: ScanTaskPhase.indexFiles,
+            outcome: ScanOutcomeFinished(),
+          ),
+        ),
+      );
+      await pumpEventQueue();
+      expect(
+        manager.getScanTaskProgress(recordId)?.status,
+        TaskStatus.finished,
+      );
+      expect(await waiter, TaskStatus.finished);
+      expect(waiterCompleted, isTrue);
+    },
+  );
+
+  test(
     'every task kind maps its own variants to the shared task status',
     () async {
       final states = StreamController<LibraryTaskStateChanged>();
