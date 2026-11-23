@@ -40,7 +40,7 @@ use crate::{
     persistent::PersistentDataManager,
     utils::{DeviceInfo, DeviceType},
 };
-use std::future;
+use std::future::{self, Future};
 use tokio::task;
 use tokio::time as tokio_time;
 use tokio::time::Instant;
@@ -271,15 +271,32 @@ impl DiscoveryService {
 
     /// Retrieves multicast sockets, initializing them if necessary with retry logic.
     ///
-    /// This method ensures that multicast sockets are initialized and available for communication. It uses a retry mechanism
-    /// defined by the service's `retry_policy` to handle potential socket initialization failures. A successful initialization
-    /// is reused for subsequent calls. A failed initialization is not cached, so a later call tries the available interfaces
-    /// again instead of returning the previous error.
+    /// This method uses [`Self::try_init_sockets`] as the socket source. A successful
+    /// initialization is reused for subsequent calls. A failed initialization is not cached, so
+    /// a later call tries the available interfaces again instead of returning the previous error.
+    async fn get_sockets_with_retry(&self) -> Result<Arc<Vec<Arc<UdpSocket>>>> {
+        let init = Self::try_init_sockets;
+        self.get_sockets_with_retry_using(&init).await
+    }
+
+    /// Retrieves multicast sockets from the supplied initializer, retrying with backoff.
+    ///
+    /// The initializer is called once per attempt. A successful result is cached for later
+    /// calls; a failure is returned to the caller without being cached. Taking the initializer
+    /// as a parameter keeps the retry policy independent of how sockets are created.
     ///
     /// # Returns
-    /// `Result<Arc<Vec<Arc<UdpSocket>>>>` - A `Result` containing a vector of `Arc<UdpSocket>` representing the initialized multicast sockets,
-    ///                                     or an error if socket initialization fails after all retry attempts.
-    async fn get_sockets_with_retry(&self) -> Result<Arc<Vec<Arc<UdpSocket>>>> {
+    /// `Result<Arc<Vec<Arc<UdpSocket>>>>` - A `Result` containing a vector of `Arc<UdpSocket>`
+    /// representing the initialized multicast sockets, or an error if initialization fails
+    /// after all retry attempts.
+    async fn get_sockets_with_retry_using<F, Fut>(
+        &self,
+        init: &F,
+    ) -> Result<Arc<Vec<Arc<UdpSocket>>>>
+    where
+        F: Fn() -> Fut,
+        Fut: Future<Output = Result<Vec<Arc<UdpSocket>>>>,
+    {
         let mut lock = self.sockets_init.lock().await;
 
         if let Some(sockets) = &*lock {
@@ -292,7 +309,7 @@ impl DiscoveryService {
 
         // Retry loop with exponential backoff
         while retries > 0 {
-            match Self::try_init_sockets().await {
+            match init().await {
                 Ok(sockets) => {
                     let sockets = Arc::new(sockets);
                     *lock = Some(sockets.to_vec());
@@ -412,6 +429,25 @@ impl DiscoveryService {
         interval: Duration,
         duration_limit: Option<Duration>,
     ) -> Result<()> {
+        let init = Self::try_init_sockets;
+        self.start_announcements_using(device_info, interval, duration_limit, &init)
+            .await
+    }
+
+    /// Starts announcements using the supplied socket initializer.
+    ///
+    /// [`Self::start_announcements`] passes the real multicast socket initializer.
+    async fn start_announcements_using<F, Fut>(
+        &self,
+        device_info: DeviceInfo,
+        interval: Duration,
+        duration_limit: Option<Duration>,
+        init: &F,
+    ) -> Result<()>
+    where
+        F: Fn() -> Fut,
+        Fut: Future<Output = Result<Vec<Arc<UdpSocket>>>>,
+    {
         let mut announcements = self.announcements.lock().await;
         if let Some(task) = announcements.as_ref().filter(|task| task.is_active()) {
             return Err(AnnouncementsAlreadyRunning {
@@ -423,7 +459,7 @@ impl DiscoveryService {
             task.stop().await;
         }
 
-        let sockets = self.get_sockets_with_retry().await?;
+        let sockets = self.get_sockets_with_retry_using(init).await?;
         let deadline = duration_limit.map(|limit| Instant::now() + limit);
         let cancel = CancellationToken::new();
         let task_cancel = cancel.clone();
@@ -782,6 +818,7 @@ impl DiscoveryService {
 #[cfg(test)]
 mod endpoint_tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
     fn old_saved_device_without_port_still_loads() {
@@ -809,9 +846,9 @@ mod endpoint_tests {
         }
     }
 
-    /// Makes socket initialization fail by holding the multicast port, releases it, and checks
-    /// that the same service retries initialization instead of reusing the cached failure.
-    #[cfg(unix)]
+    /// A failed socket initialization must not be cached: the next start on the same service
+    /// retries and can succeed. The initializer is deterministic, so the test does not depend on
+    /// the host's network interfaces.
     #[tokio::test]
     async fn failed_socket_initialization_is_retried_on_the_next_start() {
         let device_info = DeviceInfo {
@@ -828,32 +865,58 @@ mod endpoint_tests {
             max_retries: 1,
             initial_backoff: Duration::from_millis(1),
         });
-
-        // A socket without SO_REUSEPORT keeps the discovery sockets from binding the port.
-        let port_holder = std::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, MULTICAST_PORT))
-            .expect("the multicast port should be free before this test");
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let initialize = {
+            let attempts = Arc::clone(&attempts);
+            move || {
+                let attempt = attempts.fetch_add(1, Ordering::SeqCst);
+                async move {
+                    if attempt == 0 {
+                        Err(anyhow!("simulated socket initialization failure"))
+                    } else {
+                        Ok(Vec::<Arc<UdpSocket>>::new())
+                    }
+                }
+            }
+        };
 
         assert!(
             service
-                .start_announcements(device_info.clone(), Duration::from_secs(3), None)
+                .start_announcements_using(
+                    device_info.clone(),
+                    Duration::from_secs(3),
+                    None,
+                    &initialize,
+                )
                 .await
                 .is_err(),
-            "socket initialization should fail while the multicast port is taken"
+            "the first start should fail"
         );
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
         assert!(!service.is_announcing().await);
         assert!(!service.is_operational().await);
         service.stop_announcements().await;
 
-        drop(port_holder);
-
         service
-            .start_announcements(device_info.clone(), Duration::from_secs(3), None)
+            .start_announcements_using(
+                device_info.clone(),
+                Duration::from_secs(3),
+                None,
+                &initialize,
+            )
             .await
             .expect("the next start should try socket initialization again and succeed");
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
         assert!(service.is_announcing().await);
+        assert!(service.is_operational().await);
 
         let already_running = service
-            .start_announcements(device_info.clone(), Duration::from_secs(3), None)
+            .start_announcements_using(
+                device_info.clone(),
+                Duration::from_secs(3),
+                None,
+                &initialize,
+            )
             .await
             .expect_err("a second start must not replace the running announcements");
         assert!(
@@ -861,22 +924,44 @@ mod endpoint_tests {
                 .downcast_ref::<AnnouncementsAlreadyRunning>()
                 .is_some_and(|error| error.indefinite)
         );
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
 
         service.stop_announcements().await;
         service
-            .start_announcements(device_info.clone(), Duration::from_secs(3), None)
+            .start_announcements_using(
+                device_info.clone(),
+                Duration::from_secs(3),
+                None,
+                &initialize,
+            )
             .await
             .expect("announcements should start again after stopping");
+        assert_eq!(
+            attempts.load(Ordering::SeqCst),
+            2,
+            "a successful initialization is cached"
+        );
         service.stop_announcements().await;
 
         let (first, second) = tokio::join!(
-            service.start_announcements(device_info.clone(), Duration::from_secs(3), None),
-            service.start_announcements(device_info, Duration::from_secs(3), None),
+            service.start_announcements_using(
+                device_info.clone(),
+                Duration::from_secs(3),
+                None,
+                &initialize,
+            ),
+            service.start_announcements_using(
+                device_info,
+                Duration::from_secs(3),
+                None,
+                &initialize,
+            ),
         );
         assert!(
             first.is_ok() ^ second.is_ok(),
             "exactly one of two concurrent starts should run announcements"
         );
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
         service.stop_announcements().await;
     }
 }
