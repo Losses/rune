@@ -4,10 +4,10 @@ use super::model::Collection;
 use super::model::{ObjectKey, Payload, Record, RuneModel};
 use super::references::collect;
 use super::share::{
-    BaseCutRequest, LostCreation, OwnContents, PublishJournalRequest, ShareCapabilities,
-    SharePullError, SharePullRequest, SharePullResult, SharePushError, SharePushResult,
-    ShareWriter, collect_own_prefix, cut_base, discard_lost_creation, load_or_create_state,
-    publish_journal, pull, push_store_error,
+    BaseCutRequest, LostCreation, PublishJournalRequest, ShareCapabilities, SharePullError,
+    SharePullRequest, SharePullResult, SharePushError, SharePushResult, ShareWriter,
+    base_content_gzip_bytes, collect_own_prefix, cut_base, discard_lost_creation,
+    load_or_create_state, publish_journal, pull, push_store_error,
 };
 use crate::sync::{import, legacy};
 use anyhow::{Result, ensure};
@@ -28,8 +28,8 @@ use sync::{
     share::{
         BaseSize, Checkpoint, DevicePrefix, ExportCursorStatus, FormatError, Head, JournalEvent,
         KeeperDecision, NewestBase, ObjectKey as ShareObjectKey, ObjectStore, PublishDecision,
-        PublishInput, StoreError, StreamActivity, base_key, decode_head, head_key, parse_key,
-        plan_keeper, plan_publish,
+        PublishInput, StoreError, StreamActivity, decode_head, head_key, parse_key, plan_keeper,
+        plan_publish,
     },
 };
 use sync_orm::causal_progress;
@@ -824,33 +824,31 @@ impl LibrarySyncStore {
                 ExportCursorStatus::Current
             }
         };
+        let now_ms = Utc::now().timestamp_millis().max(0) as u64;
         let newest_base = if let Some(base) = current_head.bases.last() {
-            let object = ShareObjectKey::Base {
-                prefix: own_prefix.clone(),
-                base_id: base.base_id.clone(),
-            };
-            // The recorded size is taken without asking the store: it only steers the decision
-            // to cut, and the cut and the collection of this pass confirm every manifest they
-            // depend on before they write or delete anything.
-            match state.recorded(&object) {
-                Some(OwnContents::Manifest { bytes, .. }) => BaseSize::GzipBytes(*bytes),
-                _ => {
-                    let key = base_key(&own_prefix.to_string(), &base.base_id)
-                        .map_err(|error| SharePushError::Failed(error.to_string()))?;
-                    match store.get(&key).await {
-                        Ok(value) => {
-                            state.observe_tag(object, value.tag, Utc::now().timestamp_millis());
-                            BaseSize::GzipBytes(value.bytes.len() as u64)
-                        }
-                        Err(StoreError::NotFound) => BaseSize::Absent,
-                        Err(error) => return Err(push_store_error(error)),
-                    }
-                }
+            // The size of the base's compressed content steers the decision to cut. It is
+            // recorded with the manifest when the base is cut, and measured once for a manifest
+            // from an earlier build; the cut and the collection of this pass confirm every
+            // manifest they depend on before they write or delete anything.
+            let content = base_content_gzip_bytes::<RuneModel>(
+                &*store,
+                &mut state,
+                &own_prefix,
+                &base.base_id,
+                capabilities,
+                now_ms as i64,
+            )
+            .await?;
+            match content {
+                // A base with no content has no fraction to compare; its first change is
+                // published incrementally. The keeper still sees the zero content, so it cuts a
+                // base once a tail exists.
+                Some(0) | None => BaseSize::Absent,
+                Some(bytes) => BaseSize::GzipBytes(bytes),
             }
         } else {
             BaseSize::Absent
         };
-        let now_ms = Utc::now().timestamp_millis().max(0) as u64;
         let activities = heads
             .iter()
             .map(|(prefix, head)| StreamActivity {

@@ -28,6 +28,9 @@ pub struct BaseExport<M: p::SyncModel> {
     /// Upload order is chunks, context fragments, and finally the manifest.
     pub objects: Vec<BaseObject>,
     pub bucket_bits: BTreeMap<String, u32>,
+    /// Compressed bytes of the chunks and context fragments that the manifest references,
+    /// including ones that were retained and not uploaded again.
+    pub content_gzip_bytes: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -127,6 +130,7 @@ pub async fn export_base<M: p::SyncModel>(
         },
         objects: Vec::new(),
         bucket_bits: BTreeMap::new(),
+        content_gzip_bytes: 0,
     };
     let result = build_export(source, &descriptor, options, &mut export).await;
     source
@@ -181,8 +185,14 @@ async fn build_export<M: p::SyncModel>(
         export.bucket_bits.insert(tag.clone(), bits);
         let mut chunk_summaries = Vec::with_capacity(buckets.len());
         for (summary, name, compressed) in buckets {
-            if !options.retained_chunk_names.contains(&name) && emitted_chunks.insert(name.clone())
-            {
+            let emitted = emitted_chunks.insert(name.clone());
+            if emitted {
+                export.content_gzip_bytes = export
+                    .content_gzip_bytes
+                    .checked_add(compressed.len() as u64)
+                    .context("base content size overflow")?;
+            }
+            if !options.retained_chunk_names.contains(&name) && emitted {
                 chunk_objects.push(BaseObject {
                     name: name.clone(),
                     bytes: compressed,
@@ -221,9 +231,14 @@ async fn build_export<M: p::SyncModel>(
                 let name = blake3::hash(&fragment.bytes).to_hex().to_string();
                 let bytes = gzip(&fragment.bytes)?;
                 context_names.push(name.clone());
-                if !options.retained_chunk_names.contains(&name)
-                    && emitted_chunks.insert(name.clone())
-                {
+                let emitted = emitted_chunks.insert(name.clone());
+                if emitted {
+                    export.content_gzip_bytes = export
+                        .content_gzip_bytes
+                        .checked_add(bytes.len() as u64)
+                        .context("base content size overflow")?;
+                }
+                if !options.retained_chunk_names.contains(&name) && emitted {
                     context_objects.push(BaseObject { name, bytes });
                 }
             }

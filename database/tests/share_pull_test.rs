@@ -757,6 +757,7 @@ async fn push_pass_pulls_before_reading_and_publishing_the_local_tail() -> Resul
     let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     let remote = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     let target = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let mut rng = StdRng::seed_from_u64(761);
     source
         .sync_store
         .write_local(
@@ -764,7 +765,7 @@ async fn push_pass_pulls_before_reading_and_publishing_the_local_tail() -> Resul
                 collection: Collection::Playlists,
                 id: Uuid::from_u128(147),
             },
-            support::playlist("push pass baseline"),
+            support::playlist(&random_name(&mut rng, 4096)),
         )
         .await?;
     let store = Arc::new(MemoryObjectStore::default());
@@ -4318,6 +4319,14 @@ async fn age_newest_own_base(device: &SqlLibrary, head: &Head) -> Result<()> {
     Ok(())
 }
 
+/// A deterministic, incompressible name of `len` characters.
+fn random_name(rng: &mut StdRng, len: usize) -> String {
+    rng.sample_iter(&Alphanumeric)
+        .take(len)
+        .map(char::from)
+        .collect()
+}
+
 /// Writes a playlist on `device`.
 async fn add_playlist(device: &SqlLibrary, id: u128, name: &str) -> Result<()> {
     device
@@ -4346,8 +4355,9 @@ async fn push_pass_does_not_download_the_devices_unchanged_objects() -> Result<(
         let namespace = Uuid::new_v4();
         let store = Arc::new(DownloadCounter::default());
         let device = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+        let mut rng = StdRng::seed_from_u64(699);
         for id in 1..=40u128 {
-            add_playlist(&device, id, &format!("playlist {id}")).await?;
+            add_playlist(&device, id, &random_name(&mut rng, 4096)).await?;
         }
         // Pass 0 publishes the 40 playlists in the first base. Passes 1 to 3 each publish one
         // more playlist in a segment, and pass 4 publishes one more in a new base, as the first
@@ -4453,7 +4463,8 @@ async fn push_passes_after_a_roll_up_do_not_download_the_rolled_up_segments() ->
         .push_share(store.clone(), namespace, cache_path(), capabilities)
         .await
         .map_err(|error| anyhow::anyhow!("the keeper's push: {error:?}"))?;
-    add_playlist(&device, 1792, "in the device's first base").await?;
+    let mut rng = StdRng::seed_from_u64(707);
+    add_playlist(&device, 1792, &random_name(&mut rng, 8192)).await?;
     let prefix = device.sync_store.share_prefix(cache_path()).await?;
     let mut head: Option<Head> = None;
     let mut rolled_up = None;
@@ -4595,8 +4606,9 @@ async fn push_passes_download_an_object_once_where_writes_return_other_tags() ->
     let namespace = Uuid::new_v4();
     let store = Arc::new(OtherWriteTags::default());
     let device = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let mut rng = StdRng::seed_from_u64(707);
     for id in 1..=40u128 {
-        add_playlist(&device, id, &format!("playlist {id}")).await?;
+        add_playlist(&device, id, &random_name(&mut rng, 4096)).await?;
     }
     let prefix = device.sync_store.share_prefix(cache_path()).await?;
     // Every manifest, chunk and segment that was in the device's folder after a pass.
@@ -4681,6 +4693,200 @@ async fn change_or_delete_manifest(
         .await
         .map(|_| ())
         .map_err(|error| anyhow::anyhow!("replace the manifest: {error:?}"))
+}
+
+/// The sizes that the base cut decision compares: the stored manifest and the compressed candidate
+/// content that the manifest references. The content size counts each candidate chunk once.
+async fn base_sizes(store: &MemoryObjectStore, prefix: &str, head: &Head) -> Result<(u64, u64)> {
+    let base = head.bases.last().context("the head has no base")?;
+    let manifest_bytes = store
+        .get(&share::base_key(prefix, &base.base_id)?)
+        .await
+        .map_err(|error| anyhow::anyhow!("read base manifest: {error:?}"))?
+        .bytes;
+    let manifest = share::decode_manifest::<RuneModel>(&manifest_bytes, &base.base_id)?;
+    let mut chunks = BTreeSet::new();
+    for collection in manifest.collections.values() {
+        chunks.extend(collection.buckets.iter().map(|bucket| bucket.chunk.clone()));
+    }
+    let mut content_gzip_bytes = 0_u64;
+    for chunk in chunks {
+        content_gzip_bytes += store
+            .get(&share::chunk_key(prefix, &chunk)?)
+            .await
+            .map_err(|error| anyhow::anyhow!("read base chunk: {error:?}"))?
+            .bytes
+            .len() as u64;
+    }
+    Ok((manifest_bytes.len() as u64, content_gzip_bytes))
+}
+
+/// Plans the update after `head` only to measure the gzip size of the segments it would publish.
+fn planned_segment_gzip_bytes(
+    identity: &p::StoreIdentity,
+    head: &Head,
+    entries: &[share::JournalEvent<RuneModel>],
+) -> Result<u64> {
+    let no_streams = BTreeSet::new();
+    let no_replicas = BTreeSet::new();
+    let share::PublishDecision::PublishSegments {
+        compressed_bytes, ..
+    } = share::plan_publish(share::PublishInput {
+        identity,
+        after_cursor: head.local_cursor,
+        entries,
+        share_stream_ids: &no_streams,
+        share_local_replicas: &no_replicas,
+        head: Checkpoint {
+            seq: head.head.seq,
+            anchor: head.head.anchor,
+        },
+        existing_segments: &head.segments,
+        newest_base_gzip_bytes: share::BaseSize::Absent,
+        export_cursor: share::ExportCursorStatus::Current,
+        max_events_per_segment: 100,
+    })
+    .map_err(|error| anyhow::anyhow!("plan the share update: {error}"))?
+    else {
+        anyhow::bail!("the share update did not plan as a segment");
+    };
+    Ok(compressed_bytes)
+}
+
+/// The base fraction compares the update's gzip bytes with the compressed content of the newest
+/// base, not with the size of its manifest. An update above a quarter of the manifest but within a
+/// quarter of the content publishes a segment; one above a quarter of the content cuts a base; and
+/// a base that is due by age still cuts for a small update.
+#[tokio::test]
+async fn push_uses_the_compressed_base_content_size_for_the_base_fraction() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let store = Arc::new(MemoryObjectStore::default());
+    let device = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let capabilities = memory_store_capabilities(true);
+    let mut rng = StdRng::seed_from_u64(440);
+    // Incompressible playlist names make the base's compressed chunks much larger than its
+    // manifest, so the two denominators give different decisions.
+    for id in 0..48_u128 {
+        add_playlist(&device, 5000 + id, &random_name(&mut rng, 4096)).await?;
+    }
+    let mut head = device
+        .sync_store
+        .push_share(store.clone(), namespace, cache_path(), capabilities)
+        .await?
+        .context("the first push pass published no head")?;
+    ensure!(head.bases.len() == 1, "the first push did not cut a base");
+    let prefix = device.sync_store.share_prefix(cache_path()).await?;
+    let (manifest_bytes, base_gzip_bytes) = base_sizes(&store, &prefix, &head).await?;
+
+    add_playlist(&device, 6000, &random_name(&mut rng, 4096)).await?;
+    let identity = SyncPeer::identity(&device.sync_store.endpoint()).await?;
+    let entries = journal_events_since(&device.sync_store.endpoint(), &head).await?;
+    let update_gzip_bytes = planned_segment_gzip_bytes(&identity, &head, &entries)?;
+    ensure!(
+        manifest_bytes < update_gzip_bytes.saturating_mul(4),
+        "the fixture does not exercise the manifest size: manifest {manifest_bytes}, update {update_gzip_bytes}"
+    );
+    ensure!(
+        update_gzip_bytes.saturating_mul(4) <= base_gzip_bytes,
+        "the fixture update exceeds a quarter of the base content: update {update_gzip_bytes}, content {base_gzip_bytes}"
+    );
+    head = device
+        .sync_store
+        .push_share(store.clone(), namespace, cache_path(), capabilities)
+        .await?
+        .context("the update published no head")?;
+    ensure!(
+        head.bases.len() == 1,
+        "the push cut a base for an update within a quarter of the base content"
+    );
+    ensure!(
+        head.segments.len() == 1 && head.segments[0].bytes == update_gzip_bytes,
+        "the push did not publish the planned segment"
+    );
+
+    // The other side of the quarter: an update above a quarter of the content still cuts.
+    for id in 0..8_u128 {
+        add_playlist(&device, 7000 + id, &random_name(&mut rng, 16384)).await?;
+    }
+    let entries = journal_events_since(&device.sync_store.endpoint(), &head).await?;
+    let large_update_gzip_bytes = planned_segment_gzip_bytes(&identity, &head, &entries)?;
+    ensure!(
+        large_update_gzip_bytes.saturating_mul(4) > base_gzip_bytes,
+        "the large fixture update stays within a quarter of the base content: update {large_update_gzip_bytes}, content {base_gzip_bytes}"
+    );
+    head = device
+        .sync_store
+        .push_share(store.clone(), namespace, cache_path(), capabilities)
+        .await?
+        .context("the large update published no head")?;
+    ensure!(
+        head.bases.len() == 2,
+        "the push kept the base for an update above a quarter of its content"
+    );
+
+    // A cut that is due by age happens for a small update that the base fraction would keep
+    // incremental.
+    let (_, aged_base_gzip_bytes) = base_sizes(&store, &prefix, &head).await?;
+    age_newest_own_base(&device, &head).await?;
+    add_playlist(&device, 8000, "an update after the base aged").await?;
+    let entries = journal_events_since(&device.sync_store.endpoint(), &head).await?;
+    let small_update_gzip_bytes = planned_segment_gzip_bytes(&identity, &head, &entries)?;
+    ensure!(
+        small_update_gzip_bytes.saturating_mul(4) <= aged_base_gzip_bytes,
+        "the small fixture update exceeds a quarter of the aged base content: update {small_update_gzip_bytes}, content {aged_base_gzip_bytes}"
+    );
+    head = device
+        .sync_store
+        .push_share(store.clone(), namespace, cache_path(), capabilities)
+        .await?
+        .context("the update after the base aged published no head")?;
+    ensure!(
+        head.bases.len() == 3,
+        "an aged base was not cut for a small update"
+    );
+    Ok(())
+}
+
+/// A base whose manifest is larger than a quarter of the update but whose compressed content is
+/// smaller must still cut: the fraction uses the content, not the manifest.
+#[tokio::test]
+async fn push_cuts_a_small_base_whose_manifest_is_larger_than_its_content() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let store = Arc::new(MemoryObjectStore::default());
+    let device = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let capabilities = memory_store_capabilities(true);
+    add_playlist(&device, 9000, "small base").await?;
+    let mut head = device
+        .sync_store
+        .push_share(store.clone(), namespace, cache_path(), capabilities)
+        .await?
+        .context("the first push pass published no head")?;
+    ensure!(head.bases.len() == 1, "the first push did not cut a base");
+    let prefix = device.sync_store.share_prefix(cache_path()).await?;
+    let (manifest_bytes, content_gzip_bytes) = base_sizes(&store, &prefix, &head).await?;
+
+    add_playlist(&device, 9001, "small update").await?;
+    let identity = SyncPeer::identity(&device.sync_store.endpoint()).await?;
+    let entries = journal_events_since(&device.sync_store.endpoint(), &head).await?;
+    let update_gzip_bytes = planned_segment_gzip_bytes(&identity, &head, &entries)?;
+    ensure!(
+        update_gzip_bytes.saturating_mul(4) > content_gzip_bytes,
+        "the fixture update stays within a quarter of the base content: update {update_gzip_bytes}, content {content_gzip_bytes}"
+    );
+    ensure!(
+        update_gzip_bytes.saturating_mul(4) <= manifest_bytes,
+        "the fixture manifest is not larger than a quarter of the update: update {update_gzip_bytes}, manifest {manifest_bytes}"
+    );
+    head = device
+        .sync_store
+        .push_share(store.clone(), namespace, cache_path(), capabilities)
+        .await?
+        .context("the update published no head")?;
+    ensure!(
+        head.bases.len() == 2,
+        "the push kept a base whose manifest is larger than a quarter of the update"
+    );
+    Ok(())
 }
 
 /// A base cut takes the chunk names of the bases it keeps from what the device recorded only once
