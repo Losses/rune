@@ -11,6 +11,7 @@ pub use access::{
     materialized_path, remote_required_ids, resolve_local_id,
 };
 pub(crate) use content::canonical_download_path;
+pub(super) use content::index_cached_download;
 pub use content::{
     MANAGED_AUDIO_DIRECTORY, MAX_BLOB_BYTES, attach_download, blob_path, blob_path_for_track,
     cached_blob_path, catalog_track, hash_file, is_managed_directory, local_audio_path,
@@ -340,6 +341,7 @@ pub async fn remove_track(
         .exec(tx)
         .await?;
     media_files::Entity::delete_by_id(file_id).exec(tx).await?;
+    super::resolved_metadata::reconcile_recordings(tx).await?;
     remove_term(tx, CollectionQueryType::Track, file_id).await?;
     author_removal(tx, store, Collection::Tracks, track).await
 }

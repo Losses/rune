@@ -6,8 +6,8 @@ use crate::actions::{
     logging::{LogLevel, insert_log},
 };
 use crate::entities::{
-    albums, artists, media_analysis, media_file_albums, media_file_artists, media_files,
-    media_metadata, sync_download_jobs, sync_download_jobs::Column,
+    albums, artists, media_analysis, media_file_albums, media_files, media_metadata,
+    sync_download_jobs, sync_download_jobs::Column,
 };
 use crate::error::ExpectedError;
 use sea_orm::ExprTrait;
@@ -33,9 +33,11 @@ use ::fsio::{FsIo, FsNode, OpenMode};
 use ::metadata::{
     describe::{FileDescription, describe_file},
     reader::get_metadata,
+    resolve::read_local,
     scanner::AudioScanner,
 };
 
+use super::resolved_metadata;
 use super::utils::DatabaseExecutor;
 use blake3::Hasher;
 use sea_orm::Condition;
@@ -92,6 +94,9 @@ pub async fn get_existing_files_modified(
             .filter(media_files::Column::LocalAvailable.eq(true))
             .filter(media_files::Column::ContentHash.is_not_null())
             .filter(media_files::Column::ContentSize.is_not_null())
+            .filter(Expr::cust(
+                "EXISTS (SELECT 1 FROM music_metadata_audio WHERE file_id = media_files.id)",
+            ))
             .filter(conditions)
             .all(main_db)
             .await
@@ -179,6 +184,7 @@ pub async fn sync_file_descriptions(
     let mut work = descriptions.to_vec();
     let failed =
         sync_file_descriptions_inner(fsio, main_db, node_id, &mut work, force, None, store).await?;
+    resolved_metadata::reconcile_releases(main_db, store, None).await?;
     for (original, result) in descriptions.iter_mut().zip(work) {
         if result.is_some() {
             *original = result;
@@ -210,6 +216,14 @@ async fn sync_file_descriptions_inner(
             // Managed copies are verified by file actions and attached after download.
             // Unreferenced old versions must never become newly authored files.
             if Path::new(&description.directory).starts_with(MANAGED_AUDIO_DIRECTORY) {
+                if let Err(error) =
+                    super::file::index_cached_download(main_db, store, fsio, description).await
+                {
+                    warn!(
+                        "Cannot index cached download {}: {error:#}",
+                        description.file_name
+                    );
+                }
                 rejected.insert((description.directory.clone(), description.file_name.clone()));
                 continue;
             }
@@ -224,12 +238,17 @@ async fn sync_file_descriptions_inner(
                 rejected.insert((description.directory.clone(), description.file_name.clone()));
                 continue;
             }
-            let existing = media_files::Entity::find()
+            let mut existing = media_files::Entity::find()
                 .filter(media_files::Column::Directory.eq(&description.directory))
                 .filter(media_files::Column::FileName.eq(&description.file_name))
                 .one(main_db)
                 .await?;
+            let resolved = match &existing {
+                Some(file) => resolved_metadata::contains(main_db, file.id).await?,
+                None => false,
+            };
             if !force
+                && resolved
                 && existing.as_ref().is_some_and(|file| {
                     file.local_available
                         && file.content_hash.is_some()
@@ -254,17 +273,34 @@ async fn sync_file_descriptions_inner(
                 let size = io::copy(&mut stream, &mut hasher)?;
                 let size = i64::try_from(size).context("File size exceeds supported range")?;
                 let digest = hasher.finalize().to_hex().to_string();
-                let metadata = if !force && old_hash.as_ref() == Some(&digest) {
+                let metadata = if !force && resolved && old_hash.as_ref() == Some(&digest) {
                     None
                 } else {
-                    prepared.get_codec_information(&fs)?;
-                    Some(read_metadata(&fs, &prepared.raw_node)?)
+                    let root = prepared
+                        .lib_path
+                        .as_deref()
+                        .unwrap_or_else(|| Path::new(""));
+                    let (metadata, resolved) = read_local(&fs, &prepared.raw_node, root)?;
+                    prepared.set_codec_information(
+                        resolved
+                            .audio
+                            .sample_rate
+                            .context("Audio stream has no sample rate")?,
+                        resolved.audio.base.duration_ms.unwrap_or_default() as f64 / 1000.0,
+                    );
+                    Some((
+                        FileMetadata {
+                            path: prepared.raw_node.path.clone(),
+                            metadata,
+                        },
+                        resolved,
+                    ))
                 };
                 Ok((prepared, metadata, digest, size))
             })
             .await
             .context("Metadata worker failed")?;
-            let (prepared, metadata, digest, size) = match prepared {
+            let (prepared, mut metadata, digest, size) = match prepared {
                 Ok(value) => value,
                 Err(e) => {
                     error!("Failed to prepare {}: {e:#}", description.file_name);
@@ -288,16 +324,30 @@ async fn sync_file_descriptions_inner(
                 rejected.insert((description.directory.clone(), description.file_name.clone()));
                 continue;
             }
+            if let Some((_, resolved)) = &mut metadata {
+                resolved.discover_resources(fsio).await;
+            }
+            let mut moved_from = None;
+            let release_track = metadata.as_ref().and_then(|(_, resolved)| {
+                resolved_metadata::external_uuid(&resolved.audio.base, "musicbrainz:release-track")
+            });
+            if existing.is_none()
+                && let Some((moved, previous_album)) =
+                    find_moved_file(fsio, main_db, &prepared, &digest, size, release_track).await?
+            {
+                existing = Some(moved);
+                moved_from = previous_album;
+            }
             *description = prepared;
 
-            ready.push((description, existing, metadata, digest, size));
+            ready.push((description, existing, metadata, digest, size, moved_from));
         }
         if ready.is_empty() {
             continue;
         }
         let batch_txn = main_db.begin().await?;
         store.lock(&batch_txn).await?;
-        for (description, existing, metadata, digest, size) in ready {
+        for (description, existing, metadata, digest, size, moved_from) in ready {
             if sync_download_jobs::Entity::find()
                 .filter(Column::Directory.eq(&description.directory))
                 .filter(Column::FileName.eq(&description.file_name))
@@ -308,11 +358,20 @@ async fn sync_file_descriptions_inner(
                 rejected.insert((description.directory.clone(), description.file_name.clone()));
                 continue;
             }
-            let current = media_files::Entity::find()
+            let mut current = media_files::Entity::find()
                 .filter(media_files::Column::Directory.eq(&description.directory))
                 .filter(media_files::Column::FileName.eq(&description.file_name))
                 .one(&batch_txn)
                 .await?;
+            if current.is_none()
+                && let Some(old) = &existing
+                && (old.directory != description.directory
+                    || old.file_name != description.file_name)
+            {
+                current = media_files::Entity::find_by_id(old.id)
+                    .one(&batch_txn)
+                    .await?;
+            }
             if current != existing {
                 error!(
                     "File changed during metadata scan: {}",
@@ -331,14 +390,14 @@ async fn sync_file_descriptions_inner(
                         || file.content_size.is_some_and(|old_size| old_size != size)
                 });
                 match (&existing, &metadata) {
-                    (Some(file), Some(metadata)) => {
+                    (Some(file), Some((metadata, _))) => {
                         update_file_codec_information(fsio, &txn, file, description).await?;
                         update_file_metadata(fsio, &txn, node_id, file, description, metadata)
                             .await?;
                         unlink_cover_art(&txn, file).await?;
                     }
                     (Some(file), None) => update_last_modified(&txn, file, description).await?,
-                    (None, Some(metadata)) => {
+                    (None, Some((metadata, _))) => {
                         insert_new_file(fsio, &txn, metadata, description).await?
                     }
                     (None, None) => unreachable!("New files always have metadata"),
@@ -354,6 +413,13 @@ async fn sync_file_descriptions_inner(
 
                 let id = author_track(&txn, store, &description.directory, &description.file_name)
                     .await?;
+                if let Some((_, resolved)) = &metadata {
+                    let file = media_files::Entity::find_by_id(id)
+                        .one(&txn)
+                        .await?
+                        .context("scanned file disappeared")?;
+                    resolved_metadata::store(&txn, &file, resolved, moved_from.as_deref()).await?;
+                }
 
                 // Analysis describes the bytes it read, so a changed source
                 // invalidates it before the next analysis run.
@@ -405,6 +471,7 @@ async fn sync_file_descriptions_inner(
                 }
             }
         }
+        resolved_metadata::reconcile_recordings(&batch_txn).await?;
         batch_txn
             .commit()
             .await
@@ -419,6 +486,75 @@ async fn sync_file_descriptions_inner(
         }
     }
     Ok(failed)
+}
+
+async fn find_moved_file(
+    fsio: &FsIo,
+    db: &DatabaseConnection,
+    description: &FileDescription,
+    digest: &str,
+    size: i64,
+    release_track: Option<Uuid>,
+) -> Result<Option<(media_files::Model, Option<String>)>> {
+    use sea_orm::{DbBackend, FromQueryResult, QuerySelect, Statement};
+
+    let Some(root) = description.lib_path.as_deref() else {
+        return Ok(None);
+    };
+    let mut candidates = media_files::Entity::find()
+        .filter(media_files::Column::ContentHash.eq(digest))
+        .filter(media_files::Column::ContentSize.eq(size))
+        .filter(
+            Condition::any()
+                .add(media_files::Column::LocalAvailable.eq(true))
+                .add(
+                    Condition::all()
+                        .add(media_files::Column::Directory.eq(""))
+                        .add(media_files::Column::FileName.eq("")),
+                ),
+        )
+        .limit(2)
+        .all(db)
+        .await?;
+
+    // An exact edition-track identifier can follow the file through a tag rewrite.
+    if candidates.is_empty()
+        && let Some(id) = release_track
+    {
+        candidates = media_files::Model::find_by_statement(Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            "SELECT f.* FROM music_metadata_audio a JOIN media_files f ON f.id = a.file_id
+             WHERE a.release_track_mbid = ? AND f.local_available = 1 LIMIT 2",
+            [id.to_string().into()],
+        ))
+        .all(db)
+        .await?;
+    }
+    let [old] = candidates.as_slice() else {
+        return Ok(None);
+    };
+
+    // A unique exact match can attach a local copy to a synced track with no assigned path.
+    if !old.local_available && old.directory.is_empty() && old.file_name.is_empty() {
+        return Ok(Some((old.clone(), None)));
+    }
+    // A live original makes the new file a copy. Check the old location outside the transaction.
+    if is_managed_directory(&old.directory) || Path::new(&old.directory).is_absolute() {
+        return Ok(None);
+    }
+    let old_path = root.join(&old.directory).join(&old.file_name);
+    let album_dir = resolved_metadata::track_album_directory(db, old.id)
+        .await?
+        .filter(|path| Path::new(path).starts_with(root));
+    let fsio = fsio.clone();
+    let (absent, absent_album) = task::spawn_blocking(move || {
+        let absent = matches!(fsio.exists(&old_path), Ok(false));
+        let absent_album =
+            album_dir.filter(|path| absent && matches!(fsio.exists(Path::new(path)), Ok(false)));
+        (absent, absent_album)
+    })
+    .await?;
+    Ok(absent.then(|| (old.clone(), absent_album)))
 }
 
 async fn author_track(
@@ -509,6 +645,9 @@ async fn update_file_metadata(
     metadata: &FileMetadata,
 ) -> Result<()> {
     let mut active_model: media_files::ActiveModel = existing_file.clone().into();
+    active_model.directory = ActiveValue::Set(description.directory.clone());
+    active_model.file_name = ActiveValue::Set(description.file_name.clone());
+    active_model.extension = ActiveValue::Set(description.extension.clone());
 
     // Update last modified and file hash
     active_model.last_modified = ActiveValue::Set(description.last_modified.clone());
@@ -676,8 +815,28 @@ async fn replace_metadata_on(
     let owner = [file_id.into()];
     let previous = Tags::read_on(tx, &owner, Tags::read_ceiling()).await?;
     let mut used = HashSet::new();
-    let incoming = tags
+    let mut compatible: Vec<_> = tags
         .iter()
+        .filter(|(key, value)| key.len() <= 256 && value.len() <= 16384)
+        .collect();
+    if compatible.len() > 128 {
+        // The rich catalog keeps additional fields beyond the sync list budget.
+        compatible.sort_by_key(|(key, _)| {
+            !matches!(
+                key.as_str(),
+                "track_title"
+                    | "album"
+                    | "artist"
+                    | "album_artist"
+                    | "genre"
+                    | "track_number"
+                    | "disc_number"
+            )
+        });
+        compatible.truncate(128);
+    }
+    let incoming = compatible
+        .into_iter()
         .enumerate()
         .map(|(position, (key, value))| {
             let retained = previous
@@ -858,6 +1017,24 @@ pub async fn scan_audio_file(
     let ids = get_file_ids_by_descriptions(main_db, &descriptions).await?;
     let id = *ids.first().context("Audio file was not indexed")?;
     index_media_files(main_db, node_id, ids, None, store).await?;
+    if let Some(description) = descriptions.first().and_then(Option::as_ref) {
+        let root = description.lib_path.as_deref().unwrap_or(lib_path);
+        let directory = &description.directory;
+        let layouts = async {
+            let paths = fsio
+                .read_dir(&root.join(directory))
+                .await?
+                .into_iter()
+                .filter(::metadata::scanner::is_cue_file)
+                .map(|node| node.path)
+                .collect();
+            resolved_metadata::cue::reconcile_directory(fsio, main_db, store, directory, paths)
+                .await
+        };
+        if let Err(error) = layouts.await {
+            warn!("Cannot index CUE layouts in {directory:?}: {error:#}");
+        }
+    }
     Ok(id)
 }
 
@@ -921,6 +1098,7 @@ where
     let mut processed_files = 0;
     let mut total_files_scanned = 0;
     let mut skipped_files = 0;
+    let mut scanned_directories = HashSet::new();
 
     // Read audio files in larger batches for better performance
     const BATCH_SIZE: usize = 48;
@@ -951,7 +1129,10 @@ where
             })
             .await?;
             match description {
-                Ok(value) => descriptions.push(Some(value)),
+                Ok(value) => {
+                    scanned_directories.insert(value.directory.clone());
+                    descriptions.push(Some(value));
+                }
                 Err(error) => {
                     error!("Failed to describe audio file: {error:#}");
                     descriptions.push(None);
@@ -1055,6 +1236,21 @@ where
         }
     }
 
+    // Revisit sidecars even if only the CUE changed and every audio file was unchanged.
+    if walk_complete {
+        resolved_metadata::cue::reconcile_scan(
+            fsio,
+            main_db,
+            store,
+            lib_path,
+            &scanned_directories,
+            scanner.take_cue_files(),
+            cancel_token.as_ref(),
+        )
+        .await?;
+    }
+    // Reconcile even when a previous scan was interrupted after committing its files.
+    resolved_metadata::reconcile_releases(main_db, store, cancel_token.as_ref()).await?;
     info!("Audio library scan completed.");
 
     Ok(processed_files)
@@ -1130,6 +1326,7 @@ pub async fn get_metadata_summary_by_files<C: sea_orm::ConnectionTrait>(
             .or_default()
             .insert(entry.meta_key, entry.meta_value);
     }
+    let mut resolved_titles = resolved_metadata::overlays::summary_titles(db, &file_ids).await?;
 
     // Prepare the final result
     let mut results: Vec<MetadataSummary> = Vec::new();
@@ -1138,6 +1335,7 @@ pub async fn get_metadata_summary_by_files<C: sea_orm::ConnectionTrait>(
         let _metadata: HashMap<String, String> = HashMap::new();
         let metadata = metadata_map.get(&file_id).unwrap_or(&_metadata);
         let duration = file.duration;
+        let (title, album) = resolved_titles.remove(&file_id).unwrap_or_default();
 
         let cover_art_id = file
             .cover_art_uuid
@@ -1149,23 +1347,28 @@ pub async fn get_metadata_summary_by_files<C: sea_orm::ConnectionTrait>(
 
         let parsed_track_number = metadata.get("track_number").and_then(|s| extract_number(s));
 
-        let track_number =
-            parsed_track_number.map(|track| parsed_disk_number.unwrap_or(0) * 1000 + track);
+        let track_number = parsed_track_number.and_then(|track| {
+            parsed_disk_number
+                .unwrap_or(0)
+                .checked_mul(1000)?
+                .checked_add(track)
+        });
 
         let summary = MetadataSummary {
             id: file_id,
             directory: file.directory.clone(),
             file_name: file.file_name.clone(),
             artist: metadata.get("artist").cloned().unwrap_or_default(),
-            album: metadata.get("album").cloned().unwrap_or_default(),
+            album: album
+                .or_else(|| metadata.get("album").cloned())
+                .unwrap_or_default(),
             genre: metadata
                 .get("genre")
                 .cloned()
                 .unwrap_or_default()
                 .to_uppercase(),
-            title: metadata
-                .get("track_title")
-                .cloned()
+            title: title
+                .or_else(|| metadata.get("track_title").cloned())
                 .unwrap_or(file.file_name.clone()),
             track_number,
             duration: duration.to_f64().expect("Unable to convert track duration"),
@@ -1225,13 +1428,15 @@ pub async fn get_parsed_file_by_id(
 ) -> Result<(MetadataSummary, Vec<artists::Model>, Option<albums::Model>)> {
     let file = get_metadata_summary_by_file_id(db, file_id).await?;
 
-    let artist_ids = media_file_artists::Entity::find()
-        .filter(media_file_artists::Column::TrackUuid.eq(&file.file_uuid))
-        .all(db)
-        .await?;
-
-    let artists = artists::Entity::find()
-        .filter(artists::Column::SourceUuid.is_in(artist_ids.into_iter().map(|x| x.artist_uuid)))
+    // Credits preserve tag spellings while artist navigation follows confirmed identities.
+    use sea_orm::{DbBackend, FromQueryResult, Statement};
+    let artists = artists::Model::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Sqlite,
+        "SELECT DISTINCT a.* FROM media_file_artists link
+         JOIN music_metadata_artist_identities identities ON identities.source_uuid = link.artist_uuid
+         JOIN artists a ON a.id = identities.target_id WHERE link.track_uuid = ?",
+        [file.file_uuid.clone().into()],
+    ))
         .all(db)
         .await?;
 

@@ -1934,6 +1934,7 @@ dependencies = [
  "futures",
  "http-request",
  "hyper",
+ "jiff",
  "log",
  "metadata",
  "migration",

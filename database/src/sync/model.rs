@@ -696,6 +696,39 @@ sync_orm::row_policies! {
                         } Ok(())
                     },
                 }
+            },
+            MetadataEdits => {
+                tag: "metadata-edits",
+                entity: music_metadata_sync_edits::Entity,
+                value: MetadataEdit,
+                mapping: MetadataEditMap,
+                policy: {
+                    uuid: music_metadata_sync_edits::Column::SourceUuid,
+                    fields: {
+                        kind: String => music_metadata_sync_edits::Column::Kind,
+                        owner: Uuid => music_metadata_sync_edits::Column::OwnerUuid,
+                        edition: Option<Uuid> => music_metadata_sync_edits::Column::EditionUuid,
+                        target: Option<Uuid> => music_metadata_sync_edits::Column::TargetUuid,
+                        label: Option<String> => music_metadata_sync_edits::Column::Label,
+                        generation: i64 => music_metadata_sync_edits::Column::Generation
+                    },
+                    defaults: {},
+                    limits: { kind => (5, 6), label => (1, 16384), generation => (0, i64::MAX as i128) },
+                    identity: |value: &MetadataEdit| -> Result<Uuid, DbErr> {
+                        if value.kind == "anchor" {
+                            let track = value.edition.ok_or_else(|| DbErr::Custom("missing edition anchor".into()))?;
+                            Ok(metadata_anchor_id(value.owner, track))
+                        } else {
+                            Ok(metadata_edit_id(&value.kind, value.owner))
+                        }
+                    },
+                    validate: |_: Uuid, value: Option<&MetadataEdit>| -> Result<(), DbErr> {
+                        if let Some(value) = value {
+                            validate_metadata_edit(value)?;
+                        }
+                        Ok(())
+                    },
+                }
             }
         }
     }
@@ -706,6 +739,44 @@ pub async fn encode_source_on<C: sea_orm::ConnectionTrait>(
     key: &ObjectKey,
 ) -> anyhow::Result<Option<Payload>> {
     Ok(RuneModel::encode_on(db, key).await?)
+}
+
+pub fn metadata_edit_id(kind: &str, owner: Uuid) -> Uuid {
+    Uuid::new_v5(&owner, format!("rune:metadata-edit:{kind}").as_bytes())
+}
+
+pub fn metadata_anchor_id(edition: Uuid, track: Uuid) -> Uuid {
+    Uuid::new_v5(&metadata_edit_id("anchor", edition), track.as_bytes())
+}
+
+fn validate_metadata_edit(value: &MetadataEdit) -> Result<(), DbErr> {
+    let valid = !value.owner.is_nil()
+        && value.target.is_none_or(|id| !id.is_nil())
+        && match value.kind.as_str() {
+            "album" => {
+                value.edition.is_none()
+                    && value.generation > 0
+                    && value.label.is_some() == value.target.is_some()
+            }
+            "artist" => {
+                value.edition.is_none()
+                    && value.label.is_some()
+                    && value.generation == 0
+                    && value.target.is_some_and(|id| id != value.owner)
+            }
+            "anchor" => {
+                value.edition.is_some_and(|id| !id.is_nil())
+                    && value.target.is_none()
+                    && value.label.is_none()
+                    && value.generation == 0
+            }
+            _ => false,
+        };
+    if valid {
+        Ok(())
+    } else {
+        Err(DbErr::Custom("invalid catalog edit".into()))
+    }
 }
 pub async fn author_source_on(
     tx: &sea_orm::DatabaseTransaction,

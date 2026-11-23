@@ -38,9 +38,19 @@ pub fn validate_queries(queries: &[(String, String)]) -> Result<()> {
     for (operator, parameter) in queries {
         match QueryOperator::parse(operator, parameter).map_err(ExpectedError::from)? {
             QueryOperator::LibAll(value) | QueryOperator::LibQueue(value) => selects |= value,
-            QueryOperator::LibArtist(id)
-            | QueryOperator::LibAlbum(id)
-            | QueryOperator::LibGenre(id)
+            QueryOperator::LibRelease(_)
+            | QueryOperator::LibArtistId(_)
+            | QueryOperator::LibAlbumArtist(_)
+            | QueryOperator::LibLabel(_) => {
+                selects = true;
+            }
+            QueryOperator::LibArtist(id) | QueryOperator::LibAlbum(id) => {
+                selects = true;
+                if id == 0 {
+                    return Err(invalid("invalid offline query operator or parameter"));
+                }
+            }
+            QueryOperator::LibGenre(id)
             | QueryOperator::LibPlaylist(id)
             | QueryOperator::LibTrack(id)
             | QueryOperator::LibRandom(id) => {
